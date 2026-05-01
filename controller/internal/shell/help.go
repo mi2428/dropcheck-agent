@@ -1,4 +1,4 @@
-package main
+package shell
 
 import (
 	"fmt"
@@ -7,8 +7,12 @@ import (
 	"strings"
 )
 
-func printShellHelp() {
+func PrintHelp() {
 	writeShellHelp(os.Stdout)
+}
+
+func WriteHelp(w io.Writer) {
+	writeShellHelp(w)
 }
 
 func writeShellHelp(w io.Writer) {
@@ -48,6 +52,10 @@ pipes:
   | no-more`)
 }
 
+func IsHelpLine(line string) bool {
+	return isHelpLine(line)
+}
+
 func isHelpLine(line string) bool {
 	trimmed := strings.TrimSpace(line)
 	if isShellHelpToken(trimmed) {
@@ -64,20 +72,40 @@ func isHelpLine(line string) bool {
 	return hasShellHelpSuffix(args[len(args)-1])
 }
 
+func IsHelpToken(value string) bool {
+	return isShellHelpToken(value)
+}
+
 func isShellHelpToken(value string) bool {
 	return value == "?" || value == "？"
+}
+
+func IsHelpRune(value rune) bool {
+	return isShellHelpRune(value)
 }
 
 func isShellHelpRune(value rune) bool {
 	return value == '?' || value == '？'
 }
 
+func HasHelpSuffix(value string) bool {
+	return hasShellHelpSuffix(value)
+}
+
 func hasShellHelpSuffix(value string) bool {
 	return strings.HasSuffix(value, "?") || strings.HasSuffix(value, "？")
 }
 
+func PrintContextHelp(line string) {
+	printShellContextHelp(line)
+}
+
 func printShellContextHelp(line string) {
 	writeShellContextHelp(os.Stdout, line)
+}
+
+func WriteContextHelp(w io.Writer, line string) {
+	writeShellContextHelp(w, line)
 }
 
 func writeShellContextHelp(w io.Writer, line string) {
@@ -87,15 +115,19 @@ func writeShellContextHelp(w io.Writer, line string) {
 		return
 	}
 	for _, entry := range entries {
-		if entry.description == "" {
-			fmt.Fprintf(w, "  %-24s\n", entry.token)
+		if entry.Description == "" {
+			fmt.Fprintf(w, "  %-24s\n", entry.Token)
 			continue
 		}
-		fmt.Fprintf(w, "  %-24s %s\n", entry.token, entry.description)
+		fmt.Fprintf(w, "  %-24s %s\n", entry.Token, entry.Description)
 	}
 }
 
-func shellHelpEntries(line string) []helpEntry {
+func HelpEntries(line string) []HelpEntry {
+	return shellHelpEntries(line)
+}
+
+func shellHelpEntries(line string) []HelpEntry {
 	commandLine := trimShellHelpSuffix(line)
 	parts, err := splitPipeline(commandLine)
 	if err != nil || len(parts) == 0 {
@@ -152,60 +184,60 @@ func resolveContextKeyword(index int, previous []string, value string) (string, 
 	return value, nil
 }
 
-func helpEntriesForArgs(args []string) []helpEntry {
+func helpEntriesForArgs(args []string) []HelpEntry {
 	if len(args) == 0 {
 		return topHelpEntries()
 	}
 	switch args[0] {
 	case "show":
 		if len(args) == 1 {
-			return []helpEntry{{"devices", "Connected Android agents"}, {"target", "Current command target"}, {"wifi", "Wi-Fi state and diagnostics"}}
+			return []HelpEntry{{"devices", "Connected Android agents"}, {"target", "Current command target"}, {"wifi", "Wi-Fi state and diagnostics"}}
 		}
 		if len(args) == 2 && args[1] == "wifi" {
-			return []helpEntry{{"status", "Current Wi-Fi connection and IP state"}, {"diagnostics", "Wi-Fi status, capabilities, networks, and scan"}, {"scan", "Cached or fresh scan results"}, {"capabilities", "Device Wi-Fi capabilities"}}
+			return []HelpEntry{{"status", "Current Wi-Fi connection and IP state"}, {"diagnostics", "Wi-Fi status, capabilities, networks, and scan"}, {"scan", "Cached or fresh scan results"}, {"capabilities", "Device Wi-Fi capabilities"}}
 		}
 		if len(args) == 3 && args[1] == "wifi" && args[2] == "scan" {
-			return []helpEntry{{"fresh", "Trigger a fresh scan"}, {"detail", "Show detail for an SSID or BSSID"}, {"all", "All bands"}, {"2.4ghz", "2.4 GHz band"}, {"5ghz", "5 GHz band"}, {"6ghz", "6 GHz band"}, {"60ghz", "60 GHz band"}}
+			return []HelpEntry{{"fresh", "Trigger a fresh scan"}, {"detail", "Show detail for an SSID or BSSID"}, {"all", "All bands"}, {"2.4ghz", "2.4 GHz band"}, {"5ghz", "5 GHz band"}, {"6ghz", "6 GHz band"}, {"60ghz", "60 GHz band"}}
 		}
 	case "set":
 		if len(args) == 1 {
-			return []helpEntry{{"target", "Select an agent or all agents"}}
+			return []HelpEntry{{"target", "Select an agent or all agents"}}
 		}
 		if len(args) == 2 && args[1] == "target" {
-			return []helpEntry{{"all", "Send commands to all connected agents"}, {"<agent>", "Agent number, id, or adb serial"}}
+			return []HelpEntry{{"all", "Send commands to all connected agents"}, {"<agent>", "Agent number, id, or adb serial"}}
 		}
 	case "clear":
 		if len(args) == 1 {
-			return []helpEntry{{"target", "Clear all-target mode and return to the first agent"}}
+			return []HelpEntry{{"target", "Clear all-target mode and return to the first agent"}}
 		}
 	case "request":
 		if len(args) == 1 {
-			return []helpEntry{{"wifi", "Run a Wi-Fi operation"}}
+			return []HelpEntry{{"wifi", "Run a Wi-Fi operation"}}
 		}
 		if len(args) == 2 && args[1] == "wifi" {
-			return []helpEntry{{"connect", "Connect to an SSID"}, {"disconnect", "Disconnect Wi-Fi"}, {"forget", "Forget an SSID or network id"}, {"reconnect", "Reconnect Wi-Fi"}, {"wait", "Wait for Wi-Fi state"}, {"assert", "Assert Wi-Fi state"}, {"cycle", "Repeat connect checks"}}
+			return []HelpEntry{{"connect", "Connect to an SSID"}, {"disconnect", "Disconnect Wi-Fi"}, {"forget", "Forget an SSID or network id"}, {"reconnect", "Reconnect Wi-Fi"}, {"wait", "Wait for Wi-Fi state"}, {"assert", "Assert Wi-Fi state"}, {"cycle", "Repeat connect checks"}}
 		}
 		if len(args) >= 3 && args[1] == "wifi" {
 			return requestWifiHelp(args[2])
 		}
 	case "monitor":
 		if len(args) == 1 {
-			return []helpEntry{{"wifi", "Stream Wi-Fi state changes for a bounded duration"}}
+			return []HelpEntry{{"wifi", "Stream Wi-Fi state changes for a bounded duration"}}
 		}
 		if len(args) == 2 && args[1] == "wifi" {
-			return []helpEntry{{"duration", "Duration in milliseconds"}, {"interval", "Sample interval in milliseconds"}}
+			return []HelpEntry{{"duration", "Duration in milliseconds"}, {"interval", "Sample interval in milliseconds"}}
 		}
 	case "ping":
-		return []helpEntry{{"count", "Packet count"}, {"size", "Payload size in bytes"}, {"timeout", "Timeout in milliseconds"}, {"<host>", "Host or IP address to ping"}}
+		return []HelpEntry{{"count", "Packet count"}, {"size", "Payload size in bytes"}, {"timeout", "Timeout in milliseconds"}, {"<host>", "Host or IP address to ping"}}
 	case "traceroute":
-		return []helpEntry{{"max-hops", "Maximum hops"}, {"via", "Required hop for analysis"}, {"size", "Packet size in bytes"}, {"timeout", "Timeout in milliseconds"}, {"<host>", "Destination host or IP address"}}
+		return []HelpEntry{{"max-hops", "Maximum hops"}, {"via", "Required hop for analysis"}, {"size", "Packet size in bytes"}, {"timeout", "Timeout in milliseconds"}, {"<host>", "Destination host or IP address"}}
 	case "path-mtu":
-		return []helpEntry{{"min-mtu", "Minimum MTU in bytes"}, {"max-mtu", "Maximum MTU in bytes"}, {"timeout", "Timeout in milliseconds"}, {"<host>", "Destination host or IP address"}}
+		return []HelpEntry{{"min-mtu", "Minimum MTU in bytes"}, {"max-mtu", "Maximum MTU in bytes"}, {"timeout", "Timeout in milliseconds"}, {"<host>", "Destination host or IP address"}}
 	case "global-ip":
 		return globalIPHelp(args[1:])
 	case "test":
 		if len(args) == 1 {
-			return []helpEntry{{"dns", "Resolve a DNS name"}, {"http", "Check an HTTP status"}, {"download", "Download a URL"}}
+			return []HelpEntry{{"dns", "Resolve a DNS name"}, {"http", "Check an HTTP status"}, {"download", "Download a URL"}}
 		}
 		switch args[1] {
 		case "dns":
@@ -213,13 +245,13 @@ func helpEntriesForArgs(args []string) []helpEntry {
 		case "http":
 			return testHTTPHelp(args[2:])
 		case "download":
-			return []helpEntry{{"timeout", "Timeout in milliseconds"}, {"<url>", "URL to download"}}
+			return []HelpEntry{{"timeout", "Timeout in milliseconds"}, {"<url>", "URL to download"}}
 		}
 	}
 	return nil
 }
 
-func terminalHelpEntries(line string) []helpEntry {
+func terminalHelpEntries(line string) []HelpEntry {
 	command, err := parseShellLine(line)
 	if err != nil {
 		return nil
@@ -227,7 +259,7 @@ func terminalHelpEntries(line string) []helpEntry {
 	return terminalHelpEntriesForCommand(command)
 }
 
-func terminalHelpEntriesForArgs(args []string) []helpEntry {
+func terminalHelpEntriesForArgs(args []string) []HelpEntry {
 	command, err := parseShellArgs(args)
 	if err != nil {
 		return nil
@@ -235,15 +267,15 @@ func terminalHelpEntriesForArgs(args []string) []helpEntry {
 	return terminalHelpEntriesForCommand(command)
 }
 
-func terminalHelpEntriesForCommand(command shellCommand) []helpEntry {
-	entries := []helpEntry{{"<cr>", "Execute command; no further command keywords"}}
+func terminalHelpEntriesForCommand(command Command) []HelpEntry {
+	entries := []HelpEntry{{"<cr>", "Execute command; no further command keywords"}}
 	if commandSupportsPipeHelp(command) {
 		entries = append(entries, pipeHelpEntries()...)
 	}
 	return entries
 }
 
-func testHTTPHelp(args []string) []helpEntry {
+func testHTTPHelp(args []string) []HelpEntry {
 	hasURL := false
 	used := map[string]bool{}
 	for i := 0; i < len(args); i++ {
@@ -259,15 +291,15 @@ func testHTTPHelp(args []string) []helpEntry {
 			hasURL = true
 		}
 	}
-	var entries []helpEntry
+	var entries []HelpEntry
 	if !used["expected-status"] {
-		entries = append(entries, helpEntry{"expected-status", "Expected HTTP status"})
+		entries = append(entries, HelpEntry{"expected-status", "Expected HTTP status"})
 	}
 	if !used["timeout"] {
-		entries = append(entries, helpEntry{"timeout", "Timeout in milliseconds"})
+		entries = append(entries, HelpEntry{"timeout", "Timeout in milliseconds"})
 	}
 	if !hasURL {
-		entries = append(entries, helpEntry{"<url>", "HTTP or HTTPS URL; https:// is assumed when omitted"})
+		entries = append(entries, HelpEntry{"<url>", "HTTP or HTTPS URL; https:// is assumed when omitted"})
 	}
 	if hasURL {
 		terminal := terminalHelpEntriesForArgs(append([]string{"test", "http"}, args...))
@@ -276,7 +308,7 @@ func testHTTPHelp(args []string) []helpEntry {
 	return entries
 }
 
-func testDNSHelp(args []string) []helpEntry {
+func testDNSHelp(args []string) []HelpEntry {
 	hasName := false
 	used := map[string]bool{}
 	for i := 0; i < len(args); i++ {
@@ -298,15 +330,15 @@ func testDNSHelp(args []string) []helpEntry {
 			hasName = true
 		}
 	}
-	var entries []helpEntry
+	var entries []HelpEntry
 	if !used["type"] {
-		entries = append(entries, helpEntry{"type", "A, AAAA, or ALL"})
+		entries = append(entries, HelpEntry{"type", "A, AAAA, or ALL"})
 	}
 	if !used["timeout"] {
-		entries = append(entries, helpEntry{"timeout", "Timeout in milliseconds"})
+		entries = append(entries, HelpEntry{"timeout", "Timeout in milliseconds"})
 	}
 	if !hasName {
-		entries = append(entries, helpEntry{"<name>", "DNS name to resolve"})
+		entries = append(entries, HelpEntry{"<name>", "DNS name to resolve"})
 	}
 	if hasName {
 		terminal := terminalHelpEntriesForArgs(append([]string{"test", "dns"}, args...))
@@ -315,7 +347,7 @@ func testDNSHelp(args []string) []helpEntry {
 	return entries
 }
 
-func globalIPHelp(args []string) []helpEntry {
+func globalIPHelp(args []string) []HelpEntry {
 	hasFamily := false
 	usedTimeout := false
 	for i := 0; i < len(args); i++ {
@@ -332,15 +364,15 @@ func globalIPHelp(args []string) []helpEntry {
 			hasFamily = true
 		}
 	}
-	var entries []helpEntry
+	var entries []HelpEntry
 	if !usedTimeout {
-		entries = append(entries, helpEntry{"timeout", "Per-family timeout in milliseconds"})
+		entries = append(entries, HelpEntry{"timeout", "Per-family timeout in milliseconds"})
 	}
 	if !hasFamily {
 		entries = append(entries,
-			helpEntry{"ipv4", "Check global IPv4 through ifconfig.me"},
-			helpEntry{"ipv6", "Check global IPv6 through ifconfig.me"},
-			helpEntry{"all", "Check both address families"},
+			HelpEntry{"ipv4", "Check global IPv4 through ifconfig.me"},
+			HelpEntry{"ipv6", "Check global IPv6 through ifconfig.me"},
+			HelpEntry{"all", "Check both address families"},
 		)
 	}
 	terminal := terminalHelpEntriesForArgs(append([]string{"global-ip"}, args...))
@@ -348,8 +380,8 @@ func globalIPHelp(args []string) []helpEntry {
 	return entries
 }
 
-func commandSupportsPipeHelp(command shellCommand) bool {
-	switch command.kind {
+func commandSupportsPipeHelp(command Command) bool {
+	switch command.Kind {
 	case shellShowDevices, shellShowTarget, shellClearTarget, shellAgentCommand:
 		return true
 	default:
@@ -357,8 +389,8 @@ func commandSupportsPipeHelp(command shellCommand) bool {
 	}
 }
 
-func pipeHelpEntries() []helpEntry {
-	return []helpEntry{
+func pipeHelpEntries() []HelpEntry {
+	return []HelpEntry{
 		{"| display json", "Render JSON output"},
 		{"| match <regex>", "Include matching lines"},
 		{"| except <regex>", "Exclude matching lines"},
@@ -367,29 +399,29 @@ func pipeHelpEntries() []helpEntry {
 	}
 }
 
-func requestWifiHelp(command string) []helpEntry {
+func requestWifiHelp(command string) []HelpEntry {
 	switch command {
 	case "connect":
-		return []helpEntry{{"passphrase", "WPA/WPA3 passphrase"}, {"security", "wpa2, wpa3, or transition"}, {"bssid", "Target BSSID"}, {"band", "all, 2.4ghz, 5ghz, 6ghz, or 60ghz"}, {"mac-randomization", "auto, none, persistent, or non-persistent"}, {"timeout", "Timeout in milliseconds"}, {"<ssid>", "SSID to connect"}}
+		return []HelpEntry{{"passphrase", "WPA/WPA3 passphrase"}, {"security", "wpa2, wpa3, or transition"}, {"bssid", "Target BSSID"}, {"band", "all, 2.4ghz, 5ghz, 6ghz, or 60ghz"}, {"mac-randomization", "auto, none, persistent, or non-persistent"}, {"timeout", "Timeout in milliseconds"}, {"<ssid>", "SSID to connect"}}
 	case "disconnect":
 		return nil
 	case "forget":
-		return []helpEntry{{"<ssid|network_id>", "Network to forget"}}
+		return []HelpEntry{{"<ssid|network_id>", "Network to forget"}}
 	case "reconnect":
-		return []helpEntry{{"timeout", "Timeout in milliseconds"}}
+		return []HelpEntry{{"timeout", "Timeout in milliseconds"}}
 	case "wait":
-		return []helpEntry{{"connected", "Wait until connected"}}
+		return []HelpEntry{{"connected", "Wait until connected"}}
 	case "assert":
-		return []helpEntry{{"ssid", "Expected SSID"}, {"bssid", "Expected BSSID"}, {"security", "Expected security"}, {"band", "Expected band"}, {"ip", "Require IP address"}, {"validated", "Require validated internet"}, {"timeout", "Timeout in milliseconds"}}
+		return []HelpEntry{{"ssid", "Expected SSID"}, {"bssid", "Expected BSSID"}, {"security", "Expected security"}, {"band", "Expected band"}, {"ip", "Require IP address"}, {"validated", "Require validated internet"}, {"timeout", "Timeout in milliseconds"}}
 	case "cycle":
-		return []helpEntry{{"passphrase", "WPA/WPA3 passphrase"}, {"security", "wpa2, wpa3, or transition"}, {"count", "Cycle count"}, {"bssid", "Target BSSID"}, {"band", "Target band"}, {"mac-randomization", "MAC randomization mode"}, {"ping", "Ping host after connect"}, {"http", "HTTP URL after connect"}, {"forget", "Forget after each cycle"}, {"pause", "Pause between cycles in milliseconds"}, {"timeout", "Per-connect timeout in milliseconds"}, {"<ssid>", "SSID to connect"}}
+		return []HelpEntry{{"passphrase", "WPA/WPA3 passphrase"}, {"security", "wpa2, wpa3, or transition"}, {"count", "Cycle count"}, {"bssid", "Target BSSID"}, {"band", "Target band"}, {"mac-randomization", "MAC randomization mode"}, {"ping", "Ping host after connect"}, {"http", "HTTP URL after connect"}, {"forget", "Forget after each cycle"}, {"pause", "Pause between cycles in milliseconds"}, {"timeout", "Per-connect timeout in milliseconds"}, {"<ssid>", "SSID to connect"}}
 	default:
 		return nil
 	}
 }
 
-func topHelpEntries() []helpEntry {
-	return []helpEntry{
+func topHelpEntries() []HelpEntry {
+	return []HelpEntry{
 		{"show", "Display device, target, and Wi-Fi state"},
 		{"set", "Set shell target"},
 		{"clear", "Clear shell target state"},
@@ -405,8 +437,11 @@ func topHelpEntries() []helpEntry {
 	}
 }
 
-func completeShellLine(line string, state *shellState) []string {
-	_ = state
+func CompleteLine(line string) []string {
+	return completeShellLine(line)
+}
+
+func completeShellLine(line string) []string {
 	parts, err := splitPipeline(line)
 	if err != nil || len(parts) == 0 {
 		return nil
@@ -440,12 +475,15 @@ func completeShellLine(line string, state *shellState) []string {
 	return out
 }
 
-func shellCompletionHintLine(line string, state *shellState) string {
-	_ = state
+func CompletionHintLine(line string) string {
+	return shellCompletionHintLine(line)
+}
+
+func shellCompletionHintLine(line string) string {
 	lineRunes := []rune(line)
 	var hints []string
 	realCandidates := 0
-	for _, candidate := range completeShellLine(line, state) {
+	for _, candidate := range completeShellLine(line) {
 		candidateRunes := []rune(candidate)
 		if !hasRunePrefix(candidateRunes, lineRunes) {
 			continue
@@ -461,6 +499,18 @@ func shellCompletionHintLine(line string, state *shellState) string {
 		return ""
 	}
 	return strings.Join(hints, "  ")
+}
+
+func hasRunePrefix(value []rune, prefix []rune) bool {
+	if len(value) < len(prefix) {
+		return false
+	}
+	for i := range prefix {
+		if value[i] != prefix[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func completePipeSegment(line string, segment string) []string {
@@ -554,6 +604,10 @@ func isPlaceholderCandidate(candidate string) bool {
 	return strings.HasPrefix(candidate, "<") && strings.HasSuffix(candidate, ">")
 }
 
+func IsPlaceholderCandidate(candidate string) bool {
+	return isPlaceholderCandidate(candidate)
+}
+
 func isTerminalTopCompletion(baseArgs []string, candidate string) bool {
 	if len(baseArgs) != 0 {
 		return false
@@ -580,11 +634,11 @@ type completionArgs struct {
 	pending     *completionOption
 }
 
-func scanCompletionArgs(kind string, args []string, options []completionOption) completionArgs {
+func scanCompletionArgs(Kind string, args []string, options []completionOption) completionArgs {
 	state := completionArgs{used: map[string]bool{}}
 	names := completionOptionNames(options)
 	for i := 0; i < len(args); i++ {
-		key, err := resolveShellKeyword(kind, args[i], names)
+		key, err := resolveShellKeyword(Kind, args[i], names)
 		if err != nil {
 			state.positionals = append(state.positionals, args[i])
 			continue
@@ -793,8 +847,8 @@ func testValueCompletionCandidates(command string, last string) ([]string, bool)
 	}
 }
 
-func isResolvedKeyword(kind string, value string, candidates []string) bool {
-	_, err := resolveShellKeyword(kind, value, candidates)
+func isResolvedKeyword(Kind string, value string, candidates []string) bool {
+	_, err := resolveShellKeyword(Kind, value, candidates)
 	return err == nil
 }
 

@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"bytes"
@@ -133,8 +133,8 @@ func TestParseShellCommands(t *testing.T) {
 			if got.kind != tt.kind {
 				t.Fatalf("kind = %v, want %v", got.kind, tt.kind)
 			}
-			if !slices.Equal(got.operation.LegacyCommandArgs(), tt.args) {
-				t.Fatalf("operation legacy args = %#v, want %#v", got.operation.LegacyCommandArgs(), tt.args)
+			if tt.args != nil {
+				assertOperationMatchesArgs(t, got.operation, tt.args)
 			}
 		})
 	}
@@ -671,9 +671,7 @@ func TestParseLinuxCommands(t *testing.T) {
 			if got.kind != cliAgentCommand {
 				t.Fatalf("kind = %v, want cliAgentCommand", got.kind)
 			}
-			if !slices.Equal(got.operation.LegacyCommandArgs(), tt.want) {
-				t.Fatalf("operation legacy args = %#v, want %#v", got.operation.LegacyCommandArgs(), tt.want)
-			}
+			assertOperationMatchesArgs(t, got.operation, tt.want)
 		})
 	}
 }

@@ -1,4 +1,4 @@
-package main
+package render
 
 import (
 	"fmt"
@@ -37,6 +37,10 @@ func agentDisplayName(info control.AgentInfo) string {
 	return shortID(info.SessionID)
 }
 
+func AgentDisplayName(info control.AgentInfo) string {
+	return agentDisplayName(info)
+}
+
 func shortID(value string) string {
 	if len(value) <= 12 {
 		return value
@@ -44,9 +48,17 @@ func shortID(value string) string {
 	return value[:12]
 }
 
+func ShortID(value string) string {
+	return shortID(value)
+}
+
 func empty(value, fallback string) string {
 	if value == "" {
 		return fallback
 	}
 	return value
+}
+
+func Empty(value, fallback string) string {
+	return empty(value, fallback)
 }

@@ -1,10 +1,12 @@
-package main
+package render
 
 import (
 	"strings"
 	"testing"
 
+	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/controlpb"
+	"dropcheck/controller/internal/pipeline"
 )
 
 func TestRenderCommandResultShowsPayloadLatency(t *testing.T) {
@@ -23,7 +25,7 @@ func TestRenderCommandResultShowsPayloadLatency(t *testing.T) {
 		},
 	}
 
-	out, err := renderCommandResult("agent", result, commandOptions{}, outputText)
+	out, err := CommandResult("agent", result, command.Options{}, pipeline.FormatText)
 	if err != nil {
 		t.Fatalf("renderCommandResult() error = %v", err)
 	}
@@ -41,7 +43,7 @@ func TestRenderCommandResultShowsCommandLatencyFallback(t *testing.T) {
 		},
 	}
 
-	out, err := renderCommandResult("agent", result, commandOptions{}, outputText)
+	out, err := CommandResult("agent", result, command.Options{}, pipeline.FormatText)
 	if err != nil {
 		t.Fatalf("renderCommandResult() error = %v", err)
 	}

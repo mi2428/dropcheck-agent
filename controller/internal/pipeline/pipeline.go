@@ -1,31 +1,33 @@
-package main
+package pipeline
 
 import (
 	"fmt"
 	"regexp"
 	"slices"
 	"strings"
+
+	"dropcheck/controller/internal/command"
 )
 
-type outputFormat string
+type Format string
 
 const (
-	outputText outputFormat = "text"
-	outputJSON outputFormat = "json"
+	FormatText Format = "text"
+	FormatJSON Format = "json"
 )
 
-type pipePipeline struct {
+type Pipeline struct {
 	displayJSON bool
-	stages      []pipeStage
+	stages      []stage
 }
 
-type pipeStage struct {
+type stage struct {
 	op      string
 	pattern string
 	re      *regexp.Regexp
 }
 
-func splitPipeline(line string) ([]string, error) {
+func Split(line string) ([]string, error) {
 	var parts []string
 	var b strings.Builder
 	var quote rune
@@ -77,56 +79,56 @@ func splitPipeline(line string) ([]string, error) {
 	return parts, nil
 }
 
-func parsePipePipeline(parts []string) (pipePipeline, error) {
-	var pipeline pipePipeline
+func Parse(parts []string) (Pipeline, error) {
+	var pipeline Pipeline
 	for _, part := range parts {
-		args, err := splitArgs(part)
+		args, err := command.SplitArgs(part)
 		if err != nil {
-			return pipePipeline{}, err
+			return Pipeline{}, err
 		}
 		if len(args) == 0 {
-			return pipePipeline{}, fmt.Errorf("empty pipeline stage")
+			return Pipeline{}, fmt.Errorf("empty pipeline stage")
 		}
 		switch args[0] {
 		case "display":
 			if len(args) != 2 || args[1] != "json" {
-				return pipePipeline{}, fmt.Errorf("usage: | display json")
+				return Pipeline{}, fmt.Errorf("usage: | display json")
 			}
 			pipeline.displayJSON = true
 		case "match", "except":
 			if len(args) < 2 {
-				return pipePipeline{}, fmt.Errorf("usage: | %s <regex>", args[0])
+				return Pipeline{}, fmt.Errorf("usage: | %s <regex>", args[0])
 			}
 			pattern := strings.Join(args[1:], " ")
 			re, err := regexp.Compile(pattern)
 			if err != nil {
-				return pipePipeline{}, fmt.Errorf("%s regex: %w", args[0], err)
+				return Pipeline{}, fmt.Errorf("%s regex: %w", args[0], err)
 			}
-			pipeline.stages = append(pipeline.stages, pipeStage{op: args[0], pattern: pattern, re: re})
+			pipeline.stages = append(pipeline.stages, stage{op: args[0], pattern: pattern, re: re})
 		case "count":
 			if len(args) != 1 {
-				return pipePipeline{}, fmt.Errorf("usage: | count")
+				return Pipeline{}, fmt.Errorf("usage: | count")
 			}
-			pipeline.stages = append(pipeline.stages, pipeStage{op: "count"})
+			pipeline.stages = append(pipeline.stages, stage{op: "count"})
 		case "no-more":
 			if len(args) != 1 {
-				return pipePipeline{}, fmt.Errorf("usage: | no-more")
+				return Pipeline{}, fmt.Errorf("usage: | no-more")
 			}
 		default:
-			return pipePipeline{}, fmt.Errorf("unknown pipe %q", args[0])
+			return Pipeline{}, fmt.Errorf("unknown pipe %q", args[0])
 		}
 	}
 	return pipeline, nil
 }
 
-func (p pipePipeline) format(defaultFormat outputFormat) outputFormat {
+func (p Pipeline) Format(defaultFormat Format) Format {
 	if p.displayJSON {
-		return outputJSON
+		return FormatJSON
 	}
 	return defaultFormat
 }
 
-func (p pipePipeline) apply(text string) (string, error) {
+func (p Pipeline) Apply(text string) (string, error) {
 	out := text
 	for _, stage := range p.stages {
 		switch stage.op {
@@ -141,6 +143,14 @@ func (p pipePipeline) apply(text string) (string, error) {
 		}
 	}
 	return out, nil
+}
+
+func (p Pipeline) DisplayJSON() bool {
+	return p.displayJSON
+}
+
+func (p Pipeline) StageCount() int {
+	return len(p.stages)
 }
 
 func filterLines(text string, keep func(string) bool) string {
