@@ -13,6 +13,8 @@ import io.dropcheck.agent.grpc.GetWifiScanDetail
 import io.dropcheck.agent.grpc.HttpCheck
 import io.dropcheck.agent.grpc.HttpCheckResult
 import io.dropcheck.agent.grpc.NetworkSelector
+import io.dropcheck.agent.grpc.PathMtu
+import io.dropcheck.agent.grpc.PathMtuResult
 import io.dropcheck.agent.grpc.Ping
 import io.dropcheck.agent.grpc.PingResult
 import io.dropcheck.agent.grpc.ResolveDns
@@ -112,6 +114,7 @@ internal fun RunCommand.logFields(): List<Pair<String, Any?>> {
             RunCommand.CommandCase.GET_IP_STATUS -> addAll(getIpStatus.selector.logFields())
             RunCommand.CommandCase.PING -> addAll(ping.logFields())
             RunCommand.CommandCase.TRACEROUTE -> addAll(traceroute.logFields())
+            RunCommand.CommandCase.PATH_MTU -> addAll(pathMtu.logFields())
             RunCommand.CommandCase.WGET -> addAll(wget.logFields())
             RunCommand.CommandCase.RESOLVE_DNS -> addAll(resolveDns.logFields())
             RunCommand.CommandCase.HTTP_CHECK -> addAll(httpCheck.logFields())
@@ -232,6 +235,7 @@ internal fun CommandResult.logFields(): List<Pair<String, Any?>> {
                 add("errors" to wifiCycle.errorsList)
             }
             CommandResult.PayloadCase.TRACEROUTE -> addAll(traceroute.logFields())
+            CommandResult.PayloadCase.PATH_MTU -> addAll(pathMtu.logFields())
             CommandResult.PayloadCase.WGET -> addAll(wget.logFields())
             CommandResult.PayloadCase.PAYLOAD_NOT_SET -> Unit
         }
@@ -264,6 +268,14 @@ internal fun Traceroute.logFields(): List<Pair<String, Any?>> = buildList {
     add("max_hops" to maxHops)
     add("timeout_ms" to timeoutMs)
     add("size_bytes" to sizeBytes)
+    addAll(selector.logFields())
+}
+
+internal fun PathMtu.logFields(): List<Pair<String, Any?>> = buildList {
+    add("host" to host)
+    add("timeout_ms" to timeoutMs)
+    add("min_mtu_bytes" to minMtuBytes)
+    add("max_mtu_bytes" to maxMtuBytes)
     addAll(selector.logFields())
 }
 
@@ -317,6 +329,20 @@ internal fun TracerouteResult.logFields(): List<Pair<String, Any?>> = buildList 
     add("error" to error)
     add("output_bytes" to output.length)
     add("output_preview" to StructuredLog.preview(output))
+}
+
+internal fun PathMtuResult.logFields(): List<Pair<String, Any?>> = buildList {
+    add("host" to host)
+    add("discovered" to discovered)
+    add("path_mtu_bytes" to pathMtuBytes)
+    add("payload_size_bytes" to payloadSizeBytes)
+    add("min_mtu_bytes" to minMtuBytes)
+    add("max_mtu_bytes" to maxMtuBytes)
+    add("ip_overhead_bytes" to ipOverheadBytes)
+    add("elapsed_ms" to elapsedMs)
+    add("iface" to interfaceName)
+    add("probes_count" to probesCount)
+    add("error" to error)
 }
 
 internal fun WgetResult.logFields(): List<Pair<String, Any?>> = buildList {

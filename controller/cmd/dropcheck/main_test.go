@@ -353,6 +353,15 @@ func TestBuildCommandUniquePrefixes(t *testing.T) {
 			},
 		},
 		{
+			name: "path mtu",
+			args: []string{"path", "example.test"},
+			assert: func(t *testing.T, cmd *controlpb.RunCommand) {
+				if pathMtu := cmd.GetPathMtu(); pathMtu == nil || pathMtu.GetHost() != "example.test" {
+					t.Fatalf("path-mtu = %#v", pathMtu)
+				}
+			},
+		},
+		{
 			name: "download",
 			args: []string{"do", "https://example.test/file"},
 			assert: func(t *testing.T, cmd *controlpb.RunCommand) {
@@ -424,6 +433,17 @@ func TestBuildCommandNetworkChecks(t *testing.T) {
 					t.Fatalf("traceroute = %#v", trace)
 				}
 				assertEmptySelector(t, trace.GetSelector())
+			},
+		},
+		{
+			name: "path mtu",
+			args: []string{"path-mtu", "example.test", "--min-mtu", "1200", "--max-mtu", "1500", "--timeout", "30000"},
+			assert: func(t *testing.T, cmd *controlpb.RunCommand) {
+				pathMtu := cmd.GetPathMtu()
+				if pathMtu == nil || pathMtu.GetHost() != "example.test" || pathMtu.GetMinMtuBytes() != 1200 || pathMtu.GetMaxMtuBytes() != 1500 || pathMtu.GetTimeoutMs() != 30000 {
+					t.Fatalf("path-mtu = %#v", pathMtu)
+				}
+				assertEmptySelector(t, pathMtu.GetSelector())
 			},
 		},
 		{
@@ -511,6 +531,9 @@ func TestBuildCommandRejectsInvalidInput(t *testing.T) {
 		{"traceroute", "host", "--via"},
 		{"traceroute", "host", "--require-hop", "gw"},
 		{"traceroute", "host", "-s", "64"},
+		{"path-mtu"},
+		{"path-mtu", "host", "--size", "1500"},
+		{"path-mtu", "host", "--min-mtu"},
 		{"http", "https://example.test", "--expected", "204"},
 		{"http", "https://example.test", "0"},
 		{"wget", "https://example.test"},
@@ -534,6 +557,9 @@ func TestTimeoutFor(t *testing.T) {
 	}
 	if got := timeoutFor(mustBuild(t, "ping", "example.test", "2")); got != 10*time.Second {
 		t.Fatalf("ping timeout = %v", got)
+	}
+	if got := timeoutFor(mustBuild(t, "path-mtu", "example.test", "--timeout", "7000")); got != 10*time.Second {
+		t.Fatalf("path-mtu timeout = %v", got)
 	}
 	if got := timeoutFor(mustBuild(t, "wifi", "cycle", "Lab", "pass", "--count", "2", "--timeout", "1000", "--pause", "250")); got != 32500*time.Millisecond {
 		t.Fatalf("cycle timeout = %v", got)

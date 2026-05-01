@@ -6,6 +6,9 @@ import io.dropcheck.agent.grpc.DnsRecordType
 import io.dropcheck.agent.grpc.HttpCheck
 import io.dropcheck.agent.grpc.HttpCheckResult
 import io.dropcheck.agent.grpc.NetworkSelector
+import io.dropcheck.agent.grpc.PathMtu
+import io.dropcheck.agent.grpc.PathMtuProbe
+import io.dropcheck.agent.grpc.PathMtuResult
 import io.dropcheck.agent.grpc.Ping
 import io.dropcheck.agent.grpc.PingResult
 import io.dropcheck.agent.grpc.ResolveDns
@@ -232,6 +235,114 @@ class NetworkCheckExecutor(
             .setStatus(if (ok) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
             .setMessage(if (ok) "traceroute passed" else "traceroute failed")
             .setTraceroute(result)
+            .build()
+    }
+
+    /**
+     * Discovers path MTU by probing ping payloads with DF/no-fragmentation set.
+     *
+     * The search bounds are full IP MTU values. Each probe converts that MTU
+     * to ICMP payload bytes before invoking ping, then binary-searches the
+     * largest MTU that exits successfully within the command timeout.
+     */
+    fun pathMtu(command: PathMtu): CommandResult {
+        val timeoutMs = NetworkCheckPolicy.effectiveTimeoutMs(
+            command.timeoutMs,
+            NetworkCheckPolicy.DEFAULT_PATH_MTU_TIMEOUT_MS,
+        )
+        val ipv6 = command.host.contains(":")
+        val overheadBytes = NetworkCheckPolicy.pathMtuOverheadBytes(command.host)
+        logger.debug("path mtu parameters host=${command.host} min_mtu=${command.minMtuBytes} max_mtu=${command.maxMtuBytes} timeout_ms=$timeoutMs selector_ssid=${command.selector.ssid.ifBlank { "*" }}")
+        logger.debugEvent("network.probe.request", listOf(
+            "probe" to "path_mtu",
+            "effective_timeout_ms" to timeoutMs,
+            "ip_overhead_bytes" to overheadBytes,
+        ) + command.logFields())
+        val network = networks.waitForNetwork(command.selector, 0)
+            ?: return failed("wifi network not available for path mtu")
+        val ip = networks.ipStatus(network)
+        val iface = ip.interfaceName
+        val minMtu = NetworkCheckPolicy.pathMtuMinBytes(command.minMtuBytes, ipv6)
+        val maxMtu = NetworkCheckPolicy.pathMtuMaxBytes(command.maxMtuBytes, ip.mtu, minMtu)
+        val binary = NetworkCheckPolicy.pingBinary(command.host)
+        logger.debugEvent("network.selected", listOf(
+            "probe" to "path_mtu",
+            "network_id" to ip.networkId,
+            "transports" to ip.transportsList,
+            "iface" to iface,
+            "addresses" to ip.addressesList,
+            "dns_servers" to ip.dnsServersList,
+            "validated" to ip.validated,
+            "internet" to ip.internet,
+            "interface_mtu" to ip.mtu,
+            "min_mtu" to minMtu,
+            "max_mtu" to maxMtu,
+        ))
+
+        val started = System.nanoTime()
+        val probes = mutableListOf<PathMtuProbe>()
+        var low = minMtu
+        var high = maxMtu
+        var discovered = false
+        var error = ""
+
+        // Validate the lower bound first; binary search is meaningful only if the floor can pass.
+        val firstProbe = runPathMtuProbe(command.host, minMtu, overheadBytes, binary, iface, timeoutMs, started)
+        probes += firstProbe
+        if (!firstProbe.passed) {
+            error = "minimum_mtu_failed"
+            low = 0
+        } else {
+            discovered = true
+            while (low < high) {
+                throwIfInterrupted()
+                val remainingMs = remainingTimeoutMs(timeoutMs, started)
+                if (remainingMs <= 0) {
+                    error = "process_timeout=${timeoutMs}ms"
+                    break
+                }
+                // Bias upward so adjacent low/high values converge and low remains the best passing MTU.
+                val mid = low + (high - low + 1) / 2
+                val probe = runPathMtuProbe(command.host, mid, overheadBytes, binary, iface, remainingMs, started)
+                probes += probe
+                if (probe.passed) {
+                    low = mid
+                } else {
+                    high = mid - 1
+                }
+            }
+        }
+
+        val elapsedMs = Duration.ofNanos(System.nanoTime() - started).toMillis()
+        val pathMtuBytes = if (discovered) low else 0
+        val payloadSizeBytes = if (discovered) {
+            NetworkCheckPolicy.pathMtuPayloadBytes(pathMtuBytes, overheadBytes)
+        } else {
+            0
+        }
+        val result = PathMtuResult.newBuilder()
+            .setHost(command.host)
+            .setDiscovered(discovered && error.isBlank())
+            .setPathMtuBytes(pathMtuBytes)
+            .setPayloadSizeBytes(payloadSizeBytes)
+            .setMinMtuBytes(minMtu)
+            .setMaxMtuBytes(maxMtu)
+            .setIpOverheadBytes(overheadBytes)
+            .setElapsedMs(elapsedMs)
+            .setInterfaceName(iface)
+            .setError(error)
+            .addAllProbes(probes)
+            .build()
+        val ok = result.discovered
+        logger.debug("path mtu finished host=${command.host} discovered=$ok mtu=${result.pathMtuBytes} payload=${result.payloadSizeBytes} probes=${result.probesCount} elapsed_ms=$elapsedMs error=${error.ifBlank { "none" }}")
+        logger.debugEvent("network.probe.result", listOf(
+            "probe" to "path_mtu",
+            "ok" to ok,
+        ) + result.logFields())
+        return CommandResult.newBuilder()
+            .setStatus(if (ok) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
+            .setMessage(if (ok) "path mtu discovered" else "path mtu discovery failed")
+            .setPathMtu(result)
             .build()
     }
 
@@ -658,6 +769,74 @@ class NetworkCheckExecutor(
         return ProcessRun(finished = finished, exitCode = exitCode, output = output, error = error)
     }
 
+    /**
+     * Runs one DF ping probe for a candidate IP MTU.
+     *
+     * mtuBytes includes IP and ICMP headers, while ping -s expects only the
+     * ICMP payload. The process timeout is capped per probe so a single lost
+     * packet cannot consume the entire PMTU discovery budget.
+     */
+    private fun runPathMtuProbe(
+        host: String,
+        mtuBytes: Int,
+        overheadBytes: Int,
+        binary: String,
+        iface: String,
+        remainingTimeoutMs: Int,
+        startedAt: Long,
+    ): PathMtuProbe {
+        val payloadSizeBytes = NetworkCheckPolicy.pathMtuPayloadBytes(mtuBytes, overheadBytes)
+        val timeoutMs = remainingTimeoutMs
+            .coerceAtMost(PATH_MTU_PROBE_TIMEOUT_MS)
+            .coerceAtLeast(1)
+        // ping -W is specified in whole seconds, but runProcess still enforces the millisecond cap.
+        val waitSeconds = ((timeoutMs + 999) / 1000).coerceAtLeast(1)
+        val args = NetworkCheckPolicy.pathMtuPingArgs(binary, iface, payloadSizeBytes, waitSeconds, host)
+        logger.info("path mtu probe mtu=$mtuBytes payload=$payloadSizeBytes command=${args.joinToString(" ")} timeout_ms=$timeoutMs")
+        logger.debugEvent("process.start", listOf(
+            "probe" to "path_mtu",
+            "binary" to binary,
+            "argv" to args,
+            "command_line" to args.joinToString(" "),
+            "host" to host,
+            "iface" to iface.ifBlank { "default" },
+            "mtu_bytes" to mtuBytes,
+            "payload_size_bytes" to payloadSizeBytes,
+            "timeout_ms" to timeoutMs,
+        ))
+        val probeStarted = System.nanoTime()
+        val run = runProcess(args, timeoutMs)
+        val elapsedMs = Duration.ofNanos(System.nanoTime() - probeStarted).toMillis()
+        val ok = NetworkCheckPolicy.processSucceeded(run.finished, run.exitCode)
+        logger.debugEvent("process.end", listOf(
+            "probe" to "path_mtu",
+            "binary" to binary,
+            "host" to host,
+            "mtu_bytes" to mtuBytes,
+            "payload_size_bytes" to payloadSizeBytes,
+            "finished" to run.finished,
+            "exit_code" to run.exitCode,
+            "elapsed_ms" to elapsedMs,
+            "total_elapsed_ms" to Duration.ofNanos(System.nanoTime() - startedAt).toMillis(),
+            "output_bytes" to run.output.length,
+            "output_preview" to StructuredLog.preview(run.output),
+            "error" to run.error,
+        ))
+        return PathMtuProbe.newBuilder()
+            .setMtuBytes(mtuBytes)
+            .setPayloadSizeBytes(payloadSizeBytes)
+            .setPassed(ok)
+            .setExitCode(run.exitCode)
+            .setElapsedMs(elapsedMs)
+            .setOutput(run.output.take(1000))
+            .build()
+    }
+
+    private fun remainingTimeoutMs(timeoutMs: Int, startedAt: Long): Int {
+        val elapsedMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis()
+        return timeoutMs - elapsedMs.toInt()
+    }
+
     private fun parsePingTraceProbe(output: String, target: String, elapsedMs: Long): PingTraceProbe {
         pingReachedRegex.find(output)?.let { match ->
             val identity = match.groupValues[1]
@@ -747,6 +926,7 @@ class NetworkCheckExecutor(
 
     companion object {
         private const val PING_TRACE_HOP_TIMEOUT_MS = 2_000
+        private const val PATH_MTU_PROBE_TIMEOUT_MS = 2_500
         private val pingReachedRegex = Regex(
             """(?im)(?:\d+\s+bytes\s+from|from)\s+([^\s:]+)(?:\s+\(([^)]+)\))?:.*time[=<]?(\d+(?:\.\d+)?)\s*ms""",
         )

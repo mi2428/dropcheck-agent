@@ -6,6 +6,8 @@ import io.dropcheck.agent.grpc.DnsAnswer
 import io.dropcheck.agent.grpc.DnsRecordType
 import io.dropcheck.agent.grpc.HttpCheck
 import io.dropcheck.agent.grpc.HttpCheckResult
+import io.dropcheck.agent.grpc.PathMtu
+import io.dropcheck.agent.grpc.PathMtuResult
 import io.dropcheck.agent.grpc.ResolveDns
 import io.dropcheck.agent.grpc.ResolveDnsResult
 import io.dropcheck.agent.grpc.RunCommand
@@ -34,7 +36,7 @@ class StructuredLogTest {
     }
 
     @Test
-    fun commandFieldsIncludeConcreteHttpDnsAndTracerouteTargets() {
+    fun commandFieldsIncludeConcreteHttpDnsTracerouteAndPathMtuTargets() {
         val http = RunCommand.newBuilder()
             .setLabel("test http https://www.wide.ad.jp/ expected-status 301")
             .setHttpCheck(HttpCheck.newBuilder()
@@ -54,10 +56,18 @@ class StructuredLogTest {
                 .setMaxHops(2)
                 .setTimeoutMs(3000))
             .build()
+        val pathMtu = RunCommand.newBuilder()
+            .setPathMtu(PathMtu.newBuilder()
+                .setHost("1.1.1.1")
+                .setMinMtuBytes(1200)
+                .setMaxMtuBytes(1500)
+                .setTimeoutMs(3000))
+            .build()
 
         val httpLine = StructuredLog.format("command.received", http.logFields())
         val dnsLine = StructuredLog.format("command.received", dns.logFields())
         val tracerouteLine = StructuredLog.format("command.received", traceroute.logFields())
+        val pathMtuLine = StructuredLog.format("command.received", pathMtu.logFields())
 
         assertTrue(httpLine.contains("url=https://www.wide.ad.jp/"))
         assertTrue(httpLine.contains("url_host=www.wide.ad.jp"))
@@ -66,6 +76,9 @@ class StructuredLogTest {
         assertTrue(dnsLine.contains("qtypes=DNS_RECORD_TYPE_A"))
         assertTrue(tracerouteLine.contains("host=1.1.1.1"))
         assertTrue(tracerouteLine.contains("max_hops=2"))
+        assertTrue(pathMtuLine.contains("host=1.1.1.1"))
+        assertTrue(pathMtuLine.contains("min_mtu_bytes=1200"))
+        assertTrue(pathMtuLine.contains("max_mtu_bytes=1500"))
     }
 
     @Test
@@ -111,15 +124,28 @@ class StructuredLogTest {
                 .setExecutable("ping TTL fallback")
                 .setOutput(" 1  192.0.2.1  1.000 ms\n"))
             .build()
+        val pathMtuResult = CommandResult.newBuilder()
+            .setStatus(CommandResult.Status.STATUS_OK)
+            .setPathMtu(PathMtuResult.newBuilder()
+                .setHost("1.1.1.1")
+                .setDiscovered(true)
+                .setPathMtuBytes(1500)
+                .setPayloadSizeBytes(1472)
+                .setIpOverheadBytes(28))
+            .build()
 
         val dnsLine = StructuredLog.format("command.result", dnsResult.logFields())
         val httpLine = StructuredLog.format("command.result", httpResult.logFields())
         val tracerouteLine = StructuredLog.format("command.result", tracerouteResult.logFields())
+        val pathMtuLine = StructuredLog.format("command.result", pathMtuResult.logFields())
 
         assertTrue(dnsLine.contains("answers=DNS_RECORD_TYPE_A:203.178.136.63"))
         assertTrue(httpLine.contains("url_host=www.wide.ad.jp"))
         assertTrue(httpLine.contains("http_status=301"))
         assertTrue(tracerouteLine.contains("executable=\"ping TTL fallback\""))
         assertTrue(tracerouteLine.contains("output_preview="))
+        assertTrue(pathMtuLine.contains("discovered=true"))
+        assertTrue(pathMtuLine.contains("path_mtu_bytes=1500"))
+        assertTrue(pathMtuLine.contains("payload_size_bytes=1472"))
     }
 }

@@ -47,6 +47,8 @@ func renderCommandResult(agent string, result *controlpb.CommandResult, options 
 		renderPing(&b, payload.Ping, result.GetStatus())
 	case *controlpb.CommandResult_Traceroute:
 		renderTraceroute(&b, payload.Traceroute, options, result.GetStatus())
+	case *controlpb.CommandResult_PathMtu:
+		renderPathMtu(&b, payload.PathMtu)
 	case *controlpb.CommandResult_ResolveDns:
 		renderResolveDNS(&b, payload.ResolveDns)
 	case *controlpb.CommandResult_HttpCheck:
@@ -350,6 +352,41 @@ func renderTraceroute(b *strings.Builder, result *controlpb.TracerouteResult, op
 	}
 	if analysis.Error != "" {
 		fmt.Fprintf(b, "Error: %s\n", analysis.Error)
+	}
+}
+
+func renderPathMtu(b *strings.Builder, result *controlpb.PathMtuResult) {
+	if result == nil {
+		return
+	}
+	fmt.Fprintf(b, "Path MTU: host=%s discovered=%t mtu=%d payload=%d range=%d-%d overhead=%d interface=%s probes=%d elapsed=%dms\n",
+		result.GetHost(),
+		result.GetDiscovered(),
+		result.GetPathMtuBytes(),
+		result.GetPayloadSizeBytes(),
+		result.GetMinMtuBytes(),
+		result.GetMaxMtuBytes(),
+		result.GetIpOverheadBytes(),
+		empty(result.GetInterfaceName(), "default"),
+		len(result.GetProbes()),
+		result.GetElapsedMs(),
+	)
+	if len(result.GetProbes()) > 0 {
+		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "MTU\tPAYLOAD\tPASS\tEXIT\tELAPSED")
+		for _, probe := range result.GetProbes() {
+			fmt.Fprintf(tw, "%d\t%d\t%t\t%d\t%dms\n",
+				probe.GetMtuBytes(),
+				probe.GetPayloadSizeBytes(),
+				probe.GetPassed(),
+				probe.GetExitCode(),
+				probe.GetElapsedMs(),
+			)
+		}
+		_ = tw.Flush()
+	}
+	if result.GetError() != "" {
+		fmt.Fprintf(b, "Error: %s\n", result.GetError())
 	}
 }
 

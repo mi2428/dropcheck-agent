@@ -59,6 +59,12 @@ func TestParseShellCommands(t *testing.T) {
 			args: []string{"traceroute", "example.test", "12", "--via", "192.0.2.1", "--size", "80", "--timeout", "30000"},
 		},
 		{
+			name: "path mtu",
+			line: "path-mtu example.test min-mtu 1200 max-mtu 1500 timeout 30000",
+			kind: shellAgentCommand,
+			args: []string{"path-mtu", "example.test", "--min-mtu", "1200", "--max-mtu", "1500", "--timeout", "30000"},
+		},
+		{
 			name: "test dns",
 			line: "test dns example.test type AAAA timeout 9000",
 			kind: shellAgentCommand,
@@ -382,6 +388,11 @@ func TestParseLinuxCommands(t *testing.T) {
 			name: "ping flags",
 			args: []string{"ping", "1.1.1.1", "--count", "5", "--size", "64", "--timeout", "7000"},
 			want: []string{"ping", "1.1.1.1", "5", "--size", "64", "--timeout", "7000"},
+		},
+		{
+			name: "path mtu flags",
+			args: []string{"path-mtu", "example.test", "--min-mtu", "1200", "--max-mtu", "1500", "--timeout", "30000"},
+			want: []string{"path-mtu", "example.test", "--min-mtu", "1200", "--max-mtu", "1500", "--timeout", "30000"},
 		},
 		{
 			name: "dns flags",

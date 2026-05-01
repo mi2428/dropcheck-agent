@@ -164,6 +164,9 @@ func parseLinuxCommand(args []string) (cliCommand, error) {
 	case "traceroute":
 		legacy, err := parseLinuxTraceroute(args[1:])
 		return cliCommand{kind: cliAgentCommand, operation: operationFromLegacyArgs(legacy)}, err
+	case "path-mtu":
+		legacy, err := parseLinuxPathMtu(args[1:])
+		return cliCommand{kind: cliAgentCommand, operation: operationFromLegacyArgs(legacy)}, err
 	case "download":
 		legacy, err := parseLinuxDownload(args[1:])
 		return cliCommand{kind: cliAgentCommand, operation: operationFromLegacyArgs(legacy)}, err
@@ -539,6 +542,27 @@ func parseLinuxTraceroute(args []string) ([]string, error) {
 		legacy = append(legacy, "--via", value)
 	}
 	for _, key := range []string{"size", "timeout"} {
+		if value := opts.value(key); value != "" {
+			legacy = append(legacy, "--"+key, value)
+		}
+	}
+	return legacy, nil
+}
+
+func parseLinuxPathMtu(args []string) ([]string, error) {
+	opts, err := parseDashOptions(args, map[string]dashOptionSpec{
+		"min-mtu": {value: true},
+		"max-mtu": {value: true},
+		"timeout": {value: true},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(opts.positionals) != 1 {
+		return nil, fmt.Errorf("usage: path-mtu <host> [--min-mtu bytes] [--max-mtu bytes] [--timeout ms]")
+	}
+	legacy := []string{"path-mtu", opts.positionals[0]}
+	for _, key := range []string{"min-mtu", "max-mtu", "timeout"} {
 		if value := opts.value(key); value != "" {
 			legacy = append(legacy, "--"+key, value)
 		}

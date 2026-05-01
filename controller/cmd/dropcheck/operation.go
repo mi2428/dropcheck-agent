@@ -113,6 +113,11 @@ func collectOperationArgs(legacy []string, args map[string]string, flags map[str
 			return
 		}
 		collectLongOptions(legacy[2:], args, flags)
+	case "path-mtu":
+		if len(legacy) >= 2 {
+			args["host"] = legacy[1]
+		}
+		collectLongOptions(legacy[2:], args, flags)
 	case "download":
 		if len(legacy) >= 2 {
 			args["url"] = legacy[1]

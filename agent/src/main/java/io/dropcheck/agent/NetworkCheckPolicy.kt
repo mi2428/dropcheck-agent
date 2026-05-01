@@ -21,6 +21,13 @@ internal object NetworkCheckPolicy {
     const val DEFAULT_DOWNLOAD_TIMEOUT_MS = 60_000
     const val DEFAULT_HTTP_TIMEOUT_MS = 5_000
     const val DEFAULT_HTTP_STATUS = 200
+    const val DEFAULT_PATH_MTU_TIMEOUT_MS = 30_000
+    const val DEFAULT_PATH_MTU_MAX_BYTES = 1500
+    const val IPV4_PING_OVERHEAD_BYTES = 28
+    const val IPV6_PING_OVERHEAD_BYTES = 48
+
+    private const val DEFAULT_IPV4_PATH_MTU_MIN_BYTES = 576
+    private const val DEFAULT_IPV6_PATH_MTU_MIN_BYTES = 1280
 
     /** Applies proto3-style zero-as-unspecified timeout defaults. */
     fun effectiveTimeoutMs(value: Int, fallback: Int): Int = if (value > 0) value else fallback
@@ -95,6 +102,55 @@ internal object NetworkCheckPolicy {
                 add("-s")
                 add(sizeBytes.toString())
             }
+            add("-c")
+            add("1")
+            add("-W")
+            add(waitSeconds.coerceAtLeast(1).toString())
+            add(host)
+        }
+    }
+
+    /** Use protocol MTU floors so discovery never probes below a packet size the IP version must support. */
+    fun pathMtuMinBytes(value: Int, ipv6: Boolean): Int {
+        if (value > 0) return value
+        return if (ipv6) DEFAULT_IPV6_PATH_MTU_MIN_BYTES else DEFAULT_IPV4_PATH_MTU_MIN_BYTES
+    }
+
+    /** Prefer Android's link MTU as the search ceiling, falling back to Ethernet MTU when unavailable. */
+    fun pathMtuMaxBytes(value: Int, interfaceMtu: Int, minMtu: Int): Int {
+        val fallback = if (interfaceMtu > 0) interfaceMtu else DEFAULT_PATH_MTU_MAX_BYTES
+        val maxMtu = if (value > 0) value else fallback
+        return maxMtu.coerceAtLeast(minMtu)
+    }
+
+    /** PMTU is an IP packet size; ping -s takes only ICMP payload, so header overhead is subtracted later. */
+    fun pathMtuOverheadBytes(host: String): Int {
+        return if (host.contains(":")) IPV6_PING_OVERHEAD_BYTES else IPV4_PING_OVERHEAD_BYTES
+    }
+
+    /** Convert target IP MTU to ping payload bytes: IPv4 overhead is 20+8, IPv6 overhead is 40+8. */
+    fun pathMtuPayloadBytes(mtuBytes: Int, overheadBytes: Int): Int {
+        return (mtuBytes - overheadBytes).coerceAtLeast(0)
+    }
+
+    /** Android ping accepts "-M do" to set DF/no-fragmentation; a failed probe means the MTU is too large. */
+    fun pathMtuPingArgs(
+        binary: String,
+        interfaceName: String,
+        payloadSizeBytes: Int,
+        waitSeconds: Int,
+        host: String,
+    ): List<String> {
+        return buildList {
+            add(binary)
+            if (interfaceName.isNotBlank()) {
+                add("-I")
+                add(interfaceName)
+            }
+            add("-M")
+            add("do")
+            add("-s")
+            add(payloadSizeBytes.toString())
             add("-c")
             add("1")
             add("-W")
