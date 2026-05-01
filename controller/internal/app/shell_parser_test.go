@@ -148,17 +148,6 @@ func TestShellCommandBuildsOperation(t *testing.T) {
 	if got.operation.Name != "wifi.connect" {
 		t.Fatalf("operation name = %q", got.operation.Name)
 	}
-	for key, want := range map[string]string{
-		"ssid":       "Lab",
-		"passphrase": "secret",
-		"security":   "wpa3",
-		"band":       "6ghz",
-		"timeout":    "12345",
-	} {
-		if got.operation.Args[key] != want {
-			t.Fatalf("operation arg %s = %q, want %q", key, got.operation.Args[key], want)
-		}
-	}
 	cmd, _, err := buildRunCommand(got.operation)
 	if err != nil {
 		t.Fatalf("buildRunCommand() error = %v", err)
@@ -169,6 +158,9 @@ func TestShellCommandBuildsOperation(t *testing.T) {
 	}
 	if connect.GetSsid() != "Lab" || connect.GetPassphrase() != "secret" {
 		t.Fatalf("connect credentials = %q/%q", connect.GetSsid(), connect.GetPassphrase())
+	}
+	if connect.GetSecurity() != controlpb.ConnectWifi_SECURITY_WPA3_SAE || connect.GetBand() != controlpb.WifiBand_WIFI_BAND_6_GHZ || connect.GetTimeoutMs() != 12345 {
+		t.Fatalf("connect options = %#v", connect)
 	}
 }
 
@@ -252,9 +244,6 @@ func TestShellHTTPHelpAndFlexibleArgs(t *testing.T) {
 	if got.operation.Name != "http" {
 		t.Fatalf("operation name = %q", got.operation.Name)
 	}
-	if got.operation.Args["url"] != "https://www.wide.ad.jp" || got.operation.Args["expected-status"] != "301" || got.operation.Args["timeout"] != "7000" {
-		t.Fatalf("operation args = %#v", got.operation.Args)
-	}
 	cmd, _, err := buildRunCommand(got.operation)
 	if err != nil {
 		t.Fatalf("buildRunCommand(test http) error = %v", err)
@@ -311,9 +300,6 @@ func TestShellDNSHelpAndFlexibleArgs(t *testing.T) {
 			}
 			if got.operation.Name != "dns" {
 				t.Fatalf("operation name = %q", got.operation.Name)
-			}
-			if got.operation.Args["name"] != "wide.ad.jp" || got.operation.Args["type"] != "A" || got.operation.Args["timeout"] != "7000" {
-				t.Fatalf("operation args = %#v", got.operation.Args)
 			}
 			cmd, _, err := buildRunCommand(got.operation)
 			if err != nil {
@@ -684,9 +670,6 @@ func TestLinuxCommandBuildsOperation(t *testing.T) {
 	if got.operation.Name != "ping" {
 		t.Fatalf("operation name = %q", got.operation.Name)
 	}
-	if got.operation.Args["host"] != "1.1.1.1" || got.operation.Args["count"] != "5" || got.operation.Args["size"] != "64" {
-		t.Fatalf("operation args = %#v", got.operation.Args)
-	}
 	cmd, _, err := buildRunCommand(got.operation)
 	if err != nil {
 		t.Fatalf("buildRunCommand() error = %v", err)
@@ -708,14 +691,14 @@ func TestExtractCLIOptionsAndTopLevel(t *testing.T) {
 		t.Fatalf("rest = %#v", rest)
 	}
 
-	opts, commandArgs, err := extractCLIOptions(rest)
+	opts, cliArgs, err := extractCLIOptions(rest)
 	if err != nil {
 		t.Fatalf("extractCLIOptions() error = %v", err)
 	}
 	if opts.format != outputJSON {
 		t.Fatalf("format = %q", opts.format)
 	}
-	if !slices.Equal(commandArgs, []string{"devices"}) {
-		t.Fatalf("commandArgs = %#v", commandArgs)
+	if !slices.Equal(cliArgs, []string{"devices"}) {
+		t.Fatalf("cliArgs = %#v", cliArgs)
 	}
 }

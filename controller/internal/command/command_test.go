@@ -24,8 +24,11 @@ func TestBuildCommandWithOptionsNormalizesPrefixes(t *testing.T) {
 	}
 }
 
-func TestOperationFromCommandArgsBuildsCommand(t *testing.T) {
-	op := OperationFromCommandArgs([]string{"wifi", "scan", "fresh", "6ghz", "--timeout", "9000"})
+func TestWifiFreshScanOperationBuildsCommand(t *testing.T) {
+	op, err := WifiFreshScanOperation("6ghz", "9000")
+	if err != nil {
+		t.Fatalf("WifiFreshScanOperation() error = %v", err)
+	}
 	if op.Name != "wifi.scan.fresh" {
 		t.Fatalf("operation name = %q", op.Name)
 	}

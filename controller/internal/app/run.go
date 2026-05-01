@@ -84,7 +84,7 @@ func parseTopLevelArgs(args []string) (shellOptions, []string, error) {
 }
 
 func runShell(ctx context.Context, opts shellOptions) error {
-	controlSession, err := session.Start(ctx, opts)
+	controlSession, err := startControlSession(ctx, opts)
 	if err != nil {
 		return err
 	}

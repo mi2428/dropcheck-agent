@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
 	"google.golang.org/grpc/metadata"
@@ -95,12 +96,17 @@ func TestRunOperationForAgentsDispatchesAndRendersResult(t *testing.T) {
 		}
 	}()
 
+	op, err := command.PingOperation(command.PingOptions{Host: "example.test", Count: "1"})
+	if err != nil {
+		t.Fatalf("PingOperation() error = %v", err)
+	}
+
 	out, err := captureStdout(t, func() error {
 		return runOperationForAgents(
 			context.Background(),
 			state,
 			[]control.AgentInfo{agent},
-			operationFromCommandArgs([]string{"ping", "example.test", "1"}),
+			op,
 			commandOutputOptions{},
 		)
 	})

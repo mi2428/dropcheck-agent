@@ -7,13 +7,8 @@ import (
 	"dropcheck/controller/internal/controlpb"
 )
 
-type TargetSpec = command.TargetSpec
 type Operation = command.Operation
 type commandOptions = command.Options
-
-func operationFromCommandArgs(args []string) Operation {
-	return command.OperationFromCommandArgs(args)
-}
 
 func buildRunCommand(op Operation) (*controlpb.RunCommand, commandOptions, error) {
 	return command.BuildRunCommand(op)

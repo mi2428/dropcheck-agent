@@ -69,10 +69,6 @@ func normalizeDNSQType(value string) (string, error) {
 	return command.NormalizeDNSQType(value)
 }
 
-func normalizeHTTPURL(value string) string {
-	return command.NormalizeHTTPURL(value)
-}
-
 func isCommand(value string, commands []string) bool {
 	return slices.Contains(commands, value)
 }

@@ -160,17 +160,17 @@ func parseShellShowWifi(args []string) (Command, error) {
 		if len(args) != 1 {
 			return Command{}, fmt.Errorf("usage: show wifi status")
 		}
-		return agentShellCommand("wifi", "status"), nil
+		return agentShellCommand(command.WifiStatusOperation()), nil
 	case "diagnostics":
 		if len(args) != 1 {
 			return Command{}, fmt.Errorf("usage: show wifi diagnostics")
 		}
-		return agentShellCommand("wifi", "diagnostics"), nil
+		return agentShellCommand(command.WifiDiagnosticsOperation()), nil
 	case "capabilities":
 		if len(args) != 1 {
 			return Command{}, fmt.Errorf("usage: show wifi capabilities")
 		}
-		return agentShellCommand("wifi", "capabilities"), nil
+		return agentShellCommand(command.WifiCapabilitiesOperation()), nil
 	case "scan":
 		return parseShellShowWifiScan(args[1:])
 	default:
@@ -179,9 +179,9 @@ func parseShellShowWifi(args []string) (Command, error) {
 }
 
 func parseShellShowWifiScan(args []string) (Command, error) {
-	commandArgs := []string{"wifi", "scan"}
 	if len(args) == 0 {
-		return agentShellCommand(commandArgs...), nil
+		op, err := command.WifiScanOperation("")
+		return agentShellCommand(op), err
 	}
 	first, err := resolveShellKeyword("show wifi scan argument", args[0], append([]string{"fresh", "detail"}, wifiBandValues()...))
 	if err != nil {
@@ -189,7 +189,6 @@ func parseShellShowWifiScan(args []string) (Command, error) {
 	}
 	switch first {
 	case "fresh":
-		commandArgs = append(commandArgs, "fresh")
 		var band string
 		values := map[string]string{}
 		for i := 1; i < len(args); i++ {
@@ -211,13 +210,8 @@ func parseShellShowWifiScan(args []string) (Command, error) {
 			}
 			band = value
 		}
-		if band != "" {
-			commandArgs = append(commandArgs, band)
-		}
-		if values["timeout"] != "" {
-			commandArgs = append(commandArgs, "--timeout", values["timeout"])
-		}
-		return agentShellCommand(commandArgs...), nil
+		op, err := command.WifiFreshScanOperation(band, values["timeout"])
+		return agentShellCommand(op), err
 	case "detail":
 		if len(args) < 2 || len(args) > 3 {
 			return Command{}, fmt.Errorf("usage: show wifi scan detail [all|2.4ghz|5ghz|6ghz|60ghz] <ssid|bssid>")
@@ -236,16 +230,14 @@ func parseShellShowWifiScan(args []string) (Command, error) {
 				band = value
 			}
 		}
-		commandArgs = append(commandArgs, "detail", target)
-		if band != "" {
-			commandArgs = append(commandArgs, band)
-		}
-		return agentShellCommand(commandArgs...), nil
+		op, err := command.WifiScanDetailOperation(target, band)
+		return agentShellCommand(op), err
 	default:
 		if len(args) != 1 {
 			return Command{}, fmt.Errorf("usage: show wifi scan [all|2.4ghz|5ghz|6ghz|60ghz]")
 		}
-		return agentShellCommand("wifi", "scan", first), nil
+		op, err := command.WifiScanOperation(first)
+		return agentShellCommand(op), err
 	}
 }
 
@@ -309,12 +301,12 @@ func parseShellRequestWifi(args []string) (Command, error) {
 		if len(args) != 1 {
 			return Command{}, fmt.Errorf("usage: request wifi disconnect")
 		}
-		return agentShellCommand("wifi", "disconnect"), nil
+		return agentShellCommand(command.WifiDisconnectOperation()), nil
 	case "forget":
 		if len(args) != 2 {
 			return Command{}, fmt.Errorf("usage: request wifi forget <ssid|network_id>")
 		}
-		return agentShellCommand("wifi", "forget", args[1]), nil
+		return agentShellCommand(command.WifiForgetOperation(args[1])), nil
 	case "reconnect":
 		return parseShellWifiReconnect(args[1:])
 	case "wait":
@@ -328,22 +320,22 @@ func parseShellRequestWifi(args []string) (Command, error) {
 	}
 }
 
-func parseShellWifiConnect(args []string, command string) (Command, error) {
+func parseShellWifiConnect(args []string, operation string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: request wifi %s passphrase <passphrase> [security <wpa2|wpa3|transition>] ... <ssid>", command)
+		return Command{}, fmt.Errorf("usage: request wifi %s passphrase <passphrase> [security <wpa2|wpa3|transition>] ... <ssid>", operation)
 	}
 	var ssid string
 	values := map[string]string{}
 	flags := map[string]bool{}
 	allowed := []string{"passphrase", "security", "bssid", "band", "mac-randomization", "timeout"}
-	if command == "cycle" {
+	if operation == "cycle" {
 		allowed = append(allowed, "count", "ping", "http", "forget", "pause")
 	}
 	for i := 0; i < len(args); i++ {
-		key, err := resolveShellKeyword("request wifi "+command+" option", args[i], allowed)
+		key, err := resolveShellKeyword("request wifi "+operation+" option", args[i], allowed)
 		if err != nil {
 			if ssid != "" {
-				return Command{}, fmt.Errorf("unexpected request wifi %s argument %q", command, args[i])
+				return Command{}, fmt.Errorf("unexpected request wifi %s argument %q", operation, args[i])
 			}
 			ssid = args[i]
 			continue
@@ -360,31 +352,40 @@ func parseShellWifiConnect(args []string, command string) (Command, error) {
 		i = next
 	}
 	if ssid == "" {
-		return Command{}, fmt.Errorf("request wifi %s requires <ssid>", command)
+		return Command{}, fmt.Errorf("request wifi %s requires <ssid>", operation)
 	}
 	passphrase := values["passphrase"]
 	if passphrase == "" {
-		return Command{}, fmt.Errorf("request wifi %s requires passphrase <passphrase>", command)
+		return Command{}, fmt.Errorf("request wifi %s requires passphrase <passphrase>", operation)
 	}
-	commandArgs := []string{"wifi", command, ssid, passphrase}
-	if security := values["security"]; security != "" {
-		commandArgs = append(commandArgs, security)
+	opts := command.WifiConnectOptions{
+		SSID:             ssid,
+		Passphrase:       passphrase,
+		Security:         values["security"],
+		BSSID:            values["bssid"],
+		Band:             values["band"],
+		MacRandomization: values["mac-randomization"],
+		Timeout:          values["timeout"],
 	}
-	for _, key := range []string{"count", "bssid", "band", "mac-randomization", "ping", "http", "pause", "timeout"} {
-		if value := values[key]; value != "" {
-			commandArgs = append(commandArgs, "--"+key, value)
-		}
+	if operation == "cycle" {
+		op, err := command.WifiCycleOperation(command.WifiCycleOptions{
+			WifiConnectOptions: opts,
+			Count:              values["count"],
+			PingHost:           values["ping"],
+			HTTPURL:            values["http"],
+			ForgetAfterEach:    flags["forget"],
+			Pause:              values["pause"],
+		})
+		return agentShellCommand(op), err
 	}
-	if flags["forget"] {
-		commandArgs = append(commandArgs, "--forget")
-	}
-	return agentShellCommand(commandArgs...), nil
+	op, err := command.WifiConnectOperation(opts)
+	return agentShellCommand(op), err
 }
 
 func parseShellWifiReconnect(args []string) (Command, error) {
-	commandArgs := []string{"wifi", "reconnect"}
 	if len(args) == 0 {
-		return agentShellCommand(commandArgs...), nil
+		op, err := command.WifiReconnectOperation("")
+		return agentShellCommand(op), err
 	}
 	if len(args) != 2 {
 		return Command{}, fmt.Errorf("usage: request wifi reconnect [timeout <ms>]")
@@ -396,27 +397,26 @@ func parseShellWifiReconnect(args []string) (Command, error) {
 	if key != "timeout" {
 		return Command{}, fmt.Errorf("unknown request wifi reconnect option %q", args[0])
 	}
-	return agentShellCommand(append(commandArgs, args[1])...), nil
+	op, err := command.WifiReconnectOperation(args[1])
+	return agentShellCommand(op), err
 }
 
 func parseShellWifiWait(args []string) (Command, error) {
 	if len(args) == 0 {
 		return Command{}, fmt.Errorf("usage: request wifi wait connected [ssid]")
 	}
-	name, err := resolveShellKeyword("request wifi wait command", args[0], []string{"connected"})
+	_, err := resolveShellKeyword("request wifi wait command", args[0], []string{"connected"})
 	if err != nil {
 		return Command{}, err
 	}
-	commandArgs := []string{"wifi", "wait", name}
-	return parseShellWifiExpectation(commandArgs, args[1:], true)
+	return parseShellWifiExpectation(true, args[1:], true)
 }
 
 func parseShellWifiAssert(args []string) (Command, error) {
-	commandArgs := []string{"wifi", "assert"}
-	return parseShellWifiExpectation(commandArgs, args, false)
+	return parseShellWifiExpectation(false, args, false)
 }
 
-func parseShellWifiExpectation(commandArgs []string, args []string, allowPositionalSSID bool) (Command, error) {
+func parseShellWifiExpectation(wait bool, args []string, allowPositionalSSID bool) (Command, error) {
 	var positionalSSID string
 	values := map[string]string{}
 	flags := map[string]bool{}
@@ -445,19 +445,25 @@ func parseShellWifiExpectation(commandArgs []string, args []string, allowPositio
 		return Command{}, fmt.Errorf("wifi ssid specified twice")
 	}
 	if positionalSSID != "" {
-		commandArgs = append(commandArgs, positionalSSID)
+		values["ssid"] = positionalSSID
 	}
-	for _, key := range []string{"ssid", "bssid", "security", "band", "timeout"} {
-		if values[key] != "" {
-			commandArgs = append(commandArgs, "--"+key, values[key])
-		}
+	opts := command.WifiExpectationOptions{
+		SSID:             values["ssid"],
+		BSSID:            values["bssid"],
+		Security:         values["security"],
+		Band:             values["band"],
+		Timeout:          values["timeout"],
+		RequireIP:        flags["ip"],
+		RequireValidated: flags["validated"],
 	}
-	for _, key := range []string{"ip", "validated"} {
-		if flags[key] {
-			commandArgs = append(commandArgs, "--"+key)
-		}
+	var op command.Operation
+	var err error
+	if wait {
+		op, err = command.WifiWaitConnectedOperation(values["ssid"], opts)
+	} else {
+		op, err = command.WifiAssertOperation(opts)
 	}
-	return agentShellCommand(commandArgs...), nil
+	return agentShellCommand(op), err
 }
 
 func parseShellMonitor(args []string) (Command, error) {
@@ -471,7 +477,6 @@ func parseShellMonitor(args []string) (Command, error) {
 	if name != "wifi" {
 		return Command{}, fmt.Errorf("unknown monitor command %q", args[0])
 	}
-	commandArgs := []string{"wifi", "monitor"}
 	values := map[string]string{}
 	for i := 1; i < len(args); i++ {
 		key, err := resolveShellKeyword("monitor wifi option", args[i], []string{"duration", "interval"})
@@ -485,16 +490,12 @@ func parseShellMonitor(args []string) (Command, error) {
 		values[key] = value
 		i = next
 	}
-	if values["duration"] != "" {
-		commandArgs = append(commandArgs, values["duration"])
+	duration := values["duration"]
+	if values["interval"] != "" && duration == "" {
+		duration = "10000"
 	}
-	if values["interval"] != "" {
-		if values["duration"] == "" {
-			commandArgs = append(commandArgs, "10000")
-		}
-		commandArgs = append(commandArgs, values["interval"])
-	}
-	return agentShellCommand(commandArgs...), nil
+	op, err := command.WifiMonitorOperation(duration, values["interval"])
+	return agentShellCommand(op), err
 }
 
 func parseShellPing(args []string) (Command, error) {
@@ -522,16 +523,10 @@ func parseShellPing(args []string) (Command, error) {
 	if host == "" {
 		return Command{}, fmt.Errorf("usage: ping [count <n>] [size <bytes>] [timeout <ms>] <host>")
 	}
-	commandArgs := []string{"ping", host}
-	if values["count"] != "" {
-		commandArgs = append(commandArgs, values["count"])
-	}
-	for _, key := range []string{"size", "timeout"} {
-		if values[key] != "" {
-			commandArgs = append(commandArgs, "--"+key, values[key])
-		}
-	}
-	return agentShellCommand(commandArgs...), nil
+	op, err := command.PingOperation(command.PingOptions{
+		Host: host, Count: values["count"], Size: values["size"], Timeout: values["timeout"],
+	})
+	return agentShellCommand(op), err
 }
 
 func parseShellTraceroute(args []string) (Command, error) {
@@ -564,19 +559,10 @@ func parseShellTraceroute(args []string) (Command, error) {
 	if host == "" {
 		return Command{}, fmt.Errorf("usage: traceroute [max-hops <n>] [via <host_or_ip>] [size <bytes>] [timeout <ms>] <host>")
 	}
-	commandArgs := []string{"traceroute", host}
-	if values["max-hops"] != "" {
-		commandArgs = append(commandArgs, values["max-hops"])
-	}
-	for _, hop := range via {
-		commandArgs = append(commandArgs, "--via", hop)
-	}
-	for _, key := range []string{"size", "timeout"} {
-		if values[key] != "" {
-			commandArgs = append(commandArgs, "--"+key, values[key])
-		}
-	}
-	return agentShellCommand(commandArgs...), nil
+	op, err := command.TracerouteOperation(command.TracerouteOptions{
+		Host: host, MaxHops: values["max-hops"], Via: via, Size: values["size"], Timeout: values["timeout"],
+	})
+	return agentShellCommand(op), err
 }
 
 func parseShellPathMtu(args []string) (Command, error) {
@@ -604,17 +590,13 @@ func parseShellPathMtu(args []string) (Command, error) {
 	if host == "" {
 		return Command{}, fmt.Errorf("usage: path-mtu [min-mtu <bytes>] [max-mtu <bytes>] [timeout <ms>] <host>")
 	}
-	commandArgs := []string{"path-mtu", host}
-	for _, key := range []string{"min-mtu", "max-mtu", "timeout"} {
-		if values[key] != "" {
-			commandArgs = append(commandArgs, "--"+key, values[key])
-		}
-	}
-	return agentShellCommand(commandArgs...), nil
+	op, err := command.PathMTUOperation(command.PathMTUOptions{
+		Host: host, MinMTU: values["min-mtu"], MaxMTU: values["max-mtu"], Timeout: values["timeout"],
+	})
+	return agentShellCommand(op), err
 }
 
 func parseShellGlobalIp(args []string) (Command, error) {
-	commandArgs := []string{"global-ip"}
 	var family string
 	values := map[string]string{}
 	for i := 0; i < len(args); i++ {
@@ -649,13 +631,8 @@ func parseShellGlobalIp(args []string) (Command, error) {
 	if values["family"] != "" {
 		family = values["family"]
 	}
-	if family != "" {
-		commandArgs = append(commandArgs, family)
-	}
-	if values["timeout"] != "" {
-		commandArgs = append(commandArgs, "--timeout", values["timeout"])
-	}
-	return agentShellCommand(commandArgs...), nil
+	op, err := command.GlobalIPOperation(family, values["timeout"])
+	return agentShellCommand(op), err
 }
 
 func parseShellTest(args []string) (Command, error) {
@@ -715,14 +692,8 @@ func parseShellTestDNS(args []string) (Command, error) {
 	if name == "" {
 		return Command{}, fmt.Errorf("usage: test dns [type A|AAAA|ALL] [timeout <ms>] <name>")
 	}
-	commandArgs := []string{"dns", name}
-	if values["type"] != "" {
-		commandArgs = append(commandArgs, values["type"])
-	}
-	if values["timeout"] != "" {
-		commandArgs = append(commandArgs, "--timeout", values["timeout"])
-	}
-	return agentShellCommand(commandArgs...), nil
+	op, err := command.DNSOperation(name, values["type"], values["timeout"])
+	return agentShellCommand(op), err
 }
 
 func parseShellTestHTTP(args []string) (Command, error) {
@@ -750,14 +721,8 @@ func parseShellTestHTTP(args []string) (Command, error) {
 	if url == "" {
 		return Command{}, fmt.Errorf("usage: test http [expected-status <code>] [timeout <ms>] <url>")
 	}
-	commandArgs := []string{"http", normalizeHTTPURL(url)}
-	if values["expected-status"] != "" {
-		commandArgs = append(commandArgs, values["expected-status"])
-	}
-	if values["timeout"] != "" {
-		commandArgs = append(commandArgs, "--timeout", values["timeout"])
-	}
-	return agentShellCommand(commandArgs...), nil
+	op, err := command.HTTPOperation(url, values["expected-status"], values["timeout"])
+	return agentShellCommand(op), err
 }
 
 func parseShellTestDownload(args []string) (Command, error) {
@@ -785,15 +750,12 @@ func parseShellTestDownload(args []string) (Command, error) {
 	if url == "" {
 		return Command{}, fmt.Errorf("usage: test download [timeout <ms>] <url>")
 	}
-	commandArgs := []string{"download", url}
-	if values["timeout"] != "" {
-		commandArgs = append(commandArgs, "--timeout", values["timeout"])
-	}
-	return agentShellCommand(commandArgs...), nil
+	op, err := command.DownloadOperation(url, values["timeout"])
+	return agentShellCommand(op), err
 }
 
-func agentShellCommand(args ...string) Command {
-	return Command{Kind: shellAgentCommand, Operation: command.OperationFromCommandArgs(args)}
+func agentShellCommand(op command.Operation) Command {
+	return Command{Kind: shellAgentCommand, Operation: op}
 }
 
 func shellValue(args []string, index int, name string) (string, int, error) {
