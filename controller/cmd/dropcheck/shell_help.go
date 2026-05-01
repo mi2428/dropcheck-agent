@@ -34,6 +34,7 @@ func writeShellHelp(w io.Writer) {
   ping <host> [count <n>] [size <bytes>] [timeout <ms>]
   traceroute <host> [max-hops <n>] [via <host_or_ip>] [size <bytes>] [timeout <ms>]
   path-mtu <host> [min-mtu <bytes>] [max-mtu <bytes>] [timeout <ms>]
+  global-ip [ipv4|ipv6|all] [timeout <ms>]
   test dns <name> [type A|AAAA|ALL] [timeout <ms>]
   test http <url> [expected-status <code>] [timeout <ms>]
   test download <url> [timeout <ms>]
@@ -200,6 +201,8 @@ func helpEntriesForArgs(args []string) []helpEntry {
 		return []helpEntry{{"max-hops", "Maximum hops"}, {"via", "Required hop for analysis"}, {"size", "Packet size in bytes"}, {"timeout", "Timeout in milliseconds"}}
 	case "path-mtu":
 		return []helpEntry{{"min-mtu", "Minimum MTU in bytes"}, {"max-mtu", "Maximum MTU in bytes"}, {"timeout", "Timeout in milliseconds"}}
+	case "global-ip":
+		return globalIPHelp(args[1:])
 	case "test":
 		if len(args) == 1 {
 			return []helpEntry{{"dns", "Resolve a DNS name"}, {"http", "Check an HTTP status"}, {"download", "Download a URL"}}
@@ -312,6 +315,39 @@ func testDNSHelp(args []string) []helpEntry {
 	return entries
 }
 
+func globalIPHelp(args []string) []helpEntry {
+	hasFamily := false
+	usedTimeout := false
+	for i := 0; i < len(args); i++ {
+		if key, err := resolveShellKeyword("global-ip option", args[i], []string{"timeout"}); err == nil {
+			if key == "timeout" {
+				usedTimeout = true
+				if i+1 < len(args) {
+					i++
+				}
+			}
+			continue
+		}
+		if _, err := normalizeIpFamily(args[i]); err == nil {
+			hasFamily = true
+		}
+	}
+	var entries []helpEntry
+	if !hasFamily {
+		entries = append(entries,
+			helpEntry{"ipv4", "Check global IPv4 through ifconfig.me"},
+			helpEntry{"ipv6", "Check global IPv6 through ifconfig.me"},
+			helpEntry{"all", "Check both address families"},
+		)
+	}
+	if !usedTimeout {
+		entries = append(entries, helpEntry{"timeout", "Per-family timeout in milliseconds"})
+	}
+	terminal := terminalHelpEntriesForArgs(append([]string{"global-ip"}, args...))
+	entries = append(entries, terminal...)
+	return entries
+}
+
 func commandSupportsPipeHelp(command shellCommand) bool {
 	switch command.kind {
 	case shellShowDevices, shellShowTarget, shellClearTarget, shellAgentCommand:
@@ -362,6 +398,7 @@ func topHelpEntries() []helpEntry {
 		{"ping", "Ping from the selected Android agent"},
 		{"traceroute", "Traceroute from the selected Android agent"},
 		{"path-mtu", "Discover path MTU from the selected Android agent"},
+		{"global-ip", "Check global IPv4/IPv6 via ifconfig.me"},
 		{"test", "Run DNS, HTTP, or download checks"},
 		{"help", "Show command summary"},
 		{"quit", "Exit the shell"},
@@ -466,6 +503,8 @@ func completionCandidatesForArgs(args []string) []string {
 			return []string{"max-hops", "via", "size", "timeout"}
 		case resolved[0] == "path-mtu":
 			return []string{"min-mtu", "max-mtu", "timeout"}
+		case resolved[0] == "global-ip":
+			return globalIPCompletionCandidates(resolved[1:])
 		case resolved[0] == "test" && len(resolved) >= 2:
 			return testCompletionCandidates(resolved[1])
 		case resolved[0] == "request" && len(resolved) >= 3 && resolved[1] == "wifi":
@@ -504,4 +543,29 @@ func testCompletionCandidates(command string) []string {
 	default:
 		return nil
 	}
+}
+
+func globalIPCompletionCandidates(args []string) []string {
+	hasFamily := false
+	usedTimeout := false
+	for i := 0; i < len(args); i++ {
+		if args[i] == "timeout" {
+			usedTimeout = true
+			if i+1 < len(args) {
+				i++
+			}
+			continue
+		}
+		if _, err := normalizeIpFamily(args[i]); err == nil {
+			hasFamily = true
+		}
+	}
+	var candidates []string
+	if !hasFamily {
+		candidates = append(candidates, "ipv4", "ipv6", "all")
+	}
+	if !usedTimeout {
+		candidates = append(candidates, "timeout")
+	}
+	return candidates
 }

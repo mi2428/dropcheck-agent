@@ -118,6 +118,13 @@ func collectOperationArgs(legacy []string, args map[string]string, flags map[str
 			args["host"] = legacy[1]
 		}
 		collectLongOptions(legacy[2:], args, flags)
+	case "global-ip":
+		if len(legacy) >= 2 && !strings.HasPrefix(legacy[1], "--") {
+			args["family"] = legacy[1]
+			collectLongOptions(legacy[2:], args, flags)
+			return
+		}
+		collectLongOptions(legacy[1:], args, flags)
 	case "download":
 		if len(legacy) >= 2 {
 			args["url"] = legacy[1]

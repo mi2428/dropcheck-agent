@@ -31,7 +31,7 @@ type helpEntry struct {
 	description string
 }
 
-var shellTopKeywords = []string{"show", "set", "clear", "request", "monitor", "ping", "traceroute", "path-mtu", "test", "help", "exit", "quit"}
+var shellTopKeywords = []string{"show", "set", "clear", "request", "monitor", "ping", "traceroute", "path-mtu", "global-ip", "test", "help", "exit", "quit"}
 
 func parseShellLine(line string) (shellCommand, error) {
 	parts, err := splitPipeline(line)
@@ -90,6 +90,8 @@ func parseShellArgs(args []string) (shellCommand, error) {
 		return parseShellTraceroute(args[1:])
 	case "path-mtu":
 		return parseShellPathMtu(args[1:])
+	case "global-ip":
+		return parseShellGlobalIp(args[1:])
 	case "test":
 		return parseShellTest(args[1:])
 	default:
@@ -521,6 +523,48 @@ func parseShellPathMtu(args []string) (shellCommand, error) {
 		if values[key] != "" {
 			legacy = append(legacy, "--"+key, values[key])
 		}
+	}
+	return agentShellCommand(legacy...), nil
+}
+
+func parseShellGlobalIp(args []string) (shellCommand, error) {
+	legacy := []string{"global-ip"}
+	rest := args
+	if len(rest) > 0 && !isShellKeyword(rest[0], []string{"family", "timeout"}) {
+		family, err := normalizeIpFamily(rest[0])
+		if err != nil {
+			return shellCommand{}, err
+		}
+		legacy = append(legacy, family)
+		rest = rest[1:]
+	}
+	values := map[string]string{}
+	for i := 0; i < len(rest); i++ {
+		key, err := resolveShellKeyword("global-ip option", rest[i], []string{"family", "timeout"})
+		if err != nil {
+			return shellCommand{}, err
+		}
+		value, next, err := shellValue(rest, i, key)
+		if err != nil {
+			return shellCommand{}, err
+		}
+		if key == "family" {
+			value, err = normalizeIpFamily(value)
+			if err != nil {
+				return shellCommand{}, err
+			}
+		}
+		values[key] = value
+		i = next
+	}
+	if values["family"] != "" {
+		if len(legacy) > 1 {
+			return shellCommand{}, fmt.Errorf("global-ip family specified twice")
+		}
+		legacy = append(legacy, values["family"])
+	}
+	if values["timeout"] != "" {
+		legacy = append(legacy, "--timeout", values["timeout"])
 	}
 	return agentShellCommand(legacy...), nil
 }

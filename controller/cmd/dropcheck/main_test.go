@@ -362,6 +362,15 @@ func TestBuildCommandUniquePrefixes(t *testing.T) {
 			},
 		},
 		{
+			name: "global ip",
+			args: []string{"gl"},
+			assert: func(t *testing.T, cmd *controlpb.RunCommand) {
+				if global := cmd.GetGlobalIp(); global == nil || global.GetFamily() != controlpb.IpFamily_IP_FAMILY_ALL {
+					t.Fatalf("global-ip = %#v", global)
+				}
+			},
+		},
+		{
 			name: "download",
 			args: []string{"do", "https://example.test/file"},
 			assert: func(t *testing.T, cmd *controlpb.RunCommand) {
@@ -444,6 +453,17 @@ func TestBuildCommandNetworkChecks(t *testing.T) {
 					t.Fatalf("path-mtu = %#v", pathMtu)
 				}
 				assertEmptySelector(t, pathMtu.GetSelector())
+			},
+		},
+		{
+			name: "global ip",
+			args: []string{"global-ip", "ipv6", "--timeout", "7000"},
+			assert: func(t *testing.T, cmd *controlpb.RunCommand) {
+				global := cmd.GetGlobalIp()
+				if global == nil || global.GetFamily() != controlpb.IpFamily_IP_FAMILY_IPV6 || global.GetTimeoutMs() != 7000 {
+					t.Fatalf("global-ip = %#v", global)
+				}
+				assertEmptySelector(t, global.GetSelector())
 			},
 		},
 		{
@@ -534,6 +554,9 @@ func TestBuildCommandRejectsInvalidInput(t *testing.T) {
 		{"path-mtu"},
 		{"path-mtu", "host", "--size", "1500"},
 		{"path-mtu", "host", "--min-mtu"},
+		{"global-ip", "bogus"},
+		{"global-ip", "ipv4", "--family", "ipv6"},
+		{"global-ip", "--timeout"},
 		{"http", "https://example.test", "--expected", "204"},
 		{"http", "https://example.test", "0"},
 		{"wget", "https://example.test"},
@@ -560,6 +583,12 @@ func TestTimeoutFor(t *testing.T) {
 	}
 	if got := timeoutFor(mustBuild(t, "path-mtu", "example.test", "--timeout", "7000")); got != 10*time.Second {
 		t.Fatalf("path-mtu timeout = %v", got)
+	}
+	if got := timeoutFor(mustBuild(t, "global-ip", "ipv4", "--timeout", "7000")); got != 10*time.Second {
+		t.Fatalf("global-ip ipv4 timeout = %v", got)
+	}
+	if got := timeoutFor(mustBuild(t, "global-ip", "--timeout", "7000")); got != 17*time.Second {
+		t.Fatalf("global-ip all timeout = %v", got)
 	}
 	if got := timeoutFor(mustBuild(t, "wifi", "cycle", "Lab", "pass", "--count", "2", "--timeout", "1000", "--pause", "250")); got != 32500*time.Millisecond {
 		t.Fatalf("cycle timeout = %v", got)

@@ -116,6 +116,7 @@ message RunCommand {
     Traceroute traceroute = 29;
     Wget wget = 30;
     PathMtu path_mtu = 31;
+    GlobalIp global_ip = 32;
   }
 }
 
@@ -243,6 +244,12 @@ message PathMtu {
   uint32 max_mtu_bytes = 5;
 }
 
+message GlobalIp {
+  IpFamily family = 1;
+  uint32 timeout_ms = 2;
+  NetworkSelector selector = 3;
+}
+
 message Wget {
   string url = 1;
   uint32 timeout_ms = 2;
@@ -284,6 +291,13 @@ enum DnsRecordType {
   DNS_RECORD_TYPE_AAAA = 2;
 }
 
+enum IpFamily {
+  IP_FAMILY_UNSPECIFIED = 0;
+  IP_FAMILY_ALL = 1;
+  IP_FAMILY_IPV4 = 2;
+  IP_FAMILY_IPV6 = 3;
+}
+
 message CommandResult {
   enum Status {
     STATUS_UNSPECIFIED = 0;
@@ -314,6 +328,7 @@ message CommandResult {
     TracerouteResult traceroute = 25;
     WgetResult wget = 26;
     PathMtuResult path_mtu = 27;
+    GlobalIpResult global_ip = 28;
   }
 }
 
@@ -615,6 +630,25 @@ message PathMtuResult {
   string interface_name = 9;
   string error = 10;
   repeated PathMtuProbe probes = 11;
+}
+
+message GlobalIpAddress {
+  IpFamily family = 1;
+  string ip = 2;
+  bool global = 3;
+  uint32 status = 4;
+  int64 elapsed_ms = 5;
+  string error = 6;
+  string endpoint = 7;
+}
+
+message GlobalIpResult {
+  string service = 1;
+  IpFamily requested_family = 2;
+  int64 elapsed_ms = 3;
+  string interface_name = 4;
+  repeated GlobalIpAddress addresses = 5;
+  string error = 6;
 }
 
 message WgetResult {

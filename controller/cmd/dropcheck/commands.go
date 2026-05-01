@@ -105,6 +105,8 @@ func buildCommand(args []string) (*controlpb.RunCommand, error) {
 		return buildTracerouteCommand(label, args[1:])
 	case "path-mtu":
 		return buildPathMtuCommand(label, args[1:])
+	case "global-ip":
+		return buildGlobalIpCommand(label, args[1:])
 	case "download":
 		return buildDownloadCommand(label, args[1:])
 	case "dns":
@@ -717,6 +719,59 @@ func buildPathMtuCommand(label string, args []string) (*controlpb.RunCommand, er
 		Label: label,
 		Command: &controlpb.RunCommand_PathMtu{
 			PathMtu: req,
+		},
+	}, nil
+}
+
+func buildGlobalIpCommand(label string, args []string) (*controlpb.RunCommand, error) {
+	req := &controlpb.GlobalIp{
+		Family:    controlpb.IpFamily_IP_FAMILY_ALL,
+		TimeoutMs: 5000,
+		Selector:  &controlpb.NetworkSelector{},
+	}
+	familySet := false
+	rest := args
+	if len(rest) > 0 && !strings.HasPrefix(rest[0], "--") {
+		family, err := parseIpFamily(rest[0])
+		if err != nil {
+			return nil, err
+		}
+		req.Family = family
+		familySet = true
+		rest = rest[1:]
+	}
+	for i := 0; i < len(rest); i++ {
+		switch rest[i] {
+		case "--family":
+			if familySet {
+				return nil, fmt.Errorf("global-ip family specified twice")
+			}
+			value, next, err := parseStringOption(rest, i, "family")
+			if err != nil {
+				return nil, err
+			}
+			family, err := parseIpFamily(value)
+			if err != nil {
+				return nil, err
+			}
+			req.Family = family
+			familySet = true
+			i = next
+		case "--timeout":
+			value, next, err := parseUint32Option(rest, i, "timeout")
+			if err != nil {
+				return nil, err
+			}
+			req.TimeoutMs = value
+			i = next
+		default:
+			return nil, fmt.Errorf("unsupported global-ip option %q", rest[i])
+		}
+	}
+	return &controlpb.RunCommand{
+		Label: label,
+		Command: &controlpb.RunCommand_GlobalIp{
+			GlobalIp: req,
 		},
 	}, nil
 }

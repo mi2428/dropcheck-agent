@@ -108,6 +108,32 @@ func parseQTypes(value string) ([]controlpb.DnsRecordType, error) {
 	}
 }
 
+func parseIpFamily(value string) (controlpb.IpFamily, error) {
+	switch strings.ToLower(value) {
+	case "", "all":
+		return controlpb.IpFamily_IP_FAMILY_ALL, nil
+	case "4", "ipv4":
+		return controlpb.IpFamily_IP_FAMILY_IPV4, nil
+	case "6", "ipv6":
+		return controlpb.IpFamily_IP_FAMILY_IPV6, nil
+	default:
+		return controlpb.IpFamily_IP_FAMILY_UNSPECIFIED, fmt.Errorf("unsupported IP family %q", value)
+	}
+}
+
+func normalizeIpFamily(value string) (string, error) {
+	switch family, err := parseIpFamily(value); {
+	case err != nil:
+		return "", err
+	case family == controlpb.IpFamily_IP_FAMILY_IPV4:
+		return "ipv4", nil
+	case family == controlpb.IpFamily_IP_FAMILY_IPV6:
+		return "ipv6", nil
+	default:
+		return "all", nil
+	}
+}
+
 func normalizeDNSQType(value string) (string, error) {
 	normalized := strings.ToUpper(strings.TrimSpace(value))
 	switch normalized {
@@ -153,6 +179,12 @@ func timeoutFor(cmd *controlpb.RunCommand) time.Duration {
 		return durationFromMillis(c.Traceroute.TimeoutMs, 60*time.Second) + 5*time.Second
 	case *controlpb.RunCommand_PathMtu:
 		return durationFromMillis(c.PathMtu.TimeoutMs, 30*time.Second) + 3*time.Second
+	case *controlpb.RunCommand_GlobalIp:
+		families := 2
+		if c.GlobalIp.Family == controlpb.IpFamily_IP_FAMILY_IPV4 || c.GlobalIp.Family == controlpb.IpFamily_IP_FAMILY_IPV6 {
+			families = 1
+		}
+		return time.Duration(families)*durationFromMillis(c.GlobalIp.TimeoutMs, 5*time.Second) + 3*time.Second
 	case *controlpb.RunCommand_Wget:
 		return durationFromMillis(c.Wget.TimeoutMs, 60*time.Second) + 5*time.Second
 	case *controlpb.RunCommand_ResolveDns:

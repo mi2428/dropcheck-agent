@@ -65,6 +65,12 @@ func TestParseShellCommands(t *testing.T) {
 			args: []string{"path-mtu", "example.test", "--min-mtu", "1200", "--max-mtu", "1500", "--timeout", "30000"},
 		},
 		{
+			name: "global ip",
+			line: "global-ip ipv6 timeout 7000",
+			kind: shellAgentCommand,
+			args: []string{"global-ip", "ipv6", "--timeout", "7000"},
+		},
+		{
 			name: "test dns",
 			line: "test dns example.test type AAAA timeout 9000",
 			kind: shellAgentCommand,
@@ -288,6 +294,35 @@ func TestShellDNSHelpAndFlexibleArgs(t *testing.T) {
 	}
 }
 
+func TestShellGlobalIPHelp(t *testing.T) {
+	help := shellHelpEntries("global-ip ?")
+	var tokens []string
+	for _, entry := range help {
+		tokens = append(tokens, entry.token)
+	}
+	for _, want := range []string{"ipv4", "ipv6", "all", "timeout", "<cr>", "| display json"} {
+		if !slices.Contains(tokens, want) {
+			t.Fatalf("global-ip help tokens = %#v, missing %q", tokens, want)
+		}
+	}
+
+	help = shellHelpEntries("global-ip ipv4 ?")
+	tokens = tokens[:0]
+	for _, entry := range help {
+		tokens = append(tokens, entry.token)
+	}
+	for _, unwanted := range []string{"ipv4", "ipv6", "all"} {
+		if slices.Contains(tokens, unwanted) {
+			t.Fatalf("global-ip ipv4 help tokens = %#v, unexpectedly included %q", tokens, unwanted)
+		}
+	}
+	for _, want := range []string{"timeout", "<cr>", "| display json"} {
+		if !slices.Contains(tokens, want) {
+			t.Fatalf("global-ip ipv4 help tokens = %#v, missing %q", tokens, want)
+		}
+	}
+}
+
 func TestShellTerminalHelp(t *testing.T) {
 	help := shellHelpEntries("show target ?")
 	var tokens []string
@@ -357,6 +392,20 @@ func TestShellReadlineCompleter(t *testing.T) {
 	if len(completions) != 1 || string(completions[0]) != "fi" {
 		t.Fatalf("completions = %#v, want fi", completions)
 	}
+
+	completions, _ = completer.Do([]rune("global-ip ipv4 "), len([]rune("global-ip ipv4 ")))
+	if !slices.ContainsFunc(completions, func(candidate []rune) bool {
+		return string(candidate) == "timeout"
+	}) {
+		t.Fatalf("global-ip completions = %#v, missing timeout", completions)
+	}
+	for _, unexpected := range []string{"ipv4", "ipv6", "all"} {
+		if slices.ContainsFunc(completions, func(candidate []rune) bool {
+			return string(candidate) == unexpected
+		}) {
+			t.Fatalf("global-ip completions = %#v, unexpectedly included %q", completions, unexpected)
+		}
+	}
 }
 
 func TestParseShellRejectsLinuxShapeInShell(t *testing.T) {
@@ -393,6 +442,11 @@ func TestParseLinuxCommands(t *testing.T) {
 			name: "path mtu flags",
 			args: []string{"path-mtu", "example.test", "--min-mtu", "1200", "--max-mtu", "1500", "--timeout", "30000"},
 			want: []string{"path-mtu", "example.test", "--min-mtu", "1200", "--max-mtu", "1500", "--timeout", "30000"},
+		},
+		{
+			name: "global ip flags",
+			args: []string{"global-ip", "--family", "ipv4", "--timeout", "7000"},
+			want: []string{"global-ip", "ipv4", "--timeout", "7000"},
 		},
 		{
 			name: "dns flags",

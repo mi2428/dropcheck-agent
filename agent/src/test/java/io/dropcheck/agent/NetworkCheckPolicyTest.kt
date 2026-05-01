@@ -1,8 +1,11 @@
 package io.dropcheck.agent
 
 import io.dropcheck.agent.grpc.DnsRecordType
+import io.dropcheck.agent.grpc.IpFamily
+import java.net.InetAddress
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -105,5 +108,30 @@ class NetworkCheckPolicyTest {
                 host = "example.com",
             ),
         )
+    }
+
+    @Test
+    fun classifiesGlobalIpFamiliesAndAddresses() {
+        assertEquals(
+            listOf(IpFamily.IP_FAMILY_IPV4, IpFamily.IP_FAMILY_IPV6),
+            NetworkCheckPolicy.globalIpFamilies(IpFamily.IP_FAMILY_UNSPECIFIED),
+        )
+        assertEquals(
+            listOf(IpFamily.IP_FAMILY_IPV4),
+            NetworkCheckPolicy.globalIpFamilies(IpFamily.IP_FAMILY_IPV4),
+        )
+        val publicV4 = InetAddress.getByName("8.8.8.8")
+        val privateV4 = InetAddress.getByName("192.168.0.1")
+        val publicV6 = InetAddress.getByName("2001:4860:4860::8888")
+        val ulaV6 = InetAddress.getByName("fd00::1")
+
+        assertTrue(NetworkCheckPolicy.addressMatchesFamily(publicV4, IpFamily.IP_FAMILY_IPV4))
+        assertFalse(NetworkCheckPolicy.addressMatchesFamily(publicV4, IpFamily.IP_FAMILY_IPV6))
+        assertTrue(NetworkCheckPolicy.isGlobalUnicast(publicV4))
+        assertFalse(NetworkCheckPolicy.isGlobalUnicast(privateV4))
+        assertTrue(NetworkCheckPolicy.isGlobalUnicast(publicV6))
+        assertFalse(NetworkCheckPolicy.isGlobalUnicast(ulaV6))
+        assertEquals(publicV4, NetworkCheckPolicy.parseIpLiteral("8.8.8.8"))
+        assertNull(NetworkCheckPolicy.parseIpLiteral("example.test"))
     }
 }

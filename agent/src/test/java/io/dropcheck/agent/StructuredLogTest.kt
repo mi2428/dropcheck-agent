@@ -4,8 +4,12 @@ import io.dropcheck.agent.grpc.CommandResult
 import io.dropcheck.agent.grpc.ConnectWifi
 import io.dropcheck.agent.grpc.DnsAnswer
 import io.dropcheck.agent.grpc.DnsRecordType
+import io.dropcheck.agent.grpc.GlobalIp
+import io.dropcheck.agent.grpc.GlobalIpAddress
+import io.dropcheck.agent.grpc.GlobalIpResult
 import io.dropcheck.agent.grpc.HttpCheck
 import io.dropcheck.agent.grpc.HttpCheckResult
+import io.dropcheck.agent.grpc.IpFamily
 import io.dropcheck.agent.grpc.PathMtu
 import io.dropcheck.agent.grpc.PathMtuResult
 import io.dropcheck.agent.grpc.ResolveDns
@@ -36,7 +40,7 @@ class StructuredLogTest {
     }
 
     @Test
-    fun commandFieldsIncludeConcreteHttpDnsTracerouteAndPathMtuTargets() {
+    fun commandFieldsIncludeConcreteHttpDnsTraceroutePathMtuAndGlobalIpTargets() {
         val http = RunCommand.newBuilder()
             .setLabel("test http https://www.wide.ad.jp/ expected-status 301")
             .setHttpCheck(HttpCheck.newBuilder()
@@ -63,11 +67,17 @@ class StructuredLogTest {
                 .setMaxMtuBytes(1500)
                 .setTimeoutMs(3000))
             .build()
+        val globalIp = RunCommand.newBuilder()
+            .setGlobalIp(GlobalIp.newBuilder()
+                .setFamily(IpFamily.IP_FAMILY_IPV6)
+                .setTimeoutMs(3000))
+            .build()
 
         val httpLine = StructuredLog.format("command.received", http.logFields())
         val dnsLine = StructuredLog.format("command.received", dns.logFields())
         val tracerouteLine = StructuredLog.format("command.received", traceroute.logFields())
         val pathMtuLine = StructuredLog.format("command.received", pathMtu.logFields())
+        val globalIpLine = StructuredLog.format("command.received", globalIp.logFields())
 
         assertTrue(httpLine.contains("url=https://www.wide.ad.jp/"))
         assertTrue(httpLine.contains("url_host=www.wide.ad.jp"))
@@ -79,6 +89,8 @@ class StructuredLogTest {
         assertTrue(pathMtuLine.contains("host=1.1.1.1"))
         assertTrue(pathMtuLine.contains("min_mtu_bytes=1200"))
         assertTrue(pathMtuLine.contains("max_mtu_bytes=1500"))
+        assertTrue(globalIpLine.contains("family=IP_FAMILY_IPV6"))
+        assertTrue(globalIpLine.contains("timeout_ms=3000"))
     }
 
     @Test
@@ -133,11 +145,23 @@ class StructuredLogTest {
                 .setPayloadSizeBytes(1472)
                 .setIpOverheadBytes(28))
             .build()
+        val globalIpResult = CommandResult.newBuilder()
+            .setStatus(CommandResult.Status.STATUS_OK)
+            .setGlobalIp(GlobalIpResult.newBuilder()
+                .setService("ifconfig.me")
+                .setRequestedFamily(IpFamily.IP_FAMILY_IPV4)
+                .addAddresses(GlobalIpAddress.newBuilder()
+                    .setFamily(IpFamily.IP_FAMILY_IPV4)
+                    .setIp("203.0.113.10")
+                    .setGlobal(true)
+                    .setStatus(200)))
+            .build()
 
         val dnsLine = StructuredLog.format("command.result", dnsResult.logFields())
         val httpLine = StructuredLog.format("command.result", httpResult.logFields())
         val tracerouteLine = StructuredLog.format("command.result", tracerouteResult.logFields())
         val pathMtuLine = StructuredLog.format("command.result", pathMtuResult.logFields())
+        val globalIpLine = StructuredLog.format("command.result", globalIpResult.logFields())
 
         assertTrue(dnsLine.contains("answers=DNS_RECORD_TYPE_A:203.178.136.63"))
         assertTrue(httpLine.contains("url_host=www.wide.ad.jp"))
@@ -147,5 +171,8 @@ class StructuredLogTest {
         assertTrue(pathMtuLine.contains("discovered=true"))
         assertTrue(pathMtuLine.contains("path_mtu_bytes=1500"))
         assertTrue(pathMtuLine.contains("payload_size_bytes=1472"))
+        assertTrue(globalIpLine.contains("service=ifconfig.me"))
+        assertTrue(globalIpLine.contains("requested_family=IP_FAMILY_IPV4"))
+        assertTrue(globalIpLine.contains("addresses_count=1"))
     }
 }
