@@ -31,7 +31,7 @@ type helpEntry struct {
 	description string
 }
 
-var shellTopKeywords = []string{"show", "set", "clear", "request", "monitor", "ping", "traceroute", "test", "help", "exit", "quit"}
+var shellTopKeywords = []string{"show", "set", "clear", "request", "monitor", "ping", "traceroute", "path-mtu", "test", "help", "exit", "quit"}
 
 func parseShellLine(line string) (shellCommand, error) {
 	parts, err := splitPipeline(line)
@@ -88,6 +88,8 @@ func parseShellArgs(args []string) (shellCommand, error) {
 		return parseShellPing(args[1:])
 	case "traceroute":
 		return parseShellTraceroute(args[1:])
+	case "path-mtu":
+		return parseShellPathMtu(args[1:])
 	case "test":
 		return parseShellTest(args[1:])
 	default:
@@ -490,6 +492,32 @@ func parseShellTraceroute(args []string) (shellCommand, error) {
 		legacy = append(legacy, "--via", hop)
 	}
 	for _, key := range []string{"size", "timeout"} {
+		if values[key] != "" {
+			legacy = append(legacy, "--"+key, values[key])
+		}
+	}
+	return agentShellCommand(legacy...), nil
+}
+
+func parseShellPathMtu(args []string) (shellCommand, error) {
+	if len(args) == 0 {
+		return shellCommand{}, fmt.Errorf("usage: path-mtu <host> [min-mtu <bytes>] [max-mtu <bytes>] [timeout <ms>]")
+	}
+	legacy := []string{"path-mtu", args[0]}
+	values := map[string]string{}
+	for i := 1; i < len(args); i++ {
+		key, err := resolveShellKeyword("path-mtu option", args[i], []string{"min-mtu", "max-mtu", "timeout"})
+		if err != nil {
+			return shellCommand{}, err
+		}
+		value, next, err := shellValue(args, i, key)
+		if err != nil {
+			return shellCommand{}, err
+		}
+		values[key] = value
+		i = next
+	}
+	for _, key := range []string{"min-mtu", "max-mtu", "timeout"} {
 		if values[key] != "" {
 			legacy = append(legacy, "--"+key, values[key])
 		}

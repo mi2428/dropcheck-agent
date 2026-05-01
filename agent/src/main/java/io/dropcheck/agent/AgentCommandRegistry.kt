@@ -43,6 +43,7 @@ internal object AgentCommandRegistry {
         Entry(RunCommand.CommandCase.GET_IP_STATUS, "ip.status"),
         Entry(RunCommand.CommandCase.PING, "ping"),
         Entry(RunCommand.CommandCase.TRACEROUTE, "traceroute"),
+        Entry(RunCommand.CommandCase.PATH_MTU, "path.mtu"),
         Entry(RunCommand.CommandCase.WGET, "download"),
         Entry(RunCommand.CommandCase.RESOLVE_DNS, "dns"),
         Entry(RunCommand.CommandCase.HTTP_CHECK, "http.check"),

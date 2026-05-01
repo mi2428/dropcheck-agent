@@ -19,6 +19,7 @@ var agentCommands = []string{
 	"ip",
 	"ping",
 	"traceroute",
+	"path-mtu",
 	"download",
 	"dns",
 	"http",

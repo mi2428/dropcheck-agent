@@ -151,6 +151,8 @@ func timeoutFor(cmd *controlpb.RunCommand) time.Duration {
 		return durationFromMillis(c.Ping.TimeoutMs, 20*time.Second) + 3*time.Second
 	case *controlpb.RunCommand_Traceroute:
 		return durationFromMillis(c.Traceroute.TimeoutMs, 60*time.Second) + 5*time.Second
+	case *controlpb.RunCommand_PathMtu:
+		return durationFromMillis(c.PathMtu.TimeoutMs, 30*time.Second) + 3*time.Second
 	case *controlpb.RunCommand_Wget:
 		return durationFromMillis(c.Wget.TimeoutMs, 60*time.Second) + 5*time.Second
 	case *controlpb.RunCommand_ResolveDns:

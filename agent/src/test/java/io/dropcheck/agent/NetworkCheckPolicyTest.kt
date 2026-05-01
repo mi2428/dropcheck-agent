@@ -83,4 +83,27 @@ class NetworkCheckPolicyTest {
             ),
         )
     }
+
+    @Test
+    fun appliesPathMtuDefaultsAndBuildsProbeArguments() {
+        assertEquals(576, NetworkCheckPolicy.pathMtuMinBytes(0, ipv6 = false))
+        assertEquals(1280, NetworkCheckPolicy.pathMtuMinBytes(0, ipv6 = true))
+        assertEquals(1200, NetworkCheckPolicy.pathMtuMinBytes(1200, ipv6 = false))
+        assertEquals(1400, NetworkCheckPolicy.pathMtuMaxBytes(0, interfaceMtu = 1400, minMtu = 576))
+        assertEquals(1500, NetworkCheckPolicy.pathMtuMaxBytes(0, interfaceMtu = 0, minMtu = 576))
+        assertEquals(1280, NetworkCheckPolicy.pathMtuMaxBytes(1200, interfaceMtu = 0, minMtu = 1280))
+        assertEquals(NetworkCheckPolicy.IPV4_PING_OVERHEAD_BYTES, NetworkCheckPolicy.pathMtuOverheadBytes("8.8.8.8"))
+        assertEquals(NetworkCheckPolicy.IPV6_PING_OVERHEAD_BYTES, NetworkCheckPolicy.pathMtuOverheadBytes("2001:db8::1"))
+        assertEquals(1472, NetworkCheckPolicy.pathMtuPayloadBytes(1500, NetworkCheckPolicy.IPV4_PING_OVERHEAD_BYTES))
+        assertEquals(
+            listOf("/system/bin/ping", "-I", "wlan0", "-M", "do", "-s", "1472", "-c", "1", "-W", "2", "example.com"),
+            NetworkCheckPolicy.pathMtuPingArgs(
+                binary = "/system/bin/ping",
+                interfaceName = "wlan0",
+                payloadSizeBytes = 1472,
+                waitSeconds = 2,
+                host = "example.com",
+            ),
+        )
+    }
 }

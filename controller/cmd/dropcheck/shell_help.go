@@ -33,6 +33,7 @@ func writeShellHelp(w io.Writer) {
   monitor wifi [duration <ms>] [interval <ms>]
   ping <host> [count <n>] [size <bytes>] [timeout <ms>]
   traceroute <host> [max-hops <n>] [via <host_or_ip>] [size <bytes>] [timeout <ms>]
+  path-mtu <host> [min-mtu <bytes>] [max-mtu <bytes>] [timeout <ms>]
   test dns <name> [type A|AAAA|ALL] [timeout <ms>]
   test http <url> [expected-status <code>] [timeout <ms>]
   test download <url> [timeout <ms>]
@@ -197,6 +198,8 @@ func helpEntriesForArgs(args []string) []helpEntry {
 		return []helpEntry{{"count", "Packet count"}, {"size", "Payload size in bytes"}, {"timeout", "Timeout in milliseconds"}}
 	case "traceroute":
 		return []helpEntry{{"max-hops", "Maximum hops"}, {"via", "Required hop for analysis"}, {"size", "Packet size in bytes"}, {"timeout", "Timeout in milliseconds"}}
+	case "path-mtu":
+		return []helpEntry{{"min-mtu", "Minimum MTU in bytes"}, {"max-mtu", "Maximum MTU in bytes"}, {"timeout", "Timeout in milliseconds"}}
 	case "test":
 		if len(args) == 1 {
 			return []helpEntry{{"dns", "Resolve a DNS name"}, {"http", "Check an HTTP status"}, {"download", "Download a URL"}}
@@ -358,6 +361,7 @@ func topHelpEntries() []helpEntry {
 		{"monitor", "Run a bounded monitor"},
 		{"ping", "Ping from the selected Android agent"},
 		{"traceroute", "Traceroute from the selected Android agent"},
+		{"path-mtu", "Discover path MTU from the selected Android agent"},
 		{"test", "Run DNS, HTTP, or download checks"},
 		{"help", "Show command summary"},
 		{"quit", "Exit the shell"},
@@ -460,6 +464,8 @@ func completionCandidatesForArgs(args []string) []string {
 			return []string{"count", "size", "timeout"}
 		case resolved[0] == "traceroute":
 			return []string{"max-hops", "via", "size", "timeout"}
+		case resolved[0] == "path-mtu":
+			return []string{"min-mtu", "max-mtu", "timeout"}
 		case resolved[0] == "test" && len(resolved) >= 2:
 			return testCompletionCandidates(resolved[1])
 		case resolved[0] == "request" && len(resolved) >= 3 && resolved[1] == "wifi":

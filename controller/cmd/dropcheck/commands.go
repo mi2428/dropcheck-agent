@@ -103,6 +103,8 @@ func buildCommand(args []string) (*controlpb.RunCommand, error) {
 		return buildPingCommand(label, args[1:])
 	case "traceroute":
 		return buildTracerouteCommand(label, args[1:])
+	case "path-mtu":
+		return buildPathMtuCommand(label, args[1:])
 	case "download":
 		return buildDownloadCommand(label, args[1:])
 	case "dns":
@@ -669,6 +671,52 @@ func buildTracerouteCommand(label string, args []string) (*controlpb.RunCommand,
 		Label: label,
 		Command: &controlpb.RunCommand_Traceroute{
 			Traceroute: trace,
+		},
+	}, nil
+}
+
+// buildPathMtuCommand accepts MTU byte bounds; the Android agent converts each candidate MTU to ping payload bytes.
+func buildPathMtuCommand(label string, args []string) (*controlpb.RunCommand, error) {
+	if len(args) < 1 {
+		return nil, errors.New("usage: path-mtu <host> [--min-mtu bytes] [--max-mtu bytes] [--timeout ms]")
+	}
+	req := &controlpb.PathMtu{
+		Host:      args[0],
+		TimeoutMs: 30000,
+		Selector:  &controlpb.NetworkSelector{},
+	}
+	rest := args[1:]
+	for i := 0; i < len(rest); i++ {
+		switch rest[i] {
+		case "--min-mtu":
+			value, next, err := parseUint32Option(rest, i, "min-mtu")
+			if err != nil {
+				return nil, err
+			}
+			req.MinMtuBytes = value
+			i = next
+		case "--max-mtu":
+			value, next, err := parseUint32Option(rest, i, "max-mtu")
+			if err != nil {
+				return nil, err
+			}
+			req.MaxMtuBytes = value
+			i = next
+		case "--timeout":
+			value, next, err := parseUint32Option(rest, i, "timeout")
+			if err != nil {
+				return nil, err
+			}
+			req.TimeoutMs = value
+			i = next
+		default:
+			return nil, fmt.Errorf("unsupported path-mtu option %q", rest[i])
+		}
+	}
+	return &controlpb.RunCommand{
+		Label: label,
+		Command: &controlpb.RunCommand_PathMtu{
+			PathMtu: req,
 		},
 	}, nil
 }

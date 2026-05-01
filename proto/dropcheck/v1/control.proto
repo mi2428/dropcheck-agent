@@ -115,6 +115,7 @@ message RunCommand {
     CycleWifi cycle_wifi = 28;
     Traceroute traceroute = 29;
     Wget wget = 30;
+    PathMtu path_mtu = 31;
   }
 }
 
@@ -232,6 +233,16 @@ message Traceroute {
   uint32 size_bytes = 5;
 }
 
+// PathMtu discovers the largest IP packet size that reaches host without
+// fragmentation. min/max are MTU bytes, not ping payload bytes.
+message PathMtu {
+  string host = 1;
+  uint32 timeout_ms = 2;
+  NetworkSelector selector = 3;
+  uint32 min_mtu_bytes = 4;
+  uint32 max_mtu_bytes = 5;
+}
+
 message Wget {
   string url = 1;
   uint32 timeout_ms = 2;
@@ -302,6 +313,7 @@ message CommandResult {
     WifiCycleResult wifi_cycle = 24;
     TracerouteResult traceroute = 25;
     WgetResult wget = 26;
+    PathMtuResult path_mtu = 27;
   }
 }
 
@@ -574,6 +586,35 @@ message TracerouteResult {
   string output = 7;
   string error = 8;
   string executable = 9;
+}
+
+message PathMtuProbe {
+  // Candidate IP MTU tested by this probe.
+  uint32 mtu_bytes = 1;
+  // ICMP payload passed to ping -s after subtracting IP+ICMP overhead.
+  uint32 payload_size_bytes = 2;
+  bool passed = 3;
+  int32 exit_code = 4;
+  int64 elapsed_ms = 5;
+  string output = 6;
+}
+
+message PathMtuResult {
+  string host = 1;
+  // True only when discovery converged before timeout and the lower bound passed.
+  bool discovered = 2;
+  // Largest passing IP MTU, or zero when discovered is false and no lower bound passed.
+  uint32 path_mtu_bytes = 3;
+  // Ping payload corresponding to path_mtu_bytes.
+  uint32 payload_size_bytes = 4;
+  uint32 min_mtu_bytes = 5;
+  uint32 max_mtu_bytes = 6;
+  // IP header plus ICMP header bytes subtracted from MTU to build ping payloads.
+  uint32 ip_overhead_bytes = 7;
+  int64 elapsed_ms = 8;
+  string interface_name = 9;
+  string error = 10;
+  repeated PathMtuProbe probes = 11;
 }
 
 message WgetResult {
