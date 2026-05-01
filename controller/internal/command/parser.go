@@ -1,4 +1,4 @@
-package main
+package command
 
 import (
 	"errors"
@@ -144,6 +144,34 @@ func normalizeDNSQType(value string) (string, error) {
 	}
 }
 
+func ParseSecurity(value string) (controlpb.ConnectWifi_Security, error) {
+	return parseSecurity(value)
+}
+
+func ParseWifiBand(value string) (controlpb.WifiBand, error) {
+	return parseWifiBand(value)
+}
+
+func ParseMacRandomization(value string) (controlpb.ConnectWifi_MacRandomization, error) {
+	return parseMacRandomization(value)
+}
+
+func ParseQTypes(value string) ([]controlpb.DnsRecordType, error) {
+	return parseQTypes(value)
+}
+
+func ParseIpFamily(value string) (controlpb.IpFamily, error) {
+	return parseIpFamily(value)
+}
+
+func NormalizeIpFamily(value string) (string, error) {
+	return normalizeIpFamily(value)
+}
+
+func NormalizeDNSQType(value string) (string, error) {
+	return normalizeDNSQType(value)
+}
+
 func timeoutFor(cmd *controlpb.RunCommand) time.Duration {
 	switch c := cmd.Command.(type) {
 	case *controlpb.RunCommand_ConnectWifi:
@@ -194,6 +222,10 @@ func timeoutFor(cmd *controlpb.RunCommand) time.Duration {
 	default:
 		return 15 * time.Second
 	}
+}
+
+func TimeoutFor(cmd *controlpb.RunCommand) time.Duration {
+	return timeoutFor(cmd)
 }
 
 func durationFromMillis(ms uint32, fallback time.Duration) time.Duration {
@@ -260,6 +292,10 @@ func splitArgs(line string) ([]string, error) {
 	return args, nil
 }
 
+func SplitArgs(line string) ([]string, error) {
+	return splitArgs(line)
+}
+
 func redactedCommand(cmd *controlpb.RunCommand) *controlpb.RunCommand {
 	cloned := proto.Clone(cmd).(*controlpb.RunCommand)
 	if connect := cloned.GetConnectWifi(); connect != nil && connect.Passphrase != "" {
@@ -271,4 +307,8 @@ func redactedCommand(cmd *controlpb.RunCommand) *controlpb.RunCommand {
 		cycle.Connect.Passphrase = "<redacted>"
 	}
 	return cloned
+}
+
+func RedactedCommand(cmd *controlpb.RunCommand) *controlpb.RunCommand {
+	return redactedCommand(cmd)
 }

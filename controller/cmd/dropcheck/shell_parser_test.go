@@ -133,8 +133,8 @@ func TestParseShellCommands(t *testing.T) {
 			if got.kind != tt.kind {
 				t.Fatalf("kind = %v, want %v", got.kind, tt.kind)
 			}
-			if !slices.Equal(got.operation.legacyCommandArgs(), tt.args) {
-				t.Fatalf("operation legacy args = %#v, want %#v", got.operation.legacyCommandArgs(), tt.args)
+			if !slices.Equal(got.operation.LegacyCommandArgs(), tt.args) {
+				t.Fatalf("operation legacy args = %#v, want %#v", got.operation.LegacyCommandArgs(), tt.args)
 			}
 		})
 	}
@@ -671,8 +671,8 @@ func TestParseLinuxCommands(t *testing.T) {
 			if got.kind != cliAgentCommand {
 				t.Fatalf("kind = %v, want cliAgentCommand", got.kind)
 			}
-			if !slices.Equal(got.operation.legacyCommandArgs(), tt.want) {
-				t.Fatalf("operation legacy args = %#v, want %#v", got.operation.legacyCommandArgs(), tt.want)
+			if !slices.Equal(got.operation.LegacyCommandArgs(), tt.want) {
+				t.Fatalf("operation legacy args = %#v, want %#v", got.operation.LegacyCommandArgs(), tt.want)
 			}
 		})
 	}

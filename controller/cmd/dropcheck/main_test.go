@@ -520,8 +520,8 @@ func TestBuildCommandWithOptionsTracerouteVia(t *testing.T) {
 	if cmd.GetTraceroute() == nil {
 		t.Fatalf("traceroute command = nil")
 	}
-	if !slices.Equal(options.tracerouteRequiredHops, []string{"192.0.2.1", "gateway.example"}) {
-		t.Fatalf("traceroute required hops = %#v", options.tracerouteRequiredHops)
+	if !slices.Equal(options.TracerouteRequiredHops, []string{"192.0.2.1", "gateway.example"}) {
+		t.Fatalf("traceroute required hops = %#v", options.TracerouteRequiredHops)
 	}
 }
 

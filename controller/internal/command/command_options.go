@@ -1,4 +1,4 @@
-package main
+package command
 
 import (
 	"strings"
@@ -6,27 +6,27 @@ import (
 	"dropcheck/controller/internal/controlpb"
 )
 
-type commandOptions struct {
-	tracerouteRequiredHops []string
+type Options struct {
+	TracerouteRequiredHops []string
 }
 
-func buildCommandWithOptions(args []string) (*controlpb.RunCommand, commandOptions, error) {
-	args, err := normalizeAgentCommandArgs(args)
+func BuildCommandWithOptions(args []string) (*controlpb.RunCommand, Options, error) {
+	args, err := NormalizeAgentCommandArgs(args)
 	if err != nil {
-		return nil, commandOptions{}, err
+		return nil, Options{}, err
 	}
-	cmd, err := buildCommand(args)
+	cmd, err := BuildCommand(args)
 	if err != nil {
-		return nil, commandOptions{}, err
+		return nil, Options{}, err
 	}
 	return cmd, localCommandOptions(args), nil
 }
 
-func localCommandOptions(args []string) commandOptions {
+func localCommandOptions(args []string) Options {
 	if len(args) == 0 || args[0] != "traceroute" {
-		return commandOptions{}
+		return Options{}
 	}
-	return commandOptions{tracerouteRequiredHops: collectTracerouteRequiredHops(args[1:])}
+	return Options{TracerouteRequiredHops: collectTracerouteRequiredHops(args[1:])}
 }
 
 func collectTracerouteRequiredHops(args []string) []string {

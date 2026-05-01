@@ -1,4 +1,4 @@
-package main
+package command
 
 import (
 	"errors"
@@ -8,8 +8,8 @@ import (
 	"dropcheck/controller/internal/controlpb"
 )
 
-func buildCommand(args []string) (*controlpb.RunCommand, error) {
-	args, err := normalizeAgentCommandArgs(args)
+func BuildCommand(args []string) (*controlpb.RunCommand, error) {
+	args, err := NormalizeAgentCommandArgs(args)
 	if err != nil {
 		return nil, err
 	}
@@ -892,4 +892,8 @@ func normalizeHTTPURL(value string) string {
 		return value
 	}
 	return "https://" + value
+}
+
+func NormalizeHTTPURL(value string) string {
+	return normalizeHTTPURL(value)
 }
