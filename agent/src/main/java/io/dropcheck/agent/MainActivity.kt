@@ -88,7 +88,11 @@ class MainActivity : Activity() {
             isFillViewport = true
             addView(logView)
             setOnScrollChangeListener { _, _, _, _, _ ->
-                followLogTail = isScrolledToBottom()
+                val atBottom = isScrolledToBottom()
+                followLogTail = atBottom
+                if (atBottom && trimDisplayIfNeeded() > 0) {
+                    requestScrollToBottom()
+                }
             }
         }
         setContentView(scroll)
@@ -122,18 +126,14 @@ class MainActivity : Activity() {
         logView.append(colored(displayLine))
         displayLineLengths.addLast(displayLine.length)
         displayLogChars += displayLine.length
-        val removedLines = trimDisplayIfNeeded()
-        when {
-            followBottom -> {
-                followLogTail = true
-                requestScrollToBottom()
-            }
-            removedLines > 0 && ::scroll.isInitialized -> {
-                val removedHeight = removedLines * logView.lineHeight
-                scroll.post {
-                    scroll.scrollTo(0, (scroll.scrollY - removedHeight).coerceAtLeast(0))
-                }
-            }
+        // Do not delete old lines while the user is reading scrollback; removing text above the viewport
+        // changes TextView layout and makes wrapped log lines visibly jump.
+        if (followBottom || !::scroll.isInitialized) {
+            trimDisplayIfNeeded()
+        }
+        if (followBottom) {
+            followLogTail = true
+            requestScrollToBottom()
         }
     }
 
