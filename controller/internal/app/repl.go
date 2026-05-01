@@ -297,6 +297,8 @@ func selectedAgent(state *shellState) (control.AgentInfo, error) {
 	case 0:
 		return control.AgentInfo{}, errors.New("no Android agents connected")
 	case 1:
+		// Auto-select the only connected agent to keep the common single-device
+		// flow terse, but require an explicit choice once there is ambiguity.
 		state.setSelectedAgent(agents[0])
 		return agents[0], nil
 	default:
@@ -346,6 +348,9 @@ func runOperationForAgents(ctx context.Context, state *shellState, agents []cont
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(agents))
 	for _, agent := range agents {
+		// Each goroutine receives its own command clone. The server and render
+		// path currently treat commands as immutable, but cloning here keeps
+		// broadcast execution safe if per-agent metadata is added later.
 		agentCmd := proto.Clone(cmd).(*controlpb.RunCommand)
 		wg.Go(func() {
 			if err := runCommandForAgent(ctx, state, agent, agentCmd, options, output, &outputMu); err != nil {
@@ -373,6 +378,9 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 	result, err := state.server.Run(runCtx, agent.ID, commandID, cmd)
 	cancel()
 
+	// Multiple agents execute concurrently, but terminal output is a shared
+	// stream. Serialize rendering and printing so multi-line text and JSON
+	// envelopes remain intact.
 	outputMu.Lock()
 	defer outputMu.Unlock()
 	if err != nil {

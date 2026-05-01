@@ -7,10 +7,12 @@ import (
 	"strings"
 )
 
+// PrintHelp writes the full shell help summary to stdout.
 func PrintHelp() {
 	writeShellHelp(os.Stdout)
 }
 
+// WriteHelp writes the full shell help summary to w.
 func WriteHelp(w io.Writer) {
 	writeShellHelp(w)
 }
@@ -52,6 +54,11 @@ pipes:
   | no-more`)
 }
 
+// IsHelpLine reports whether line is a help request.
+//
+// A line is a help request when it is exactly "?" or when the command segment
+// ends in a help suffix. Pipeline parse errors are ignored so the REPL can keep
+// help detection lightweight.
 func IsHelpLine(line string) bool {
 	return isHelpLine(line)
 }
@@ -72,6 +79,7 @@ func isHelpLine(line string) bool {
 	return hasShellHelpSuffix(args[len(args)-1])
 }
 
+// IsHelpToken reports whether value is a standalone help token.
 func IsHelpToken(value string) bool {
 	return isShellHelpToken(value)
 }
@@ -80,6 +88,7 @@ func isShellHelpToken(value string) bool {
 	return value == "?" || value == "？"
 }
 
+// IsHelpRune reports whether value is a supported help trigger rune.
 func IsHelpRune(value rune) bool {
 	return isShellHelpRune(value)
 }
@@ -88,6 +97,7 @@ func isShellHelpRune(value rune) bool {
 	return value == '?' || value == '？'
 }
 
+// HasHelpSuffix reports whether value ends with a supported help suffix.
 func HasHelpSuffix(value string) bool {
 	return hasShellHelpSuffix(value)
 }
@@ -96,6 +106,7 @@ func hasShellHelpSuffix(value string) bool {
 	return strings.HasSuffix(value, "?") || strings.HasSuffix(value, "？")
 }
 
+// PrintContextHelp writes contextual help for line to stdout.
 func PrintContextHelp(line string) {
 	printShellContextHelp(line)
 }
@@ -104,6 +115,10 @@ func printShellContextHelp(line string) {
 	writeShellContextHelp(os.Stdout, line)
 }
 
+// WriteContextHelp writes contextual help for line to w.
+//
+// If line cannot be resolved to a narrower context, the full shell help summary
+// is written.
 func WriteContextHelp(w io.Writer, line string) {
 	writeShellContextHelp(w, line)
 }
@@ -123,6 +138,11 @@ func writeShellContextHelp(w io.Writer, line string) {
 	}
 }
 
+// HelpEntries returns contextual help candidates for line.
+//
+// The function accepts the same trailing "?" suffix as the interactive shell,
+// resolves unambiguous command prefixes, and falls back to top-level entries
+// when the context is unknown.
 func HelpEntries(line string) []HelpEntry {
 	return shellHelpEntries(line)
 }
@@ -140,6 +160,8 @@ func shellHelpEntries(line string) []HelpEntry {
 	if len(args) == 0 {
 		return topHelpEntries()
 	}
+	// Contextual help should behave like parsing: partial but unambiguous
+	// prefixes are resolved before selecting the next set of candidates.
 	for i, arg := range args {
 		if resolved, err := resolveContextKeyword(i, args[:i], arg); err == nil {
 			args[i] = resolved
@@ -437,6 +459,11 @@ func topHelpEntries() []HelpEntry {
 	}
 }
 
+// CompleteLine returns full-line completion candidates for line.
+//
+// Returned strings include the unchanged line prefix plus the completed token.
+// Placeholder candidates such as "<host>" are included when they are the most
+// useful hint for a positional value.
 func CompleteLine(line string) []string {
 	return completeShellLine(line)
 }
@@ -447,6 +474,8 @@ func completeShellLine(line string) []string {
 		return nil
 	}
 	if strings.Contains(line, "|") && strings.HasSuffix(line, parts[len(parts)-1]) {
+		// Once the cursor is in the current pipeline segment, completions switch
+		// from command grammar to pipe grammar.
 		return completePipeSegment(line, parts[len(parts)-1])
 	}
 	trailingSpace := strings.HasSuffix(line, " ") || line == ""
@@ -457,6 +486,8 @@ func completeShellLine(line string) []string {
 	prefix := ""
 	baseArgs := args
 	if !trailingSpace && len(args) > 0 {
+		// readline expects suffix completions, but this package returns full
+		// lines. Split the token under the cursor so callers can derive either.
 		prefix = args[len(args)-1]
 		baseArgs = args[:len(args)-1]
 	}
@@ -475,6 +506,10 @@ func completeShellLine(line string) []string {
 	return out
 }
 
+// CompletionHintLine returns inline placeholder hints for line.
+//
+// It returns an empty string when real token completions are available, allowing
+// the caller to show either completions or hints without duplicating noise.
 func CompletionHintLine(line string) string {
 	return shellCompletionHintLine(line)
 }
@@ -604,6 +639,8 @@ func isPlaceholderCandidate(candidate string) bool {
 	return strings.HasPrefix(candidate, "<") && strings.HasSuffix(candidate, ">")
 }
 
+// IsPlaceholderCandidate reports whether candidate is an inline value
+// placeholder such as "<host>".
 func IsPlaceholderCandidate(candidate string) bool {
 	return isPlaceholderCandidate(candidate)
 }

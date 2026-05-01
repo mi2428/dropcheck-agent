@@ -8,6 +8,11 @@ import (
 	"dropcheck/controller/internal/controlpb"
 )
 
+// Run sends cmd to one connected agent and waits for the terminal result.
+//
+// commandID must be unique among in-flight commands. If ctx ends while the
+// command is running, Run sends a best-effort cancel frame to the agent before
+// returning the context error.
 func (s *Server) Run(ctx context.Context, agentID string, commandID string, cmd *controlpb.RunCommand) (*controlpb.CommandResult, error) {
 	respCh := make(chan CommandResponse, 1)
 
@@ -17,6 +22,8 @@ func (s *Server) Run(ctx context.Context, agentID string, commandID string, cmd 
 		s.mu.Unlock()
 		return nil, fmt.Errorf("agent %q is not connected", agentID)
 	}
+	// Register the waiter before enqueueing the frame so an immediate result
+	// from the agent cannot race ahead of the receiver setup.
 	s.waiters[commandID] = commandWaiter{agentID: agentID, ch: respCh}
 	frame := &controlpb.ControllerFrame{
 		Seq:       atomic.AddUint64(&s.seq, 1),
@@ -59,6 +66,7 @@ func (s *Server) Run(ctx context.Context, agentID string, commandID string, cmd 
 	}
 }
 
+// Cancel sends a cancellation request for commandID to the selected agent.
 func (s *Server) Cancel(ctx context.Context, agentID string, commandID string, reason string) error {
 	s.mu.Lock()
 	conn := s.conns[agentID]
@@ -96,5 +104,7 @@ func (s *Server) deliver(commandID string, resp CommandResponse) {
 	select {
 	case waiter.ch <- resp:
 	default:
+		// The response channel is buffered and Run only needs one terminal
+		// response. Drop duplicates from retries or late frames after cleanup.
 	}
 }

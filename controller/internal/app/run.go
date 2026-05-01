@@ -11,6 +11,11 @@ import (
 	"dropcheck/controller/internal/session"
 )
 
+// Run executes the dropcheck controller application for args.
+//
+// args must not include argv[0]. Run handles top-level flags, chooses shell or
+// one-shot CLI mode, starts the required control session, and returns any
+// user-facing error to the executable wrapper.
 func Run(args []string) error {
 	opts, rest, err := parseTopLevelArgs(args)
 	if err != nil {

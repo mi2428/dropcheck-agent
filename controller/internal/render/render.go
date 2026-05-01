@@ -27,6 +27,11 @@ func renderProtoMessage(message proto.Message) (string, error) {
 	return string(data) + "\n", nil
 }
 
+// CommandResult renders one agent command result.
+//
+// Text output is tailored per payload type and includes command latency. JSON
+// output is the protojson representation of result without an outer agent
+// envelope.
 func CommandResult(agent string, result *controlpb.CommandResult, options command.Options, format pipeline.Format) (string, error) {
 	if format == pipeline.FormatJSON {
 		return renderProtoMessage(result)
@@ -113,6 +118,8 @@ func commandResultLatencyMs(result *controlpb.CommandResult) int64 {
 	}
 }
 
+// CommandResultEnvelope renders a JSON object that includes agent and
+// command_id metadata around a command result.
 func CommandResultEnvelope(agent string, commandID string, result *controlpb.CommandResult) (string, error) {
 	data, err := protojson.MarshalOptions{
 		Multiline:     true,
@@ -138,6 +145,10 @@ func CommandResultEnvelope(agent string, commandID string, result *controlpb.Com
 	return string(wrapped) + "\n", nil
 }
 
+// CommandError renders a command dispatch or execution error.
+//
+// includeAgent controls whether text and JSON output include the agent label;
+// callers use this when a single command is broadcast to multiple agents.
 func CommandError(agent string, commandID string, err error, format pipeline.Format, includeAgent bool) (string, error) {
 	if format == pipeline.FormatJSON {
 		value := map[string]any{
@@ -159,19 +170,29 @@ func CommandError(agent string, commandID string, err error, format pipeline.For
 	return fmt.Sprintf("Error: %s\n", err.Error()), nil
 }
 
+// AgentListView is the renderer input for the connected-agent list.
 type AgentListView struct {
-	Agents    []control.AgentInfo
-	Selected  string
+	// Agents are shown in the order provided by the caller.
+	Agents []control.AgentInfo
+	// Selected is the selected agent ID when TargetAll is false.
+	Selected string
+	// TargetAll marks every row as selected for broadcast execution.
 	TargetAll bool
 }
 
+// TargetView is the renderer input for the current command target.
 type TargetView struct {
-	TargetAll     bool
-	Selected      string
+	// TargetAll indicates that commands will be broadcast to all agents.
+	TargetAll bool
+	// Selected is the selected agent ID, even if the agent has disconnected.
+	Selected string
+	// SelectedLabel is the cached human-readable label for Selected.
 	SelectedLabel string
-	Agent         *control.AgentInfo
+	// Agent is the connected agent that matches Selected, when available.
+	Agent *control.AgentInfo
 }
 
+// Agents renders the connected-agent list.
 func Agents(view AgentListView, format pipeline.Format) (string, error) {
 	if format == pipeline.FormatJSON {
 		agents := view.Agents
@@ -230,6 +251,7 @@ func Agents(view AgentListView, format pipeline.Format) (string, error) {
 	return b.String(), nil
 }
 
+// Target renders the active target selection.
 func Target(view TargetView, format pipeline.Format) (string, error) {
 	if format == pipeline.FormatJSON {
 		target := map[string]any{"all": view.TargetAll, "selected": view.Selected, "label": view.SelectedLabel}

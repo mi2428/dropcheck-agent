@@ -15,16 +15,25 @@ import (
 	"google.golang.org/grpc"
 )
 
+// DefaultPackageName is the Android application ID used when the user does not
+// pass --package.
 const DefaultPackageName = "io.dropcheck.agent"
 
+// Options configures control-session startup.
 type Options struct {
-	ADBPath     string
-	Serial      string
+	// ADBPath is the adb executable path. Empty uses "adb".
+	ADBPath string
+	// Serial optionally selects one adb device for commands that need it.
+	Serial string
+	// PackageName is the Android app package that contains .AgentService.
 	PackageName string
 }
 
+// Session represents a running controller session and its cleanup handles.
 type Session struct {
+	// Server dispatches commands to the connected Android agents.
 	Server *control.Server
+	// Agents are the agents that connected during startup.
 	Agents []control.AgentInfo
 
 	grpcServer *grpc.Server
@@ -34,6 +43,12 @@ type Session struct {
 	closeOnce  sync.Once
 }
 
+// Start opens a local gRPC server, starts agents on targets, and waits for them
+// to connect.
+//
+// targets must be the explicit adb devices selected by the app package. On
+// startup failure, Start cleans up any gRPC server and adb reverse rules it
+// already created.
 func Start(ctx context.Context, opts Options, targets []adb.Device) (*Session, error) {
 	if opts.ADBPath == "" {
 		opts.ADBPath = "adb"
@@ -110,6 +125,9 @@ func Start(ctx context.Context, opts Options, targets []adb.Device) (*Session, e
 	return session, nil
 }
 
+// Close stops the gRPC server and removes adb reverse rules.
+//
+// Close is idempotent and may be called after a partially failed Start.
 func (s *Session) Close() {
 	if s == nil {
 		return

@@ -8,6 +8,13 @@ import (
 	"dropcheck/controller/internal/controlpb"
 )
 
+// BuildCommand parses argv-style agent command args into a RunCommand.
+//
+// The parser accepts the canonical agent command grammar used by legacy tests
+// and lower-level callers. It normalizes unique command prefixes before
+// validation and returns usage-shaped errors for invalid command forms. Shell
+// and Linux CLI parsers should normally build Operation values directly instead
+// of constructing synthetic args for this function.
 func BuildCommand(args []string) (*controlpb.RunCommand, error) {
 	args, err := NormalizeAgentCommandArgs(args)
 	if err != nil {
@@ -894,6 +901,7 @@ func normalizeHTTPURL(value string) string {
 	return "https://" + value
 }
 
+// NormalizeHTTPURL adds an https scheme when value has no explicit scheme.
 func NormalizeHTTPURL(value string) string {
 	return normalizeHTTPURL(value)
 }

@@ -22,6 +22,11 @@ var agentCommands = command.AgentCommands()
 
 var shellCommands = append(append([]string{}, localShellCommands...), agentCommands...)
 
+// NormalizeCommandArgs expands unique command prefixes for a shell command.
+//
+// Local shell commands and agent commands are both considered. Target-prefixed
+// commands beginning with "@" are returned unchanged because the target syntax
+// owns the first token.
 func NormalizeCommandArgs(args []string) ([]string, error) {
 	return normalizeShellCommandArgs(args)
 }

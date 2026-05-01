@@ -144,30 +144,44 @@ func normalizeDNSQType(value string) (string, error) {
 	}
 }
 
+// ParseSecurity converts a user-facing Wi-Fi security token into the
+// corresponding protobuf enum.
+//
+// Empty input selects the controller default, currently WPA2-PSK.
 func ParseSecurity(value string) (controlpb.ConnectWifi_Security, error) {
 	return parseSecurity(value)
 }
 
+// ParseWifiBand converts a user-facing Wi-Fi band token into the corresponding
+// protobuf enum. Empty input and "all" both select all bands.
 func ParseWifiBand(value string) (controlpb.WifiBand, error) {
 	return parseWifiBand(value)
 }
 
+// ParseMacRandomization converts a user-facing MAC randomization token into
+// the corresponding protobuf enum.
 func ParseMacRandomization(value string) (controlpb.ConnectWifi_MacRandomization, error) {
 	return parseMacRandomization(value)
 }
 
+// ParseQTypes converts a DNS record-type token into the protobuf record types
+// requested from the agent. Empty input and "ALL" request A and AAAA records.
 func ParseQTypes(value string) ([]controlpb.DnsRecordType, error) {
 	return parseQTypes(value)
 }
 
+// ParseIpFamily converts an IP-family token into the corresponding protobuf
+// enum. Empty input and "all" request both IPv4 and IPv6 behavior.
 func ParseIpFamily(value string) (controlpb.IpFamily, error) {
 	return parseIpFamily(value)
 }
 
+// NormalizeIpFamily returns the canonical shell completion spelling for value.
 func NormalizeIpFamily(value string) (string, error) {
 	return normalizeIpFamily(value)
 }
 
+// NormalizeDNSQType returns the canonical DNS record-type spelling for value.
 func NormalizeDNSQType(value string) (string, error) {
 	return normalizeDNSQType(value)
 }
@@ -224,6 +238,11 @@ func timeoutFor(cmd *controlpb.RunCommand) time.Duration {
 	}
 }
 
+// TimeoutFor returns the controller-side execution deadline for cmd.
+//
+// The timeout is intentionally larger than the command's agent timeout when
+// applicable, giving the Android side time to report a structured result before
+// the controller cancels the command.
 func TimeoutFor(cmd *controlpb.RunCommand) time.Duration {
 	return timeoutFor(cmd)
 }
@@ -273,6 +292,8 @@ func splitArgs(line string) ([]string, error) {
 		}
 		switch r {
 		case '\'', '"':
+			// Quotes delimit a token but are not part of the token value. Empty
+			// quoted strings still count as an argument because inToken is set.
 			quote = r
 			inToken = true
 		case ' ', '\t', '\n', '\r':
@@ -292,6 +313,10 @@ func splitArgs(line string) ([]string, error) {
 	return args, nil
 }
 
+// SplitArgs tokenizes one command line using shell-like quotes and escapes.
+//
+// Quotes are removed from returned tokens. A trailing escape or unterminated
+// quote is reported as a parse error.
 func SplitArgs(line string) ([]string, error) {
 	return splitArgs(line)
 }
@@ -309,6 +334,10 @@ func redactedCommand(cmd *controlpb.RunCommand) *controlpb.RunCommand {
 	return cloned
 }
 
+// RedactedCommand clones cmd and replaces Wi-Fi passphrases with "<redacted>".
+//
+// The input command is never mutated. Redaction covers both direct connect
+// commands and cycle commands that embed a connect request.
 func RedactedCommand(cmd *controlpb.RunCommand) *controlpb.RunCommand {
 	return redactedCommand(cmd)
 }

@@ -8,25 +8,42 @@ import (
 	"dropcheck/controller/internal/pipeline"
 )
 
+// Options contains dropcheck CLI flags that affect dispatch and presentation.
 type Options struct {
+	// Format selects text or JSON output. The zero value means text.
 	Format pipeline.Format
+	// Target selects one connected agent by ID, prefix, or adb serial.
 	Target string
-	All    bool
+	// All sends agent commands to every connected agent.
+	All bool
 }
 
+// Kind identifies the high-level command parsed from CLI args.
 type Kind int
 
 const (
+	// AgentCommand sends an operation to one or more Android agents.
 	AgentCommand Kind = iota
+	// Devices lists connected agents.
 	Devices
+	// Target prints the default selected target.
 	Target
 )
 
+// Command is the parsed non-interactive CLI command.
 type Command struct {
-	Kind      Kind
+	// Kind selects the app action to perform.
+	Kind Kind
+	// Operation is populated when Kind is AgentCommand.
 	Operation command.Operation
 }
 
+// ExtractOptions parses CLI-global flags and returns the remaining command
+// arguments.
+//
+// Supported flags are --format, --target, and --all. Unknown dash-prefixed
+// arguments are left in the returned rest slice so command-specific parsers can
+// handle them.
 func ExtractOptions(args []string) (Options, []string, error) {
 	var opts Options
 	var rest []string
@@ -76,6 +93,10 @@ func ExtractOptions(args []string) (Options, []string, error) {
 	return opts, rest, nil
 }
 
+// Parse converts non-interactive CLI args into a Command.
+//
+// Parse expects top-level app flags to have already been removed by
+// ExtractOptions or the app package.
 func Parse(args []string) (Command, error) {
 	if len(args) == 0 {
 		return Command{}, fmt.Errorf("usage: dropcheck [--adb adb] [--serial SERIAL] [--package PACKAGE] shell | <command>")
@@ -144,6 +165,8 @@ func parseDashOptions(args []string, specs map[string]dashOptionSpec) (parsedDas
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if !strings.HasPrefix(arg, "--") || arg == "--" {
+			// Linux-style command parsers keep positionals in the order provided
+			// and validate command-specific placement after option extraction.
 			parsed.positionals = append(parsed.positionals, arg)
 			continue
 		}
@@ -163,6 +186,7 @@ func parseDashOptions(args []string, specs map[string]dashOptionSpec) (parsedDas
 			if i+1 >= len(args) {
 				return parsedDashOptions{}, fmt.Errorf("--%s requires a value", name)
 			}
+			// Values may be separated by a space or supplied as --name=value.
 			i++
 			value = args[i]
 		}
