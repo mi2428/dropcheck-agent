@@ -379,7 +379,7 @@ func parseShellWifiReconnect(args []string) (shellCommand, error) {
 
 func parseShellWifiWait(args []string) (shellCommand, error) {
 	if len(args) == 0 {
-		return shellCommand{}, fmt.Errorf("usage: request wifi wait connected [ssid] ...")
+		return shellCommand{}, fmt.Errorf("usage: request wifi wait connected [ssid]")
 	}
 	name, err := resolveShellKeyword("request wifi wait command", args[0], []string{"connected"})
 	if err != nil {
@@ -783,11 +783,6 @@ func shellValue(args []string, index int, name string) (string, int, error) {
 
 func resolveShellKeyword(kind string, value string, candidates []string) (string, error) {
 	return resolveUniquePrefix(kind, value, candidates)
-}
-
-func isShellKeyword(value string, candidates []string) bool {
-	_, err := resolveShellKeyword("keyword", value, candidates)
-	return err == nil
 }
 
 func wifiBandValues() []string {

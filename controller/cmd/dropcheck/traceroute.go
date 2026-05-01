@@ -1,9 +1,8 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -47,29 +46,6 @@ var (
 	tracerouteHostAddr   = regexp.MustCompile(`^([^\s()]+)\s+\(([^)]+)\)`)
 	tracerouteAttachedIP = regexp.MustCompile(`^([^()]+)\(([^)]+)\)`)
 )
-
-func printCommandAnalysis(commandID string, agent string, result *controlpb.CommandResult, options commandOptions) {
-	if ping := result.GetPing(); ping != nil {
-		analysis := analyzePing(ping, result.GetStatus())
-		printAnalysisJSON(commandID, agent, map[string]pingAnalysis{"ping": analysis})
-	}
-	trace := result.GetTraceroute()
-	if trace == nil {
-		return
-	}
-	analysis := analyzeTraceroute(trace, options.tracerouteRequiredHops, result.GetStatus())
-	printAnalysisJSON(commandID, agent, map[string]tracerouteAnalysis{"traceroute": analysis})
-}
-
-func printAnalysisJSON(commandID string, agent string, value any) {
-	fmt.Printf("analysis agent=%s command_id=%s\n", agent, commandID)
-	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		fmt.Printf("{\"error\":\"marshal analysis: %s\"}\n", err)
-		return
-	}
-	fmt.Println(string(data))
-}
 
 func analyzeTraceroute(result *controlpb.TracerouteResult, requiredHops []string, agentStatus controlpb.CommandResult_Status) tracerouteAnalysis {
 	hops := parseTracerouteOutput(result.GetOutput(), result.GetHost())
@@ -129,7 +105,7 @@ func parseTracerouteOutput(output string, target string) []tracerouteHop {
 
 func parseNativeTracerouteOutput(output string, target string) []tracerouteHop {
 	var hops []tracerouteHop
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		match := tracerouteHopLine.FindStringSubmatch(line)
 		if match == nil {
 			continue
@@ -251,10 +227,5 @@ func isLikelyAddress(value string) bool {
 }
 
 func containsString(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, target)
 }
