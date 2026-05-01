@@ -36,6 +36,7 @@ func renderCommandResult(agent string, result *controlpb.CommandResult, options 
 		}
 		b.WriteByte('\n')
 	}
+	fmt.Fprintf(&b, "Latency: %dms\n", commandResultLatencyMs(result))
 	switch payload := result.Payload.(type) {
 	case *controlpb.CommandResult_WifiStatus:
 		renderWifiStatus(&b, payload.WifiStatus)
@@ -84,6 +85,29 @@ func renderCommandResult(agent string, result *controlpb.CommandResult, options 
 		}
 	}
 	return b.String(), nil
+}
+
+func commandResultLatencyMs(result *controlpb.CommandResult) int64 {
+	switch payload := result.Payload.(type) {
+	case *controlpb.CommandResult_Ping:
+		return payload.Ping.GetElapsedMs()
+	case *controlpb.CommandResult_Traceroute:
+		return payload.Traceroute.GetElapsedMs()
+	case *controlpb.CommandResult_PathMtu:
+		return payload.PathMtu.GetElapsedMs()
+	case *controlpb.CommandResult_GlobalIp:
+		return payload.GlobalIp.GetElapsedMs()
+	case *controlpb.CommandResult_ResolveDns:
+		return payload.ResolveDns.GetElapsedMs()
+	case *controlpb.CommandResult_HttpCheck:
+		return payload.HttpCheck.GetElapsedMs()
+	case *controlpb.CommandResult_Wget:
+		return payload.Wget.GetElapsedMs()
+	case *controlpb.CommandResult_WifiAssert:
+		return payload.WifiAssert.GetElapsedMs()
+	default:
+		return result.GetElapsedMs()
+	}
 }
 
 func renderCommandResultEnvelope(agent string, commandID string, result *controlpb.CommandResult) (string, error) {

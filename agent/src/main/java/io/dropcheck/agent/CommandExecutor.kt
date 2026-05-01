@@ -80,11 +80,15 @@ class CommandExecutor(
             RunCommand.CommandCase.HTTP_CHECK -> networkChecks.http(command.httpCheck)
             RunCommand.CommandCase.COMMAND_NOT_SET -> failed("command is not set")
         }
+        val elapsedMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis()
+        val timedResult = result.toBuilder()
+            .setElapsedMs(elapsedMs)
+            .build()
         logger.debugEvent("command.executor.end", listOf(
             "command_case" to command.commandCase.name,
-            "executor_elapsed_ms" to Duration.ofNanos(System.nanoTime() - startedAt).toMillis(),
-        ) + result.logFields())
-        return result
+            "executor_elapsed_ms" to elapsedMs,
+        ) + timedResult.logFields())
+        return timedResult
     }
 
     private fun wifiStatus(): CommandResult {
