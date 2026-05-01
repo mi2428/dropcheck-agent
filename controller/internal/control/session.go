@@ -9,6 +9,11 @@ import (
 	"dropcheck/controller/internal/controlpb"
 )
 
+// Session implements the bidirectional gRPC stream used by Android agents.
+//
+// The first frame must contain an AgentHello with the session token. After
+// authentication, the stream carries controller heartbeats and commands in one
+// direction and agent logs/results/errors in the other.
 func (s *Server) Session(stream controlpb.DropcheckControl_SessionServer) error {
 	first, err := stream.Recv()
 	if err != nil {
@@ -22,6 +27,10 @@ func (s *Server) Session(stream controlpb.DropcheckControl_SessionServer) error 
 		return fmt.Errorf("agent hello token mismatch")
 	}
 
+	// Prefer caller-controlled IDs, then adb serials, and finally the generated
+	// stream session ID. This makes command targeting stable when the Android
+	// service reconnects, while still supporting devices that cannot report a
+	// serial.
 	sessionID := first.GetSessionId()
 	if sessionID == "" {
 		sessionID = "agent-" + time.Now().Format("20060102-150405.000")
@@ -43,6 +52,9 @@ func (s *Server) Session(stream controlpb.DropcheckControl_SessionServer) error 
 
 	s.mu.Lock()
 	if previous := s.conns[agentID]; previous != nil {
+		// A reconnect with the same agent ID supersedes the old stream. Closing
+		// the old connection wakes any sender goroutine and causes in-flight
+		// waiters to receive a disconnect error from that stream's cleanup.
 		previous.close()
 	}
 	s.conns[agentID] = conn
@@ -52,6 +64,8 @@ func (s *Server) Session(stream controlpb.DropcheckControl_SessionServer) error 
 	select {
 	case s.ready <- info:
 	default:
+		// Readiness is advisory. If the buffer is full, WaitAgents will still
+		// observe the agent through the protected infos map on its next loop.
 	}
 
 	sendDone := make(chan error, 1)
@@ -66,6 +80,8 @@ func (s *Server) Session(stream controlpb.DropcheckControl_SessionServer) error 
 					return
 				}
 			case tick := <-heartbeat.C:
+				// Heartbeats keep the bidirectional stream active even when no
+				// command is running and give the agent a controller timestamp.
 				frame := &controlpb.ControllerFrame{
 					Seq:       atomic.AddUint64(&s.seq, 1),
 					SessionId: conn.sessionID,
@@ -92,6 +108,9 @@ func (s *Server) Session(stream controlpb.DropcheckControl_SessionServer) error 
 			delete(s.conns, conn.id)
 			delete(s.infos, conn.id)
 		}
+		// Every in-flight command for this stream must be completed exactly once.
+		// Without this, callers waiting in Run could block until their context
+		// deadline even though the transport has already ended.
 		for id, waiter := range s.waiters {
 			if waiter.agentID != conn.id {
 				continue

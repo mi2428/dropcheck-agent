@@ -48,6 +48,9 @@ func analyzePing(result *controlpb.PingResult, agentStatus controlpb.CommandResu
 		status = "failed"
 		message = "agent ping failed"
 	} else if parsed && stats.received == 0 {
+		// Some ping implementations return a command-level success even when all
+		// probes are lost. Treat the parsed packet summary as the user-visible
+		// source of truth when it is available.
 		status = "failed"
 		message = "ping received no replies"
 	}
@@ -79,6 +82,9 @@ func parsePingOutput(output string) (pingStats, bool) {
 	if summary == nil {
 		return pingStats{}, false
 	}
+	// Android devices may expose either toybox or iputils ping. The summary
+	// regex captures the common packet-loss line and the RTT regex is optional
+	// because failed runs often omit timing statistics.
 	stats := pingStats{
 		transmitted: parseUint32Default(summary[1]),
 		received:    parseUint32Default(summary[2]),

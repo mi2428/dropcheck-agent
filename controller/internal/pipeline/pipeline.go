@@ -9,13 +9,20 @@ import (
 	"dropcheck/controller/internal/command"
 )
 
+// Format selects a renderer output format.
 type Format string
 
 const (
+	// FormatText renders human-readable tabular or paragraph output.
 	FormatText Format = "text"
+	// FormatJSON renders machine-readable JSON output.
 	FormatJSON Format = "json"
 )
 
+// Pipeline is a compiled list of output transformations.
+//
+// A zero-value Pipeline leaves output unchanged and uses the caller's default
+// output format.
 type Pipeline struct {
 	displayJSON bool
 	stages      []stage
@@ -27,6 +34,10 @@ type stage struct {
 	re      *regexp.Regexp
 }
 
+// Split separates a shell line into command and pipeline stage strings.
+//
+// Pipe characters inside single or double quotes are preserved. Returned parts
+// are trimmed, and empty stages are rejected.
 func Split(line string) ([]string, error) {
 	var parts []string
 	var b strings.Builder
@@ -45,6 +56,9 @@ func Split(line string) ([]string, error) {
 			continue
 		}
 		if r == '\\' {
+			// Keep the backslash in the segment. command.SplitArgs will consume
+			// it later, but Split still needs to know that the next rune cannot
+			// terminate a quoted or piped segment.
 			b.WriteRune(r)
 			escaped = true
 			continue
@@ -61,6 +75,8 @@ func Split(line string) ([]string, error) {
 			quote = r
 			b.WriteRune(r)
 		case '|':
+			// A pipe is only structural outside quotes. Quoted pipes remain part
+			// of the command text passed to command.SplitArgs.
 			flush()
 		default:
 			b.WriteRune(r)
@@ -79,6 +95,10 @@ func Split(line string) ([]string, error) {
 	return parts, nil
 }
 
+// Parse compiles pipeline stage strings returned by Split.
+//
+// Supported stages are "display json", "match <regex>", "except <regex>",
+// "count", and "no-more".
 func Parse(parts []string) (Pipeline, error) {
 	var pipeline Pipeline
 	for _, part := range parts {
@@ -121,6 +141,7 @@ func Parse(parts []string) (Pipeline, error) {
 	return pipeline, nil
 }
 
+// Format returns the effective output format after applying the pipeline.
 func (p Pipeline) Format(defaultFormat Format) Format {
 	if p.displayJSON {
 		return FormatJSON
@@ -128,6 +149,10 @@ func (p Pipeline) Format(defaultFormat Format) Format {
 	return defaultFormat
 }
 
+// Apply applies text-filtering pipeline stages to rendered output.
+//
+// The "display json" and "no-more" stages do not change the text here; they are
+// consumed by callers when selecting format or pager behavior.
 func (p Pipeline) Apply(text string) (string, error) {
 	out := text
 	for _, stage := range p.stages {
@@ -145,10 +170,12 @@ func (p Pipeline) Apply(text string) (string, error) {
 	return out, nil
 }
 
+// DisplayJSON reports whether the pipeline requested JSON output.
 func (p Pipeline) DisplayJSON() bool {
 	return p.displayJSON
 }
 
+// StageCount returns the number of text-transforming stages in the pipeline.
 func (p Pipeline) StageCount() int {
 	return len(p.stages)
 }

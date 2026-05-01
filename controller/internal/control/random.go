@@ -5,8 +5,10 @@ import (
 	"encoding/hex"
 )
 
-func RandomHex(bytes int) (string, error) {
-	buf := make([]byte, bytes)
+// RandomHex returns byteCount cryptographically random bytes encoded as
+// lowercase hexadecimal.
+func RandomHex(byteCount int) (string, error) {
+	buf := make([]byte, byteCount)
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
 	}

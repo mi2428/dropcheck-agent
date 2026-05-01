@@ -25,6 +25,9 @@ func startControlSession(ctx context.Context, opts shellOptions) (*session.Sessi
 
 func discoverADBTargets(ctx context.Context, client adb.Client, serial string) ([]adb.Device, error) {
 	if serial != "" {
+		// An explicit serial is treated as an operator override. This avoids
+		// rejecting a valid target just because "adb devices" is temporarily
+		// slow, noisy, or unable to report the device before the service start.
 		return []adb.Device{{Serial: serial, State: "device"}}, nil
 	}
 	devices, err := client.ListDevices(ctx)
@@ -38,6 +41,9 @@ func discoverADBTargets(ctx context.Context, client adb.Client, serial string) (
 			targets = append(targets, device)
 			continue
 		}
+		// Keep non-ready devices visible in stderr instead of silently ignoring
+		// them; it is often the only clue that authorization or USB state is the
+		// real startup problem.
 		skipped = append(skipped, fmt.Sprintf("%s(%s)", device.Serial, device.State))
 	}
 	if len(skipped) > 0 {

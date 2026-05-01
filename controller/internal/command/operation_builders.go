@@ -6,57 +6,102 @@ import (
 	"dropcheck/controller/internal/controlpb"
 )
 
+// WifiConnectOptions is the typed input for Wi-Fi connect-style operations.
+//
+// String fields intentionally keep the user-facing token form so shell and CLI
+// parsers can share validation, defaulting, and error messages in this package.
 type WifiConnectOptions struct {
-	SSID             string
-	Passphrase       string
-	Security         string
-	BSSID            string
-	Band             string
+	// SSID is the network name to connect to.
+	SSID string
+	// Passphrase is the network credential. Command labels redact it.
+	Passphrase string
+	// Security is "wpa2", "wpa3", or "transition"; empty uses the default.
+	Security string
+	// BSSID optionally pins the connection to one access point.
+	BSSID string
+	// Band optionally restricts the connection attempt to one Wi-Fi band.
+	Band string
+	// MacRandomization selects the Android MAC randomization mode.
 	MacRandomization string
-	Timeout          string
+	// Timeout is the connect timeout in milliseconds; empty uses the default.
+	Timeout string
 }
 
+// WifiCycleOptions is the typed input for repeated connect/disconnect cycles.
 type WifiCycleOptions struct {
 	WifiConnectOptions
-	Count           string
-	PingHost        string
-	HTTPURL         string
+	// Count is the number of cycles to run; empty uses the default.
+	Count string
+	// PingHost optionally runs a ping probe after each connect.
+	PingHost string
+	// HTTPURL optionally runs an HTTP probe after each connect.
+	HTTPURL string
+	// ForgetAfterEach removes the network profile after each cycle.
 	ForgetAfterEach bool
-	Pause           string
+	// Pause is the delay between cycles in milliseconds.
+	Pause string
 }
 
+// WifiExpectationOptions describes a desired Wi-Fi connection state.
+//
+// It is shared by wait and assert operations. Empty fields mean "do not check
+// this dimension" except where a builder documents a default.
 type WifiExpectationOptions struct {
-	SSID             string
-	BSSID            string
-	Security         string
-	Band             string
-	RequireIP        bool
+	// SSID optionally requires a specific network name.
+	SSID string
+	// BSSID optionally requires a specific access point.
+	BSSID string
+	// Security optionally requires a specific security mode.
+	Security string
+	// Band optionally requires a specific Wi-Fi band.
+	Band string
+	// RequireIP requires the device to have an IP address.
+	RequireIP bool
+	// RequireValidated requires Android to report validated internet access.
 	RequireValidated bool
-	Timeout          string
+	// Timeout is the wait/assert timeout in milliseconds.
+	Timeout string
 }
 
+// PingOptions is the typed input for an ICMP ping operation.
 type PingOptions struct {
-	Host    string
-	Count   string
-	Size    string
+	// Host is the hostname or IP address to probe.
+	Host string
+	// Count is the number of packets to send; empty uses the default.
+	Count string
+	// Size is the payload size in bytes; empty lets the agent choose.
+	Size string
+	// Timeout is the operation timeout in milliseconds.
 	Timeout string
 }
 
+// TracerouteOptions is the typed input for traceroute.
 type TracerouteOptions struct {
-	Host    string
+	// Host is the hostname or IP address to trace.
+	Host string
+	// MaxHops bounds the number of hops; empty uses the default.
 	MaxHops string
-	Via     []string
-	Size    string
+	// Via lists hops that rendered output should verify when present.
+	Via []string
+	// Size is the probe payload size in bytes; empty lets the agent choose.
+	Size string
+	// Timeout is the operation timeout in milliseconds.
 	Timeout string
 }
 
+// PathMTUOptions is the typed input for path-MTU probing.
 type PathMTUOptions struct {
-	Host    string
-	MinMTU  string
-	MaxMTU  string
+	// Host is the hostname or IP address to probe.
+	Host string
+	// MinMTU optionally sets the lower search bound in bytes.
+	MinMTU string
+	// MaxMTU optionally sets the upper search bound in bytes.
+	MaxMTU string
+	// Timeout is the operation timeout in milliseconds.
 	Timeout string
 }
 
+// WifiStatusOperation builds a Wi-Fi status inspection operation.
 func WifiStatusOperation() Operation {
 	return NewOperation("wifi.status", &controlpb.RunCommand{
 		Label:   "wifi status",
@@ -64,6 +109,7 @@ func WifiStatusOperation() Operation {
 	}, Options{})
 }
 
+// WifiDiagnosticsOperation builds a Wi-Fi diagnostics inspection operation.
 func WifiDiagnosticsOperation() Operation {
 	return NewOperation("wifi.diagnostics", &controlpb.RunCommand{
 		Label:   "wifi diagnostics",
@@ -71,6 +117,7 @@ func WifiDiagnosticsOperation() Operation {
 	}, Options{})
 }
 
+// WifiCapabilitiesOperation builds a Wi-Fi capabilities inspection operation.
 func WifiCapabilitiesOperation() Operation {
 	return NewOperation("wifi.capabilities", &controlpb.RunCommand{
 		Label:   "wifi capabilities",
@@ -78,6 +125,7 @@ func WifiCapabilitiesOperation() Operation {
 	}, Options{})
 }
 
+// WifiDisconnectOperation builds an operation that disconnects from Wi-Fi.
 func WifiDisconnectOperation() Operation {
 	return NewOperation("wifi.disconnect", &controlpb.RunCommand{
 		Label:   "wifi disconnect",
@@ -85,6 +133,9 @@ func WifiDisconnectOperation() Operation {
 	}, Options{})
 }
 
+// WifiForgetOperation builds an operation that forgets a saved Wi-Fi network.
+//
+// target may be an SSID or Android network ID, matching the agent contract.
 func WifiForgetOperation(target string) Operation {
 	return NewOperation("wifi.forget", &controlpb.RunCommand{
 		Label:   strings.Join([]string{"wifi", "forget", target}, " "),
@@ -92,6 +143,9 @@ func WifiForgetOperation(target string) Operation {
 	}, Options{})
 }
 
+// WifiScanOperation builds a cached Wi-Fi scan operation.
+//
+// bandValue accepts the same user-facing band tokens as ParseWifiBand.
 func WifiScanOperation(bandValue string) (Operation, error) {
 	band, err := parseWifiBand(bandValue)
 	if err != nil {
@@ -107,6 +161,10 @@ func WifiScanOperation(bandValue string) (Operation, error) {
 	}, Options{}), nil
 }
 
+// WifiFreshScanOperation builds a Wi-Fi scan that actively waits for fresh
+// results from Android.
+//
+// timeoutValue is in milliseconds. Empty band and timeout values use defaults.
 func WifiFreshScanOperation(bandValue string, timeoutValue string) (Operation, error) {
 	band, err := parseWifiBand(bandValue)
 	if err != nil {
@@ -127,6 +185,8 @@ func WifiFreshScanOperation(bandValue string, timeoutValue string) (Operation, e
 	}, Options{}), nil
 }
 
+// WifiScanDetailOperation builds an operation that returns detailed scan data
+// for one SSID or BSSID.
 func WifiScanDetailOperation(target string, bandValue string) (Operation, error) {
 	band, err := parseWifiBand(bandValue)
 	if err != nil {
@@ -142,6 +202,8 @@ func WifiScanDetailOperation(target string, bandValue string) (Operation, error)
 	}, Options{}), nil
 }
 
+// WifiConnectOperation builds a Wi-Fi connect operation and redacts the
+// passphrase in the command label.
 func WifiConnectOperation(opts WifiConnectOptions) (Operation, error) {
 	connect, err := connectWifi(opts)
 	if err != nil {
@@ -153,6 +215,7 @@ func WifiConnectOperation(opts WifiConnectOptions) (Operation, error) {
 	}, Options{}), nil
 }
 
+// WifiCycleOperation builds a repeated Wi-Fi connect/probe/disconnect cycle.
 func WifiCycleOperation(opts WifiCycleOptions) (Operation, error) {
 	connect, err := connectWifi(opts.WifiConnectOptions)
 	if err != nil {
@@ -179,6 +242,11 @@ func WifiCycleOperation(opts WifiCycleOptions) (Operation, error) {
 	}, Options{}), nil
 }
 
+// WifiWaitConnectedOperation builds an operation that waits until Wi-Fi matches
+// the requested connection state.
+//
+// The ssid argument is copied into opts.SSID to support shell grammar where the
+// optional SSID is positional.
 func WifiWaitConnectedOperation(ssid string, opts WifiExpectationOptions) (Operation, error) {
 	opts.SSID = ssid
 	req := &controlpb.WaitWifiConnected{
@@ -214,6 +282,10 @@ func WifiWaitConnectedOperation(ssid string, opts WifiExpectationOptions) (Opera
 	}, Options{}), nil
 }
 
+// WifiAssertOperation builds an immediate Wi-Fi state assertion.
+//
+// A non-empty Timeout makes the agent wait up to that many milliseconds before
+// deciding the assertion failed; an empty timeout performs an immediate check.
 func WifiAssertOperation(opts WifiExpectationOptions) (Operation, error) {
 	req := &controlpb.AssertWifi{
 		Ssid:             opts.SSID,
@@ -247,6 +319,7 @@ func WifiAssertOperation(opts WifiExpectationOptions) (Operation, error) {
 	}, Options{}), nil
 }
 
+// WifiWatchOperation builds a short Wi-Fi status sampling operation.
 func WifiWatchOperation(duration string, interval string) (Operation, error) {
 	durationMs, err := parseOptionalUint32(duration, "duration_ms", 10000)
 	if err != nil {
@@ -265,6 +338,7 @@ func WifiWatchOperation(duration string, interval string) (Operation, error) {
 	}, Options{}), nil
 }
 
+// WifiMonitorOperation builds a Wi-Fi event monitoring operation.
 func WifiMonitorOperation(duration string, interval string) (Operation, error) {
 	durationMs, err := parseOptionalUint32(duration, "duration_ms", 10000)
 	if err != nil {
@@ -283,6 +357,8 @@ func WifiMonitorOperation(duration string, interval string) (Operation, error) {
 	}, Options{}), nil
 }
 
+// WifiReconnectOperation builds an operation that reconnects the active Wi-Fi
+// network.
 func WifiReconnectOperation(timeout string) (Operation, error) {
 	timeoutMs, err := parseOptionalUint32(timeout, "timeout_ms", 30000)
 	if err != nil {
@@ -296,6 +372,8 @@ func WifiReconnectOperation(timeout string) (Operation, error) {
 	}, Options{}), nil
 }
 
+// IPStatusOperation builds a network interface and address inspection
+// operation.
 func IPStatusOperation() Operation {
 	return NewOperation("ip.status", &controlpb.RunCommand{
 		Label:   "ip",
@@ -303,6 +381,7 @@ func IPStatusOperation() Operation {
 	}, Options{})
 }
 
+// PingOperation builds an ICMP ping operation.
 func PingOperation(opts PingOptions) (Operation, error) {
 	count, err := parseOptionalUint32(opts.Count, "ping count", 3)
 	if err != nil {
@@ -331,6 +410,10 @@ func PingOperation(opts PingOptions) (Operation, error) {
 	}, Options{}), nil
 }
 
+// TracerouteOperation builds a traceroute operation.
+//
+// opts.Via is stored as local Options so rendering can check for required hops
+// without sending that presentation-only expectation to the Android agent.
 func TracerouteOperation(opts TracerouteOptions) (Operation, error) {
 	maxHops, err := parseOptionalUint32(opts.MaxHops, "max_hops", 30)
 	if err != nil {
@@ -359,6 +442,7 @@ func TracerouteOperation(opts TracerouteOptions) (Operation, error) {
 	}, Options{TracerouteRequiredHops: append([]string(nil), opts.Via...)}), nil
 }
 
+// PathMTUOperation builds a path-MTU discovery operation.
 func PathMTUOperation(opts PathMTUOptions) (Operation, error) {
 	minMTU, err := parseOptionalUint32(opts.MinMTU, "min-mtu", 0)
 	if err != nil {
@@ -384,6 +468,10 @@ func PathMTUOperation(opts PathMTUOptions) (Operation, error) {
 	}, Options{}), nil
 }
 
+// GlobalIPOperation builds an operation that discovers the device's public IP
+// address.
+//
+// familyValue accepts "ipv4", "ipv6", "all", "4", "6", or empty for all.
 func GlobalIPOperation(familyValue string, timeoutValue string) (Operation, error) {
 	family, err := parseIpFamily(familyValue)
 	if err != nil {
@@ -404,6 +492,7 @@ func GlobalIPOperation(familyValue string, timeoutValue string) (Operation, erro
 	}, Options{}), nil
 }
 
+// DownloadOperation builds an HTTP download probe operation.
 func DownloadOperation(url string, timeoutValue string) (Operation, error) {
 	timeoutMs, err := parseOptionalUint32(timeoutValue, "timeout", 60000)
 	if err != nil {
@@ -419,6 +508,9 @@ func DownloadOperation(url string, timeoutValue string) (Operation, error) {
 	}, Options{}), nil
 }
 
+// DNSOperation builds a DNS resolution probe operation.
+//
+// qtypeValue accepts "A", "AAAA", "ALL", or empty for A and AAAA.
 func DNSOperation(name string, qtypeValue string, timeoutValue string) (Operation, error) {
 	qtypes, err := parseQTypes(qtypeValue)
 	if err != nil {
@@ -439,6 +531,9 @@ func DNSOperation(name string, qtypeValue string, timeoutValue string) (Operatio
 	}, Options{}), nil
 }
 
+// HTTPOperation builds an HTTP status check operation.
+//
+// URLs without a scheme are normalized to HTTPS before being sent to the agent.
 func HTTPOperation(url string, expectedStatus string, timeoutValue string) (Operation, error) {
 	expected, err := parseOptionalUint32(expectedStatus, "expected_status", 200)
 	if err != nil {

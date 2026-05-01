@@ -6,10 +6,23 @@ import (
 	"dropcheck/controller/internal/controlpb"
 )
 
+// Options describes controller-local behavior attached to an Operation.
+//
+// These options are intentionally kept outside controlpb.RunCommand because
+// they affect presentation or validation in the controller rather than work the
+// Android agent performs.
 type Options struct {
+	// TracerouteRequiredHops lists hop hostnames or addresses that should appear
+	// in rendered traceroute output.
 	TracerouteRequiredHops []string
 }
 
+// BuildCommandWithOptions parses argv-style agent command args into a
+// RunCommand and local Options.
+//
+// This function remains for low-level callers that still start from a canonical
+// token stream. New frontend parsers should prefer the typed Operation builder
+// functions in this package.
 func BuildCommandWithOptions(args []string) (*controlpb.RunCommand, Options, error) {
 	args, err := NormalizeAgentCommandArgs(args)
 	if err != nil {

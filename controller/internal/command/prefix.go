@@ -33,10 +33,20 @@ var wifiCommands = []string{
 	"cycle",
 }
 
+// AgentCommands returns the canonical top-level commands that execute on an
+// Android agent.
+//
+// The returned slice is a copy and may be modified by the caller.
 func AgentCommands() []string {
 	return append([]string(nil), agentCommands...)
 }
 
+// NormalizeAgentCommandArgs expands unique command prefixes in argv-style
+// agent command args.
+//
+// It normalizes the top-level agent command and selected nested Wi-Fi command
+// names. Ambiguous or unknown prefixes are returned as errors rather than being
+// guessed.
 func NormalizeAgentCommandArgs(args []string) ([]string, error) {
 	if len(args) == 0 {
 		return nil, fmt.Errorf("empty command")
@@ -80,6 +90,10 @@ func normalizeOptionalSubcommand(args []string, index int, kind string, candidat
 	}
 }
 
+// ResolveUniquePrefix returns the candidate uniquely matched by value.
+//
+// Exact matches win over prefix matches. kind is included in error messages so
+// callers can produce user-facing diagnostics such as "ambiguous wifi command".
 func ResolveUniquePrefix(kind string, value string, candidates []string) (string, error) {
 	if value == "" {
 		return "", fmt.Errorf("empty %s", kind)

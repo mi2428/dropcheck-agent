@@ -37,6 +37,10 @@ func agentDisplayName(info control.AgentInfo) string {
 	return shortID(info.SessionID)
 }
 
+// AgentDisplayName returns the most useful short label for an agent.
+//
+// ADB serial is preferred for user-facing output. If it is unavailable, the
+// function falls back to a shortened agent ID or session ID.
 func AgentDisplayName(info control.AgentInfo) string {
 	return agentDisplayName(info)
 }
@@ -48,6 +52,9 @@ func shortID(value string) string {
 	return value[:12]
 }
 
+// ShortID returns value shortened to the display prefix length.
+//
+// Values at or below the display length are returned unchanged.
 func ShortID(value string) string {
 	return shortID(value)
 }
@@ -59,6 +66,7 @@ func empty(value, fallback string) string {
 	return value
 }
 
+// Empty returns fallback when value is empty.
 func Empty(value, fallback string) string {
 	return empty(value, fallback)
 }

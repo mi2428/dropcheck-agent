@@ -7,6 +7,7 @@ import (
 	"dropcheck/controller/internal/pipeline"
 )
 
+// CommandKind identifies the action parsed from an interactive shell line.
 type CommandKind int
 
 const (
@@ -20,33 +21,55 @@ const (
 	shellAgentCommand
 )
 
+// Command is the parsed representation of one interactive shell command.
 type Command struct {
-	Kind       CommandKind
-	Target     string
-	TargetAll  bool
-	Operation  command.Operation
-	Pipeline   pipeline.Pipeline
+	// Kind selects the shell action to perform.
+	Kind CommandKind
+	// Target is populated by "set target" commands.
+	Target string
+	// TargetAll is true for broadcast target selection.
+	TargetAll bool
+	// Operation is populated when Kind is AgentCommand.
+	Operation command.Operation
+	// Pipeline contains output filters parsed from "| ..." suffixes.
+	Pipeline pipeline.Pipeline
+	// RawCommand is the command segment before any pipeline stages.
 	RawCommand string
 }
 
+// HelpEntry describes one contextual help or completion candidate.
 type HelpEntry struct {
-	Token       string
+	// Token is the command token or placeholder shown to the user.
+	Token string
+	// Description explains the token in contextual help output.
 	Description string
 }
 
 const (
-	Noop         = shellNoop
-	Exit         = shellExit
-	Help         = shellHelp
-	ShowDevices  = shellShowDevices
-	ShowTarget   = shellShowTarget
-	SetTarget    = shellSetTarget
-	ClearTarget  = shellClearTarget
+	// Noop represents an empty shell line.
+	Noop = shellNoop
+	// Exit represents "exit" or "quit".
+	Exit = shellExit
+	// Help represents the top-level help command.
+	Help = shellHelp
+	// ShowDevices represents "show devices".
+	ShowDevices = shellShowDevices
+	// ShowTarget represents "show target".
+	ShowTarget = shellShowTarget
+	// SetTarget represents "set target ...".
+	SetTarget = shellSetTarget
+	// ClearTarget represents "clear target".
+	ClearTarget = shellClearTarget
+	// AgentCommand represents a command that should be sent to Android agents.
 	AgentCommand = shellAgentCommand
 )
 
 var shellTopKeywords = []string{"show", "set", "clear", "request", "monitor", "ping", "traceroute", "path-mtu", "global-ip", "test", "help", "exit", "quit"}
 
+// ParseLine parses a complete interactive shell line, including pipelines.
+//
+// The returned Command keeps RawCommand separate from Pipeline so callers can
+// render or execute the command and then apply output filters.
 func ParseLine(line string) (Command, error) {
 	return parseShellLine(line)
 }
@@ -73,6 +96,10 @@ func parseShellLine(line string) (Command, error) {
 	return cmd, nil
 }
 
+// ParseArgs parses already-tokenized shell command arguments.
+//
+// Pipeline syntax is not handled here; use ParseLine when parsing raw user
+// input from the REPL.
 func ParseArgs(args []string) (Command, error) {
 	return parseShellArgs(args)
 }

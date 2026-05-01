@@ -75,6 +75,9 @@ func analyzeTraceroute(result *controlpb.TracerouteResult, requiredHops []string
 		status = "failed"
 		message = "agent traceroute failed"
 	} else if !requiredPassed {
+		// Required hops are a controller-side assertion layered on top of the
+		// agent result. The agent can finish successfully while the route still
+		// fails the user's requested path expectation.
 		status = "failed"
 		message = "traceroute missing required hop"
 	}
@@ -122,6 +125,9 @@ func parseNativeTracerouteOutput(output string, target string) []tracerouteHop {
 			continue
 		}
 		rtts := parseTracerouteRTTs(body)
+		// Strip timing values, traceroute annotations, and timeout markers before
+		// extracting the hop identity. The raw line is kept separately for loose
+		// required-hop matching.
 		identity := tracerouteRTT.ReplaceAllString(body, " ")
 		identity = regexp.MustCompile(`!\S+`).ReplaceAllString(identity, " ")
 		identity = strings.TrimSpace(strings.ReplaceAll(identity, "*", " "))
@@ -189,6 +195,9 @@ func splitTraceHostAddress(value string) (string, string) {
 	if cleaned == "" {
 		return "", ""
 	}
+	// Native traceroute output varies between "host (ip)", "host(ip)", bare
+	// hostnames, and bare addresses. Preserve both fields when possible so
+	// required-hop checks can match either spelling.
 	if match := tracerouteHostAddr.FindStringSubmatch(cleaned); match != nil {
 		return match[1], match[2]
 	}

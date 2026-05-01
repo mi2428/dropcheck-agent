@@ -11,27 +11,46 @@ import (
 	"google.golang.org/grpc"
 )
 
+// AgentInfo is the controller's current view of one connected Android agent.
 type AgentInfo struct {
-	ID        string
+	// ID is the stable identifier used for command routing.
+	ID string
+	// SessionID is the gRPC session identifier reported by the agent.
 	SessionID string
-	Hello     *controlpb.AgentHello
+	// Hello is the authenticated hello frame that described the agent.
+	Hello *controlpb.AgentHello
+	// Connected is the time the controller accepted the session.
 	Connected time.Time
 }
 
+// LogEvent is an agent log entry normalized for application-level handlers.
 type LogEvent struct {
-	AgentID   string
+	// AgentID identifies the connected agent that emitted the log.
+	AgentID string
+	// SessionID identifies the gRPC stream that carried the log.
 	SessionID string
+	// CommandID is set when the log belongs to a running command.
 	CommandID string
-	Level     controlpb.CommandLog_Level
-	Message   string
-	Time      time.Time
+	// Level is the protobuf log severity.
+	Level controlpb.CommandLog_Level
+	// Message is the human-readable log message.
+	Message string
+	// Time is the agent-provided timestamp, or controller time when absent.
+	Time time.Time
 }
 
+// CommandResponse is the internal delivery envelope for an agent command.
 type CommandResponse struct {
+	// Result is set when the agent completed the command normally.
 	Result *controlpb.CommandResult
-	Error  *controlpb.CommandError
+	// Error is set when the agent rejected or failed the command.
+	Error *controlpb.CommandError
 }
 
+// Server tracks authenticated agents and dispatches commands over gRPC.
+//
+// Server is safe for concurrent use by the app shell, CLI execution path, and
+// gRPC stream handlers.
 type Server struct {
 	controlpb.UnimplementedDropcheckControlServer
 
@@ -66,6 +85,10 @@ func (c *agentConn) close() {
 	})
 }
 
+// NewServer creates a control server that accepts agents presenting token.
+//
+// onLog is optional. When provided, it is called from gRPC handling goroutines
+// for agent logs and command acknowledgements.
 func NewServer(token string, onLog func(LogEvent)) *Server {
 	return &Server{
 		token:   token,
@@ -77,10 +100,15 @@ func NewServer(token string, onLog func(LogEvent)) *Server {
 	}
 }
 
+// Register registers s with a grpc.Server.
 func (s *Server) Register(server *grpc.Server) {
 	controlpb.RegisterDropcheckControlServer(server, s)
 }
 
+// WaitAgent waits for at least one agent and returns the first sorted agent.
+//
+// If an agent is already connected, WaitAgent returns immediately. Otherwise it
+// blocks until an agent connects or ctx is canceled.
 func (s *Server) WaitAgent(ctx context.Context) (AgentInfo, error) {
 	s.mu.Lock()
 	agents := s.agentListLocked()
@@ -99,6 +127,10 @@ func (s *Server) WaitAgent(ctx context.Context) (AgentInfo, error) {
 	}
 }
 
+// WaitAgents waits until count agents are connected.
+//
+// When ctx is canceled before count agents connect, WaitAgents returns the
+// agents currently connected together with the context error.
 func (s *Server) WaitAgents(ctx context.Context, count int) ([]AgentInfo, error) {
 	if count <= 0 {
 		return nil, nil
@@ -120,12 +152,17 @@ func (s *Server) WaitAgents(ctx context.Context, count int) ([]AgentInfo, error)
 	}
 }
 
+// Agents returns the currently connected agents in stable display order.
 func (s *Server) Agents() []AgentInfo {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.agentListLocked()
 }
 
+// ResolveAgent resolves target to one connected agent.
+//
+// target may be an exact or unique-prefix match for agent ID, session ID, adb
+// serial, or the controller agent ID reported in the hello frame.
 func (s *Server) ResolveAgent(target string) (AgentInfo, error) {
 	needle := target
 	if needle == "" {
