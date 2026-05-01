@@ -20,24 +20,24 @@ func writeShellHelp(w io.Writer) {
   show wifi status
   show wifi diagnostics
   show wifi scan [all|2.4ghz|5ghz|6ghz|60ghz]
-  show wifi scan fresh [all|2.4ghz|5ghz|6ghz|60ghz] [timeout <ms>]
-  show wifi scan detail <ssid|bssid> [all|2.4ghz|5ghz|6ghz|60ghz]
+  show wifi scan fresh [timeout <ms>] [all|2.4ghz|5ghz|6ghz|60ghz]
+  show wifi scan detail [all|2.4ghz|5ghz|6ghz|60ghz] <ssid|bssid>
   show wifi capabilities
-  request wifi connect <ssid> passphrase <passphrase> [security <wpa2|wpa3|transition>] [bssid <bssid>] [band <band>] [mac-randomization <mode>] [timeout <ms>]
+  request wifi connect passphrase <passphrase> [security <wpa2|wpa3|transition>] [bssid <bssid>] [band <band>] [mac-randomization <mode>] [timeout <ms>] <ssid>
   request wifi disconnect
   request wifi forget <ssid|network_id>
   request wifi reconnect [timeout <ms>]
-  request wifi wait connected [ssid] [bssid <bssid>] [security <mode>] [band <band>] [ip] [validated] [timeout <ms>]
+  request wifi wait connected [bssid <bssid>] [security <mode>] [band <band>] [ip] [validated] [timeout <ms>] [ssid]
   request wifi assert [ssid <ssid>] [bssid <bssid>] [security <mode>] [band <band>] [ip] [validated] [timeout <ms>]
-  request wifi cycle <ssid> passphrase <passphrase> [security <mode>] [count <n>] [bssid <bssid>] [band <band>] [mac-randomization <mode>] [ping <host>] [http <url>] [forget] [pause <ms>] [timeout <ms>]
+  request wifi cycle passphrase <passphrase> [security <mode>] [count <n>] [bssid <bssid>] [band <band>] [mac-randomization <mode>] [ping <host>] [http <url>] [forget] [pause <ms>] [timeout <ms>] <ssid>
   monitor wifi [duration <ms>] [interval <ms>]
-  ping <host> [count <n>] [size <bytes>] [timeout <ms>]
-  traceroute <host> [max-hops <n>] [via <host_or_ip>] [size <bytes>] [timeout <ms>]
-  path-mtu <host> [min-mtu <bytes>] [max-mtu <bytes>] [timeout <ms>]
-  global-ip [ipv4|ipv6|all] [timeout <ms>]
-  test dns <name> [type A|AAAA|ALL] [timeout <ms>]
-  test http <url> [expected-status <code>] [timeout <ms>]
-  test download <url> [timeout <ms>]
+  ping [count <n>] [size <bytes>] [timeout <ms>] <host>
+  traceroute [max-hops <n>] [via <host_or_ip>] [size <bytes>] [timeout <ms>] <host>
+  path-mtu [min-mtu <bytes>] [max-mtu <bytes>] [timeout <ms>] <host>
+  global-ip [timeout <ms>] [ipv4|ipv6|all]
+  test dns [type A|AAAA|ALL] [timeout <ms>] <name>
+  test http [expected-status <code>] [timeout <ms>] <url>
+  test download [timeout <ms>] <url>
   quit
 
 pipes:
@@ -196,11 +196,11 @@ func helpEntriesForArgs(args []string) []helpEntry {
 			return []helpEntry{{"duration", "Duration in milliseconds"}, {"interval", "Sample interval in milliseconds"}}
 		}
 	case "ping":
-		return []helpEntry{{"count", "Packet count"}, {"size", "Payload size in bytes"}, {"timeout", "Timeout in milliseconds"}}
+		return []helpEntry{{"count", "Packet count"}, {"size", "Payload size in bytes"}, {"timeout", "Timeout in milliseconds"}, {"<host>", "Host or IP address to ping"}}
 	case "traceroute":
-		return []helpEntry{{"max-hops", "Maximum hops"}, {"via", "Required hop for analysis"}, {"size", "Packet size in bytes"}, {"timeout", "Timeout in milliseconds"}}
+		return []helpEntry{{"max-hops", "Maximum hops"}, {"via", "Required hop for analysis"}, {"size", "Packet size in bytes"}, {"timeout", "Timeout in milliseconds"}, {"<host>", "Destination host or IP address"}}
 	case "path-mtu":
-		return []helpEntry{{"min-mtu", "Minimum MTU in bytes"}, {"max-mtu", "Maximum MTU in bytes"}, {"timeout", "Timeout in milliseconds"}}
+		return []helpEntry{{"min-mtu", "Minimum MTU in bytes"}, {"max-mtu", "Maximum MTU in bytes"}, {"timeout", "Timeout in milliseconds"}, {"<host>", "Destination host or IP address"}}
 	case "global-ip":
 		return globalIPHelp(args[1:])
 	case "test":
@@ -213,7 +213,7 @@ func helpEntriesForArgs(args []string) []helpEntry {
 		case "http":
 			return testHTTPHelp(args[2:])
 		case "download":
-			return []helpEntry{{"<url>", "URL to download"}, {"timeout", "Timeout in milliseconds"}}
+			return []helpEntry{{"timeout", "Timeout in milliseconds"}, {"<url>", "URL to download"}}
 		}
 	}
 	return nil
@@ -260,14 +260,14 @@ func testHTTPHelp(args []string) []helpEntry {
 		}
 	}
 	var entries []helpEntry
-	if !hasURL {
-		entries = append(entries, helpEntry{"<url>", "HTTP or HTTPS URL; https:// is assumed when omitted"})
-	}
 	if !used["expected-status"] {
 		entries = append(entries, helpEntry{"expected-status", "Expected HTTP status"})
 	}
 	if !used["timeout"] {
 		entries = append(entries, helpEntry{"timeout", "Timeout in milliseconds"})
+	}
+	if !hasURL {
+		entries = append(entries, helpEntry{"<url>", "HTTP or HTTPS URL; https:// is assumed when omitted"})
 	}
 	if hasURL {
 		terminal := terminalHelpEntriesForArgs(append([]string{"test", "http"}, args...))
@@ -299,14 +299,14 @@ func testDNSHelp(args []string) []helpEntry {
 		}
 	}
 	var entries []helpEntry
-	if !hasName {
-		entries = append(entries, helpEntry{"<name>", "DNS name to resolve"})
-	}
 	if !used["type"] {
 		entries = append(entries, helpEntry{"type", "A, AAAA, or ALL"})
 	}
 	if !used["timeout"] {
 		entries = append(entries, helpEntry{"timeout", "Timeout in milliseconds"})
+	}
+	if !hasName {
+		entries = append(entries, helpEntry{"<name>", "DNS name to resolve"})
 	}
 	if hasName {
 		terminal := terminalHelpEntriesForArgs(append([]string{"test", "dns"}, args...))
@@ -333,15 +333,15 @@ func globalIPHelp(args []string) []helpEntry {
 		}
 	}
 	var entries []helpEntry
+	if !usedTimeout {
+		entries = append(entries, helpEntry{"timeout", "Per-family timeout in milliseconds"})
+	}
 	if !hasFamily {
 		entries = append(entries,
 			helpEntry{"ipv4", "Check global IPv4 through ifconfig.me"},
 			helpEntry{"ipv6", "Check global IPv6 through ifconfig.me"},
 			helpEntry{"all", "Check both address families"},
 		)
-	}
-	if !usedTimeout {
-		entries = append(entries, helpEntry{"timeout", "Per-family timeout in milliseconds"})
 	}
 	terminal := terminalHelpEntriesForArgs(append([]string{"global-ip"}, args...))
 	entries = append(entries, terminal...)
@@ -370,7 +370,7 @@ func pipeHelpEntries() []helpEntry {
 func requestWifiHelp(command string) []helpEntry {
 	switch command {
 	case "connect":
-		return []helpEntry{{"passphrase", "WPA/WPA3 passphrase"}, {"security", "wpa2, wpa3, or transition"}, {"bssid", "Target BSSID"}, {"band", "all, 2.4ghz, 5ghz, 6ghz, or 60ghz"}, {"mac-randomization", "auto, none, persistent, or non-persistent"}, {"timeout", "Timeout in milliseconds"}}
+		return []helpEntry{{"passphrase", "WPA/WPA3 passphrase"}, {"security", "wpa2, wpa3, or transition"}, {"bssid", "Target BSSID"}, {"band", "all, 2.4ghz, 5ghz, 6ghz, or 60ghz"}, {"mac-randomization", "auto, none, persistent, or non-persistent"}, {"timeout", "Timeout in milliseconds"}, {"<ssid>", "SSID to connect"}}
 	case "disconnect":
 		return nil
 	case "forget":
@@ -382,7 +382,7 @@ func requestWifiHelp(command string) []helpEntry {
 	case "assert":
 		return []helpEntry{{"ssid", "Expected SSID"}, {"bssid", "Expected BSSID"}, {"security", "Expected security"}, {"band", "Expected band"}, {"ip", "Require IP address"}, {"validated", "Require validated internet"}, {"timeout", "Timeout in milliseconds"}}
 	case "cycle":
-		return []helpEntry{{"passphrase", "WPA/WPA3 passphrase"}, {"security", "wpa2, wpa3, or transition"}, {"count", "Cycle count"}, {"bssid", "Target BSSID"}, {"band", "Target band"}, {"mac-randomization", "MAC randomization mode"}, {"ping", "Ping host after connect"}, {"http", "HTTP URL after connect"}, {"forget", "Forget after each cycle"}, {"pause", "Pause between cycles in milliseconds"}, {"timeout", "Per-connect timeout in milliseconds"}}
+		return []helpEntry{{"passphrase", "WPA/WPA3 passphrase"}, {"security", "wpa2, wpa3, or transition"}, {"count", "Cycle count"}, {"bssid", "Target BSSID"}, {"band", "Target band"}, {"mac-randomization", "MAC randomization mode"}, {"ping", "Ping host after connect"}, {"http", "HTTP URL after connect"}, {"forget", "Forget after each cycle"}, {"pause", "Pause between cycles in milliseconds"}, {"timeout", "Per-connect timeout in milliseconds"}, {"<ssid>", "SSID to connect"}}
 	default:
 		return nil
 	}
@@ -430,10 +430,37 @@ func completeShellLine(line string, state *shellState) []string {
 	var out []string
 	for _, candidate := range candidates {
 		if strings.HasPrefix(candidate, prefix) {
-			out = append(out, head+candidate)
+			completed := head + candidate
+			if !trailingSpace && candidate == prefix && shouldAppendCompletionSpace(baseArgs, candidate) {
+				completed += " "
+			}
+			out = append(out, completed)
 		}
 	}
 	return out
+}
+
+func shellCompletionHintLine(line string, state *shellState) string {
+	_ = state
+	lineRunes := []rune(line)
+	var hints []string
+	realCandidates := 0
+	for _, candidate := range completeShellLine(line, state) {
+		candidateRunes := []rune(candidate)
+		if !hasRunePrefix(candidateRunes, lineRunes) {
+			continue
+		}
+		completion := string(candidateRunes[len(lineRunes):])
+		if isPlaceholderCandidate(completion) {
+			hints = append(hints, completion)
+			continue
+		}
+		realCandidates++
+	}
+	if realCandidates > 0 || len(hints) == 0 {
+		return ""
+	}
+	return strings.Join(hints, "  ")
 }
 
 func completePipeSegment(line string, segment string) []string {
@@ -462,6 +489,9 @@ func completionCandidatesForArgs(args []string) []string {
 			resolved[i] = value
 		}
 	}
+	if candidates, ok := valueCompletionCandidatesForArgs(resolved); ok {
+		return candidates
+	}
 	switch len(resolved) {
 	case 1:
 		switch resolved[0] {
@@ -473,8 +503,6 @@ func completionCandidatesForArgs(args []string) []string {
 			return []string{"wifi"}
 		case "test":
 			return []string{"dns", "http", "download"}
-		default:
-			return nil
 		}
 	case 2:
 		if resolved[0] == "show" && resolved[1] == "wifi" {
@@ -484,7 +512,7 @@ func completionCandidatesForArgs(args []string) []string {
 			return []string{"connect", "disconnect", "forget", "reconnect", "wait", "assert", "cycle"}
 		}
 		if resolved[0] == "monitor" && resolved[1] == "wifi" {
-			return []string{"duration", "interval"}
+			return monitorWifiCompletionCandidates(nil)
 		}
 	case 3:
 		if resolved[0] == "show" && resolved[1] == "wifi" && resolved[2] == "scan" {
@@ -497,49 +525,502 @@ func completionCandidatesForArgs(args []string) []string {
 	if len(resolved) >= 1 {
 		lastCommand := resolved[len(resolved)-1]
 		switch {
+		case len(resolved) >= 3 && resolved[0] == "show" && resolved[1] == "wifi" && resolved[2] == "scan":
+			return showWifiScanCompletionCandidates(resolved[3:])
 		case resolved[0] == "ping":
-			return []string{"count", "size", "timeout"}
+			return pingCompletionCandidates(resolved[1:])
 		case resolved[0] == "traceroute":
-			return []string{"max-hops", "via", "size", "timeout"}
+			return tracerouteCompletionCandidates(resolved[1:])
 		case resolved[0] == "path-mtu":
-			return []string{"min-mtu", "max-mtu", "timeout"}
+			return pathMtuCompletionCandidates(resolved[1:])
 		case resolved[0] == "global-ip":
 			return globalIPCompletionCandidates(resolved[1:])
 		case resolved[0] == "test" && len(resolved) >= 2:
-			return testCompletionCandidates(resolved[1])
+			return testCompletionCandidates(resolved[1], resolved[2:])
+		case resolved[0] == "monitor" && len(resolved) >= 2 && resolved[1] == "wifi":
+			return monitorWifiCompletionCandidates(resolved[2:])
 		case resolved[0] == "request" && len(resolved) >= 3 && resolved[1] == "wifi":
-			return requestWifiCompletionCandidates(resolved[2], lastCommand)
+			return requestWifiCompletionCandidates(resolved[2], resolved[3:], lastCommand)
 		}
 	}
 	return nil
 }
 
-func requestWifiCompletionCandidates(command string, last string) []string {
-	_ = last
+func shouldAppendCompletionSpace(baseArgs []string, candidate string) bool {
+	return candidate != "" && !isTerminalTopCompletion(baseArgs, candidate)
+}
+
+func isPlaceholderCandidate(candidate string) bool {
+	return strings.HasPrefix(candidate, "<") && strings.HasSuffix(candidate, ">")
+}
+
+func isTerminalTopCompletion(baseArgs []string, candidate string) bool {
+	if len(baseArgs) != 0 {
+		return false
+	}
+	switch candidate {
+	case "help", "exit", "quit":
+		return true
+	default:
+		return false
+	}
+}
+
+type completionOption struct {
+	name        string
+	placeholder string
+	values      []string
+	flag        bool
+	repeatable  bool
+}
+
+type completionArgs struct {
+	used        map[string]bool
+	positionals []string
+	pending     *completionOption
+}
+
+func scanCompletionArgs(kind string, args []string, options []completionOption) completionArgs {
+	state := completionArgs{used: map[string]bool{}}
+	names := completionOptionNames(options)
+	for i := 0; i < len(args); i++ {
+		key, err := resolveShellKeyword(kind, args[i], names)
+		if err != nil {
+			state.positionals = append(state.positionals, args[i])
+			continue
+		}
+		option := completionOptionByName(options, key)
+		state.used[key] = true
+		if option.flag {
+			continue
+		}
+		if i+1 >= len(args) {
+			state.pending = &option
+			return state
+		}
+		i++
+	}
+	return state
+}
+
+func completionOptionNames(options []completionOption) []string {
+	names := make([]string, 0, len(options))
+	for _, option := range options {
+		names = append(names, option.name)
+	}
+	return names
+}
+
+func completionOptionByName(options []completionOption, name string) completionOption {
+	for _, option := range options {
+		if option.name == name {
+			return option
+		}
+	}
+	return completionOption{name: name}
+}
+
+func optionValueCandidates(option completionOption) []string {
+	if len(option.values) > 0 {
+		return option.values
+	}
+	if option.placeholder != "" {
+		return []string{option.placeholder}
+	}
+	return nil
+}
+
+func optionAndPositionalCandidates(state completionArgs, options []completionOption, positionalLimit int, positionalHints ...string) []string {
+	var candidates []string
+	for _, option := range options {
+		if state.used[option.name] && !option.repeatable {
+			continue
+		}
+		candidates = append(candidates, option.name)
+	}
+	if len(state.positionals) < positionalLimit {
+		candidates = append(candidates, positionalHints...)
+	}
+	return candidates
+}
+
+func valueCompletionCandidatesForArgs(args []string) ([]string, bool) {
+	if len(args) == 0 {
+		return nil, false
+	}
+	last := args[len(args)-1]
+	switch {
+	case len(args) >= 4 && args[0] == "show" && args[1] == "wifi" && args[2] == "scan":
+		if args[3] == "fresh" && isResolvedKeyword("show wifi scan fresh option", last, []string{"timeout"}) {
+			return []string{"<ms>"}, true
+		}
+		return nil, false
+	case len(args) >= 4 && args[0] == "request" && args[1] == "wifi":
+		return requestWifiValueCompletionCandidates(args[2], last)
+	case len(args) >= 3 && args[0] == "monitor" && args[1] == "wifi":
+		if isResolvedKeyword("monitor wifi option", last, []string{"duration", "interval"}) {
+			return []string{"<ms>"}, true
+		}
+		return nil, false
+	case args[0] == "ping":
+		switch {
+		case isResolvedKeyword("ping option", last, []string{"count"}):
+			return []string{"<n>"}, true
+		case isResolvedKeyword("ping option", last, []string{"size"}):
+			return []string{"<bytes>"}, true
+		case isResolvedKeyword("ping option", last, []string{"timeout"}):
+			return []string{"<ms>"}, true
+		}
+		return nil, false
+	case args[0] == "traceroute":
+		switch {
+		case isResolvedKeyword("traceroute option", last, []string{"max-hops"}):
+			return []string{"<n>"}, true
+		case isResolvedKeyword("traceroute option", last, []string{"via"}):
+			return []string{"<host_or_ip>"}, true
+		case isResolvedKeyword("traceroute option", last, []string{"size"}):
+			return []string{"<bytes>"}, true
+		case isResolvedKeyword("traceroute option", last, []string{"timeout"}):
+			return []string{"<ms>"}, true
+		}
+		return nil, false
+	case args[0] == "path-mtu":
+		switch {
+		case isResolvedKeyword("path-mtu option", last, []string{"min-mtu", "max-mtu"}):
+			return []string{"<bytes>"}, true
+		case isResolvedKeyword("path-mtu option", last, []string{"timeout"}):
+			return []string{"<ms>"}, true
+		}
+		return nil, false
+	case args[0] == "global-ip":
+		return globalIPValueCompletionCandidates(last)
+	case len(args) >= 2 && args[0] == "test":
+		return testValueCompletionCandidates(args[1], last)
+	default:
+		return nil, false
+	}
+}
+
+func requestWifiValueCompletionCandidates(command string, last string) ([]string, bool) {
 	switch command {
-	case "connect":
-		return []string{"passphrase", "security", "bssid", "band", "mac-randomization", "timeout"}
+	case "connect", "cycle":
+		switch {
+		case isResolvedKeyword("request wifi "+command+" option", last, []string{"security"}):
+			return wifiSecurityValues(), true
+		case isResolvedKeyword("request wifi "+command+" option", last, []string{"band"}):
+			return wifiBandValues(), true
+		case isResolvedKeyword("request wifi "+command+" option", last, []string{"mac-randomization"}):
+			return wifiMacRandomizationValues(), true
+		case isResolvedKeyword("request wifi "+command+" option", last, []string{"passphrase"}):
+			return []string{"<passphrase>"}, true
+		case isResolvedKeyword("request wifi "+command+" option", last, []string{"bssid"}):
+			return []string{"<bssid>"}, true
+		case isResolvedKeyword("request wifi "+command+" option", last, []string{"timeout"}):
+			return []string{"<ms>"}, true
+		case command == "cycle" && isResolvedKeyword("request wifi "+command+" option", last, []string{"pause"}):
+			return []string{"<ms>"}, true
+		case command == "cycle" && isResolvedKeyword("request wifi "+command+" option", last, []string{"count"}):
+			return []string{"<n>"}, true
+		case command == "cycle" && isResolvedKeyword("request wifi "+command+" option", last, []string{"ping"}):
+			return []string{"<host>"}, true
+		case command == "cycle" && isResolvedKeyword("request wifi "+command+" option", last, []string{"http"}):
+			return []string{"<url>"}, true
+		default:
+			return nil, false
+		}
 	case "reconnect":
-		return []string{"timeout"}
-	case "assert":
-		return []string{"ssid", "bssid", "security", "band", "ip", "validated", "timeout"}
-	case "cycle":
-		return []string{"passphrase", "security", "count", "bssid", "band", "mac-randomization", "ping", "http", "forget", "pause", "timeout"}
-	case "wait":
-		return []string{"connected", "bssid", "security", "band", "ip", "validated", "timeout"}
+		if isResolvedKeyword("request wifi reconnect option", last, []string{"timeout"}) {
+			return []string{"<ms>"}, true
+		}
+		return nil, false
+	case "wait", "assert":
+		switch {
+		case isResolvedKeyword("wifi expectation option", last, []string{"security"}):
+			return wifiSecurityValues(), true
+		case isResolvedKeyword("wifi expectation option", last, []string{"band"}):
+			return wifiBandValues(), true
+		case isResolvedKeyword("wifi expectation option", last, []string{"ssid"}):
+			return []string{"<ssid>"}, true
+		case isResolvedKeyword("wifi expectation option", last, []string{"bssid"}):
+			return []string{"<bssid>"}, true
+		case isResolvedKeyword("wifi expectation option", last, []string{"timeout"}):
+			return []string{"<ms>"}, true
+		default:
+			return nil, false
+		}
+	default:
+		return nil, false
+	}
+}
+
+func globalIPValueCompletionCandidates(last string) ([]string, bool) {
+	switch {
+	case isResolvedKeyword("global-ip option", last, []string{"family"}):
+		return ipFamilyValues(), true
+	case isResolvedKeyword("global-ip option", last, []string{"timeout"}):
+		return []string{"<ms>"}, true
+	default:
+		return nil, false
+	}
+}
+
+func testValueCompletionCandidates(command string, last string) ([]string, bool) {
+	switch command {
+	case "dns":
+		switch {
+		case isResolvedKeyword("test dns option", last, []string{"type"}):
+			return dnsTypeValues(), true
+		case isResolvedKeyword("test dns option", last, []string{"timeout"}):
+			return []string{"<ms>"}, true
+		default:
+			return nil, false
+		}
+	case "http":
+		switch {
+		case isResolvedKeyword("test http option", last, []string{"expected-status"}):
+			return []string{"<code>"}, true
+		case isResolvedKeyword("test http option", last, []string{"timeout"}):
+			return []string{"<ms>"}, true
+		}
+		return nil, false
+	case "download":
+		if isResolvedKeyword("test download option", last, []string{"timeout"}) {
+			return []string{"<ms>"}, true
+		}
+		return nil, false
+	default:
+		return nil, false
+	}
+}
+
+func isResolvedKeyword(kind string, value string, candidates []string) bool {
+	_, err := resolveShellKeyword(kind, value, candidates)
+	return err == nil
+}
+
+func wifiSecurityValues() []string {
+	return []string{"wpa2", "wpa3", "transition"}
+}
+
+func wifiMacRandomizationValues() []string {
+	return []string{"auto", "none", "persistent", "non-persistent"}
+}
+
+func ipFamilyValues() []string {
+	return []string{"ipv4", "ipv6", "all"}
+}
+
+func dnsTypeValues() []string {
+	return []string{"A", "AAAA", "ALL"}
+}
+
+func showWifiScanCompletionCandidates(args []string) []string {
+	if len(args) == 0 {
+		return append([]string{"fresh", "detail"}, wifiBandValues()...)
+	}
+	first, err := resolveShellKeyword("show wifi scan argument", args[0], append([]string{"fresh", "detail"}, wifiBandValues()...))
+	if err != nil {
+		return nil
+	}
+	switch first {
+	case "fresh":
+		return showWifiScanFreshCompletionCandidates(args[1:])
+	case "detail":
+		switch {
+		case len(args) == 1:
+			return append(wifiBandValues(), "<ssid|bssid>")
+		case len(args) == 2 && isResolvedKeyword("wifi band", args[1], wifiBandValues()):
+			return []string{"<ssid|bssid>"}
+		case len(args) == 2:
+			return wifiBandValues()
+		default:
+			return nil
+		}
 	default:
 		return nil
 	}
 }
 
-func testCompletionCandidates(command string) []string {
+func showWifiScanFreshCompletionCandidates(args []string) []string {
+	timeoutUsed := false
+	bandUsed := false
+	for i := 0; i < len(args); i++ {
+		if key, err := resolveShellKeyword("show wifi scan fresh option", args[i], []string{"timeout"}); err == nil {
+			timeoutUsed = key == "timeout"
+			if i+1 < len(args) {
+				i++
+			}
+			continue
+		}
+		if _, err := resolveShellKeyword("wifi band", args[i], wifiBandValues()); err == nil {
+			bandUsed = true
+		}
+	}
+	var candidates []string
+	if !timeoutUsed {
+		candidates = append(candidates, "timeout")
+	}
+	if !bandUsed {
+		candidates = append(candidates, wifiBandValues()...)
+	}
+	return candidates
+}
+
+func monitorWifiCompletionCandidates(args []string) []string {
+	options := []completionOption{
+		{name: "duration", placeholder: "<ms>"},
+		{name: "interval", placeholder: "<ms>"},
+	}
+	state := scanCompletionArgs("monitor wifi option", args, options)
+	if state.pending != nil {
+		return optionValueCandidates(*state.pending)
+	}
+	return optionAndPositionalCandidates(state, options, 0)
+}
+
+func pingCompletionCandidates(args []string) []string {
+	options := []completionOption{
+		{name: "count", placeholder: "<n>"},
+		{name: "size", placeholder: "<bytes>"},
+		{name: "timeout", placeholder: "<ms>"},
+	}
+	state := scanCompletionArgs("ping option", args, options)
+	if state.pending != nil {
+		return optionValueCandidates(*state.pending)
+	}
+	return optionAndPositionalCandidates(state, options, 1, "<host>")
+}
+
+func tracerouteCompletionCandidates(args []string) []string {
+	options := []completionOption{
+		{name: "max-hops", placeholder: "<n>"},
+		{name: "via", placeholder: "<host_or_ip>", repeatable: true},
+		{name: "size", placeholder: "<bytes>"},
+		{name: "timeout", placeholder: "<ms>"},
+	}
+	state := scanCompletionArgs("traceroute option", args, options)
+	if state.pending != nil {
+		return optionValueCandidates(*state.pending)
+	}
+	return optionAndPositionalCandidates(state, options, 1, "<host>")
+}
+
+func pathMtuCompletionCandidates(args []string) []string {
+	options := []completionOption{
+		{name: "min-mtu", placeholder: "<bytes>"},
+		{name: "max-mtu", placeholder: "<bytes>"},
+		{name: "timeout", placeholder: "<ms>"},
+	}
+	state := scanCompletionArgs("path-mtu option", args, options)
+	if state.pending != nil {
+		return optionValueCandidates(*state.pending)
+	}
+	return optionAndPositionalCandidates(state, options, 1, "<host>")
+}
+
+func requestWifiCompletionCandidates(command string, args []string, last string) []string {
+	_ = last
+	switch command {
+	case "connect":
+		return wifiConnectCompletionCandidates(args, false)
+	case "reconnect":
+		options := []completionOption{{name: "timeout", placeholder: "<ms>"}}
+		state := scanCompletionArgs("request wifi reconnect option", args, options)
+		if state.pending != nil {
+			return optionValueCandidates(*state.pending)
+		}
+		return optionAndPositionalCandidates(state, options, 0)
+	case "assert":
+		return wifiExpectationCompletionCandidates(args, false)
+	case "cycle":
+		return wifiConnectCompletionCandidates(args, true)
+	case "wait":
+		if len(args) == 0 {
+			return []string{"connected"}
+		}
+		return wifiExpectationCompletionCandidates(args[1:], true)
+	default:
+		return nil
+	}
+}
+
+func wifiConnectCompletionCandidates(args []string, cycle bool) []string {
+	options := []completionOption{
+		{name: "passphrase", placeholder: "<passphrase>"},
+		{name: "security", values: wifiSecurityValues()},
+		{name: "bssid", placeholder: "<bssid>"},
+		{name: "band", values: wifiBandValues()},
+		{name: "mac-randomization", values: wifiMacRandomizationValues()},
+		{name: "timeout", placeholder: "<ms>"},
+	}
+	if cycle {
+		options = append(options,
+			completionOption{name: "count", placeholder: "<n>"},
+			completionOption{name: "ping", placeholder: "<host>"},
+			completionOption{name: "http", placeholder: "<url>"},
+			completionOption{name: "forget", flag: true},
+			completionOption{name: "pause", placeholder: "<ms>"},
+		)
+	}
+	state := scanCompletionArgs("request wifi option", args, options)
+	if state.pending != nil {
+		return optionValueCandidates(*state.pending)
+	}
+	return optionAndPositionalCandidates(state, options, 1, "<ssid>")
+}
+
+func wifiExpectationCompletionCandidates(args []string, allowPositionalSSID bool) []string {
+	options := []completionOption{
+		{name: "ssid", placeholder: "<ssid>"},
+		{name: "bssid", placeholder: "<bssid>"},
+		{name: "security", values: wifiSecurityValues()},
+		{name: "band", values: wifiBandValues()},
+		{name: "ip", flag: true},
+		{name: "validated", flag: true},
+		{name: "timeout", placeholder: "<ms>"},
+	}
+	state := scanCompletionArgs("wifi expectation option", args, options)
+	if state.pending != nil {
+		return optionValueCandidates(*state.pending)
+	}
+	positionalLimit := 0
+	var positionalHints []string
+	if allowPositionalSSID {
+		positionalLimit = 1
+		positionalHints = []string{"<ssid>"}
+	}
+	return optionAndPositionalCandidates(state, options, positionalLimit, positionalHints...)
+}
+
+func testCompletionCandidates(command string, args []string) []string {
 	switch command {
 	case "dns":
-		return []string{"type", "timeout"}
+		options := []completionOption{
+			{name: "type", values: dnsTypeValues()},
+			{name: "timeout", placeholder: "<ms>"},
+		}
+		state := scanCompletionArgs("test dns option", args, options)
+		if state.pending != nil {
+			return optionValueCandidates(*state.pending)
+		}
+		return optionAndPositionalCandidates(state, options, 1, "<name>")
 	case "http":
-		return []string{"expected-status", "timeout"}
+		options := []completionOption{
+			{name: "expected-status", placeholder: "<code>"},
+			{name: "timeout", placeholder: "<ms>"},
+		}
+		state := scanCompletionArgs("test http option", args, options)
+		if state.pending != nil {
+			return optionValueCandidates(*state.pending)
+		}
+		return optionAndPositionalCandidates(state, options, 1, "<url>")
 	case "download":
-		return []string{"timeout"}
+		options := []completionOption{{name: "timeout", placeholder: "<ms>"}}
+		state := scanCompletionArgs("test download option", args, options)
+		if state.pending != nil {
+			return optionValueCandidates(*state.pending)
+		}
+		return optionAndPositionalCandidates(state, options, 1, "<url>")
 	default:
 		return nil
 	}
@@ -549,7 +1030,14 @@ func globalIPCompletionCandidates(args []string) []string {
 	hasFamily := false
 	usedTimeout := false
 	for i := 0; i < len(args); i++ {
-		if args[i] == "timeout" {
+		if key, err := resolveShellKeyword("global-ip option", args[i], []string{"family", "timeout"}); err == nil {
+			if key == "family" {
+				if i+1 < len(args) {
+					hasFamily = true
+					i++
+				}
+				continue
+			}
 			usedTimeout = true
 			if i+1 < len(args) {
 				i++
@@ -561,11 +1049,11 @@ func globalIPCompletionCandidates(args []string) []string {
 		}
 	}
 	var candidates []string
-	if !hasFamily {
-		candidates = append(candidates, "ipv4", "ipv6", "all")
-	}
 	if !usedTimeout {
 		candidates = append(candidates, "timeout")
+	}
+	if !hasFamily {
+		candidates = append(candidates, ipFamilyValues()...)
 	}
 	return candidates
 }

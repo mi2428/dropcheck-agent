@@ -38,7 +38,10 @@ func replLineEditor(ctx context.Context, state *shellState) error {
 		if lineReader == nil {
 			return nil, 0, false
 		}
-		return handleShellHelpKey(lineReader.Stdout(), line, pos, key)
+		if newLine, newPos, ok := handleShellHelpKey(lineReader.Stdout(), line, pos, key); ok {
+			return newLine, newPos, ok
+		}
+		return handleShellCompletionHintKey(lineReader.Stdout(), line, pos, key, state)
 	})
 
 	var err error
@@ -105,6 +108,9 @@ func (c shellReadlineCompleter) Do(line []rune, pos int) ([][]rune, int) {
 			continue
 		}
 		completion := append([]rune(nil), candidateRunes[len(prefixRunes):]...)
+		if isPlaceholderCandidate(string(completion)) {
+			continue
+		}
 		completions = append(completions, completion)
 	}
 	return completions, shellCompletionOffset(prefix)
@@ -155,6 +161,19 @@ func handleShellHelpKey(w io.Writer, line []rune, pos int, key rune) ([]rune, in
 	newLine := append([]rune(nil), line[:questionIndex]...)
 	newLine = append(newLine, line[pos:]...)
 	return newLine, questionIndex, true
+}
+
+func handleShellCompletionHintKey(w io.Writer, line []rune, pos int, key rune, state *shellState) ([]rune, int, bool) {
+	if key != readline.CharTab || pos < 0 || pos > len(line) || pos != len(line) {
+		return nil, 0, false
+	}
+	hint := shellCompletionHintLine(string(line[:pos]), state)
+	if hint == "" {
+		return nil, 0, false
+	}
+	_, _ = io.WriteString(w, "\n  "+hint+"\n")
+	newLine := append([]rune(nil), line...)
+	return newLine, pos, true
 }
 
 func (s *shellState) prompt() string {

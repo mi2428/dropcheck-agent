@@ -35,6 +35,12 @@ func TestParseShellCommands(t *testing.T) {
 			args: []string{"wifi", "connect", "Lab", "secret", "wpa3", "--bssid", "aa:bb:cc:dd:ee:ff", "--band", "6ghz", "--mac-randomization", "non-persistent", "--timeout", "12345"},
 		},
 		{
+			name: "request wifi connect options first",
+			line: "request wifi connect passphrase secret security wpa3 bssid aa:bb:cc:dd:ee:ff band 6ghz mac-randomization non-persistent timeout 12345 Lab",
+			kind: shellAgentCommand,
+			args: []string{"wifi", "connect", "Lab", "secret", "wpa3", "--bssid", "aa:bb:cc:dd:ee:ff", "--band", "6ghz", "--mac-randomization", "non-persistent", "--timeout", "12345"},
+		},
+		{
 			name: "request wifi cycle",
 			line: "request wifi cycle Lab passphrase secret count 2 ping 1.1.1.1 http https://example.test forget pause 250",
 			kind: shellAgentCommand,
@@ -53,8 +59,20 @@ func TestParseShellCommands(t *testing.T) {
 			args: []string{"ping", "1.1.1.1", "5", "--size", "64", "--timeout", "7000"},
 		},
 		{
+			name: "ping options first",
+			line: "ping count 5 size 64 timeout 7000 1.1.1.1",
+			kind: shellAgentCommand,
+			args: []string{"ping", "1.1.1.1", "5", "--size", "64", "--timeout", "7000"},
+		},
+		{
 			name: "traceroute",
 			line: "traceroute example.test max-hops 12 via 192.0.2.1 size 80 timeout 30000",
+			kind: shellAgentCommand,
+			args: []string{"traceroute", "example.test", "12", "--via", "192.0.2.1", "--size", "80", "--timeout", "30000"},
+		},
+		{
+			name: "traceroute options first",
+			line: "traceroute max-hops 12 via 192.0.2.1 size 80 timeout 30000 example.test",
 			kind: shellAgentCommand,
 			args: []string{"traceroute", "example.test", "12", "--via", "192.0.2.1", "--size", "80", "--timeout", "30000"},
 		},
@@ -65,8 +83,20 @@ func TestParseShellCommands(t *testing.T) {
 			args: []string{"path-mtu", "example.test", "--min-mtu", "1200", "--max-mtu", "1500", "--timeout", "30000"},
 		},
 		{
+			name: "path mtu options first",
+			line: "path-mtu min-mtu 1200 max-mtu 1500 timeout 30000 example.test",
+			kind: shellAgentCommand,
+			args: []string{"path-mtu", "example.test", "--min-mtu", "1200", "--max-mtu", "1500", "--timeout", "30000"},
+		},
+		{
 			name: "global ip",
 			line: "global-ip ipv6 timeout 7000",
+			kind: shellAgentCommand,
+			args: []string{"global-ip", "ipv6", "--timeout", "7000"},
+		},
+		{
+			name: "global ip options first",
+			line: "global-ip timeout 7000 ipv6",
 			kind: shellAgentCommand,
 			args: []string{"global-ip", "ipv6", "--timeout", "7000"},
 		},
@@ -75,6 +105,12 @@ func TestParseShellCommands(t *testing.T) {
 			line: "test dns example.test type AAAA timeout 9000",
 			kind: shellAgentCommand,
 			args: []string{"dns", "example.test", "AAAA", "--timeout", "9000"},
+		},
+		{
+			name: "test download options first",
+			line: "test download timeout 9000 https://example.test/file.bin",
+			kind: shellAgentCommand,
+			args: []string{"download", "https://example.test/file.bin", "--timeout", "9000"},
 		},
 		{
 			name: "set target all",
@@ -350,6 +386,16 @@ func TestShellTerminalHelp(t *testing.T) {
 	}
 }
 
+func TestShellUsagePlacesPositionalsLast(t *testing.T) {
+	_, err := parseShellLine("ping")
+	if err == nil {
+		t.Fatalf("parseShellLine(ping) error = nil")
+	}
+	if !strings.Contains(err.Error(), "usage: ping [count <n>] [size <bytes>] [timeout <ms>] <host>") {
+		t.Fatalf("ping usage = %q", err)
+	}
+}
+
 func TestShellImmediateHelpKey(t *testing.T) {
 	line := []rune("show wifi ?")
 	var out bytes.Buffer
@@ -393,6 +439,21 @@ func TestShellReadlineCompleter(t *testing.T) {
 		t.Fatalf("completions = %#v, want fi", completions)
 	}
 
+	completions, offset = completer.Do([]rune("global-ip"), len([]rune("global-ip")))
+	if offset != len([]rune("global-ip")) {
+		t.Fatalf("global-ip offset = %d, want %d", offset, len([]rune("global-ip")))
+	}
+	if len(completions) != 1 || string(completions[0]) != " " {
+		t.Fatalf("global-ip exact completions = %#v, want a space", completions)
+	}
+
+	completionStrings := shellCompletionFragments("global-ip ")
+	for _, want := range []string{"ipv4", "ipv6", "all", "timeout"} {
+		if !slices.Contains(completionStrings, want) {
+			t.Fatalf("global-ip option completions = %#v, missing %q", completionStrings, want)
+		}
+	}
+
 	completions, _ = completer.Do([]rune("global-ip ipv4 "), len([]rune("global-ip ipv4 ")))
 	if !slices.ContainsFunc(completions, func(candidate []rune) bool {
 		return string(candidate) == "timeout"
@@ -406,6 +467,152 @@ func TestShellReadlineCompleter(t *testing.T) {
 			t.Fatalf("global-ip completions = %#v, unexpectedly included %q", completions, unexpected)
 		}
 	}
+
+	completions, offset = completer.Do([]rune("ping count "), len([]rune("ping count ")))
+	if offset != 0 {
+		t.Fatalf("placeholder offset = %d, want 0", offset)
+	}
+	if len(completions) != 0 {
+		t.Fatalf("placeholder completions = %#v, want no selectable candidates", completions)
+	}
+	if got := shellCompletionHintLine("ping count ", nil); got != "<n>" {
+		t.Fatalf("placeholder hint = %q, want <n>", got)
+	}
+
+	completions, _ = completer.Do([]rune("test http expected-status "), len([]rune("test http expected-status ")))
+	if len(completions) != 0 {
+		t.Fatalf("placeholder completions = %#v, want no selectable candidates", completions)
+	}
+	if got := shellCompletionHintLine("test http expected-status ", nil); got != "<code>" {
+		t.Fatalf("placeholder hint = %q, want <code>", got)
+	}
+}
+
+func TestShellOptionCompletion(t *testing.T) {
+	tests := []struct {
+		line string
+		want []string
+	}{
+		{
+			line: "show wifi scan fresh ",
+			want: []string{"all", "2.4ghz", "5ghz", "6ghz", "60ghz", "timeout"},
+		},
+		{
+			line: "show wifi scan detail Lab ",
+			want: []string{"all", "2.4ghz", "5ghz", "6ghz", "60ghz"},
+		},
+		{
+			line: "request wifi connect Lab ",
+			want: []string{"passphrase", "security", "bssid", "band", "mac-randomization", "timeout"},
+		},
+		{
+			line: "request wifi connect Lab security ",
+			want: []string{"wpa2", "wpa3", "transition"},
+		},
+		{
+			line: "request wifi connect Lab band ",
+			want: []string{"all", "2.4ghz", "5ghz", "6ghz", "60ghz"},
+		},
+		{
+			line: "request wifi connect Lab mac-randomization ",
+			want: []string{"auto", "none", "persistent", "non-persistent"},
+		},
+		{
+			line: "request wifi wait connected security ",
+			want: []string{"wpa2", "wpa3", "transition"},
+		},
+		{
+			line: "monitor wifi ",
+			want: []string{"duration", "interval"},
+		},
+		{
+			line: "ping ",
+			want: []string{"count", "size", "timeout"},
+		},
+		{
+			line: "ping example.test ",
+			want: []string{"count", "size", "timeout"},
+		},
+		{
+			line: "traceroute example.test ",
+			want: []string{"max-hops", "via", "size", "timeout"},
+		},
+		{
+			line: "path-mtu example.test ",
+			want: []string{"min-mtu", "max-mtu", "timeout"},
+		},
+		{
+			line: "global-ip ",
+			want: []string{"ipv4", "ipv6", "all", "timeout"},
+		},
+		{
+			line: "test dns example.test ",
+			want: []string{"type", "timeout"},
+		},
+		{
+			line: "test dns example.test type ",
+			want: []string{"A", "AAAA", "ALL"},
+		},
+		{
+			line: "test http example.test ",
+			want: []string{"expected-status", "timeout"},
+		},
+		{
+			line: "test download example.test ",
+			want: []string{"timeout"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.line, func(t *testing.T) {
+			completions := shellCompletionFragments(tt.line)
+			for _, want := range tt.want {
+				if !slices.Contains(completions, want) {
+					t.Fatalf("completions = %#v, missing %q", completions, want)
+				}
+			}
+		})
+	}
+}
+
+func TestShellPlaceholderCompletionHints(t *testing.T) {
+	tests := []struct {
+		line string
+		want string
+	}{
+		{line: "ping count ", want: "<n>"},
+		{line: "ping count 5 size 64 timeout 7000 ", want: "<host>"},
+		{line: "traceroute via ", want: "<host_or_ip>"},
+		{line: "path-mtu min-mtu ", want: "<bytes>"},
+		{line: "global-ip timeout ", want: "<ms>"},
+		{line: "test http expected-status ", want: "<code>"},
+		{line: "test download timeout ", want: "<ms>"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.line, func(t *testing.T) {
+			if got := shellCompletionFragments(tt.line); len(got) != 0 {
+				t.Fatalf("selectable completions = %#v, want none", got)
+			}
+			if got := shellCompletionHintLine(tt.line, nil); got != tt.want {
+				t.Fatalf("hint = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func shellCompletionFragments(line string) []string {
+	completer := shellReadlineCompleter{}
+	completions, _ := completer.Do([]rune(line), len([]rune(line)))
+	return shellCompletionStrings(completions)
+}
+
+func shellCompletionStrings(completions [][]rune) []string {
+	out := make([]string, 0, len(completions))
+	for _, completion := range completions {
+		out = append(out, string(completion))
+	}
+	return out
 }
 
 func TestParseShellRejectsLinuxShapeInShell(t *testing.T) {
