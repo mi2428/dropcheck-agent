@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"dropcheck/controller/internal/control"
+	"dropcheck/controller/internal/session"
 )
 
 type cliOptions struct {
@@ -40,15 +41,15 @@ func runCLI(ctx context.Context, opts shellOptions, rawArgs []string) error {
 		return err
 	}
 
-	session, err := startControlSession(ctx, opts)
+	controlSession, err := session.Start(ctx, opts)
 	if err != nil {
 		return err
 	}
-	defer session.Close()
+	defer controlSession.Close()
 
-	state := &shellState{server: session.server}
-	if len(session.agents) > 0 {
-		state.setSelectedAgent(session.agents[0])
+	state := &shellState{server: controlSession.Server}
+	if len(controlSession.Agents) > 0 {
+		state.setSelectedAgent(controlSession.Agents[0])
 	}
 	if cliOpts.all {
 		state.targetAll = true

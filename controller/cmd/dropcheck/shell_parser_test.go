@@ -703,8 +703,8 @@ func TestExtractCLIOptionsAndTopLevel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseTopLevelArgs() error = %v", err)
 	}
-	if global.serial != "abc" {
-		t.Fatalf("serial = %q", global.serial)
+	if global.Serial != "abc" {
+		t.Fatalf("serial = %q", global.Serial)
 	}
 	if !slices.Equal(rest, []string{"--format", "json", "devices"}) {
 		t.Fatalf("rest = %#v", rest)

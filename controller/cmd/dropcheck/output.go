@@ -8,19 +8,6 @@ import (
 	"dropcheck/controller/internal/controlpb"
 )
 
-func levelName(level controlpb.CommandLog_Level) string {
-	switch level {
-	case controlpb.CommandLog_LEVEL_DEBUG:
-		return "debug"
-	case controlpb.CommandLog_LEVEL_WARN:
-		return "warn"
-	case controlpb.CommandLog_LEVEL_ERROR:
-		return "error"
-	default:
-		return "info"
-	}
-}
-
 func resultStatus(status controlpb.CommandResult_Status) string {
 	return strings.ToLower(strings.TrimPrefix(status.String(), "STATUS_"))
 }
