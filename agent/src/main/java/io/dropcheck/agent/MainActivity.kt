@@ -25,9 +25,10 @@ import android.widget.TextView
  */
 class MainActivity : Activity() {
     private companion object {
-        const val STARTUP_TAIL_LINES = 800
-        const val MAX_DISPLAY_CHARS = 600_000
-        const val TRIMMED_DISPLAY_CHARS = 450_000
+        const val STARTUP_TAIL_LINES = 600
+        const val MAX_DISPLAY_LINES = 1000
+        const val MAX_DISPLAY_CHARS = 300_000
+        const val MAX_LINE_CHARS = 8_000
     }
 
     private val warnColor = Color.rgb(255, 214, 10)
@@ -35,6 +36,10 @@ class MainActivity : Activity() {
 
     private lateinit var logView: TextView
     private lateinit var scroll: ScrollView
+
+    private val displayLineLengths = ArrayDeque<Int>()
+    private var displayLogChars = 0
+    private var logStartIndex = 0
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -47,6 +52,17 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         TerminalLog.info(this, "activity onCreate")
 
+        val tail = TerminalLog.tail(this, STARTUP_TAIL_LINES.coerceAtMost(MAX_DISPLAY_LINES))
+        val initialText = SpannableStringBuilder().apply {
+            appendColored("dropcheck agent\n")
+            appendColored("controller commands arrive over adb reverse + gRPC bidi\n")
+            appendColored("\n")
+            if (tail.isNotBlank()) {
+                appendColored("-- terminal.log tail --\n")
+            }
+            logStartIndex = length
+        }
+
         logView = TextView(this).apply {
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.BLACK)
@@ -55,16 +71,10 @@ class MainActivity : Activity() {
             includeFontPadding = true
             setLineSpacing(0f, 1.05f)
             setPadding(18, 18, 18, 18)
-            text = SpannableStringBuilder().apply {
-                appendColored("dropcheck agent\n")
-                appendColored("controller commands arrive over adb reverse + gRPC bidi\n")
-                appendColored("\n")
-                val tail = TerminalLog.tail(this@MainActivity, STARTUP_TAIL_LINES)
-                if (tail.isNotBlank()) {
-                    appendColored("-- terminal.log tail --\n")
-                    tail.lineSequence().forEach { appendColored(it + "\n") }
-                }
-            }
+            setText(initialText, TextView.BufferType.SPANNABLE)
+        }
+        if (tail.isNotBlank()) {
+            tail.lineSequence().forEach { appendLogLine(it, scrollAfter = false) }
         }
         scroll = ScrollView(this).apply {
             setBackgroundColor(Color.BLACK)
@@ -94,13 +104,51 @@ class MainActivity : Activity() {
 
     /** Appends one broadcast terminal line and trims the view to a bounded size. */
     private fun append(line: String) {
-        logView.append(colored(line))
-        if (!line.endsWith("\n")) logView.append("\n")
-        if (logView.text.length > MAX_DISPLAY_CHARS) {
-            val current = logView.text
-            logView.text = current.subSequence(current.length - TRIMMED_DISPLAY_CHARS, current.length)
+        appendLogLine(line, scrollAfter = true)
+    }
+
+    private fun appendLogLine(line: String, scrollAfter: Boolean) {
+        val displayLine = boundedLine(line)
+        logView.append(colored(displayLine))
+        displayLineLengths.addLast(displayLine.length)
+        displayLogChars += displayLine.length
+        trimDisplayIfNeeded()
+        if (scrollAfter) scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
+    }
+
+    private fun trimDisplayIfNeeded() {
+        if (displayLineLengths.size <= MAX_DISPLAY_LINES && displayLogChars <= MAX_DISPLAY_CHARS) return
+
+        val text = mutableDisplayText()
+        while (
+            displayLineLengths.isNotEmpty() &&
+            (displayLineLengths.size > MAX_DISPLAY_LINES || displayLogChars > MAX_DISPLAY_CHARS)
+        ) {
+            val charsToRemove = displayLineLengths.removeFirst()
+            val start = logStartIndex.coerceAtMost(text.length)
+            val end = (start + charsToRemove).coerceAtMost(text.length)
+            if (end > start) {
+                text.delete(start, end)
+            }
+            displayLogChars = (displayLogChars - charsToRemove).coerceAtLeast(0)
         }
-        scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
+    }
+
+    private fun mutableDisplayText(): SpannableStringBuilder {
+        val current = logView.text
+        if (current is SpannableStringBuilder) return current
+
+        return SpannableStringBuilder(current).also {
+            logView.setText(it, TextView.BufferType.SPANNABLE)
+        }
+    }
+
+    private fun boundedLine(line: String): String {
+        val withNewline = if (line.endsWith("\n")) line else "$line\n"
+        if (withNewline.length <= MAX_LINE_CHARS) return withNewline
+
+        val suffix = " ... [truncated]\n"
+        return withNewline.take(MAX_LINE_CHARS - suffix.length).trimEnd('\r', '\n') + suffix
     }
 
     private fun SpannableStringBuilder.appendColored(line: String) {
