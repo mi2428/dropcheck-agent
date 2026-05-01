@@ -78,10 +78,12 @@ class GrpcSessionClient(
         val responses = object : StreamObserver<ControllerFrame> {
             override fun onNext(value: ControllerFrame) {
                 markControllerFrameSeen(value)
-                TerminalLog.debugEvent(service, "grpc.rx", listOf(
-                    "local_session_id" to sessionId,
-                    "direction" to "controller_to_agent",
-                ) + value.logFields())
+                if (value.bodyCase != ControllerFrame.BodyCase.HEARTBEAT) {
+                    TerminalLog.debugEvent(service, "grpc.rx", listOf(
+                        "local_session_id" to sessionId,
+                        "direction" to "controller_to_agent",
+                    ) + value.logFields())
+                }
                 when (value.bodyCase) {
                     ControllerFrame.BodyCase.RUN_COMMAND -> startCommand(value, requestsRef[0])
                     ControllerFrame.BodyCase.CANCEL_COMMAND -> cancelCommand(value)
@@ -390,10 +392,12 @@ class GrpcSessionClient(
      */
     private fun send(requests: StreamObserver<AgentFrame>, frame: AgentFrame) {
         synchronized(sendLock) {
-            TerminalLog.debugEvent(service, "grpc.tx", listOf(
-                "local_session_id" to sessionId,
-                "direction" to "agent_to_controller",
-            ) + frame.logFields())
+            if (frame.bodyCase != AgentFrame.BodyCase.HEARTBEAT) {
+                TerminalLog.debugEvent(service, "grpc.tx", listOf(
+                    "local_session_id" to sessionId,
+                    "direction" to "agent_to_controller",
+                ) + frame.logFields())
+            }
             runCatching { requests.onNext(frame) }
                 .onFailure {
                     TerminalLog.warn(service, "controller connection lost while sending frame session=$sessionId seq=${frame.seq} body=${frame.bodyCase}", it)
