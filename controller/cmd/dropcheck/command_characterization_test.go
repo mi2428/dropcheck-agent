@@ -90,8 +90,8 @@ func TestParseLinuxWifiOperationalCommands(t *testing.T) {
 			if got.kind != cliAgentCommand {
 				t.Fatalf("kind = %v, want cliAgentCommand", got.kind)
 			}
-			if !slices.Equal(got.operation.legacyCommandArgs(), tt.want) {
-				t.Fatalf("legacy args = %#v, want %#v", got.operation.legacyCommandArgs(), tt.want)
+			if !slices.Equal(got.operation.LegacyCommandArgs(), tt.want) {
+				t.Fatalf("legacy args = %#v, want %#v", got.operation.LegacyCommandArgs(), tt.want)
 			}
 		})
 	}

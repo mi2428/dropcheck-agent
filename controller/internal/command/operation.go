@@ -1,4 +1,4 @@
-package main
+package command
 
 import (
 	"fmt"
@@ -36,7 +36,7 @@ func newOperation(name string, legacyArgs []string, args map[string]string, flag
 	}
 }
 
-func operationFromLegacyArgs(legacyArgs []string) Operation {
+func OperationFromLegacyArgs(legacyArgs []string) Operation {
 	args := map[string]string{}
 	flags := map[string]bool{}
 	name := operationNameFromLegacyArgs(legacyArgs)
@@ -44,14 +44,14 @@ func operationFromLegacyArgs(legacyArgs []string) Operation {
 	return newOperation(name, legacyArgs, args, flags)
 }
 
-func buildRunCommand(op Operation) (*controlpb.RunCommand, commandOptions, error) {
+func BuildRunCommand(op Operation) (*controlpb.RunCommand, Options, error) {
 	if len(op.legacyArgs) == 0 {
-		return nil, commandOptions{}, fmt.Errorf("operation %q has no command adapter", op.Name)
+		return nil, Options{}, fmt.Errorf("operation %q has no command adapter", op.Name)
 	}
-	return buildCommandWithOptions(op.legacyArgs)
+	return BuildCommandWithOptions(op.legacyArgs)
 }
 
-func (op Operation) legacyCommandArgs() []string {
+func (op Operation) LegacyCommandArgs() []string {
 	return append([]string(nil), op.legacyArgs...)
 }
 

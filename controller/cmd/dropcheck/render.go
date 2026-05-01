@@ -344,7 +344,7 @@ func renderPing(b *strings.Builder, result *controlpb.PingResult, status control
 }
 
 func renderTraceroute(b *strings.Builder, result *controlpb.TracerouteResult, options commandOptions, status controlpb.CommandResult_Status) {
-	analysis := analyzeTraceroute(result, options.tracerouteRequiredHops, status)
+	analysis := analyzeTraceroute(result, options.TracerouteRequiredHops, status)
 	fmt.Fprintf(b, "Traceroute: host=%s status=%s hops=%d reached=%t interface=%s elapsed=%dms executable=%s\n",
 		analysis.Host,
 		analysis.Status,
