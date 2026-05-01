@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"context"
@@ -18,7 +18,7 @@ func TestRenderAgentsAndTargetFromConnectedAgent(t *testing.T) {
 	state, cleanup := connectedShellState(t)
 	defer cleanup()
 
-	text, err := renderAgents(state, outputText)
+	text, err := renderAgents(agentListView(state), outputText)
 	if err != nil {
 		t.Fatalf("renderAgents(text) error = %v", err)
 	}
@@ -28,7 +28,7 @@ func TestRenderAgentsAndTargetFromConnectedAgent(t *testing.T) {
 		}
 	}
 
-	rawJSON, err := renderAgents(state, outputJSON)
+	rawJSON, err := renderAgents(agentListView(state), outputJSON)
 	if err != nil {
 		t.Fatalf("renderAgents(json) error = %v", err)
 	}
@@ -43,7 +43,7 @@ func TestRenderAgentsAndTargetFromConnectedAgent(t *testing.T) {
 		t.Fatalf("renderAgents(json) row = %#v", rows[0])
 	}
 
-	target, err := renderTarget(state, outputText)
+	target, err := renderTarget(targetView(state), outputText)
 	if err != nil {
 		t.Fatalf("renderTarget(text) error = %v", err)
 	}
@@ -53,7 +53,7 @@ func TestRenderAgentsAndTargetFromConnectedAgent(t *testing.T) {
 
 	state.selected = "disconnected-agent"
 	state.selectedLabel = "previous-agent"
-	target, err = renderTarget(state, outputText)
+	target, err = renderTarget(targetView(state), outputText)
 	if err != nil {
 		t.Fatalf("renderTarget(disconnected) error = %v", err)
 	}
@@ -100,7 +100,7 @@ func TestRunOperationForAgentsDispatchesAndRendersResult(t *testing.T) {
 			context.Background(),
 			state,
 			[]control.AgentInfo{agent},
-			operationFromLegacyArgs([]string{"ping", "example.test", "1"}),
+			operationFromCommandArgs([]string{"ping", "example.test", "1"}),
 			commandOutputOptions{},
 		)
 	})

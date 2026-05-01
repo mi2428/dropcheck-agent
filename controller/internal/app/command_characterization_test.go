@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"slices"
@@ -90,9 +90,7 @@ func TestParseLinuxWifiOperationalCommands(t *testing.T) {
 			if got.kind != cliAgentCommand {
 				t.Fatalf("kind = %v, want cliAgentCommand", got.kind)
 			}
-			if !slices.Equal(got.operation.LegacyCommandArgs(), tt.want) {
-				t.Fatalf("legacy args = %#v, want %#v", got.operation.LegacyCommandArgs(), tt.want)
-			}
+			assertOperationMatchesArgs(t, got.operation, tt.want)
 		})
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"dropcheck/controller/internal/controlpb"
+	"google.golang.org/protobuf/proto"
 )
 
 type TargetSpec struct {
@@ -13,15 +14,17 @@ type TargetSpec struct {
 }
 
 type Operation struct {
-	Name   string
-	Args   map[string]string
-	Flags  map[string]bool
-	Target TargetSpec
+	Name    string
+	Command *controlpb.RunCommand
+	Options Options
+	Args    map[string]string
+	Flags   map[string]bool
+	Target  TargetSpec
 
-	legacyArgs []string
+	buildErr error
 }
 
-func newOperation(name string, legacyArgs []string, args map[string]string, flags map[string]bool) Operation {
+func newOperation(name string, cmd *controlpb.RunCommand, options Options, args map[string]string, flags map[string]bool, buildErr error) Operation {
 	if args == nil {
 		args = map[string]string{}
 	}
@@ -29,33 +32,46 @@ func newOperation(name string, legacyArgs []string, args map[string]string, flag
 		flags = map[string]bool{}
 	}
 	return Operation{
-		Name:       name,
-		Args:       args,
-		Flags:      flags,
-		legacyArgs: append([]string(nil), legacyArgs...),
+		Name:     name,
+		Command:  cmd,
+		Options:  options,
+		Args:     args,
+		Flags:    flags,
+		buildErr: buildErr,
 	}
 }
 
-func OperationFromLegacyArgs(legacyArgs []string) Operation {
+func NewOperation(name string, cmd *controlpb.RunCommand, options Options, args map[string]string, flags map[string]bool) Operation {
+	return newOperation(name, cloneRunCommand(cmd), options, args, flags, nil)
+}
+
+func OperationFromCommandArgs(commandArgs []string) Operation {
 	args := map[string]string{}
 	flags := map[string]bool{}
-	name := operationNameFromLegacyArgs(legacyArgs)
-	collectOperationArgs(legacyArgs, args, flags)
-	return newOperation(name, legacyArgs, args, flags)
+	name := operationNameFromCommandArgs(commandArgs)
+	collectOperationArgs(commandArgs, args, flags)
+	cmd, options, err := BuildCommandWithOptions(commandArgs)
+	return newOperation(name, cmd, options, args, flags, err)
 }
 
 func BuildRunCommand(op Operation) (*controlpb.RunCommand, Options, error) {
-	if len(op.legacyArgs) == 0 {
+	if op.buildErr != nil {
+		return nil, Options{}, op.buildErr
+	}
+	if op.Command == nil {
 		return nil, Options{}, fmt.Errorf("operation %q has no command adapter", op.Name)
 	}
-	return BuildCommandWithOptions(op.legacyArgs)
+	return cloneRunCommand(op.Command), op.Options, nil
 }
 
-func (op Operation) LegacyCommandArgs() []string {
-	return append([]string(nil), op.legacyArgs...)
+func cloneRunCommand(cmd *controlpb.RunCommand) *controlpb.RunCommand {
+	if cmd == nil {
+		return nil
+	}
+	return proto.Clone(cmd).(*controlpb.RunCommand)
 }
 
-func operationNameFromLegacyArgs(args []string) string {
+func operationNameFromCommandArgs(args []string) string {
 	if len(args) == 0 {
 		return ""
 	}
@@ -86,140 +102,140 @@ func operationNameFromLegacyArgs(args []string) string {
 	}
 }
 
-func collectOperationArgs(legacy []string, args map[string]string, flags map[string]bool) {
-	if len(legacy) == 0 {
+func collectOperationArgs(commandArgs []string, args map[string]string, flags map[string]bool) {
+	if len(commandArgs) == 0 {
 		return
 	}
-	switch legacy[0] {
+	switch commandArgs[0] {
 	case "wifi":
-		collectWifiOperationArgs(legacy, args, flags)
+		collectWifiOperationArgs(commandArgs, args, flags)
 	case "ping":
-		if len(legacy) >= 2 {
-			args["host"] = legacy[1]
+		if len(commandArgs) >= 2 {
+			args["host"] = commandArgs[1]
 		}
-		if len(legacy) >= 3 && !strings.HasPrefix(legacy[2], "--") {
-			args["count"] = legacy[2]
-			collectLongOptions(legacy[3:], args, flags)
+		if len(commandArgs) >= 3 && !strings.HasPrefix(commandArgs[2], "--") {
+			args["count"] = commandArgs[2]
+			collectLongOptions(commandArgs[3:], args, flags)
 			return
 		}
-		collectLongOptions(legacy[2:], args, flags)
+		collectLongOptions(commandArgs[2:], args, flags)
 	case "traceroute":
-		if len(legacy) >= 2 {
-			args["host"] = legacy[1]
+		if len(commandArgs) >= 2 {
+			args["host"] = commandArgs[1]
 		}
-		if len(legacy) >= 3 && !strings.HasPrefix(legacy[2], "--") {
-			args["max-hops"] = legacy[2]
-			collectLongOptions(legacy[3:], args, flags)
+		if len(commandArgs) >= 3 && !strings.HasPrefix(commandArgs[2], "--") {
+			args["max-hops"] = commandArgs[2]
+			collectLongOptions(commandArgs[3:], args, flags)
 			return
 		}
-		collectLongOptions(legacy[2:], args, flags)
+		collectLongOptions(commandArgs[2:], args, flags)
 	case "path-mtu":
-		if len(legacy) >= 2 {
-			args["host"] = legacy[1]
+		if len(commandArgs) >= 2 {
+			args["host"] = commandArgs[1]
 		}
-		collectLongOptions(legacy[2:], args, flags)
+		collectLongOptions(commandArgs[2:], args, flags)
 	case "global-ip":
-		if len(legacy) >= 2 && !strings.HasPrefix(legacy[1], "--") {
-			args["family"] = legacy[1]
-			collectLongOptions(legacy[2:], args, flags)
+		if len(commandArgs) >= 2 && !strings.HasPrefix(commandArgs[1], "--") {
+			args["family"] = commandArgs[1]
+			collectLongOptions(commandArgs[2:], args, flags)
 			return
 		}
-		collectLongOptions(legacy[1:], args, flags)
+		collectLongOptions(commandArgs[1:], args, flags)
 	case "download":
-		if len(legacy) >= 2 {
-			args["url"] = legacy[1]
+		if len(commandArgs) >= 2 {
+			args["url"] = commandArgs[1]
 		}
-		collectLongOptions(legacy[2:], args, flags)
+		collectLongOptions(commandArgs[2:], args, flags)
 	case "dns":
-		if len(legacy) >= 2 {
-			args["name"] = legacy[1]
+		if len(commandArgs) >= 2 {
+			args["name"] = commandArgs[1]
 		}
-		if len(legacy) >= 3 && !strings.HasPrefix(legacy[2], "--") {
-			args["type"] = legacy[2]
-			collectLongOptions(legacy[3:], args, flags)
+		if len(commandArgs) >= 3 && !strings.HasPrefix(commandArgs[2], "--") {
+			args["type"] = commandArgs[2]
+			collectLongOptions(commandArgs[3:], args, flags)
 			return
 		}
-		collectLongOptions(legacy[2:], args, flags)
+		collectLongOptions(commandArgs[2:], args, flags)
 	case "http":
-		if len(legacy) >= 2 {
-			args["url"] = legacy[1]
+		if len(commandArgs) >= 2 {
+			args["url"] = commandArgs[1]
 		}
-		if len(legacy) >= 3 && !strings.HasPrefix(legacy[2], "--") {
-			args["expected-status"] = legacy[2]
-			collectLongOptions(legacy[3:], args, flags)
+		if len(commandArgs) >= 3 && !strings.HasPrefix(commandArgs[2], "--") {
+			args["expected-status"] = commandArgs[2]
+			collectLongOptions(commandArgs[3:], args, flags)
 			return
 		}
-		collectLongOptions(legacy[2:], args, flags)
+		collectLongOptions(commandArgs[2:], args, flags)
 	}
 }
 
-func collectWifiOperationArgs(legacy []string, args map[string]string, flags map[string]bool) {
-	if len(legacy) < 2 {
+func collectWifiOperationArgs(commandArgs []string, args map[string]string, flags map[string]bool) {
+	if len(commandArgs) < 2 {
 		return
 	}
-	switch legacy[1] {
+	switch commandArgs[1] {
 	case "connect", "cycle":
-		if len(legacy) >= 3 {
-			args["ssid"] = legacy[2]
+		if len(commandArgs) >= 3 {
+			args["ssid"] = commandArgs[2]
 		}
-		if len(legacy) >= 4 {
-			args["passphrase"] = legacy[3]
+		if len(commandArgs) >= 4 {
+			args["passphrase"] = commandArgs[3]
 		}
-		rest := legacy[4:]
+		rest := commandArgs[4:]
 		if len(rest) > 0 && !strings.HasPrefix(rest[0], "--") {
 			args["security"] = rest[0]
 			rest = rest[1:]
 		}
 		collectLongOptions(rest, args, flags)
 	case "scan":
-		if len(legacy) >= 3 {
-			switch legacy[2] {
+		if len(commandArgs) >= 3 {
+			switch commandArgs[2] {
 			case "fresh":
 				args["scan-mode"] = "fresh"
-				if len(legacy) >= 4 && !strings.HasPrefix(legacy[3], "--") {
-					args["band"] = legacy[3]
-					collectLongOptions(legacy[4:], args, flags)
+				if len(commandArgs) >= 4 && !strings.HasPrefix(commandArgs[3], "--") {
+					args["band"] = commandArgs[3]
+					collectLongOptions(commandArgs[4:], args, flags)
 					return
 				}
-				collectLongOptions(legacy[3:], args, flags)
+				collectLongOptions(commandArgs[3:], args, flags)
 			case "detail":
 				args["scan-mode"] = "detail"
-				if len(legacy) >= 4 {
-					args["target"] = legacy[3]
+				if len(commandArgs) >= 4 {
+					args["target"] = commandArgs[3]
 				}
-				if len(legacy) >= 5 {
-					args["band"] = legacy[4]
+				if len(commandArgs) >= 5 {
+					args["band"] = commandArgs[4]
 				}
 			default:
-				args["band"] = legacy[2]
+				args["band"] = commandArgs[2]
 			}
 		}
 	case "forget":
-		if len(legacy) >= 3 {
-			args["target"] = legacy[2]
+		if len(commandArgs) >= 3 {
+			args["target"] = commandArgs[2]
 		}
 	case "wait":
-		if len(legacy) >= 3 {
-			args["state"] = legacy[2]
+		if len(commandArgs) >= 3 {
+			args["state"] = commandArgs[2]
 		}
-		if len(legacy) >= 4 && !strings.HasPrefix(legacy[3], "--") {
-			args["ssid"] = legacy[3]
-			collectLongOptions(legacy[4:], args, flags)
+		if len(commandArgs) >= 4 && !strings.HasPrefix(commandArgs[3], "--") {
+			args["ssid"] = commandArgs[3]
+			collectLongOptions(commandArgs[4:], args, flags)
 			return
 		}
-		collectLongOptions(legacy[3:], args, flags)
+		collectLongOptions(commandArgs[3:], args, flags)
 	case "assert":
-		collectLongOptions(legacy[2:], args, flags)
+		collectLongOptions(commandArgs[2:], args, flags)
 	case "watch", "monitor":
-		if len(legacy) >= 3 {
-			args["duration"] = legacy[2]
+		if len(commandArgs) >= 3 {
+			args["duration"] = commandArgs[2]
 		}
-		if len(legacy) >= 4 {
-			args["interval"] = legacy[3]
+		if len(commandArgs) >= 4 {
+			args["interval"] = commandArgs[3]
 		}
 	case "reconnect":
-		if len(legacy) >= 3 {
-			args["timeout"] = legacy[2]
+		if len(commandArgs) >= 3 {
+			args["timeout"] = commandArgs[2]
 		}
 	}
 }

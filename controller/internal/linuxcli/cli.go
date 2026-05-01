@@ -1,94 +1,34 @@
-package main
+package linuxcli
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
-	"dropcheck/controller/internal/control"
-	"dropcheck/controller/internal/session"
+	"dropcheck/controller/internal/command"
+	"dropcheck/controller/internal/pipeline"
 )
 
-type cliOptions struct {
-	format outputFormat
-	target string
-	all    bool
+type Options struct {
+	Format pipeline.Format
+	Target string
+	All    bool
 }
 
-type cliCommandKind int
+type Kind int
 
 const (
-	cliAgentCommand cliCommandKind = iota
-	cliDevices
-	cliTarget
+	AgentCommand Kind = iota
+	Devices
+	Target
 )
 
-type cliCommand struct {
-	kind      cliCommandKind
-	operation Operation
+type Command struct {
+	Kind      Kind
+	Operation command.Operation
 }
 
-func runCLI(ctx context.Context, opts shellOptions, rawArgs []string) error {
-	cliOpts, args, err := extractCLIOptions(rawArgs)
-	if err != nil {
-		return err
-	}
-	if cliOpts.format == "" {
-		cliOpts.format = outputText
-	}
-	command, err := parseLinuxCommand(args)
-	if err != nil {
-		return err
-	}
-
-	controlSession, err := session.Start(ctx, opts)
-	if err != nil {
-		return err
-	}
-	defer controlSession.Close()
-
-	state := &shellState{server: controlSession.Server}
-	if len(controlSession.Agents) > 0 {
-		state.setSelectedAgent(controlSession.Agents[0])
-	}
-	if cliOpts.all {
-		state.targetAll = true
-	}
-	if cliOpts.target != "" {
-		info, err := resolveShellAgent(state, cliOpts.target)
-		if err != nil {
-			return err
-		}
-		state.setSelectedAgent(info)
-		state.targetAll = false
-	}
-
-	switch command.kind {
-	case cliDevices:
-		out, err := renderAgents(state, cliOpts.format)
-		if err != nil {
-			return err
-		}
-		fmt.Print(out)
-		return nil
-	case cliTarget:
-		out, err := renderTarget(state, cliOpts.format)
-		if err != nil {
-			return err
-		}
-		fmt.Print(out)
-		return nil
-	default:
-		agents, err := state.commandTargets()
-		if err != nil {
-			return err
-		}
-		return runOperationForAgents(ctx, state, agents, command.operation, commandOutputOptions{format: cliOpts.format, strict: true})
-	}
-}
-
-func extractCLIOptions(args []string) (cliOptions, []string, error) {
-	var opts cliOptions
+func ExtractOptions(args []string) (Options, []string, error) {
+	var opts Options
 	var rest []string
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -106,9 +46,9 @@ func extractCLIOptions(args []string) (cliOptions, []string, error) {
 				i++
 				value = args[i]
 			}
-			switch outputFormat(value) {
-			case outputText, outputJSON:
-				opts.format = outputFormat(value)
+			switch pipeline.Format(value) {
+			case pipeline.FormatText, pipeline.FormatJSON:
+				opts.Format = pipeline.Format(value)
 			default:
 				return opts, nil, fmt.Errorf("--format must be text or json")
 			}
@@ -120,68 +60,68 @@ func extractCLIOptions(args []string) (cliOptions, []string, error) {
 				i++
 				value = args[i]
 			}
-			opts.target = value
+			opts.Target = value
 		case "--all":
 			if hasValue {
 				return opts, nil, fmt.Errorf("--all does not take a value")
 			}
-			opts.all = true
+			opts.All = true
 		default:
 			rest = append(rest, arg)
 		}
 	}
-	if opts.all && opts.target != "" {
+	if opts.All && opts.Target != "" {
 		return opts, nil, fmt.Errorf("--all and --target cannot be used together")
 	}
 	return opts, rest, nil
 }
 
-func parseLinuxCommand(args []string) (cliCommand, error) {
+func Parse(args []string) (Command, error) {
 	if len(args) == 0 {
-		return cliCommand{}, usage()
+		return Command{}, fmt.Errorf("usage: dropcheck [--adb adb] [--serial SERIAL] [--package PACKAGE] shell | <command>")
 	}
 	switch args[0] {
 	case "devices":
 		if len(args) != 1 {
-			return cliCommand{}, fmt.Errorf("usage: devices")
+			return Command{}, fmt.Errorf("usage: devices")
 		}
-		return cliCommand{kind: cliDevices}, nil
+		return Command{Kind: Devices}, nil
 	case "target":
 		if len(args) != 1 {
-			return cliCommand{}, fmt.Errorf("usage: target")
+			return Command{}, fmt.Errorf("usage: target")
 		}
-		return cliCommand{kind: cliTarget}, nil
+		return Command{Kind: Target}, nil
 	case "wifi":
-		legacy, err := parseLinuxWifi(args[1:])
-		return cliCommand{kind: cliAgentCommand, operation: operationFromLegacyArgs(legacy)}, err
+		commandArgs, err := parseLinuxWifi(args[1:])
+		return Command{Kind: AgentCommand, Operation: command.OperationFromCommandArgs(commandArgs)}, err
 	case "ip":
 		if len(args) != 1 {
-			return cliCommand{}, fmt.Errorf("usage: ip")
+			return Command{}, fmt.Errorf("usage: ip")
 		}
-		return cliCommand{kind: cliAgentCommand, operation: operationFromLegacyArgs([]string{"ip"})}, nil
+		return Command{Kind: AgentCommand, Operation: command.OperationFromCommandArgs([]string{"ip"})}, nil
 	case "ping":
-		legacy, err := parseLinuxPing(args[1:])
-		return cliCommand{kind: cliAgentCommand, operation: operationFromLegacyArgs(legacy)}, err
+		commandArgs, err := parseLinuxPing(args[1:])
+		return Command{Kind: AgentCommand, Operation: command.OperationFromCommandArgs(commandArgs)}, err
 	case "traceroute":
-		legacy, err := parseLinuxTraceroute(args[1:])
-		return cliCommand{kind: cliAgentCommand, operation: operationFromLegacyArgs(legacy)}, err
+		commandArgs, err := parseLinuxTraceroute(args[1:])
+		return Command{Kind: AgentCommand, Operation: command.OperationFromCommandArgs(commandArgs)}, err
 	case "path-mtu":
-		legacy, err := parseLinuxPathMtu(args[1:])
-		return cliCommand{kind: cliAgentCommand, operation: operationFromLegacyArgs(legacy)}, err
+		commandArgs, err := parseLinuxPathMtu(args[1:])
+		return Command{Kind: AgentCommand, Operation: command.OperationFromCommandArgs(commandArgs)}, err
 	case "global-ip":
-		legacy, err := parseLinuxGlobalIp(args[1:])
-		return cliCommand{kind: cliAgentCommand, operation: operationFromLegacyArgs(legacy)}, err
+		commandArgs, err := parseLinuxGlobalIp(args[1:])
+		return Command{Kind: AgentCommand, Operation: command.OperationFromCommandArgs(commandArgs)}, err
 	case "download":
-		legacy, err := parseLinuxDownload(args[1:])
-		return cliCommand{kind: cliAgentCommand, operation: operationFromLegacyArgs(legacy)}, err
+		commandArgs, err := parseLinuxDownload(args[1:])
+		return Command{Kind: AgentCommand, Operation: command.OperationFromCommandArgs(commandArgs)}, err
 	case "dns":
-		legacy, err := parseLinuxDNS(args[1:])
-		return cliCommand{kind: cliAgentCommand, operation: operationFromLegacyArgs(legacy)}, err
+		commandArgs, err := parseLinuxDNS(args[1:])
+		return Command{Kind: AgentCommand, Operation: command.OperationFromCommandArgs(commandArgs)}, err
 	case "http":
-		legacy, err := parseLinuxHTTP(args[1:])
-		return cliCommand{kind: cliAgentCommand, operation: operationFromLegacyArgs(legacy)}, err
+		commandArgs, err := parseLinuxHTTP(args[1:])
+		return Command{Kind: AgentCommand, Operation: command.OperationFromCommandArgs(commandArgs)}, err
 	default:
-		return cliCommand{}, fmt.Errorf("unknown command %q", args[0])
+		return Command{}, fmt.Errorf("unknown command %q", args[0])
 	}
 }
 
@@ -285,31 +225,31 @@ func parseLinuxWifiScan(args []string) ([]string, error) {
 		return nil, err
 	}
 	pos := opts.positionals
-	legacy := []string{"wifi", "scan"}
+	commandArgs := []string{"wifi", "scan"}
 	if len(pos) == 0 {
 		if opts.value("timeout") != "" {
 			return nil, fmt.Errorf("--timeout is supported only with wifi scan fresh")
 		}
 		if opts.value("band") != "" {
-			legacy = append(legacy, opts.value("band"))
+			commandArgs = append(commandArgs, opts.value("band"))
 		}
-		return legacy, nil
+		return commandArgs, nil
 	}
 	switch pos[0] {
 	case "fresh":
-		legacy = append(legacy, "fresh")
+		commandArgs = append(commandArgs, "fresh")
 		if opts.value("band") != "" {
-			legacy = append(legacy, opts.value("band"))
+			commandArgs = append(commandArgs, opts.value("band"))
 		} else if len(pos) >= 2 {
-			legacy = append(legacy, pos[1])
+			commandArgs = append(commandArgs, pos[1])
 		}
 		if len(pos) > 2 {
 			return nil, fmt.Errorf("usage: wifi scan fresh [band] [--timeout ms]")
 		}
 		if opts.value("timeout") != "" {
-			legacy = append(legacy, "--timeout", opts.value("timeout"))
+			commandArgs = append(commandArgs, "--timeout", opts.value("timeout"))
 		}
-		return legacy, nil
+		return commandArgs, nil
 	case "detail":
 		if opts.value("timeout") != "" {
 			return nil, fmt.Errorf("--timeout is supported only with wifi scan fresh")
@@ -317,16 +257,16 @@ func parseLinuxWifiScan(args []string) ([]string, error) {
 		if len(pos) < 2 {
 			return nil, fmt.Errorf("usage: wifi scan detail <ssid|bssid> [--band band]")
 		}
-		legacy = append(legacy, "detail", pos[1])
+		commandArgs = append(commandArgs, "detail", pos[1])
 		if opts.value("band") != "" {
-			legacy = append(legacy, opts.value("band"))
+			commandArgs = append(commandArgs, opts.value("band"))
 		} else if len(pos) == 3 {
-			legacy = append(legacy, pos[2])
+			commandArgs = append(commandArgs, pos[2])
 		}
 		if len(pos) > 3 {
 			return nil, fmt.Errorf("usage: wifi scan detail <ssid|bssid> [band]")
 		}
-		return legacy, nil
+		return commandArgs, nil
 	default:
 		if opts.value("timeout") != "" {
 			return nil, fmt.Errorf("--timeout is supported only with wifi scan fresh")
@@ -337,7 +277,7 @@ func parseLinuxWifiScan(args []string) ([]string, error) {
 		if opts.value("band") != "" {
 			return nil, fmt.Errorf("wifi scan band specified twice")
 		}
-		return append(legacy, pos[0]), nil
+		return append(commandArgs, pos[0]), nil
 	}
 }
 
@@ -376,19 +316,19 @@ func parseLinuxWifiConnect(args []string, command string) ([]string, error) {
 	if len(pos) > 2 {
 		return nil, fmt.Errorf("too many positional arguments for wifi %s", command)
 	}
-	legacy := []string{"wifi", command, ssid, passphrase}
+	commandArgs := []string{"wifi", command, ssid, passphrase}
 	if opts.value("security") != "" {
-		legacy = append(legacy, opts.value("security"))
+		commandArgs = append(commandArgs, opts.value("security"))
 	}
 	for _, key := range []string{"count", "bssid", "band", "mac-randomization", "ping", "http", "pause", "timeout"} {
 		if value := opts.value(key); value != "" {
-			legacy = append(legacy, "--"+key, value)
+			commandArgs = append(commandArgs, "--"+key, value)
 		}
 	}
 	if opts.flags["forget"] {
-		legacy = append(legacy, "--forget")
+		commandArgs = append(commandArgs, "--forget")
 	}
-	return legacy, nil
+	return commandArgs, nil
 }
 
 func parseLinuxWifiWait(args []string) ([]string, error) {
@@ -399,14 +339,14 @@ func parseLinuxWifiWait(args []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	legacy := []string{"wifi", "wait", "connected"}
+	commandArgs := []string{"wifi", "wait", "connected"}
 	if len(opts.positionals) > 1 {
 		return nil, fmt.Errorf("usage: wifi wait connected [ssid]")
 	}
 	if len(opts.positionals) == 1 {
-		legacy = append(legacy, opts.positionals[0])
+		commandArgs = append(commandArgs, opts.positionals[0])
 	}
-	return appendExpectationOptions(legacy, opts), nil
+	return appendExpectationOptions(commandArgs, opts), nil
 }
 
 func parseLinuxWifiAssert(args []string) ([]string, error) {
@@ -432,18 +372,18 @@ func expectationDashSpecs() map[string]dashOptionSpec {
 	}
 }
 
-func appendExpectationOptions(legacy []string, opts parsedDashOptions) []string {
+func appendExpectationOptions(commandArgs []string, opts parsedDashOptions) []string {
 	for _, key := range []string{"ssid", "bssid", "security", "band", "timeout"} {
 		if value := opts.value(key); value != "" {
-			legacy = append(legacy, "--"+key, value)
+			commandArgs = append(commandArgs, "--"+key, value)
 		}
 	}
 	for _, key := range []string{"ip", "validated"} {
 		if opts.flags[key] {
-			legacy = append(legacy, "--"+key)
+			commandArgs = append(commandArgs, "--"+key)
 		}
 	}
-	return legacy
+	return commandArgs
 }
 
 func parseLinuxWifiMonitor(args []string, command string) ([]string, error) {
@@ -457,21 +397,21 @@ func parseLinuxWifiMonitor(args []string, command string) ([]string, error) {
 	if len(opts.positionals) > 2 {
 		return nil, fmt.Errorf("usage: wifi %s [duration_ms] [interval_ms]", command)
 	}
-	legacy := []string{"wifi", command}
+	commandArgs := []string{"wifi", command}
 	if opts.value("duration") != "" {
-		legacy = append(legacy, opts.value("duration"))
+		commandArgs = append(commandArgs, opts.value("duration"))
 	} else if len(opts.positionals) >= 1 {
-		legacy = append(legacy, opts.positionals[0])
+		commandArgs = append(commandArgs, opts.positionals[0])
 	}
 	if opts.value("interval") != "" {
-		if len(legacy) == 2 {
-			legacy = append(legacy, "10000")
+		if len(commandArgs) == 2 {
+			commandArgs = append(commandArgs, "10000")
 		}
-		legacy = append(legacy, opts.value("interval"))
+		commandArgs = append(commandArgs, opts.value("interval"))
 	} else if len(opts.positionals) == 2 {
-		legacy = append(legacy, opts.positionals[1])
+		commandArgs = append(commandArgs, opts.positionals[1])
 	}
-	return legacy, nil
+	return commandArgs, nil
 }
 
 func parseLinuxWifiReconnect(args []string) ([]string, error) {
@@ -482,13 +422,13 @@ func parseLinuxWifiReconnect(args []string) ([]string, error) {
 	if len(opts.positionals) > 1 {
 		return nil, fmt.Errorf("usage: wifi reconnect [timeout_ms]")
 	}
-	legacy := []string{"wifi", "reconnect"}
+	commandArgs := []string{"wifi", "reconnect"}
 	if opts.value("timeout") != "" {
-		legacy = append(legacy, opts.value("timeout"))
+		commandArgs = append(commandArgs, opts.value("timeout"))
 	} else if len(opts.positionals) == 1 {
-		legacy = append(legacy, opts.positionals[0])
+		commandArgs = append(commandArgs, opts.positionals[0])
 	}
-	return legacy, nil
+	return commandArgs, nil
 }
 
 func parseLinuxPing(args []string) ([]string, error) {
@@ -506,18 +446,18 @@ func parseLinuxPing(args []string) ([]string, error) {
 	if len(opts.positionals) > 2 {
 		return nil, fmt.Errorf("too many positional arguments for ping")
 	}
-	legacy := []string{"ping", opts.positionals[0]}
+	commandArgs := []string{"ping", opts.positionals[0]}
 	if opts.value("count") != "" {
-		legacy = append(legacy, opts.value("count"))
+		commandArgs = append(commandArgs, opts.value("count"))
 	} else if len(opts.positionals) == 2 {
-		legacy = append(legacy, opts.positionals[1])
+		commandArgs = append(commandArgs, opts.positionals[1])
 	}
 	for _, key := range []string{"size", "timeout"} {
 		if value := opts.value(key); value != "" {
-			legacy = append(legacy, "--"+key, value)
+			commandArgs = append(commandArgs, "--"+key, value)
 		}
 	}
-	return legacy, nil
+	return commandArgs, nil
 }
 
 func parseLinuxTraceroute(args []string) ([]string, error) {
@@ -536,21 +476,21 @@ func parseLinuxTraceroute(args []string) ([]string, error) {
 	if len(opts.positionals) > 2 {
 		return nil, fmt.Errorf("too many positional arguments for traceroute")
 	}
-	legacy := []string{"traceroute", opts.positionals[0]}
+	commandArgs := []string{"traceroute", opts.positionals[0]}
 	if opts.value("max-hops") != "" {
-		legacy = append(legacy, opts.value("max-hops"))
+		commandArgs = append(commandArgs, opts.value("max-hops"))
 	} else if len(opts.positionals) == 2 {
-		legacy = append(legacy, opts.positionals[1])
+		commandArgs = append(commandArgs, opts.positionals[1])
 	}
 	for _, value := range opts.values["via"] {
-		legacy = append(legacy, "--via", value)
+		commandArgs = append(commandArgs, "--via", value)
 	}
 	for _, key := range []string{"size", "timeout"} {
 		if value := opts.value(key); value != "" {
-			legacy = append(legacy, "--"+key, value)
+			commandArgs = append(commandArgs, "--"+key, value)
 		}
 	}
-	return legacy, nil
+	return commandArgs, nil
 }
 
 func parseLinuxPathMtu(args []string) ([]string, error) {
@@ -565,13 +505,13 @@ func parseLinuxPathMtu(args []string) ([]string, error) {
 	if len(opts.positionals) != 1 {
 		return nil, fmt.Errorf("usage: path-mtu <host> [--min-mtu bytes] [--max-mtu bytes] [--timeout ms]")
 	}
-	legacy := []string{"path-mtu", opts.positionals[0]}
+	commandArgs := []string{"path-mtu", opts.positionals[0]}
 	for _, key := range []string{"min-mtu", "max-mtu", "timeout"} {
 		if value := opts.value(key); value != "" {
-			legacy = append(legacy, "--"+key, value)
+			commandArgs = append(commandArgs, "--"+key, value)
 		}
 	}
-	return legacy, nil
+	return commandArgs, nil
 }
 
 func parseLinuxGlobalIp(args []string) ([]string, error) {
@@ -588,16 +528,16 @@ func parseLinuxGlobalIp(args []string) ([]string, error) {
 	if len(opts.positionals) == 1 && opts.value("family") != "" {
 		return nil, fmt.Errorf("global-ip family specified twice")
 	}
-	legacy := []string{"global-ip"}
+	commandArgs := []string{"global-ip"}
 	if opts.value("family") != "" {
-		legacy = append(legacy, opts.value("family"))
+		commandArgs = append(commandArgs, opts.value("family"))
 	} else if len(opts.positionals) == 1 {
-		legacy = append(legacy, opts.positionals[0])
+		commandArgs = append(commandArgs, opts.positionals[0])
 	}
 	if opts.value("timeout") != "" {
-		legacy = append(legacy, "--timeout", opts.value("timeout"))
+		commandArgs = append(commandArgs, "--timeout", opts.value("timeout"))
 	}
-	return legacy, nil
+	return commandArgs, nil
 }
 
 func parseLinuxDownload(args []string) ([]string, error) {
@@ -608,11 +548,11 @@ func parseLinuxDownload(args []string) ([]string, error) {
 	if len(opts.positionals) != 1 {
 		return nil, fmt.Errorf("usage: download <url> [--timeout ms]")
 	}
-	legacy := []string{"download", opts.positionals[0]}
+	commandArgs := []string{"download", opts.positionals[0]}
 	if opts.value("timeout") != "" {
-		legacy = append(legacy, "--timeout", opts.value("timeout"))
+		commandArgs = append(commandArgs, "--timeout", opts.value("timeout"))
 	}
-	return legacy, nil
+	return commandArgs, nil
 }
 
 func parseLinuxDNS(args []string) ([]string, error) {
@@ -629,16 +569,16 @@ func parseLinuxDNS(args []string) ([]string, error) {
 	if len(opts.positionals) > 2 {
 		return nil, fmt.Errorf("too many positional arguments for dns")
 	}
-	legacy := []string{"dns", opts.positionals[0]}
+	commandArgs := []string{"dns", opts.positionals[0]}
 	if opts.value("type") != "" {
-		legacy = append(legacy, opts.value("type"))
+		commandArgs = append(commandArgs, opts.value("type"))
 	} else if len(opts.positionals) == 2 {
-		legacy = append(legacy, opts.positionals[1])
+		commandArgs = append(commandArgs, opts.positionals[1])
 	}
 	if opts.value("timeout") != "" {
-		legacy = append(legacy, "--timeout", opts.value("timeout"))
+		commandArgs = append(commandArgs, "--timeout", opts.value("timeout"))
 	}
-	return legacy, nil
+	return commandArgs, nil
 }
 
 func parseLinuxHTTP(args []string) ([]string, error) {
@@ -655,29 +595,14 @@ func parseLinuxHTTP(args []string) ([]string, error) {
 	if len(opts.positionals) > 2 {
 		return nil, fmt.Errorf("too many positional arguments for http")
 	}
-	legacy := []string{"http", opts.positionals[0]}
+	commandArgs := []string{"http", opts.positionals[0]}
 	if opts.value("expected-status") != "" {
-		legacy = append(legacy, opts.value("expected-status"))
+		commandArgs = append(commandArgs, opts.value("expected-status"))
 	} else if len(opts.positionals) == 2 {
-		legacy = append(legacy, opts.positionals[1])
+		commandArgs = append(commandArgs, opts.positionals[1])
 	}
 	if opts.value("timeout") != "" {
-		legacy = append(legacy, "--timeout", opts.value("timeout"))
+		commandArgs = append(commandArgs, "--timeout", opts.value("timeout"))
 	}
-	return legacy, nil
-}
-
-func (s *shellState) commandTargets() ([]control.AgentInfo, error) {
-	if s.targetAll {
-		agents := s.server.Agents()
-		if len(agents) == 0 {
-			return nil, fmt.Errorf("no Android agents connected")
-		}
-		return agents, nil
-	}
-	info, err := selectedAgent(s)
-	if err != nil {
-		return nil, err
-	}
-	return []control.AgentInfo{info}, nil
+	return commandArgs, nil
 }

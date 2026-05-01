@@ -24,13 +24,10 @@ func TestBuildCommandWithOptionsNormalizesPrefixes(t *testing.T) {
 	}
 }
 
-func TestOperationFromLegacyArgsBuildsCommand(t *testing.T) {
-	op := OperationFromLegacyArgs([]string{"wifi", "scan", "fresh", "6ghz", "--timeout", "9000"})
+func TestOperationFromCommandArgsBuildsCommand(t *testing.T) {
+	op := OperationFromCommandArgs([]string{"wifi", "scan", "fresh", "6ghz", "--timeout", "9000"})
 	if op.Name != "wifi.scan.fresh" {
 		t.Fatalf("operation name = %q", op.Name)
-	}
-	if !slices.Equal(op.LegacyCommandArgs(), []string{"wifi", "scan", "fresh", "6ghz", "--timeout", "9000"}) {
-		t.Fatalf("legacy args = %#v", op.LegacyCommandArgs())
 	}
 	cmd, _, err := BuildRunCommand(op)
 	if err != nil {

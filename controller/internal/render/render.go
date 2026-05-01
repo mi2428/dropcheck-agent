@@ -1,4 +1,4 @@
-package main
+package render
 
 import (
 	"encoding/json"
@@ -7,7 +7,10 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"dropcheck/controller/internal/command"
+	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
+	"dropcheck/controller/internal/pipeline"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -24,8 +27,8 @@ func renderProtoMessage(message proto.Message) (string, error) {
 	return string(data) + "\n", nil
 }
 
-func renderCommandResult(agent string, result *controlpb.CommandResult, options commandOptions, format outputFormat) (string, error) {
-	if format == outputJSON {
+func CommandResult(agent string, result *controlpb.CommandResult, options command.Options, format pipeline.Format) (string, error) {
+	if format == pipeline.FormatJSON {
 		return renderProtoMessage(result)
 	}
 	var b strings.Builder
@@ -110,7 +113,7 @@ func commandResultLatencyMs(result *controlpb.CommandResult) int64 {
 	}
 }
 
-func renderCommandResultEnvelope(agent string, commandID string, result *controlpb.CommandResult) (string, error) {
+func CommandResultEnvelope(agent string, commandID string, result *controlpb.CommandResult) (string, error) {
 	data, err := protojson.MarshalOptions{
 		Multiline:     true,
 		Indent:        "  ",
@@ -135,8 +138,8 @@ func renderCommandResultEnvelope(agent string, commandID string, result *control
 	return string(wrapped) + "\n", nil
 }
 
-func renderCommandError(agent string, commandID string, err error, format outputFormat, includeAgent bool) (string, error) {
-	if format == outputJSON {
+func CommandError(agent string, commandID string, err error, format pipeline.Format, includeAgent bool) (string, error) {
+	if format == pipeline.FormatJSON {
 		value := map[string]any{
 			"command_id": commandID,
 			"error":      err.Error(),
@@ -156,16 +159,29 @@ func renderCommandError(agent string, commandID string, err error, format output
 	return fmt.Sprintf("Error: %s\n", err.Error()), nil
 }
 
-func renderAgents(state *shellState, format outputFormat) (string, error) {
-	agents := state.server.Agents()
-	if format == outputJSON {
+type AgentListView struct {
+	Agents    []control.AgentInfo
+	Selected  string
+	TargetAll bool
+}
+
+type TargetView struct {
+	TargetAll     bool
+	Selected      string
+	SelectedLabel string
+	Agent         *control.AgentInfo
+}
+
+func Agents(view AgentListView, format pipeline.Format) (string, error) {
+	if format == pipeline.FormatJSON {
+		agents := view.Agents
 		rows := make([]map[string]any, 0, len(agents))
 		for i, info := range agents {
 			hello := info.Hello
 			device := hello.GetDevice()
 			rows = append(rows, map[string]any{
 				"number":       i + 1,
-				"selected":     info.ID == state.selected && !state.targetAll,
+				"selected":     info.ID == view.Selected && !view.TargetAll,
 				"id":           info.ID,
 				"adb_serial":   hello.GetAdbSerial(),
 				"session":      info.SessionID,
@@ -182,6 +198,7 @@ func renderAgents(state *shellState, format outputFormat) (string, error) {
 		}
 		return string(data) + "\n", nil
 	}
+	agents := view.Agents
 	if len(agents) == 0 {
 		return "No agents connected\n", nil
 	}
@@ -190,9 +207,9 @@ func renderAgents(state *shellState, format outputFormat) (string, error) {
 	fmt.Fprintln(tw, "SEL\t#\tAGENT\tADB SERIAL\tDEVICE\tSDK\tAPP\tCONNECTED")
 	for i, info := range agents {
 		marker := ""
-		if state.targetAll {
+		if view.TargetAll {
 			marker = "all"
-		} else if info.ID == state.selected {
+		} else if info.ID == view.Selected {
 			marker = "*"
 		}
 		hello := info.Hello
@@ -213,15 +230,16 @@ func renderAgents(state *shellState, format outputFormat) (string, error) {
 	return b.String(), nil
 }
 
-func renderTarget(state *shellState, format outputFormat) (string, error) {
-	if format == outputJSON {
-		target := map[string]any{"all": state.targetAll, "selected": state.selected, "label": state.selectedLabel}
-		if info, ok := state.selectedAgentIfConnected(); ok {
+func Target(view TargetView, format pipeline.Format) (string, error) {
+	if format == pipeline.FormatJSON {
+		target := map[string]any{"all": view.TargetAll, "selected": view.Selected, "label": view.SelectedLabel}
+		if view.Agent != nil {
+			info := *view.Agent
 			target["agent"] = agentDisplayName(info)
 			target["id"] = info.ID
 			target["adb_serial"] = info.Hello.GetAdbSerial()
 			target["connected"] = true
-		} else if state.selected != "" {
+		} else if view.Selected != "" {
 			target["connected"] = false
 		}
 		data, err := json.MarshalIndent(target, "", "  ")
@@ -230,14 +248,15 @@ func renderTarget(state *shellState, format outputFormat) (string, error) {
 		}
 		return string(data) + "\n", nil
 	}
-	if state.targetAll {
+	if view.TargetAll {
 		return "Target: all agents\n", nil
 	}
-	if info, ok := state.selectedAgentIfConnected(); ok {
+	if view.Agent != nil {
+		info := *view.Agent
 		return fmt.Sprintf("Target: %s (id=%s adb_serial=%s)\n", agentDisplayName(info), info.ID, empty(info.Hello.GetAdbSerial(), "unknown")), nil
 	}
-	if state.selectedLabel != "" {
-		return fmt.Sprintf("Target: %s (disconnected)\n", state.selectedLabel), nil
+	if view.SelectedLabel != "" {
+		return fmt.Sprintf("Target: %s (disconnected)\n", view.SelectedLabel), nil
 	}
 	return "Target: none\n", nil
 }
@@ -343,7 +362,7 @@ func renderPing(b *strings.Builder, result *controlpb.PingResult, status control
 	}
 }
 
-func renderTraceroute(b *strings.Builder, result *controlpb.TracerouteResult, options commandOptions, status controlpb.CommandResult_Status) {
+func renderTraceroute(b *strings.Builder, result *controlpb.TracerouteResult, options command.Options, status controlpb.CommandResult_Status) {
 	analysis := analyzeTraceroute(result, options.TracerouteRequiredHops, status)
 	fmt.Fprintf(b, "Traceroute: host=%s status=%s hops=%d reached=%t interface=%s elapsed=%dms executable=%s\n",
 		analysis.Host,

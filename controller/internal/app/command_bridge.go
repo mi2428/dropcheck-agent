@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"time"
@@ -11,8 +11,8 @@ type TargetSpec = command.TargetSpec
 type Operation = command.Operation
 type commandOptions = command.Options
 
-func operationFromLegacyArgs(args []string) Operation {
-	return command.OperationFromLegacyArgs(args)
+func operationFromCommandArgs(args []string) Operation {
+	return command.OperationFromCommandArgs(args)
 }
 
 func buildRunCommand(op Operation) (*controlpb.RunCommand, commandOptions, error) {
@@ -53,16 +53,4 @@ func parseMacRandomization(value string) (controlpb.ConnectWifi_MacRandomization
 
 func parseQTypes(value string) ([]controlpb.DnsRecordType, error) {
 	return command.ParseQTypes(value)
-}
-
-func normalizeIpFamily(value string) (string, error) {
-	return command.NormalizeIpFamily(value)
-}
-
-func normalizeDNSQType(value string) (string, error) {
-	return command.NormalizeDNSQType(value)
-}
-
-func normalizeHTTPURL(value string) string {
-	return command.NormalizeHTTPURL(value)
 }

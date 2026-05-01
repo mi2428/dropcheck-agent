@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"bufio"
@@ -221,9 +221,13 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 		printShellHelp()
 		return false, nil
 	case shellShowDevices:
-		return false, printLocalOutput(state, command, renderAgents)
+		return false, printLocalOutput(command, func(format outputFormat) (string, error) {
+			return renderAgents(agentListView(state), format)
+		})
 	case shellShowTarget:
-		return false, printLocalOutput(state, command, renderTarget)
+		return false, printLocalOutput(command, func(format outputFormat) (string, error) {
+			return renderTarget(targetView(state), format)
+		})
 	case shellSetTarget:
 		if command.targetAll {
 			state.targetAll = true
@@ -244,7 +248,7 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 		if info, err := selectedAgent(state); err == nil {
 			state.setSelectedAgent(info)
 		}
-		out, err := renderTarget(state, command.pipeline.format(outputText))
+		out, err := renderTarget(targetView(state), command.pipeline.format(outputText))
 		if err != nil {
 			return false, err
 		}
@@ -269,8 +273,8 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 	}
 }
 
-func printLocalOutput(state *shellState, command shellCommand, render func(*shellState, outputFormat) (string, error)) error {
-	out, err := render(state, command.pipeline.format(outputText))
+func printLocalOutput(command shellCommand, render func(outputFormat) (string, error)) error {
+	out, err := render(command.pipeline.format(outputText))
 	if err != nil {
 		return err
 	}
