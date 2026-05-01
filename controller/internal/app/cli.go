@@ -6,7 +6,6 @@ import (
 
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/linuxcli"
-	"dropcheck/controller/internal/session"
 )
 
 func runCLI(ctx context.Context, opts shellOptions, rawArgs []string) error {
@@ -22,7 +21,7 @@ func runCLI(ctx context.Context, opts shellOptions, rawArgs []string) error {
 		return err
 	}
 
-	controlSession, err := session.Start(ctx, opts)
+	controlSession, err := startControlSession(ctx, opts)
 	if err != nil {
 		return err
 	}

@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -35,7 +34,7 @@ type Session struct {
 	closeOnce  sync.Once
 }
 
-func Start(ctx context.Context, opts Options) (*Session, error) {
+func Start(ctx context.Context, opts Options, targets []adb.Device) (*Session, error) {
 	if opts.ADBPath == "" {
 		opts.ADBPath = "adb"
 	}
@@ -45,10 +44,6 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	token, err := control.RandomHex(24)
 	if err != nil {
 		return nil, fmt.Errorf("create session token: %w", err)
-	}
-	targets, err := discoverADBTargets(ctx, adb.Client{Path: opts.ADBPath}, opts.Serial)
-	if err != nil {
-		return nil, err
 	}
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -135,32 +130,6 @@ func (s *Session) Close() {
 			_ = client.RemoveReverse(removeCtx, s.port)
 		}
 	})
-}
-
-func discoverADBTargets(ctx context.Context, client adb.Client, serial string) ([]adb.Device, error) {
-	if serial != "" {
-		return []adb.Device{{Serial: serial, State: "device"}}, nil
-	}
-	devices, err := client.ListDevices(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list adb devices: %w", err)
-	}
-	var targets []adb.Device
-	var skipped []string
-	for _, device := range devices {
-		if device.State == "device" {
-			targets = append(targets, device)
-			continue
-		}
-		skipped = append(skipped, fmt.Sprintf("%s(%s)", device.Serial, device.State))
-	}
-	if len(skipped) > 0 {
-		fmt.Fprintf(os.Stderr, "dropcheck: skipped adb devices %s\n", strings.Join(skipped, ", "))
-	}
-	if len(targets) == 0 {
-		return nil, errors.New("no connected adb devices; connect a device or pass --serial")
-	}
-	return targets, nil
 }
 
 func printAgentConnected(info control.AgentInfo) {
