@@ -131,6 +131,7 @@ internal fun CommandResult.logFields(): List<Pair<String, Any?>> {
         add("status" to status.name)
         add("payload_case" to payloadCase.name)
         add("message" to message)
+        add("elapsed_ms" to elapsedMs)
         when (payloadCase) {
             CommandResult.PayloadCase.WIFI_STATUS -> {
                 add("wifi_enabled" to wifiStatus.enabled)

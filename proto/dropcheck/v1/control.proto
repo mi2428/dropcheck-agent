@@ -308,6 +308,7 @@ message CommandResult {
 
   Status status = 1;
   string message = 2;
+  int64 elapsed_ms = 3;
 
   oneof payload {
     WifiStatus wifi_status = 10;
