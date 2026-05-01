@@ -1,0 +1,610 @@
+syntax = "proto3";
+
+package dropcheck.v1;
+
+option go_package = "dropcheck/controller/internal/controlpb;controlpb";
+option java_multiple_files = true;
+option java_package = "io.dropcheck.agent.grpc";
+
+service DropcheckControl {
+  rpc Session(stream AgentFrame) returns (stream ControllerFrame);
+}
+
+message AgentFrame {
+  uint64 seq = 1;
+  string session_id = 2;
+  string command_id = 3;
+
+  oneof body {
+    AgentHello hello = 10;
+    CommandAccepted accepted = 11;
+    CommandLog log = 12;
+    CommandResult result = 13;
+    CommandError error = 14;
+    AgentHeartbeat heartbeat = 15;
+  }
+}
+
+message ControllerFrame {
+  uint64 seq = 1;
+  string session_id = 2;
+  string command_id = 3;
+
+  oneof body {
+    RunCommand run_command = 10;
+    CancelCommand cancel_command = 11;
+    ControllerHeartbeat heartbeat = 12;
+  }
+}
+
+message AgentHello {
+  string token = 1;
+  string package_name = 2;
+  string app_version = 3;
+  DeviceInfo device = 4;
+  repeated string capabilities = 5;
+  string controller_agent_id = 6;
+  string adb_serial = 7;
+}
+
+message DeviceInfo {
+  string manufacturer = 1;
+  string model = 2;
+  string device = 3;
+  int32 sdk = 4;
+  string release = 5;
+}
+
+message AgentHeartbeat {
+  int64 unix_time_ms = 1;
+}
+
+message ControllerHeartbeat {
+  int64 unix_time_ms = 1;
+}
+
+message CommandAccepted {
+  string command_name = 1;
+}
+
+message CommandLog {
+  enum Level {
+    LEVEL_UNSPECIFIED = 0;
+    LEVEL_DEBUG = 1;
+    LEVEL_INFO = 2;
+    LEVEL_WARN = 3;
+    LEVEL_ERROR = 4;
+  }
+
+  Level level = 1;
+  string message = 2;
+  int64 unix_time_ms = 3;
+}
+
+message CommandError {
+  string message = 1;
+  string detail = 2;
+}
+
+message CancelCommand {
+  string reason = 1;
+}
+
+message RunCommand {
+  string label = 1;
+
+  oneof command {
+    GetWifiStatus get_wifi_status = 10;
+    ConnectWifi connect_wifi = 11;
+    GetIpStatus get_ip_status = 12;
+    Ping ping = 13;
+    ResolveDns resolve_dns = 14;
+    HttpCheck http_check = 15;
+    GetWifiDiagnostics get_wifi_diagnostics = 16;
+    GetWifiScan get_wifi_scan = 17;
+    GetWifiCapabilities get_wifi_capabilities = 18;
+    GetFreshWifiScan get_fresh_wifi_scan = 19;
+    DisconnectWifi disconnect_wifi = 20;
+    ForgetWifi forget_wifi = 21;
+    WaitWifiConnected wait_wifi_connected = 22;
+    AssertWifi assert_wifi = 23;
+    WatchWifi watch_wifi = 24;
+    MonitorWifi monitor_wifi = 25;
+    GetWifiScanDetail get_wifi_scan_detail = 26;
+    ReconnectWifi reconnect_wifi = 27;
+    CycleWifi cycle_wifi = 28;
+    Traceroute traceroute = 29;
+    Wget wget = 30;
+  }
+}
+
+message GetWifiStatus {}
+
+message GetWifiDiagnostics {}
+
+message GetWifiScan {
+  WifiBand band = 1;
+}
+
+message GetFreshWifiScan {
+  WifiBand band = 1;
+  uint32 timeout_ms = 2;
+}
+
+message GetWifiCapabilities {}
+
+message ConnectWifi {
+  enum Security {
+    SECURITY_UNSPECIFIED = 0;
+    SECURITY_WPA2_PSK = 1;
+    SECURITY_WPA3_SAE = 2;
+    SECURITY_WPA2_WPA3_TRANSITION = 3;
+  }
+
+  enum MacRandomization {
+    MAC_RANDOMIZATION_UNSPECIFIED = 0;
+    MAC_RANDOMIZATION_AUTO = 1;
+    MAC_RANDOMIZATION_NONE = 2;
+    MAC_RANDOMIZATION_PERSISTENT = 3;
+    MAC_RANDOMIZATION_NON_PERSISTENT = 4;
+  }
+
+  string ssid = 1;
+  string passphrase = 2;
+  Security security = 3;
+  uint32 timeout_ms = 4;
+  string bssid = 5;
+  WifiBand band = 6;
+  MacRandomization mac_randomization = 7;
+}
+
+message DisconnectWifi {}
+
+message ForgetWifi {
+  string target = 1;
+}
+
+message WaitWifiConnected {
+  string ssid = 1;
+  string bssid = 2;
+  ConnectWifi.Security security = 3;
+  WifiBand band = 4;
+  bool require_ip = 5;
+  bool require_validated = 6;
+  uint32 timeout_ms = 7;
+}
+
+message AssertWifi {
+  string ssid = 1;
+  string bssid = 2;
+  ConnectWifi.Security security = 3;
+  WifiBand band = 4;
+  bool require_ip = 5;
+  bool require_validated = 6;
+  uint32 timeout_ms = 7;
+}
+
+message WatchWifi {
+  uint32 duration_ms = 1;
+  uint32 interval_ms = 2;
+}
+
+message MonitorWifi {
+  uint32 duration_ms = 1;
+  uint32 interval_ms = 2;
+}
+
+message GetWifiScanDetail {
+  string target = 1;
+  WifiBand band = 2;
+}
+
+message ReconnectWifi {
+  uint32 timeout_ms = 1;
+}
+
+message CycleWifi {
+  ConnectWifi connect = 1;
+  uint32 count = 2;
+  bool forget_after_each = 3;
+  uint32 pause_ms = 4;
+  string ping_host = 5;
+  string http_url = 6;
+}
+
+message GetIpStatus {
+  NetworkSelector selector = 1;
+}
+
+message Ping {
+  string host = 1;
+  uint32 count = 2;
+  uint32 timeout_ms = 3;
+  NetworkSelector selector = 4;
+  uint32 size_bytes = 5;
+}
+
+message Traceroute {
+  string host = 1;
+  uint32 max_hops = 2;
+  uint32 timeout_ms = 3;
+  NetworkSelector selector = 4;
+  uint32 size_bytes = 5;
+}
+
+message Wget {
+  string url = 1;
+  uint32 timeout_ms = 2;
+  NetworkSelector selector = 3;
+  reserved 4;
+}
+
+message ResolveDns {
+  string name = 1;
+  repeated DnsRecordType qtypes = 2;
+  uint32 timeout_ms = 3;
+  NetworkSelector selector = 4;
+}
+
+message HttpCheck {
+  string url = 1;
+  uint32 expected_status = 2;
+  uint32 timeout_ms = 3;
+  NetworkSelector selector = 4;
+}
+
+message NetworkSelector {
+  reserved 1, 3;
+  string ssid = 2;
+}
+
+enum WifiBand {
+  WIFI_BAND_UNSPECIFIED = 0;
+  WIFI_BAND_ALL = 1;
+  WIFI_BAND_2_4_GHZ = 2;
+  WIFI_BAND_5_GHZ = 3;
+  WIFI_BAND_6_GHZ = 4;
+  WIFI_BAND_60_GHZ = 5;
+}
+
+enum DnsRecordType {
+  DNS_RECORD_TYPE_UNSPECIFIED = 0;
+  DNS_RECORD_TYPE_A = 1;
+  DNS_RECORD_TYPE_AAAA = 2;
+}
+
+message CommandResult {
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_OK = 1;
+    STATUS_FAILED = 2;
+    STATUS_CANCELED = 3;
+  }
+
+  Status status = 1;
+  string message = 2;
+
+  oneof payload {
+    WifiStatus wifi_status = 10;
+    ConnectWifiResult connect_wifi = 11;
+    IpStatus ip_status = 12;
+    PingResult ping = 13;
+    ResolveDnsResult resolve_dns = 14;
+    HttpCheckResult http_check = 15;
+    WifiDiagnostics wifi_diagnostics = 16;
+    WifiScan wifi_scan = 17;
+    WifiCapabilities wifi_capabilities = 18;
+    WifiOperationResult wifi_operation = 19;
+    WifiAssertResult wifi_assert = 20;
+    WifiWatchResult wifi_watch = 21;
+    WifiMonitorResult wifi_monitor = 22;
+    WifiScanDetail wifi_scan_detail = 23;
+    WifiCycleResult wifi_cycle = 24;
+    TracerouteResult traceroute = 25;
+    WgetResult wget = 26;
+  }
+}
+
+message WifiStatus {
+  bool enabled = 1;
+  string state = 2;
+  string active_network = 3;
+  uint32 wifi_network_count = 4;
+  WifiConnection connection = 5;
+  IpStatus ip_status = 6;
+  repeated string permissions = 7;
+}
+
+message WifiConnection {
+  string ssid = 1;
+  string bssid = 2;
+  int32 rssi_dbm = 3;
+  int32 network_id = 4;
+  string supplicant_state = 5;
+  int32 frequency_mhz = 6;
+  int32 link_speed_mbps = 7;
+  int32 tx_link_speed_mbps = 8;
+  int32 rx_link_speed_mbps = 9;
+  string wifi_standard = 10;
+  string security_type = 11;
+  string ipv4_address = 12;
+  string mac_address = 13;
+  bool hidden_ssid = 14;
+  string detailed_state = 15;
+  int32 signal_level = 16;
+  int32 max_signal_level = 17;
+  int32 max_supported_tx_link_speed_mbps = 18;
+  int32 max_supported_rx_link_speed_mbps = 19;
+  string passpoint_fqdn = 20;
+  string passpoint_provider_friendly_name = 21;
+  string passpoint_unique_id = 22;
+  int32 subscription_id = 23;
+  bool restricted = 24;
+  string applicable_redactions = 25;
+  string ap_mld_mac_address = 26;
+  int32 ap_mlo_link_id = 27;
+  repeated MloLinkInfo affiliated_mlo_links = 28;
+  repeated MloLinkInfo associated_mlo_links = 29;
+  repeated WifiInformationElement information_elements = 30;
+  string raw = 31;
+}
+
+message IpStatus {
+  string network_id = 1;
+  repeated string transports = 2;
+  bool validated = 3;
+  bool internet = 4;
+  string interface_name = 5;
+  uint32 mtu = 6;
+  repeated string addresses = 7;
+  repeated string dns_servers = 8;
+  string dhcp_server = 9;
+  repeated string routes = 10;
+  WifiConnection wifi = 11;
+  repeated string capabilities = 12;
+  int32 downstream_kbps = 13;
+  int32 upstream_kbps = 14;
+  int32 signal_strength = 15;
+  string network_specifier = 16;
+  int32 owner_uid = 17;
+  repeated int32 subscription_ids = 18;
+  repeated string enterprise_ids = 19;
+  string raw_capabilities = 20;
+  string domains = 21;
+  string http_proxy = 22;
+  string nat64_prefix = 23;
+  bool private_dns_active = 24;
+  string private_dns_server_name = 25;
+  bool wake_on_lan_supported = 26;
+  string raw_link_properties = 27;
+}
+
+message WifiDiagnostics {
+  WifiStatus status = 1;
+  WifiCapabilities capabilities = 2;
+  repeated NetworkDiagnostics networks = 3;
+  WifiScan scan = 4;
+}
+
+message WifiCapabilities {
+  repeated DiagnosticField fields = 1;
+  repeated string supported_bands = 2;
+  repeated string unsupported_bands = 3;
+  repeated string supported_standards = 4;
+  repeated string unsupported_standards = 5;
+  repeated string supported_security_modes = 6;
+  repeated string unsupported_security_modes = 7;
+  repeated string supported_features = 8;
+  repeated string unsupported_features = 9;
+  repeated string errors = 10;
+}
+
+message NetworkDiagnostics {
+  string network_id = 1;
+  bool active = 2;
+  IpStatus ip_status = 3;
+}
+
+message WifiScan {
+  repeated DiagnosticField fields = 1;
+  repeated WifiScanResult results = 2;
+  repeated string errors = 3;
+}
+
+message WifiScanResult {
+  string ssid = 1;
+  string bssid = 2;
+  string capabilities = 3;
+  int32 rssi_dbm = 4;
+  int32 frequency_mhz = 5;
+  string band = 6;
+  string channel_width = 7;
+  int32 center_freq0_mhz = 8;
+  int32 center_freq1_mhz = 9;
+  int64 timestamp_us = 10;
+  string wifi_standard = 11;
+  repeated string security_types = 12;
+  string wifi_ssid = 13;
+  string operator_friendly_name = 14;
+  string venue_name = 15;
+  bool passpoint = 16;
+  bool responder_80211mc = 17;
+  bool responder_80211az_ntb = 18;
+  bool ranging_frame_protection_required = 19;
+  bool secure_he_ltf_supported = 20;
+  bool twt_responder = 21;
+  string ap_mld_mac_address = 22;
+  int32 ap_mlo_link_id = 23;
+  repeated MloLinkInfo affiliated_mlo_links = 24;
+  repeated WifiInformationElement information_elements = 25;
+  string raw = 26;
+}
+
+message MloLinkInfo {
+  int32 link_id = 1;
+  string state = 2;
+  string band = 3;
+  int32 channel = 4;
+  int32 rssi_dbm = 5;
+  int32 tx_link_speed_mbps = 6;
+  int32 rx_link_speed_mbps = 7;
+  string ap_mac_address = 8;
+  string sta_mac_address = 9;
+  string raw = 10;
+}
+
+message WifiInformationElement {
+  int32 id = 1;
+  int32 id_ext = 2;
+  uint32 byte_count = 3;
+  string bytes_hex = 4;
+}
+
+message DiagnosticField {
+  string key = 1;
+  string value = 2;
+}
+
+message DiagnosticCheck {
+  string key = 1;
+  string expected = 2;
+  string actual = 3;
+  bool passed = 4;
+  string message = 5;
+}
+
+message ConnectWifiResult {
+  string ssid = 1;
+  bool connected = 2;
+  string message = 3;
+  IpStatus ip_status = 4;
+}
+
+message WifiOperationResult {
+  string operation = 1;
+  bool ok = 2;
+  string message = 3;
+  repeated DiagnosticField fields = 4;
+  WifiStatus status = 5;
+  repeated string errors = 6;
+}
+
+message WifiAssertResult {
+  bool passed = 1;
+  repeated DiagnosticCheck checks = 2;
+  WifiStatus status = 3;
+  repeated string errors = 4;
+  int64 elapsed_ms = 5;
+}
+
+message WifiSample {
+  int64 unix_time_ms = 1;
+  WifiStatus status = 2;
+  repeated DiagnosticField fields = 3;
+}
+
+message WifiWatchResult {
+  repeated WifiSample samples = 1;
+  repeated string errors = 2;
+}
+
+message WifiEvent {
+  int64 unix_time_ms = 1;
+  string type = 2;
+  string message = 3;
+  WifiStatus status = 4;
+  repeated DiagnosticField fields = 5;
+}
+
+message WifiMonitorResult {
+  repeated WifiEvent events = 1;
+  repeated string errors = 2;
+}
+
+message WifiScanDetail {
+  string target = 1;
+  repeated DiagnosticField fields = 2;
+  repeated WifiScanResult results = 3;
+  repeated string errors = 4;
+}
+
+message WifiCycleStep {
+  uint32 index = 1;
+  bool connected = 2;
+  bool ping_ok = 3;
+  bool http_ok = 4;
+  int64 elapsed_ms = 5;
+  ConnectWifiResult connect = 6;
+  PingResult ping = 7;
+  HttpCheckResult http = 8;
+  repeated string errors = 9;
+}
+
+message WifiCycleResult {
+  uint32 requested_count = 1;
+  uint32 completed_count = 2;
+  uint32 passed_count = 3;
+  repeated WifiCycleStep steps = 4;
+  repeated string errors = 5;
+}
+
+message PingResult {
+  string host = 1;
+  uint32 count = 2;
+  uint32 transmitted = 3;
+  uint32 received = 4;
+  double packet_loss_percent = 5;
+  double min_ms = 6;
+  double avg_ms = 7;
+  double max_ms = 8;
+  int64 elapsed_ms = 9;
+  int32 exit_code = 10;
+  string interface_name = 11;
+  string output = 12;
+  uint32 size_bytes = 13;
+}
+
+message TracerouteResult {
+  string host = 1;
+  uint32 max_hops = 2;
+  uint32 size_bytes = 3;
+  int64 elapsed_ms = 4;
+  int32 exit_code = 5;
+  string interface_name = 6;
+  string output = 7;
+  string error = 8;
+  string executable = 9;
+}
+
+message WgetResult {
+  string url = 1;
+  uint32 status = 2;
+  string content_type = 3;
+  int64 content_length = 4;
+  uint64 bytes_read = 5;
+  int64 elapsed_ms = 6;
+  double throughput_bps = 7;
+  string interface_name = 8;
+  string error = 9;
+}
+
+message ResolveDnsResult {
+  string name = 1;
+  repeated DnsAnswer answers = 2;
+  int64 elapsed_ms = 3;
+  string error = 4;
+}
+
+message DnsAnswer {
+  DnsRecordType type = 1;
+  string address = 2;
+}
+
+message HttpCheckResult {
+  string url = 1;
+  uint32 status = 2;
+  uint32 expected_status = 3;
+  bool matched = 4;
+  int64 elapsed_ms = 5;
+  string error = 6;
+}

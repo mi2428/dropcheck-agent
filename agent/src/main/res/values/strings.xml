@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">dropcheck agent</string>
+    <string name="device_admin_description">Allows dropcheck to control Wi-Fi for automated network tests.</string>
+</resources>
