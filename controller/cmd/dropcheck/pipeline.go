@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -70,10 +71,8 @@ func splitPipeline(line string) ([]string, error) {
 		return nil, fmt.Errorf("unterminated quote")
 	}
 	flush()
-	for _, part := range parts {
-		if part == "" {
-			return nil, fmt.Errorf("empty pipeline stage")
-		}
+	if slices.Contains(parts, "") {
+		return nil, fmt.Errorf("empty pipeline stage")
 	}
 	return parts, nil
 }

@@ -342,15 +342,12 @@ func runOperationForAgents(ctx context.Context, state *shellState, agents []cont
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(agents))
 	for _, agent := range agents {
-		agent := agent
-		cmd := proto.Clone(cmd).(*controlpb.RunCommand)
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := runCommandForAgent(ctx, state, agent, cmd, options, output, &outputMu); err != nil {
+		agentCmd := proto.Clone(cmd).(*controlpb.RunCommand)
+		wg.Go(func() {
+			if err := runCommandForAgent(ctx, state, agent, agentCmd, options, output, &outputMu); err != nil {
 				errCh <- err
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(errCh)

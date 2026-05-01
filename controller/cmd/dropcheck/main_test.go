@@ -649,12 +649,5 @@ func assertEmptySelector(t *testing.T, selector *controlpb.NetworkSelector) {
 }
 
 func stringsJoin(values []string) string {
-	if len(values) == 0 {
-		return ""
-	}
-	out := values[0]
-	for _, value := range values[1:] {
-		out += " " + value
-	}
-	return out
+	return strings.Join(values, " ")
 }

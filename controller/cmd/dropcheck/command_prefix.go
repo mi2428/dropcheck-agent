@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -132,10 +133,5 @@ func resolveUniquePrefix(kind string, value string, candidates []string) (string
 }
 
 func isCommand(value string, commands []string) bool {
-	for _, command := range commands {
-		if value == command {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(commands, value)
 }

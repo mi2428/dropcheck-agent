@@ -59,7 +59,7 @@ func (c Client) ListDevices(ctx context.Context) ([]Device, error) {
 		return nil, err
 	}
 	var devices []Device
-	for _, raw := range strings.Split(out, "\n") {
+	for raw := range strings.SplitSeq(out, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" || strings.HasPrefix(line, "List of devices") {
 			continue
