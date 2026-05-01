@@ -14,6 +14,7 @@ import android.text.SpannableString
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
+import android.view.ViewTreeObserver
 import android.widget.ScrollView
 import android.widget.TextView
 
@@ -29,6 +30,7 @@ class MainActivity : Activity() {
         const val MAX_DISPLAY_LINES = 1000
         const val MAX_DISPLAY_CHARS = 300_000
         const val MAX_LINE_CHARS = 8_000
+        const val AUTO_SCROLL_SLOP_DP = 2
     }
 
     private val warnColor = Color.rgb(255, 214, 10)
@@ -40,6 +42,11 @@ class MainActivity : Activity() {
     private val displayLineLengths = ArrayDeque<Int>()
     private var displayLogChars = 0
     private var logStartIndex = 0
+    private var followLogTail = true
+    private var scrollToBottomPending = false
+    private val autoScrollSlopPx: Int by lazy {
+        (AUTO_SCROLL_SLOP_DP * resources.displayMetrics.density).toInt()
+    }
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -74,15 +81,18 @@ class MainActivity : Activity() {
             setText(initialText, TextView.BufferType.SPANNABLE)
         }
         if (tail.isNotBlank()) {
-            tail.lineSequence().forEach { appendLogLine(it, scrollAfter = false) }
+            tail.lineSequence().forEach { appendLogLine(it, followBottom = false) }
         }
         scroll = ScrollView(this).apply {
             setBackgroundColor(Color.BLACK)
             isFillViewport = true
             addView(logView)
+            setOnScrollChangeListener { _, _, _, _, _ ->
+                followLogTail = isScrolledToBottom()
+            }
         }
         setContentView(scroll)
-        scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
+        requestScrollToBottom()
     }
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
@@ -104,27 +114,40 @@ class MainActivity : Activity() {
 
     /** Appends one broadcast terminal line and trims the view to a bounded size. */
     private fun append(line: String) {
-        appendLogLine(line, scrollAfter = true)
+        appendLogLine(line, followBottom = followLogTail)
     }
 
-    private fun appendLogLine(line: String, scrollAfter: Boolean) {
+    private fun appendLogLine(line: String, followBottom: Boolean) {
         val displayLine = boundedLine(line)
         logView.append(colored(displayLine))
         displayLineLengths.addLast(displayLine.length)
         displayLogChars += displayLine.length
-        trimDisplayIfNeeded()
-        if (scrollAfter) scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
+        val removedLines = trimDisplayIfNeeded()
+        when {
+            followBottom -> {
+                followLogTail = true
+                requestScrollToBottom()
+            }
+            removedLines > 0 && ::scroll.isInitialized -> {
+                val removedHeight = removedLines * logView.lineHeight
+                scroll.post {
+                    scroll.scrollTo(0, (scroll.scrollY - removedHeight).coerceAtLeast(0))
+                }
+            }
+        }
     }
 
-    private fun trimDisplayIfNeeded() {
-        if (displayLineLengths.size <= MAX_DISPLAY_LINES && displayLogChars <= MAX_DISPLAY_CHARS) return
+    private fun trimDisplayIfNeeded(): Int {
+        if (displayLineLengths.size <= MAX_DISPLAY_LINES && displayLogChars <= MAX_DISPLAY_CHARS) return 0
 
         val text = mutableDisplayText()
+        var removedLines = 0
         while (
             displayLineLengths.isNotEmpty() &&
             (displayLineLengths.size > MAX_DISPLAY_LINES || displayLogChars > MAX_DISPLAY_CHARS)
         ) {
             val charsToRemove = displayLineLengths.removeFirst()
+            removedLines += 1
             val start = logStartIndex.coerceAtMost(text.length)
             val end = (start + charsToRemove).coerceAtMost(text.length)
             if (end > start) {
@@ -132,6 +155,7 @@ class MainActivity : Activity() {
             }
             displayLogChars = (displayLogChars - charsToRemove).coerceAtLeast(0)
         }
+        return removedLines
     }
 
     private fun mutableDisplayText(): SpannableStringBuilder {
@@ -149,6 +173,41 @@ class MainActivity : Activity() {
 
         val suffix = " ... [truncated]\n"
         return withNewline.take(MAX_LINE_CHARS - suffix.length).trimEnd('\r', '\n') + suffix
+    }
+
+    private fun isScrolledToBottom(): Boolean {
+        val distanceToBottom = bottomScrollY() - scroll.scrollY
+        return distanceToBottom <= autoScrollSlopPx
+    }
+
+    private fun requestScrollToBottom() {
+        if (!::scroll.isInitialized || scrollToBottomPending) return
+
+        scrollToBottomPending = true
+        val observer = scroll.viewTreeObserver
+        observer.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                val currentObserver = scroll.viewTreeObserver
+                if (observer.isAlive) {
+                    observer.removeOnPreDrawListener(this)
+                } else if (currentObserver.isAlive) {
+                    currentObserver.removeOnPreDrawListener(this)
+                }
+                scrollToBottomPending = false
+                if (followLogTail) scrollToBottomNow()
+                return true
+            }
+        })
+        scroll.invalidate()
+    }
+
+    private fun scrollToBottomNow() {
+        scroll.scrollTo(0, bottomScrollY())
+    }
+
+    private fun bottomScrollY(): Int {
+        val child = scroll.getChildAt(0) ?: return 0
+        return (child.bottom - scroll.height).coerceAtLeast(0)
     }
 
     private fun SpannableStringBuilder.appendColored(line: String) {
