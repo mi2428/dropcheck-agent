@@ -49,6 +49,8 @@ func renderCommandResult(agent string, result *controlpb.CommandResult, options 
 		renderTraceroute(&b, payload.Traceroute, options, result.GetStatus())
 	case *controlpb.CommandResult_PathMtu:
 		renderPathMtu(&b, payload.PathMtu)
+	case *controlpb.CommandResult_GlobalIp:
+		renderGlobalIp(&b, payload.GlobalIp)
 	case *controlpb.CommandResult_ResolveDns:
 		renderResolveDNS(&b, payload.ResolveDns)
 	case *controlpb.CommandResult_HttpCheck:
@@ -390,6 +392,37 @@ func renderPathMtu(b *strings.Builder, result *controlpb.PathMtuResult) {
 	}
 }
 
+func renderGlobalIp(b *strings.Builder, result *controlpb.GlobalIpResult) {
+	if result == nil {
+		return
+	}
+	fmt.Fprintf(b, "Global IP: service=%s requested=%s interface=%s checks=%d elapsed=%dms\n",
+		empty(result.GetService(), "ifconfig.me"),
+		ipFamilyName(result.GetRequestedFamily()),
+		empty(result.GetInterfaceName(), "default"),
+		len(result.GetAddresses()),
+		result.GetElapsedMs(),
+	)
+	if len(result.GetAddresses()) > 0 {
+		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "FAMILY\tIP\tGLOBAL\tSTATUS\tELAPSED\tERROR")
+		for _, address := range result.GetAddresses() {
+			fmt.Fprintf(tw, "%s\t%s\t%t\t%d\t%dms\t%s\n",
+				ipFamilyName(address.GetFamily()),
+				empty(address.GetIp(), "-"),
+				address.GetGlobal(),
+				address.GetStatus(),
+				address.GetElapsedMs(),
+				empty(address.GetError(), "-"),
+			)
+		}
+		_ = tw.Flush()
+	}
+	if result.GetError() != "" {
+		fmt.Fprintf(b, "Error: %s\n", result.GetError())
+	}
+}
+
 func renderResolveDNS(b *strings.Builder, result *controlpb.ResolveDnsResult) {
 	if result == nil {
 		return
@@ -663,6 +696,19 @@ func wifiBandFromFrequency(freq int32) string {
 		return "60ghz"
 	default:
 		return "unknown"
+	}
+}
+
+func ipFamilyName(value controlpb.IpFamily) string {
+	switch value {
+	case controlpb.IpFamily_IP_FAMILY_IPV4:
+		return "ipv4"
+	case controlpb.IpFamily_IP_FAMILY_IPV6:
+		return "ipv6"
+	case controlpb.IpFamily_IP_FAMILY_ALL:
+		return "all"
+	default:
+		return "unspecified"
 	}
 }
 

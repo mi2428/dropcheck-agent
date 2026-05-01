@@ -10,6 +10,8 @@ import io.dropcheck.agent.grpc.DnsAnswer
 import io.dropcheck.agent.grpc.GetFreshWifiScan
 import io.dropcheck.agent.grpc.GetWifiScan
 import io.dropcheck.agent.grpc.GetWifiScanDetail
+import io.dropcheck.agent.grpc.GlobalIp
+import io.dropcheck.agent.grpc.GlobalIpResult
 import io.dropcheck.agent.grpc.HttpCheck
 import io.dropcheck.agent.grpc.HttpCheckResult
 import io.dropcheck.agent.grpc.NetworkSelector
@@ -115,6 +117,7 @@ internal fun RunCommand.logFields(): List<Pair<String, Any?>> {
             RunCommand.CommandCase.PING -> addAll(ping.logFields())
             RunCommand.CommandCase.TRACEROUTE -> addAll(traceroute.logFields())
             RunCommand.CommandCase.PATH_MTU -> addAll(pathMtu.logFields())
+            RunCommand.CommandCase.GLOBAL_IP -> addAll(globalIp.logFields())
             RunCommand.CommandCase.WGET -> addAll(wget.logFields())
             RunCommand.CommandCase.RESOLVE_DNS -> addAll(resolveDns.logFields())
             RunCommand.CommandCase.HTTP_CHECK -> addAll(httpCheck.logFields())
@@ -236,6 +239,7 @@ internal fun CommandResult.logFields(): List<Pair<String, Any?>> {
             }
             CommandResult.PayloadCase.TRACEROUTE -> addAll(traceroute.logFields())
             CommandResult.PayloadCase.PATH_MTU -> addAll(pathMtu.logFields())
+            CommandResult.PayloadCase.GLOBAL_IP -> addAll(globalIp.logFields())
             CommandResult.PayloadCase.WGET -> addAll(wget.logFields())
             CommandResult.PayloadCase.PAYLOAD_NOT_SET -> Unit
         }
@@ -276,6 +280,12 @@ internal fun PathMtu.logFields(): List<Pair<String, Any?>> = buildList {
     add("timeout_ms" to timeoutMs)
     add("min_mtu_bytes" to minMtuBytes)
     add("max_mtu_bytes" to maxMtuBytes)
+    addAll(selector.logFields())
+}
+
+internal fun GlobalIp.logFields(): List<Pair<String, Any?>> = buildList {
+    add("family" to family.name)
+    add("timeout_ms" to timeoutMs)
     addAll(selector.logFields())
 }
 
@@ -342,6 +352,16 @@ internal fun PathMtuResult.logFields(): List<Pair<String, Any?>> = buildList {
     add("elapsed_ms" to elapsedMs)
     add("iface" to interfaceName)
     add("probes_count" to probesCount)
+    add("error" to error)
+}
+
+internal fun GlobalIpResult.logFields(): List<Pair<String, Any?>> = buildList {
+    add("service" to service)
+    add("requested_family" to requestedFamily.name)
+    add("elapsed_ms" to elapsedMs)
+    add("iface" to interfaceName)
+    add("addresses_count" to addressesCount)
+    add("addresses" to addressesList.map { "${it.family.name}:${it.ip}:${it.global}:${it.status}:${it.error}" })
     add("error" to error)
 }
 

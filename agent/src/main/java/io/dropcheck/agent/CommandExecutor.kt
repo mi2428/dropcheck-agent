@@ -74,6 +74,7 @@ class CommandExecutor(
             RunCommand.CommandCase.PING -> networkChecks.ping(command.ping)
             RunCommand.CommandCase.TRACEROUTE -> networkChecks.traceroute(command.traceroute)
             RunCommand.CommandCase.PATH_MTU -> networkChecks.pathMtu(command.pathMtu)
+            RunCommand.CommandCase.GLOBAL_IP -> networkChecks.globalIp(command.globalIp)
             RunCommand.CommandCase.WGET -> networkChecks.download(command.wget)
             RunCommand.CommandCase.RESOLVE_DNS -> networkChecks.dns(command.resolveDns)
             RunCommand.CommandCase.HTTP_CHECK -> networkChecks.http(command.httpCheck)

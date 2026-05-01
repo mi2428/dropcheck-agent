@@ -167,6 +167,9 @@ func parseLinuxCommand(args []string) (cliCommand, error) {
 	case "path-mtu":
 		legacy, err := parseLinuxPathMtu(args[1:])
 		return cliCommand{kind: cliAgentCommand, operation: operationFromLegacyArgs(legacy)}, err
+	case "global-ip":
+		legacy, err := parseLinuxGlobalIp(args[1:])
+		return cliCommand{kind: cliAgentCommand, operation: operationFromLegacyArgs(legacy)}, err
 	case "download":
 		legacy, err := parseLinuxDownload(args[1:])
 		return cliCommand{kind: cliAgentCommand, operation: operationFromLegacyArgs(legacy)}, err
@@ -566,6 +569,32 @@ func parseLinuxPathMtu(args []string) ([]string, error) {
 		if value := opts.value(key); value != "" {
 			legacy = append(legacy, "--"+key, value)
 		}
+	}
+	return legacy, nil
+}
+
+func parseLinuxGlobalIp(args []string) ([]string, error) {
+	opts, err := parseDashOptions(args, map[string]dashOptionSpec{
+		"family":  {value: true},
+		"timeout": {value: true},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(opts.positionals) > 1 {
+		return nil, fmt.Errorf("usage: global-ip [ipv4|ipv6|all] [--family ipv4|ipv6|all] [--timeout ms]")
+	}
+	if len(opts.positionals) == 1 && opts.value("family") != "" {
+		return nil, fmt.Errorf("global-ip family specified twice")
+	}
+	legacy := []string{"global-ip"}
+	if opts.value("family") != "" {
+		legacy = append(legacy, opts.value("family"))
+	} else if len(opts.positionals) == 1 {
+		legacy = append(legacy, opts.positionals[0])
+	}
+	if opts.value("timeout") != "" {
+		legacy = append(legacy, "--timeout", opts.value("timeout"))
 	}
 	return legacy, nil
 }

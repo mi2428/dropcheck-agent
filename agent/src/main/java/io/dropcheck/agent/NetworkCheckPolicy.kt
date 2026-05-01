@@ -1,6 +1,10 @@
 package io.dropcheck.agent
 
 import io.dropcheck.agent.grpc.DnsRecordType
+import io.dropcheck.agent.grpc.IpFamily
+import java.net.Inet4Address
+import java.net.Inet6Address
+import java.net.InetAddress
 
 /**
  * Pure policy for local network probes.
@@ -21,6 +25,7 @@ internal object NetworkCheckPolicy {
     const val DEFAULT_DOWNLOAD_TIMEOUT_MS = 60_000
     const val DEFAULT_HTTP_TIMEOUT_MS = 5_000
     const val DEFAULT_HTTP_STATUS = 200
+    const val DEFAULT_GLOBAL_IP_TIMEOUT_MS = 5_000
     const val DEFAULT_PATH_MTU_TIMEOUT_MS = 30_000
     const val DEFAULT_PATH_MTU_MAX_BYTES = 1500
     const val IPV4_PING_OVERHEAD_BYTES = 28
@@ -167,6 +172,55 @@ internal object NetworkCheckPolicy {
         return qtypes.ifEmpty {
             listOf(DnsRecordType.DNS_RECORD_TYPE_A, DnsRecordType.DNS_RECORD_TYPE_AAAA)
         }
+    }
+
+    /** Empty/unspecified global-IP family means query both IPv4 and IPv6. */
+    fun globalIpFamilies(family: IpFamily): List<IpFamily> {
+        return when (family) {
+            IpFamily.IP_FAMILY_IPV4 -> listOf(IpFamily.IP_FAMILY_IPV4)
+            IpFamily.IP_FAMILY_IPV6 -> listOf(IpFamily.IP_FAMILY_IPV6)
+            else -> listOf(IpFamily.IP_FAMILY_IPV4, IpFamily.IP_FAMILY_IPV6)
+        }
+    }
+
+    fun addressMatchesFamily(address: InetAddress, family: IpFamily): Boolean {
+        return when (family) {
+            IpFamily.IP_FAMILY_IPV4 -> address is Inet4Address
+            IpFamily.IP_FAMILY_IPV6 -> address is Inet6Address
+            else -> true
+        }
+    }
+
+    fun parseIpLiteral(value: String): InetAddress? {
+        val trimmed = value.trim()
+        if (trimmed.isBlank() || !trimmed.all { it.isDigit() || it == '.' || it == ':' || it.lowercaseChar() in 'a'..'f' }) {
+            return null
+        }
+        return runCatching { InetAddress.getByName(trimmed) }.getOrNull()
+    }
+
+    fun isGlobalUnicast(address: InetAddress): Boolean {
+        if (
+            address.isAnyLocalAddress ||
+            address.isLoopbackAddress ||
+            address.isLinkLocalAddress ||
+            address.isSiteLocalAddress ||
+            address.isMulticastAddress
+        ) {
+            return false
+        }
+        val bytes = address.address.map { it.toInt() and 0xff }
+        if (address is Inet4Address) {
+            val first = bytes.getOrElse(0) { 0 }
+            val second = bytes.getOrElse(1) { 0 }
+            if (first == 0 || first == 127 || first >= 224) return false
+            if (first == 100 && second in 64..127) return false
+        }
+        if (address is Inet6Address) {
+            val first = bytes.getOrElse(0) { 0 }
+            if ((first and 0xfe) == 0xfc) return false
+        }
+        return true
     }
 
     /** Process-backed probes pass only when the process exits cleanly before timeout. */

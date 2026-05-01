@@ -1,10 +1,15 @@
 package io.dropcheck.agent
 
+import android.net.Network
 import io.dropcheck.agent.grpc.CommandResult
 import io.dropcheck.agent.grpc.DnsAnswer
 import io.dropcheck.agent.grpc.DnsRecordType
+import io.dropcheck.agent.grpc.GlobalIp
+import io.dropcheck.agent.grpc.GlobalIpAddress
+import io.dropcheck.agent.grpc.GlobalIpResult
 import io.dropcheck.agent.grpc.HttpCheck
 import io.dropcheck.agent.grpc.HttpCheckResult
+import io.dropcheck.agent.grpc.IpFamily
 import io.dropcheck.agent.grpc.NetworkSelector
 import io.dropcheck.agent.grpc.PathMtu
 import io.dropcheck.agent.grpc.PathMtuProbe
@@ -21,7 +26,10 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.Inet4Address
 import java.net.Inet6Address
+import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.URL
+import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -343,6 +351,90 @@ class NetworkCheckExecutor(
             .setStatus(if (ok) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
             .setMessage(if (ok) "path mtu discovered" else "path mtu discovery failed")
             .setPathMtu(result)
+            .build()
+    }
+
+    /**
+     * Queries ifconfig.me over IPv4 and/or IPv6 and returns the public address seen by that service.
+     *
+     * Network.openConnection() does not let us force an address family. This command resolves A/AAAA
+     * on the selected Android Network, opens a raw socket to the chosen literal address, and sends an
+     * HTTP Host header for ifconfig.me so each probe is pinned to the requested family.
+     */
+    fun globalIp(command: GlobalIp): CommandResult {
+        val timeoutMs = NetworkCheckPolicy.effectiveTimeoutMs(
+            command.timeoutMs,
+            NetworkCheckPolicy.DEFAULT_GLOBAL_IP_TIMEOUT_MS,
+        )
+        val requestedFamily = if (command.family == IpFamily.IP_FAMILY_UNSPECIFIED) {
+            IpFamily.IP_FAMILY_ALL
+        } else {
+            command.family
+        }
+        val families = NetworkCheckPolicy.globalIpFamilies(requestedFamily)
+        logger.debugEvent("network.probe.request", listOf(
+            "probe" to "global_ip",
+            "service" to GLOBAL_IP_SERVICE_HOST,
+            "requested_family" to requestedFamily.name,
+            "families" to families.map { it.name },
+            "effective_timeout_ms" to timeoutMs,
+        ) + command.logFields())
+        val network = networks.waitForNetwork(command.selector, 0)
+            ?: return failed("wifi network not available for global IP check")
+        val ip = networks.ipStatus(network)
+        logger.debugEvent("network.selected", listOf(
+            "probe" to "global_ip",
+            "network_id" to ip.networkId,
+            "transports" to ip.transportsList,
+            "iface" to ip.interfaceName,
+            "addresses" to ip.addressesList,
+            "dns_servers" to ip.dnsServersList,
+            "validated" to ip.validated,
+            "internet" to ip.internet,
+        ))
+
+        val started = System.nanoTime()
+        val result = GlobalIpResult.newBuilder()
+            .setService(GLOBAL_IP_SERVICE_HOST)
+            .setRequestedFamily(requestedFamily)
+            .setInterfaceName(ip.interfaceName)
+        val resolved = try {
+            network.getAllByName(GLOBAL_IP_SERVICE_HOST).toList()
+        } catch (e: Exception) {
+            result.error = e.toString()
+            emptyList()
+        }
+        logger.debug("global ip resolved host=$GLOBAL_IP_SERVICE_HOST addresses=${resolved.joinToString(",") { it.hostAddress.orEmpty() }}")
+        for (family in families) {
+            throwIfInterrupted()
+            val address = resolved.firstOrNull { NetworkCheckPolicy.addressMatchesFamily(it, family) }
+            if (address == null) {
+                result.addAddresses(GlobalIpAddress.newBuilder()
+                    .setFamily(family)
+                    .setError("no_dns_address_for_family")
+                    .build())
+                continue
+            }
+            result.addAddresses(runGlobalIpProbe(network, family, address, timeoutMs))
+        }
+        result.elapsedMs = Duration.ofNanos(System.nanoTime() - started).toMillis()
+        val built = result.build()
+        val ok = built.error.isBlank() &&
+            built.addressesCount == families.size &&
+            built.addressesList.all { it.error.isBlank() && it.global }
+        if (!ok && built.error.isBlank()) {
+            result.error = "one_or_more_families_failed"
+        }
+        val finalResult = result.build()
+        logger.debug("global ip finished service=$GLOBAL_IP_SERVICE_HOST requested_family=$requestedFamily ok=$ok addresses=${finalResult.addressesList.joinToString(",") { "${it.family}:${it.ip}:${it.error.ifBlank { "ok" }}" }} elapsed_ms=${finalResult.elapsedMs}")
+        logger.debugEvent("network.probe.result", listOf(
+            "probe" to "global_ip",
+            "ok" to ok,
+        ) + finalResult.logFields())
+        return CommandResult.newBuilder()
+            .setStatus(if (ok) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
+            .setMessage(if (ok) "global IP check passed" else "global IP check failed")
+            .setGlobalIp(finalResult)
             .build()
     }
 
@@ -832,6 +924,136 @@ class NetworkCheckExecutor(
             .build()
     }
 
+    private fun runGlobalIpProbe(
+        network: Network,
+        family: IpFamily,
+        address: InetAddress,
+        timeoutMs: Int,
+    ): GlobalIpAddress {
+        val endpoint = globalIpEndpoint(address)
+        val result = GlobalIpAddress.newBuilder()
+            .setFamily(family)
+            .setEndpoint(endpoint)
+        val started = System.nanoTime()
+        logger.info("global ip probe family=$family endpoint=$endpoint timeout_ms=$timeoutMs")
+        try {
+            val socket = network.socketFactory.createSocket()
+            socket.use {
+                it.connect(InetSocketAddress(address, GLOBAL_IP_SERVICE_PORT), timeoutMs)
+                it.soTimeout = timeoutMs
+                val request = buildString {
+                    append("GET $GLOBAL_IP_SERVICE_PATH HTTP/1.1\r\n")
+                    append("Host: $GLOBAL_IP_SERVICE_HOST\r\n")
+                    append("User-Agent: dropcheck-agent\r\n")
+                    append("Accept: text/plain\r\n")
+                    append("Connection: close\r\n")
+                    append("\r\n")
+                }
+                it.getOutputStream().write(request.toByteArray(StandardCharsets.US_ASCII))
+                it.getOutputStream().flush()
+                val response = String(it.getInputStream().readBytes(), StandardCharsets.UTF_8)
+                val parsed = parseHttpResponse(response)
+                val publicIp = firstIpLiteralLine(parsed.body).ifBlank {
+                    firstIpLiteralLine(response)
+                }
+                result.status = parsed.status
+                result.ip = publicIp
+                if (parsed.status != 200) {
+                    result.error = "http_status=${parsed.status}"
+                } else {
+                    val parsedAddress = NetworkCheckPolicy.parseIpLiteral(publicIp)
+                    when {
+                        parsedAddress == null -> result.error = "invalid_ip_response"
+                        !NetworkCheckPolicy.addressMatchesFamily(parsedAddress, family) -> result.error = "unexpected_ip_family"
+                        else -> {
+                            result.global = NetworkCheckPolicy.isGlobalUnicast(parsedAddress)
+                            if (!result.global) result.error = "not_global_unicast"
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            result.error = e.toString()
+        }
+        result.elapsedMs = Duration.ofNanos(System.nanoTime() - started).toMillis()
+        logger.debugEvent("network.global_ip.probe", listOf(
+            "family" to family.name,
+            "endpoint" to endpoint,
+            "status" to result.status,
+            "ip" to result.ip,
+            "global" to result.global,
+            "elapsed_ms" to result.elapsedMs,
+            "error" to result.error,
+        ))
+        return result.build()
+    }
+
+    private fun firstIpLiteralLine(text: String): String {
+        return text.lineSequence()
+            .map { it.trim() }
+            .firstOrNull { NetworkCheckPolicy.parseIpLiteral(it) != null }
+            .orEmpty()
+    }
+
+    private fun parseHttpResponse(response: String): HttpResponse {
+        val separator = when {
+            "\r\n\r\n" in response -> "\r\n\r\n"
+            "\n\n" in response -> "\n\n"
+            else -> ""
+        }
+        val headerText: String
+        val bodyText: String
+        if (separator.isBlank()) {
+            headerText = response
+            bodyText = ""
+        } else {
+            val index = response.indexOf(separator)
+            headerText = response.take(index)
+            bodyText = response.drop(index + separator.length)
+        }
+        val headerLines = headerText.lineSequence().toList()
+        val status = httpStatusRegex.find(headerLines.firstOrNull().orEmpty())
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull() ?: 0
+        val chunked = headerLines.any { it.startsWith("Transfer-Encoding:", ignoreCase = true) && it.contains("chunked", ignoreCase = true) }
+        return HttpResponse(
+            status = status,
+            body = if (chunked) decodeChunkedBody(bodyText) else bodyText,
+        )
+    }
+
+    private fun decodeChunkedBody(body: String): String {
+        val out = StringBuilder()
+        var cursor = 0
+        while (cursor < body.length) {
+            val lineEnd = body.indexOf("\r\n", cursor).takeIf { it >= 0 } ?: body.indexOf('\n', cursor)
+            if (lineEnd < 0) break
+            val sizeText = body.substring(cursor, lineEnd).substringBefore(";").trim()
+            val size = sizeText.toIntOrNull(16) ?: break
+            cursor = lineEnd + if (body.startsWith("\r\n", lineEnd)) 2 else 1
+            if (size == 0) break
+            if (cursor + size > body.length) break
+            out.append(body.substring(cursor, cursor + size))
+            cursor += size
+            if (body.startsWith("\r\n", cursor)) {
+                cursor += 2
+            } else if (body.startsWith("\n", cursor)) {
+                cursor += 1
+            }
+        }
+        return out.toString()
+    }
+
+    private fun globalIpEndpoint(address: InetAddress): String {
+        val host = if (address is Inet6Address) {
+            "[${address.hostAddress.orEmpty()}]"
+        } else {
+            address.hostAddress.orEmpty()
+        }
+        return "http://$host$GLOBAL_IP_SERVICE_PATH"
+    }
+
     private fun remainingTimeoutMs(timeoutMs: Int, startedAt: Long): Int {
         val elapsedMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis()
         return timeoutMs - elapsedMs.toInt()
@@ -924,9 +1146,18 @@ class NetworkCheckExecutor(
         val timedOut: Boolean = false,
     )
 
+    private data class HttpResponse(
+        val status: Int,
+        val body: String,
+    )
+
     companion object {
         private const val PING_TRACE_HOP_TIMEOUT_MS = 2_000
         private const val PATH_MTU_PROBE_TIMEOUT_MS = 2_500
+        private const val GLOBAL_IP_SERVICE_HOST = "ifconfig.me"
+        private const val GLOBAL_IP_SERVICE_PATH = "/ip"
+        private const val GLOBAL_IP_SERVICE_PORT = 80
+        private val httpStatusRegex = Regex("""^HTTP/\S+\s+(\d{3})""")
         private val pingReachedRegex = Regex(
             """(?im)(?:\d+\s+bytes\s+from|from)\s+([^\s:]+)(?:\s+\(([^)]+)\))?:.*time[=<]?(\d+(?:\.\d+)?)\s*ms""",
         )
