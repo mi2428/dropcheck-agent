@@ -189,8 +189,8 @@ func parseMillisToken(value string, name string, fallback time.Duration) (uint32
 }
 
 func parseDurationToken(value string) (time.Duration, error) {
-	if strings.HasSuffix(value, "d") {
-		days, err := strconv.ParseUint(strings.TrimSuffix(value, "d"), 10, 32)
+	if daysValue, ok := strings.CutSuffix(value, "d"); ok {
+		days, err := strconv.ParseUint(daysValue, 10, 32)
 		if err != nil {
 			return 0, err
 		}
