@@ -385,15 +385,9 @@ func parseShellSetController(args []string) (Command, error) {
 	if name != "endpoint" {
 		return Command{}, fmt.Errorf("unknown set controller command %q", args[0])
 	}
-	if len(args) == 2 {
-		state, err := resolveShellKeyword("set controller endpoint state", args[1], []string{"disabled"})
-		if err != nil {
-			return Command{}, err
-		}
-		if state == "disabled" {
-			op, err := command.ControllerLinkSetConfigOperation(command.ControllerLinkConfigOptions{Enabled: false})
-			return agentShellCommand(op), err
-		}
+	if len(args) == 2 && args[1] == "disabled" {
+		op, err := command.ControllerLinkSetConfigOperation(command.ControllerLinkConfigOptions{Enabled: false})
+		return agentShellCommand(op), err
 	}
 	values := map[string]string{}
 	enabled := false
@@ -440,15 +434,9 @@ func parseShellSetFestival(args []string) (Command, error) {
 	if name != "standalone" {
 		return Command{}, fmt.Errorf("unknown set festival command %q", args[0])
 	}
-	if len(args) == 2 {
-		state, err := resolveShellKeyword("set festival standalone state", args[1], []string{"disabled"})
-		if err != nil {
-			return Command{}, err
-		}
-		if state == "disabled" {
-			op, err := command.FestivalSetConfigOperation(command.FestivalConfigOptions{Enabled: false})
-			return agentShellCommand(op), err
-		}
+	if len(args) == 2 && args[1] == "disabled" {
+		op, err := command.FestivalSetConfigOperation(command.FestivalConfigOptions{Enabled: false})
+		return agentShellCommand(op), err
 	}
 	values := map[string]string{}
 	enabled := false

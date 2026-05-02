@@ -229,6 +229,18 @@ func TestParseShellControllerLinkCommands(t *testing.T) {
 	}
 }
 
+func TestParseShellSetEnabledWithoutRequiredValues(t *testing.T) {
+	_, err := parseShellLine("set controller endpoint enabled")
+	if err == nil || !strings.Contains(err.Error(), "controller endpoint is required") {
+		t.Fatalf("set controller endpoint enabled error = %v", err)
+	}
+
+	_, err = parseShellLine("set festival standalone enabled")
+	if err == nil || !strings.Contains(err.Error(), "festival plan path is required") {
+		t.Fatalf("set festival standalone enabled error = %v", err)
+	}
+}
+
 func TestShellCommandBuildsOperation(t *testing.T) {
 	got, err := parseShellLine("request wifi connect Lab passphrase secret security wpa3 band 6ghz timeout 12345")
 	if err != nil {
