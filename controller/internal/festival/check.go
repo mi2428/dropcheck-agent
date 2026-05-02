@@ -17,11 +17,21 @@ type step struct {
 	name         string
 	operation    command.Operation
 	expectations []Expectation
+	policy       runPolicy
+}
+
+type runPolicy struct {
+	repeat         uint32
+	retryAttempts  uint32
+	retryDelay     time.Duration
+	stableFor      time.Duration
+	stableInterval time.Duration
 }
 
 type checkBase struct {
 	name         string
 	expectations []Expectation
+	policy       runPolicy
 }
 
 func (c checkBase) Name() string {
@@ -31,6 +41,31 @@ func (c checkBase) Name() string {
 func (c checkBase) withExpectations(expectations []Expectation) checkBase {
 	c.expectations = append([]Expectation(nil), expectations...)
 	return c
+}
+
+func (c checkBase) withRepeat(count uint32) checkBase {
+	c.policy.repeat = count
+	return c
+}
+
+func (c checkBase) withRetry(attempts uint32, delay time.Duration) checkBase {
+	c.policy.retryAttempts = attempts
+	c.policy.retryDelay = delay
+	return c
+}
+
+func (c checkBase) withStableFor(duration time.Duration) checkBase {
+	c.policy.stableFor = duration
+	return c
+}
+
+func (c checkBase) withStableInterval(interval time.Duration) checkBase {
+	c.policy.stableInterval = interval
+	return c
+}
+
+func (c checkBase) step(operation command.Operation) step {
+	return step{name: c.name, operation: operation, expectations: c.expectations, policy: c.policy}
 }
 
 // IPStatusCheck configures an IP provisioning check.
@@ -54,8 +89,32 @@ func (c IPStatusCheck) Expect(expectations ...Expectation) IPStatusCheck {
 	return c
 }
 
+// Repeat runs the IP status check count times.
+func (c IPStatusCheck) Repeat(count uint32) IPStatusCheck {
+	c.checkBase = c.withRepeat(count)
+	return c
+}
+
+// Retry reruns a failed IP status check up to attempts times.
+func (c IPStatusCheck) Retry(attempts uint32, delay time.Duration) IPStatusCheck {
+	c.checkBase = c.withRetry(attempts, delay)
+	return c
+}
+
+// StableFor requires the IP status check to keep passing for duration.
+func (c IPStatusCheck) StableFor(duration time.Duration) IPStatusCheck {
+	c.checkBase = c.withStableFor(duration)
+	return c
+}
+
+// StableInterval sets the sampling interval used by StableFor.
+func (c IPStatusCheck) StableInterval(interval time.Duration) IPStatusCheck {
+	c.checkBase = c.withStableInterval(interval)
+	return c
+}
+
 func (c IPStatusCheck) build() (step, error) {
-	return step{name: c.name, operation: command.IPStatusOperation(), expectations: c.expectations}, nil
+	return c.step(command.IPStatusOperation()), nil
 }
 
 // WiFiStatusCheck configures a Wi-Fi link-state check.
@@ -78,8 +137,32 @@ func (c WiFiStatusCheck) Expect(expectations ...Expectation) WiFiStatusCheck {
 	return c
 }
 
+// Repeat runs the Wi-Fi status check count times.
+func (c WiFiStatusCheck) Repeat(count uint32) WiFiStatusCheck {
+	c.checkBase = c.withRepeat(count)
+	return c
+}
+
+// Retry reruns a failed Wi-Fi status check up to attempts times.
+func (c WiFiStatusCheck) Retry(attempts uint32, delay time.Duration) WiFiStatusCheck {
+	c.checkBase = c.withRetry(attempts, delay)
+	return c
+}
+
+// StableFor requires the Wi-Fi status check to keep passing for duration.
+func (c WiFiStatusCheck) StableFor(duration time.Duration) WiFiStatusCheck {
+	c.checkBase = c.withStableFor(duration)
+	return c
+}
+
+// StableInterval sets the sampling interval used by StableFor.
+func (c WiFiStatusCheck) StableInterval(interval time.Duration) WiFiStatusCheck {
+	c.checkBase = c.withStableInterval(interval)
+	return c
+}
+
 func (c WiFiStatusCheck) build() (step, error) {
-	return step{name: c.name, operation: command.WifiStatusOperation(), expectations: c.expectations}, nil
+	return c.step(command.WifiStatusOperation()), nil
 }
 
 // WiFiScanCheck configures a Wi-Fi scan check.
@@ -123,13 +206,37 @@ func (c WiFiScanCheck) Expect(expectations ...Expectation) WiFiScanCheck {
 	return c
 }
 
+// Repeat runs the Wi-Fi scan check count times.
+func (c WiFiScanCheck) Repeat(count uint32) WiFiScanCheck {
+	c.checkBase = c.withRepeat(count)
+	return c
+}
+
+// Retry reruns a failed Wi-Fi scan check up to attempts times.
+func (c WiFiScanCheck) Retry(attempts uint32, delay time.Duration) WiFiScanCheck {
+	c.checkBase = c.withRetry(attempts, delay)
+	return c
+}
+
+// StableFor requires the Wi-Fi scan check to keep passing for duration.
+func (c WiFiScanCheck) StableFor(duration time.Duration) WiFiScanCheck {
+	c.checkBase = c.withStableFor(duration)
+	return c
+}
+
+// StableInterval sets the sampling interval used by StableFor.
+func (c WiFiScanCheck) StableInterval(interval time.Duration) WiFiScanCheck {
+	c.checkBase = c.withStableInterval(interval)
+	return c
+}
+
 func (c WiFiScanCheck) build() (step, error) {
 	if c.fresh {
 		op, err := command.WifiFreshScanOperation(c.band, c.timeout)
-		return step{name: c.name, operation: op, expectations: c.expectations}, err
+		return c.step(op), err
 	}
 	op, err := command.WifiScanOperation(c.band)
-	return step{name: c.name, operation: op, expectations: c.expectations}, err
+	return c.step(op), err
 }
 
 // WiFiScanDetailCheck configures a targeted Wi-Fi scan-detail check.
@@ -156,9 +263,33 @@ func (c WiFiScanDetailCheck) Expect(expectations ...Expectation) WiFiScanDetailC
 	return c
 }
 
+// Repeat runs the Wi-Fi scan-detail check count times.
+func (c WiFiScanDetailCheck) Repeat(count uint32) WiFiScanDetailCheck {
+	c.checkBase = c.withRepeat(count)
+	return c
+}
+
+// Retry reruns a failed Wi-Fi scan-detail check up to attempts times.
+func (c WiFiScanDetailCheck) Retry(attempts uint32, delay time.Duration) WiFiScanDetailCheck {
+	c.checkBase = c.withRetry(attempts, delay)
+	return c
+}
+
+// StableFor requires the Wi-Fi scan-detail check to keep passing for duration.
+func (c WiFiScanDetailCheck) StableFor(duration time.Duration) WiFiScanDetailCheck {
+	c.checkBase = c.withStableFor(duration)
+	return c
+}
+
+// StableInterval sets the sampling interval used by StableFor.
+func (c WiFiScanDetailCheck) StableInterval(interval time.Duration) WiFiScanDetailCheck {
+	c.checkBase = c.withStableInterval(interval)
+	return c
+}
+
 func (c WiFiScanDetailCheck) build() (step, error) {
 	op, err := command.WifiScanDetailOperation(c.target, c.band)
-	return step{name: c.name, operation: op, expectations: c.expectations}, err
+	return c.step(op), err
 }
 
 // WiFiCapabilitiesCheck configures a device Wi-Fi capabilities check.
@@ -177,8 +308,32 @@ func (c WiFiCapabilitiesCheck) Expect(expectations ...Expectation) WiFiCapabilit
 	return c
 }
 
+// Repeat runs the Wi-Fi capabilities check count times.
+func (c WiFiCapabilitiesCheck) Repeat(count uint32) WiFiCapabilitiesCheck {
+	c.checkBase = c.withRepeat(count)
+	return c
+}
+
+// Retry reruns a failed Wi-Fi capabilities check up to attempts times.
+func (c WiFiCapabilitiesCheck) Retry(attempts uint32, delay time.Duration) WiFiCapabilitiesCheck {
+	c.checkBase = c.withRetry(attempts, delay)
+	return c
+}
+
+// StableFor requires the Wi-Fi capabilities check to keep passing for duration.
+func (c WiFiCapabilitiesCheck) StableFor(duration time.Duration) WiFiCapabilitiesCheck {
+	c.checkBase = c.withStableFor(duration)
+	return c
+}
+
+// StableInterval sets the sampling interval used by StableFor.
+func (c WiFiCapabilitiesCheck) StableInterval(interval time.Duration) WiFiCapabilitiesCheck {
+	c.checkBase = c.withStableInterval(interval)
+	return c
+}
+
 func (c WiFiCapabilitiesCheck) build() (step, error) {
-	return step{name: c.name, operation: command.WifiCapabilitiesOperation(), expectations: c.expectations}, nil
+	return c.step(command.WifiCapabilitiesOperation()), nil
 }
 
 // PingCheck configures an ICMP ping check.
@@ -219,9 +374,33 @@ func (c PingCheck) Expect(expectations ...Expectation) PingCheck {
 	return c
 }
 
+// Repeat runs the ping check count times.
+func (c PingCheck) Repeat(count uint32) PingCheck {
+	c.checkBase = c.withRepeat(count)
+	return c
+}
+
+// Retry reruns a failed ping check up to attempts times.
+func (c PingCheck) Retry(attempts uint32, delay time.Duration) PingCheck {
+	c.checkBase = c.withRetry(attempts, delay)
+	return c
+}
+
+// StableFor requires the ping check to keep passing for duration.
+func (c PingCheck) StableFor(duration time.Duration) PingCheck {
+	c.checkBase = c.withStableFor(duration)
+	return c
+}
+
+// StableInterval sets the sampling interval used by StableFor.
+func (c PingCheck) StableInterval(interval time.Duration) PingCheck {
+	c.checkBase = c.withStableInterval(interval)
+	return c
+}
+
 func (c PingCheck) build() (step, error) {
 	op, err := command.PingOperation(command.PingOptions{Host: c.host, Count: c.count, Size: c.size, Timeout: c.timeout})
-	return step{name: c.name, operation: op, expectations: c.expectations}, err
+	return c.step(op), err
 }
 
 // DNSCheck configures a DNS resolution check.
@@ -270,9 +449,33 @@ func (c DNSCheck) Expect(expectations ...Expectation) DNSCheck {
 	return c
 }
 
+// Repeat runs the DNS check count times.
+func (c DNSCheck) Repeat(count uint32) DNSCheck {
+	c.checkBase = c.withRepeat(count)
+	return c
+}
+
+// Retry reruns a failed DNS check up to attempts times.
+func (c DNSCheck) Retry(attempts uint32, delay time.Duration) DNSCheck {
+	c.checkBase = c.withRetry(attempts, delay)
+	return c
+}
+
+// StableFor requires the DNS check to keep passing for duration.
+func (c DNSCheck) StableFor(duration time.Duration) DNSCheck {
+	c.checkBase = c.withStableFor(duration)
+	return c
+}
+
+// StableInterval sets the sampling interval used by StableFor.
+func (c DNSCheck) StableInterval(interval time.Duration) DNSCheck {
+	c.checkBase = c.withStableInterval(interval)
+	return c
+}
+
 func (c DNSCheck) build() (step, error) {
 	op, err := command.DNSOperation(c.nameValue, c.qtype, c.timeout)
-	return step{name: c.name, operation: op, expectations: c.expectations}, err
+	return c.step(op), err
 }
 
 // GlobalIPCheck configures a public IP check.
@@ -317,9 +520,33 @@ func (c GlobalIPCheck) Expect(expectations ...Expectation) GlobalIPCheck {
 	return c
 }
 
+// Repeat runs the public IP check count times.
+func (c GlobalIPCheck) Repeat(count uint32) GlobalIPCheck {
+	c.checkBase = c.withRepeat(count)
+	return c
+}
+
+// Retry reruns a failed public IP check up to attempts times.
+func (c GlobalIPCheck) Retry(attempts uint32, delay time.Duration) GlobalIPCheck {
+	c.checkBase = c.withRetry(attempts, delay)
+	return c
+}
+
+// StableFor requires the public IP check to keep passing for duration.
+func (c GlobalIPCheck) StableFor(duration time.Duration) GlobalIPCheck {
+	c.checkBase = c.withStableFor(duration)
+	return c
+}
+
+// StableInterval sets the sampling interval used by StableFor.
+func (c GlobalIPCheck) StableInterval(interval time.Duration) GlobalIPCheck {
+	c.checkBase = c.withStableInterval(interval)
+	return c
+}
+
 func (c GlobalIPCheck) build() (step, error) {
 	op, err := command.GlobalIPOperation(c.family, c.timeout)
-	return step{name: c.name, operation: op, expectations: c.expectations}, err
+	return c.step(op), err
 }
 
 // PathMTUCheck configures a path-MTU discovery check.
@@ -360,9 +587,33 @@ func (c PathMTUCheck) Expect(expectations ...Expectation) PathMTUCheck {
 	return c
 }
 
+// Repeat runs the path-MTU check count times.
+func (c PathMTUCheck) Repeat(count uint32) PathMTUCheck {
+	c.checkBase = c.withRepeat(count)
+	return c
+}
+
+// Retry reruns a failed path-MTU check up to attempts times.
+func (c PathMTUCheck) Retry(attempts uint32, delay time.Duration) PathMTUCheck {
+	c.checkBase = c.withRetry(attempts, delay)
+	return c
+}
+
+// StableFor requires the path-MTU check to keep passing for duration.
+func (c PathMTUCheck) StableFor(duration time.Duration) PathMTUCheck {
+	c.checkBase = c.withStableFor(duration)
+	return c
+}
+
+// StableInterval sets the sampling interval used by StableFor.
+func (c PathMTUCheck) StableInterval(interval time.Duration) PathMTUCheck {
+	c.checkBase = c.withStableInterval(interval)
+	return c
+}
+
 func (c PathMTUCheck) build() (step, error) {
 	op, err := command.PathMTUOperation(command.PathMTUOptions{Host: c.host, MinMTU: c.minMTU, MaxMTU: c.maxMTU, Timeout: c.timeout})
-	return step{name: c.name, operation: op, expectations: c.expectations}, err
+	return c.step(op), err
 }
 
 // TracerouteCheck configures a traceroute check.
@@ -410,9 +661,33 @@ func (c TracerouteCheck) Expect(expectations ...Expectation) TracerouteCheck {
 	return c
 }
 
+// Repeat runs the traceroute check count times.
+func (c TracerouteCheck) Repeat(count uint32) TracerouteCheck {
+	c.checkBase = c.withRepeat(count)
+	return c
+}
+
+// Retry reruns a failed traceroute check up to attempts times.
+func (c TracerouteCheck) Retry(attempts uint32, delay time.Duration) TracerouteCheck {
+	c.checkBase = c.withRetry(attempts, delay)
+	return c
+}
+
+// StableFor requires the traceroute check to keep passing for duration.
+func (c TracerouteCheck) StableFor(duration time.Duration) TracerouteCheck {
+	c.checkBase = c.withStableFor(duration)
+	return c
+}
+
+// StableInterval sets the sampling interval used by StableFor.
+func (c TracerouteCheck) StableInterval(interval time.Duration) TracerouteCheck {
+	c.checkBase = c.withStableInterval(interval)
+	return c
+}
+
 func (c TracerouteCheck) build() (step, error) {
 	op, err := command.TracerouteOperation(command.TracerouteOptions{Host: c.host, MaxHops: c.maxHops, Via: c.via, Size: c.size, Timeout: c.timeout})
-	return step{name: c.name, operation: op, expectations: c.expectations}, err
+	return c.step(op), err
 }
 
 // HTTPCheck configures an HTTP status check.
@@ -446,9 +721,33 @@ func (c HTTPCheck) Expect(expectations ...Expectation) HTTPCheck {
 	return c
 }
 
+// Repeat runs the HTTP check count times.
+func (c HTTPCheck) Repeat(count uint32) HTTPCheck {
+	c.checkBase = c.withRepeat(count)
+	return c
+}
+
+// Retry reruns a failed HTTP check up to attempts times.
+func (c HTTPCheck) Retry(attempts uint32, delay time.Duration) HTTPCheck {
+	c.checkBase = c.withRetry(attempts, delay)
+	return c
+}
+
+// StableFor requires the HTTP check to keep passing for duration.
+func (c HTTPCheck) StableFor(duration time.Duration) HTTPCheck {
+	c.checkBase = c.withStableFor(duration)
+	return c
+}
+
+// StableInterval sets the sampling interval used by StableFor.
+func (c HTTPCheck) StableInterval(interval time.Duration) HTTPCheck {
+	c.checkBase = c.withStableInterval(interval)
+	return c
+}
+
 func (c HTTPCheck) build() (step, error) {
 	op, err := command.HTTPOperation(c.url, c.expectedStatus, c.timeout)
-	return step{name: c.name, operation: op, expectations: c.expectations}, err
+	return c.step(op), err
 }
 
 // DownloadCheck configures an HTTP download check.
@@ -475,7 +774,31 @@ func (c DownloadCheck) Expect(expectations ...Expectation) DownloadCheck {
 	return c
 }
 
+// Repeat runs the download check count times.
+func (c DownloadCheck) Repeat(count uint32) DownloadCheck {
+	c.checkBase = c.withRepeat(count)
+	return c
+}
+
+// Retry reruns a failed download check up to attempts times.
+func (c DownloadCheck) Retry(attempts uint32, delay time.Duration) DownloadCheck {
+	c.checkBase = c.withRetry(attempts, delay)
+	return c
+}
+
+// StableFor requires the download check to keep passing for duration.
+func (c DownloadCheck) StableFor(duration time.Duration) DownloadCheck {
+	c.checkBase = c.withStableFor(duration)
+	return c
+}
+
+// StableInterval sets the sampling interval used by StableFor.
+func (c DownloadCheck) StableInterval(interval time.Duration) DownloadCheck {
+	c.checkBase = c.withStableInterval(interval)
+	return c
+}
+
 func (c DownloadCheck) build() (step, error) {
 	op, err := command.DownloadOperation(c.url, c.timeout)
-	return step{name: c.name, operation: op, expectations: c.expectations}, err
+	return c.step(op), err
 }
