@@ -87,35 +87,3 @@ func (s *shellState) commandTargets() ([]control.AgentInfo, error) {
 	}
 	return []control.AgentInfo{info}, nil
 }
-
-type cliOptions struct {
-	format outputFormat
-	target string
-	all    bool
-}
-
-type cliCommandKind int
-
-const (
-	cliAgentCommand cliCommandKind = iota
-	cliDevices
-	cliTarget
-)
-
-type cliCommand struct {
-	kind      cliCommandKind
-	operation Operation
-}
-
-func extractCLIOptions(args []string) (cliOptions, []string, error) {
-	opts, rest, err := linuxcli.ExtractOptions(args)
-	return cliOptions{format: opts.Format, target: opts.Target, all: opts.All}, rest, err
-}
-
-func parseLinuxCommand(args []string) (cliCommand, error) {
-	parsed, err := linuxcli.Parse(args)
-	return cliCommand{
-		kind:      cliCommandKind(parsed.Kind),
-		operation: parsed.Operation,
-	}, err
-}

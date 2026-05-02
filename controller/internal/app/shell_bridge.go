@@ -56,10 +56,6 @@ func wrapShellCommand(parsed shell.Command) shellCommand {
 	}
 }
 
-func normalizeShellCommandArgs(args []string) ([]string, error) {
-	return shell.NormalizeCommandArgs(args)
-}
-
 func isHelpLine(line string) bool {
 	return shell.IsHelpLine(line)
 }
