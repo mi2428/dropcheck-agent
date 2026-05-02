@@ -383,6 +383,9 @@ func prepareCommandForAgent(state *shellState, agent control.AgentInfo, cmd *con
 	if link == nil || link.Config == nil || !link.Config.GetEnabled() {
 		return
 	}
+	// The parser deliberately cannot know the live session token or resolved
+	// agent identity. Inject them immediately before dispatch so set/show
+	// semantics stay typed while secrets never appear in shell history.
 	link.Config.Token = state.controllerToken
 	link.Config.AgentId = agent.ID
 	link.Config.AdbSerial = agent.Hello.GetAdbSerial()

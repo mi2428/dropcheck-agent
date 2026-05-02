@@ -8,6 +8,7 @@ import java.io.File
 internal class ControllerLinkStore internal constructor(private val file: File) {
     constructor(context: Context) : this(File(context.filesDir, "controller-link/config.pb"))
 
+    /** Returns the stored endpoint, or the protobuf default when unset/corrupt. */
     @Synchronized
     fun load(): ControllerLinkConfig {
         if (!file.exists()) return ControllerLinkConfig.getDefaultInstance()
@@ -15,6 +16,7 @@ internal class ControllerLinkStore internal constructor(private val file: File) 
             .getOrDefault(ControllerLinkConfig.getDefaultInstance())
     }
 
+    /** Atomically replaces the reconnect endpoint config in app-private storage. */
     @Synchronized
     fun save(config: ControllerLinkConfig) {
         file.parentFile?.mkdirs()
