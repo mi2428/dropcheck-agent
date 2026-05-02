@@ -28,6 +28,8 @@ const (
 	Devices
 	// Target prints the default selected target.
 	Target
+	// FestivalSync downloads stored Dropcheck Festival measurement archives.
+	FestivalSync
 )
 
 // Command is the parsed non-interactive CLI command.
@@ -36,6 +38,12 @@ type Command struct {
 	Kind Kind
 	// Operation is populated when Kind is AgentCommand.
 	Operation command.Operation
+	// FestivalSyncOutput is the output directory for FestivalSync.
+	FestivalSyncOutput string
+	// FestivalSyncLimit caps FestivalSync downloads.
+	FestivalSyncLimit string
+	// FestivalSyncMark marks downloaded runs as synced.
+	FestivalSyncMark bool
 }
 
 // ExtractOptions parses CLI-global flags and returns the remaining command
@@ -102,6 +110,12 @@ func Parse(args []string) (Command, error) {
 		return Command{}, fmt.Errorf("usage: dropcheck [--adb adb] [--serial SERIAL] [--package PACKAGE] shell | <command>")
 	}
 	switch args[0] {
+	case "show":
+		return parseShow(args[1:])
+	case "set":
+		return parseSet(args[1:])
+	case "request":
+		return parseRequest(args[1:])
 	case "devices":
 		if len(args) != 1 {
 			return Command{}, fmt.Errorf("usage: devices")
@@ -143,6 +157,196 @@ func Parse(args []string) (Command, error) {
 		return Command{Kind: AgentCommand, Operation: op}, err
 	default:
 		return Command{}, fmt.Errorf("unknown command %q", args[0])
+	}
+}
+
+func parseShow(args []string) (Command, error) {
+	if len(args) == 0 {
+		return Command{}, fmt.Errorf("usage: show <devices|target|wifi|festival>")
+	}
+	switch args[0] {
+	case "devices":
+		if len(args) != 1 {
+			return Command{}, fmt.Errorf("usage: show devices")
+		}
+		return Command{Kind: Devices}, nil
+	case "target":
+		if len(args) != 1 {
+			return Command{}, fmt.Errorf("usage: show target")
+		}
+		return Command{Kind: Target}, nil
+	case "wifi":
+		op, err := parseLinuxShowWifi(args[1:])
+		return Command{Kind: AgentCommand, Operation: op}, err
+	case "festival":
+		op, err := parseFestivalShow(args[1:])
+		return Command{Kind: AgentCommand, Operation: op}, err
+	default:
+		return Command{}, fmt.Errorf("unknown show command %q", args[0])
+	}
+}
+
+func parseLinuxShowWifi(args []string) (command.Operation, error) {
+	if len(args) == 0 {
+		return command.Operation{}, fmt.Errorf("usage: show wifi <status|diagnostics|scan|capabilities>")
+	}
+	switch args[0] {
+	case "status", "diagnostics", "capabilities":
+		if len(args) != 1 {
+			return command.Operation{}, fmt.Errorf("usage: show wifi %s", args[0])
+		}
+		switch args[0] {
+		case "status":
+			return command.WifiStatusOperation(), nil
+		case "diagnostics":
+			return command.WifiDiagnosticsOperation(), nil
+		default:
+			return command.WifiCapabilitiesOperation(), nil
+		}
+	case "scan":
+		return parseLinuxWifiScan(args[1:])
+	default:
+		return command.Operation{}, fmt.Errorf("unknown show wifi command %q", args[0])
+	}
+}
+
+func parseSet(args []string) (Command, error) {
+	if len(args) == 0 || args[0] != "festival" {
+		return Command{}, fmt.Errorf("usage: set festival standalone <enabled|disabled>")
+	}
+	op, err := parseFestivalSet(args[1:])
+	return Command{Kind: AgentCommand, Operation: op}, err
+}
+
+func parseRequest(args []string) (Command, error) {
+	if len(args) == 0 {
+		return Command{}, fmt.Errorf("usage: request <wifi|festival> <command>")
+	}
+	if args[0] == "wifi" {
+		op, err := parseLinuxWifi(args[1:])
+		return Command{Kind: AgentCommand, Operation: op}, err
+	}
+	if args[0] != "festival" {
+		return Command{}, fmt.Errorf("usage: request festival <run|sync|clear>")
+	}
+	return parseFestivalRequest(args[1:])
+}
+
+func parseFestivalShow(args []string) (command.Operation, error) {
+	if len(args) == 0 {
+		return command.Operation{}, fmt.Errorf("usage: show festival <standalone|runs|run>")
+	}
+	switch args[0] {
+	case "standalone":
+		if len(args) != 2 {
+			return command.Operation{}, fmt.Errorf("usage: show festival standalone <status|config>")
+		}
+		switch args[1] {
+		case "status":
+			return command.FestivalStatusOperation(), nil
+		case "config":
+			return command.FestivalConfigOperation(), nil
+		default:
+			return command.Operation{}, fmt.Errorf("unknown show festival standalone command %q", args[1])
+		}
+	case "runs":
+		opts, err := parseDashOptions(args[1:], map[string]dashOptionSpec{
+			"limit":  {value: true},
+			"synced": {},
+		})
+		if err != nil {
+			return command.Operation{}, err
+		}
+		if len(opts.positionals) != 0 {
+			return command.Operation{}, fmt.Errorf("usage: show festival runs [--limit n] [--synced]")
+		}
+		return command.FestivalListRunsOperation(command.FestivalListOptions{Limit: opts.value("limit"), IncludeSynced: opts.flags["synced"]})
+	case "run":
+		if len(args) != 2 {
+			return command.Operation{}, fmt.Errorf("usage: show festival run <run-id>")
+		}
+		return command.FestivalRunOperation(args[1], false)
+	default:
+		return command.Operation{}, fmt.Errorf("unknown show festival command %q", args[0])
+	}
+}
+
+func parseFestivalSet(args []string) (command.Operation, error) {
+	if len(args) == 0 || args[0] != "standalone" {
+		return command.Operation{}, fmt.Errorf("usage: set festival standalone <enabled|disabled>")
+	}
+	if len(args) == 2 && args[1] == "disabled" {
+		return command.FestivalSetConfigOperation(command.FestivalConfigOptions{Enabled: false})
+	}
+	opts, err := parseDashOptions(args[1:], map[string]dashOptionSpec{
+		"plan":      {value: true},
+		"interval":  {value: true},
+		"retention": {value: true},
+		"max-size":  {value: true},
+	})
+	if err != nil {
+		return command.Operation{}, err
+	}
+	if len(opts.positionals) != 1 || opts.positionals[0] != "enabled" {
+		return command.Operation{}, fmt.Errorf("usage: set festival standalone enabled --plan <file> [--interval duration] [--retention duration] [--max-size bytes]")
+	}
+	return command.FestivalSetConfigOperation(command.FestivalConfigOptions{
+		Enabled:   true,
+		PlanPath:  opts.value("plan"),
+		Interval:  opts.value("interval"),
+		Retention: opts.value("retention"),
+		MaxSize:   opts.value("max-size"),
+	})
+}
+
+func parseFestivalRequest(args []string) (Command, error) {
+	if len(args) == 0 {
+		return Command{}, fmt.Errorf("usage: request festival <run|sync|clear>")
+	}
+	switch args[0] {
+	case "run":
+		if len(args) < 2 || args[1] != "once" {
+			return Command{}, fmt.Errorf("usage: request festival run once --plan <file> [--save]")
+		}
+		opts, err := parseDashOptions(args[2:], map[string]dashOptionSpec{
+			"plan": {value: true},
+			"save": {},
+		})
+		if err != nil {
+			return Command{}, err
+		}
+		if len(opts.positionals) != 0 {
+			return Command{}, fmt.Errorf("usage: request festival run once --plan <file> [--save]")
+		}
+		op, err := command.FestivalRunOnceOperation(opts.value("plan"), opts.flags["save"])
+		return Command{Kind: AgentCommand, Operation: op}, err
+	case "clear":
+		if len(args) > 2 {
+			return Command{}, fmt.Errorf("usage: request festival clear [synced|all]")
+		}
+		mode := "synced"
+		if len(args) == 2 {
+			mode = args[1]
+		}
+		op, err := command.FestivalClearRunsOperation(mode)
+		return Command{Kind: AgentCommand, Operation: op}, err
+	case "sync":
+		opts, err := parseDashOptions(args[1:], map[string]dashOptionSpec{
+			"output":        {value: true},
+			"limit":         {value: true},
+			"mark-synced":   {},
+			"keep-unsynced": {},
+		})
+		if err != nil {
+			return Command{}, err
+		}
+		if len(opts.positionals) != 0 {
+			return Command{}, fmt.Errorf("usage: request festival sync [--output dir] [--limit n] [--mark-synced|--keep-unsynced]")
+		}
+		markSynced := !opts.flags["keep-unsynced"] || opts.flags["mark-synced"]
+		return Command{Kind: FestivalSync, FestivalSyncOutput: opts.value("output"), FestivalSyncLimit: opts.value("limit"), FestivalSyncMark: markSynced}, nil
+	default:
+		return Command{}, fmt.Errorf("unknown request festival command %q", args[0])
 	}
 }
 

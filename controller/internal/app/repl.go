@@ -268,6 +268,15 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 			format:   command.pipeline.format(outputText),
 			pipeline: command.pipeline,
 		})
+	case shellFestivalSync:
+		if err := syncFestivalRuns(ctx, state, festivalSyncOptions{
+			OutputDir:  command.syncOutput,
+			Limit:      command.syncLimit,
+			MarkSynced: command.syncMark,
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+		}
+		return false, nil
 	default:
 		return false, nil
 	}

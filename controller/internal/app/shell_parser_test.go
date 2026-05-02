@@ -140,6 +140,31 @@ func TestParseShellCommands(t *testing.T) {
 	}
 }
 
+func TestParseShellFestivalCommands(t *testing.T) {
+	status, err := parseShellLine("show festival standalone status")
+	if err != nil {
+		t.Fatalf("show festival standalone status: %v", err)
+	}
+	if status.kind != shellAgentCommand {
+		t.Fatalf("status kind = %v", status.kind)
+	}
+	cmd, _, err := buildRunCommand(status.operation)
+	if err != nil {
+		t.Fatalf("build status command: %v", err)
+	}
+	if cmd.GetGetFestivalStatus() == nil {
+		t.Fatalf("status command = %#v", cmd)
+	}
+
+	sync, err := parseShellLine("request festival sync output out/festival limit 10 keep-unsynced")
+	if err != nil {
+		t.Fatalf("request festival sync: %v", err)
+	}
+	if sync.kind != shellFestivalSync || sync.syncOutput != "out/festival" || sync.syncLimit != "10" || sync.syncMark {
+		t.Fatalf("sync = %#v", sync)
+	}
+}
+
 func TestShellCommandBuildsOperation(t *testing.T) {
 	got, err := parseShellLine("request wifi connect Lab passphrase secret security wpa3 band 6ghz timeout 12345")
 	if err != nil {
