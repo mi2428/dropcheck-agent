@@ -13,9 +13,11 @@ import (
 	"dropcheck/controller/internal/festival"
 	"dropcheck/controller/internal/festival/dns"
 	"dropcheck/controller/internal/festival/globalip"
+	"dropcheck/controller/internal/festival/ip"
 	"dropcheck/controller/internal/festival/ping"
 	"dropcheck/controller/internal/festival/pmtu"
 	"dropcheck/controller/internal/festival/trace"
+	"dropcheck/controller/internal/festival/wifi"
 	"dropcheck/controller/internal/runner"
 )
 
@@ -69,6 +71,29 @@ func TestRunBuildsSupportedCheckOperations(t *testing.T) {
 				DisconnectAfter(false),
 		},
 		Checks: []festival.Check{
+			festival.IPStatus().
+				Expect(
+					ip.Validated().IsTrue(),
+					ip.Internet().IsTrue(),
+					ip.IPv4Address().InCIDR("192.168.10.0/24"),
+					ip.IPv6Prefix().Within("2001:db8::/32"),
+					ip.DHCPServer().Eq("192.168.10.1"),
+					ip.DNSServer().Contains("192.168.10.1"),
+					ip.Transport().Contains("wifi"),
+					ip.IPv6DefaultRoute().IsTrue(),
+					ip.MTU().Ge(1280),
+				),
+			festival.WiFiStatus().
+				Expect(
+					wifi.Enabled().IsTrue(),
+					wifi.SSID().Eq("Lab"),
+					wifi.BSSID().Eq("aa:bb:cc:dd:ee:ff"),
+					wifi.Standard().Eq("be"),
+					wifi.Channel().Eq(37),
+					wifi.Band().Eq("6ghz"),
+					wifi.ChannelWidth().Eq("160mhz"),
+					wifi.TxLinkSpeedMbps().Ge(1000),
+				),
 			festival.PathMTU("8.8.8.8").
 				Min(1200).
 				Expect(pmtu.Discovered().IsTrue(), pmtu.PathMTU().Ge(1200)),
@@ -93,7 +118,7 @@ func TestRunBuildsSupportedCheckOperations(t *testing.T) {
 		},
 	}, festival.WithRunner(fake, control.AgentInfo{ID: "agent-1"}))
 
-	want := []string{"wifi.connect", "path-mtu", "traceroute", "http", "download"}
+	want := []string{"wifi.connect", "ip.status", "wifi.status", "path-mtu", "traceroute", "http", "download"}
 	if !reflect.DeepEqual(fake.operations, want) {
 		t.Fatalf("operations = %#v, want %#v", fake.operations, want)
 	}
@@ -140,6 +165,32 @@ func TestMatcherReportsMissingPayload(t *testing.T) {
 	}
 }
 
+func TestIPMatcherReportsCIDRMismatch(t *testing.T) {
+	findings := ip.IPv4Prefix().Within("10.0.0.0/8").Evaluate(festival.Result{
+		Check: "ip status",
+		Run:   festival.RunResult{Raw: fakeResult("ip.status")},
+	})
+	if len(findings) != 1 {
+		t.Fatalf("findings len = %d, want 1", len(findings))
+	}
+	if findings[0].Passed || findings[0].Metric != "ip.ipv4_prefix" {
+		t.Fatalf("finding = %#v, want failed ipv4 prefix finding", findings[0])
+	}
+}
+
+func TestWiFiMatcherRequiresWiFiStatusPayload(t *testing.T) {
+	findings := wifi.Standard().Eq("be").Evaluate(festival.Result{
+		Check: "ip status",
+		Run:   festival.RunResult{Raw: fakeResult("ip.status")},
+	})
+	if len(findings) != 1 {
+		t.Fatalf("findings len = %d, want 1", len(findings))
+	}
+	if findings[0].Passed || findings[0].Observed != "<missing>" {
+		t.Fatalf("finding = %#v, want missing wifi status failure", findings[0])
+	}
+}
+
 type fakeRunner struct {
 	operations []string
 }
@@ -183,6 +234,41 @@ func fakeResult(name string) *controlpb.CommandResult {
 				Global: true,
 				Status: 200,
 			}},
+		}}
+	case "ip.status":
+		result.Payload = &controlpb.CommandResult_IpStatus{IpStatus: &controlpb.IpStatus{
+			NetworkId:         "100",
+			Transports:        []string{"wifi"},
+			Validated:         true,
+			Internet:          true,
+			InterfaceName:     "wlan0",
+			Mtu:               1500,
+			Addresses:         []string{"192.168.10.23/24", "2001:db8:1::123/64"},
+			DnsServers:        []string{"192.168.10.1"},
+			DhcpServer:        "192.168.10.1",
+			Routes:            []string{"0.0.0.0/0 -> 192.168.10.1 wlan0", "::/0 -> fe80::1 wlan0"},
+			Capabilities:      []string{"internet", "validated"},
+			Nat64Prefix:       "64:ff9b::/96",
+			RawLinkProperties: "LinkProperties{LinkAddresses: [192.168.10.23/24,2001:db8:1::123/64] Routes: [::/0]}",
+		}}
+	case "wifi.status":
+		result.Payload = &controlpb.CommandResult_WifiStatus{WifiStatus: &controlpb.WifiStatus{
+			Enabled: true,
+			State:   "enabled",
+			Connection: &controlpb.WifiConnection{
+				Ssid:               "Lab",
+				Bssid:              "aa:bb:cc:dd:ee:ff",
+				RssiDbm:            -45,
+				FrequencyMhz:       6135,
+				LinkSpeedMbps:      2401,
+				TxLinkSpeedMbps:    2401,
+				RxLinkSpeedMbps:    2401,
+				WifiStandard:       "802.11be",
+				ChannelWidth:       "160MHz",
+				SecurityType:       "wpa3_sae",
+				AssociatedMloLinks: []*controlpb.MloLinkInfo{{LinkId: 1, Band: "6ghz", Channel: 37}},
+				Raw:                "ssid=Lab channelWidth=160MHz",
+			},
 		}}
 	case "path-mtu":
 		result.Payload = &controlpb.CommandResult_PathMtu{PathMtu: &controlpb.PathMtuResult{
