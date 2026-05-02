@@ -177,6 +177,23 @@ class WifiConnectorPolicyTest {
     }
 
     @Test
+    fun matchesCurrentConnectionForgetTargets() {
+        val current = WifiConnectorPolicy.CurrentConnectionRef(
+            networkId = 10,
+            ssid = "Lab",
+            bssid = "70:a7:41:a0:9a:6f",
+            frequencyMhz = 5200,
+            securityType = "sae",
+        )
+
+        assertTrue(WifiConnectorPolicy.currentConnectionMatchesForgetTarget("Lab", current))
+        assertTrue(WifiConnectorPolicy.currentConnectionMatchesForgetTarget("10", current))
+        assertTrue(WifiConnectorPolicy.currentConnectionMatchesForgetTarget("70:A7:41:A0:9A:6F", current))
+        assertFalse(WifiConnectorPolicy.currentConnectionMatchesForgetTarget("Guest", current))
+        assertFalse(WifiConnectorPolicy.currentConnectionMatchesForgetTarget("Lab", null))
+    }
+
+    @Test
     fun selectsForgetTargetsBySsidOrNetworkId() {
         val configs = listOf(
             WifiConnectorPolicy.ConfiguredNetworkRef(networkId = 7, ssid = "\"Lab\""),
