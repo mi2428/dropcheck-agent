@@ -375,6 +375,7 @@ message WifiConnection {
   repeated MloLinkInfo associated_mlo_links = 29;
   repeated WifiInformationElement information_elements = 30;
   string raw = 31;
+  string channel_width = 32;
 }
 
 message IpStatus {

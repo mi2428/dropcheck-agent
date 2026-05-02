@@ -3,6 +3,7 @@ package render
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -305,13 +306,15 @@ func renderWifiStatus(b *strings.Builder, status *controlpb.WifiStatus) {
 }
 
 func renderWifiConnection(b *strings.Builder, conn *controlpb.WifiConnection) {
-	fmt.Fprintf(b, "Connection: ssid=%s bssid=%s rssi=%ddBm security=%s band=%s freq=%dMHz link=%dMbps ip=%s\n",
+	fmt.Fprintf(b, "Connection: ssid=%s bssid=%s rssi=%ddBm security=%s band=%s channel=%s freq=%dMHz bandwidth=%s link=%dMbps ip=%s\n",
 		conn.GetSsid(),
 		empty(conn.GetBssid(), "unknown"),
 		conn.GetRssiDbm(),
 		empty(conn.GetSecurityType(), "unknown"),
 		wifiBandFromFrequency(conn.GetFrequencyMhz()),
+		wifiChannelFromFrequency(conn.GetFrequencyMhz()),
 		conn.GetFrequencyMhz(),
+		empty(wifiChannelWidth(conn), "unknown"),
 		conn.GetLinkSpeedMbps(),
 		empty(conn.GetIpv4Address(), "none"),
 	)
@@ -359,9 +362,6 @@ func renderIPStatus(b *strings.Builder, status *controlpb.IpStatus) {
 	}
 	if status.GetPrivateDnsActive() || status.GetPrivateDnsServerName() != "" {
 		fmt.Fprintf(b, "Private DNS: active=%t server=%s\n", status.GetPrivateDnsActive(), empty(status.GetPrivateDnsServerName(), "none"))
-	}
-	if status.GetWifi() != nil && status.GetWifi().GetSsid() != "" {
-		renderWifiConnection(b, status.GetWifi())
 	}
 }
 
@@ -762,6 +762,60 @@ func wifiBandFromFrequency(freq int32) string {
 	default:
 		return "unknown"
 	}
+}
+
+func wifiChannelFromFrequency(freq int32) string {
+	channel := int32(0)
+	switch {
+	case freq == 2484:
+		channel = 14
+	case freq >= 2412 && freq <= 2472:
+		channel = (freq - 2407) / 5
+	case freq >= 5000 && freq <= 5895:
+		channel = (freq - 5000) / 5
+	case freq >= 5955 && freq <= 7115:
+		channel = (freq - 5950) / 5
+	}
+	if channel == 0 {
+		return "unknown"
+	}
+	return fmt.Sprint(channel)
+}
+
+var (
+	wifiChannelWidthPattern = regexp.MustCompile(`(?i)(?:channel[_ ]?width|channelWidth)\s*[:=]\s*([A-Za-z0-9_./+-]+)`)
+	wifiChannelWidthCore    = regexp.MustCompile(`^[0-9+]+$`)
+)
+
+func wifiChannelWidth(conn *controlpb.WifiConnection) string {
+	if conn == nil {
+		return ""
+	}
+	if width := formatWifiChannelWidth(conn.GetChannelWidth()); width != "" {
+		return width
+	}
+	match := wifiChannelWidthPattern.FindStringSubmatch(conn.GetRaw())
+	if match == nil {
+		return ""
+	}
+	return formatWifiChannelWidth(match[1])
+}
+
+func formatWifiChannelWidth(value string) string {
+	width := strings.Trim(strings.TrimSpace(value), ",;")
+	if width == "" {
+		return ""
+	}
+	normalized := strings.ToLower(width)
+	normalized = strings.TrimPrefix(normalized, "channel_width_")
+	normalized = strings.TrimPrefix(normalized, "width_")
+	normalized = strings.ReplaceAll(normalized, "_", "")
+	normalized = strings.ReplaceAll(normalized, " ", "")
+	core := strings.TrimSuffix(normalized, "mhz")
+	if wifiChannelWidthCore.MatchString(core) {
+		return core + "MHz"
+	}
+	return width
 }
 
 func ipFamilyName(value controlpb.IpFamily) string {

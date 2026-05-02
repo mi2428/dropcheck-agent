@@ -143,6 +143,8 @@ internal fun CommandResult.logFields(): List<Pair<String, Any?>> {
                     add("wifi_bssid" to wifiStatus.connection.bssid)
                     add("wifi_rssi_dbm" to wifiStatus.connection.rssiDbm)
                     add("wifi_frequency_mhz" to wifiStatus.connection.frequencyMhz)
+                    add("wifi_standard" to wifiStatus.connection.wifiStandard)
+                    add("wifi_channel_width" to wifiStatus.connection.channelWidth)
                     add("wifi_security" to wifiStatus.connection.securityType)
                     add("wifi_ipv4" to wifiStatus.connection.ipv4Address)
                 }
