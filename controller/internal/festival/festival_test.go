@@ -11,11 +11,13 @@ import (
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
 	"dropcheck/controller/internal/festival"
+	"dropcheck/controller/internal/festival/capabilities"
 	"dropcheck/controller/internal/festival/dns"
 	"dropcheck/controller/internal/festival/globalip"
 	"dropcheck/controller/internal/festival/ip"
 	"dropcheck/controller/internal/festival/ping"
 	"dropcheck/controller/internal/festival/pmtu"
+	"dropcheck/controller/internal/festival/scan"
 	"dropcheck/controller/internal/festival/trace"
 	"dropcheck/controller/internal/festival/wifi"
 	"dropcheck/controller/internal/runner"
@@ -94,6 +96,28 @@ func TestRunBuildsSupportedCheckOperations(t *testing.T) {
 					wifi.ChannelWidth().Eq("160mhz"),
 					wifi.TxLinkSpeedMbps().Ge(1000),
 				),
+			festival.WiFiScan().
+				Fresh().
+				Band("6ghz").
+				Timeout(5*time.Second).
+				Expect(
+					scan.ResultCount().Ge(1),
+					scan.APs().
+						SSID("Lab").
+						BSSID("aa:bb:cc:dd:ee:ff").
+						Standard("be").
+						ChannelWidth("320mhz").
+						Channel(37).
+						Security("wpa3_sae").
+						Exists(),
+				),
+			festival.WiFiCapabilities().
+				Expect(
+					capabilities.Band("6ghz").Supported(),
+					capabilities.Standard("be").Supported(),
+					capabilities.Security("wpa3_sae").Supported(),
+					capabilities.ErrorCount().Eq(0),
+				),
 			festival.PathMTU("8.8.8.8").
 				Min(1200).
 				Expect(pmtu.Discovered().IsTrue(), pmtu.PathMTU().Ge(1200)),
@@ -118,7 +142,7 @@ func TestRunBuildsSupportedCheckOperations(t *testing.T) {
 		},
 	}, festival.WithRunner(fake, control.AgentInfo{ID: "agent-1"}))
 
-	want := []string{"wifi.connect", "ip.status", "wifi.status", "path-mtu", "traceroute", "http", "download"}
+	want := []string{"wifi.connect", "ip.status", "wifi.status", "wifi.scan.fresh", "wifi.capabilities", "path-mtu", "traceroute", "http", "download"}
 	if !reflect.DeepEqual(fake.operations, want) {
 		t.Fatalf("operations = %#v, want %#v", fake.operations, want)
 	}
@@ -188,6 +212,19 @@ func TestWiFiMatcherRequiresWiFiStatusPayload(t *testing.T) {
 	}
 	if findings[0].Passed || findings[0].Observed != "<missing>" {
 		t.Fatalf("finding = %#v, want missing wifi status failure", findings[0])
+	}
+}
+
+func TestScanMatcherReportsMissingAP(t *testing.T) {
+	findings := scan.APs().SSID("missing").Exists().Evaluate(festival.Result{
+		Check: "wifi scan fresh",
+		Run:   festival.RunResult{Raw: fakeResult("wifi.scan.fresh")},
+	})
+	if len(findings) != 1 {
+		t.Fatalf("findings len = %d, want 1", len(findings))
+	}
+	if findings[0].Passed || findings[0].Metric != "scan.ap" {
+		t.Fatalf("finding = %#v, want failed scan AP finding", findings[0])
 	}
 }
 
@@ -269,6 +306,26 @@ func fakeResult(name string) *controlpb.CommandResult {
 				AssociatedMloLinks: []*controlpb.MloLinkInfo{{LinkId: 1, Band: "6ghz", Channel: 37}},
 				Raw:                "ssid=Lab channelWidth=160MHz",
 			},
+		}}
+	case "wifi.scan.fresh", "wifi.scan":
+		result.Payload = &controlpb.CommandResult_WifiScan{WifiScan: &controlpb.WifiScan{
+			Results: []*controlpb.WifiScanResult{{
+				Ssid:          "Lab",
+				Bssid:         "aa:bb:cc:dd:ee:ff",
+				Capabilities:  "[RSN-SAE-CCMP][EHT][ESS]",
+				RssiDbm:       -41,
+				FrequencyMhz:  6135,
+				Band:          "6GHz",
+				ChannelWidth:  "320MHz",
+				WifiStandard:  "802.11be",
+				SecurityTypes: []string{"wpa3_sae"},
+			}},
+		}}
+	case "wifi.capabilities":
+		result.Payload = &controlpb.CommandResult_WifiCapabilities{WifiCapabilities: &controlpb.WifiCapabilities{
+			SupportedBands:         []string{"2.4GHz", "5GHz", "6GHz"},
+			SupportedStandards:     []string{"802.11ax", "802.11be"},
+			SupportedSecurityModes: []string{"wpa3_sae"},
 		}}
 	case "path-mtu":
 		result.Payload = &controlpb.CommandResult_PathMtu{PathMtu: &controlpb.PathMtuResult{

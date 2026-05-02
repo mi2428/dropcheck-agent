@@ -10,11 +10,13 @@ import (
 	"time"
 
 	"dropcheck/controller/internal/festival"
+	"dropcheck/controller/internal/festival/capabilities"
 	"dropcheck/controller/internal/festival/dns"
 	"dropcheck/controller/internal/festival/globalip"
 	"dropcheck/controller/internal/festival/ip"
 	"dropcheck/controller/internal/festival/ping"
 	"dropcheck/controller/internal/festival/pmtu"
+	"dropcheck/controller/internal/festival/scan"
 	"dropcheck/controller/internal/festival/trace"
 	"dropcheck/controller/internal/festival/wifi"
 )
@@ -43,11 +45,16 @@ func TestEnvFestival(t *testing.T) {
 		wifi.Enabled().IsTrue(),
 		wifi.SSID().Eq(ssid),
 	}
+	ap := scan.APs().SSID(ssid)
+	capabilityExpect := []festival.Expectation{capabilities.ErrorCount().Eq(0)}
 	if bssid := os.Getenv("FESTIVAL_WIFI_BSSID"); bssid != "" {
 		wifiExpect = append(wifiExpect, wifi.BSSID().Eq(bssid))
+		ap = ap.BSSID(bssid)
 	}
 	if standard := os.Getenv("FESTIVAL_WIFI_STANDARD"); standard != "" {
 		wifiExpect = append(wifiExpect, wifi.Standard().Eq(wifi.StandardName(standard)))
+		ap = ap.Standard(standard)
+		capabilityExpect = append(capabilityExpect, capabilities.Standard(standard).Supported())
 	}
 	if channel := os.Getenv("FESTIVAL_WIFI_CHANNEL"); channel != "" {
 		value, err := strconv.ParseInt(channel, 10, 32)
@@ -55,9 +62,11 @@ func TestEnvFestival(t *testing.T) {
 			t.Fatalf("FESTIVAL_WIFI_CHANNEL: %v", err)
 		}
 		wifiExpect = append(wifiExpect, wifi.Channel().Eq(int32(value)))
+		ap = ap.Channel(int32(value))
 	}
 	if width := os.Getenv("FESTIVAL_WIFI_CHANNEL_WIDTH"); width != "" {
 		wifiExpect = append(wifiExpect, wifi.ChannelWidth().Eq(wifi.ChannelWidthName(width)))
+		ap = ap.ChannelWidth(width)
 	}
 
 	festival.Run(t, festival.Plan{
@@ -67,6 +76,12 @@ func TestEnvFestival(t *testing.T) {
 				Expect(ipExpect...),
 			festival.WiFiStatus().
 				Expect(wifiExpect...),
+			festival.WiFiScan().
+				Fresh().
+				Band(os.Getenv("FESTIVAL_WIFI_BAND")).
+				Expect(ap.Exists()),
+			festival.WiFiCapabilities().
+				Expect(capabilityExpect...),
 			festival.Ping("8.8.8.8").
 				Count(5).
 				Expect(
