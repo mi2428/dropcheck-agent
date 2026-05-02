@@ -82,6 +82,105 @@ func (c WiFiStatusCheck) build() (step, error) {
 	return step{name: c.name, operation: command.WifiStatusOperation(), expectations: c.expectations}, nil
 }
 
+// WiFiScanCheck configures a Wi-Fi scan check.
+type WiFiScanCheck struct {
+	checkBase
+	band    string
+	fresh   bool
+	timeout string
+}
+
+// WiFiScan starts a cached Wi-Fi scan check builder.
+//
+// Use Fresh when the plan should actively wait for an updated Android scan
+// result before evaluating AP advertisements.
+func WiFiScan() WiFiScanCheck {
+	return WiFiScanCheck{checkBase: checkBase{name: "wifi scan"}}
+}
+
+// Band restricts scan results to one Wi-Fi band token.
+func (c WiFiScanCheck) Band(value string) WiFiScanCheck {
+	c.band = value
+	return c
+}
+
+// Fresh makes the check request a fresh scan instead of cached results.
+func (c WiFiScanCheck) Fresh() WiFiScanCheck {
+	c.fresh = true
+	c.name = "wifi scan fresh"
+	return c
+}
+
+// Timeout sets the fresh-scan wait timeout.
+func (c WiFiScanCheck) Timeout(value time.Duration) WiFiScanCheck {
+	c.timeout = durationMS(value)
+	return c
+}
+
+// Expect attaches expectations to the Wi-Fi scan check.
+func (c WiFiScanCheck) Expect(expectations ...Expectation) WiFiScanCheck {
+	c.checkBase = c.withExpectations(expectations)
+	return c
+}
+
+func (c WiFiScanCheck) build() (step, error) {
+	if c.fresh {
+		op, err := command.WifiFreshScanOperation(c.band, c.timeout)
+		return step{name: c.name, operation: op, expectations: c.expectations}, err
+	}
+	op, err := command.WifiScanOperation(c.band)
+	return step{name: c.name, operation: op, expectations: c.expectations}, err
+}
+
+// WiFiScanDetailCheck configures a targeted Wi-Fi scan-detail check.
+type WiFiScanDetailCheck struct {
+	checkBase
+	target string
+	band   string
+}
+
+// WiFiScanDetail starts a scan-detail check for one SSID or BSSID.
+func WiFiScanDetail(target string) WiFiScanDetailCheck {
+	return WiFiScanDetailCheck{checkBase: checkBase{name: "wifi scan detail " + target}, target: target}
+}
+
+// Band restricts scan-detail results to one Wi-Fi band token.
+func (c WiFiScanDetailCheck) Band(value string) WiFiScanDetailCheck {
+	c.band = value
+	return c
+}
+
+// Expect attaches expectations to the Wi-Fi scan-detail check.
+func (c WiFiScanDetailCheck) Expect(expectations ...Expectation) WiFiScanDetailCheck {
+	c.checkBase = c.withExpectations(expectations)
+	return c
+}
+
+func (c WiFiScanDetailCheck) build() (step, error) {
+	op, err := command.WifiScanDetailOperation(c.target, c.band)
+	return step{name: c.name, operation: op, expectations: c.expectations}, err
+}
+
+// WiFiCapabilitiesCheck configures a device Wi-Fi capabilities check.
+type WiFiCapabilitiesCheck struct {
+	checkBase
+}
+
+// WiFiCapabilities starts a Wi-Fi capabilities check builder.
+func WiFiCapabilities() WiFiCapabilitiesCheck {
+	return WiFiCapabilitiesCheck{checkBase: checkBase{name: "wifi capabilities"}}
+}
+
+// Expect attaches expectations to the Wi-Fi capabilities check.
+func (c WiFiCapabilitiesCheck) Expect(expectations ...Expectation) WiFiCapabilitiesCheck {
+	c.checkBase = c.withExpectations(expectations)
+	return c
+}
+
+func (c WiFiCapabilitiesCheck) build() (step, error) {
+	return step{name: c.name, operation: command.WifiCapabilitiesOperation(), expectations: c.expectations}, nil
+}
+
 // PingCheck configures an ICMP ping check.
 type PingCheck struct {
 	checkBase
