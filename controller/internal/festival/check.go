@@ -7,7 +7,7 @@ import (
 	"dropcheck/controller/internal/command"
 )
 
-// Check is one executable festival check.
+// Check is one executable Dropcheck Festival check.
 type Check interface {
 	Name() string
 	build() (step, error)
@@ -75,7 +75,7 @@ type IPStatusCheck struct {
 
 // IPStatus starts an IP status check builder.
 //
-// IPStatus is the primary festival check for layer-3 provisioning: DHCP,
+// IPStatus is the primary Dropcheck Festival check for layer-3 provisioning: DHCP,
 // RA/SLAAC-derived IPv6 state, assigned addresses, routes, DNS servers, MTU,
 // and Android network capabilities. Wi-Fi association properties belong in
 // WiFiStatus so a plan can distinguish link-layer failures from IP failures.
@@ -124,7 +124,7 @@ type WiFiStatusCheck struct {
 
 // WiFiStatus starts a Wi-Fi status check builder.
 //
-// WiFiStatus is the primary festival check for layer-2 Wi-Fi properties:
+// WiFiStatus is the primary Dropcheck Festival check for layer-2 Wi-Fi properties:
 // connected SSID/BSSID, RSSI, frequency, derived channel/band, Wi-Fi standard,
 // link speed, and MLO link metadata.
 func WiFiStatus() WiFiStatusCheck {

@@ -7,7 +7,7 @@ import (
 	"dropcheck/controller/internal/command"
 )
 
-// Network describes one Wi-Fi network visited by a festival plan.
+// Network describes one Wi-Fi network visited by a Dropcheck Festival plan.
 type Network struct {
 	name             string
 	ssid             string

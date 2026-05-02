@@ -1,4 +1,4 @@
-// Package trace provides festival expectations for traceroute checks.
+// Package trace provides Dropcheck Festival expectations for traceroute checks.
 package trace
 
 import (

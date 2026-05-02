@@ -1,4 +1,4 @@
-// Package dns provides festival expectations for DNS checks.
+// Package dns provides Dropcheck Festival expectations for DNS checks.
 package dns
 
 import (

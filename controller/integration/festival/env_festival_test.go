@@ -1,6 +1,6 @@
 //go:build festival
 
-package festivaltests
+package festival
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"dropcheck/controller/internal/festival"
+	festivaldsl "dropcheck/controller/internal/festival"
 	"dropcheck/controller/internal/festival/capabilities"
 	"dropcheck/controller/internal/festival/dns"
 	"dropcheck/controller/internal/festival/globalip"
@@ -21,91 +21,103 @@ import (
 	"dropcheck/controller/internal/festival/wifi"
 )
 
-func TestEnvFestival(t *testing.T) {
-	ssid := os.Getenv("FESTIVAL_WIFI_SSID")
-	pskEnv := os.Getenv("FESTIVAL_WIFI_PSK_ENV")
+const (
+	envSSID             = "DROPCHECK_FESTIVAL_WIFI_SSID"
+	envPSK              = "DROPCHECK_FESTIVAL_WIFI_PSK"
+	envPSKName          = "DROPCHECK_FESTIVAL_WIFI_PSK_ENV"
+	envBSSID            = "DROPCHECK_FESTIVAL_WIFI_BSSID"
+	envBand             = "DROPCHECK_FESTIVAL_WIFI_BAND"
+	envRequireValidated = "DROPCHECK_FESTIVAL_REQUIRE_VALIDATED"
+	envStandard         = "DROPCHECK_FESTIVAL_WIFI_STANDARD"
+	envChannel          = "DROPCHECK_FESTIVAL_WIFI_CHANNEL"
+	envChannelWidth     = "DROPCHECK_FESTIVAL_WIFI_CHANNEL_WIDTH"
+)
+
+func TestDropcheckFestivalEnv(t *testing.T) {
+	ssid := os.Getenv(envSSID)
+	pskEnv := os.Getenv(envPSKName)
 	if pskEnv == "" {
-		pskEnv = "FESTIVAL_WIFI_PSK"
+		pskEnv = envPSK
 	}
 	if ssid == "" || os.Getenv(pskEnv) == "" {
-		t.Skipf("set FESTIVAL_WIFI_SSID and %s to run the festival scenario", pskEnv)
+		t.Skipf("set %s and %s to run the Dropcheck Festival scenario", envSSID, pskEnv)
 	}
-	network := festival.WiFi("env-wifi").
+	network := festivaldsl.WiFi("env-wifi").
 		SSID(ssid).
 		PSKEnv(pskEnv).
-		BSSID(os.Getenv("FESTIVAL_WIFI_BSSID")).
-		Band(os.Getenv("FESTIVAL_WIFI_BAND")).
-		RequireValidated(os.Getenv("FESTIVAL_REQUIRE_VALIDATED") == "1")
+		BSSID(os.Getenv(envBSSID)).
+		Band(os.Getenv(envBand)).
+		RequireValidated(os.Getenv(envRequireValidated) == "1")
 
-	ipExpect := []festival.Expectation{
+	ipExpect := []festivaldsl.Expectation{
 		ip.AddressCount().Ge(1),
 		ip.MTU().Ge(1280),
 	}
-	wifiExpect := []festival.Expectation{
+	wifiExpect := []festivaldsl.Expectation{
 		wifi.Enabled().IsTrue(),
 		wifi.SSID().Eq(ssid),
 	}
 	ap := scan.APs().SSID(ssid)
-	capabilityExpect := []festival.Expectation{capabilities.ErrorCount().Eq(0)}
-	if bssid := os.Getenv("FESTIVAL_WIFI_BSSID"); bssid != "" {
+	capabilityExpect := []festivaldsl.Expectation{capabilities.ErrorCount().Eq(0)}
+	if bssid := os.Getenv(envBSSID); bssid != "" {
 		wifiExpect = append(wifiExpect, wifi.BSSID().Eq(bssid))
 		ap = ap.BSSID(bssid)
 	}
-	if standard := os.Getenv("FESTIVAL_WIFI_STANDARD"); standard != "" {
+	if standard := os.Getenv(envStandard); standard != "" {
 		wifiExpect = append(wifiExpect, wifi.Standard().Eq(wifi.StandardName(standard)))
 		ap = ap.Standard(standard)
 		capabilityExpect = append(capabilityExpect, capabilities.Standard(standard).Supported())
 	}
-	if channel := os.Getenv("FESTIVAL_WIFI_CHANNEL"); channel != "" {
+	if channel := os.Getenv(envChannel); channel != "" {
 		value, err := strconv.ParseInt(channel, 10, 32)
 		if err != nil {
-			t.Fatalf("FESTIVAL_WIFI_CHANNEL: %v", err)
+			t.Fatalf("%s: %v", envChannel, err)
 		}
 		wifiExpect = append(wifiExpect, wifi.Channel().Eq(int32(value)))
 		ap = ap.Channel(int32(value))
 	}
-	if width := os.Getenv("FESTIVAL_WIFI_CHANNEL_WIDTH"); width != "" {
+	if width := os.Getenv(envChannelWidth); width != "" {
 		ap = ap.ChannelWidth(width)
 	}
 
-	festival.Run(t, festival.Plan{
-		Networks: []festival.Network{network},
-		Checks: []festival.Check{
-			festival.IPStatus().
+	festivaldsl.Run(t, festivaldsl.Plan{
+		Networks: []festivaldsl.Network{network},
+		Checks: []festivaldsl.Check{
+			festivaldsl.IPStatus().
 				Expect(ipExpect...),
-			festival.WiFiStatus().
+			festivaldsl.WiFiStatus().
 				Expect(wifiExpect...),
-			festival.WiFiScan().
+			festivaldsl.WiFiScan().
 				Fresh().
-				Band(os.Getenv("FESTIVAL_WIFI_BAND")).
+				Band(os.Getenv(envBand)).
 				Expect(ap.Exists()),
-			festival.WiFiCapabilities().
+			festivaldsl.WiFiCapabilities().
 				Expect(capabilityExpect...),
-			festival.Ping("8.8.8.8").
+			festivaldsl.Ping("8.8.8.8").
 				Count(5).
 				Expect(
 					ping.Received().Ge(1),
 					ping.LossPercent().Le(100),
 					ping.AvgLatency().Gt(0).Le(2*time.Second),
 				),
-			festival.DNS("example.com").
+			festivaldsl.DNS("example.com").
 				A().
 				Expect(
 					dns.AnswerCount().Ge(1),
 					dns.Elapsed().Le(5*time.Second),
 				),
-			festival.GlobalIP().
+			festivaldsl.GlobalIP().
 				IPv4().
 				Expect(
 					globalip.AddressCount().Ge(1),
 				),
-			festival.PathMTU("8.8.8.8").
+			festivaldsl.PathMTU("8.8.8.8").
 				Min(1200).
 				Expect(
 					pmtu.Discovered().IsTrue(),
 					pmtu.PathMTU().Ge(1200),
 				),
-			festival.Traceroute("8.8.8.8").
+			festivaldsl.Traceroute("8.8.8.8").
 				MaxHops(30).
 				Expect(
 					trace.Elapsed().Le(30*time.Second),

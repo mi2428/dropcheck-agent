@@ -1,4 +1,4 @@
-// Package capabilities provides festival expectations for Wi-Fi device capabilities.
+// Package capabilities provides Dropcheck Festival expectations for Wi-Fi device capabilities.
 package capabilities
 
 import (

@@ -34,7 +34,8 @@ type Expectation interface {
 	Evaluate(Result) []Finding
 }
 
-// Assert evaluates a custom assertion against the generic festival result.
+// Assert evaluates a custom assertion against the generic Dropcheck Festival
+// result.
 //
 // Prefer check-specific packages such as festival/ping when they expose a typed
 // result view. Assert is useful for new check kinds or one-off conditions that

@@ -1,4 +1,4 @@
-// Package pmtu provides festival expectations for path-MTU checks.
+// Package pmtu provides Dropcheck Festival expectations for path-MTU checks.
 package pmtu
 
 import (
