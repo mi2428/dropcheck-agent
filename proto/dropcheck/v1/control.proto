@@ -117,6 +117,13 @@ message RunCommand {
     Wget wget = 30;
     PathMtu path_mtu = 31;
     GlobalIp global_ip = 32;
+    SetFestivalConfig set_festival_config = 33;
+    GetFestivalConfig get_festival_config = 34;
+    GetFestivalStatus get_festival_status = 35;
+    ListFestivalRuns list_festival_runs = 36;
+    GetFestivalRun get_festival_run = 37;
+    ClearFestivalRuns clear_festival_runs = 38;
+    RunFestivalOnce run_festival_once = 39;
   }
 }
 
@@ -271,6 +278,122 @@ message HttpCheck {
   NetworkSelector selector = 4;
 }
 
+message SetFestivalConfig {
+  FestivalConfig config = 1;
+}
+
+message GetFestivalConfig {}
+
+message GetFestivalStatus {}
+
+message ListFestivalRuns {
+  uint32 limit = 1;
+  bool include_synced = 2;
+}
+
+message GetFestivalRun {
+  string run_id = 1;
+  bool mark_synced = 2;
+}
+
+message ClearFestivalRuns {
+  bool synced_only = 1;
+  bool all = 2;
+}
+
+message RunFestivalOnce {
+  FestivalPlan plan = 1;
+  bool save = 2;
+}
+
+message FestivalConfig {
+  bool enabled = 1;
+  uint32 interval_ms = 2;
+  uint32 retention_ms = 3;
+  uint64 max_bytes = 4;
+  FestivalPlan plan = 5;
+}
+
+message FestivalPlan {
+  string name = 1;
+  repeated FestivalNetwork networks = 2;
+  repeated FestivalStep checks = 3;
+}
+
+message FestivalNetwork {
+  string name = 1;
+  ConnectWifi connect = 2;
+  WaitWifiConnected wait_connected = 3;
+  repeated FestivalStep checks = 4;
+  bool disconnect_after = 5;
+  bool forget_after = 6;
+  uint32 pause_ms = 7;
+}
+
+message FestivalStep {
+  string name = 1;
+  RunCommand command = 2;
+}
+
+message FestivalStatus {
+  bool enabled = 1;
+  bool running = 2;
+  string current_run_id = 3;
+  string last_run_id = 4;
+  int64 last_started_unix_ms = 5;
+  int64 last_finished_unix_ms = 6;
+  uint32 stored_runs = 7;
+  uint32 unsynced_runs = 8;
+  uint64 stored_bytes = 9;
+  string message = 10;
+}
+
+message FestivalRunSummary {
+  string run_id = 1;
+  string plan_name = 2;
+  string plan_hash = 3;
+  int64 started_unix_ms = 4;
+  int64 finished_unix_ms = 5;
+  string status = 6;
+  uint32 network_count = 7;
+  uint32 step_count = 8;
+  uint32 failed_step_count = 9;
+  bool synced = 10;
+  string message = 11;
+}
+
+message FestivalRuns {
+  repeated FestivalRunSummary runs = 1;
+  uint32 total_runs = 2;
+  uint32 unsynced_runs = 3;
+}
+
+message FestivalRunArchive {
+  FestivalRunSummary summary = 1;
+  DeviceInfo device = 2;
+  FestivalPlan plan = 3;
+  repeated FestivalMeasurementStep steps = 4;
+  repeated CommandLog logs = 5;
+}
+
+message FestivalMeasurementStep {
+  uint32 network_index = 1;
+  string network_name = 2;
+  uint32 step_index = 3;
+  string step_name = 4;
+  uint32 attempt = 5;
+  int64 started_unix_ms = 6;
+  int64 finished_unix_ms = 7;
+  RunCommand command = 8;
+  CommandResult result = 9;
+  string error = 10;
+}
+
+message FestivalClearResult {
+  uint32 removed_runs = 1;
+  uint64 removed_bytes = 2;
+}
+
 message NetworkSelector {
   reserved 1, 3;
   string ssid = 2;
@@ -330,6 +453,11 @@ message CommandResult {
     WgetResult wget = 26;
     PathMtuResult path_mtu = 27;
     GlobalIpResult global_ip = 28;
+    FestivalConfig festival_config = 29;
+    FestivalStatus festival_status = 30;
+    FestivalRuns festival_runs = 31;
+    FestivalRunArchive festival_run = 32;
+    FestivalClearResult festival_clear = 33;
   }
 }
 
