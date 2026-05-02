@@ -43,7 +43,11 @@ func syncFestivalRuns(ctx context.Context, state *shellState, opts festivalSyncO
 }
 
 func syncFestivalRunsForAgent(ctx context.Context, state *shellState, agent control.AgentInfo, outputDir string, limit uint32, markSynced bool, multiAgent bool) error {
-	listOp, err := command.FestivalListRunsOperation(command.FestivalListOptions{Limit: strconv.FormatUint(uint64(limit), 10)})
+	listLimit := ""
+	if limit > 0 {
+		listLimit = strconv.FormatUint(uint64(limit), 10)
+	}
+	listOp, err := command.FestivalListRunsOperation(command.FestivalListOptions{Limit: listLimit})
 	if err != nil {
 		return err
 	}
