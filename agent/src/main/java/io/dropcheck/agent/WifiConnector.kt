@@ -94,7 +94,9 @@ class WifiConnector(
         }
         logger.debug("wifi configuration prepared ssid=$ssid bssid=${config.BSSID.orEmpty().ifBlank { "*" }} security=${command.security} resolved_security=$resolvedSecurity band=${command.band} previous_network_id=${previousNetworkId ?: "none"} hidden=${config.hiddenSSID} mac_randomization_requested=${command.macRandomization} mac_randomization_applied=${macRandomization.applied}")
 
-        val add = wifi.addNetworkPrivileged(config)
+        val add = runCatching { wifi.addNetworkPrivileged(config) }.getOrElse {
+            return Setup(error = "wifi addNetworkPrivileged failed: ${errorSummary(it)}")
+        }
         logger.info("wifi addNetworkPrivileged status=${add.statusCode} network_id=${add.networkId}")
         if (add.statusCode != WifiManager.AddNetworkResult.STATUS_SUCCESS) {
             return Setup(error = "wifi addNetworkPrivileged failed: status=${add.statusCode}")
@@ -102,11 +104,16 @@ class WifiConnector(
         val networkId = add.networkId
         logger.debug("wifi network id selected network_id=$networkId ssid=$ssid")
 
-        if (!wifi.enableNetwork(networkId, true)) {
+        val enabled = runCatching { wifi.enableNetwork(networkId, true) }.getOrElse {
+            return Setup(error = "wifi enableNetwork failed: ${errorSummary(it)}")
+        }
+        if (!enabled) {
             return Setup(error = "wifi enableNetwork failed: networkId=$networkId")
         }
         logger.info("wifi enableNetwork ok network_id=$networkId disable_others=true")
-        val reconnect = wifi.reconnect()
+        val reconnect = runCatching { wifi.reconnect() }.getOrElse {
+            return Setup(error = "wifi reconnect failed: ${errorSummary(it)}")
+        }
         logger.info("wifi reconnect requested result=$reconnect")
         val afterInfo = wifi.connectionInfo
         logger.debug("wifi post-reconnect manager_enabled=${wifi.isWifiEnabled} connection_network_id=${afterInfo?.networkId} connection_ssid=${afterInfo?.ssid} connection_bssid=${afterInfo?.bssid} supplicant=${afterInfo?.supplicantState} rssi=${afterInfo?.rssi} freq=${afterInfo?.frequency}")
