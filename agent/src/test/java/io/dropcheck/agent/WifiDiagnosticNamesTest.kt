@@ -1,5 +1,6 @@
 package io.dropcheck.agent
 
+import android.net.wifi.ScanResult
 import io.dropcheck.agent.grpc.WifiBand
 import java.nio.ByteBuffer
 import org.junit.Assert.assertArrayEquals
@@ -23,6 +24,15 @@ class WifiDiagnosticNamesTest {
         assertEquals("5GHz", wifiBandName(WifiBand.WIFI_BAND_5_GHZ))
         assertEquals("6GHz", wifiBandName(WifiBand.WIFI_BAND_6_GHZ))
         assertEquals("60GHz", wifiBandName(WifiBand.WIFI_BAND_60_GHZ))
+    }
+
+    @Test
+    fun formatsChannelWidths() {
+        assertEquals("20MHz", channelWidthName(ScanResult.CHANNEL_WIDTH_20MHZ))
+        assertEquals("40MHz", channelWidthName(ScanResult.CHANNEL_WIDTH_40MHZ))
+        assertEquals("80MHz", channelWidthName(ScanResult.CHANNEL_WIDTH_80MHZ))
+        assertEquals("160MHz", channelWidthName(ScanResult.CHANNEL_WIDTH_160MHZ))
+        assertEquals("320MHz", channelWidthName(ScanResult.CHANNEL_WIDTH_320MHZ))
     }
 
     @Test

@@ -40,6 +40,7 @@ class WifiProtoMapper(
             .setTxLinkSpeedMbps(info.txLinkSpeedMbps)
             .setRxLinkSpeedMbps(info.rxLinkSpeedMbps)
             .setWifiStandard(wifiStandardName(info.wifiStandard))
+            .setChannelWidth(connectionChannelWidth(info))
             .setSecurityType(securityTypeName(info.currentSecurityType))
             .setIpv4Address(formatIpv4(info.ipAddress))
             .setMacAddress(info.macAddress.orEmpty())
@@ -71,6 +72,30 @@ class WifiProtoMapper(
         }
         builder.addAllInformationElements(info.informationElements.orEmpty().map { informationElement(it) })
         return builder.build()
+    }
+
+    /**
+     * Infers the connected channel width from the most recent scan cache.
+     *
+     * Android exposes channel width on ScanResult but not on WifiInfo. Matching
+     * by BSSID is the least ambiguous route; SSID+frequency is a fallback for
+     * devices that redact BSSID from WifiInfo but still return scan metadata.
+     */
+    @SuppressLint("MissingPermission")
+    private fun connectionChannelWidth(info: WifiInfo): String {
+        val results = runCatching { wifi.scanResults.orEmpty() }.getOrDefault(emptyList())
+        if (results.isEmpty()) return ""
+
+        val bssid = info.bssid.orEmpty()
+        val ssid = info.ssid?.trim('"').orEmpty()
+        val matched = results.firstOrNull { result ->
+            bssid.isNotEmpty() && result.BSSID.orEmpty().equals(bssid, ignoreCase = true)
+        } ?: results.firstOrNull { result ->
+            ssid.isNotEmpty() &&
+                result.SSID.orEmpty() == ssid &&
+                result.frequency == info.frequency
+        }
+        return matched?.let { channelWidthName(it.channelWidth) }.orEmpty()
     }
 
     /** Maps one cached scan result, including newer MLO and ranging fields when API level allows. */

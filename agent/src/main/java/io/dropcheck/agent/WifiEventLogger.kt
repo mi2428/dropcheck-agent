@@ -482,6 +482,7 @@ internal class WifiEventLogger(
             "${prefix}tx_link_speed_mbps" to (mapped?.txLinkSpeedMbps ?: info.txLinkSpeedMbps),
             "${prefix}rx_link_speed_mbps" to (mapped?.rxLinkSpeedMbps ?: info.rxLinkSpeedMbps),
             "${prefix}wifi_standard" to mapped?.wifiStandard.orEmpty(),
+            "${prefix}channel_width" to mapped?.channelWidth.orEmpty(),
             "${prefix}security_type" to mapped?.securityType.orEmpty(),
             "${prefix}ipv4_address" to mapped?.ipv4Address.orEmpty(),
             "${prefix}mac_address" to mapped?.macAddress.orEmpty(),
