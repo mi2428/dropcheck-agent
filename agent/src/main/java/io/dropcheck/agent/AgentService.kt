@@ -157,12 +157,28 @@ class AgentService : Service() {
                     "agent_id" to agentId,
                     "adb_serial" to adbSerial,
                 ))
-                afterGrpcSessionFinished()
+                afterGrpcSessionFinished(transport)
             }
         }
     }
 
-    private fun afterGrpcSessionFinished() {
+    /**
+     * Cleans up one completed session and decides whether direct reconnect should continue.
+     *
+     * ADB sessions intentionally supersede direct-TCP sessions. When that happens
+     * the canceled direct worker may still run its finally block after the ADB
+     * worker has been queued; the transport check prevents that stale worker
+     * from queueing another direct retry over the fresh ADB session.
+     */
+    private fun afterGrpcSessionFinished(transport: String) {
+        synchronized(sessionLock) {
+            if (currentMode != transport) {
+                TerminalLog.debug(this, "ignoring stale session cleanup transport=$transport current_mode=$currentMode")
+                return
+            }
+            current = null
+            currentMode = ""
+        }
         if (FestivalConfigStore(this).load().enabled) {
             festivalRunner.refresh()
             startForeground(NOTIFICATION_ID, notification("Dropcheck Festival standalone"))
@@ -189,11 +205,19 @@ class AgentService : Service() {
         val config = ControllerLinkStore(this).load()
         if (!config.enabled) return
         synchronized(sessionLock) {
+            if (current?.isDone == false) return
             currentMode = "direct-tcp"
             current = executor.submit { runControllerLinkLoop(reason) }
         }
     }
 
+    /**
+     * Repeatedly opens direct-TCP gRPC sessions using the persisted endpoint.
+     *
+     * The loop does not evaluate Dropcheck Festival measurements or push data by
+     * itself. It only restores the controller command channel so the PC can pull
+     * stored structured results with the normal request/show commands.
+     */
     private fun runControllerLinkLoop(reason: String) {
         TerminalLog.infoEvent(this, "controller.link.loop.start", listOf("reason" to reason))
         var backoffMs = 0L
