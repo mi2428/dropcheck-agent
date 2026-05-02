@@ -21,6 +21,30 @@ type AssignedAddress struct {
 	Prefix netip.Prefix
 	// HasPrefix reports whether Raw included CIDR prefix length.
 	HasPrefix bool
+	// Family is "ipv4" or "ipv6".
+	Family string
+	// Scope is a controller-derived scope such as "global" or "link-local".
+	Scope string
+}
+
+// RouteEntry is a parsed Android route string.
+type RouteEntry struct {
+	// Raw is the original route string from IpStatus.
+	Raw string
+	// Destination is the route destination prefix.
+	Destination netip.Prefix
+	// HasDestination reports whether Destination was parsed.
+	HasDestination bool
+	// Gateway is the route gateway address when Android reported one.
+	Gateway netip.Addr
+	// HasGateway reports whether Gateway was parsed.
+	HasGateway bool
+	// Interface is the route interface name when Android reported one.
+	Interface string
+	// Family is "ipv4" or "ipv6" when Destination or Gateway identifies it.
+	Family string
+	// Default reports whether Destination is 0.0.0.0/0 or ::/0.
+	Default bool
 }
 
 // Result is the IP-status-specific view passed to custom assertions.
@@ -47,10 +71,14 @@ type Result struct {
 	Addresses []AssignedAddress
 	// DNSServers are the raw DNS server strings reported by the agent.
 	DNSServers []string
+	// DNSAddresses are parsed DNS server addresses.
+	DNSAddresses []netip.Addr
 	// DHCPServer is the DHCP server address when Android reports one.
 	DHCPServer string
 	// Routes are the raw route strings reported by the agent.
 	Routes []string
+	// RouteEntries are parsed route entries.
+	RouteEntries []RouteEntry
 	// Capabilities are Android network capabilities.
 	Capabilities []string
 	// NAT64Prefix is Android's NAT64 prefix when present.
@@ -111,6 +139,28 @@ func Internet() festival.BoolMetric {
 	})
 }
 
+// PrivateDNSActive matches Android's Private DNS active state.
+func PrivateDNSActive() festival.BoolMetric {
+	return festival.Bool("ip.private_dns_active", func(result festival.Result) (bool, bool, string) {
+		ip, ok, reason := from(result)
+		return ip.PrivateDNSActive, ok, reason
+	})
+}
+
+// PrivateDNSServerName matches Android's Private DNS server name.
+func PrivateDNSServerName() festival.OrderedMetric[string] {
+	return festival.Ordered[string]("ip.private_dns_server_name", func(result festival.Result) (string, bool, string) {
+		ip, ok, reason := from(result)
+		if !ok {
+			return "", false, reason
+		}
+		if ip.PrivateDNSServerName == "" {
+			return "", false, "private dns server name is empty"
+		}
+		return ip.PrivateDNSServerName, true, ""
+	})
+}
+
 // DHCPServer matches the DHCP server address string exactly.
 func DHCPServer() festival.OrderedMetric[string] {
 	return festival.Ordered[string]("ip.dhcp_server", func(result festival.Result) (string, bool, string) {
@@ -139,6 +189,30 @@ func NAT64Prefix() festival.OrderedMetric[string] {
 	})
 }
 
+// DNSServerCount matches the number of DNS server addresses.
+func DNSServerCount() festival.OrderedMetric[int] {
+	return festival.Ordered[int]("ip.dns_server_count", func(result festival.Result) (int, bool, string) {
+		ip, ok, reason := from(result)
+		return len(ip.DNSAddresses), ok, reason
+	})
+}
+
+// IPv4DNSServerCount matches the number of IPv4 DNS server addresses.
+func IPv4DNSServerCount() festival.OrderedMetric[int] {
+	return festival.Ordered[int]("ip.ipv4_dns_server_count", func(result festival.Result) (int, bool, string) {
+		ip, ok, reason := from(result)
+		return countAddrs(ip.DNSAddresses, func(addr netip.Addr) bool { return addr.Is4() }), ok, reason
+	})
+}
+
+// IPv6DNSServerCount matches the number of IPv6 DNS server addresses.
+func IPv6DNSServerCount() festival.OrderedMetric[int] {
+	return festival.Ordered[int]("ip.ipv6_dns_server_count", func(result festival.Result) (int, bool, string) {
+		ip, ok, reason := from(result)
+		return countAddrs(ip.DNSAddresses, func(addr netip.Addr) bool { return addr.Is6() }), ok, reason
+	})
+}
+
 // DefaultRoute matches whether any default route is present.
 func DefaultRoute() festival.BoolMetric {
 	return festival.Bool("ip.default_route", func(result festival.Result) (bool, bool, string) {
@@ -163,6 +237,26 @@ func IPv6DefaultRoute() festival.BoolMetric {
 	})
 }
 
+// ParsedRoute returns structured matchers for any parsed route.
+func ParsedRoute() RouteSelector {
+	return RouteSelector{metric: "ip.route_entry", family: familyAny}
+}
+
+// IPv4ParsedRoute returns structured matchers for parsed IPv4 routes.
+func IPv4ParsedRoute() RouteSelector {
+	return RouteSelector{metric: "ip.ipv4_route_entry", family: familyIPv4}
+}
+
+// IPv6ParsedRoute returns structured matchers for parsed IPv6 routes.
+func IPv6ParsedRoute() RouteSelector {
+	return RouteSelector{metric: "ip.ipv6_route_entry", family: familyIPv6}
+}
+
+// DefaultParsedRoute returns structured matchers for default routes.
+func DefaultParsedRoute() RouteSelector {
+	return RouteSelector{metric: "ip.default_route_entry", family: familyAny, defaultOnly: true}
+}
+
 // Address returns matchers for any assigned address.
 func Address() AddressSelector {
 	return AddressSelector{metric: "ip.address", family: familyAny}
@@ -176,6 +270,21 @@ func IPv4Address() AddressSelector {
 // IPv6Address returns matchers for assigned IPv6 addresses.
 func IPv6Address() AddressSelector {
 	return AddressSelector{metric: "ip.ipv6_address", family: familyIPv6}
+}
+
+// DNSServerAddress returns matchers for parsed DNS server addresses.
+func DNSServerAddress() DNSAddressSelector {
+	return DNSAddressSelector{metric: "ip.dns_server_address", family: familyAny}
+}
+
+// IPv4DNSServerAddress returns matchers for parsed IPv4 DNS server addresses.
+func IPv4DNSServerAddress() DNSAddressSelector {
+	return DNSAddressSelector{metric: "ip.ipv4_dns_server_address", family: familyIPv4}
+}
+
+// IPv6DNSServerAddress returns matchers for parsed IPv6 DNS server addresses.
+func IPv6DNSServerAddress() DNSAddressSelector {
+	return DNSAddressSelector{metric: "ip.ipv6_dns_server_address", family: familyIPv6}
 }
 
 // Prefix returns matchers for any assigned address prefix.
@@ -259,9 +368,35 @@ func (s AddressSelector) InCIDR(cidr string) festival.Expectation {
 	return addressInCIDR{selector: s, cidr: cidr}
 }
 
+// Scope requires at least one selected address to have scope.
+func (s AddressSelector) Scope(scope string) festival.Expectation {
+	return addressScope{selector: s, scope: normalizeScope(scope)}
+}
+
 type addressInCIDR struct {
 	selector AddressSelector
 	cidr     string
+}
+
+type addressScope struct {
+	selector AddressSelector
+	scope    string
+}
+
+func (e addressScope) Evaluate(result festival.Result) []festival.Finding {
+	ip, ok, reason := from(result)
+	if !ok {
+		return []festival.Finding{festival.Fail(e.selector.metric, "<missing>", "scope "+e.scope, reason)}
+	}
+	for _, address := range ip.Addresses {
+		if !e.selector.accepts(address.Addr) {
+			continue
+		}
+		if address.Scope == e.scope {
+			return []festival.Finding{festival.Pass(e.selector.metric, address.Raw, "scope "+e.scope)}
+		}
+	}
+	return []festival.Finding{festival.Fail(e.selector.metric, strings.Join(ip.AddressStrings, ","), "scope "+e.scope, "no selected address had scope")}
 }
 
 func (e addressInCIDR) Evaluate(result festival.Result) []festival.Finding {
@@ -285,6 +420,53 @@ func (e addressInCIDR) Evaluate(result festival.Result) []festival.Finding {
 }
 
 func (s AddressSelector) accepts(addr netip.Addr) bool {
+	switch s.family {
+	case familyIPv4:
+		return addr.Is4()
+	case familyIPv6:
+		return addr.Is6()
+	default:
+		return true
+	}
+}
+
+// DNSAddressSelector matches parsed DNS server addresses.
+type DNSAddressSelector struct {
+	metric string
+	family addressFamily
+}
+
+// InCIDR requires at least one selected DNS server address to be inside cidr.
+func (s DNSAddressSelector) InCIDR(cidr string) festival.Expectation {
+	return dnsAddressInCIDR{selector: s, cidr: cidr}
+}
+
+type dnsAddressInCIDR struct {
+	selector DNSAddressSelector
+	cidr     string
+}
+
+func (e dnsAddressInCIDR) Evaluate(result festival.Result) []festival.Finding {
+	ip, ok, reason := from(result)
+	if !ok {
+		return []festival.Finding{festival.Fail(e.selector.metric, "<missing>", "in "+e.cidr, reason)}
+	}
+	prefix, err := netip.ParsePrefix(e.cidr)
+	if err != nil {
+		return []festival.Finding{festival.Fail(e.selector.metric, "<invalid cidr>", "valid CIDR", err.Error())}
+	}
+	for _, address := range ip.DNSAddresses {
+		if !e.selector.accepts(address) {
+			continue
+		}
+		if prefix.Contains(address) {
+			return []festival.Finding{festival.Pass(e.selector.metric, address.String(), "in "+e.cidr)}
+		}
+	}
+	return []festival.Finding{festival.Fail(e.selector.metric, strings.Join(ip.DNSServers, ","), "in "+e.cidr, "no selected DNS server was inside CIDR")}
+}
+
+func (s DNSAddressSelector) accepts(addr netip.Addr) bool {
 	switch s.family {
 	case familyIPv4:
 		return addr.Is4()
@@ -337,6 +519,116 @@ func (s PrefixSelector) accepts(addr netip.Addr) bool {
 		return addr.Is4()
 	case familyIPv6:
 		return addr.Is6()
+	default:
+		return true
+	}
+}
+
+// RouteSelector matches parsed Android route entries.
+type RouteSelector struct {
+	metric      string
+	family      addressFamily
+	destination *netip.Prefix
+	gateway     *netip.Addr
+	iface       string
+	defaultOnly bool
+}
+
+// Destination restricts matches to one destination prefix.
+func (s RouteSelector) Destination(cidr string) RouteSelector {
+	if prefix, err := netip.ParsePrefix(cidr); err == nil {
+		s.destination = &prefix
+	}
+	return s
+}
+
+// Gateway restricts matches to one gateway address.
+func (s RouteSelector) Gateway(value string) RouteSelector {
+	if addr, err := netip.ParseAddr(value); err == nil {
+		s.gateway = &addr
+	}
+	return s
+}
+
+// Interface restricts matches to one network interface.
+func (s RouteSelector) Interface(value string) RouteSelector {
+	s.iface = value
+	return s
+}
+
+// Default restricts matches to default routes.
+func (s RouteSelector) Default() RouteSelector {
+	s.defaultOnly = true
+	return s
+}
+
+// Exists requires at least one parsed route to match the selector.
+func (s RouteSelector) Exists() festival.Expectation {
+	return routeExists{selector: s}
+}
+
+// Count matches the number of parsed routes selected by the selector.
+func (s RouteSelector) Count() festival.OrderedMetric[int] {
+	return festival.Ordered[int](s.metric+"_count", func(result festival.Result) (int, bool, string) {
+		ip, ok, reason := from(result)
+		if !ok {
+			return 0, false, reason
+		}
+		return len(s.matches(ip.RouteEntries)), true, ""
+	})
+}
+
+type routeExists struct {
+	selector RouteSelector
+}
+
+func (e routeExists) Evaluate(result festival.Result) []festival.Finding {
+	ip, ok, reason := from(result)
+	if !ok {
+		return []festival.Finding{festival.Fail(e.selector.metric, "<missing>", "exists", reason)}
+	}
+	matches := e.selector.matches(ip.RouteEntries)
+	if len(matches) > 0 {
+		return []festival.Finding{festival.Pass(e.selector.metric, matches[0].Raw, "exists")}
+	}
+	return []festival.Finding{festival.Fail(e.selector.metric, strings.Join(ip.Routes, ","), "exists", "no parsed route matched selector")}
+}
+
+func (s RouteSelector) matches(routes []RouteEntry) []RouteEntry {
+	matches := make([]RouteEntry, 0, len(routes))
+	for _, route := range routes {
+		if s.matchesOne(route) {
+			matches = append(matches, route)
+		}
+	}
+	return matches
+}
+
+func (s RouteSelector) matchesOne(route RouteEntry) bool {
+	if !s.acceptsFamily(route.Family) {
+		return false
+	}
+	if s.defaultOnly && !route.Default {
+		return false
+	}
+	if s.destination != nil && (!route.HasDestination || route.Destination != *s.destination) {
+		return false
+	}
+	if s.gateway != nil && (!route.HasGateway || route.Gateway != *s.gateway) {
+		return false
+	}
+	if s.iface != "" && route.Interface != s.iface {
+		return false
+	}
+	return true
+}
+
+func (s RouteSelector) acceptsFamily(family string) bool {
+	switch s.family {
+	case familyIPv4:
+		return family == "ipv4"
+	case familyIPv6:
+		return family == "ipv6"
 	default:
 		return true
 	}
@@ -443,8 +735,10 @@ func from(result festival.Result) (Result, bool, string) {
 		AddressStrings:       status.GetAddresses(),
 		Addresses:            parseAddresses(status.GetAddresses()),
 		DNSServers:           status.GetDnsServers(),
+		DNSAddresses:         parseDNSAddresses(status.GetDnsServers()),
 		DHCPServer:           status.GetDhcpServer(),
 		Routes:               status.GetRoutes(),
+		RouteEntries:         parseRoutes(status.GetRoutes()),
 		Capabilities:         status.GetCapabilities(),
 		NAT64Prefix:          status.GetNat64Prefix(),
 		PrivateDNSActive:     status.GetPrivateDnsActive(),
@@ -457,14 +751,74 @@ func parseAddresses(values []string) []AssignedAddress {
 	addresses := make([]AssignedAddress, 0, len(values))
 	for _, value := range values {
 		if prefix, err := netip.ParsePrefix(value); err == nil {
-			addresses = append(addresses, AssignedAddress{Raw: value, Addr: prefix.Addr(), Prefix: prefix, HasPrefix: true})
+			addr := prefix.Addr()
+			addresses = append(addresses, AssignedAddress{Raw: value, Addr: addr, Prefix: prefix, HasPrefix: true, Family: familyName(addr), Scope: addressScopeName(addr)})
 			continue
 		}
 		if addr, err := netip.ParseAddr(value); err == nil {
-			addresses = append(addresses, AssignedAddress{Raw: value, Addr: addr})
+			addresses = append(addresses, AssignedAddress{Raw: value, Addr: addr, Family: familyName(addr), Scope: addressScopeName(addr)})
 		}
 	}
 	return addresses
+}
+
+func parseDNSAddresses(values []string) []netip.Addr {
+	addresses := make([]netip.Addr, 0, len(values))
+	for _, value := range values {
+		if addr, err := netip.ParseAddr(value); err == nil {
+			addresses = append(addresses, addr)
+		}
+	}
+	return addresses
+}
+
+func parseRoutes(values []string) []RouteEntry {
+	routes := make([]RouteEntry, 0, len(values))
+	for _, value := range values {
+		routes = append(routes, parseRoute(value))
+	}
+	return routes
+}
+
+func parseRoute(value string) RouteEntry {
+	route := RouteEntry{Raw: value}
+	fields := strings.Fields(value)
+	if len(fields) == 0 {
+		return route
+	}
+	if destination, err := netip.ParsePrefix(fields[0]); err == nil {
+		route.Destination = destination
+		route.HasDestination = true
+		route.Family = familyName(destination.Addr())
+		route.Default = isDefaultPrefix(destination)
+	}
+	for i, field := range fields {
+		switch strings.ToLower(field) {
+		case "->", "via":
+			if i+1 < len(fields) {
+				if gateway, err := netip.ParseAddr(strings.Trim(fields[i+1], ",")); err == nil {
+					route.Gateway = gateway
+					route.HasGateway = true
+					if route.Family == "" {
+						route.Family = familyName(gateway)
+					}
+				}
+			}
+		case "dev":
+			if i+1 < len(fields) {
+				route.Interface = strings.Trim(fields[i+1], ",")
+			}
+		}
+	}
+	if route.Interface == "" && len(fields) > 0 {
+		last := strings.Trim(fields[len(fields)-1], ",")
+		if last != "" && last != "unreachable" {
+			if _, err := netip.ParseAddr(last); err != nil && !strings.Contains(last, "/") && last != "->" {
+				route.Interface = last
+			}
+		}
+	}
+	return route
 }
 
 func countAddresses(addresses []AssignedAddress, keep func(netip.Addr) bool) int {
@@ -477,28 +831,85 @@ func countAddresses(addresses []AssignedAddress, keep func(netip.Addr) bool) int
 	return count
 }
 
+func countAddrs(addresses []netip.Addr, keep func(netip.Addr) bool) int {
+	count := 0
+	for _, address := range addresses {
+		if keep(address) {
+			count++
+		}
+	}
+	return count
+}
+
 func prefixContainsPrefix(container netip.Prefix, contained netip.Prefix) bool {
 	return container.Contains(contained.Addr()) &&
 		container.Bits() <= contained.Bits()
 }
 
 func hasDefaultRoute(routes []string, family addressFamily) bool {
-	for _, route := range routes {
-		normalized := strings.ToLower(route)
+	for _, route := range parseRoutes(routes) {
+		if !route.Default {
+			continue
+		}
 		switch family {
 		case familyIPv4:
-			if strings.Contains(normalized, "0.0.0.0/0") {
+			if route.Family == "ipv4" {
 				return true
 			}
 		case familyIPv6:
-			if strings.Contains(normalized, "::/0") {
+			if route.Family == "ipv6" {
 				return true
 			}
 		default:
-			if strings.Contains(normalized, "0.0.0.0/0") || strings.Contains(normalized, "::/0") {
-				return true
-			}
+			return true
 		}
 	}
 	return false
+}
+
+func familyName(addr netip.Addr) string {
+	switch {
+	case addr.Is4():
+		return "ipv4"
+	case addr.Is6():
+		return "ipv6"
+	default:
+		return ""
+	}
+}
+
+func addressScopeName(addr netip.Addr) string {
+	switch {
+	case !addr.IsValid():
+		return "invalid"
+	case addr.IsUnspecified():
+		return "unspecified"
+	case addr.IsLoopback():
+		return "loopback"
+	case addr.IsLinkLocalUnicast():
+		return "link-local"
+	case addr.IsMulticast():
+		return "multicast"
+	case addr.IsPrivate():
+		return "private"
+	case addr.IsGlobalUnicast():
+		return "global"
+	default:
+		return "unknown"
+	}
+}
+
+func normalizeScope(scope string) string {
+	scope = strings.ToLower(strings.TrimSpace(scope))
+	scope = strings.ReplaceAll(scope, "_", "-")
+	switch scope {
+	case "linklocal":
+		return "link-local"
+	default:
+		return scope
+	}
+}
+
+func isDefaultPrefix(prefix netip.Prefix) bool {
+	return prefix.Bits() == 0 && (prefix.Addr() == netip.IPv4Unspecified() || prefix.Addr() == netip.IPv6Unspecified())
 }
