@@ -417,10 +417,11 @@ class CommandExecutor(
         val operation = wifi.reconnect()
         val assertion = waitForExpectation(WifiExpectation(requireIp = true), timeoutMs)
         val status = if (assertion.hasStatus()) assertion.status else networks.wifiStatus()
+        val reachedConnectedState = assertion.passed
         val result = wifiOperationResult(
             operation.copy(
-                ok = operation.ok && assertion.passed,
-                message = if (operation.ok && assertion.passed) "reconnected" else "reconnect did not reach connected state",
+                ok = reachedConnectedState,
+                message = if (reachedConnectedState) "reconnected" else "reconnect did not reach connected state",
                 fields = operation.fields + assertion.checksList.map { "check_${it.key}" to "${it.passed}:${it.actual}" },
                 errors = operation.errors + assertion.errorsList,
             ),
