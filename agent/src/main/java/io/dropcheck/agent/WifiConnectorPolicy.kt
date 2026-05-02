@@ -106,6 +106,15 @@ internal object WifiConnectorPolicy {
         return expectedSecurityTypes.isEmpty() || current.securityType in expectedSecurityTypes
     }
 
+    /** Reports whether a forget target names the currently connected network. */
+    fun currentConnectionMatchesForgetTarget(target: String, current: CurrentConnectionRef?): Boolean {
+        if (target.isBlank() || current == null || current.networkId < 0) return false
+        val numeric = target.toIntOrNull()
+        return numeric == current.networkId ||
+            current.ssid == target ||
+            current.bssid.equals(target, ignoreCase = true)
+    }
+
     /**
      * Selects configured network IDs by exact SSID match or numeric network ID.
      *

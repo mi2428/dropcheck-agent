@@ -5,6 +5,7 @@ package io.dropcheck.agent
 import android.annotation.SuppressLint
 import android.content.Context
 import android.net.wifi.WifiConfiguration
+import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Build
 import io.dropcheck.agent.grpc.ConnectWifi
@@ -63,15 +64,7 @@ class WifiConnector(
         val beforeInfo = wifi.connectionInfo
         logger.debug("wifi manager state enabled=${wifi.isWifiEnabled} state=${wifi.wifiState} connection_network_id=${beforeInfo?.networkId} connection_ssid=${beforeInfo?.ssid} connection_bssid=${beforeInfo?.bssid} rssi=${beforeInfo?.rssi} freq=${beforeInfo?.frequency}")
         val previousNetworkId = beforeInfo?.networkId?.takeIf { it >= 0 }
-        val current = beforeInfo?.let {
-            WifiConnectorPolicy.CurrentConnectionRef(
-                networkId = it.networkId,
-                ssid = it.ssid?.trim('"').orEmpty(),
-                bssid = it.bssid.orEmpty(),
-                frequencyMhz = it.frequency,
-                securityType = securityTypeName(it.currentSecurityType),
-            )
-        }
+        val current = currentConnectionRef(beforeInfo)
         if (WifiConnectorPolicy.currentConnectionSatisfiesConnect(
                 current = current,
                 ssid = ssid,
@@ -207,6 +200,7 @@ class WifiConnector(
             logger.warn("wifi configuredNetworks failed error=$it")
             emptyList()
         }
+        val current = currentConnectionRef(wifi.connectionInfo)
         val refs = configs.map { config ->
             WifiConnectorPolicy.ConfiguredNetworkRef(
                 networkId = config.networkId,
@@ -216,6 +210,30 @@ class WifiConnector(
         val networkIds = WifiConnectorPolicy.forgetNetworkIds(target, refs)
         logger.info("wifi forget requested target=$target configured_network_count=${configs.size} network_ids=${networkIds.joinToString(",")}")
         if (networkIds.isEmpty()) {
+            if (WifiConnectorPolicy.currentConnectionMatchesForgetTarget(target, current)) {
+                val fields = mutableListOf<Pair<String, String>>(
+                    "target" to target,
+                    "configured_network_count" to configs.size.toString(),
+                    "current_network_id" to current!!.networkId.toString(),
+                    "current_ssid" to current.ssid,
+                    "current_bssid" to current.bssid,
+                )
+                val errors = mutableListOf<String>()
+                runCatching { wifi.disableNetwork(current.networkId) }
+                    .onSuccess { fields += "disable_${current.networkId}" to it.toString() }
+                    .onFailure { errors += "disable_${current.networkId}=${errorSummary(it)}" }
+                val removed = runCatching { wifi.removeNetwork(current.networkId) }
+                    .onSuccess { fields += "remove_${current.networkId}" to it.toString() }
+                    .onFailure { errors += "remove_${current.networkId}=${errorSummary(it)}" }
+                    .getOrDefault(false)
+                return Operation(
+                    operation = "forget",
+                    ok = errors.isEmpty(),
+                    message = if (removed) "wifi network removed" else "wifi forget not permitted by framework",
+                    fields = fields,
+                    errors = errors,
+                )
+            }
             return Operation(
                 operation = "forget",
                 ok = false,
@@ -303,6 +321,18 @@ class WifiConnector(
             }
         } else {
             "unavailable"
+        }
+    }
+
+    private fun currentConnectionRef(info: WifiInfo?): WifiConnectorPolicy.CurrentConnectionRef? {
+        return info?.let {
+            WifiConnectorPolicy.CurrentConnectionRef(
+                networkId = it.networkId,
+                ssid = it.ssid?.trim('"').orEmpty(),
+                bssid = it.bssid.orEmpty(),
+                frequencyMhz = it.frequency,
+                securityType = securityTypeName(it.currentSecurityType),
+            )
         }
     }
 
