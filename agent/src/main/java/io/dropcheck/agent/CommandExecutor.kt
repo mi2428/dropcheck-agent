@@ -5,6 +5,7 @@ import io.dropcheck.agent.grpc.AssertWifi
 import io.dropcheck.agent.grpc.CommandResult
 import io.dropcheck.agent.grpc.ConnectWifi
 import io.dropcheck.agent.grpc.ConnectWifiResult
+import io.dropcheck.agent.grpc.ControllerLinkStatus
 import io.dropcheck.agent.grpc.CycleWifi
 import io.dropcheck.agent.grpc.DiagnosticField
 import io.dropcheck.agent.grpc.ForgetWifi
@@ -21,6 +22,7 @@ import io.dropcheck.agent.grpc.Ping
 import io.dropcheck.agent.grpc.ReconnectWifi
 import io.dropcheck.agent.grpc.RunCommand
 import io.dropcheck.agent.grpc.RunFestivalOnce
+import io.dropcheck.agent.grpc.SetControllerLinkConfig
 import io.dropcheck.agent.grpc.SetFestivalConfig
 import io.dropcheck.agent.grpc.WaitWifiConnected
 import io.dropcheck.agent.grpc.WatchWifi
@@ -96,6 +98,10 @@ class CommandExecutor(
             RunCommand.CommandCase.GET_FESTIVAL_RUN -> getFestivalRun(command.getFestivalRun)
             RunCommand.CommandCase.CLEAR_FESTIVAL_RUNS -> clearFestivalRuns(command.clearFestivalRuns)
             RunCommand.CommandCase.RUN_FESTIVAL_ONCE -> runFestivalOnce(command.runFestivalOnce)
+            RunCommand.CommandCase.SET_CONTROLLER_LINK_CONFIG -> setControllerLinkConfig(command.setControllerLinkConfig)
+            RunCommand.CommandCase.GET_CONTROLLER_LINK_CONFIG -> getControllerLinkConfig()
+            RunCommand.CommandCase.GET_CONTROLLER_LINK_STATUS -> getControllerLinkStatus()
+            RunCommand.CommandCase.RECONNECT_CONTROLLER -> reconnectController()
             RunCommand.CommandCase.COMMAND_NOT_SET -> failed("command is not set")
         }
         val elapsedMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis()
@@ -189,17 +195,65 @@ class CommandExecutor(
         if (!command.hasPlan()) {
             return failed("Dropcheck Festival run once requires a plan")
         }
-		val runner = FestivalStandaloneRunner(context)
-		val archive = try {
-			runner.runPlan(command.plan, save = command.save)
-		} finally {
-			runner.shutdown()
-		}
+        val runner = FestivalStandaloneRunner(context)
+        val archive = try {
+            runner.runPlan(command.plan, save = command.save)
+        } finally {
+            runner.shutdown()
+        }
         return CommandResult.newBuilder()
             .setStatus(if (archive.summary.failedStepCount == 0) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
             .setMessage(archive.summary.message)
             .setFestivalRun(archive)
             .build()
+    }
+
+    private fun setControllerLinkConfig(command: SetControllerLinkConfig): CommandResult {
+        val config = command.config
+        ControllerLinkStore(context).save(config)
+        if (config.enabled) {
+            AgentService.requestControllerLinkRefresh(context)
+        } else {
+            ControllerLinkRuntimeState.markDisconnected("controller endpoint disabled")
+        }
+        logger.info("controller endpoint config updated enabled=${config.enabled} endpoint=${config.endpoint().ifBlank { "-" }} token_present=${config.token.isNotBlank()}")
+        return CommandResult.newBuilder()
+            .setStatus(CommandResult.Status.STATUS_OK)
+            .setMessage(if (config.enabled) "controller endpoint enabled" else "controller endpoint disabled")
+            .setControllerLinkConfig(redactedControllerLinkConfig(config))
+            .build()
+    }
+
+    private fun getControllerLinkConfig(): CommandResult {
+        val config = ControllerLinkStore(context).load()
+        return CommandResult.newBuilder()
+            .setStatus(CommandResult.Status.STATUS_OK)
+            .setControllerLinkConfig(redactedControllerLinkConfig(config))
+            .build()
+    }
+
+    private fun getControllerLinkStatus(): CommandResult {
+        val config = ControllerLinkStore(context).load()
+        val status: ControllerLinkStatus = ControllerLinkRuntimeState.status(config)
+        return CommandResult.newBuilder()
+            .setStatus(CommandResult.Status.STATUS_OK)
+            .setControllerLinkStatus(status)
+            .build()
+    }
+
+    private fun reconnectController(): CommandResult {
+        val config = ControllerLinkStore(context).load()
+        val ok = config.enabled && config.host.isNotBlank() && config.port > 0 && config.token.isNotBlank()
+        return CommandResult.newBuilder()
+            .setStatus(if (ok) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
+            .setMessage(if (ok) "controller reconnect scheduled" else "controller endpoint is disabled or incomplete")
+            .setControllerLinkStatus(ControllerLinkRuntimeState.status(config))
+            .build()
+    }
+
+    private fun redactedControllerLinkConfig(config: io.dropcheck.agent.grpc.ControllerLinkConfig): io.dropcheck.agent.grpc.ControllerLinkConfig {
+        if (config.token.isBlank()) return config
+        return config.toBuilder().setToken("<redacted>").build()
     }
 
     private fun wifiStatus(): CommandResult {

@@ -16,6 +16,9 @@ func startControlSession(ctx context.Context, opts shellOptions) (*session.Sessi
 	if adbPath == "" {
 		adbPath = "adb"
 	}
+	if opts.NoADB {
+		return session.Start(ctx, opts, nil)
+	}
 	targets, err := discoverADBTargets(ctx, adb.Client{Path: adbPath}, opts.Serial)
 	if err != nil {
 		return nil, err

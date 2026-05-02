@@ -107,7 +107,7 @@ func ExtractOptions(args []string) (Options, []string, error) {
 // ExtractOptions or the app package.
 func Parse(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: dropcheck [--adb adb] [--serial SERIAL] [--package PACKAGE] shell | <command>")
+		return Command{}, fmt.Errorf("usage: dropcheck [--adb adb] [--serial SERIAL] [--package PACKAGE] [--listen ADDR] [--no-adb] shell | <command>")
 	}
 	switch args[0] {
 	case "show":
@@ -162,7 +162,7 @@ func Parse(args []string) (Command, error) {
 
 func parseShow(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: show <devices|target|wifi|festival>")
+		return Command{}, fmt.Errorf("usage: show <devices|target|wifi|festival|controller>")
 	}
 	switch args[0] {
 	case "devices":
@@ -181,8 +181,25 @@ func parseShow(args []string) (Command, error) {
 	case "festival":
 		op, err := parseFestivalShow(args[1:])
 		return Command{Kind: AgentCommand, Operation: op}, err
+	case "controller":
+		op, err := parseControllerShow(args[1:])
+		return Command{Kind: AgentCommand, Operation: op}, err
 	default:
 		return Command{}, fmt.Errorf("unknown show command %q", args[0])
+	}
+}
+
+func parseControllerShow(args []string) (command.Operation, error) {
+	if len(args) != 1 {
+		return command.Operation{}, fmt.Errorf("usage: show controller <endpoint|link>")
+	}
+	switch args[0] {
+	case "endpoint":
+		return command.ControllerLinkConfigOperation(), nil
+	case "link":
+		return command.ControllerLinkStatusOperation(), nil
+	default:
+		return command.Operation{}, fmt.Errorf("unknown show controller command %q", args[0])
 	}
 }
 
@@ -211,23 +228,68 @@ func parseLinuxShowWifi(args []string) (command.Operation, error) {
 }
 
 func parseSet(args []string) (Command, error) {
-	if len(args) == 0 || args[0] != "festival" {
-		return Command{}, fmt.Errorf("usage: set festival standalone <enabled|disabled>")
+	if len(args) == 0 {
+		return Command{}, fmt.Errorf("usage: set <festival|controller> <command>")
+	}
+	if args[0] == "controller" {
+		op, err := parseControllerSet(args[1:])
+		return Command{Kind: AgentCommand, Operation: op}, err
+	}
+	if args[0] != "festival" {
+		return Command{}, fmt.Errorf("usage: set <festival|controller> <command>")
 	}
 	op, err := parseFestivalSet(args[1:])
 	return Command{Kind: AgentCommand, Operation: op}, err
 }
 
+func parseControllerSet(args []string) (command.Operation, error) {
+	if len(args) == 0 || args[0] != "endpoint" {
+		return command.Operation{}, fmt.Errorf("usage: set controller endpoint <host:port> enabled [--min-backoff duration] [--max-backoff duration] | disabled")
+	}
+	if len(args) == 2 && args[1] == "disabled" {
+		return command.ControllerLinkSetConfigOperation(command.ControllerLinkConfigOptions{Enabled: false})
+	}
+	opts, err := parseDashOptions(args[1:], map[string]dashOptionSpec{
+		"endpoint":    {value: true},
+		"min-backoff": {value: true},
+		"max-backoff": {value: true},
+	})
+	if err != nil {
+		return command.Operation{}, err
+	}
+	endpoint := opts.value("endpoint")
+	positionals := append([]string(nil), opts.positionals...)
+	if len(positionals) > 0 && positionals[0] != "enabled" {
+		endpoint = positionals[0]
+		positionals = positionals[1:]
+	}
+	if len(positionals) != 1 || positionals[0] != "enabled" {
+		return command.Operation{}, fmt.Errorf("usage: set controller endpoint <host:port> enabled [--min-backoff duration] [--max-backoff duration]")
+	}
+	return command.ControllerLinkSetConfigOperation(command.ControllerLinkConfigOptions{
+		Enabled:    true,
+		Endpoint:   endpoint,
+		MinBackoff: opts.value("min-backoff"),
+		MaxBackoff: opts.value("max-backoff"),
+	})
+}
+
 func parseRequest(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: request <wifi|festival> <command>")
+		return Command{}, fmt.Errorf("usage: request <wifi|festival|controller> <command>")
 	}
 	if args[0] == "wifi" {
 		op, err := parseLinuxWifi(args[1:])
 		return Command{Kind: AgentCommand, Operation: op}, err
 	}
+	if args[0] == "controller" {
+		if len(args) != 2 || args[1] != "reconnect" {
+			return Command{}, fmt.Errorf("usage: request controller reconnect")
+		}
+		return Command{Kind: AgentCommand, Operation: command.ControllerReconnectOperation()}, nil
+	}
 	if args[0] != "festival" {
-		return Command{}, fmt.Errorf("usage: request festival <run|sync|clear>")
+		return Command{}, fmt.Errorf("usage: request <wifi|festival|controller> <command>")
 	}
 	return parseFestivalRequest(args[1:])
 }

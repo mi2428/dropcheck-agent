@@ -27,6 +27,10 @@ type Options struct {
 	Serial string
 	// PackageName is the Android app package that contains .AgentService.
 	PackageName string
+	// ListenAddr is the controller gRPC listen address. Empty uses 127.0.0.1:0.
+	ListenAddr string
+	// NoADB starts only the gRPC server and accepts direct agent connections.
+	NoADB bool
 }
 
 // Session represents a running controller session and its cleanup handles.
@@ -35,6 +39,10 @@ type Session struct {
 	Server *control.Server
 	// Agents are the agents that connected during startup.
 	Agents []control.AgentInfo
+	// Token is the current controller session token accepted by the gRPC server.
+	Token string
+	// ListenAddr is the concrete local address reported by the listener.
+	ListenAddr string
 
 	grpcServer *grpc.Server
 	serveDone  chan error
@@ -56,16 +64,20 @@ func Start(ctx context.Context, opts Options, targets []adb.Device) (*Session, e
 	if opts.PackageName == "" {
 		opts.PackageName = DefaultPackageName
 	}
+	if opts.ListenAddr == "" {
+		opts.ListenAddr = "127.0.0.1:0"
+	}
 	token, err := control.RandomHex(24)
 	if err != nil {
 		return nil, fmt.Errorf("create session token: %w", err)
 	}
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := net.Listen("tcp", opts.ListenAddr)
 	if err != nil {
 		return nil, fmt.Errorf("listen grpc control: %w", err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
+	listenAddr := listener.Addr().String()
 
 	server := grpc.NewServer()
 	controlServer := control.NewServer(token, func(event control.LogEvent) {
@@ -87,6 +99,8 @@ func Start(ctx context.Context, opts Options, targets []adb.Device) (*Session, e
 	}()
 	session := &Session{
 		Server:     controlServer,
+		Token:      token,
+		ListenAddr: listenAddr,
 		grpcServer: server,
 		serveDone:  serveDone,
 		port:       port,
@@ -98,7 +112,7 @@ func Start(ctx context.Context, opts Options, targets []adb.Device) (*Session, e
 		}
 	}()
 
-	fmt.Fprintf(os.Stderr, "dropcheck: grpc=127.0.0.1:%d adb_reverse=tcp:%d package=%s devices=%d\n", port, port, opts.PackageName, len(targets))
+	fmt.Fprintf(os.Stderr, "dropcheck: grpc=%s adb_reverse=tcp:%d package=%s devices=%d\n", listenAddr, port, opts.PackageName, len(targets))
 	for _, target := range targets {
 		client := adb.Client{Path: opts.ADBPath, Serial: target.Serial}
 		if err := client.Reverse(ctx, port); err != nil {
@@ -109,6 +123,10 @@ func Start(ctx context.Context, opts Options, targets []adb.Device) (*Session, e
 		if out, err := client.StartAgentSession(ctx, opts.PackageName, port, token, target.Serial, target.Serial); err != nil {
 			return nil, fmt.Errorf("start Android agent serial=%s: %w\n%s", target.Serial, err, strings.TrimSpace(out))
 		}
+	}
+	if opts.NoADB || len(targets) == 0 {
+		cleanupOnError = false
+		return session, nil
 	}
 
 	waitCtx, cancel := context.WithTimeout(ctx, 25*time.Second)

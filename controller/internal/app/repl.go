@@ -361,6 +361,7 @@ func runOperationForAgents(ctx context.Context, state *shellState, agents []cont
 		// path currently treat commands as immutable, but cloning here keeps
 		// broadcast execution safe if per-agent metadata is added later.
 		agentCmd := proto.Clone(cmd).(*controlpb.RunCommand)
+		prepareCommandForAgent(state, agent, agentCmd)
 		wg.Go(func() {
 			if err := runCommandForAgent(ctx, state, agent, agentCmd, options, output, &outputMu); err != nil {
 				errCh <- err
@@ -375,6 +376,16 @@ func runOperationForAgents(ctx context.Context, state *shellState, agents []cont
 		}
 	}
 	return nil
+}
+
+func prepareCommandForAgent(state *shellState, agent control.AgentInfo, cmd *controlpb.RunCommand) {
+	link := cmd.GetSetControllerLinkConfig()
+	if link == nil || link.Config == nil || !link.Config.GetEnabled() {
+		return
+	}
+	link.Config.Token = state.controllerToken
+	link.Config.AgentId = agent.ID
+	link.Config.AdbSerial = agent.Hello.GetAdbSerial()
 }
 
 func runCommandForAgent(ctx context.Context, state *shellState, agent control.AgentInfo, cmd *controlpb.RunCommand, options commandOptions, output commandOutputOptions, outputMu *sync.Mutex) error {
