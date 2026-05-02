@@ -8,15 +8,20 @@ import io.dropcheck.agent.grpc.ConnectWifiResult
 import io.dropcheck.agent.grpc.CycleWifi
 import io.dropcheck.agent.grpc.DiagnosticField
 import io.dropcheck.agent.grpc.ForgetWifi
+import io.dropcheck.agent.grpc.ClearFestivalRuns
 import io.dropcheck.agent.grpc.GetFreshWifiScan
+import io.dropcheck.agent.grpc.GetFestivalRun
 import io.dropcheck.agent.grpc.GetWifiScan
 import io.dropcheck.agent.grpc.GetWifiScanDetail
 import io.dropcheck.agent.grpc.HttpCheck
+import io.dropcheck.agent.grpc.ListFestivalRuns
 import io.dropcheck.agent.grpc.MonitorWifi
 import io.dropcheck.agent.grpc.NetworkSelector
 import io.dropcheck.agent.grpc.Ping
 import io.dropcheck.agent.grpc.ReconnectWifi
 import io.dropcheck.agent.grpc.RunCommand
+import io.dropcheck.agent.grpc.RunFestivalOnce
+import io.dropcheck.agent.grpc.SetFestivalConfig
 import io.dropcheck.agent.grpc.WaitWifiConnected
 import io.dropcheck.agent.grpc.WatchWifi
 import io.dropcheck.agent.grpc.WifiAssertResult
@@ -49,6 +54,12 @@ class CommandExecutor(
      * final payload returned to the controller for the command ID.
      */
     fun execute(command: RunCommand): CommandResult {
+        return AgentCommandLock.run {
+            executeLocked(command)
+        }
+    }
+
+    private fun executeLocked(command: RunCommand): CommandResult {
         throwIfInterrupted()
         val startedAt = System.nanoTime()
         logger.debugEvent("command.executor.start", listOf(
@@ -78,6 +89,13 @@ class CommandExecutor(
             RunCommand.CommandCase.WGET -> networkChecks.download(command.wget)
             RunCommand.CommandCase.RESOLVE_DNS -> networkChecks.dns(command.resolveDns)
             RunCommand.CommandCase.HTTP_CHECK -> networkChecks.http(command.httpCheck)
+            RunCommand.CommandCase.SET_FESTIVAL_CONFIG -> setFestivalConfig(command.setFestivalConfig)
+            RunCommand.CommandCase.GET_FESTIVAL_CONFIG -> getFestivalConfig()
+            RunCommand.CommandCase.GET_FESTIVAL_STATUS -> getFestivalStatus()
+            RunCommand.CommandCase.LIST_FESTIVAL_RUNS -> listFestivalRuns(command.listFestivalRuns)
+            RunCommand.CommandCase.GET_FESTIVAL_RUN -> getFestivalRun(command.getFestivalRun)
+            RunCommand.CommandCase.CLEAR_FESTIVAL_RUNS -> clearFestivalRuns(command.clearFestivalRuns)
+            RunCommand.CommandCase.RUN_FESTIVAL_ONCE -> runFestivalOnce(command.runFestivalOnce)
             RunCommand.CommandCase.COMMAND_NOT_SET -> failed("command is not set")
         }
         val elapsedMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis()
@@ -89,6 +107,99 @@ class CommandExecutor(
             "executor_elapsed_ms" to elapsedMs,
         ) + timedResult.logFields())
         return timedResult
+    }
+
+    private fun setFestivalConfig(command: SetFestivalConfig): CommandResult {
+        val config = command.config
+        FestivalConfigStore(context).save(config)
+        FestivalStateBroadcast.send(context, config.enabled)
+        AgentService.requestFestivalRefresh(context)
+        logger.info("Dropcheck Festival standalone config updated enabled=${config.enabled} interval_ms=${config.intervalMs} plan=${config.plan.name.ifBlank { "-" }}")
+        return CommandResult.newBuilder()
+            .setStatus(CommandResult.Status.STATUS_OK)
+            .setMessage(if (config.enabled) "Dropcheck Festival standalone enabled" else "Dropcheck Festival standalone disabled")
+            .setFestivalConfig(config)
+            .build()
+    }
+
+    private fun getFestivalConfig(): CommandResult {
+        val config = FestivalConfigStore(context).load()
+        return CommandResult.newBuilder()
+            .setStatus(CommandResult.Status.STATUS_OK)
+            .setFestivalConfig(config)
+            .build()
+    }
+
+    private fun getFestivalStatus(): CommandResult {
+        val store = FestivalResultStore(context)
+        val stats = store.stats()
+        val config = FestivalConfigStore(context).load()
+        val status = io.dropcheck.agent.grpc.FestivalStatus.newBuilder()
+            .setEnabled(config.enabled)
+            .setRunning(FestivalRuntimeState.running.get())
+            .setCurrentRunId(FestivalRuntimeState.currentRunId.get())
+            .setStoredRuns(stats.storedRuns)
+            .setUnsyncedRuns(stats.unsyncedRuns)
+            .setStoredBytes(stats.storedBytes)
+            .setMessage(FestivalRuntimeState.message.get())
+        stats.last?.let {
+            status
+                .setLastRunId(it.runId)
+                .setLastStartedUnixMs(it.startedUnixMs)
+                .setLastFinishedUnixMs(it.finishedUnixMs)
+        }
+        return CommandResult.newBuilder()
+            .setStatus(CommandResult.Status.STATUS_OK)
+            .setFestivalStatus(status)
+            .build()
+    }
+
+    private fun listFestivalRuns(command: ListFestivalRuns): CommandResult {
+        val runs = FestivalResultStore(context).list(
+            includeSynced = command.includeSynced,
+            limit = command.limit.toInt(),
+        )
+        return CommandResult.newBuilder()
+            .setStatus(CommandResult.Status.STATUS_OK)
+            .setFestivalRuns(runs)
+            .build()
+    }
+
+    private fun getFestivalRun(command: GetFestivalRun): CommandResult {
+        val store = FestivalResultStore(context)
+        val archive = if (command.markSynced) store.markSynced(command.runId) else store.load(command.runId)
+        if (archive == null) {
+            return failed("Dropcheck Festival run not found: ${command.runId}")
+        }
+        return CommandResult.newBuilder()
+            .setStatus(CommandResult.Status.STATUS_OK)
+            .setFestivalRun(archive)
+            .build()
+    }
+
+    private fun clearFestivalRuns(command: ClearFestivalRuns): CommandResult {
+        val result = FestivalResultStore(context).clear(command.syncedOnly, command.all)
+        return CommandResult.newBuilder()
+            .setStatus(CommandResult.Status.STATUS_OK)
+            .setFestivalClear(result)
+            .build()
+    }
+
+    private fun runFestivalOnce(command: RunFestivalOnce): CommandResult {
+        if (!command.hasPlan()) {
+            return failed("Dropcheck Festival run once requires a plan")
+        }
+		val runner = FestivalStandaloneRunner(context)
+		val archive = try {
+			runner.runPlan(command.plan, save = command.save)
+		} finally {
+			runner.shutdown()
+		}
+        return CommandResult.newBuilder()
+            .setStatus(if (archive.summary.failedStepCount == 0) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
+            .setMessage(archive.summary.message)
+            .setFestivalRun(archive)
+            .build()
     }
 
     private fun wifiStatus(): CommandResult {

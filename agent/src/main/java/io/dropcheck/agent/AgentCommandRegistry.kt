@@ -48,6 +48,13 @@ internal object AgentCommandRegistry {
         Entry(RunCommand.CommandCase.WGET, "download"),
         Entry(RunCommand.CommandCase.RESOLVE_DNS, "dns"),
         Entry(RunCommand.CommandCase.HTTP_CHECK, "http.check"),
+        Entry(RunCommand.CommandCase.SET_FESTIVAL_CONFIG, "festival.config.set"),
+        Entry(RunCommand.CommandCase.GET_FESTIVAL_CONFIG, "festival.config"),
+        Entry(RunCommand.CommandCase.GET_FESTIVAL_STATUS, "festival.status"),
+        Entry(RunCommand.CommandCase.LIST_FESTIVAL_RUNS, "festival.runs"),
+        Entry(RunCommand.CommandCase.GET_FESTIVAL_RUN, "festival.run"),
+        Entry(RunCommand.CommandCase.CLEAR_FESTIVAL_RUNS, "festival.runs.clear"),
+        Entry(RunCommand.CommandCase.RUN_FESTIVAL_ONCE, "festival.run.once"),
     )
 
     /** Capability strings sent during hello. The controller treats this as the agent's local feature set. */

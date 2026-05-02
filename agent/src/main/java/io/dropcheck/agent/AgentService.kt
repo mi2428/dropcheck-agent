@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.content.Context
 import android.os.Build
 import android.os.IBinder
 import java.util.concurrent.Executors
@@ -20,6 +21,7 @@ import java.util.concurrent.Future
 class AgentService : Service() {
     private val executor = Executors.newSingleThreadExecutor()
     private lateinit var wifiEvents: WifiEventLogger
+    private lateinit var festivalRunner: FestivalStandaloneRunner
     private var current: Future<*>? = null
 
     override fun onCreate() {
@@ -27,6 +29,8 @@ class AgentService : Service() {
         ensureNotificationChannel()
         wifiEvents = WifiEventLogger(this)
         wifiEvents.start()
+        festivalRunner = FestivalStandaloneRunner(this)
+        festivalRunner.refresh()
         TerminalLog.infoEvent(this, "service.create", listOf(
             "sdk" to Build.VERSION.SDK_INT,
             "manufacturer" to Build.MANUFACTURER,
@@ -70,16 +74,26 @@ class AgentService : Service() {
                     startGrpcSession(host, port, token, agentId, adbSerial)
                 }
             }
+            ACTION_FESTIVAL_REFRESH, null -> {
+                TerminalLog.infoEvent(this, "festival.refresh", listOf(
+                    "enabled" to FestivalConfigStore(this).load().enabled,
+                    "current_active" to (current?.isDone == false),
+                ))
+                festivalRunner.refresh()
+            }
             else -> TerminalLog.warnEvent(this, "service.start.ignored", listOf(
                 "reason" to "unknown_action",
                 "action" to intent?.action,
             ))
         }
-        return START_NOT_STICKY
+        return if (FestivalConfigStore(this).load().enabled) START_STICKY else START_NOT_STICKY
     }
 
     override fun onDestroy() {
         current?.cancel(true)
+        if (::festivalRunner.isInitialized) {
+            festivalRunner.shutdown()
+        }
         if (::wifiEvents.isInitialized) {
             wifiEvents.stop()
         }
@@ -130,8 +144,13 @@ class AgentService : Service() {
                     "agent_id" to agentId,
                     "adb_serial" to adbSerial,
                 ))
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                if (FestivalConfigStore(this).load().enabled) {
+                    festivalRunner.refresh()
+                    startForeground(NOTIFICATION_ID, notification("Dropcheck Festival standalone"))
+                } else {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
             }
         }
     }
@@ -159,10 +178,21 @@ class AgentService : Service() {
         private const val CHANNEL_ID = "dropcheck-agent"
         private const val NOTIFICATION_ID = 1001
         const val ACTION_GRPC_SESSION = "io.dropcheck.agent.action.GRPC_SESSION"
+        const val ACTION_FESTIVAL_REFRESH = "io.dropcheck.agent.action.FESTIVAL_REFRESH"
         const val EXTRA_GRPC_HOST = "grpc_host"
         const val EXTRA_GRPC_PORT = "grpc_port"
         const val EXTRA_GRPC_TOKEN = "grpc_token"
         const val EXTRA_AGENT_ID = "agent_id"
         const val EXTRA_ADB_SERIAL = "adb_serial"
+
+        fun requestFestivalRefresh(context: Context) {
+            val intent = Intent(context, AgentService::class.java).setAction(ACTION_FESTIVAL_REFRESH)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                @Suppress("DEPRECATION")
+                context.startService(intent)
+            }
+        }
     }
 }

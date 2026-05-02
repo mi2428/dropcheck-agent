@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.text.SpannableString
@@ -16,6 +17,7 @@ import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.view.ViewTreeObserver
 import android.widget.ScrollView
+import android.widget.FrameLayout
 import android.widget.TextView
 
 /**
@@ -38,6 +40,7 @@ class MainActivity : Activity() {
 
     private lateinit var logView: TextView
     private lateinit var scroll: ScrollView
+    private lateinit var root: FrameLayout
 
     private val displayLineLengths = ArrayDeque<Int>()
     private var displayLogChars = 0
@@ -50,6 +53,10 @@ class MainActivity : Activity() {
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == FestivalStateBroadcast.ACTION) {
+                updateStandaloneBorder(intent.getBooleanExtra(FestivalStateBroadcast.EXTRA_ENABLED, false))
+                return
+            }
             val line = intent.getStringExtra(TerminalLog.EXTRA_LINE) ?: return
             append(line)
         }
@@ -95,7 +102,12 @@ class MainActivity : Activity() {
                 }
             }
         }
-        setContentView(scroll)
+        root = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            addView(scroll)
+        }
+        setContentView(root)
+        updateStandaloneBorder(FestivalConfigStore(this).load().enabled)
         requestScrollToBottom()
     }
 
@@ -103,6 +115,7 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         val filter = IntentFilter(TerminalLog.ACTION_LINE)
+        filter.addAction(FestivalStateBroadcast.ACTION)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
@@ -228,5 +241,16 @@ class MainActivity : Activity() {
 
     private fun isLevel(line: String, level: String): Boolean {
         return line.contains(" ${level.padEnd(5)} ") || line.startsWith("$level ")
+    }
+
+    private fun updateStandaloneBorder(enabled: Boolean) {
+        if (!::root.isInitialized) return
+        val strokePx = (4 * resources.displayMetrics.density).toInt().coerceAtLeast(2)
+        val drawable = GradientDrawable().apply {
+            setColor(Color.BLACK)
+            if (enabled) setStroke(strokePx, Color.YELLOW)
+        }
+        root.background = drawable
+        root.setPadding(if (enabled) strokePx else 0, if (enabled) strokePx else 0, if (enabled) strokePx else 0, if (enabled) strokePx else 0)
     }
 }

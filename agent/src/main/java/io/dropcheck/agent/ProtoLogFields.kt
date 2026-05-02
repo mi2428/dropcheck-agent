@@ -121,6 +121,31 @@ internal fun RunCommand.logFields(): List<Pair<String, Any?>> {
             RunCommand.CommandCase.WGET -> addAll(wget.logFields())
             RunCommand.CommandCase.RESOLVE_DNS -> addAll(resolveDns.logFields())
             RunCommand.CommandCase.HTTP_CHECK -> addAll(httpCheck.logFields())
+            RunCommand.CommandCase.SET_FESTIVAL_CONFIG -> {
+                add("festival_enabled" to setFestivalConfig.config.enabled)
+                add("festival_plan" to setFestivalConfig.config.plan.name)
+                add("festival_networks" to setFestivalConfig.config.plan.networksCount)
+                add("festival_interval_ms" to setFestivalConfig.config.intervalMs)
+            }
+            RunCommand.CommandCase.GET_FESTIVAL_CONFIG -> Unit
+            RunCommand.CommandCase.GET_FESTIVAL_STATUS -> Unit
+            RunCommand.CommandCase.LIST_FESTIVAL_RUNS -> {
+                add("limit" to listFestivalRuns.limit)
+                add("include_synced" to listFestivalRuns.includeSynced)
+            }
+            RunCommand.CommandCase.GET_FESTIVAL_RUN -> {
+                add("run_id" to getFestivalRun.runId)
+                add("mark_synced" to getFestivalRun.markSynced)
+            }
+            RunCommand.CommandCase.CLEAR_FESTIVAL_RUNS -> {
+                add("synced_only" to clearFestivalRuns.syncedOnly)
+                add("all" to clearFestivalRuns.all)
+            }
+            RunCommand.CommandCase.RUN_FESTIVAL_ONCE -> {
+                add("festival_plan" to runFestivalOnce.plan.name)
+                add("festival_networks" to runFestivalOnce.plan.networksCount)
+                add("save" to runFestivalOnce.save)
+            }
             RunCommand.CommandCase.COMMAND_NOT_SET -> Unit
         }
     }
@@ -244,6 +269,34 @@ internal fun CommandResult.logFields(): List<Pair<String, Any?>> {
             CommandResult.PayloadCase.PATH_MTU -> addAll(pathMtu.logFields())
             CommandResult.PayloadCase.GLOBAL_IP -> addAll(globalIp.logFields())
             CommandResult.PayloadCase.WGET -> addAll(wget.logFields())
+            CommandResult.PayloadCase.FESTIVAL_CONFIG -> {
+                add("festival_enabled" to festivalConfig.enabled)
+                add("festival_plan" to festivalConfig.plan.name)
+                add("festival_networks" to festivalConfig.plan.networksCount)
+            }
+            CommandResult.PayloadCase.FESTIVAL_STATUS -> {
+                add("festival_enabled" to festivalStatus.enabled)
+                add("festival_running" to festivalStatus.running)
+                add("stored_runs" to festivalStatus.storedRuns)
+                add("unsynced_runs" to festivalStatus.unsyncedRuns)
+                add("stored_bytes" to festivalStatus.storedBytes)
+            }
+            CommandResult.PayloadCase.FESTIVAL_RUNS -> {
+                add("runs_count" to festivalRuns.runsCount)
+                add("total_runs" to festivalRuns.totalRuns)
+                add("unsynced_runs" to festivalRuns.unsyncedRuns)
+            }
+            CommandResult.PayloadCase.FESTIVAL_RUN -> {
+                add("run_id" to festivalRun.summary.runId)
+                add("run_status" to festivalRun.summary.status)
+                add("steps_count" to festivalRun.stepsCount)
+                add("failed_steps" to festivalRun.summary.failedStepCount)
+                add("synced" to festivalRun.summary.synced)
+            }
+            CommandResult.PayloadCase.FESTIVAL_CLEAR -> {
+                add("removed_runs" to festivalClear.removedRuns)
+                add("removed_bytes" to festivalClear.removedBytes)
+            }
             CommandResult.PayloadCase.PAYLOAD_NOT_SET -> Unit
         }
     }
