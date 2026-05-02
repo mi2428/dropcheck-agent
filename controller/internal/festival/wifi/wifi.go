@@ -3,7 +3,6 @@ package wifi
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"dropcheck/controller/internal/controlpb"
@@ -40,8 +39,6 @@ type Result struct {
 	Channel int32
 	// Band is derived from FrequencyMHz when possible.
 	Band string
-	// ChannelWidth is the normalized connected channel width when available.
-	ChannelWidth string
 	// LinkSpeedMbps is Android's current link speed.
 	LinkSpeedMbps int32
 	// TxLinkSpeedMbps is Android's current TX link speed.
@@ -140,24 +137,6 @@ func Band() festival.OrderedMetric[string] {
 		}
 		return result.Band, true, ""
 	})
-}
-
-// ChannelWidth matches the connected channel width, normalized as "160mhz" or
-// "320mhz". New agents report this as a structured field; the raw Wi-Fi text is
-// still used as a fallback so older APKs remain diagnosable.
-func ChannelWidth() festival.OrderedMetric[string] {
-	return stringMetric("wifi.channel_width", func(result Result) (string, bool, string) {
-		if result.ChannelWidth == "" {
-			return "", false, "channel width is empty"
-		}
-		return result.ChannelWidth, true, ""
-	})
-}
-
-// ChannelWidthName normalizes channel-width strings to the lowercase tokens
-// used by ChannelWidth, such as "160mhz" and "320mhz".
-func ChannelWidthName(value string) string {
-	return normalizeChannelWidth(value)
 }
 
 // LinkSpeedMbps matches Android's current link speed.
@@ -287,7 +266,6 @@ func from(result festival.Result) (Result, bool, string) {
 		FrequencyMHz:       frequency,
 		Channel:            channelFromFrequency(frequency),
 		Band:               bandFromFrequency(frequency),
-		ChannelWidth:       normalizeChannelWidth(firstNonEmpty(conn.GetChannelWidth(), channelWidthFromRaw(conn.GetRaw()))),
 		LinkSpeedMbps:      conn.GetLinkSpeedMbps(),
 		TxLinkSpeedMbps:    conn.GetTxLinkSpeedMbps(),
 		RxLinkSpeedMbps:    conn.GetRxLinkSpeedMbps(),
@@ -347,36 +325,4 @@ func bandFromFrequency(frequency int32) string {
 	default:
 		return ""
 	}
-}
-
-var channelWidthPattern = regexp.MustCompile(`(?i)(?:channel[_ ]?width|channelWidth)\s*[:=]\s*([A-Za-z0-9_./+-]+)`)
-
-func channelWidthFromRaw(raw string) string {
-	match := channelWidthPattern.FindStringSubmatch(raw)
-	if match == nil {
-		return ""
-	}
-	return match[1]
-}
-
-func normalizeChannelWidth(value string) string {
-	width := strings.ToLower(strings.TrimSpace(value))
-	width = strings.Trim(width, ",;")
-	width = strings.TrimPrefix(width, "channel_width_")
-	width = strings.TrimPrefix(width, "width_")
-	width = strings.ReplaceAll(width, " ", "")
-	width = strings.ReplaceAll(width, "_", "")
-	if !strings.HasSuffix(width, "mhz") && width != "" {
-		width += "mhz"
-	}
-	return width
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
-		}
-	}
-	return ""
 }

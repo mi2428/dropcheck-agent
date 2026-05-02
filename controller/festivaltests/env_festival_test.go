@@ -65,7 +65,6 @@ func TestEnvFestival(t *testing.T) {
 		ap = ap.Channel(int32(value))
 	}
 	if width := os.Getenv("FESTIVAL_WIFI_CHANNEL_WIDTH"); width != "" {
-		wifiExpect = append(wifiExpect, wifi.ChannelWidth().Eq(wifi.ChannelWidthName(width)))
 		ap = ap.ChannelWidth(width)
 	}
 

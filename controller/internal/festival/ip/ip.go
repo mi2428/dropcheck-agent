@@ -532,21 +532,28 @@ type RouteSelector struct {
 	gateway     *netip.Addr
 	iface       string
 	defaultOnly bool
+	err         error
 }
 
 // Destination restricts matches to one destination prefix.
 func (s RouteSelector) Destination(cidr string) RouteSelector {
-	if prefix, err := netip.ParsePrefix(cidr); err == nil {
-		s.destination = &prefix
+	prefix, err := netip.ParsePrefix(cidr)
+	if err != nil {
+		s.err = fmt.Errorf("invalid route destination %q: %w", cidr, err)
+		return s
 	}
+	s.destination = &prefix
 	return s
 }
 
 // Gateway restricts matches to one gateway address.
 func (s RouteSelector) Gateway(value string) RouteSelector {
-	if addr, err := netip.ParseAddr(value); err == nil {
-		s.gateway = &addr
+	addr, err := netip.ParseAddr(value)
+	if err != nil {
+		s.err = fmt.Errorf("invalid route gateway %q: %w", value, err)
+		return s
 	}
+	s.gateway = &addr
 	return s
 }
 
@@ -570,6 +577,9 @@ func (s RouteSelector) Exists() festival.Expectation {
 // Count matches the number of parsed routes selected by the selector.
 func (s RouteSelector) Count() festival.OrderedMetric[int] {
 	return festival.Ordered[int](s.metric+"_count", func(result festival.Result) (int, bool, string) {
+		if s.err != nil {
+			return 0, false, s.err.Error()
+		}
 		ip, ok, reason := from(result)
 		if !ok {
 			return 0, false, reason
@@ -583,6 +593,9 @@ type routeExists struct {
 }
 
 func (e routeExists) Evaluate(result festival.Result) []festival.Finding {
+	if e.selector.err != nil {
+		return []festival.Finding{festival.Fail(e.selector.metric, "<invalid selector>", "exists", e.selector.err.Error())}
+	}
 	ip, ok, reason := from(result)
 	if !ok {
 		return []festival.Finding{festival.Fail(e.selector.metric, "<missing>", "exists", reason)}

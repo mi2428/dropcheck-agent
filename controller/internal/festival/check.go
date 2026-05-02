@@ -125,8 +125,8 @@ type WiFiStatusCheck struct {
 // WiFiStatus starts a Wi-Fi status check builder.
 //
 // WiFiStatus is the primary festival check for layer-2 Wi-Fi properties:
-// connected SSID/BSSID, RSSI, frequency, derived channel/band, channel width,
-// Wi-Fi standard, link speed, and MLO link metadata.
+// connected SSID/BSSID, RSSI, frequency, derived channel/band, Wi-Fi standard,
+// link speed, and MLO link metadata.
 func WiFiStatus() WiFiStatusCheck {
 	return WiFiStatusCheck{checkBase: checkBase{name: "wifi status"}}
 }

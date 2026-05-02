@@ -161,7 +161,7 @@ func (s APSelector) Standard(value string) APSelector {
 
 // ChannelWidth restricts matches to one normalized channel width, such as "320mhz".
 func (s APSelector) ChannelWidth(value string) APSelector {
-	s.channelWidth = statuswifi.ChannelWidthName(value)
+	s.channelWidth = normalizeChannelWidth(value)
 	return s
 }
 
@@ -317,7 +317,7 @@ func normalizeResults(values []*controlpb.WifiScanResult) []AP {
 			FrequencyMHz:        frequency,
 			Channel:             channelFromFrequency(frequency),
 			Band:                normalizeBand(firstNonEmpty(value.GetBand(), bandFromFrequency(frequency))),
-			ChannelWidth:        statuswifi.ChannelWidthName(value.GetChannelWidth()),
+			ChannelWidth:        normalizeChannelWidth(value.GetChannelWidth()),
 			CenterFreq0MHz:      value.GetCenterFreq0Mhz(),
 			CenterFreq1MHz:      value.GetCenterFreq1Mhz(),
 			TimestampUs:         value.GetTimestampUs(),
@@ -376,6 +376,19 @@ func normalizeToken(value string) string {
 	normalized = strings.ReplaceAll(normalized, "-", "_")
 	normalized = strings.ReplaceAll(normalized, " ", "_")
 	return normalized
+}
+
+func normalizeChannelWidth(value string) string {
+	width := strings.ToLower(strings.TrimSpace(value))
+	width = strings.Trim(width, ",;")
+	width = strings.TrimPrefix(width, "channel_width_")
+	width = strings.TrimPrefix(width, "width_")
+	width = strings.ReplaceAll(width, " ", "")
+	width = strings.ReplaceAll(width, "_", "")
+	if !strings.HasSuffix(width, "mhz") && width != "" {
+		width += "mhz"
+	}
+	return width
 }
 
 func channelFromFrequency(frequency int32) int32 {
