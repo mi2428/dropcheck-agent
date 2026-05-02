@@ -58,6 +58,12 @@ func runCLI(ctx context.Context, opts shellOptions, rawArgs []string) error {
 		}
 		fmt.Print(out)
 		return nil
+	case linuxcli.FestivalSync:
+		return syncFestivalRuns(ctx, state, festivalSyncOptions{
+			OutputDir:  command.FestivalSyncOutput,
+			Limit:      command.FestivalSyncLimit,
+			MarkSynced: command.FestivalSyncMark,
+		})
 	default:
 		agents, err := state.commandTargets()
 		if err != nil {

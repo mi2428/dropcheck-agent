@@ -19,6 +19,7 @@ const (
 	shellSetTarget
 	shellClearTarget
 	shellAgentCommand
+	shellFestivalSync
 )
 
 // Command is the parsed representation of one interactive shell command.
@@ -31,6 +32,12 @@ type Command struct {
 	TargetAll bool
 	// Operation is populated when Kind is AgentCommand.
 	Operation command.Operation
+	// FestivalSyncOutput is populated by "request festival sync".
+	FestivalSyncOutput string
+	// FestivalSyncLimit caps "request festival sync" downloads.
+	FestivalSyncLimit string
+	// FestivalSyncMark marks downloaded runs as synced.
+	FestivalSyncMark bool
 	// Pipeline contains output filters parsed from "| ..." suffixes.
 	Pipeline pipeline.Pipeline
 	// RawCommand is the command segment before any pipeline stages.
@@ -62,6 +69,8 @@ const (
 	ClearTarget = shellClearTarget
 	// AgentCommand represents a command that should be sent to Android agents.
 	AgentCommand = shellAgentCommand
+	// FestivalSync represents downloading stored Dropcheck Festival archives.
+	FestivalSync = shellFestivalSync
 )
 
 var shellTopKeywords = []string{"show", "set", "clear", "request", "monitor", "ping", "traceroute", "path-mtu", "global-ip", "test", "help", "exit", "quit"}
@@ -150,9 +159,9 @@ func parseShellArgs(args []string) (Command, error) {
 
 func parseShellShow(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: show <devices|target|wifi>")
+		return Command{}, fmt.Errorf("usage: show <devices|target|wifi|festival>")
 	}
-	name, err := resolveShellKeyword("show command", args[0], []string{"devices", "target", "wifi"})
+	name, err := resolveShellKeyword("show command", args[0], []string{"devices", "target", "wifi", "festival"})
 	if err != nil {
 		return Command{}, err
 	}
@@ -169,8 +178,63 @@ func parseShellShow(args []string) (Command, error) {
 		return Command{Kind: shellShowTarget}, nil
 	case "wifi":
 		return parseShellShowWifi(args[1:])
+	case "festival":
+		return parseShellShowFestival(args[1:])
 	default:
 		return Command{}, fmt.Errorf("unknown show command %q", args[0])
+	}
+}
+
+func parseShellShowFestival(args []string) (Command, error) {
+	if len(args) == 0 {
+		return Command{}, fmt.Errorf("usage: show festival <standalone|runs|run>")
+	}
+	name, err := resolveShellKeyword("show festival command", args[0], []string{"standalone", "runs", "run"})
+	if err != nil {
+		return Command{}, err
+	}
+	switch name {
+	case "standalone":
+		if len(args) != 2 {
+			return Command{}, fmt.Errorf("usage: show festival standalone <status|config>")
+		}
+		sub, err := resolveShellKeyword("show festival standalone command", args[1], []string{"status", "config"})
+		if err != nil {
+			return Command{}, err
+		}
+		if sub == "status" {
+			return agentShellCommand(command.FestivalStatusOperation()), nil
+		}
+		return agentShellCommand(command.FestivalConfigOperation()), nil
+	case "runs":
+		values := map[string]string{}
+		flags := map[string]bool{}
+		for i := 1; i < len(args); i++ {
+			key, err := resolveShellKeyword("show festival runs option", args[i], []string{"limit", "synced"})
+			if err != nil {
+				return Command{}, err
+			}
+			if key == "synced" {
+				flags[key] = true
+				continue
+			}
+			value, next, err := shellValue(args, i, key)
+			if err != nil {
+				return Command{}, err
+			}
+			values[key] = value
+			i = next
+		}
+		op, err := command.FestivalListRunsOperation(command.FestivalListOptions{Limit: values["limit"], IncludeSynced: flags["synced"]})
+		return agentShellCommand(op), err
+	case "run":
+		if len(args) != 2 {
+			return Command{}, fmt.Errorf("usage: show festival run <run-id>")
+		}
+		op, err := command.FestivalRunOperation(args[1], false)
+		return agentShellCommand(op), err
+	default:
+		return Command{}, fmt.Errorf("unknown show festival command %q", args[0])
 	}
 }
 
@@ -269,20 +333,79 @@ func parseShellShowWifiScan(args []string) (Command, error) {
 }
 
 func parseShellSet(args []string) (Command, error) {
-	if len(args) != 2 {
-		return Command{}, fmt.Errorf("usage: set target <agent_id|adb_serial|number|all>")
+	if len(args) == 0 {
+		return Command{}, fmt.Errorf("usage: set <target|festival>")
 	}
-	name, err := resolveShellKeyword("set command", args[0], []string{"target"})
+	name, err := resolveShellKeyword("set command", args[0], []string{"target", "festival"})
 	if err != nil {
 		return Command{}, err
 	}
-	if name != "target" {
+	switch name {
+	case "target":
+		if len(args) != 2 {
+			return Command{}, fmt.Errorf("usage: set target <agent_id|adb_serial|number|all>")
+		}
+		if args[1] == "all" {
+			return Command{Kind: shellSetTarget, TargetAll: true}, nil
+		}
+		return Command{Kind: shellSetTarget, Target: args[1]}, nil
+	case "festival":
+		return parseShellSetFestival(args[1:])
+	default:
 		return Command{}, fmt.Errorf("unknown set command %q", args[0])
 	}
-	if args[1] == "all" {
-		return Command{Kind: shellSetTarget, TargetAll: true}, nil
+}
+
+func parseShellSetFestival(args []string) (Command, error) {
+	if len(args) == 0 {
+		return Command{}, fmt.Errorf("usage: set festival standalone <enabled|disabled> ...")
 	}
-	return Command{Kind: shellSetTarget, Target: args[1]}, nil
+	name, err := resolveShellKeyword("set festival command", args[0], []string{"standalone"})
+	if err != nil {
+		return Command{}, err
+	}
+	if name != "standalone" {
+		return Command{}, fmt.Errorf("unknown set festival command %q", args[0])
+	}
+	if len(args) == 2 {
+		state, err := resolveShellKeyword("set festival standalone state", args[1], []string{"disabled"})
+		if err != nil {
+			return Command{}, err
+		}
+		if state == "disabled" {
+			op, err := command.FestivalSetConfigOperation(command.FestivalConfigOptions{Enabled: false})
+			return agentShellCommand(op), err
+		}
+	}
+	values := map[string]string{}
+	enabled := false
+	for i := 1; i < len(args); i++ {
+		key, err := resolveShellKeyword("set festival standalone option", args[i], []string{"enabled", "plan", "interval", "retention", "max-size"})
+		if err != nil {
+			return Command{}, err
+		}
+		if key == "enabled" {
+			enabled = true
+			continue
+		}
+		value, next, err := shellValue(args, i, key)
+		if err != nil {
+			return Command{}, err
+		}
+		values[key] = value
+		i = next
+	}
+	if !enabled {
+		return Command{}, fmt.Errorf("usage: set festival standalone enabled plan <file> [interval <duration>] [retention <duration>] [max-size <bytes>]")
+	}
+	op, err := command.FestivalSetConfigOperation(command.FestivalConfigOptions{
+		Enabled:   true,
+		PlanPath:  values["plan"],
+		Interval:  values["interval"],
+		Retention: values["retention"],
+		MaxSize:   values["max-size"],
+	})
+	return agentShellCommand(op), err
 }
 
 func parseShellClear(args []string) (Command, error) {
@@ -301,16 +424,106 @@ func parseShellClear(args []string) (Command, error) {
 
 func parseShellRequest(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: request wifi <command>")
+		return Command{}, fmt.Errorf("usage: request <wifi|festival> <command>")
 	}
-	name, err := resolveShellKeyword("request command", args[0], []string{"wifi"})
+	name, err := resolveShellKeyword("request command", args[0], []string{"wifi", "festival"})
 	if err != nil {
 		return Command{}, err
+	}
+	if name == "festival" {
+		return parseShellRequestFestival(args[1:])
 	}
 	if name != "wifi" {
 		return Command{}, fmt.Errorf("unknown request command %q", args[0])
 	}
 	return parseShellRequestWifi(args[1:])
+}
+
+func parseShellRequestFestival(args []string) (Command, error) {
+	if len(args) == 0 {
+		return Command{}, fmt.Errorf("usage: request festival <run|sync|clear>")
+	}
+	name, err := resolveShellKeyword("request festival command", args[0], []string{"run", "sync", "clear"})
+	if err != nil {
+		return Command{}, err
+	}
+	switch name {
+	case "run":
+		if len(args) < 3 {
+			return Command{}, fmt.Errorf("usage: request festival run once plan <file> [save]")
+		}
+		sub, err := resolveShellKeyword("request festival run command", args[1], []string{"once"})
+		if err != nil {
+			return Command{}, err
+		}
+		if sub != "once" {
+			return Command{}, fmt.Errorf("unknown request festival run command %q", args[1])
+		}
+		values := map[string]string{}
+		save := false
+		for i := 2; i < len(args); i++ {
+			key, err := resolveShellKeyword("request festival run once option", args[i], []string{"plan", "save"})
+			if err != nil {
+				return Command{}, err
+			}
+			if key == "save" {
+				save = true
+				continue
+			}
+			value, next, err := shellValue(args, i, key)
+			if err != nil {
+				return Command{}, err
+			}
+			values[key] = value
+			i = next
+		}
+		op, err := command.FestivalRunOnceOperation(values["plan"], save)
+		return agentShellCommand(op), err
+	case "clear":
+		if len(args) > 2 {
+			return Command{}, fmt.Errorf("usage: request festival clear [synced|all]")
+		}
+		mode := "synced"
+		if len(args) == 2 {
+			var err error
+			mode, err = resolveShellKeyword("request festival clear mode", args[1], []string{"synced", "all"})
+			if err != nil {
+				return Command{}, err
+			}
+		}
+		op, err := command.FestivalClearRunsOperation(mode)
+		return agentShellCommand(op), err
+	case "sync":
+		values := map[string]string{}
+		markSynced := true
+		for i := 1; i < len(args); i++ {
+			key, err := resolveShellKeyword("request festival sync option", args[i], []string{"output", "limit", "mark-synced", "keep-unsynced"})
+			if err != nil {
+				return Command{}, err
+			}
+			switch key {
+			case "mark-synced":
+				markSynced = true
+			case "keep-unsynced":
+				markSynced = false
+			default:
+				value, next, err := shellValue(args, i, key)
+				if err != nil {
+					return Command{}, err
+				}
+				values[key] = value
+				i = next
+			}
+		}
+		return Command{
+			Kind:               shellFestivalSync,
+			FestivalSyncOutput: values["output"],
+			FestivalSyncLimit:  values["limit"],
+			FestivalSyncMark:   markSynced,
+		}, nil
+	default:
+		return Command{}, fmt.Errorf("unknown request festival command %q", args[0])
+	}
 }
 
 func parseShellRequestWifi(args []string) (Command, error) {

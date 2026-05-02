@@ -85,6 +85,16 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 		renderWifiScanDetail(&b, payload.WifiScanDetail)
 	case *controlpb.CommandResult_WifiCycle:
 		renderWifiCycle(&b, payload.WifiCycle)
+	case *controlpb.CommandResult_FestivalConfig:
+		renderFestivalConfig(&b, payload.FestivalConfig)
+	case *controlpb.CommandResult_FestivalStatus:
+		renderFestivalStatus(&b, payload.FestivalStatus)
+	case *controlpb.CommandResult_FestivalRuns:
+		renderFestivalRuns(&b, payload.FestivalRuns)
+	case *controlpb.CommandResult_FestivalRun:
+		renderFestivalRun(&b, payload.FestivalRun)
+	case *controlpb.CommandResult_FestivalClear:
+		renderFestivalClear(&b, payload.FestivalClear)
 	default:
 		if result.GetMessage() != "" {
 			fmt.Fprintf(&b, "%s\n", result.GetMessage())
@@ -724,6 +734,125 @@ func renderWifiCycle(b *strings.Builder, result *controlpb.WifiCycleResult) {
 	renderErrors(b, result.GetErrors())
 }
 
+func renderFestivalConfig(b *strings.Builder, config *controlpb.FestivalConfig) {
+	if config == nil {
+		return
+	}
+	plan := config.GetPlan()
+	fmt.Fprintf(b, "Dropcheck Festival standalone: enabled=%t interval=%s retention=%s max-size=%s\n",
+		config.GetEnabled(),
+		time.Duration(config.GetIntervalMs())*time.Millisecond,
+		time.Duration(config.GetRetentionMs())*time.Millisecond,
+		formatBytes(config.GetMaxBytes()),
+	)
+	if plan != nil {
+		fmt.Fprintf(b, "Plan: name=%s networks=%d global-checks=%d\n",
+			empty(plan.GetName(), "-"),
+			len(plan.GetNetworks()),
+			len(plan.GetChecks()),
+		)
+	}
+}
+
+func renderFestivalStatus(b *strings.Builder, status *controlpb.FestivalStatus) {
+	if status == nil {
+		return
+	}
+	fmt.Fprintf(b, "Dropcheck Festival standalone: enabled=%t running=%t stored=%d unsynced=%d bytes=%s\n",
+		status.GetEnabled(),
+		status.GetRunning(),
+		status.GetStoredRuns(),
+		status.GetUnsyncedRuns(),
+		formatBytes(status.GetStoredBytes()),
+	)
+	if status.GetCurrentRunId() != "" {
+		fmt.Fprintf(b, "Current run: %s\n", status.GetCurrentRunId())
+	}
+	if status.GetLastRunId() != "" {
+		fmt.Fprintf(b, "Last run: %s started=%s finished=%s\n",
+			status.GetLastRunId(),
+			unixMillis(status.GetLastStartedUnixMs()),
+			unixMillis(status.GetLastFinishedUnixMs()),
+		)
+	}
+	if status.GetMessage() != "" {
+		fmt.Fprintf(b, "Message: %s\n", status.GetMessage())
+	}
+}
+
+func renderFestivalRuns(b *strings.Builder, runs *controlpb.FestivalRuns) {
+	if runs == nil {
+		return
+	}
+	fmt.Fprintf(b, "Dropcheck Festival runs: returned=%d total=%d unsynced=%d\n",
+		len(runs.GetRuns()),
+		runs.GetTotalRuns(),
+		runs.GetUnsyncedRuns(),
+	)
+	if len(runs.GetRuns()) == 0 {
+		return
+	}
+	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "RUN\tSTATUS\tSYNCED\tSTARTED\tFINISHED\tSTEPS\tFAILED\tPLAN")
+	for _, run := range runs.GetRuns() {
+		fmt.Fprintf(tw, "%s\t%s\t%t\t%s\t%s\t%d\t%d\t%s\n",
+			shortID(run.GetRunId()),
+			empty(run.GetStatus(), "-"),
+			run.GetSynced(),
+			unixMillis(run.GetStartedUnixMs()),
+			unixMillis(run.GetFinishedUnixMs()),
+			run.GetStepCount(),
+			run.GetFailedStepCount(),
+			empty(run.GetPlanName(), "-"),
+		)
+	}
+	_ = tw.Flush()
+}
+
+func renderFestivalRun(b *strings.Builder, run *controlpb.FestivalRunArchive) {
+	if run == nil {
+		return
+	}
+	summary := run.GetSummary()
+	fmt.Fprintf(b, "Dropcheck Festival run: id=%s status=%s synced=%t plan=%s steps=%d failed=%d\n",
+		summary.GetRunId(),
+		empty(summary.GetStatus(), "-"),
+		summary.GetSynced(),
+		empty(summary.GetPlanName(), "-"),
+		summary.GetStepCount(),
+		summary.GetFailedStepCount(),
+	)
+	if len(run.GetSteps()) == 0 {
+		return
+	}
+	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "NETWORK\tSTEP\tATTEMPT\tSTATUS\tELAPSED\tERROR")
+	for _, step := range run.GetSteps() {
+		status := "-"
+		elapsed := int64(0)
+		if step.GetResult() != nil {
+			status = resultStatus(step.GetResult().GetStatus())
+			elapsed = commandResultLatencyMs(step.GetResult())
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%dms\t%s\n",
+			empty(step.GetNetworkName(), "-"),
+			empty(step.GetStepName(), "-"),
+			step.GetAttempt(),
+			status,
+			elapsed,
+			step.GetError(),
+		)
+	}
+	_ = tw.Flush()
+}
+
+func renderFestivalClear(b *strings.Builder, result *controlpb.FestivalClearResult) {
+	if result == nil {
+		return
+	}
+	fmt.Fprintf(b, "Dropcheck Festival cleared: runs=%d bytes=%s\n", result.GetRemovedRuns(), formatBytes(result.GetRemovedBytes()))
+}
+
 func renderDiagnosticFields(b *strings.Builder, fields []*controlpb.DiagnosticField) {
 	if len(fields) == 0 {
 		return
@@ -836,4 +965,17 @@ func unixMillis(ms int64) string {
 		return "-"
 	}
 	return time.UnixMilli(ms).Format(time.RFC3339)
+}
+
+func formatBytes(value uint64) string {
+	const unit = 1024
+	if value < unit {
+		return fmt.Sprintf("%dB", value)
+	}
+	div, exp := uint64(unit), 0
+	for n := value / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f%cB", float64(value)/float64(div), "KMGTPE"[exp])
 }
