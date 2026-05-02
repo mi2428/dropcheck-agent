@@ -4,23 +4,30 @@ import (
 	"slices"
 	"testing"
 
-	"google.golang.org/protobuf/proto"
+	"dropcheck/controller/internal/controlpb"
 )
 
-func assertOperationMatchesArgs(t *testing.T, op Operation, args []string) {
+func operationCommand(t *testing.T, op Operation) (*controlpb.RunCommand, commandOptions) {
 	t.Helper()
-	gotCmd, gotOptions, err := buildRunCommand(op)
+	cmd, options, err := buildRunCommand(op)
 	if err != nil {
 		t.Fatalf("buildRunCommand() error = %v", err)
 	}
-	wantCmd, wantOptions, err := buildCommandWithOptions(args)
-	if err != nil {
-		t.Fatalf("buildCommandWithOptions(%#v) error = %v", args, err)
+	return cmd, options
+}
+
+func assertOperationLabel(t *testing.T, op Operation, label string) {
+	t.Helper()
+	cmd, _ := operationCommand(t, op)
+	if cmd.GetLabel() != label {
+		t.Fatalf("operation label = %q, want %q", cmd.GetLabel(), label)
 	}
-	if !proto.Equal(gotCmd, wantCmd) {
-		t.Fatalf("operation command = %#v, want %#v", gotCmd, wantCmd)
-	}
-	if !slices.Equal(gotOptions.TracerouteRequiredHops, wantOptions.TracerouteRequiredHops) {
-		t.Fatalf("operation options = %#v, want %#v", gotOptions, wantOptions)
+}
+
+func assertTracerouteHops(t *testing.T, op Operation, hops []string) {
+	t.Helper()
+	_, options := operationCommand(t, op)
+	if !slices.Equal(options.TracerouteRequiredHops, hops) {
+		t.Fatalf("traceroute required hops = %#v, want %#v", options.TracerouteRequiredHops, hops)
 	}
 }

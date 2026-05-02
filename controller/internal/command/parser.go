@@ -8,34 +8,7 @@ import (
 	"time"
 
 	"dropcheck/controller/internal/controlpb"
-	"google.golang.org/protobuf/proto"
 )
-
-func optionalArg(args []string, index int) string {
-	if len(args) <= index {
-		return ""
-	}
-	return args[index]
-}
-
-func parseStringOption(args []string, index int, name string) (string, int, error) {
-	if index+1 >= len(args) {
-		return "", index, fmt.Errorf("%s requires a value", name)
-	}
-	return args[index+1], index + 1, nil
-}
-
-func parseUint32Option(args []string, index int, name string) (uint32, int, error) {
-	value, next, err := parseStringOption(args, index, name)
-	if err != nil {
-		return 0, index, err
-	}
-	parsed, err := parseUint32(value, name)
-	if err != nil {
-		return 0, index, err
-	}
-	return parsed, next, nil
-}
 
 func parseUint32(value string, name string) (uint32, error) {
 	parsed, err := strconv.ParseUint(value, 10, 32)
@@ -144,39 +117,6 @@ func normalizeDNSQType(value string) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported DNS qtype %q", value)
 	}
-}
-
-// ParseSecurity converts a user-facing Wi-Fi security token into the
-// corresponding protobuf enum.
-//
-// Empty input leaves the mode unspecified so the agent can infer SAE/PSK from
-// the scan cache before configuring Android.
-func ParseSecurity(value string) (controlpb.ConnectWifi_Security, error) {
-	return parseSecurity(value)
-}
-
-// ParseWifiBand converts a user-facing Wi-Fi band token into the corresponding
-// protobuf enum. Empty input and "all" both select all bands.
-func ParseWifiBand(value string) (controlpb.WifiBand, error) {
-	return parseWifiBand(value)
-}
-
-// ParseMacRandomization converts a user-facing MAC randomization token into
-// the corresponding protobuf enum.
-func ParseMacRandomization(value string) (controlpb.ConnectWifi_MacRandomization, error) {
-	return parseMacRandomization(value)
-}
-
-// ParseQTypes converts a DNS record-type token into the protobuf record types
-// requested from the agent. Empty input and "ALL" request A and AAAA records.
-func ParseQTypes(value string) ([]controlpb.DnsRecordType, error) {
-	return parseQTypes(value)
-}
-
-// ParseIpFamily converts an IP-family token into the corresponding protobuf
-// enum. Empty input and "all" request both IPv4 and IPv6 behavior.
-func ParseIpFamily(value string) (controlpb.IpFamily, error) {
-	return parseIpFamily(value)
 }
 
 // NormalizeIpFamily returns the canonical shell completion spelling for value.
@@ -335,28 +275,4 @@ func splitArgs(line string) ([]string, error) {
 // quote is reported as a parse error.
 func SplitArgs(line string) ([]string, error) {
 	return splitArgs(line)
-}
-
-func redactedCommand(cmd *controlpb.RunCommand) *controlpb.RunCommand {
-	cloned := proto.Clone(cmd).(*controlpb.RunCommand)
-	if connect := cloned.GetConnectWifi(); connect != nil && connect.Passphrase != "" {
-		cloned.Label = strings.ReplaceAll(cloned.Label, connect.Passphrase, "<redacted>")
-		connect.Passphrase = "<redacted>"
-	}
-	if cycle := cloned.GetCycleWifi(); cycle != nil && cycle.GetConnect().GetPassphrase() != "" {
-		cloned.Label = strings.ReplaceAll(cloned.Label, cycle.GetConnect().GetPassphrase(), "<redacted>")
-		cycle.Connect.Passphrase = "<redacted>"
-	}
-	if link := cloned.GetSetControllerLinkConfig(); link != nil && link.GetConfig().GetToken() != "" {
-		link.Config.Token = "<redacted>"
-	}
-	return cloned
-}
-
-// RedactedCommand clones cmd and replaces command secrets with "<redacted>".
-//
-// The input command is never mutated. Redaction covers direct connect commands,
-// cycle commands that embed a connect request, and controller reconnect tokens.
-func RedactedCommand(cmd *controlpb.RunCommand) *controlpb.RunCommand {
-	return redactedCommand(cmd)
 }

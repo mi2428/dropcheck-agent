@@ -145,7 +145,7 @@ func WifiForgetOperation(target string) Operation {
 
 // WifiScanOperation builds a cached Wi-Fi scan operation.
 //
-// bandValue accepts the same user-facing band tokens as ParseWifiBand.
+// bandValue accepts the same user-facing band tokens as other Wi-Fi builders.
 func WifiScanOperation(bandValue string) (Operation, error) {
 	band, err := parseWifiBand(bandValue)
 	if err != nil {
@@ -601,6 +601,13 @@ func appendFlag(parts *[]string, name string, enabled bool) {
 	if enabled {
 		*parts = append(*parts, name)
 	}
+}
+
+func normalizeHTTPURL(value string) string {
+	if strings.Contains(value, "://") {
+		return value
+	}
+	return "https://" + value
 }
 
 func wifiConnectLabel(command string, opts WifiConnectOptions) string {

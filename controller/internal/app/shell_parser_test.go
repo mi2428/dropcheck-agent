@@ -7,110 +7,114 @@ import (
 	"testing"
 
 	"dropcheck/controller/internal/controlpb"
+	"dropcheck/controller/internal/linuxcli"
 )
 
 func TestParseShellCommands(t *testing.T) {
 	tests := []struct {
-		name string
-		line string
-		kind shellCommandKind
-		args []string
+		name  string
+		line  string
+		kind  shellCommandKind
+		label string
+		hops  []string
 	}{
 		{
-			name: "show wifi status",
-			line: "show wifi status",
-			kind: shellAgentCommand,
-			args: []string{"wifi", "status"},
+			name:  "show wifi status",
+			line:  "show wifi status",
+			kind:  shellAgentCommand,
+			label: "wifi status",
 		},
 		{
-			name: "show wifi scan fresh",
-			line: "show wifi scan fresh 5ghz timeout 9000",
-			kind: shellAgentCommand,
-			args: []string{"wifi", "scan", "fresh", "5ghz", "--timeout", "9000"},
+			name:  "show wifi scan fresh",
+			line:  "show wifi scan fresh 5ghz timeout 9000",
+			kind:  shellAgentCommand,
+			label: "wifi scan fresh 5ghz --timeout 9000",
 		},
 		{
-			name: "request wifi connect",
-			line: "request wifi connect Lab passphrase secret security wpa3 bssid aa:bb:cc:dd:ee:ff band 6ghz mac-randomization non-persistent timeout 12345",
-			kind: shellAgentCommand,
-			args: []string{"wifi", "connect", "Lab", "secret", "wpa3", "--bssid", "aa:bb:cc:dd:ee:ff", "--band", "6ghz", "--mac-randomization", "non-persistent", "--timeout", "12345"},
+			name:  "request wifi connect",
+			line:  "request wifi connect Lab passphrase secret security wpa3 bssid aa:bb:cc:dd:ee:ff band 6ghz mac-randomization non-persistent timeout 12345",
+			kind:  shellAgentCommand,
+			label: "wifi connect Lab <redacted> wpa3 --bssid aa:bb:cc:dd:ee:ff --band 6ghz --mac-randomization non-persistent --timeout 12345",
 		},
 		{
-			name: "request wifi connect options first",
-			line: "request wifi connect passphrase secret security wpa3 bssid aa:bb:cc:dd:ee:ff band 6ghz mac-randomization non-persistent timeout 12345 Lab",
-			kind: shellAgentCommand,
-			args: []string{"wifi", "connect", "Lab", "secret", "wpa3", "--bssid", "aa:bb:cc:dd:ee:ff", "--band", "6ghz", "--mac-randomization", "non-persistent", "--timeout", "12345"},
+			name:  "request wifi connect options first",
+			line:  "request wifi connect passphrase secret security wpa3 bssid aa:bb:cc:dd:ee:ff band 6ghz mac-randomization non-persistent timeout 12345 Lab",
+			kind:  shellAgentCommand,
+			label: "wifi connect Lab <redacted> wpa3 --bssid aa:bb:cc:dd:ee:ff --band 6ghz --mac-randomization non-persistent --timeout 12345",
 		},
 		{
-			name: "request wifi cycle",
-			line: "request wifi cycle Lab passphrase secret count 2 ping 1.1.1.1 http https://example.test forget pause 250",
-			kind: shellAgentCommand,
-			args: []string{"wifi", "cycle", "Lab", "secret", "--count", "2", "--ping", "1.1.1.1", "--http", "https://example.test", "--pause", "250", "--forget"},
+			name:  "request wifi cycle",
+			line:  "request wifi cycle Lab passphrase secret count 2 ping 1.1.1.1 http https://example.test forget pause 250",
+			kind:  shellAgentCommand,
+			label: "wifi cycle Lab <redacted> --count 2 --ping 1.1.1.1 --http https://example.test --pause 250 --forget",
 		},
 		{
-			name: "monitor wifi",
-			line: "monitor wifi duration 5000 interval 250",
-			kind: shellAgentCommand,
-			args: []string{"wifi", "monitor", "5000", "250"},
+			name:  "monitor wifi",
+			line:  "monitor wifi duration 5000 interval 250",
+			kind:  shellAgentCommand,
+			label: "wifi monitor 5000 250",
 		},
 		{
-			name: "ping",
-			line: "ping 1.1.1.1 count 5 size 64 timeout 7000",
-			kind: shellAgentCommand,
-			args: []string{"ping", "1.1.1.1", "5", "--size", "64", "--timeout", "7000"},
+			name:  "ping",
+			line:  "ping 1.1.1.1 count 5 size 64 timeout 7000",
+			kind:  shellAgentCommand,
+			label: "ping 1.1.1.1 5 --size 64 --timeout 7000",
 		},
 		{
-			name: "ping options first",
-			line: "ping count 5 size 64 timeout 7000 1.1.1.1",
-			kind: shellAgentCommand,
-			args: []string{"ping", "1.1.1.1", "5", "--size", "64", "--timeout", "7000"},
+			name:  "ping options first",
+			line:  "ping count 5 size 64 timeout 7000 1.1.1.1",
+			kind:  shellAgentCommand,
+			label: "ping 1.1.1.1 5 --size 64 --timeout 7000",
 		},
 		{
-			name: "traceroute",
-			line: "traceroute example.test max-hops 12 via 192.0.2.1 size 80 timeout 30000",
-			kind: shellAgentCommand,
-			args: []string{"traceroute", "example.test", "12", "--via", "192.0.2.1", "--size", "80", "--timeout", "30000"},
+			name:  "traceroute",
+			line:  "traceroute example.test max-hops 12 via 192.0.2.1 size 80 timeout 30000",
+			kind:  shellAgentCommand,
+			label: "traceroute example.test 12 --via 192.0.2.1 --size 80 --timeout 30000",
+			hops:  []string{"192.0.2.1"},
 		},
 		{
-			name: "traceroute options first",
-			line: "traceroute max-hops 12 via 192.0.2.1 size 80 timeout 30000 example.test",
-			kind: shellAgentCommand,
-			args: []string{"traceroute", "example.test", "12", "--via", "192.0.2.1", "--size", "80", "--timeout", "30000"},
+			name:  "traceroute options first",
+			line:  "traceroute max-hops 12 via 192.0.2.1 size 80 timeout 30000 example.test",
+			kind:  shellAgentCommand,
+			label: "traceroute example.test 12 --via 192.0.2.1 --size 80 --timeout 30000",
+			hops:  []string{"192.0.2.1"},
 		},
 		{
-			name: "path mtu",
-			line: "path-mtu example.test min-mtu 1200 max-mtu 1500 timeout 30000",
-			kind: shellAgentCommand,
-			args: []string{"path-mtu", "example.test", "--min-mtu", "1200", "--max-mtu", "1500", "--timeout", "30000"},
+			name:  "path mtu",
+			line:  "path-mtu example.test min-mtu 1200 max-mtu 1500 timeout 30000",
+			kind:  shellAgentCommand,
+			label: "path-mtu example.test --min-mtu 1200 --max-mtu 1500 --timeout 30000",
 		},
 		{
-			name: "path mtu options first",
-			line: "path-mtu min-mtu 1200 max-mtu 1500 timeout 30000 example.test",
-			kind: shellAgentCommand,
-			args: []string{"path-mtu", "example.test", "--min-mtu", "1200", "--max-mtu", "1500", "--timeout", "30000"},
+			name:  "path mtu options first",
+			line:  "path-mtu min-mtu 1200 max-mtu 1500 timeout 30000 example.test",
+			kind:  shellAgentCommand,
+			label: "path-mtu example.test --min-mtu 1200 --max-mtu 1500 --timeout 30000",
 		},
 		{
-			name: "global ip",
-			line: "global-ip ipv6 timeout 7000",
-			kind: shellAgentCommand,
-			args: []string{"global-ip", "ipv6", "--timeout", "7000"},
+			name:  "global ip",
+			line:  "global-ip ipv6 timeout 7000",
+			kind:  shellAgentCommand,
+			label: "global-ip ipv6 --timeout 7000",
 		},
 		{
-			name: "global ip options first",
-			line: "global-ip timeout 7000 ipv6",
-			kind: shellAgentCommand,
-			args: []string{"global-ip", "ipv6", "--timeout", "7000"},
+			name:  "global ip options first",
+			line:  "global-ip timeout 7000 ipv6",
+			kind:  shellAgentCommand,
+			label: "global-ip ipv6 --timeout 7000",
 		},
 		{
-			name: "test dns",
-			line: "test dns example.test type AAAA timeout 9000",
-			kind: shellAgentCommand,
-			args: []string{"dns", "example.test", "AAAA", "--timeout", "9000"},
+			name:  "test dns",
+			line:  "test dns example.test type AAAA timeout 9000",
+			kind:  shellAgentCommand,
+			label: "dns example.test AAAA --timeout 9000",
 		},
 		{
-			name: "test download options first",
-			line: "test download timeout 9000 https://example.test/file.bin",
-			kind: shellAgentCommand,
-			args: []string{"download", "https://example.test/file.bin", "--timeout", "9000"},
+			name:  "test download options first",
+			line:  "test download timeout 9000 https://example.test/file.bin",
+			kind:  shellAgentCommand,
+			label: "download https://example.test/file.bin --timeout 9000",
 		},
 		{
 			name: "set target all",
@@ -133,10 +137,28 @@ func TestParseShellCommands(t *testing.T) {
 			if got.kind != tt.kind {
 				t.Fatalf("kind = %v, want %v", got.kind, tt.kind)
 			}
-			if tt.args != nil {
-				assertOperationMatchesArgs(t, got.operation, tt.args)
+			if tt.label != "" {
+				assertOperationLabel(t, got.operation, tt.label)
+			}
+			if tt.hops != nil {
+				assertTracerouteHops(t, got.operation, tt.hops)
 			}
 		})
+	}
+}
+
+func TestParseShellCommandPrefixes(t *testing.T) {
+	got, err := parseShellLine("sho wi cap")
+	if err != nil {
+		t.Fatalf("parseShellLine() error = %v", err)
+	}
+	if got.kind != shellAgentCommand {
+		t.Fatalf("kind = %v, want shellAgentCommand", got.kind)
+	}
+	assertOperationLabel(t, got.operation, "wifi capabilities")
+
+	if _, err := parseShellLine("sho wi s"); err == nil {
+		t.Fatalf("parseShellLine() error = nil for ambiguous wifi command")
 	}
 }
 
@@ -700,94 +722,85 @@ func TestParseShellRejectsLinuxShapeInShell(t *testing.T) {
 
 func TestParseLinuxCommands(t *testing.T) {
 	tests := []struct {
-		name string
-		args []string
-		want []string
+		name  string
+		args  []string
+		label string
 	}{
 		{
-			name: "wifi connect flags",
-			args: []string{"wifi", "connect", "Lab", "--passphrase", "secret", "--security", "wpa3", "--band", "6ghz"},
-			want: []string{"wifi", "connect", "Lab", "secret", "wpa3", "--band", "6ghz"},
+			name:  "wifi connect flags",
+			args:  []string{"wifi", "connect", "Lab", "--passphrase", "secret", "--security", "wpa3", "--band", "6ghz"},
+			label: "wifi connect Lab <redacted> wpa3 --band 6ghz",
 		},
 		{
-			name: "wifi scan fresh flags",
-			args: []string{"wifi", "scan", "fresh", "--band", "5ghz", "--timeout", "9000"},
-			want: []string{"wifi", "scan", "fresh", "5ghz", "--timeout", "9000"},
+			name:  "wifi scan fresh flags",
+			args:  []string{"wifi", "scan", "fresh", "--band", "5ghz", "--timeout", "9000"},
+			label: "wifi scan fresh 5ghz --timeout 9000",
 		},
 		{
-			name: "ping flags",
-			args: []string{"ping", "1.1.1.1", "--count", "5", "--size", "64", "--timeout", "7000"},
-			want: []string{"ping", "1.1.1.1", "5", "--size", "64", "--timeout", "7000"},
+			name:  "ping flags",
+			args:  []string{"ping", "1.1.1.1", "--count", "5", "--size", "64", "--timeout", "7000"},
+			label: "ping 1.1.1.1 5 --size 64 --timeout 7000",
 		},
 		{
-			name: "path mtu flags",
-			args: []string{"path-mtu", "example.test", "--min-mtu", "1200", "--max-mtu", "1500", "--timeout", "30000"},
-			want: []string{"path-mtu", "example.test", "--min-mtu", "1200", "--max-mtu", "1500", "--timeout", "30000"},
+			name:  "path mtu flags",
+			args:  []string{"path-mtu", "example.test", "--min-mtu", "1200", "--max-mtu", "1500", "--timeout", "30000"},
+			label: "path-mtu example.test --min-mtu 1200 --max-mtu 1500 --timeout 30000",
 		},
 		{
-			name: "global ip flags",
-			args: []string{"global-ip", "--family", "ipv4", "--timeout", "7000"},
-			want: []string{"global-ip", "ipv4", "--timeout", "7000"},
+			name:  "global ip flags",
+			args:  []string{"global-ip", "--family", "ipv4", "--timeout", "7000"},
+			label: "global-ip ipv4 --timeout 7000",
 		},
 		{
-			name: "dns flags",
-			args: []string{"dns", "example.test", "--type", "AAAA", "--timeout", "9000"},
-			want: []string{"dns", "example.test", "AAAA", "--timeout", "9000"},
+			name:  "dns flags",
+			args:  []string{"dns", "example.test", "--type", "AAAA", "--timeout", "9000"},
+			label: "dns example.test AAAA --timeout 9000",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseLinuxCommand(tt.args)
+			got, err := linuxcli.Parse(tt.args)
 			if err != nil {
-				t.Fatalf("parseLinuxCommand() error = %v", err)
+				t.Fatalf("linuxcli.Parse() error = %v", err)
 			}
-			if got.kind != cliAgentCommand {
-				t.Fatalf("kind = %v, want cliAgentCommand", got.kind)
+			if got.Kind != linuxcli.AgentCommand {
+				t.Fatalf("kind = %v, want AgentCommand", got.Kind)
 			}
-			assertOperationMatchesArgs(t, got.operation, tt.want)
+			assertOperationLabel(t, got.Operation, tt.label)
 		})
 	}
 }
 
 func TestLinuxCommandBuildsOperation(t *testing.T) {
-	got, err := parseLinuxCommand([]string{"ping", "1.1.1.1", "--count", "5", "--size", "64"})
+	got, err := linuxcli.Parse([]string{"ping", "1.1.1.1", "--count", "5", "--size", "64"})
 	if err != nil {
-		t.Fatalf("parseLinuxCommand() error = %v", err)
+		t.Fatalf("linuxcli.Parse() error = %v", err)
 	}
-	if got.operation.Name != "ping" {
-		t.Fatalf("operation name = %q", got.operation.Name)
+	if got.Operation.Name != "ping" {
+		t.Fatalf("operation name = %q", got.Operation.Name)
 	}
-	cmd, _, err := buildRunCommand(got.operation)
-	if err != nil {
-		t.Fatalf("buildRunCommand() error = %v", err)
-	}
+	cmd, _ := operationCommand(t, got.Operation)
 	if ping := cmd.GetPing(); ping == nil || ping.GetHost() != "1.1.1.1" || ping.GetCount() != 5 || ping.GetSizeBytes() != 64 {
 		t.Fatalf("ping command = %#v", cmd.GetPing())
 	}
 }
 
 func TestParseLinuxControllerLinkCommands(t *testing.T) {
-	got, err := parseLinuxCommand([]string{"set", "controller", "endpoint", "192.168.7.1:37588", "enabled", "--min-backoff", "1s"})
+	got, err := linuxcli.Parse([]string{"set", "controller", "endpoint", "192.168.7.1:37588", "enabled", "--min-backoff", "1s"})
 	if err != nil {
-		t.Fatalf("parseLinuxCommand(set controller) error = %v", err)
+		t.Fatalf("linuxcli.Parse(set controller) error = %v", err)
 	}
-	cmd, _, err := buildRunCommand(got.operation)
-	if err != nil {
-		t.Fatalf("build set controller command: %v", err)
-	}
+	cmd, _ := operationCommand(t, got.Operation)
 	if config := cmd.GetSetControllerLinkConfig().GetConfig(); !config.GetEnabled() || config.GetHost() != "192.168.7.1" || config.GetPort() != 37588 {
 		t.Fatalf("controller config = %#v", config)
 	}
 
-	got, err = parseLinuxCommand([]string{"show", "controller", "endpoint"})
+	got, err = linuxcli.Parse([]string{"show", "controller", "endpoint"})
 	if err != nil {
-		t.Fatalf("parseLinuxCommand(show controller) error = %v", err)
+		t.Fatalf("linuxcli.Parse(show controller) error = %v", err)
 	}
-	cmd, _, err = buildRunCommand(got.operation)
-	if err != nil {
-		t.Fatalf("build show controller command: %v", err)
-	}
+	cmd, _ = operationCommand(t, got.Operation)
 	if cmd.GetGetControllerLinkConfig() == nil {
 		t.Fatalf("show controller endpoint command = %#v", cmd)
 	}
@@ -808,12 +821,12 @@ func TestExtractCLIOptionsAndTopLevel(t *testing.T) {
 		t.Fatalf("rest = %#v", rest)
 	}
 
-	opts, cliArgs, err := extractCLIOptions(rest)
+	opts, cliArgs, err := linuxcli.ExtractOptions(rest)
 	if err != nil {
-		t.Fatalf("extractCLIOptions() error = %v", err)
+		t.Fatalf("linuxcli.ExtractOptions() error = %v", err)
 	}
-	if opts.format != outputJSON {
-		t.Fatalf("format = %q", opts.format)
+	if opts.Format != outputJSON {
+		t.Fatalf("format = %q", opts.Format)
 	}
 	if !slices.Equal(cliArgs, []string{"devices"}) {
 		t.Fatalf("cliArgs = %#v", cliArgs)
