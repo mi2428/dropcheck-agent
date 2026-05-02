@@ -33,6 +33,55 @@ func (c checkBase) withExpectations(expectations []Expectation) checkBase {
 	return c
 }
 
+// IPStatusCheck configures an IP provisioning check.
+type IPStatusCheck struct {
+	checkBase
+}
+
+// IPStatus starts an IP status check builder.
+//
+// IPStatus is the primary festival check for layer-3 provisioning: DHCP,
+// RA/SLAAC-derived IPv6 state, assigned addresses, routes, DNS servers, MTU,
+// and Android network capabilities. Wi-Fi association properties belong in
+// WiFiStatus so a plan can distinguish link-layer failures from IP failures.
+func IPStatus() IPStatusCheck {
+	return IPStatusCheck{checkBase: checkBase{name: "ip status"}}
+}
+
+// Expect attaches expectations to the IP status check.
+func (c IPStatusCheck) Expect(expectations ...Expectation) IPStatusCheck {
+	c.checkBase = c.withExpectations(expectations)
+	return c
+}
+
+func (c IPStatusCheck) build() (step, error) {
+	return step{name: c.name, operation: command.IPStatusOperation(), expectations: c.expectations}, nil
+}
+
+// WiFiStatusCheck configures a Wi-Fi link-state check.
+type WiFiStatusCheck struct {
+	checkBase
+}
+
+// WiFiStatus starts a Wi-Fi status check builder.
+//
+// WiFiStatus is the primary festival check for layer-2 Wi-Fi properties:
+// connected SSID/BSSID, RSSI, frequency, derived channel/band, channel width,
+// Wi-Fi standard, link speed, and MLO link metadata.
+func WiFiStatus() WiFiStatusCheck {
+	return WiFiStatusCheck{checkBase: checkBase{name: "wifi status"}}
+}
+
+// Expect attaches expectations to the Wi-Fi status check.
+func (c WiFiStatusCheck) Expect(expectations ...Expectation) WiFiStatusCheck {
+	c.checkBase = c.withExpectations(expectations)
+	return c
+}
+
+func (c WiFiStatusCheck) build() (step, error) {
+	return step{name: c.name, operation: command.WifiStatusOperation(), expectations: c.expectations}, nil
+}
+
 // PingCheck configures an ICMP ping check.
 type PingCheck struct {
 	checkBase

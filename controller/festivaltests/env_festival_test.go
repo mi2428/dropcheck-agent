@@ -5,15 +5,18 @@ package festivaltests
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
 	"dropcheck/controller/internal/festival"
 	"dropcheck/controller/internal/festival/dns"
 	"dropcheck/controller/internal/festival/globalip"
+	"dropcheck/controller/internal/festival/ip"
 	"dropcheck/controller/internal/festival/ping"
 	"dropcheck/controller/internal/festival/pmtu"
 	"dropcheck/controller/internal/festival/trace"
+	"dropcheck/controller/internal/festival/wifi"
 )
 
 func TestEnvFestival(t *testing.T) {
@@ -32,9 +35,38 @@ func TestEnvFestival(t *testing.T) {
 		Band(os.Getenv("FESTIVAL_WIFI_BAND")).
 		RequireValidated(os.Getenv("FESTIVAL_REQUIRE_VALIDATED") == "1")
 
+	ipExpect := []festival.Expectation{
+		ip.AddressCount().Ge(1),
+		ip.MTU().Ge(1280),
+	}
+	wifiExpect := []festival.Expectation{
+		wifi.Enabled().IsTrue(),
+		wifi.SSID().Eq(ssid),
+	}
+	if bssid := os.Getenv("FESTIVAL_WIFI_BSSID"); bssid != "" {
+		wifiExpect = append(wifiExpect, wifi.BSSID().Eq(bssid))
+	}
+	if standard := os.Getenv("FESTIVAL_WIFI_STANDARD"); standard != "" {
+		wifiExpect = append(wifiExpect, wifi.Standard().Eq(wifi.StandardName(standard)))
+	}
+	if channel := os.Getenv("FESTIVAL_WIFI_CHANNEL"); channel != "" {
+		value, err := strconv.ParseInt(channel, 10, 32)
+		if err != nil {
+			t.Fatalf("FESTIVAL_WIFI_CHANNEL: %v", err)
+		}
+		wifiExpect = append(wifiExpect, wifi.Channel().Eq(int32(value)))
+	}
+	if width := os.Getenv("FESTIVAL_WIFI_CHANNEL_WIDTH"); width != "" {
+		wifiExpect = append(wifiExpect, wifi.ChannelWidth().Eq(wifi.ChannelWidthName(width)))
+	}
+
 	festival.Run(t, festival.Plan{
 		Networks: []festival.Network{network},
 		Checks: []festival.Check{
+			festival.IPStatus().
+				Expect(ipExpect...),
+			festival.WiFiStatus().
+				Expect(wifiExpect...),
 			festival.Ping("8.8.8.8").
 				Count(5).
 				Expect(
