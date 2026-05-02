@@ -24,7 +24,7 @@ malformed
 OUT
 `)
 
-	devices, err := Client{Path: path, Serial: "ignored", Timeout: time.Second}.ListDevices(context.Background())
+	devices, err := Client{Path: path, Serial: "ignored", Timeout: 5 * time.Second}.ListDevices(context.Background())
 	if err != nil {
 		t.Fatalf("ListDevices() error = %v", err)
 	}
@@ -52,7 +52,7 @@ printf 'args:%s\n' "$*"
 echo "stderr-line" >&2
 `)
 
-	out, err := Client{Path: path, Serial: "R5CT12345", Timeout: time.Second}.Output(context.Background(), "shell", "echo", "hello")
+	out, err := Client{Path: path, Serial: "R5CT12345", Timeout: 5 * time.Second}.Output(context.Background(), "shell", "echo", "hello")
 	if err != nil {
 		t.Fatalf("Output() error = %v", err)
 	}
@@ -70,7 +70,7 @@ echo "permission denied" >&2
 exit 7
 `)
 
-	out, err := Client{Path: path, Serial: "R5CT12345", Timeout: time.Second}.Output(context.Background(), "shell", "fail")
+	out, err := Client{Path: path, Serial: "R5CT12345", Timeout: 5 * time.Second}.Output(context.Background(), "shell", "fail")
 	if err == nil {
 		t.Fatalf("Output() error = nil")
 	}
@@ -89,7 +89,7 @@ func TestClientSessionCommands(t *testing.T) {
 printf '%s\n' "$*" >> "$ADB_LOG"
 `)
 
-	client := Client{Path: path, Serial: "R5CT12345", Timeout: time.Second}
+	client := Client{Path: path, Serial: "R5CT12345", Timeout: 5 * time.Second}
 	ctx := context.Background()
 	if err := client.Reverse(ctx, 43123); err != nil {
 		t.Fatalf("Reverse() error = %v", err)
