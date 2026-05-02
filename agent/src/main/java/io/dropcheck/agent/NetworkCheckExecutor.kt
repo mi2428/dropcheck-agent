@@ -453,6 +453,7 @@ class NetworkCheckExecutor(
         output.append(" (ping TTL fallback)\n")
 
         var reached = false
+        var observedHop = false
         var error = ""
         for (ttl in 1..maxHops) {
             throwIfInterrupted()
@@ -488,6 +489,9 @@ class NetworkCheckExecutor(
             val run = runProcess(args, hopTimeoutMs)
             val hopElapsedMs = Duration.ofNanos(System.nanoTime() - hopStarted).toMillis()
             val probe = parsePingTraceProbe(run.output, command.host, hopElapsedMs)
+            if (!probe.timedOut && (probe.address.isNotBlank() || probe.host.isNotBlank())) {
+                observedHop = true
+            }
             logger.debugEvent("process.end", listOf(
                 "probe" to "traceroute_ping_ttl",
                 "ttl" to ttl,
@@ -515,7 +519,8 @@ class NetworkCheckExecutor(
             }
         }
 
-        if (!reached && error.isBlank()) {
+        val completed = reached || observedHop
+        if (!completed && error.isBlank()) {
             error = "target_not_reached"
         }
         val elapsedMs = Duration.ofNanos(System.nanoTime() - started).toMillis()
@@ -524,21 +529,21 @@ class NetworkCheckExecutor(
             .setMaxHops(maxHops)
             .setSizeBytes(command.sizeBytes)
             .setElapsedMs(elapsedMs)
-            .setExitCode(if (reached) 0 else -1)
+            .setExitCode(if (completed) 0 else -1)
             .setInterfaceName(iface)
             .setOutput(output.toString().take(12000))
-            .setError(error)
+            .setError(if (completed) "" else error)
             .setExecutable("ping TTL fallback")
             .build()
-        logger.debug("traceroute ping fallback finished host=${command.host} reached=$reached elapsed_ms=$elapsedMs output_bytes=${output.length} error=${error.ifBlank { "none" }}")
+        logger.debug("traceroute ping fallback finished host=${command.host} reached=$reached observed_hop=$observedHop elapsed_ms=$elapsedMs output_bytes=${output.length} error=${error.ifBlank { "none" }}")
         logger.debugEvent("network.probe.result", listOf(
             "probe" to "traceroute",
             "fallback" to "ping_ttl",
-            "ok" to reached,
+            "ok" to completed,
         ) + result.logFields())
         return CommandResult.newBuilder()
-            .setStatus(if (reached) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
-            .setMessage(if (reached) "traceroute ping fallback passed" else "traceroute ping fallback failed")
+            .setStatus(if (completed) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
+            .setMessage(if (completed) "traceroute ping fallback completed" else "traceroute ping fallback failed")
             .setTraceroute(result)
             .build()
     }
