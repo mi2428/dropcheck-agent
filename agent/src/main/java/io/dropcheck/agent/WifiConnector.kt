@@ -50,7 +50,16 @@ class WifiConnector(
         val passphrase = command.passphrase
         if (ssid.isBlank()) return Setup(error = "wifi ssid is required")
 
-        logger.info("wifi configure ssid=$ssid security=${command.security} bssid=${command.bssid.ifBlank { "*" }} band=${command.band} mac_randomization=${command.macRandomization} passphrase_present=${passphrase.isNotBlank()}")
+        val securityCandidates = if (command.security == ConnectWifi.Security.SECURITY_UNSPECIFIED) scanSecurityCandidates() else emptyList()
+        val resolvedSecurity = WifiConnectorPolicy.resolveConnectSecurity(
+            requested = command.security,
+            candidates = securityCandidates,
+            ssid = ssid,
+            bssid = command.bssid,
+            band = command.band,
+        )
+
+        logger.info("wifi configure ssid=$ssid security=${command.security} resolved_security=$resolvedSecurity bssid=${command.bssid.ifBlank { "*" }} band=${command.band} mac_randomization=${command.macRandomization} passphrase_present=${passphrase.isNotBlank()} security_candidates=${securityCandidates.size}")
         val beforeInfo = wifi.connectionInfo
         logger.debug("wifi manager state enabled=${wifi.isWifiEnabled} state=${wifi.wifiState} connection_network_id=${beforeInfo?.networkId} connection_ssid=${beforeInfo?.ssid} connection_bssid=${beforeInfo?.bssid} rssi=${beforeInfo?.rssi} freq=${beforeInfo?.frequency}")
         val previousNetworkId = beforeInfo?.networkId?.takeIf { it >= 0 }
@@ -58,7 +67,7 @@ class WifiConnector(
             SSID = WifiConnectorPolicy.quoteWifi(ssid)
             if (command.bssid.isNotBlank()) BSSID = command.bssid
             if (passphrase.isNotBlank()) preSharedKey = WifiConnectorPolicy.quoteWifi(passphrase)
-            when (command.security) {
+            when (resolvedSecurity) {
                 ConnectWifi.Security.SECURITY_WPA3_SAE -> setSecurityParams(WifiConfiguration.SECURITY_TYPE_SAE)
                 ConnectWifi.Security.SECURITY_WPA2_WPA3_TRANSITION -> setSecurityParams(WifiConfiguration.SECURITY_TYPE_PSK)
                 ConnectWifi.Security.SECURITY_WPA2_PSK,
@@ -70,7 +79,7 @@ class WifiConnector(
         if (macRandomization.error != null) {
             return Setup(error = macRandomization.error)
         }
-        logger.debug("wifi configuration prepared ssid=$ssid bssid=${config.BSSID.orEmpty().ifBlank { "*" }} security=${command.security} band=${command.band} previous_network_id=${previousNetworkId ?: "none"} hidden=${config.hiddenSSID} mac_randomization_requested=${command.macRandomization} mac_randomization_applied=${macRandomization.applied}")
+        logger.debug("wifi configuration prepared ssid=$ssid bssid=${config.BSSID.orEmpty().ifBlank { "*" }} security=${command.security} resolved_security=$resolvedSecurity band=${command.band} previous_network_id=${previousNetworkId ?: "none"} hidden=${config.hiddenSSID} mac_randomization_requested=${command.macRandomization} mac_randomization_applied=${macRandomization.applied}")
 
         val add = wifi.addNetworkPrivileged(config)
         logger.info("wifi addNetworkPrivileged status=${add.statusCode} network_id=${add.networkId}")
@@ -89,6 +98,27 @@ class WifiConnector(
         val afterInfo = wifi.connectionInfo
         logger.debug("wifi post-reconnect manager_enabled=${wifi.isWifiEnabled} connection_network_id=${afterInfo?.networkId} connection_ssid=${afterInfo?.ssid} connection_bssid=${afterInfo?.bssid} supplicant=${afterInfo?.supplicantState} rssi=${afterInfo?.rssi} freq=${afterInfo?.frequency}")
         return Setup(networkId = networkId, previousNetworkId = previousNetworkId)
+    }
+
+    /**
+     * Reads the scan cache for auto security selection without making connect
+     * depend on fresh scans, which Android may throttle during repeated tests.
+     */
+    @SuppressLint("MissingPermission")
+    private fun scanSecurityCandidates(): List<WifiConnectorPolicy.ScanSecurityCandidate> {
+        return runCatching {
+            wifi.scanResults.orEmpty().map { result ->
+                WifiConnectorPolicy.ScanSecurityCandidate(
+                    ssid = result.SSID.orEmpty(),
+                    bssid = result.BSSID.orEmpty(),
+                    capabilities = result.capabilities.orEmpty(),
+                    frequencyMhz = result.frequency,
+                    levelDbm = result.level,
+                )
+            }
+        }.onFailure {
+            logger.warn("wifi scan cache unavailable for security auto selection error=${errorSummary(it)}")
+        }.getOrDefault(emptyList())
     }
 
     /** Requests Wi-Fi disconnect and records the connection that was active beforehand. */

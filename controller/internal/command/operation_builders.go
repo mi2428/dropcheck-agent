@@ -15,7 +15,7 @@ type WifiConnectOptions struct {
 	SSID string
 	// Passphrase is the network credential. Command labels redact it.
 	Passphrase string
-	// Security is "wpa2", "wpa3", or "transition"; empty uses the default.
+	// Security is "auto", "wpa2", "wpa3", or "transition"; empty uses auto.
 	Security string
 	// BSSID optionally pins the connection to one access point.
 	BSSID string

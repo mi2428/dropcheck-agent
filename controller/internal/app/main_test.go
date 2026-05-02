@@ -125,7 +125,8 @@ func TestNormalizeShellCommandPrefixes(t *testing.T) {
 
 func TestEnumParsers(t *testing.T) {
 	securityTests := map[string]controlpb.ConnectWifi_Security{
-		"":           controlpb.ConnectWifi_SECURITY_WPA2_PSK,
+		"":           controlpb.ConnectWifi_SECURITY_UNSPECIFIED,
+		"auto":       controlpb.ConnectWifi_SECURITY_UNSPECIFIED,
 		"wpa2":       controlpb.ConnectWifi_SECURITY_WPA2_PSK,
 		"wpa3":       controlpb.ConnectWifi_SECURITY_WPA3_SAE,
 		"transition": controlpb.ConnectWifi_SECURITY_WPA2_WPA3_TRANSITION,

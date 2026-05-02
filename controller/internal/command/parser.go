@@ -47,7 +47,9 @@ func parseUint32(value string, name string) (uint32, error) {
 
 func parseSecurity(value string) (controlpb.ConnectWifi_Security, error) {
 	switch strings.ToLower(value) {
-	case "", "wpa2":
+	case "", "auto":
+		return controlpb.ConnectWifi_SECURITY_UNSPECIFIED, nil
+	case "wpa2":
 		return controlpb.ConnectWifi_SECURITY_WPA2_PSK, nil
 	case "wpa3":
 		return controlpb.ConnectWifi_SECURITY_WPA3_SAE, nil
@@ -147,7 +149,8 @@ func normalizeDNSQType(value string) (string, error) {
 // ParseSecurity converts a user-facing Wi-Fi security token into the
 // corresponding protobuf enum.
 //
-// Empty input selects the controller default, currently WPA2-PSK.
+// Empty input leaves the mode unspecified so the agent can infer SAE/PSK from
+// the scan cache before configuring Android.
 func ParseSecurity(value string) (controlpb.ConnectWifi_Security, error) {
 	return parseSecurity(value)
 }

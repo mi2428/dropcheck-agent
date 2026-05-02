@@ -1,5 +1,9 @@
 package io.dropcheck.agent
 
+import io.dropcheck.agent.grpc.ConnectWifi
+import io.dropcheck.agent.grpc.WifiBand
+import java.util.Locale
+
 /**
  * Pure policy for Wi-Fi configuration bookkeeping.
  *
@@ -13,9 +17,62 @@ internal object WifiConnectorPolicy {
         val ssid: String,
     )
 
+    /** Minimal cached scan data needed to infer how a passphrase network should be configured. */
+    data class ScanSecurityCandidate(
+        val ssid: String,
+        val bssid: String,
+        val capabilities: String,
+        val frequencyMhz: Int,
+        val levelDbm: Int,
+    )
+
     /** WifiConfiguration expects quoted SSID/passphrase strings for legacy addNetwork APIs. */
     fun quoteWifi(value: String): String {
         return if (value.startsWith("\"") && value.endsWith("\"")) value else "\"$value\""
+    }
+
+    /**
+     * Resolves an omitted connect security mode from cached scan capabilities.
+     *
+     * The controller can leave security as UNSPECIFIED when a user did not
+     * choose WPA2/WPA3. Android's legacy addNetwork API still needs one
+     * concrete security parameter, so the agent uses the strongest matching
+     * scan result it can observe and falls back to WPA2 for old or hidden APs.
+     */
+    fun resolveConnectSecurity(
+        requested: ConnectWifi.Security,
+        candidates: List<ScanSecurityCandidate>,
+        ssid: String,
+        bssid: String,
+        band: WifiBand,
+    ): ConnectWifi.Security {
+        if (requested != ConnectWifi.Security.SECURITY_UNSPECIFIED) return requested
+        return candidates
+            .filter { it.ssid == ssid }
+            .filter { bssid.isBlank() || it.bssid.equals(bssid, ignoreCase = true) }
+            .filter { frequencyMatchesWifiBand(it.frequencyMhz, band) }
+            .sortedByDescending { it.levelDbm }
+            .mapNotNull { securityFromCapabilities(it.capabilities) }
+            .firstOrNull()
+            ?: ConnectWifi.Security.SECURITY_WPA2_PSK
+    }
+
+    /**
+     * Parses Android ScanResult capability text into the connect security enum.
+     *
+     * Transition-mode APs often advertise both PSK and SAE. Auto mode prefers
+     * SAE because a modern Dropcheck test device can then verify it is actually
+     * using WPA3; users can still request `transition` or `wpa2` explicitly.
+     */
+    fun securityFromCapabilities(capabilities: String): ConnectWifi.Security? {
+        val upper = capabilities.uppercase(Locale.US)
+        val hasSae = upper.contains("SAE")
+        val hasPsk = upper.contains("PSK")
+        return when {
+            hasSae -> ConnectWifi.Security.SECURITY_WPA3_SAE
+            hasPsk -> ConnectWifi.Security.SECURITY_WPA2_PSK
+            else -> null
+        }
     }
 
     /**

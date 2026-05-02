@@ -55,7 +55,7 @@ func (n Network) PSKEnv(name string) Network {
 	return n
 }
 
-// Security sets the Wi-Fi security token, such as "wpa2" or "wpa3".
+// Security sets the Wi-Fi security token, such as "auto", "wpa2", or "wpa3".
 func (n Network) Security(value string) Network {
 	n.security = value
 	return n
