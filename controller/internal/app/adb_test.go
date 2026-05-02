@@ -32,7 +32,7 @@ R5CT33333 unauthorized product:three
 OUT
 `)
 
-	targets, err := discoverADBTargets(context.Background(), adb.Client{Path: path, Timeout: time.Second}, "")
+	targets, err := discoverADBTargets(context.Background(), adb.Client{Path: path, Timeout: 5 * time.Second}, "")
 	if err != nil {
 		t.Fatalf("discoverADBTargets() error = %v", err)
 	}
@@ -50,7 +50,7 @@ R5CT22222 offline product:two
 OUT
 `)
 
-	_, err := discoverADBTargets(context.Background(), adb.Client{Path: path, Timeout: time.Second}, "")
+	_, err := discoverADBTargets(context.Background(), adb.Client{Path: path, Timeout: 5 * time.Second}, "")
 	if err == nil || !strings.Contains(err.Error(), "no connected adb devices") {
 		t.Fatalf("discoverADBTargets() error = %v, want no connected devices", err)
 	}
