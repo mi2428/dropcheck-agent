@@ -1,5 +1,7 @@
 package io.dropcheck.agent
 
+import io.dropcheck.agent.grpc.ConnectWifi
+import io.dropcheck.agent.grpc.WifiBand
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -10,6 +12,99 @@ class WifiConnectorPolicyTest {
     fun quotesWifiConfigurationStringsOnlyWhenNeeded() {
         assertEquals("\"Lab\"", WifiConnectorPolicy.quoteWifi("Lab"))
         assertEquals("\"Lab\"", WifiConnectorPolicy.quoteWifi("\"Lab\""))
+    }
+
+    @Test
+    fun infersWpa3SecurityFromScanCapabilities() {
+        val candidates = listOf(
+            WifiConnectorPolicy.ScanSecurityCandidate(
+                ssid = "Lab",
+                bssid = "70:a7:41:a0:9a:6f",
+                capabilities = "[WPA2-PSK-CCMP][RSN-SAE-CCMP][ESS]",
+                frequencyMhz = 5200,
+                levelDbm = -54,
+            ),
+        )
+
+        assertEquals(
+            ConnectWifi.Security.SECURITY_WPA3_SAE,
+            WifiConnectorPolicy.resolveConnectSecurity(
+                requested = ConnectWifi.Security.SECURITY_UNSPECIFIED,
+                candidates = candidates,
+                ssid = "Lab",
+                bssid = "",
+                band = WifiBand.WIFI_BAND_ALL,
+            ),
+        )
+    }
+
+    @Test
+    fun fallsBackToWpa2WhenAutoSecurityHasNoMatchingScanResult() {
+        assertEquals(
+            ConnectWifi.Security.SECURITY_WPA2_PSK,
+            WifiConnectorPolicy.resolveConnectSecurity(
+                requested = ConnectWifi.Security.SECURITY_UNSPECIFIED,
+                candidates = emptyList(),
+                ssid = "Hidden",
+                bssid = "",
+                band = WifiBand.WIFI_BAND_ALL,
+            ),
+        )
+    }
+
+    @Test
+    fun keepsExplicitSecuritySelection() {
+        val candidates = listOf(
+            WifiConnectorPolicy.ScanSecurityCandidate(
+                ssid = "Lab",
+                bssid = "70:a7:41:a0:9a:6f",
+                capabilities = "[RSN-SAE-CCMP][ESS]",
+                frequencyMhz = 5200,
+                levelDbm = -54,
+            ),
+        )
+
+        assertEquals(
+            ConnectWifi.Security.SECURITY_WPA2_PSK,
+            WifiConnectorPolicy.resolveConnectSecurity(
+                requested = ConnectWifi.Security.SECURITY_WPA2_PSK,
+                candidates = candidates,
+                ssid = "Lab",
+                bssid = "",
+                band = WifiBand.WIFI_BAND_ALL,
+            ),
+        )
+    }
+
+    @Test
+    fun filtersAutoSecurityCandidatesByBssidAndBand() {
+        val candidates = listOf(
+            WifiConnectorPolicy.ScanSecurityCandidate(
+                ssid = "Lab",
+                bssid = "00:00:00:00:00:01",
+                capabilities = "[RSN-PSK-CCMP][ESS]",
+                frequencyMhz = 2412,
+                levelDbm = -20,
+            ),
+            WifiConnectorPolicy.ScanSecurityCandidate(
+                ssid = "Lab",
+                bssid = "70:a7:41:a0:9a:6f",
+                capabilities = "[RSN-SAE-CCMP][ESS]",
+                frequencyMhz = 5200,
+                levelDbm = -54,
+            ),
+        )
+
+        assertEquals(
+            ConnectWifi.Security.SECURITY_WPA3_SAE,
+            WifiConnectorPolicy.resolveConnectSecurity(
+                requested = ConnectWifi.Security.SECURITY_UNSPECIFIED,
+                candidates = candidates,
+                ssid = "Lab",
+                bssid = "70:a7:41:a0:9a:6f",
+                band = WifiBand.WIFI_BAND_5_GHZ,
+            ),
+        )
     }
 
     @Test

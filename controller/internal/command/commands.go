@@ -137,7 +137,7 @@ func commandLabel(args []string) string {
 }
 
 func wifiUsage() string {
-	return "usage: wifi status | wifi diagnostics | wifi scan [band] | wifi scan fresh [band] [--timeout ms] | wifi scan detail <ssid|bssid> [band] | wifi capabilities | wifi connect <ssid> <passphrase> [security] [--bssid bssid] [--band band] [--mac-randomization auto|none|persistent|non-persistent] [--timeout ms] | wifi disconnect | wifi forget <ssid|network_id> | wifi wait connected [ssid] [--bssid bssid] [--security security] [--band band] [--ip] [--validated] [--timeout ms] | wifi assert [--ssid ssid] [--bssid bssid] [--security security] [--band band] [--ip] [--validated] [--timeout ms] | wifi watch [duration_ms] [interval_ms] | wifi monitor [duration_ms] [interval_ms] | wifi reconnect [timeout_ms] | wifi cycle <ssid> <passphrase> [security] [--count n] [--bssid bssid] [--band band] [--mac-randomization auto|none|persistent|non-persistent] [--ping host] [--http url] [--forget] [--pause ms] [--timeout ms]"
+	return "usage: wifi status | wifi diagnostics | wifi scan [band] | wifi scan fresh [band] [--timeout ms] | wifi scan detail <ssid|bssid> [band] | wifi capabilities | wifi connect <ssid> <passphrase> [auto|wpa2|wpa3|transition] [--bssid bssid] [--band band] [--mac-randomization auto|none|persistent|non-persistent] [--timeout ms] | wifi disconnect | wifi forget <ssid|network_id> | wifi wait connected [ssid] [--bssid bssid] [--security security] [--band band] [--ip] [--validated] [--timeout ms] | wifi assert [--ssid ssid] [--bssid bssid] [--security security] [--band band] [--ip] [--validated] [--timeout ms] | wifi watch [duration_ms] [interval_ms] | wifi monitor [duration_ms] [interval_ms] | wifi reconnect [timeout_ms] | wifi cycle <ssid> <passphrase> [auto|wpa2|wpa3|transition] [--count n] [--bssid bssid] [--band band] [--mac-randomization auto|none|persistent|non-persistent] [--ping host] [--http url] [--forget] [--pause ms] [--timeout ms]"
 }
 
 func buildWifiScanCommand(label string, args []string) (*controlpb.RunCommand, error) {
@@ -205,12 +205,12 @@ func buildWifiScanCommand(label string, args []string) (*controlpb.RunCommand, e
 
 func buildWifiConnectCommand(label string, args []string) (*controlpb.RunCommand, error) {
 	if len(args) < 2 {
-		return nil, errors.New("usage: wifi connect <ssid> <passphrase> [wpa2|wpa3|transition] [--bssid bssid] [--band band] [--mac-randomization auto|none|persistent|non-persistent] [--timeout ms]")
+		return nil, errors.New("usage: wifi connect <ssid> <passphrase> [auto|wpa2|wpa3|transition] [--bssid bssid] [--band band] [--mac-randomization auto|none|persistent|non-persistent] [--timeout ms]")
 	}
 	connect := &controlpb.ConnectWifi{
 		Ssid:       args[0],
 		Passphrase: args[1],
-		Security:   controlpb.ConnectWifi_SECURITY_WPA2_PSK,
+		Security:   controlpb.ConnectWifi_SECURITY_UNSPECIFIED,
 		TimeoutMs:  45000,
 		Band:       controlpb.WifiBand_WIFI_BAND_ALL,
 	}
@@ -479,12 +479,12 @@ func buildWifiReconnectCommand(label string, args []string) (*controlpb.RunComma
 
 func buildWifiCycleCommand(label string, args []string) (*controlpb.RunCommand, error) {
 	if len(args) < 2 {
-		return nil, errors.New("usage: wifi cycle <ssid> <passphrase> [wpa2|wpa3|transition] [--count n] [--bssid bssid] [--band band] [--mac-randomization auto|none|persistent|non-persistent] [--ping host] [--http url] [--forget] [--pause ms] [--timeout ms]")
+		return nil, errors.New("usage: wifi cycle <ssid> <passphrase> [auto|wpa2|wpa3|transition] [--count n] [--bssid bssid] [--band band] [--mac-randomization auto|none|persistent|non-persistent] [--ping host] [--http url] [--forget] [--pause ms] [--timeout ms]")
 	}
 	connect := &controlpb.ConnectWifi{
 		Ssid:       args[0],
 		Passphrase: args[1],
-		Security:   controlpb.ConnectWifi_SECURITY_WPA2_PSK,
+		Security:   controlpb.ConnectWifi_SECURITY_UNSPECIFIED,
 		TimeoutMs:  45000,
 		Band:       controlpb.WifiBand_WIFI_BAND_ALL,
 	}

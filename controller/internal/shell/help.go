@@ -39,13 +39,13 @@ func writeShellHelp(w io.Writer) {
   show festival standalone config
   show festival runs [limit <n>] [synced]
   show festival run <run-id>
-  request wifi connect passphrase <passphrase> [security <wpa2|wpa3|transition>] [bssid <bssid>] [band <band>] [mac-randomization <mode>] [timeout <ms>] <ssid>
+  request wifi connect passphrase <passphrase> [security <auto|wpa2|wpa3|transition>] [bssid <bssid>] [band <band>] [mac-randomization <mode>] [timeout <ms>] <ssid>
   request wifi disconnect
   request wifi forget <ssid|network_id>
   request wifi reconnect [timeout <ms>]
   request wifi wait connected [bssid <bssid>] [security <mode>] [band <band>] [ip] [validated] [timeout <ms>] [ssid]
   request wifi assert [ssid <ssid>] [bssid <bssid>] [security <mode>] [band <band>] [ip] [validated] [timeout <ms>]
-  request wifi cycle passphrase <passphrase> [security <mode>] [count <n>] [bssid <bssid>] [band <band>] [mac-randomization <mode>] [ping <host>] [http <url>] [forget] [pause <ms>] [timeout <ms>] <ssid>
+  request wifi cycle passphrase <passphrase> [security <auto|wpa2|wpa3|transition>] [count <n>] [bssid <bssid>] [band <band>] [mac-randomization <mode>] [ping <host>] [http <url>] [forget] [pause <ms>] [timeout <ms>] <ssid>
   request festival run once plan <file> [save]
   request festival sync [output <dir>] [limit <n>] [mark-synced|keep-unsynced]
   request festival clear [synced|all]
@@ -492,7 +492,7 @@ func pipeHelpEntries() []HelpEntry {
 func requestWifiHelp(command string) []HelpEntry {
 	switch command {
 	case "connect":
-		return []HelpEntry{{"passphrase", "WPA/WPA3 passphrase"}, {"security", "wpa2, wpa3, or transition"}, {"bssid", "Target BSSID"}, {"band", "all, 2.4ghz, 5ghz, 6ghz, or 60ghz"}, {"mac-randomization", "auto, none, persistent, or non-persistent"}, {"timeout", "Timeout in milliseconds"}, {"<ssid>", "SSID to connect"}}
+		return []HelpEntry{{"passphrase", "WPA/WPA3 passphrase"}, {"security", "auto, wpa2, wpa3, or transition"}, {"bssid", "Target BSSID"}, {"band", "all, 2.4ghz, 5ghz, 6ghz, or 60ghz"}, {"mac-randomization", "auto, none, persistent, or non-persistent"}, {"timeout", "Timeout in milliseconds"}, {"<ssid>", "SSID to connect"}}
 	case "disconnect":
 		return nil
 	case "forget":
@@ -504,7 +504,7 @@ func requestWifiHelp(command string) []HelpEntry {
 	case "assert":
 		return []HelpEntry{{"ssid", "Expected SSID"}, {"bssid", "Expected BSSID"}, {"security", "Expected security"}, {"band", "Expected band"}, {"ip", "Require IP address"}, {"validated", "Require validated internet"}, {"timeout", "Timeout in milliseconds"}}
 	case "cycle":
-		return []HelpEntry{{"passphrase", "WPA/WPA3 passphrase"}, {"security", "wpa2, wpa3, or transition"}, {"count", "Cycle count"}, {"bssid", "Target BSSID"}, {"band", "Target band"}, {"mac-randomization", "MAC randomization mode"}, {"ping", "Ping host after connect"}, {"http", "HTTP URL after connect"}, {"forget", "Forget after each cycle"}, {"pause", "Pause between cycles in milliseconds"}, {"timeout", "Per-connect timeout in milliseconds"}, {"<ssid>", "SSID to connect"}}
+		return []HelpEntry{{"passphrase", "WPA/WPA3 passphrase"}, {"security", "auto, wpa2, wpa3, or transition"}, {"count", "Cycle count"}, {"bssid", "Target BSSID"}, {"band", "Target band"}, {"mac-randomization", "MAC randomization mode"}, {"ping", "Ping host after connect"}, {"http", "HTTP URL after connect"}, {"forget", "Forget after each cycle"}, {"pause", "Pause between cycles in milliseconds"}, {"timeout", "Per-connect timeout in milliseconds"}, {"<ssid>", "SSID to connect"}}
 	default:
 		return nil
 	}
@@ -911,7 +911,7 @@ func requestWifiValueCompletionCandidates(command string, last string) ([]string
 	case "connect", "cycle":
 		switch {
 		case isResolvedKeyword("request wifi "+command+" option", last, []string{"security"}):
-			return wifiSecurityValues(), true
+			return wifiConnectSecurityValues(), true
 		case isResolvedKeyword("request wifi "+command+" option", last, []string{"band"}):
 			return wifiBandValues(), true
 		case isResolvedKeyword("request wifi "+command+" option", last, []string{"mac-randomization"}):
@@ -1005,6 +1005,10 @@ func isResolvedKeyword(Kind string, value string, candidates []string) bool {
 
 func wifiSecurityValues() []string {
 	return []string{"wpa2", "wpa3", "transition"}
+}
+
+func wifiConnectSecurityValues() []string {
+	return append([]string{"auto"}, wifiSecurityValues()...)
 }
 
 func wifiMacRandomizationValues() []string {
@@ -1152,7 +1156,7 @@ func requestWifiCompletionCandidates(command string, args []string, last string)
 func wifiConnectCompletionCandidates(args []string, cycle bool) []string {
 	options := []completionOption{
 		{name: "passphrase", placeholder: "<passphrase>"},
-		{name: "security", values: wifiSecurityValues()},
+		{name: "security", values: wifiConnectSecurityValues()},
 		{name: "bssid", placeholder: "<bssid>"},
 		{name: "band", values: wifiBandValues()},
 		{name: "mac-randomization", values: wifiMacRandomizationValues()},

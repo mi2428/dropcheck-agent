@@ -231,6 +231,27 @@ func TestShellCommandBuildsOperation(t *testing.T) {
 	}
 }
 
+func TestShellWifiConnectDefaultsSecurityToAuto(t *testing.T) {
+	got, err := parseShellLine("request wifi connect 'SHIZK RADIO' passphrase 'shizkkawaii'")
+	if err != nil {
+		t.Fatalf("parseShellLine() error = %v", err)
+	}
+	cmd, _, err := buildRunCommand(got.operation)
+	if err != nil {
+		t.Fatalf("buildRunCommand() error = %v", err)
+	}
+	connect := cmd.GetConnectWifi()
+	if connect == nil {
+		t.Fatalf("connect command = nil")
+	}
+	if connect.GetSsid() != "SHIZK RADIO" || connect.GetPassphrase() != "shizkkawaii" {
+		t.Fatalf("connect credentials = %q/%q", connect.GetSsid(), connect.GetPassphrase())
+	}
+	if connect.GetSecurity() != controlpb.ConnectWifi_SECURITY_UNSPECIFIED {
+		t.Fatalf("security = %v, want SECURITY_UNSPECIFIED", connect.GetSecurity())
+	}
+}
+
 func TestParseShellPipeline(t *testing.T) {
 	got, err := parseShellLine(`show wifi scan | match "Lab AP" | except guest | display json | count`)
 	if err != nil {
@@ -560,7 +581,7 @@ func TestShellOptionCompletion(t *testing.T) {
 		},
 		{
 			line: "request wifi connect Lab security ",
-			want: []string{"wpa2", "wpa3", "transition"},
+			want: []string{"auto", "wpa2", "wpa3", "transition"},
 		},
 		{
 			line: "request wifi connect Lab band ",

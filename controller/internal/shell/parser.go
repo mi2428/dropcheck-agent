@@ -652,7 +652,7 @@ func parseShellRequestWifi(args []string) (Command, error) {
 
 func parseShellWifiConnect(args []string, operation string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: request wifi %s passphrase <passphrase> [security <wpa2|wpa3|transition>] ... <ssid>", operation)
+		return Command{}, fmt.Errorf("usage: request wifi %s passphrase <passphrase> [security <auto|wpa2|wpa3|transition>] ... <ssid>", operation)
 	}
 	var ssid string
 	values := map[string]string{}
