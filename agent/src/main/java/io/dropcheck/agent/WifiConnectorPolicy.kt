@@ -26,6 +26,15 @@ internal object WifiConnectorPolicy {
         val levelDbm: Int,
     )
 
+    /** Minimal connected-network view used to avoid unnecessary privileged reconfiguration. */
+    data class CurrentConnectionRef(
+        val networkId: Int,
+        val ssid: String,
+        val bssid: String,
+        val frequencyMhz: Int,
+        val securityType: String,
+    )
+
     /** WifiConfiguration expects quoted SSID/passphrase strings for legacy addNetwork APIs. */
     fun quoteWifi(value: String): String {
         return if (value.startsWith("\"") && value.endsWith("\"")) value else "\"$value\""
@@ -73,6 +82,28 @@ internal object WifiConnectorPolicy {
             hasPsk -> ConnectWifi.Security.SECURITY_WPA2_PSK
             else -> null
         }
+    }
+
+    /** Reports whether the current Wi-Fi connection already satisfies a connect command. */
+    fun currentConnectionSatisfiesConnect(
+        current: CurrentConnectionRef?,
+        ssid: String,
+        bssid: String,
+        security: ConnectWifi.Security,
+        band: WifiBand,
+    ): Boolean {
+        if (current == null || current.networkId < 0) return false
+        if (current.ssid != ssid) return false
+        if (bssid.isNotBlank() && !current.bssid.equals(bssid, ignoreCase = true)) return false
+        if (!frequencyMatchesWifiBand(current.frequencyMhz, band)) return false
+        val expectedSecurityTypes = when (security) {
+            ConnectWifi.Security.SECURITY_WPA2_PSK -> setOf("psk")
+            ConnectWifi.Security.SECURITY_WPA3_SAE -> setOf("sae")
+            ConnectWifi.Security.SECURITY_WPA2_WPA3_TRANSITION -> setOf("psk", "sae")
+            ConnectWifi.Security.SECURITY_UNSPECIFIED -> emptySet()
+            ConnectWifi.Security.UNRECOGNIZED -> return false
+        }
+        return expectedSecurityTypes.isEmpty() || current.securityType in expectedSecurityTypes
     }
 
     /**

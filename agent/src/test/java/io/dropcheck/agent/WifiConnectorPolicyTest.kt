@@ -108,6 +108,75 @@ class WifiConnectorPolicyTest {
     }
 
     @Test
+    fun acceptsAlreadyConnectedNetworkWhenItMatchesConnectRequest() {
+        val current = WifiConnectorPolicy.CurrentConnectionRef(
+            networkId = 10,
+            ssid = "Lab",
+            bssid = "70:a7:41:a0:9a:6f",
+            frequencyMhz = 5200,
+            securityType = "sae",
+        )
+
+        assertTrue(
+            WifiConnectorPolicy.currentConnectionSatisfiesConnect(
+                current = current,
+                ssid = "Lab",
+                bssid = "70:A7:41:A0:9A:6F",
+                security = ConnectWifi.Security.SECURITY_WPA3_SAE,
+                band = WifiBand.WIFI_BAND_5_GHZ,
+            ),
+        )
+        assertTrue(
+            WifiConnectorPolicy.currentConnectionSatisfiesConnect(
+                current = current,
+                ssid = "Lab",
+                bssid = "",
+                security = ConnectWifi.Security.SECURITY_UNSPECIFIED,
+                band = WifiBand.WIFI_BAND_ALL,
+            ),
+        )
+    }
+
+    @Test
+    fun rejectsAlreadyConnectedNetworkWhenRequestedPropertiesDiffer() {
+        val current = WifiConnectorPolicy.CurrentConnectionRef(
+            networkId = 10,
+            ssid = "Lab",
+            bssid = "70:a7:41:a0:9a:6f",
+            frequencyMhz = 5200,
+            securityType = "sae",
+        )
+
+        assertFalse(
+            WifiConnectorPolicy.currentConnectionSatisfiesConnect(
+                current = current,
+                ssid = "Guest",
+                bssid = "",
+                security = ConnectWifi.Security.SECURITY_UNSPECIFIED,
+                band = WifiBand.WIFI_BAND_ALL,
+            ),
+        )
+        assertFalse(
+            WifiConnectorPolicy.currentConnectionSatisfiesConnect(
+                current = current,
+                ssid = "Lab",
+                bssid = "",
+                security = ConnectWifi.Security.SECURITY_WPA2_PSK,
+                band = WifiBand.WIFI_BAND_ALL,
+            ),
+        )
+        assertFalse(
+            WifiConnectorPolicy.currentConnectionSatisfiesConnect(
+                current = current,
+                ssid = "Lab",
+                bssid = "",
+                security = ConnectWifi.Security.SECURITY_UNSPECIFIED,
+                band = WifiBand.WIFI_BAND_2_4_GHZ,
+            ),
+        )
+    }
+
+    @Test
     fun selectsForgetTargetsBySsidOrNetworkId() {
         val configs = listOf(
             WifiConnectorPolicy.ConfiguredNetworkRef(networkId = 7, ssid = "\"Lab\""),
