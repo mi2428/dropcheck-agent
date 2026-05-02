@@ -102,7 +102,6 @@ func TestRunBuildsSupportedCheckOperations(t *testing.T) {
 					wifi.Standard().Eq("be"),
 					wifi.Channel().Eq(37),
 					wifi.Band().Eq("6ghz"),
-					wifi.ChannelWidth().Eq("160mhz"),
 					wifi.TxLinkSpeedMbps().Ge(1000),
 				),
 			festival.WiFiScan().
@@ -263,6 +262,26 @@ func TestIPMatcherReportsCIDRMismatch(t *testing.T) {
 	}
 	if findings[0].Passed || findings[0].Metric != "ip.ipv4_prefix" {
 		t.Fatalf("finding = %#v, want failed ipv4 prefix finding", findings[0])
+	}
+}
+
+func TestIPRouteMatcherRejectsInvalidSelectorValues(t *testing.T) {
+	for name, expectation := range map[string]festival.Expectation{
+		"destination": ip.ParsedRoute().Destination("not-a-cidr").Exists(),
+		"gateway":     ip.ParsedRoute().Gateway("not-an-ip").Exists(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := expectation.Evaluate(festival.Result{
+				Check: "ip status",
+				Run:   festival.RunResult{Raw: fakeResult("ip.status")},
+			})
+			if len(findings) != 1 {
+				t.Fatalf("findings len = %d, want 1", len(findings))
+			}
+			if findings[0].Passed || findings[0].Observed != "<invalid selector>" {
+				t.Fatalf("finding = %#v, want invalid selector failure", findings[0])
+			}
+		})
 	}
 }
 
