@@ -1,4 +1,4 @@
-// Package scan provides festival expectations for Wi-Fi scan checks.
+// Package scan provides Dropcheck Festival expectations for Wi-Fi scan checks.
 package scan
 
 import (

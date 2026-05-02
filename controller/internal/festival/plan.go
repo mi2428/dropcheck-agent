@@ -17,7 +17,7 @@ import (
 	"dropcheck/controller/internal/session"
 )
 
-// Plan is a Wi-Fi festival scenario.
+// Plan is a Dropcheck Festival scenario.
 type Plan struct {
 	// Name optionally wraps the whole plan in a named Go subtest.
 	Name string
@@ -34,7 +34,8 @@ type OperationRunner interface {
 
 // RunOptions configures session startup and execution for Run.
 type RunOptions struct {
-	// Context is used for every festival operation. Nil uses context.Background.
+	// Context is used for every Dropcheck Festival operation. Nil uses
+	// context.Background.
 	Context context.Context
 	// ADBPath is the adb executable path. Empty uses ADB or "adb".
 	ADBPath string
@@ -55,7 +56,7 @@ type RunOptions struct {
 // RunOption configures Run.
 type RunOption func(*RunOptions)
 
-// WithContext sets the context used for every festival operation.
+// WithContext sets the context used for every Dropcheck Festival operation.
 func WithContext(ctx context.Context) RunOption {
 	return func(opts *RunOptions) {
 		opts.Context = ctx
@@ -101,7 +102,7 @@ func WithRunner(opRunner OperationRunner, agent control.AgentInfo) RunOption {
 
 // Run executes plan as Go subtests.
 //
-// Real festival test files should normally be guarded with:
+// Real Dropcheck Festival test files should normally be guarded with:
 //
 //	//go:build festival
 func Run(t *testing.T, plan Plan, opts ...RunOption) {
@@ -121,7 +122,7 @@ func Run(t *testing.T, plan Plan, opts ...RunOption) {
 		agent = selectAgent(t, controlSession.Server, controlSession.Agents, cfg.AgentTarget)
 	}
 	if len(plan.Networks) == 0 {
-		t.Fatalf("festival plan has no networks")
+		t.Fatalf("Dropcheck Festival plan has no networks")
 	}
 	if plan.Name != "" {
 		t.Run(testName(plan.Name), func(t *testing.T) {

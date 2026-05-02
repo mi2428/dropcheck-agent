@@ -1,4 +1,4 @@
-// Package ip provides festival expectations for IP status checks.
+// Package ip provides Dropcheck Festival expectations for IP status checks.
 package ip
 
 import (

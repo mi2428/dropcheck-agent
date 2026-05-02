@@ -1,4 +1,4 @@
-// Package wifi provides festival expectations for Wi-Fi status checks.
+// Package wifi provides Dropcheck Festival expectations for Wi-Fi status checks.
 package wifi
 
 import (

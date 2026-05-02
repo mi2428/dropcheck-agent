@@ -1,4 +1,4 @@
-// Package globalip provides festival expectations for global-ip checks.
+// Package globalip provides Dropcheck Festival expectations for global-ip checks.
 package globalip
 
 import (

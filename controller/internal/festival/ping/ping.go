@@ -1,4 +1,4 @@
-// Package ping provides festival expectations for ping checks.
+// Package ping provides Dropcheck Festival expectations for ping checks.
 package ping
 
 import (

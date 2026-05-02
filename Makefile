@@ -11,7 +11,18 @@ STATICCHECK        ?= staticcheck
 TAGS               ?=
 ADB_INSTALL_FLAGS  ?= -r -t
 HELP_NAME_WIDTH    := 22
-HELP_EXAMPLE_WIDTH := 46
+HELP_EXAMPLE_WIDTH := 60
+INTEGRATION_PACKAGE ?= ./integration/festival
+
+SSID              ?= $(DROPCHECK_FESTIVAL_WIFI_SSID)
+PSK               ?= $(DROPCHECK_FESTIVAL_WIFI_PSK)
+PSK_ENV           ?= DROPCHECK_FESTIVAL_WIFI_PSK
+BSSID             ?= $(DROPCHECK_FESTIVAL_WIFI_BSSID)
+BAND              ?= $(DROPCHECK_FESTIVAL_WIFI_BAND)
+STANDARD          ?= $(DROPCHECK_FESTIVAL_WIFI_STANDARD)
+CHANNEL           ?= $(DROPCHECK_FESTIVAL_WIFI_CHANNEL)
+CHANNEL_WIDTH     ?= $(DROPCHECK_FESTIVAL_WIFI_CHANNEL_WIDTH)
+REQUIRE_VALIDATED ?= $(DROPCHECK_FESTIVAL_REQUIRE_VALIDATED)
 
 AGENT_BUILD_TASK ?= :agent:assembleDebug
 AGENT_TEST_TASK  ?= :agent:testDebugUnitTest
@@ -91,6 +102,25 @@ install: ## Build and install the debug APK; use SERIAL=<adb serial> when needed
 		esac; \
 	done
 
+.PHONY: integration
+integration: ## Run real-device Dropcheck Festival tests; use TARGET=controller SSID=... PSK=...
+	@die(){ printf 'make integration: %s\n' "$$*" >&2; exit 1; }; \
+	run(){ printf '+'; printf ' %q' "$$@"; printf '\n'; "$$@"; }; \
+	targets="$(TARGET)"; targets="$${targets//,/ }"; [[ -n "$$targets" ]] || die "TARGET is empty"; \
+	[[ " $$targets " == *" all "* ]] && targets="controller"; \
+	for target in $$targets; do \
+		case "$$target" in \
+			controller) \
+				ssid="$(SSID)"; psk="$(PSK)"; psk_env="$(PSK_ENV)"; [[ -n "$$ssid" ]] || die "SSID is required"; \
+				if [[ -n "$$psk" ]]; then export DROPCHECK_FESTIVAL_WIFI_PSK="$$psk" DROPCHECK_FESTIVAL_WIFI_PSK_ENV=DROPCHECK_FESTIVAL_WIFI_PSK; \
+				else [[ -n "$${!psk_env:-}" ]] || die "PSK or $$psk_env is required"; export DROPCHECK_FESTIVAL_WIFI_PSK_ENV="$$psk_env"; fi; \
+				export DROPCHECK_FESTIVAL_WIFI_SSID="$$ssid" DROPCHECK_FESTIVAL_WIFI_BSSID="$(BSSID)" DROPCHECK_FESTIVAL_WIFI_BAND="$(BAND)" DROPCHECK_FESTIVAL_WIFI_STANDARD="$(STANDARD)" DROPCHECK_FESTIVAL_WIFI_CHANNEL="$(CHANNEL)" DROPCHECK_FESTIVAL_WIFI_CHANNEL_WIDTH="$(CHANNEL_WIDTH)" DROPCHECK_FESTIVAL_REQUIRE_VALIDATED="$(REQUIRE_VALIDATED)"; \
+				(cd controller && run "$(GO)" test -tags festival "$(INTEGRATION_PACKAGE)") ;; \
+			agent) die "integration supports TARGET=controller only" ;; \
+			*) die "unknown TARGET=$$target" ;; \
+		esac; \
+	done
+
 .PHONY: quality
 quality: fmt lint test ## Format, lint, and test selected targets
 
@@ -132,6 +162,15 @@ help: ## Show this help message
 	@printf "\n\033[1mVariables:\033[0m\n"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "TARGET" "agent, controller, or all; comma and space lists are accepted"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "TAGS" "Go build/test tags for controller targets, for example festival"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "DROPCHECK_FESTIVAL_*" "Environment namespace used by Dropcheck Festival integration tests"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "SSID" "Dropcheck Festival Wi-Fi SSID for make integration"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "PSK" "Dropcheck Festival Wi-Fi PSK for make integration; PSK_ENV can be used instead"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "PSK_ENV" "Environment variable containing the Wi-Fi PSK, defaults to $(PSK_ENV)"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "BSSID" "Optional expected BSSID for make integration"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "BAND" "Optional Wi-Fi band for make integration"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "STANDARD" "Optional Wi-Fi standard expectation for make integration"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "CHANNEL" "Optional Wi-Fi channel expectation for make integration"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "CHANNEL_WIDTH" "Optional AP channel-width expectation for make integration"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "SERIAL" "ADB serial for make install, defaults to ADB_SERIAL"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "ADB_INSTALL_FLAGS" "adb install flags, defaults to $(ADB_INSTALL_FLAGS)"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "APK" "Debug APK path, defaults to $(APK)"
@@ -139,5 +178,5 @@ help: ## Show this help message
 	@printf "\n\033[1mExamples:\033[0m\n"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make build TARGET=agent,controller" "# Build both Android agent and Go controller"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make test TARGET=controller" "# Run controller tests"
-	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make test TARGET=controller TAGS=festival" "# Run controller festival-tagged tests"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make integration TARGET=controller SSID=Lab PSK=..." "# Run real-device Dropcheck Festival scenario"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make install SERIAL=DEVICE" "# Build and adb install the debug APK"
