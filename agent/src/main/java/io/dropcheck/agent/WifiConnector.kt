@@ -63,6 +63,26 @@ class WifiConnector(
         val beforeInfo = wifi.connectionInfo
         logger.debug("wifi manager state enabled=${wifi.isWifiEnabled} state=${wifi.wifiState} connection_network_id=${beforeInfo?.networkId} connection_ssid=${beforeInfo?.ssid} connection_bssid=${beforeInfo?.bssid} rssi=${beforeInfo?.rssi} freq=${beforeInfo?.frequency}")
         val previousNetworkId = beforeInfo?.networkId?.takeIf { it >= 0 }
+        val current = beforeInfo?.let {
+            WifiConnectorPolicy.CurrentConnectionRef(
+                networkId = it.networkId,
+                ssid = it.ssid?.trim('"').orEmpty(),
+                bssid = it.bssid.orEmpty(),
+                frequencyMhz = it.frequency,
+                securityType = securityTypeName(it.currentSecurityType),
+            )
+        }
+        if (WifiConnectorPolicy.currentConnectionSatisfiesConnect(
+                current = current,
+                ssid = ssid,
+                bssid = command.bssid,
+                security = command.security,
+                band = command.band,
+            )
+        ) {
+            logger.info("wifi connect already satisfied ssid=$ssid network_id=${current?.networkId} bssid=${current?.bssid} security=${current?.securityType} freq=${current?.frequencyMhz}")
+            return Setup(networkId = previousNetworkId, previousNetworkId = previousNetworkId)
+        }
         val config = WifiConfiguration().apply {
             SSID = WifiConnectorPolicy.quoteWifi(ssid)
             if (command.bssid.isNotBlank()) BSSID = command.bssid
