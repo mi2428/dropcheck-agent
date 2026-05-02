@@ -229,6 +229,9 @@ internal object NetworkCheckPolicy {
     /** Download accepts any successful 2xx/3xx HTTP response with no local read error. */
     fun downloadSucceeded(error: String, status: Int): Boolean = error.isBlank() && status in 200..399
 
+    /** Embedded HTTP probes without an explicit expected status accept any successful response. */
+    fun httpStatusSucceeded(error: String, status: Int): Boolean = error.isBlank() && status in 200..399
+
     /** HTTP check pass/fail is exact status match plus no connection error. */
     fun httpSucceeded(matched: Boolean, error: String): Boolean = matched && error.isBlank()
 }

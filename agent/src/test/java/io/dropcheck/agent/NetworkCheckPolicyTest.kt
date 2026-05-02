@@ -42,6 +42,11 @@ class NetworkCheckPolicyTest {
         assertTrue(NetworkCheckPolicy.httpSucceeded(matched = true, error = ""))
         assertFalse(NetworkCheckPolicy.httpSucceeded(matched = false, error = ""))
         assertFalse(NetworkCheckPolicy.httpSucceeded(matched = true, error = "boom"))
+
+        assertTrue(NetworkCheckPolicy.httpStatusSucceeded(error = "", status = 204))
+        assertTrue(NetworkCheckPolicy.httpStatusSucceeded(error = "", status = 302))
+        assertFalse(NetworkCheckPolicy.httpStatusSucceeded(error = "", status = 404))
+        assertFalse(NetworkCheckPolicy.httpStatusSucceeded(error = "boom", status = 204))
     }
 
     @Test
