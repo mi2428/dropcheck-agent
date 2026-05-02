@@ -157,6 +157,61 @@ func TestRunBuildsSupportedCheckOperations(t *testing.T) {
 	}
 }
 
+func TestRunRetriesAndRepeatsChecks(t *testing.T) {
+	fake := &retryRunner{}
+	festival.Run(t, festival.Plan{
+		Networks: []festival.Network{
+			festival.WiFi("lab").
+				SSID("Lab").
+				PSK("secret").
+				WaitConnected(false).
+				DisconnectAfter(false),
+		},
+		Checks: []festival.Check{
+			festival.Ping("8.8.8.8").
+				Count(5).
+				Retry(2, 0).
+				Repeat(2).
+				Expect(ping.Received().Eq(5)),
+		},
+	}, festival.WithRunner(fake, control.AgentInfo{ID: "agent-1"}))
+
+	want := []string{"wifi.connect", "ping", "ping", "ping"}
+	if !reflect.DeepEqual(fake.operations, want) {
+		t.Fatalf("operations = %#v, want %#v", fake.operations, want)
+	}
+}
+
+func TestRunSamplesStableChecks(t *testing.T) {
+	fake := &fakeRunner{}
+	festival.Run(t, festival.Plan{
+		Networks: []festival.Network{
+			festival.WiFi("lab").
+				SSID("Lab").
+				PSK("secret").
+				WaitConnected(false).
+				DisconnectAfter(false),
+		},
+		Checks: []festival.Check{
+			festival.Ping("8.8.8.8").
+				Count(5).
+				StableFor(3 * time.Millisecond).
+				StableInterval(time.Millisecond).
+				Expect(ping.Received().Eq(5)),
+		},
+	}, festival.WithRunner(fake, control.AgentInfo{ID: "agent-1"}))
+
+	pingRuns := 0
+	for _, operation := range fake.operations {
+		if operation == "ping" {
+			pingRuns++
+		}
+	}
+	if pingRuns < 2 {
+		t.Fatalf("ping runs = %d, want at least 2; operations = %#v", pingRuns, fake.operations)
+	}
+}
+
 func TestPingMatcherReportsFailedConstraint(t *testing.T) {
 	expectation := ping.Received().Ge(5)
 	findings := expectation.Evaluate(festival.Result{
@@ -243,6 +298,25 @@ type fakeRunner struct {
 
 func (r *fakeRunner) Run(_ context.Context, _ control.AgentInfo, op command.Operation) (runner.Result, error) {
 	r.operations = append(r.operations, op.Name)
+	return runner.Result{Operation: op, Result: fakeResult(op.Name)}, nil
+}
+
+type retryRunner struct {
+	operations []string
+	pingCalls  int
+}
+
+func (r *retryRunner) Run(_ context.Context, _ control.AgentInfo, op command.Operation) (runner.Result, error) {
+	r.operations = append(r.operations, op.Name)
+	if op.Name == "ping" {
+		r.pingCalls++
+		if r.pingCalls == 1 {
+			return runner.Result{Operation: op, Result: &controlpb.CommandResult{
+				Status:  controlpb.CommandResult_STATUS_FAILED,
+				Message: "temporary ping failure",
+			}}, nil
+		}
+	}
 	return runner.Result{Operation: op, Result: fakeResult(op.Name)}, nil
 }
 

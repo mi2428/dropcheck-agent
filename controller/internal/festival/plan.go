@@ -269,15 +269,90 @@ func runCheck(t *testing.T, ctx context.Context, opRunner OperationRunner, agent
 	if err != nil {
 		t.Fatalf("build check: %v", err)
 	}
+	repeat := normalizedRepeat(step.policy.repeat)
+	if repeat == 1 {
+		runCheckPass(t, ctx, opRunner, agent, network, step)
+		return
+	}
+	for index := uint32(1); index <= repeat; index++ {
+		index := index
+		t.Run(fmt.Sprintf("repeat_%d", index), func(t *testing.T) {
+			runCheckPass(t, ctx, opRunner, agent, network, step)
+		})
+	}
+}
+
+func runCheckPass(t *testing.T, ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, network Network, step step) {
+	t.Helper()
+	if step.policy.stableFor > 0 {
+		runStableCheck(t, ctx, opRunner, agent, network, step)
+		return
+	}
+	reportFailures(t, runCheckWithRetry(ctx, opRunner, agent, network, step))
+}
+
+func runStableCheck(t *testing.T, ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, network Network, step step) {
+	t.Helper()
+	deadline := time.Now().Add(step.policy.stableFor)
+	interval := step.policy.stableInterval
+	if interval <= 0 {
+		interval = time.Second
+	}
+	for sample := uint32(1); ; sample++ {
+		failures := runCheckWithRetry(ctx, opRunner, agent, network, step)
+		if len(failures) > 0 {
+			reportFailures(t, prefixFailures(fmt.Sprintf("stable sample %d", sample), failures))
+			return
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return
+		}
+		if interval < remaining {
+			remaining = interval
+		}
+		if err := sleepContext(ctx, remaining); err != nil {
+			t.Errorf("stable wait canceled: %v", err)
+			return
+		}
+	}
+}
+
+func runCheckWithRetry(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, network Network, step step) []string {
+	attempts := normalizedRetryAttempts(step.policy.retryAttempts)
+	var lastFailures []string
+	for attempt := uint32(1); attempt <= attempts; attempt++ {
+		failures := executeCheckAttempt(ctx, opRunner, agent, network, step)
+		if len(failures) == 0 {
+			return nil
+		}
+		lastFailures = failures
+		if attempt == attempts {
+			break
+		}
+		if step.policy.retryDelay > 0 {
+			if err := sleepContext(ctx, step.policy.retryDelay); err != nil {
+				return append(lastFailures, fmt.Sprintf("retry wait canceled: %v", err))
+			}
+		}
+	}
+	if attempts > 1 {
+		return prefixFailures(fmt.Sprintf("after %d attempts", attempts), lastFailures)
+	}
+	return lastFailures
+}
+
+func executeCheckAttempt(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, network Network, step step) []string {
 	result, err := opRunner.Run(ctx, agent, step.operation)
 	if err != nil {
-		t.Fatalf("run %s: %v", step.name, err)
+		return []string{fmt.Sprintf("run %s: %v", step.name, err)}
 	}
+	var failures []string
 	if result.Result.GetStatus() != controlpb.CommandResult_STATUS_OK {
-		t.Errorf("command status=%s message=%s", result.Result.GetStatus(), result.Result.GetMessage())
+		failures = append(failures, fmt.Sprintf("command status=%s message=%s", result.Result.GetStatus(), result.Result.GetMessage()))
 	}
 	if len(step.expectations) == 0 {
-		return
+		return failures
 	}
 	festivalResult := Result{
 		Network: network,
@@ -293,9 +368,56 @@ func runCheck(t *testing.T, ctx context.Context, opRunner OperationRunner, agent
 				finding.Check = step.name
 			}
 			if !finding.Passed {
-				t.Errorf("%s", finding.failureString())
+				failures = append(failures, finding.failureString())
 			}
 		}
+	}
+	return failures
+}
+
+func normalizedRepeat(count uint32) uint32 {
+	if count == 0 {
+		return 1
+	}
+	return count
+}
+
+func normalizedRetryAttempts(attempts uint32) uint32 {
+	if attempts == 0 {
+		return 1
+	}
+	return attempts
+}
+
+func sleepContext(ctx context.Context, duration time.Duration) error {
+	if duration <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func prefixFailures(prefix string, failures []string) []string {
+	if prefix == "" || len(failures) == 0 {
+		return failures
+	}
+	prefixed := make([]string, 0, len(failures))
+	for _, failure := range failures {
+		prefixed = append(prefixed, prefix+": "+failure)
+	}
+	return prefixed
+}
+
+func reportFailures(t *testing.T, failures []string) {
+	t.Helper()
+	for _, failure := range failures {
+		t.Errorf("%s", failure)
 	}
 }
 
