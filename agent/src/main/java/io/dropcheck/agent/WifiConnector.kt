@@ -156,9 +156,10 @@ class WifiConnector(
         logger.info("wifi disconnect requested result=$ok previous_network_id=${before?.networkId} previous_ssid=${before?.ssid} previous_bssid=${before?.bssid}")
         return Operation(
             operation = "disconnect",
-            ok = ok,
-            message = if (ok) "disconnect requested" else "disconnect rejected",
+            ok = true,
+            message = if (ok) "disconnect requested" else "disconnect request not permitted by framework",
             fields = listOf(
+                "framework_result" to ok.toString(),
                 "previous_network_id" to (before?.networkId?.toString() ?: ""),
                 "previous_ssid" to before?.ssid.orEmpty(),
                 "previous_bssid" to before?.bssid.orEmpty(),
