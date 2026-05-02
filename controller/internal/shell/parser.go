@@ -358,7 +358,7 @@ func parseShellSet(args []string) (Command, error) {
 
 func parseShellSetFestival(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: set festival standalone <enabled|disabled> ...")
+		return Command{}, fmt.Errorf("usage: set festival standalone <enabled|disabled> with options")
 	}
 	name, err := resolveShellKeyword("set festival command", args[0], []string{"standalone"})
 	if err != nil {
