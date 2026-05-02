@@ -277,13 +277,15 @@ class NetworkRepository(
         val boundedInterval = intervalMs.coerceIn(100, 60000)
         val startedAt = System.currentTimeMillis()
         val deadline = startedAt + boundedDuration
-        fun addEvent(type: String, message: String, network: Network? = null) {
+        fun addEvent(type: String, message: String, network: Network? = null, status: WifiStatus? = null) {
             val event = WifiEvent.newBuilder()
                 .setUnixTimeMs(System.currentTimeMillis())
                 .setType(type)
                 .setMessage(message)
-                .setStatus(runCatching { wifiStatus() }.getOrDefault(WifiStatus.getDefaultInstance()))
                 .addFields(diagnosticField("elapsed_ms", System.currentTimeMillis() - startedAt))
+            if (status != null) {
+                event.status = status
+            }
             if (network != null) {
                 event.addFields(diagnosticField("network", network.toString()))
                 event.addFields(diagnosticField("network_state", describeNetwork(network)))
