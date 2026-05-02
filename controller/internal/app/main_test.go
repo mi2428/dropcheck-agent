@@ -627,6 +627,22 @@ func TestRedactedCommand(t *testing.T) {
 	if got := cycle.GetCycleWifi().GetConnect().GetPassphrase(); got != "super-secret" {
 		t.Fatalf("original cycle passphrase mutated to %q", got)
 	}
+
+	link := &controlpb.RunCommand{
+		Label: "controller endpoint",
+		Command: &controlpb.RunCommand_SetControllerLinkConfig{
+			SetControllerLinkConfig: &controlpb.SetControllerLinkConfig{
+				Config: &controlpb.ControllerLinkConfig{Token: "controller-secret"},
+			},
+		},
+	}
+	redacted = redactedCommand(link)
+	if got := redacted.GetSetControllerLinkConfig().GetConfig().GetToken(); got != "<redacted>" {
+		t.Fatalf("redacted controller token = %q", got)
+	}
+	if got := link.GetSetControllerLinkConfig().GetConfig().GetToken(); got != "controller-secret" {
+		t.Fatalf("original controller token mutated to %q", got)
+	}
 }
 
 func mustBuild(t *testing.T, args ...string) *controlpb.RunCommand {

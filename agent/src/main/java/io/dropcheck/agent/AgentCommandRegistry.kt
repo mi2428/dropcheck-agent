@@ -55,6 +55,10 @@ internal object AgentCommandRegistry {
         Entry(RunCommand.CommandCase.GET_FESTIVAL_RUN, "festival.run"),
         Entry(RunCommand.CommandCase.CLEAR_FESTIVAL_RUNS, "festival.runs.clear"),
         Entry(RunCommand.CommandCase.RUN_FESTIVAL_ONCE, "festival.run.once"),
+        Entry(RunCommand.CommandCase.SET_CONTROLLER_LINK_CONFIG, "controller.link.set"),
+        Entry(RunCommand.CommandCase.GET_CONTROLLER_LINK_CONFIG, "controller.link.config"),
+        Entry(RunCommand.CommandCase.GET_CONTROLLER_LINK_STATUS, "controller.link.status"),
+        Entry(RunCommand.CommandCase.RECONNECT_CONTROLLER, "controller.link.reconnect"),
     )
 
     /** Capability strings sent during hello. The controller treats this as the agent's local feature set. */

@@ -31,7 +31,7 @@ func Run(args []string) error {
 }
 
 func usage() error {
-	return errors.New("usage: dropcheck [--adb adb] [--serial SERIAL] [--package PACKAGE] shell | <command>")
+	return errors.New("usage: dropcheck [--adb adb] [--serial SERIAL] [--package PACKAGE] [--listen ADDR] [--no-adb] shell | <command>")
 }
 
 type shellOptions = session.Options
@@ -41,6 +41,7 @@ func parseTopLevelArgs(args []string) (shellOptions, []string, error) {
 		ADBPath:     "adb",
 		Serial:      os.Getenv("ADB_SERIAL"),
 		PackageName: session.DefaultPackageName,
+		ListenAddr:  "127.0.0.1:0",
 	}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -81,6 +82,20 @@ func parseTopLevelArgs(args []string) (shellOptions, []string, error) {
 				value = args[i]
 			}
 			opts.PackageName = value
+		case "--listen":
+			if !hasValue {
+				if i+1 >= len(args) {
+					return opts, nil, fmt.Errorf("%s requires a value", name)
+				}
+				i++
+				value = args[i]
+			}
+			opts.ListenAddr = value
+		case "--no-adb":
+			if hasValue {
+				return opts, nil, fmt.Errorf("%s does not take a value", name)
+			}
+			opts.NoADB = true
 		default:
 			return opts, append([]string(nil), args[i:]...), nil
 		}
@@ -96,6 +111,7 @@ func runShell(ctx context.Context, opts shellOptions) error {
 	defer controlSession.Close()
 
 	state := &shellState{server: controlSession.Server}
+	state.controllerToken = controlSession.Token
 	if len(controlSession.Agents) > 0 {
 		state.setSelectedAgent(controlSession.Agents[0])
 		fmt.Fprintf(os.Stderr, "dropcheck: selected agent=%s\n", agentDisplayName(controlSession.Agents[0]))
@@ -104,10 +120,11 @@ func runShell(ctx context.Context, opts shellOptions) error {
 }
 
 type shellState struct {
-	server        *control.Server
-	selected      string
-	selectedLabel string
-	targetAll     bool
+	server          *control.Server
+	controllerToken string
+	selected        string
+	selectedLabel   string
+	targetAll       bool
 }
 
 func (s *shellState) setSelectedAgent(info control.AgentInfo) {

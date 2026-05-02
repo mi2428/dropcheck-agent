@@ -243,7 +243,11 @@ internal class FestivalStandaloneRunner(private val context: Context) {
             RunCommand.CommandCase.LIST_FESTIVAL_RUNS,
             RunCommand.CommandCase.GET_FESTIVAL_RUN,
             RunCommand.CommandCase.CLEAR_FESTIVAL_RUNS,
-            RunCommand.CommandCase.RUN_FESTIVAL_ONCE -> true
+            RunCommand.CommandCase.RUN_FESTIVAL_ONCE,
+            RunCommand.CommandCase.SET_CONTROLLER_LINK_CONFIG,
+            RunCommand.CommandCase.GET_CONTROLLER_LINK_CONFIG,
+            RunCommand.CommandCase.GET_CONTROLLER_LINK_STATUS,
+            RunCommand.CommandCase.RECONNECT_CONTROLLER -> true
             else -> false
         }
     }

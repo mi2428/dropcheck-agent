@@ -146,6 +146,16 @@ internal fun RunCommand.logFields(): List<Pair<String, Any?>> {
                 add("festival_networks" to runFestivalOnce.plan.networksCount)
                 add("save" to runFestivalOnce.save)
             }
+            RunCommand.CommandCase.SET_CONTROLLER_LINK_CONFIG -> {
+                add("controller_enabled" to setControllerLinkConfig.config.enabled)
+                add("controller_endpoint" to setControllerLinkConfig.config.endpoint())
+                add("controller_token_present" to setControllerLinkConfig.config.token.isNotBlank())
+                add("controller_min_backoff_ms" to setControllerLinkConfig.config.minBackoffMs)
+                add("controller_max_backoff_ms" to setControllerLinkConfig.config.maxBackoffMs)
+            }
+            RunCommand.CommandCase.GET_CONTROLLER_LINK_CONFIG -> Unit
+            RunCommand.CommandCase.GET_CONTROLLER_LINK_STATUS -> Unit
+            RunCommand.CommandCase.RECONNECT_CONTROLLER -> Unit
             RunCommand.CommandCase.COMMAND_NOT_SET -> Unit
         }
     }
@@ -297,6 +307,19 @@ internal fun CommandResult.logFields(): List<Pair<String, Any?>> {
                 add("removed_runs" to festivalClear.removedRuns)
                 add("removed_bytes" to festivalClear.removedBytes)
             }
+            CommandResult.PayloadCase.CONTROLLER_LINK_CONFIG -> {
+                add("controller_enabled" to controllerLinkConfig.enabled)
+                add("controller_endpoint" to controllerLinkConfig.endpoint())
+                add("controller_token_present" to controllerLinkConfig.token.isNotBlank())
+            }
+            CommandResult.PayloadCase.CONTROLLER_LINK_STATUS -> {
+                add("controller_enabled" to controllerLinkStatus.enabled)
+                add("controller_connected" to controllerLinkStatus.connected)
+                add("controller_endpoint" to controllerLinkStatus.endpoint)
+                add("controller_transport" to controllerLinkStatus.transport)
+                add("controller_last_error" to controllerLinkStatus.lastError)
+                add("controller_next_retry_unix_time_ms" to controllerLinkStatus.nextRetryUnixMs)
+            }
             CommandResult.PayloadCase.PAYLOAD_NOT_SET -> Unit
         }
     }
@@ -308,6 +331,7 @@ internal fun RunCommand.safeLabel(): String {
     val secrets = buildList {
         if (commandCase == RunCommand.CommandCase.CONNECT_WIFI) add(connectWifi.passphrase)
         if (commandCase == RunCommand.CommandCase.CYCLE_WIFI) add(cycleWifi.connect.passphrase)
+        if (commandCase == RunCommand.CommandCase.SET_CONTROLLER_LINK_CONFIG) add(setControllerLinkConfig.config.token)
     }
     for (secret in secrets) {
         if (secret.isNotBlank()) rendered = rendered.replace(secret, "<redacted>")

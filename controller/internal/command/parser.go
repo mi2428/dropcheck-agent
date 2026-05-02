@@ -240,7 +240,11 @@ func timeoutFor(cmd *controlpb.RunCommand) time.Duration {
 		*controlpb.RunCommand_GetFestivalStatus,
 		*controlpb.RunCommand_ListFestivalRuns,
 		*controlpb.RunCommand_GetFestivalRun,
-		*controlpb.RunCommand_ClearFestivalRuns:
+		*controlpb.RunCommand_ClearFestivalRuns,
+		*controlpb.RunCommand_SetControllerLinkConfig,
+		*controlpb.RunCommand_GetControllerLinkConfig,
+		*controlpb.RunCommand_GetControllerLinkStatus,
+		*controlpb.RunCommand_ReconnectController:
 		return 15 * time.Second
 	default:
 		return 15 * time.Second
@@ -340,13 +344,16 @@ func redactedCommand(cmd *controlpb.RunCommand) *controlpb.RunCommand {
 		cloned.Label = strings.ReplaceAll(cloned.Label, cycle.GetConnect().GetPassphrase(), "<redacted>")
 		cycle.Connect.Passphrase = "<redacted>"
 	}
+	if link := cloned.GetSetControllerLinkConfig(); link != nil && link.GetConfig().GetToken() != "" {
+		link.Config.Token = "<redacted>"
+	}
 	return cloned
 }
 
-// RedactedCommand clones cmd and replaces Wi-Fi passphrases with "<redacted>".
+// RedactedCommand clones cmd and replaces command secrets with "<redacted>".
 //
-// The input command is never mutated. Redaction covers both direct connect
-// commands and cycle commands that embed a connect request.
+// The input command is never mutated. Redaction covers direct connect commands,
+// cycle commands that embed a connect request, and controller reconnect tokens.
 func RedactedCommand(cmd *controlpb.RunCommand) *controlpb.RunCommand {
 	return redactedCommand(cmd)
 }

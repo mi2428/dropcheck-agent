@@ -124,6 +124,10 @@ message RunCommand {
     GetFestivalRun get_festival_run = 37;
     ClearFestivalRuns clear_festival_runs = 38;
     RunFestivalOnce run_festival_once = 39;
+    SetControllerLinkConfig set_controller_link_config = 40;
+    GetControllerLinkConfig get_controller_link_config = 41;
+    GetControllerLinkStatus get_controller_link_status = 42;
+    ReconnectController reconnect_controller = 43;
   }
 }
 
@@ -306,6 +310,38 @@ message RunFestivalOnce {
   bool save = 2;
 }
 
+message SetControllerLinkConfig {
+  ControllerLinkConfig config = 1;
+}
+
+message GetControllerLinkConfig {}
+
+message GetControllerLinkStatus {}
+
+message ReconnectController {}
+
+message ControllerLinkConfig {
+  bool enabled = 1;
+  string host = 2;
+  uint32 port = 3;
+  string token = 4;
+  string agent_id = 5;
+  string adb_serial = 6;
+  uint32 min_backoff_ms = 7;
+  uint32 max_backoff_ms = 8;
+}
+
+message ControllerLinkStatus {
+  bool enabled = 1;
+  bool connected = 2;
+  string endpoint = 3;
+  string transport = 4;
+  string last_error = 5;
+  int64 last_connected_unix_ms = 6;
+  int64 last_disconnected_unix_ms = 7;
+  int64 next_retry_unix_ms = 8;
+}
+
 message FestivalConfig {
   bool enabled = 1;
   uint32 interval_ms = 2;
@@ -458,6 +494,8 @@ message CommandResult {
     FestivalRuns festival_runs = 31;
     FestivalRunArchive festival_run = 32;
     FestivalClearResult festival_clear = 33;
+    ControllerLinkConfig controller_link_config = 34;
+    ControllerLinkStatus controller_link_status = 35;
   }
 }
 

@@ -27,7 +27,7 @@ func runCLI(ctx context.Context, opts shellOptions, rawArgs []string) error {
 	}
 	defer controlSession.Close()
 
-	state := &shellState{server: controlSession.Server}
+	state := &shellState{server: controlSession.Server, controllerToken: controlSession.Token}
 	if len(controlSession.Agents) > 0 {
 		state.setSelectedAgent(controlSession.Agents[0])
 	}

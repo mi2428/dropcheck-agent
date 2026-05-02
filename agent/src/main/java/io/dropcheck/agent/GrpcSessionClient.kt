@@ -37,6 +37,7 @@ class GrpcSessionClient(
     private val token: String,
     private val agentId: String,
     private val adbSerial: String,
+    private val transport: String = "adb-reverse",
 ) {
     private val sessionId = UUID.randomUUID().toString()
     private val done = CountDownLatch(1)
@@ -59,6 +60,7 @@ class GrpcSessionClient(
         TerminalLog.debugEvent(service, "grpc.session.open", listOf(
             "host" to host,
             "port" to port,
+            "transport" to transport,
             "local_session_id" to sessionId,
             "agent_id" to agentId,
             "adb_serial" to adbSerial,
@@ -72,6 +74,7 @@ class GrpcSessionClient(
             .keepAliveWithoutCalls(true)
             .build()
         TerminalLog.debug(service, "grpc channel built authority=${channel.authority()} session=$sessionId")
+        ControllerLinkRuntimeState.markConnecting("$host:$port", transport)
         val stub = DropcheckControlGrpc.newStub(channel)
         val requestsRef = arrayOfNulls<StreamObserver<AgentFrame>>(1)
 
@@ -111,6 +114,7 @@ class GrpcSessionClient(
                 "local_session_id" to sessionId,
             ) + hello.logFields())
             send(requests, hello)
+            ControllerLinkRuntimeState.markConnected("$host:$port", transport)
             TerminalLog.info(service, "grpc hello sent session=$sessionId agent_id=$agentId adb_serial=$adbSerial host=$host port=$port")
             startHeartbeat(requests)
             done.await()
@@ -127,6 +131,7 @@ class GrpcSessionClient(
             active.clear()
             commandExecutor.shutdownNow()
             heartbeatExecutor.shutdownNow()
+            ControllerLinkRuntimeState.markDisconnected("gRPC session ended")
             runCatching { requests.onCompleted() }
                 .onSuccess { TerminalLog.debug(service, "grpc request stream completed session=$sessionId") }
                 .onFailure { TerminalLog.warn(service, "grpc request stream completion failed session=$sessionId error=$it") }
@@ -193,6 +198,10 @@ class GrpcSessionClient(
                     .setCommandId(commandId)
                     .setResult(result)
                     .build())
+                if (command.commandCase == RunCommand.CommandCase.RECONNECT_CONTROLLER && result.status == CommandResult.Status.STATUS_OK) {
+                    TerminalLog.info(service, "controller reconnect requested; closing current stream session=$sessionId")
+                    done.countDown()
+                }
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
                 TerminalLog.warn(service, "command[$commandId] interrupted")

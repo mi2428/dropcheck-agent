@@ -95,6 +95,10 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 		renderFestivalRun(&b, payload.FestivalRun)
 	case *controlpb.CommandResult_FestivalClear:
 		renderFestivalClear(&b, payload.FestivalClear)
+	case *controlpb.CommandResult_ControllerLinkConfig:
+		renderControllerLinkConfig(&b, payload.ControllerLinkConfig)
+	case *controlpb.CommandResult_ControllerLinkStatus:
+		renderControllerLinkStatus(&b, payload.ControllerLinkStatus)
 	default:
 		if result.GetMessage() != "" {
 			fmt.Fprintf(&b, "%s\n", result.GetMessage())
@@ -851,6 +855,58 @@ func renderFestivalClear(b *strings.Builder, result *controlpb.FestivalClearResu
 		return
 	}
 	fmt.Fprintf(b, "Dropcheck Festival cleared: runs=%d bytes=%s\n", result.GetRemovedRuns(), formatBytes(result.GetRemovedBytes()))
+}
+
+func renderControllerLinkConfig(b *strings.Builder, config *controlpb.ControllerLinkConfig) {
+	if config == nil {
+		return
+	}
+	endpoint := "-"
+	if config.GetHost() != "" && config.GetPort() != 0 {
+		endpoint = fmt.Sprintf("%s:%d", config.GetHost(), config.GetPort())
+	}
+	fmt.Fprintf(b, "Controller endpoint: enabled=%t endpoint=%s token=%s min-backoff=%s max-backoff=%s\n",
+		config.GetEnabled(),
+		endpoint,
+		redactedToken(config.GetToken()),
+		time.Duration(config.GetMinBackoffMs())*time.Millisecond,
+		time.Duration(config.GetMaxBackoffMs())*time.Millisecond,
+	)
+	if config.GetAgentId() != "" || config.GetAdbSerial() != "" {
+		fmt.Fprintf(b, "Identity: agent=%s adb_serial=%s\n",
+			empty(config.GetAgentId(), "-"),
+			empty(config.GetAdbSerial(), "-"),
+		)
+	}
+}
+
+func renderControllerLinkStatus(b *strings.Builder, status *controlpb.ControllerLinkStatus) {
+	if status == nil {
+		return
+	}
+	fmt.Fprintf(b, "Controller link: enabled=%t connected=%t endpoint=%s transport=%s\n",
+		status.GetEnabled(),
+		status.GetConnected(),
+		empty(status.GetEndpoint(), "-"),
+		empty(status.GetTransport(), "-"),
+	)
+	if status.GetLastConnectedUnixMs() != 0 || status.GetLastDisconnectedUnixMs() != 0 || status.GetNextRetryUnixMs() != 0 {
+		fmt.Fprintf(b, "Timing: connected=%s disconnected=%s next-retry=%s\n",
+			unixMillis(status.GetLastConnectedUnixMs()),
+			unixMillis(status.GetLastDisconnectedUnixMs()),
+			unixMillis(status.GetNextRetryUnixMs()),
+		)
+	}
+	if status.GetLastError() != "" {
+		fmt.Fprintf(b, "Last error: %s\n", status.GetLastError())
+	}
+}
+
+func redactedToken(token string) string {
+	if token == "" {
+		return "none"
+	}
+	return "<redacted>"
 }
 
 func renderDiagnosticFields(b *strings.Builder, fields []*controlpb.DiagnosticField) {
