@@ -224,13 +224,6 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
         }
 
         private fun updateWidgets(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-            val launchIntent = Intent(context, MainActivity::class.java)
-            val launchPendingIntent = PendingIntent.getActivity(
-                context,
-                0,
-                launchIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
             val wifiText = currentWifiText(context)
 
             appWidgetIds.forEach { appWidgetId ->
@@ -244,7 +237,6 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
                     setTextViewTextSize(R.id.agentClockWifiInfo, TypedValue.COMPLEX_UNIT_SP, size.wifiSp)
                     setTextViewTextSize(R.id.agentClockIpInfo, TypedValue.COMPLEX_UNIT_SP, size.wifiSp)
                     setTextViewTextSize(R.id.agentClockLocationInfo, TypedValue.COMPLEX_UNIT_SP, size.wifiSp)
-                    setOnClickPendingIntent(R.id.agentClockRoot, launchPendingIntent)
                 }
                 appWidgetManager.updateAppWidget(appWidgetId, views)
             }
