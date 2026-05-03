@@ -839,6 +839,29 @@ func TestParseLinuxCommands(t *testing.T) {
 	}
 }
 
+func TestParseLinuxWifiWaitUsesDashSSID(t *testing.T) {
+	got, err := linuxcli.Parse([]string{"wifi", "wait", "connected", "--ssid", "Lab", "--ip", "--timeout", "12000"})
+	if err != nil {
+		t.Fatalf("linuxcli.Parse() error = %v", err)
+	}
+	cmd, _ := operationCommand(t, got.Operation)
+	wait := cmd.GetWaitWifiConnected()
+	if wait == nil {
+		t.Fatalf("wait command = nil")
+	}
+	if wait.GetSsid() != "Lab" || !wait.GetRequireIp() || wait.GetTimeoutMs() != 12000 {
+		t.Fatalf("wait command = %#v", wait)
+	}
+	assertOperationLabel(t, got.Operation, "wifi wait connected Lab --timeout 12000 --ip")
+}
+
+func TestParseLinuxWifiConnectRejectsExtraPositionalWithPassphraseFlag(t *testing.T) {
+	_, err := linuxcli.Parse([]string{"wifi", "connect", "Lab", "--passphrase", "secret", "extra"})
+	if err == nil || !strings.Contains(err.Error(), "too many positional arguments for wifi connect") {
+		t.Fatalf("linuxcli.Parse() error = %v", err)
+	}
+}
+
 func TestLinuxCommandBuildsOperation(t *testing.T) {
 	got, err := linuxcli.Parse([]string{"ping", "1.1.1.1", "--count", "5", "--size", "64"})
 	if err != nil {
