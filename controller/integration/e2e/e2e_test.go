@@ -987,6 +987,95 @@ func TestE2ECaseTableIsMerged(t *testing.T) {
 	}
 }
 
+func TestE2ECaseTableCoversControllerCommandSurface(t *testing.T) {
+	cases := loadCases(t)
+	required := []struct {
+		name   string
+		runner string
+		text   string
+	}{
+		{name: "shell help", runner: "shell", text: "help"},
+		{name: "shell show devices", runner: "shell", text: "show devices"},
+		{name: "shell pipeline", runner: "shell", text: "| match"},
+		{name: "shell show controller config", runner: "shell", text: "show config controller endpoint"},
+		{name: "shell show controller link", runner: "shell", text: "show controller link"},
+		{name: "shell set controller endpoint", runner: "shell", text: "set controller endpoint"},
+		{name: "shell controller reconnect", runner: "shell", text: "request> controller reconnect"},
+		{name: "shell standalone config", runner: "shell", text: "show config standalone"},
+		{name: "shell standalone status", runner: "shell", text: "show standalone status"},
+		{name: "shell standalone runs", runner: "shell", text: "show standalone runs"},
+		{name: "shell standalone run detail parser", runner: "shell-parser", text: "show standalone run"},
+		{name: "shell standalone clear", runner: "shell", text: "clear standalone runs"},
+		{name: "shell standalone run once", runner: "shell", text: "request> standalone run once"},
+		{name: "shell standalone sync", runner: "shell", text: "sync standalone runs"},
+		{name: "shell wifi status", runner: "shell", text: "show wifi status"},
+		{name: "shell wifi diagnostics", runner: "shell", text: "show wifi diagnostics"},
+		{name: "shell wifi capabilities", runner: "shell", text: "show wifi capabilities"},
+		{name: "shell wifi scan", runner: "shell", text: "show wifi scan"},
+		{name: "shell wifi fresh scan", runner: "shell", text: "show wifi scan fresh"},
+		{name: "shell wifi scan detail", runner: "shell", text: "show wifi scan detail"},
+		{name: "shell wifi connect", runner: "shell", text: "request> wifi connect"},
+		{name: "shell wifi wait", runner: "shell", text: "request> wifi wait"},
+		{name: "shell wifi assert", runner: "shell", text: "request> wifi assert"},
+		{name: "shell wifi reconnect", runner: "shell", text: "request> wifi reconnect"},
+		{name: "shell wifi monitor", runner: "shell", text: "request> monitor wifi"},
+		{name: "shell wifi cycle", runner: "shell", text: "request> wifi cycle"},
+		{name: "shell wifi disconnect", runner: "shell", text: "request> wifi disconnect"},
+		{name: "shell wifi forget", runner: "shell", text: "request> wifi forget"},
+		{name: "shell ping", runner: "shell", text: "request> ping"},
+		{name: "shell traceroute", runner: "shell", text: "request> traceroute"},
+		{name: "shell path mtu", runner: "shell", text: "request> path-mtu"},
+		{name: "shell global ip", runner: "shell", text: "request> global-ip"},
+		{name: "shell dns", runner: "shell", text: "request> dns"},
+		{name: "shell http", runner: "shell", text: "request> http"},
+		{name: "shell download", runner: "shell", text: "request> download"},
+		{name: "cli show devices", runner: "cli", text: "dropcheck --serial"},
+		{name: "cli wifi scan", runner: "cli", text: "dropcheck show wifi scan"},
+		{name: "cli wifi connect", runner: "cli", text: "dropcheck request wifi connect"},
+		{name: "cli wifi wait", runner: "cli", text: "dropcheck request wifi wait"},
+		{name: "cli wifi assert", runner: "cli", text: "dropcheck request wifi assert"},
+		{name: "cli wifi monitor", runner: "cli", text: "dropcheck request monitor wifi"},
+		{name: "cli wifi reconnect", runner: "cli", text: "dropcheck request wifi reconnect"},
+		{name: "cli wifi cycle", runner: "cli", text: "dropcheck request wifi cycle"},
+		{name: "cli ping", runner: "cli", text: "dropcheck request ping"},
+		{name: "cli traceroute", runner: "cli", text: "dropcheck request traceroute"},
+		{name: "cli path mtu", runner: "cli", text: "dropcheck request path-mtu"},
+		{name: "cli global ip", runner: "cli", text: "dropcheck request global-ip"},
+		{name: "cli dns", runner: "cli", text: "dropcheck request dns"},
+		{name: "cli http", runner: "cli", text: "dropcheck request http"},
+		{name: "cli download", runner: "cli", text: "dropcheck request download"},
+		{name: "cli standalone runs", runner: "cli", text: "dropcheck show standalone runs"},
+		{name: "cli standalone sync", runner: "cli", text: "dropcheck sync standalone runs"},
+		{name: "cli controller configure", runner: "cli", text: "dropcheck configure set controller endpoint"},
+		{name: "cli standalone configure", runner: "cli", text: "dropcheck configure set standalone"},
+	}
+	for _, want := range required {
+		if !e2eTableHasCommand(cases, want.runner, want.text) {
+			t.Errorf("missing E2E coverage for %s: runner=%s command contains %q", want.name, want.runner, want.text)
+		}
+	}
+	for _, tc := range cases {
+		commandLine := e2eComparableCommand(tc.Command)
+		if strings.Contains(commandLine, "wifi watch") || strings.Contains(commandLine, "watch wifi") {
+			t.Errorf("%s still references removed wifi watch command: %s", tc.ID, tc.Command)
+		}
+	}
+}
+
+func e2eTableHasCommand(cases []matrixCase, runner string, text string) bool {
+	needle := e2eComparableCommand(text)
+	for _, tc := range cases {
+		if tc.Runner == runner && strings.Contains(e2eComparableCommand(tc.Command), needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func e2eComparableCommand(value string) string {
+	return strings.Join(strings.Fields(strings.ToLower(value)), " ")
+}
+
 func mustReadFile(t *testing.T, path string) []byte {
 	t.Helper()
 	data, err := os.ReadFile(path)
