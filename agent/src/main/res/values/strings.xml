@@ -1,7 +1,8 @@
 <resources>
     <string name="app_name">dropcheck agent</string>
     <string name="device_admin_description">Allows dropcheck to control Wi-Fi for automated network tests.</string>
-    <string name="agent_log_widget_label">ログビュワー</string>
+    <string name="agent_log_widget_label">Log Viewer</string>
     <string name="agent_log_widget_description">Transparent dropcheck agent log viewer.</string>
     <string name="agent_log_widget_placeholder">dropcheck agent&#10;waiting for logs</string>
+    <string name="agent_clock_widget_label">Clock</string>
 </resources>
