@@ -84,6 +84,12 @@ internal class StandaloneRunner(private val context: Context) {
                     ran = true
                 }
             }
+            if (ran) {
+                val upload = StandaloneUploader(appContext, resultStore).flush(config)
+                if (upload.isNotBlank()) {
+                    StandaloneRuntimeState.message.set(upload)
+                }
+            }
             sleepInterruptibly(if (ran) 250 else 1_000)
         }
         StandaloneRuntimeState.running.set(false)

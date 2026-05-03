@@ -57,6 +57,11 @@ internal class StandaloneResultStore internal constructor(private val runsDir: F
     }
 
     @Synchronized
+    fun delete(runId: String): Boolean {
+        return runFile(runId).delete()
+    }
+
+    @Synchronized
     fun clear(syncedOnly: Boolean, all: Boolean): StandaloneClearResult {
         var removedRuns = 0
         var removedBytes = 0L

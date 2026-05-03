@@ -28,7 +28,7 @@ class StandaloneConfigEditorTest {
         val configured = StandaloneConfigEditor.apply(
             StandaloneConfig.getDefaultInstance(),
             listOf(
-                setEdit("SHIZK RADIO", "festa", "smoke", "wifi-group", "lab", "match", "essid"),
+                setEdit("Lab SSID", "festa", "smoke", "wifi-group", "lab", "match", "essid"),
                 deleteEdit("festa", "smoke", "wifi-group", "lab"),
             ),
         )
@@ -63,6 +63,32 @@ class StandaloneConfigEditorTest {
         assertEquals(ConnectWifi.Security.SECURITY_WPA3_SAE, group.security)
         assertEquals(WifiBand.WIFI_BAND_5_GHZ, group.band)
         assertEquals(45000, group.timeoutMs)
+    }
+
+    @Test
+    fun appliesUploadEdits() {
+        val result = StandaloneConfigEditor.apply(
+            StandaloneConfig.getDefaultInstance(),
+            listOf(
+                setEdit("http://192.168.50.10:8080/dropcheck/incoming", "upload", "url"),
+                setEdit("NOC", "upload", "wifi", "ssid"),
+                setEdit("secret", "upload", "wifi", "passphrase"),
+                setEdit("wpa3", "upload", "wifi", "security"),
+                setEdit("6ghz", "upload", "wifi", "band"),
+                setEdit("non-persistent", "upload", "wifi", "mac_randomization"),
+                setEdit("5000", "upload", "wifi", "timeout_ms"),
+            ),
+        )
+
+        assertNull(result.error)
+        assertEquals("http://192.168.50.10:8080/dropcheck/incoming", result.config.upload.url)
+        val wifi = result.config.upload.wifi
+        assertEquals("NOC", wifi.ssid)
+        assertEquals("secret", wifi.passphrase)
+        assertEquals(ConnectWifi.Security.SECURITY_WPA3_SAE, wifi.security)
+        assertEquals(WifiBand.WIFI_BAND_6_GHZ, wifi.band)
+        assertEquals(ConnectWifi.MacRandomization.MAC_RANDOMIZATION_NON_PERSISTENT, wifi.macRandomization)
+        assertEquals(5000, wifi.timeoutMs)
     }
 
     private fun setEdit(value: String, vararg path: String): StandaloneEdit {

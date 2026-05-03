@@ -63,6 +63,46 @@ func TestRenderConfigShowsStandaloneOnly(t *testing.T) {
 	}
 }
 
+func TestRenderConfigShowsStandaloneUpload(t *testing.T) {
+	view := ConfigView{
+		Standalone: &controlpb.StandaloneConfig{
+			Upload: &controlpb.StandaloneUploadConfig{
+				Url: "http://192.168.50.10:8080/dropcheck/incoming",
+				Wifi: &controlpb.ConnectWifi{
+					Ssid:             "NOC",
+					Passphrase:       "secret",
+					Security:         controlpb.ConnectWifi_SECURITY_WPA3_SAE,
+					Band:             controlpb.WifiBand_WIFI_BAND_6_GHZ,
+					MacRandomization: controlpb.ConnectWifi_MAC_RANDOMIZATION_NON_PERSISTENT,
+					TimeoutMs:        5000,
+				},
+			},
+		},
+	}
+	text, err := Config(view, pipeline.FormatText)
+	if err != nil {
+		t.Fatalf("Config(text) error = %v", err)
+	}
+	for _, want := range []string{
+		"upload {\n",
+		"to http://192.168.50.10:8080/dropcheck/incoming\n",
+		"via wifi {\n",
+		"essid NOC\n",
+		"passphrase <redacted>\n",
+		"security wpa3\n",
+		"band 6ghz\n",
+		"mac-randomization non-persistent\n",
+		"timeout 5s\n",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("Config(text) = %q, missing %q", text, want)
+		}
+	}
+	if strings.Contains(text, "secret") {
+		t.Fatalf("Config(text) leaked passphrase: %q", text)
+	}
+}
+
 func TestRenderCommandResultShowsCommandLatencyFallback(t *testing.T) {
 	result := &controlpb.CommandResult{
 		Status:    controlpb.CommandResult_STATUS_OK,

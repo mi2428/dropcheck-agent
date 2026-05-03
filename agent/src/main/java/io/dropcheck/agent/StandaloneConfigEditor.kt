@@ -54,6 +54,7 @@ internal object StandaloneConfigEditor {
             path == listOf("enabled") -> applyParsed(parseBool(value), "enabled must be true or false") { builder.enabled = it }
             path == listOf("retention_ms") -> applyParsed(parseUInt(value), "retention_ms must be uint32") { builder.retentionMs = it }
             path == listOf("max_bytes") -> applyParsed(parseULong(value), "max_bytes must be uint64") { builder.maxBytes = it }
+            path.size >= 2 && path[0] == "upload" -> setUpload(builder, path.drop(1), value)
             path.size >= 3 && path[0] == "festa" -> setFesta(builder, path.drop(1), value)
             else -> "unsupported standalone set path: ${path.joinToString(" ")}"
         }
@@ -77,8 +78,67 @@ internal object StandaloneConfigEditor {
                 builder.maxBytes = 0
                 null
             }
+            path.size >= 1 && path[0] == "upload" -> deleteUpload(builder, path.drop(1))
             path.size >= 2 && path[0] == "festa" -> deleteFesta(builder, path.drop(1))
             else -> "unsupported standalone delete path: ${path.joinToString(" ")}"
+        }
+    }
+
+    private fun setUpload(config: StandaloneConfig.Builder, path: List<String>, value: String): String? {
+        val upload = config.upload.toBuilder()
+        val error = when {
+            path == listOf("url") -> {
+                upload.url = value
+                null
+            }
+            path.size == 2 && path[0] == "wifi" -> {
+                val wifi = upload.wifi.toBuilder()
+                val wifiError = setUploadWifi(wifi, path[1], value)
+                if (wifiError != null) return wifiError
+                upload.wifi = wifi.build()
+                null
+            }
+            else -> "unsupported standalone upload set path: ${path.joinToString(" ")}"
+        }
+        if (error != null) return error
+        config.upload = upload.build()
+        return null
+    }
+
+    private fun deleteUpload(config: StandaloneConfig.Builder, path: List<String>): String? {
+        if (path.isEmpty()) {
+            config.clearUpload()
+            return null
+        }
+        val upload = config.upload.toBuilder()
+        when (path) {
+            listOf("url") -> upload.clearUrl()
+            listOf("wifi") -> upload.clearWifi()
+            else -> return "unsupported standalone upload delete path: ${path.joinToString(" ")}"
+        }
+        config.upload = upload.build()
+        return null
+    }
+
+    private fun setUploadWifi(wifi: ConnectWifi.Builder, field: String, value: String): String? {
+        return when (field) {
+            "ssid" -> {
+                wifi.ssid = value
+                null
+            }
+            "passphrase" -> {
+                wifi.passphrase = value
+                null
+            }
+            "security" -> applyParsed(parseSecurity(value), "unsupported wifi security: $value") { wifi.security = it }
+            "bssid" -> {
+                wifi.bssid = value
+                null
+            }
+            "band" -> applyParsed(parseBand(value), "unsupported wifi band: $value") { wifi.band = it }
+            "mac_randomization" -> applyParsed(parseMacRandomization(value), "unsupported wifi MAC randomization: $value") { wifi.macRandomization = it }
+            "timeout_ms" -> applyParsed(parseUInt(value), "upload wifi timeout_ms must be uint32") { wifi.timeoutMs = it }
+            else -> "unsupported standalone upload wifi set path: $field"
         }
     }
 
@@ -264,6 +324,17 @@ internal object StandaloneConfigEditor {
             "5ghz" -> WifiBand.WIFI_BAND_5_GHZ
             "6ghz" -> WifiBand.WIFI_BAND_6_GHZ
             "60ghz" -> WifiBand.WIFI_BAND_60_GHZ
+            else -> null
+        }
+    }
+
+    private fun parseMacRandomization(value: String): ConnectWifi.MacRandomization? {
+        return when (value.lowercase()) {
+            "" -> ConnectWifi.MacRandomization.MAC_RANDOMIZATION_UNSPECIFIED
+            "auto" -> ConnectWifi.MacRandomization.MAC_RANDOMIZATION_AUTO
+            "none" -> ConnectWifi.MacRandomization.MAC_RANDOMIZATION_NONE
+            "persistent" -> ConnectWifi.MacRandomization.MAC_RANDOMIZATION_PERSISTENT
+            "non-persistent" -> ConnectWifi.MacRandomization.MAC_RANDOMIZATION_NON_PERSISTENT
             else -> null
         }
     }

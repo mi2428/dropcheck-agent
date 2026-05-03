@@ -312,6 +312,38 @@ func TestParseShellStandaloneCommands(t *testing.T) {
 		t.Fatalf("sync = %#v", sync)
 	}
 
+	uploadTo, err := parseShellLineForTest("config> set standalone upload to http://192.168.50.10:8080/dropcheck/incoming")
+	if err != nil {
+		t.Fatalf("set standalone upload to: %v", err)
+	}
+	cmd, _, err = buildRunCommand(uploadTo.operation)
+	if err != nil {
+		t.Fatalf("build upload to command: %v", err)
+	}
+	edits := cmd.GetEditStandaloneConfig().GetEdits()
+	if len(edits) != 1 || strings.Join(edits[0].GetPath(), "/") != "upload/url" ||
+		edits[0].GetValue() != "http://192.168.50.10:8080/dropcheck/incoming" {
+		t.Fatalf("upload to edits = %#v", edits)
+	}
+
+	uploadWifi, err := parseShellLineForTest("config> set standalone upload via wifi essid NOC passphrase secret security wpa3 band 6ghz timeout 5s")
+	if err != nil {
+		t.Fatalf("set standalone upload via wifi: %v", err)
+	}
+	cmd, _, err = buildRunCommand(uploadWifi.operation)
+	if err != nil {
+		t.Fatalf("build upload wifi command: %v", err)
+	}
+	edits = cmd.GetEditStandaloneConfig().GetEdits()
+	if len(edits) != 6 || strings.Join(edits[0].GetPath(), "/") != "upload/wifi" ||
+		edits[0].GetAction() != controlpb.StandaloneEdit_ACTION_DELETE ||
+		strings.Join(edits[1].GetPath(), "/") != "upload/wifi/ssid" ||
+		edits[1].GetValue() != "NOC" ||
+		strings.Join(edits[5].GetPath(), "/") != "upload/wifi/timeout_ms" ||
+		edits[5].GetValue() != "5000" {
+		t.Fatalf("upload wifi edits = %#v", edits)
+	}
+
 	del, err := parseShellLineForTest("config> delete standalone festa smoke")
 	if err != nil {
 		t.Fatalf("delete standalone festa: %v", err)
@@ -323,7 +355,7 @@ func TestParseShellStandaloneCommands(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build delete command: %v", err)
 	}
-	edits := cmd.GetEditStandaloneConfig().GetEdits()
+	edits = cmd.GetEditStandaloneConfig().GetEdits()
 	if len(edits) != 1 || edits[0].GetAction() != controlpb.StandaloneEdit_ACTION_DELETE || strings.Join(edits[0].GetPath(), "/") != "festa/smoke" {
 		t.Fatalf("delete edits = %#v", edits)
 	}
@@ -368,7 +400,7 @@ func TestShellCommandBuildsOperation(t *testing.T) {
 }
 
 func TestShellWifiConnectDefaultsSecurityToAuto(t *testing.T) {
-	got, err := parseShellLineForTest("request> wifi connect 'SHIZK RADIO' passphrase 'shizkkawaii'")
+	got, err := parseShellLineForTest("request> wifi connect 'Lab SSID' passphrase 'secret-passphrase'")
 	if err != nil {
 		t.Fatalf("parseShellLineForTest() error = %v", err)
 	}
@@ -380,7 +412,7 @@ func TestShellWifiConnectDefaultsSecurityToAuto(t *testing.T) {
 	if connect == nil {
 		t.Fatalf("connect command = nil")
 	}
-	if connect.GetSsid() != "SHIZK RADIO" || connect.GetPassphrase() != "shizkkawaii" {
+	if connect.GetSsid() != "Lab SSID" || connect.GetPassphrase() != "secret-passphrase" {
 		t.Fatalf("connect credentials = %q/%q", connect.GetSsid(), connect.GetPassphrase())
 	}
 	if connect.GetSecurity() != controlpb.ConnectWifi_SECURITY_UNSPECIFIED {
@@ -421,10 +453,10 @@ func TestParseShellRejectsWifiOptionsConsumingSSID(t *testing.T) {
 		line string
 		want string
 	}{
-		{line: `request> wifi connect passphrase secret bssid "SHIZK RADIO"`, want: "bssid requires a value before <ssid>"},
-		{line: `request> wifi connect passphrase secret band "SHIZK RADIO"`, want: "band requires a value before <ssid>"},
-		{line: `request> wifi cycle passphrase secret http "SHIZK RADIO"`, want: "http requires a value before <ssid>"},
-		{line: `request> wifi cycle passphrase secret ping "SHIZK RADIO"`, want: "ping requires a value before <ssid>"},
+		{line: `request> wifi connect passphrase secret bssid "Lab SSID"`, want: "bssid requires a value before <ssid>"},
+		{line: `request> wifi connect passphrase secret band "Lab SSID"`, want: "band requires a value before <ssid>"},
+		{line: `request> wifi cycle passphrase secret http "Lab SSID"`, want: "http requires a value before <ssid>"},
+		{line: `request> wifi cycle passphrase secret ping "Lab SSID"`, want: "ping requires a value before <ssid>"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.line, func(t *testing.T) {

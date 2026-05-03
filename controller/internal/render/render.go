@@ -749,6 +749,36 @@ func renderStandaloneConfigBlock(b *strings.Builder, config *controlpb.Standalon
 	if config.GetMaxBytes() != 0 {
 		writeConfigLine(b, depth+1, "max-size %s", formatBytes(config.GetMaxBytes()))
 	}
+	if upload := config.GetUpload(); upload != nil && (upload.GetUrl() != "" || upload.GetWifi().GetSsid() != "") {
+		writeConfigLine(b, depth+1, "upload {")
+		if upload.GetUrl() != "" {
+			writeConfigLine(b, depth+2, "to %s", shellQuote(upload.GetUrl()))
+		}
+		if wifi := upload.GetWifi(); wifi.GetSsid() != "" {
+			writeConfigLine(b, depth+2, "via wifi {")
+			writeConfigLine(b, depth+3, "essid %s", shellQuote(wifi.GetSsid()))
+			if wifi.GetPassphrase() != "" {
+				writeConfigLine(b, depth+3, "passphrase <redacted>")
+			}
+			if wifi.GetSecurity() != controlpb.ConnectWifi_SECURITY_UNSPECIFIED {
+				writeConfigLine(b, depth+3, "security %s", standaloneSecurityName(wifi.GetSecurity()))
+			}
+			if wifi.GetBssid() != "" {
+				writeConfigLine(b, depth+3, "bssid %s", shellQuote(wifi.GetBssid()))
+			}
+			if wifi.GetBand() != controlpb.WifiBand_WIFI_BAND_UNSPECIFIED && wifi.GetBand() != controlpb.WifiBand_WIFI_BAND_ALL {
+				writeConfigLine(b, depth+3, "band %s", standaloneBandName(wifi.GetBand()))
+			}
+			if wifi.GetMacRandomization() != controlpb.ConnectWifi_MAC_RANDOMIZATION_UNSPECIFIED {
+				writeConfigLine(b, depth+3, "mac-randomization %s", standaloneMacRandomizationName(wifi.GetMacRandomization()))
+			}
+			if wifi.GetTimeoutMs() != 0 {
+				writeConfigLine(b, depth+3, "timeout %s", formatConfigDuration(wifi.GetTimeoutMs()))
+			}
+			writeConfigLine(b, depth+2, "}")
+		}
+		writeConfigLine(b, depth+1, "}")
+	}
 	for _, festa := range config.GetFestas() {
 		writeConfigLine(b, depth+1, "festa %s {", shellQuote(festa.GetName()))
 		if festa.GetEnabled() {
@@ -1072,6 +1102,21 @@ func standaloneBandName(value controlpb.WifiBand) string {
 		return "60ghz"
 	default:
 		return "all"
+	}
+}
+
+func standaloneMacRandomizationName(value controlpb.ConnectWifi_MacRandomization) string {
+	switch value {
+	case controlpb.ConnectWifi_MAC_RANDOMIZATION_AUTO:
+		return "auto"
+	case controlpb.ConnectWifi_MAC_RANDOMIZATION_NONE:
+		return "none"
+	case controlpb.ConnectWifi_MAC_RANDOMIZATION_PERSISTENT:
+		return "persistent"
+	case controlpb.ConnectWifi_MAC_RANDOMIZATION_NON_PERSISTENT:
+		return "non-persistent"
+	default:
+		return "unspecified"
 	}
 }
 

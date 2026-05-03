@@ -23,6 +23,10 @@
 //	DROPCHECK_E2E_LAUNCH_APP_EVERY_CASE
 //	                           set to 0 to skip per-case foregrounding; defaults to 1
 //	DROPCHECK_E2E_FORCE_STOP   set to 1 to force-stop the Android app before each live case
+//	DROPCHECK_E2E_STANDALONE_UPLOAD_URL
+//	                           Optional MinIO path-style bucket/prefix URL override for the
+//	                           standalone upload live test. By default the test starts this
+//	                           repo's docker-compose MinIO and reaches it through adb reverse.
 //
 // The case table is testdata/e2e_cases.tsv. The title column is included in Go
 // subtest names, for example E2E-001_shell_help, so verbose output remains readable.
@@ -38,6 +42,8 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -67,9 +73,15 @@ const (
 	envForceStop  = "DROPCHECK_E2E_FORCE_STOP"
 	envLaunchApp  = "DROPCHECK_E2E_LAUNCH_APP"
 	envLaunchEach = "DROPCHECK_E2E_LAUNCH_APP_EVERY_CASE"
+	envUploadURL  = "DROPCHECK_E2E_STANDALONE_UPLOAD_URL"
 	defaultADB    = "adb"
 	defaultPkg    = "io.dropcheck.agent"
 	defaultPSKEnv = "DROPCHECK_E2E_WIFI_PSK"
+
+	standaloneUploadFesta  = "upload-e2e"
+	standaloneUploadBucket = "dropcheck"
+	standaloneUploadPrefix = "e2e"
+	defaultMinIOAPIPort    = "8080"
 )
 
 type matrixCase struct {
@@ -94,6 +106,7 @@ type e2eConfig struct {
 	serial             string
 	ssid               string
 	psk                string
+	uploadURL          string
 	bssid              string
 	agentPref          string
 	forceStopApp       bool
@@ -174,6 +187,63 @@ func TestDropcheckEndToEndMatrix(t *testing.T) {
 	}
 }
 
+func TestStandaloneUploadToMinIOLive(t *testing.T) {
+	cfg := loadConfig(t)
+	if !cfg.live {
+		t.Skipf("set %s=1 to run live standalone upload E2E", envLive)
+	}
+	if cfg.serial == "" {
+		t.Skipf("%s or ADB_SERIAL is required", envSerial)
+	}
+	if cfg.ssid == "" || cfg.psk == "" {
+		t.Skipf("%s and %s are required for standalone upload E2E", envSSID, envPSK)
+	}
+	cfg.prepareLive(t, []matrixCase{{
+		ID:      "standalone-upload-minio",
+		Title:   "Shell standalone upload MinIO",
+		Runner:  "shell",
+		Command: "show devices",
+		Expect:  "ok",
+	}})
+	uploadURL := cfg.ensureStandaloneUploadURL(t)
+	t.Cleanup(func() {
+		cfg.runShellCleanup("config> set standalone disabled")
+		cfg.runShellCleanup("clear standalone runs all")
+		cfg.runShellCleanup("config> delete standalone upload")
+		cfg.runShellCleanup("config> delete standalone festa " + standaloneUploadFesta)
+	})
+
+	ssid, psk := cfg.ssid, cfg.psk
+	t.Logf("standalone upload live target=%s wifi_ssid=%q", uploadURL, ssid)
+
+	preClean := []string{
+		"config> set standalone disabled",
+		"clear standalone runs all",
+		"config> delete standalone upload",
+		"config> delete standalone festa " + standaloneUploadFesta,
+	}
+	for _, line := range preClean {
+		cfg.runShellLiveCommand(t, line, 45*time.Second)
+	}
+
+	commands := []string{
+		"config> set standalone upload to " + quoteToken(uploadURL),
+		fmt.Sprintf("config> set standalone upload via wifi essid %s passphrase %s security auto timeout 25000", quoteToken(ssid), quoteToken(psk)),
+		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt match essid %s", standaloneUploadFesta, quoteToken(ssid)),
+		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt credential passphrase %s", standaloneUploadFesta, quoteToken(psk)),
+		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt security auto", standaloneUploadFesta),
+		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt timeout 25000", standaloneUploadFesta),
+		fmt.Sprintf("config> set standalone festa %s enabled", standaloneUploadFesta),
+		"config> set standalone enabled",
+	}
+	for _, line := range commands {
+		cfg.runShellLiveCommand(t, line, 90*time.Second)
+	}
+
+	status := cfg.waitStandaloneUploadSuccess(t, 2*time.Minute)
+	t.Logf("standalone upload succeeded from Android perspective: %s", oneLine(redact(status, psk)))
+}
+
 func loadCases(t *testing.T) []matrixCase {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(packageDir(t), "testdata", "e2e_cases.tsv"))
@@ -238,6 +308,7 @@ func loadConfig(t *testing.T) *e2eConfig {
 		live:               envBool(envLive),
 		serial:             firstNonEmpty(os.Getenv(envSerial), os.Getenv("ADB_SERIAL")),
 		ssid:               os.Getenv(envSSID),
+		uploadURL:          os.Getenv(envUploadURL),
 		forceStopApp:       envBool(envForceStop),
 		launchAppActivity:  envBoolDefault(envLaunchApp, true),
 		launchAppEveryCase: envBoolDefault(envLaunchEach, true),
@@ -420,6 +491,156 @@ func (cfg *e2eConfig) runExternal(timeout time.Duration, args []string, stdin st
 		}
 	}
 	return commandResult{Output: string(out), Code: code, Err: err}
+}
+
+func (cfg *e2eConfig) runShellLiveCommand(t *testing.T, commandLine string, timeout time.Duration) string {
+	t.Helper()
+	res := cfg.runExternal(timeout, []string{"--serial", cfg.serial, "shell"}, shellInput(commandLine)+"quit\n")
+	output := redact(res.Output, cfg.psk)
+	if res.Err != nil || res.Code != 0 {
+		t.Fatalf("live shell command failed: command=%s rc=%d err=%v output=%s", redact(commandLine, cfg.psk), res.Code, res.Err, output)
+	}
+	if isShellErrorOutput(res.Output) || isFailureStatusOutput(res.Output) {
+		t.Fatalf("live shell command returned failure: command=%s output=%s", redact(commandLine, cfg.psk), output)
+	}
+	return res.Output
+}
+
+func (cfg *e2eConfig) waitStandaloneUploadSuccess(t *testing.T, timeout time.Duration) string {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	var last string
+	for time.Now().Before(deadline) {
+		last = cfg.runShellLiveCommand(t, "show standalone status", 35*time.Second)
+		if standaloneUploadSuccess.MatchString(last) {
+			return last
+		}
+		time.Sleep(2 * time.Second)
+	}
+	t.Fatalf("standalone upload did not report HTTP 20x success within %s; last status=%s", timeout, oneLine(redact(last, cfg.psk)))
+	return ""
+}
+
+func (cfg *e2eConfig) ensureStandaloneUploadURL(t *testing.T) string {
+	t.Helper()
+	if cfg.uploadURL != "" {
+		return strings.TrimRight(cfg.uploadURL, "/")
+	}
+	port := envOr("MINIO_API_PORT", defaultMinIOAPIPort)
+	cfg.startMinIO(t, port)
+	waitHTTPReady(t, fmt.Sprintf("http://127.0.0.1:%s/minio/health/ready", port), 90*time.Second)
+
+	if cfg.setupADBReverse(t, port) {
+		cfg.uploadURL = fmt.Sprintf("http://127.0.0.1:%s/%s/%s", port, standaloneUploadBucket, standaloneUploadPrefix)
+		return cfg.uploadURL
+	}
+	host := hostIPv4Address()
+	if host == "" {
+		t.Fatalf("adb reverse failed and no non-loopback IPv4 address was found; set %s explicitly", envUploadURL)
+	}
+	cfg.uploadURL = fmt.Sprintf("http://%s:%s/%s/%s", host, port, standaloneUploadBucket, standaloneUploadPrefix)
+	return cfg.uploadURL
+}
+
+func (cfg *e2eConfig) startMinIO(t *testing.T, port string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "compose", "up", "-d", "minio", "minio-init")
+	cmd.Dir = cfg.repoRoot
+	cmd.Env = os.Environ()
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		err = ctx.Err()
+	}
+	if err != nil {
+		t.Fatalf("start MinIO on host port %s: %v\n%s", port, err, out)
+	}
+	t.Logf("MinIO started for standalone upload E2E on host port %s", port)
+}
+
+func waitHTTPReady(t *testing.T, url string, timeout time.Duration) {
+	t.Helper()
+	client := &http.Client{Timeout: 2 * time.Second}
+	deadline := time.Now().Add(timeout)
+	var last string
+	for time.Now().Before(deadline) {
+		resp, err := client.Get(url)
+		if resp != nil {
+			last = resp.Status
+			_ = resp.Body.Close()
+		}
+		if err == nil && resp != nil && resp.StatusCode >= 200 && resp.StatusCode <= 299 {
+			return
+		}
+		if err != nil {
+			last = err.Error()
+		}
+		time.Sleep(1 * time.Second)
+	}
+	t.Fatalf("MinIO health endpoint %s was not ready within %s; last=%s", url, timeout, last)
+}
+
+func (cfg *e2eConfig) setupADBReverse(t *testing.T, port string) bool {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	spec := "tcp:" + port
+	cmd := exec.CommandContext(ctx, cfg.adb, "-s", cfg.serial, "reverse", spec, spec)
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		err = ctx.Err()
+	}
+	if err != nil {
+		t.Logf("adb reverse %s failed: %v output=%s", spec, err, oneLine(string(out)))
+		return false
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = exec.CommandContext(ctx, cfg.adb, "-s", cfg.serial, "reverse", "--remove", spec).Run()
+	})
+	return true
+}
+
+func hostIPv4Address() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for _, preferPrivate := range []bool{true, false} {
+		for _, iface := range ifaces {
+			if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+				continue
+			}
+			addrs, err := iface.Addrs()
+			if err != nil {
+				continue
+			}
+			for _, addr := range addrs {
+				ip := ipv4FromAddr(addr)
+				if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+					continue
+				}
+				if preferPrivate && !ip.IsPrivate() {
+					continue
+				}
+				return ip.String()
+			}
+		}
+	}
+	return ""
+}
+
+func ipv4FromAddr(addr net.Addr) net.IP {
+	switch v := addr.(type) {
+	case *net.IPNet:
+		return v.IP.To4()
+	case *net.IPAddr:
+		return v.IP.To4()
+	default:
+		return nil
+	}
 }
 
 func assertParserResult(t *testing.T, tc matrixCase, expect string, res commandResult) {
@@ -628,7 +849,10 @@ func (cfg *e2eConfig) captureVars(output string) {
 	}
 }
 
-var standaloneRunID = regexp.MustCompile(`Standalone run: id=([A-Za-z0-9._:-]+)`)
+var (
+	standaloneRunID         = regexp.MustCompile(`Standalone run: id=([A-Za-z0-9._:-]+)`)
+	standaloneUploadSuccess = regexp.MustCompile(`standalone upload completed: uploaded=[1-9][0-9]* last_http_status=2[0-9][0-9]`)
+)
 
 func (cfg *e2eConfig) restoreAfterCase(tc matrixCase, commandLine string) {
 	if !cfg.live || cfg.bin == "" || cfg.serial == "" {
@@ -985,7 +1209,7 @@ func oneLine(value string) string {
 	return value
 }
 
-const e2eCaseCount = 321
+const e2eCaseCount = 325
 
 var e2eCaseID = regexp.MustCompile(`^E2E-[0-9]{3}$`)
 
@@ -999,9 +1223,6 @@ func TestE2ECaseTableSchema(t *testing.T) {
 		wantID := fmt.Sprintf("E2E-%03d", index+1)
 		if tc.ID != wantID || !e2eCaseID.MatchString(tc.ID) {
 			t.Fatalf("case row %d has ID %q, want %q", index+2, tc.ID, wantID)
-		}
-		if strings.Contains(tc.Command, "shizkkawaii") {
-			t.Fatalf("%s leaks the lab passphrase in the case table", tc.ID)
 		}
 		if strings.TrimSpace(tc.Title) == "" {
 			t.Fatalf("%s has an empty test title", tc.ID)
@@ -1116,6 +1337,8 @@ func TestE2ECaseTableCoversControllerCommandSurface(t *testing.T) {
 		{name: "shell standalone runs", runner: "shell", text: "show standalone runs"},
 		{name: "shell standalone run detail parser", runner: "shell-parser", text: "show standalone run"},
 		{name: "shell standalone clear", runner: "shell", text: "clear standalone runs"},
+		{name: "shell standalone upload target parser", runner: "shell-parser", text: "config> set standalone upload to"},
+		{name: "shell standalone upload wifi parser", runner: "shell-parser", text: "config> set standalone upload via wifi"},
 		{name: "shell standalone delete parser", runner: "shell-parser", text: "config> delete standalone"},
 		{name: "shell standalone run once", runner: "shell", text: "request> standalone run once"},
 		{name: "shell standalone sync", runner: "shell", text: "sync standalone runs"},
@@ -1160,6 +1383,7 @@ func TestE2ECaseTableCoversControllerCommandSurface(t *testing.T) {
 		{name: "cli standalone runs", runner: "cli", text: "dropcheck show standalone runs"},
 		{name: "cli standalone sync", runner: "cli", text: "dropcheck sync standalone runs"},
 		{name: "cli standalone configure", runner: "cli", text: "dropcheck configure set standalone"},
+		{name: "cli standalone upload configure", runner: "cli", text: "dropcheck configure set standalone upload"},
 		{name: "cli standalone delete", runner: "cli", text: "dropcheck configure delete standalone"},
 	}
 	for _, want := range required {
