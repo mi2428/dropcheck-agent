@@ -24,6 +24,8 @@ import android.widget.RemoteViews
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.util.Locale
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 
@@ -74,22 +76,22 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
                 registerWifiNetworkCallback(context)
                 schedulePeriodicUpdate(context)
                 AgentService.requestWidgetObserver(context)
-                updateAll(context)
+                requestUpdate(context)
             }
             ACTION_PERIODIC_UPDATE -> {
                 registerWifiNetworkCallback(context)
                 schedulePeriodicUpdate(context)
-                updateAll(context)
+                requestUpdate(context)
             }
             ACTION_WIFI_NETWORK_CALLBACK_UPDATE -> {
-                updateAll(context)
+                requestUpdate(context)
                 schedulePeriodicUpdate(context)
                 scheduleEventFollowUpUpdates(context)
                 runPromptEventFollowUpUpdates(context)
             }
-            ACTION_EVENT_FOLLOW_UP_UPDATE -> updateAll(context)
+            ACTION_EVENT_FOLLOW_UP_UPDATE -> requestUpdate(context)
             in WIFI_EVENT_ACTIONS -> {
-                updateAll(context)
+                requestUpdate(context)
                 scheduleEventFollowUpUpdates(context)
                 runPromptEventFollowUpUpdates(context)
             }
@@ -116,6 +118,24 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
     }
 
     companion object {
+        private val updatePending = AtomicBoolean(false)
+        private val updateExecutor = Executors.newSingleThreadScheduledExecutor { task ->
+            Thread(task, "dropcheck-clock-widget-update")
+        }
+
+        fun requestUpdate(context: Context) {
+            val appContext = context.applicationContext
+            if (!updatePending.compareAndSet(false, true)) return
+            updateExecutor.schedule(
+                {
+                    updatePending.set(false)
+                    updateAll(appContext)
+                },
+                UPDATE_DEBOUNCE_MS,
+                TimeUnit.MILLISECONDS,
+            )
+        }
+
         fun updateAll(context: Context) {
             val appContext = context.applicationContext
             val manager = AppWidgetManager.getInstance(appContext)
@@ -438,6 +458,7 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
         private const val WIFI_NETWORK_CALLBACK_REQUEST_CODE = 11_050
         private const val EVENT_FOLLOW_UP_REQUEST_CODE_BASE = 11_100
         private const val SETTINGS_REQUEST_CODE = 11_200
+        private const val UPDATE_DEBOUNCE_MS = 250L
         private const val ACTION_PERIODIC_UPDATE = "io.dropcheck.agent.action.CLOCK_WIDGET_PERIODIC_UPDATE"
         private const val ACTION_WIFI_NETWORK_CALLBACK_UPDATE = "io.dropcheck.agent.action.CLOCK_WIDGET_WIFI_NETWORK_CALLBACK_UPDATE"
         private const val ACTION_EVENT_FOLLOW_UP_UPDATE = "io.dropcheck.agent.action.CLOCK_WIDGET_EVENT_FOLLOW_UP_UPDATE"

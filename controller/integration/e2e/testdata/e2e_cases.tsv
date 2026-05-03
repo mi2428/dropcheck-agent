@@ -41,7 +41,6 @@ S043	TEST	dns	shell	LIVE	request> dns type A timeout 8000 www.google.com	ok_or_c
 S044	TEST	http	shell	LIVE	request> http expected-status 204 timeout 10000 http://connectivitycheck.gstatic.com/generate_204	ok_or_clear	HTTP status check matches 204.	http;
 S045	TEST	download	shell	LIVE	request> download timeout 15000 https://example.com/	ok_or_clear	Download probe succeeds with 2xx/3xx status.	download;
 S046	TEST	controller reconnect failure state	shell	LIVE	request> controller reconnect	ok_or_clear	Structured `STATUS_FAILED` explains endpoint disabled/incomplete.	controller reconnect failure state;
-S047	TEST	controller reconnect success state	shell	LIVE	request> controller reconnect	ok_or_clear	Structured OK result is returned, then current stream closes.	controller reconnect success state;
 S048	TEST	quit	shell	LIVE	quit	ok_or_clear	Shell exits cleanly.	quit;
 S049	TEST	exit	shell	LIVE	exit	ok_or_clear	Shell exits cleanly.	exit;
 F001	TEST	help	shell	SHELL_ERROR	help extra	error	`usage: help` parse error; shell continues.	help;

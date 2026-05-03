@@ -64,7 +64,7 @@ class AgentService : Service() {
                 TerminalLog.infoEvent(this, "widget.observer.start", listOf(
                     "clock_widgets" to AgentClockWidgetProvider.hasClockWidgets(this),
                 ))
-                AgentClockWidgetProvider.updateAll(this)
+                AgentClockWidgetProvider.requestUpdate(this)
             }
             ACTION_WIDGET_REFRESH_STOP -> {
                 if (!AgentClockWidgetProvider.hasClockWidgets(this)) {
