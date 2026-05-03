@@ -24,8 +24,18 @@ func writeShellHelp(w io.Writer) {
   set target <agent_id|adb_serial|number|all>
   set controller endpoint <host:port> enabled [min-backoff <duration>] [max-backoff <duration>]
   set controller endpoint disabled
-  set festival standalone enabled plan <file> [interval <duration>] [retention <duration>] [max-size <bytes>]
-  set festival standalone disabled
+  set standalone enabled
+  set standalone disabled
+  set standalone retention <duration>
+  set standalone max-size <bytes>
+  set standalone festa <name> enabled
+  set standalone festa <name> interval <duration>
+  set standalone festa <name> wifi-group <name> match <essid|bssid> <value>
+  set standalone festa <name> wifi-group <name> credential passphrase <value>
+  set standalone festa <name> check dns name <domain> [type <A|AAAA|ALL>] [timeout <duration>]
+  set standalone festa <name> check ping host <host> [count <n>] [timeout <duration>]
+  set standalone festa <name> check http url <url> [expected-status <code>] [timeout <duration>]
+  delete standalone [festa <name>|festa <name> wifi-group <name>|festa <name> check <dns|ping|http>]
   clear target
   show controller endpoint
   show controller link
@@ -35,10 +45,10 @@ func writeShellHelp(w io.Writer) {
   show wifi scan fresh [timeout <ms>] [all|2.4ghz|5ghz|6ghz|60ghz]
   show wifi scan detail [all|2.4ghz|5ghz|6ghz|60ghz] <ssid|bssid>
   show wifi capabilities
-  show festival standalone status
-  show festival standalone config
-  show festival runs [limit <n>] [synced]
-  show festival run <run-id>
+  show standalone status
+  show standalone config
+  show standalone runs [limit <n>] [synced]
+  show standalone run <run-id>
   request wifi connect passphrase <passphrase> [security <auto|wpa2|wpa3|transition>] [bssid <bssid>] [band <band>] [mac-randomization <mode>] [timeout <ms>] <ssid>
   request wifi disconnect
   request wifi forget <ssid|network_id>
@@ -46,9 +56,9 @@ func writeShellHelp(w io.Writer) {
   request wifi wait connected [bssid <bssid>] [security <mode>] [band <band>] [ip] [validated] [timeout <ms>] [ssid]
   request wifi assert [ssid <ssid>] [bssid <bssid>] [security <mode>] [band <band>] [ip] [validated] [timeout <ms>]
   request wifi cycle passphrase <passphrase> [security <auto|wpa2|wpa3|transition>] [count <n>] [bssid <bssid>] [band <band>] [mac-randomization <mode>] [ping <host>] [http <url>] [forget] [pause <ms>] [timeout <ms>] <ssid>
-  request festival run once plan <file> [save]
-  request festival sync [output <dir>] [limit <n>] [mark-synced|keep-unsynced]
-  request festival clear [synced|all]
+  request standalone run once [festa <name>] [save]
+  request standalone sync [output <dir>] [limit <n>] [mark-synced|keep-unsynced]
+  request standalone clear [synced|all]
   request controller reconnect
   monitor wifi [duration <ms>] [interval <ms>]
   ping [count <n>] [size <bytes>] [timeout <ms>] <host>
@@ -216,15 +226,15 @@ func resolveContextKeyword(index int, previous []string, value string) (string, 
 	case 1:
 		switch previous[0] {
 		case "show":
-			return resolveShellKeyword("show command", value, []string{"devices", "target", "wifi", "festival", "controller"})
+			return resolveShellKeyword("show command", value, []string{"devices", "target", "wifi", "standalone", "controller"})
 		case "set", "clear":
 			if previous[0] == "set" {
-				return resolveShellKeyword(previous[0]+" command", value, []string{"target", "festival", "controller"})
+				return resolveShellKeyword(previous[0]+" command", value, []string{"target", "standalone", "controller"})
 			}
 			return resolveShellKeyword(previous[0]+" command", value, []string{"target"})
 		case "request", "monitor":
 			if previous[0] == "request" {
-				return resolveShellKeyword(previous[0]+" command", value, []string{"wifi", "festival", "controller"})
+				return resolveShellKeyword(previous[0]+" command", value, []string{"wifi", "standalone", "controller"})
 			}
 			return resolveShellKeyword(previous[0]+" command", value, []string{"wifi"})
 		case "test":
@@ -234,14 +244,14 @@ func resolveContextKeyword(index int, previous []string, value string) (string, 
 		if previous[0] == "show" && previous[1] == "wifi" {
 			return resolveShellKeyword("show wifi command", value, []string{"status", "diagnostics", "scan", "capabilities"})
 		}
-		if previous[0] == "show" && previous[1] == "festival" {
-			return resolveShellKeyword("show festival command", value, []string{"standalone", "runs", "run"})
+		if previous[0] == "show" && previous[1] == "standalone" {
+			return resolveShellKeyword("show standalone command", value, []string{"status", "config", "runs", "run"})
 		}
 		if previous[0] == "show" && previous[1] == "controller" {
 			return resolveShellKeyword("show controller command", value, []string{"endpoint", "link"})
 		}
-		if previous[0] == "set" && previous[1] == "festival" {
-			return resolveShellKeyword("set festival command", value, []string{"standalone"})
+		if previous[0] == "set" && previous[1] == "standalone" {
+			return resolveShellKeyword("set standalone command", value, []string{"enabled", "disabled", "retention", "max-size", "festa"})
 		}
 		if previous[0] == "set" && previous[1] == "controller" {
 			return resolveShellKeyword("set controller command", value, []string{"endpoint"})
@@ -249,8 +259,8 @@ func resolveContextKeyword(index int, previous []string, value string) (string, 
 		if previous[0] == "request" && previous[1] == "wifi" {
 			return resolveShellKeyword("request wifi command", value, []string{"connect", "disconnect", "forget", "reconnect", "wait", "assert", "cycle"})
 		}
-		if previous[0] == "request" && previous[1] == "festival" {
-			return resolveShellKeyword("request festival command", value, []string{"run", "sync", "clear"})
+		if previous[0] == "request" && previous[1] == "standalone" {
+			return resolveShellKeyword("request standalone command", value, []string{"run", "sync", "clear"})
 		}
 		if previous[0] == "request" && previous[1] == "controller" {
 			return resolveShellKeyword("request controller command", value, []string{"reconnect"})
@@ -266,7 +276,7 @@ func helpEntriesForArgs(args []string) []HelpEntry {
 	switch args[0] {
 	case "show":
 		if len(args) == 1 {
-			return []HelpEntry{{"devices", "Connected Android agents"}, {"target", "Current command target"}, {"wifi", "Wi-Fi state and diagnostics"}, {"festival", "Dropcheck Festival standalone state and stored runs"}, {"controller", "Controller endpoint and link state"}}
+			return []HelpEntry{{"devices", "Connected Android agents"}, {"target", "Current command target"}, {"wifi", "Wi-Fi state and diagnostics"}, {"standalone", "Standalone state, config, and stored runs"}, {"controller", "Controller endpoint and link state"}}
 		}
 		if len(args) == 2 && args[1] == "wifi" {
 			return []HelpEntry{{"status", "Current Wi-Fi connection and IP state"}, {"diagnostics", "Wi-Fi status, capabilities, networks, and scan"}, {"scan", "Cached or fresh scan results"}, {"capabilities", "Device Wi-Fi capabilities"}}
@@ -274,27 +284,21 @@ func helpEntriesForArgs(args []string) []HelpEntry {
 		if len(args) == 3 && args[1] == "wifi" && args[2] == "scan" {
 			return []HelpEntry{{"fresh", "Trigger a fresh scan"}, {"detail", "Show detail for an SSID or BSSID"}, {"all", "All bands"}, {"2.4ghz", "2.4 GHz band"}, {"5ghz", "5 GHz band"}, {"6ghz", "6 GHz band"}, {"60ghz", "60 GHz band"}}
 		}
-		if len(args) == 2 && args[1] == "festival" {
-			return []HelpEntry{{"standalone", "Standalone runner status and config"}, {"runs", "Stored measurement run summaries"}, {"run", "Stored measurement run archive"}}
-		}
-		if len(args) == 3 && args[1] == "festival" && args[2] == "standalone" {
-			return []HelpEntry{{"status", "Live standalone runner state"}, {"config", "Persistent standalone configuration"}}
+		if len(args) == 2 && args[1] == "standalone" {
+			return []HelpEntry{{"status", "Live standalone runner state"}, {"config", "Persistent standalone configuration"}, {"runs", "Stored run summaries"}, {"run", "Stored run archive"}}
 		}
 		if len(args) == 2 && args[1] == "controller" {
 			return []HelpEntry{{"endpoint", "Persistent controller reconnect endpoint"}, {"link", "Live controller connection state"}}
 		}
 	case "set":
 		if len(args) == 1 {
-			return []HelpEntry{{"target", "Select an agent or all agents"}, {"festival", "Change persistent Dropcheck Festival settings"}, {"controller", "Change persistent controller reconnect settings"}}
+			return []HelpEntry{{"target", "Select an agent or all agents"}, {"standalone", "Edit persistent standalone settings"}, {"controller", "Change persistent controller reconnect settings"}}
 		}
 		if len(args) == 2 && args[1] == "target" {
 			return []HelpEntry{{"all", "Send commands to all connected agents"}, {"<agent>", "Agent number, id, or adb serial"}}
 		}
-		if len(args) == 2 && args[1] == "festival" {
-			return []HelpEntry{{"standalone", "Enable or disable standalone measurements"}}
-		}
-		if len(args) >= 3 && args[1] == "festival" && args[2] == "standalone" {
-			return []HelpEntry{{"enabled", "Start persistent measurements"}, {"disabled", "Stop persistent measurements"}, {"plan", "Protojson FestivalPlan file"}, {"interval", "Delay such as 30s or 5m"}, {"retention", "Synced-result retention such as 7d"}, {"max-size", "Store budget such as 512m"}}
+		if len(args) >= 2 && args[1] == "standalone" {
+			return []HelpEntry{{"enabled", "Start persistent checks"}, {"disabled", "Stop persistent checks"}, {"retention", "Synced-result retention such as 7d"}, {"max-size", "Store budget such as 512m"}, {"festa", "Named connectivity scenario"}}
 		}
 		if len(args) == 2 && args[1] == "controller" {
 			return []HelpEntry{{"endpoint", "Persistent controller reconnect endpoint"}}
@@ -308,7 +312,7 @@ func helpEntriesForArgs(args []string) []HelpEntry {
 		}
 	case "request":
 		if len(args) == 1 {
-			return []HelpEntry{{"wifi", "Run a Wi-Fi operation"}, {"festival", "Run, sync, or clear Dropcheck Festival measurements"}, {"controller", "Run one-shot controller link operations"}}
+			return []HelpEntry{{"wifi", "Run a Wi-Fi operation"}, {"standalone", "Run, sync, or clear standalone measurements"}, {"controller", "Run one-shot controller link operations"}}
 		}
 		if len(args) == 2 && args[1] == "wifi" {
 			return []HelpEntry{{"connect", "Connect to an SSID"}, {"disconnect", "Disconnect Wi-Fi"}, {"forget", "Forget an SSID or network id"}, {"reconnect", "Reconnect Wi-Fi"}, {"wait", "Wait for Wi-Fi state"}, {"assert", "Assert Wi-Fi state"}, {"cycle", "Repeat connect checks"}}
@@ -316,11 +320,11 @@ func helpEntriesForArgs(args []string) []HelpEntry {
 		if len(args) >= 3 && args[1] == "wifi" {
 			return requestWifiHelp(args[2])
 		}
-		if len(args) == 2 && args[1] == "festival" {
-			return []HelpEntry{{"run", "Run one measurement plan"}, {"sync", "Download stored measurement archives"}, {"clear", "Remove stored measurement archives"}}
+		if len(args) == 2 && args[1] == "standalone" {
+			return []HelpEntry{{"run", "Run one festa"}, {"sync", "Download stored archives"}, {"clear", "Remove stored archives"}}
 		}
-		if len(args) >= 3 && args[1] == "festival" {
-			return []HelpEntry{{"once", "Run once"}, {"plan", "Protojson FestivalPlan file"}, {"output", "Output directory"}, {"limit", "Maximum runs"}, {"mark-synced", "Acknowledge downloaded runs"}, {"keep-unsynced", "Do not acknowledge downloaded runs"}, {"synced", "Clear synced runs"}, {"all", "Clear all runs"}}
+		if len(args) >= 3 && args[1] == "standalone" {
+			return []HelpEntry{{"once", "Run once"}, {"festa", "Festa name"}, {"output", "Output directory"}, {"limit", "Maximum runs"}, {"mark-synced", "Acknowledge downloaded runs"}, {"keep-unsynced", "Do not acknowledge downloaded runs"}, {"synced", "Clear synced runs"}, {"all", "Clear all runs"}}
 		}
 		if len(args) == 2 && args[1] == "controller" {
 			return []HelpEntry{{"reconnect", "Close this stream and reconnect through the stored endpoint"}}
@@ -528,7 +532,8 @@ func requestWifiHelp(command string) []HelpEntry {
 func topHelpEntries() []HelpEntry {
 	return []HelpEntry{
 		{"show", "Display device, target, and Wi-Fi state"},
-		{"set", "Set shell target"},
+		{"set", "Set shell target or standalone config"},
+		{"delete", "Delete standalone config nodes"},
 		{"clear", "Clear shell target state"},
 		{"request", "Run a state-changing operation"},
 		{"monitor", "Run a bounded monitor"},
@@ -664,13 +669,15 @@ func completionCandidatesForArgs(args []string) []string {
 	case 1:
 		switch resolved[0] {
 		case "show":
-			return []string{"devices", "target", "wifi", "festival", "controller"}
+			return []string{"devices", "target", "wifi", "standalone", "controller"}
 		case "set":
-			return []string{"target", "festival", "controller"}
+			return []string{"target", "standalone", "controller"}
+		case "delete":
+			return []string{"standalone"}
 		case "clear":
 			return []string{"target"}
 		case "request":
-			return []string{"wifi", "festival", "controller"}
+			return []string{"wifi", "standalone", "controller"}
 		case "monitor":
 			return []string{"wifi"}
 		case "test":
@@ -680,14 +687,14 @@ func completionCandidatesForArgs(args []string) []string {
 		if resolved[0] == "show" && resolved[1] == "wifi" {
 			return []string{"status", "diagnostics", "scan", "capabilities"}
 		}
-		if resolved[0] == "show" && resolved[1] == "festival" {
-			return []string{"standalone", "runs", "run"}
+		if resolved[0] == "show" && resolved[1] == "standalone" {
+			return []string{"status", "config", "runs", "run"}
 		}
 		if resolved[0] == "show" && resolved[1] == "controller" {
 			return []string{"endpoint", "link"}
 		}
-		if resolved[0] == "set" && resolved[1] == "festival" {
-			return []string{"standalone"}
+		if resolved[0] == "set" && resolved[1] == "standalone" {
+			return []string{"enabled", "disabled", "retention", "max-size", "festa"}
 		}
 		if resolved[0] == "set" && resolved[1] == "controller" {
 			return []string{"endpoint"}
@@ -695,7 +702,7 @@ func completionCandidatesForArgs(args []string) []string {
 		if resolved[0] == "request" && resolved[1] == "wifi" {
 			return []string{"connect", "disconnect", "forget", "reconnect", "wait", "assert", "cycle"}
 		}
-		if resolved[0] == "request" && resolved[1] == "festival" {
+		if resolved[0] == "request" && resolved[1] == "standalone" {
 			return []string{"run", "sync", "clear"}
 		}
 		if resolved[0] == "request" && resolved[1] == "controller" {
@@ -708,11 +715,8 @@ func completionCandidatesForArgs(args []string) []string {
 		if resolved[0] == "show" && resolved[1] == "wifi" && resolved[2] == "scan" {
 			return []string{"fresh", "detail", "all", "2.4ghz", "5ghz", "6ghz", "60ghz"}
 		}
-		if resolved[0] == "show" && resolved[1] == "festival" && resolved[2] == "standalone" {
-			return []string{"status", "config"}
-		}
-		if resolved[0] == "set" && resolved[1] == "festival" && resolved[2] == "standalone" {
-			return []string{"enabled", "disabled", "plan", "interval", "retention", "max-size"}
+		if resolved[0] == "set" && resolved[1] == "standalone" && resolved[2] == "festa" {
+			return []string{"<name>"}
 		}
 		if resolved[0] == "set" && resolved[1] == "controller" && resolved[2] == "endpoint" {
 			return []string{"<host:port>", "enabled", "disabled", "min-backoff", "max-backoff"}
@@ -720,7 +724,7 @@ func completionCandidatesForArgs(args []string) []string {
 		if resolved[0] == "request" && resolved[1] == "wifi" && resolved[2] == "wait" {
 			return []string{"connected"}
 		}
-		if resolved[0] == "request" && resolved[1] == "festival" && resolved[2] == "run" {
+		if resolved[0] == "request" && resolved[1] == "standalone" && resolved[2] == "run" {
 			return []string{"once"}
 		}
 	}
@@ -743,12 +747,12 @@ func completionCandidatesForArgs(args []string) []string {
 			return monitorWifiCompletionCandidates(resolved[2:])
 		case resolved[0] == "request" && len(resolved) >= 3 && resolved[1] == "wifi":
 			return requestWifiCompletionCandidates(resolved[2], resolved[3:], lastCommand)
-		case resolved[0] == "request" && len(resolved) >= 3 && resolved[1] == "festival":
-			return requestFestivalCompletionCandidates(resolved[2], resolved[3:])
+		case resolved[0] == "request" && len(resolved) >= 3 && resolved[1] == "standalone":
+			return requestStandaloneCompletionCandidates(resolved[2], resolved[3:])
 		case resolved[0] == "set" && len(resolved) >= 3 && resolved[1] == "controller" && resolved[2] == "endpoint":
 			return setControllerEndpointCompletionCandidates(resolved[3:])
-		case resolved[0] == "set" && len(resolved) >= 3 && resolved[1] == "festival" && resolved[2] == "standalone":
-			return setFestivalStandaloneCompletionCandidates(resolved[3:])
+		case resolved[0] == "set" && len(resolved) >= 2 && resolved[1] == "standalone":
+			return setStandaloneCompletionCandidates(resolved[2:])
 		}
 	}
 	return nil
@@ -871,10 +875,10 @@ func valueCompletionCandidatesForArgs(args []string) ([]string, bool) {
 		return nil, false
 	case len(args) >= 4 && args[0] == "request" && args[1] == "wifi":
 		return requestWifiValueCompletionCandidates(args[2], last)
-	case len(args) >= 4 && args[0] == "request" && args[1] == "festival":
-		return requestFestivalValueCompletionCandidates(args[2], last)
-	case len(args) >= 4 && args[0] == "set" && args[1] == "festival" && args[2] == "standalone":
-		return setFestivalStandaloneValueCompletionCandidates(last)
+	case len(args) >= 4 && args[0] == "request" && args[1] == "standalone":
+		return requestStandaloneValueCompletionCandidates(args[2], last)
+	case len(args) >= 3 && args[0] == "set" && args[1] == "standalone":
+		return setStandaloneValueCompletionCandidates(last)
 	case len(args) >= 4 && args[0] == "set" && args[1] == "controller" && args[2] == "endpoint":
 		return setControllerEndpointValueCompletionCandidates(last)
 	case len(args) >= 3 && args[0] == "monitor" && args[1] == "wifi":
@@ -1216,30 +1220,58 @@ func wifiExpectationCompletionCandidates(args []string, allowPositionalSSID bool
 	return optionAndPositionalCandidates(state, options, positionalLimit, positionalHints...)
 }
 
-func setFestivalStandaloneCompletionCandidates(args []string) []string {
+func setStandaloneCompletionCandidates(args []string) []string {
+	if len(args) == 0 {
+		return []string{"enabled", "disabled", "retention", "max-size", "festa"}
+	}
+	switch {
+	case args[0] == "festa" && len(args) == 1:
+		return []string{"<name>"}
+	case args[0] == "festa" && len(args) == 2:
+		return []string{"enabled", "disabled", "interval", "wifi-group", "check"}
+	case args[0] == "festa" && len(args) >= 3 && args[2] == "wifi-group":
+		if len(args) == 3 {
+			return []string{"<name>"}
+		}
+		if len(args) == 4 {
+			return []string{"match", "credential", "security", "band", "wait", "timeout"}
+		}
+	case args[0] == "festa" && len(args) >= 3 && args[2] == "check":
+		if len(args) == 3 {
+			return []string{"dns", "ping", "http"}
+		}
+	}
 	options := []completionOption{
 		{name: "enabled", flag: true},
 		{name: "disabled", flag: true},
-		{name: "plan", placeholder: "<file>"},
-		{name: "interval", placeholder: "<duration>"},
 		{name: "retention", placeholder: "<duration>"},
 		{name: "max-size", placeholder: "<bytes>"},
 	}
-	state := scanCompletionArgs("set festival standalone option", args, options)
+	state := scanCompletionArgs("set standalone option", args, options)
 	if state.pending != nil {
 		return optionValueCandidates(*state.pending)
 	}
-	return optionAndPositionalCandidates(state, options, 0)
+	return optionAndPositionalCandidates(state, options, 1, "festa")
 }
 
-func setFestivalStandaloneValueCompletionCandidates(last string) ([]string, bool) {
+func setStandaloneValueCompletionCandidates(last string) ([]string, bool) {
 	switch {
-	case isResolvedKeyword("set festival standalone option", last, []string{"plan"}):
-		return []string{"<file>"}, true
-	case isResolvedKeyword("set festival standalone option", last, []string{"interval", "retention"}):
+	case isResolvedKeyword("set standalone option", last, []string{"interval", "retention", "timeout"}):
 		return []string{"<duration>"}, true
-	case isResolvedKeyword("set festival standalone option", last, []string{"max-size"}):
+	case isResolvedKeyword("set standalone option", last, []string{"max-size"}):
 		return []string{"<bytes>"}, true
+	case isResolvedKeyword("set standalone option", last, []string{"essid"}):
+		return []string{"<essid>"}, true
+	case isResolvedKeyword("set standalone option", last, []string{"bssid"}):
+		return []string{"<bssid>"}, true
+	case isResolvedKeyword("set standalone option", last, []string{"passphrase"}):
+		return []string{"<passphrase>"}, true
+	case isResolvedKeyword("set standalone option", last, []string{"host"}):
+		return []string{"<host>"}, true
+	case isResolvedKeyword("set standalone option", last, []string{"url"}):
+		return []string{"<url>"}, true
+	case isResolvedKeyword("set standalone option", last, []string{"count", "expected-status"}):
+		return []string{"<n>"}, true
 	default:
 		return nil, false
 	}
@@ -1271,7 +1303,7 @@ func setControllerEndpointValueCompletionCandidates(last string) ([]string, bool
 	}
 }
 
-func requestFestivalCompletionCandidates(command string, args []string) []string {
+func requestStandaloneCompletionCandidates(command string, args []string) []string {
 	switch command {
 	case "run":
 		if len(args) == 0 {
@@ -1281,10 +1313,10 @@ func requestFestivalCompletionCandidates(command string, args []string) []string
 			return nil
 		}
 		options := []completionOption{
-			{name: "plan", placeholder: "<file>"},
+			{name: "festa", placeholder: "<name>"},
 			{name: "save", flag: true},
 		}
-		state := scanCompletionArgs("request festival run once option", args[1:], options)
+		state := scanCompletionArgs("request standalone run once option", args[1:], options)
 		if state.pending != nil {
 			return optionValueCandidates(*state.pending)
 		}
@@ -1296,7 +1328,7 @@ func requestFestivalCompletionCandidates(command string, args []string) []string
 			{name: "mark-synced", flag: true},
 			{name: "keep-unsynced", flag: true},
 		}
-		state := scanCompletionArgs("request festival sync option", args, options)
+		state := scanCompletionArgs("request standalone sync option", args, options)
 		if state.pending != nil {
 			return optionValueCandidates(*state.pending)
 		}
@@ -1308,17 +1340,17 @@ func requestFestivalCompletionCandidates(command string, args []string) []string
 	}
 }
 
-func requestFestivalValueCompletionCandidates(command string, last string) ([]string, bool) {
+func requestStandaloneValueCompletionCandidates(command string, last string) ([]string, bool) {
 	switch command {
 	case "run":
-		if isResolvedKeyword("request festival run once option", last, []string{"plan"}) {
-			return []string{"<file>"}, true
+		if isResolvedKeyword("request standalone run once option", last, []string{"festa"}) {
+			return []string{"<name>"}, true
 		}
 	case "sync":
 		switch {
-		case isResolvedKeyword("request festival sync option", last, []string{"output"}):
+		case isResolvedKeyword("request standalone sync option", last, []string{"output"}):
 			return []string{"<dir>"}, true
-		case isResolvedKeyword("request festival sync option", last, []string{"limit"}):
+		case isResolvedKeyword("request standalone sync option", last, []string{"limit"}):
 			return []string{"<n>"}, true
 		}
 	}

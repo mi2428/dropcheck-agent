@@ -22,7 +22,7 @@ class AgentService : Service() {
     private val executor = Executors.newSingleThreadExecutor()
     private val sessionLock = Any()
     private lateinit var wifiEvents: WifiEventLogger
-    private lateinit var festivalRunner: FestivalStandaloneRunner
+    private lateinit var standaloneRunner: StandaloneRunner
     private var current: Future<*>? = null
     private var currentMode: String = ""
     private var currentSessionKey: String = ""
@@ -32,8 +32,8 @@ class AgentService : Service() {
         ensureNotificationChannel()
         wifiEvents = WifiEventLogger(this)
         wifiEvents.start()
-        festivalRunner = FestivalStandaloneRunner(this)
-        festivalRunner.refresh()
+        standaloneRunner = StandaloneRunner(this)
+        standaloneRunner.refresh()
         TerminalLog.infoEvent(this, "service.create", listOf(
             "sdk" to Build.VERSION.SDK_INT,
             "manufacturer" to Build.MANUFACTURER,
@@ -77,12 +77,12 @@ class AgentService : Service() {
                     startGrpcSession(host, port, token, agentId, adbSerial, "adb-reverse")
                 }
             }
-            ACTION_FESTIVAL_REFRESH, ACTION_CONTROLLER_LINK_REFRESH, null -> {
-                TerminalLog.infoEvent(this, "festival.refresh", listOf(
-                    "enabled" to FestivalConfigStore(this).load().enabled,
+            ACTION_STANDALONE_REFRESH, ACTION_CONTROLLER_LINK_REFRESH, null -> {
+                TerminalLog.infoEvent(this, "standalone.refresh", listOf(
+                    "enabled" to StandaloneConfigStore(this).load().enabled,
                     "current_active" to (current?.isDone == false),
                 ))
-                festivalRunner.refresh()
+                standaloneRunner.refresh()
                 startControllerLinkLoop("refresh")
             }
             else -> TerminalLog.warnEvent(this, "service.start.ignored", listOf(
@@ -95,8 +95,8 @@ class AgentService : Service() {
 
     override fun onDestroy() {
         current?.cancel(true)
-        if (::festivalRunner.isInitialized) {
-            festivalRunner.shutdown()
+        if (::standaloneRunner.isInitialized) {
+            standaloneRunner.shutdown()
         }
         if (::wifiEvents.isInitialized) {
             wifiEvents.stop()
@@ -191,16 +191,16 @@ class AgentService : Service() {
             currentMode = ""
             currentSessionKey = ""
         }
-        if (FestivalConfigStore(this).load().enabled) {
-            festivalRunner.refresh()
-            startForeground(NOTIFICATION_ID, notification("Dropcheck Festival standalone"))
+        if (StandaloneConfigStore(this).load().enabled) {
+            standaloneRunner.refresh()
+            startForeground(NOTIFICATION_ID, notification("standalone checks"))
         }
         if (ControllerLinkStore(this).load().enabled) {
             startForeground(NOTIFICATION_ID, notification("controller link retry"))
             queueControllerLinkLoop("session-finished")
             return
         }
-        if (!FestivalConfigStore(this).load().enabled) {
+        if (!StandaloneConfigStore(this).load().enabled) {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
@@ -226,7 +226,7 @@ class AgentService : Service() {
     /**
      * Repeatedly opens direct-TCP gRPC sessions using the persisted endpoint.
      *
-     * The loop does not evaluate Dropcheck Festival measurements or push data by
+     * The loop does not evaluate standalone measurements or push data by
      * itself. It only restores the controller command channel so the PC can pull
      * stored structured results with the normal request/show commands.
      */
@@ -284,7 +284,7 @@ class AgentService : Service() {
     }
 
     private fun shouldStayStarted(): Boolean {
-        return FestivalConfigStore(this).load().enabled || ControllerLinkStore(this).load().enabled
+        return StandaloneConfigStore(this).load().enabled || ControllerLinkStore(this).load().enabled
     }
 
     private fun isUsableControllerLink(config: io.dropcheck.agent.grpc.ControllerLinkConfig): Boolean {
@@ -314,7 +314,7 @@ class AgentService : Service() {
         private const val CHANNEL_ID = "dropcheck-agent"
         private const val NOTIFICATION_ID = 1001
         const val ACTION_GRPC_SESSION = "io.dropcheck.agent.action.GRPC_SESSION"
-        const val ACTION_FESTIVAL_REFRESH = "io.dropcheck.agent.action.FESTIVAL_REFRESH"
+        const val ACTION_STANDALONE_REFRESH = "io.dropcheck.agent.action.STANDALONE_REFRESH"
         const val ACTION_CONTROLLER_LINK_REFRESH = "io.dropcheck.agent.action.CONTROLLER_LINK_REFRESH"
         const val EXTRA_GRPC_HOST = "grpc_host"
         const val EXTRA_GRPC_PORT = "grpc_port"
@@ -322,8 +322,8 @@ class AgentService : Service() {
         const val EXTRA_AGENT_ID = "agent_id"
         const val EXTRA_ADB_SERIAL = "adb_serial"
 
-        fun requestFestivalRefresh(context: Context) {
-            val intent = Intent(context, AgentService::class.java).setAction(ACTION_FESTIVAL_REFRESH)
+        fun requestStandaloneRefresh(context: Context) {
+            val intent = Intent(context, AgentService::class.java).setAction(ACTION_STANDALONE_REFRESH)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {

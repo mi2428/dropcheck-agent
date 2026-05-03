@@ -58,11 +58,11 @@ func runCLI(ctx context.Context, opts shellOptions, rawArgs []string) error {
 		}
 		fmt.Print(out)
 		return nil
-	case linuxcli.FestivalSync:
-		return syncFestivalRuns(ctx, state, festivalSyncOptions{
-			OutputDir:  command.FestivalSyncOutput,
-			Limit:      command.FestivalSyncLimit,
-			MarkSynced: command.FestivalSyncMark,
+	case linuxcli.StandaloneSync:
+		return syncStandaloneRuns(ctx, state, standaloneSyncOptions{
+			OutputDir:  command.StandaloneSyncOutput,
+			Limit:      command.StandaloneSyncLimit,
+			MarkSynced: command.StandaloneSyncMark,
 		})
 	default:
 		agents, err := state.commandTargets()

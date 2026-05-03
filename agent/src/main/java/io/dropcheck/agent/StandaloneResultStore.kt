@@ -1,37 +1,37 @@
 package io.dropcheck.agent
 
 import android.content.Context
-import io.dropcheck.agent.grpc.FestivalClearResult
-import io.dropcheck.agent.grpc.FestivalRunArchive
-import io.dropcheck.agent.grpc.FestivalRunSummary
-import io.dropcheck.agent.grpc.FestivalRuns
+import io.dropcheck.agent.grpc.StandaloneClearResult
+import io.dropcheck.agent.grpc.StandaloneRunArchive
+import io.dropcheck.agent.grpc.StandaloneRunSummary
+import io.dropcheck.agent.grpc.StandaloneRuns
 import java.io.File
 
-/** File-backed archive store for standalone measurement results. */
-internal class FestivalResultStore internal constructor(private val runsDir: File) {
-	constructor(context: Context) : this(File(context.filesDir, "festival/runs"))
+/** File-backed archive store for standalone connectivity results. */
+internal class StandaloneResultStore internal constructor(private val runsDir: File) {
+    constructor(context: Context) : this(File(context.filesDir, "standalone/runs"))
 
     data class Stats(
         val storedRuns: Int,
         val unsyncedRuns: Int,
         val storedBytes: Long,
-        val last: FestivalRunSummary?,
+        val last: StandaloneRunSummary?,
     )
 
     @Synchronized
-    fun save(archive: FestivalRunArchive) {
+    fun save(archive: StandaloneRunArchive) {
         runsDir.mkdirs()
         runFile(archive.summary.runId).writeBytes(archive.toByteArray())
     }
 
     @Synchronized
-    fun list(includeSynced: Boolean, limit: Int): FestivalRuns {
+    fun list(includeSynced: Boolean, limit: Int): StandaloneRuns {
         val archives = loadArchives()
         val filtered = archives
             .filter { includeSynced || !it.summary.synced }
             .sortedByDescending { it.summary.startedUnixMs }
             .let { if (limit > 0) it.take(limit) else it }
-        return FestivalRuns.newBuilder()
+        return StandaloneRuns.newBuilder()
             .addAllRuns(filtered.map { it.summary })
             .setTotalRuns(archives.size)
             .setUnsyncedRuns(archives.count { !it.summary.synced })
@@ -39,14 +39,14 @@ internal class FestivalResultStore internal constructor(private val runsDir: Fil
     }
 
     @Synchronized
-    fun load(runId: String): FestivalRunArchive? {
+    fun load(runId: String): StandaloneRunArchive? {
         val file = runFile(runId)
         if (!file.exists()) return null
-        return runCatching { FestivalRunArchive.parseFrom(file.readBytes()) }.getOrNull()
+        return runCatching { StandaloneRunArchive.parseFrom(file.readBytes()) }.getOrNull()
     }
 
     @Synchronized
-    fun markSynced(runId: String): FestivalRunArchive? {
+    fun markSynced(runId: String): StandaloneRunArchive? {
         val archive = load(runId) ?: return null
         val updated = archive.toBuilder()
             .setSummary(archive.summary.toBuilder().setSynced(true))
@@ -56,18 +56,18 @@ internal class FestivalResultStore internal constructor(private val runsDir: Fil
     }
 
     @Synchronized
-    fun clear(syncedOnly: Boolean, all: Boolean): FestivalClearResult {
+    fun clear(syncedOnly: Boolean, all: Boolean): StandaloneClearResult {
         var removedRuns = 0
         var removedBytes = 0L
         for (file in runFiles()) {
-            val archive = runCatching { FestivalRunArchive.parseFrom(file.readBytes()) }.getOrNull()
+            val archive = runCatching { StandaloneRunArchive.parseFrom(file.readBytes()) }.getOrNull()
             val remove = all || (syncedOnly && archive?.summary?.synced == true)
             if (remove) {
                 removedBytes += file.length()
                 if (file.delete()) removedRuns += 1
             }
         }
-        return FestivalClearResult.newBuilder()
+        return StandaloneClearResult.newBuilder()
             .setRemovedRuns(removedRuns)
             .setRemovedBytes(removedBytes)
             .build()
@@ -111,9 +111,9 @@ internal class FestivalResultStore internal constructor(private val runsDir: Fil
         }
     }
 
-    private fun loadArchives(): List<FestivalRunArchive> {
+    private fun loadArchives(): List<StandaloneRunArchive> {
         return runFiles().mapNotNull { file ->
-            runCatching { FestivalRunArchive.parseFrom(file.readBytes()) }.getOrNull()
+            runCatching { StandaloneRunArchive.parseFrom(file.readBytes()) }.getOrNull()
         }
     }
 

@@ -28,8 +28,8 @@ const (
 	Devices
 	// Target prints the default selected target.
 	Target
-	// FestivalSync downloads stored Dropcheck Festival measurement archives.
-	FestivalSync
+	// StandaloneSync downloads stored standalone measurement archives.
+	StandaloneSync
 )
 
 // Command is the parsed non-interactive CLI command.
@@ -38,12 +38,12 @@ type Command struct {
 	Kind Kind
 	// Operation is populated when Kind is AgentCommand.
 	Operation command.Operation
-	// FestivalSyncOutput is the output directory for FestivalSync.
-	FestivalSyncOutput string
-	// FestivalSyncLimit caps FestivalSync downloads.
-	FestivalSyncLimit string
-	// FestivalSyncMark marks downloaded runs as synced.
-	FestivalSyncMark bool
+	// StandaloneSyncOutput is the output directory for StandaloneSync.
+	StandaloneSyncOutput string
+	// StandaloneSyncLimit caps StandaloneSync downloads.
+	StandaloneSyncLimit string
+	// StandaloneSyncMark marks downloaded runs as synced.
+	StandaloneSyncMark bool
 }
 
 // ExtractOptions parses CLI-global flags and returns the remaining command
@@ -114,6 +114,8 @@ func Parse(args []string) (Command, error) {
 		return parseShow(args[1:])
 	case "set":
 		return parseSet(args[1:])
+	case "delete":
+		return parseDelete(args[1:])
 	case "request":
 		return parseRequest(args[1:])
 	case "devices":
@@ -162,7 +164,7 @@ func Parse(args []string) (Command, error) {
 
 func parseShow(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: show <devices|target|wifi|festival|controller>")
+		return Command{}, fmt.Errorf("usage: show <devices|target|wifi|standalone|controller>")
 	}
 	switch args[0] {
 	case "devices":
@@ -178,8 +180,8 @@ func parseShow(args []string) (Command, error) {
 	case "wifi":
 		op, err := parseLinuxShowWifi(args[1:])
 		return Command{Kind: AgentCommand, Operation: op}, err
-	case "festival":
-		op, err := parseFestivalShow(args[1:])
+	case "standalone":
+		op, err := parseStandaloneShow(args[1:])
 		return Command{Kind: AgentCommand, Operation: op}, err
 	case "controller":
 		op, err := parseControllerShow(args[1:])
@@ -229,16 +231,32 @@ func parseLinuxShowWifi(args []string) (command.Operation, error) {
 
 func parseSet(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: set <festival|controller> <command>")
+		return Command{}, fmt.Errorf("usage: set <standalone|controller> <command>")
 	}
 	if args[0] == "controller" {
 		op, err := parseControllerSet(args[1:])
 		return Command{Kind: AgentCommand, Operation: op}, err
 	}
-	if args[0] != "festival" {
-		return Command{}, fmt.Errorf("usage: set <festival|controller> <command>")
+	if args[0] != "standalone" {
+		return Command{}, fmt.Errorf("usage: set <standalone|controller> <command>")
 	}
-	op, err := parseFestivalSet(args[1:])
+	edits, err := command.StandaloneSetEdits(args[1:])
+	if err != nil {
+		return Command{}, err
+	}
+	op, err := command.StandaloneEditOperation(edits)
+	return Command{Kind: AgentCommand, Operation: op}, err
+}
+
+func parseDelete(args []string) (Command, error) {
+	if len(args) == 0 || args[0] != "standalone" {
+		return Command{}, fmt.Errorf("usage: delete standalone [festa <name>|...]")
+	}
+	edits, err := command.StandaloneDeleteEdits(args[1:])
+	if err != nil {
+		return Command{}, err
+	}
+	op, err := command.StandaloneEditOperation(edits)
 	return Command{Kind: AgentCommand, Operation: op}, err
 }
 
@@ -276,7 +294,7 @@ func parseControllerSet(args []string) (command.Operation, error) {
 
 func parseRequest(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: request <wifi|festival|controller> <command>")
+		return Command{}, fmt.Errorf("usage: request <wifi|standalone|controller> <command>")
 	}
 	if args[0] == "wifi" {
 		op, err := parseLinuxWifi(args[1:])
@@ -288,29 +306,27 @@ func parseRequest(args []string) (Command, error) {
 		}
 		return Command{Kind: AgentCommand, Operation: command.ControllerReconnectOperation()}, nil
 	}
-	if args[0] != "festival" {
-		return Command{}, fmt.Errorf("usage: request <wifi|festival|controller> <command>")
+	if args[0] != "standalone" {
+		return Command{}, fmt.Errorf("usage: request <wifi|standalone|controller> <command>")
 	}
-	return parseFestivalRequest(args[1:])
+	return parseStandaloneRequest(args[1:])
 }
 
-func parseFestivalShow(args []string) (command.Operation, error) {
+func parseStandaloneShow(args []string) (command.Operation, error) {
 	if len(args) == 0 {
-		return command.Operation{}, fmt.Errorf("usage: show festival <standalone|runs|run>")
+		return command.Operation{}, fmt.Errorf("usage: show standalone <status|config|runs|run>")
 	}
 	switch args[0] {
-	case "standalone":
-		if len(args) != 2 {
-			return command.Operation{}, fmt.Errorf("usage: show festival standalone <status|config>")
+	case "status":
+		if len(args) != 1 {
+			return command.Operation{}, fmt.Errorf("usage: show standalone status")
 		}
-		switch args[1] {
-		case "status":
-			return command.FestivalStatusOperation(), nil
-		case "config":
-			return command.FestivalConfigOperation(), nil
-		default:
-			return command.Operation{}, fmt.Errorf("unknown show festival standalone command %q", args[1])
+		return command.StandaloneStatusOperation(), nil
+	case "config":
+		if len(args) != 1 {
+			return command.Operation{}, fmt.Errorf("usage: show standalone config")
 		}
+		return command.StandaloneConfigOperation(), nil
 	case "runs":
 		opts, err := parseDashOptions(args[1:], map[string]dashOptionSpec{
 			"limit":  {value: true},
@@ -320,77 +336,49 @@ func parseFestivalShow(args []string) (command.Operation, error) {
 			return command.Operation{}, err
 		}
 		if len(opts.positionals) != 0 {
-			return command.Operation{}, fmt.Errorf("usage: show festival runs [--limit n] [--synced]")
+			return command.Operation{}, fmt.Errorf("usage: show standalone runs [--limit n] [--synced]")
 		}
-		return command.FestivalListRunsOperation(command.FestivalListOptions{Limit: opts.value("limit"), IncludeSynced: opts.flags["synced"]})
+		return command.StandaloneListRunsOperation(command.StandaloneListOptions{Limit: opts.value("limit"), IncludeSynced: opts.flags["synced"]})
 	case "run":
 		if len(args) != 2 {
-			return command.Operation{}, fmt.Errorf("usage: show festival run <run-id>")
+			return command.Operation{}, fmt.Errorf("usage: show standalone run <run-id>")
 		}
-		return command.FestivalRunOperation(args[1], false)
+		return command.StandaloneRunOperation(args[1], false)
 	default:
-		return command.Operation{}, fmt.Errorf("unknown show festival command %q", args[0])
+		return command.Operation{}, fmt.Errorf("unknown show standalone command %q", args[0])
 	}
 }
 
-func parseFestivalSet(args []string) (command.Operation, error) {
-	if len(args) == 0 || args[0] != "standalone" {
-		return command.Operation{}, fmt.Errorf("usage: set festival standalone <enabled|disabled>")
-	}
-	if len(args) == 2 && args[1] == "disabled" {
-		return command.FestivalSetConfigOperation(command.FestivalConfigOptions{Enabled: false})
-	}
-	opts, err := parseDashOptions(args[1:], map[string]dashOptionSpec{
-		"plan":      {value: true},
-		"interval":  {value: true},
-		"retention": {value: true},
-		"max-size":  {value: true},
-	})
-	if err != nil {
-		return command.Operation{}, err
-	}
-	if len(opts.positionals) != 1 || opts.positionals[0] != "enabled" {
-		return command.Operation{}, fmt.Errorf("usage: set festival standalone enabled --plan <file> [--interval duration] [--retention duration] [--max-size bytes]")
-	}
-	return command.FestivalSetConfigOperation(command.FestivalConfigOptions{
-		Enabled:   true,
-		PlanPath:  opts.value("plan"),
-		Interval:  opts.value("interval"),
-		Retention: opts.value("retention"),
-		MaxSize:   opts.value("max-size"),
-	})
-}
-
-func parseFestivalRequest(args []string) (Command, error) {
+func parseStandaloneRequest(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: request festival <run|sync|clear>")
+		return Command{}, fmt.Errorf("usage: request standalone <run|sync|clear>")
 	}
 	switch args[0] {
 	case "run":
 		if len(args) < 2 || args[1] != "once" {
-			return Command{}, fmt.Errorf("usage: request festival run once --plan <file> [--save]")
+			return Command{}, fmt.Errorf("usage: request standalone run once [--festa name] [--save]")
 		}
 		opts, err := parseDashOptions(args[2:], map[string]dashOptionSpec{
-			"plan": {value: true},
-			"save": {},
+			"festa": {value: true},
+			"save":  {},
 		})
 		if err != nil {
 			return Command{}, err
 		}
 		if len(opts.positionals) != 0 {
-			return Command{}, fmt.Errorf("usage: request festival run once --plan <file> [--save]")
+			return Command{}, fmt.Errorf("usage: request standalone run once [--festa name] [--save]")
 		}
-		op, err := command.FestivalRunOnceOperation(opts.value("plan"), opts.flags["save"])
+		op, err := command.StandaloneRunOnceOperation(command.StandaloneRunOptions{Festa: opts.value("festa"), Save: opts.flags["save"]})
 		return Command{Kind: AgentCommand, Operation: op}, err
 	case "clear":
 		if len(args) > 2 {
-			return Command{}, fmt.Errorf("usage: request festival clear [synced|all]")
+			return Command{}, fmt.Errorf("usage: request standalone clear [synced|all]")
 		}
 		mode := "synced"
 		if len(args) == 2 {
 			mode = args[1]
 		}
-		op, err := command.FestivalClearRunsOperation(mode)
+		op, err := command.StandaloneClearRunsOperation(mode)
 		return Command{Kind: AgentCommand, Operation: op}, err
 	case "sync":
 		opts, err := parseDashOptions(args[1:], map[string]dashOptionSpec{
@@ -403,12 +391,12 @@ func parseFestivalRequest(args []string) (Command, error) {
 			return Command{}, err
 		}
 		if len(opts.positionals) != 0 {
-			return Command{}, fmt.Errorf("usage: request festival sync [--output dir] [--limit n] [--mark-synced|--keep-unsynced]")
+			return Command{}, fmt.Errorf("usage: request standalone sync [--output dir] [--limit n] [--mark-synced|--keep-unsynced]")
 		}
 		markSynced := !opts.flags["keep-unsynced"] || opts.flags["mark-synced"]
-		return Command{Kind: FestivalSync, FestivalSyncOutput: opts.value("output"), FestivalSyncLimit: opts.value("limit"), FestivalSyncMark: markSynced}, nil
+		return Command{Kind: StandaloneSync, StandaloneSyncOutput: opts.value("output"), StandaloneSyncLimit: opts.value("limit"), StandaloneSyncMark: markSynced}, nil
 	default:
-		return Command{}, fmt.Errorf("unknown request festival command %q", args[0])
+		return Command{}, fmt.Errorf("unknown request standalone command %q", args[0])
 	}
 }
 

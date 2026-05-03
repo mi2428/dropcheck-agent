@@ -162,10 +162,10 @@ func TestParseShellCommandPrefixes(t *testing.T) {
 	}
 }
 
-func TestParseShellFestivalCommands(t *testing.T) {
-	status, err := parseShellLine("show festival standalone status")
+func TestParseShellStandaloneCommands(t *testing.T) {
+	status, err := parseShellLine("show standalone status")
 	if err != nil {
-		t.Fatalf("show festival standalone status: %v", err)
+		t.Fatalf("show standalone status: %v", err)
 	}
 	if status.kind != shellAgentCommand {
 		t.Fatalf("status kind = %v", status.kind)
@@ -174,23 +174,23 @@ func TestParseShellFestivalCommands(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build status command: %v", err)
 	}
-	if cmd.GetGetFestivalStatus() == nil {
+	if cmd.GetGetStandaloneStatus() == nil {
 		t.Fatalf("status command = %#v", cmd)
 	}
 
-	sync, err := parseShellLine("request festival sync output out/festival limit 10 keep-unsynced")
+	sync, err := parseShellLine("request standalone sync output out/standalone limit 10 keep-unsynced")
 	if err != nil {
-		t.Fatalf("request festival sync: %v", err)
+		t.Fatalf("request standalone sync: %v", err)
 	}
-	if sync.kind != shellFestivalSync || sync.syncOutput != "out/festival" || sync.syncLimit != "10" || sync.syncMark {
+	if sync.kind != shellStandaloneSync || sync.syncOutput != "out/standalone" || sync.syncLimit != "10" || sync.syncMark {
 		t.Fatalf("sync = %#v", sync)
 	}
 }
 
-func TestParseFestivalSyncLimitRejectsZero(t *testing.T) {
-	_, err := parseFestivalSyncLimit("0")
+func TestParseStandaloneSyncLimitRejectsZero(t *testing.T) {
+	_, err := parseStandaloneSyncLimit("0")
 	if err == nil || !strings.Contains(err.Error(), "positive integer") {
-		t.Fatalf("parseFestivalSyncLimit(0) error = %v", err)
+		t.Fatalf("parseStandaloneSyncLimit(0) error = %v", err)
 	}
 }
 
@@ -242,9 +242,9 @@ func TestParseShellSetEnabledWithoutRequiredValues(t *testing.T) {
 		t.Fatalf("set controller endpoint enabled error = %v", err)
 	}
 
-	_, err = parseShellLine("set festival standalone enabled")
-	if err == nil || !strings.Contains(err.Error(), "festival plan path is required") {
-		t.Fatalf("set festival standalone enabled error = %v", err)
+	_, err = parseShellLine("set standalone festa lab wifi-group office match")
+	if err == nil || !strings.Contains(err.Error(), "wifi-group <name> <match|credential|security|band|wait|timeout>") {
+		t.Fatalf("set standalone wifi-group match error = %v", err)
 	}
 }
 
@@ -298,8 +298,8 @@ func TestParseShellRejectsDuplicateOptions(t *testing.T) {
 		line string
 		want string
 	}{
-		{line: "show festival runs synced synced", want: "synced specified twice"},
-		{line: "show festival runs limit 1 limit 2", want: "limit specified twice"},
+		{line: "show standalone runs synced synced", want: "synced specified twice"},
+		{line: "show standalone runs limit 1 limit 2", want: "limit specified twice"},
 		{line: "show wifi scan fresh timeout 100 timeout 200", want: "timeout specified twice"},
 		{line: "request wifi connect passphrase secret security auto security wpa3 Lab", want: "security specified twice"},
 		{line: "request wifi assert ip ip", want: "ip specified twice"},
@@ -309,7 +309,7 @@ func TestParseShellRejectsDuplicateOptions(t *testing.T) {
 		{line: "path-mtu min-mtu 1200 min-mtu 1300 1.1.1.1", want: "min-mtu specified twice"},
 		{line: "test dns example.com type A type AAAA", want: "type specified twice"},
 		{line: "test http https://example.com expected-status 200 expected-status 204", want: "expected-status specified twice"},
-		{line: "request festival sync mark-synced keep-unsynced", want: "mark-synced and keep-unsynced cannot be used together"},
+		{line: "request standalone sync mark-synced keep-unsynced", want: "mark-synced and keep-unsynced cannot be used together"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.line, func(t *testing.T) {

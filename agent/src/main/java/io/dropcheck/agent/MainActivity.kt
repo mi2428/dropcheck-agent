@@ -56,8 +56,8 @@ class MainActivity : Activity() {
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action == FestivalStateBroadcast.ACTION) {
-                updateStandaloneIndicator(intent.getBooleanExtra(FestivalStateBroadcast.EXTRA_ENABLED, false))
+            if (intent.action == StandaloneStateBroadcast.ACTION) {
+                updateStandaloneIndicator(intent.getBooleanExtra(StandaloneStateBroadcast.EXTRA_ENABLED, false))
                 return
             }
             val line = intent.getStringExtra(TerminalLog.EXTRA_LINE) ?: return
@@ -114,7 +114,7 @@ class MainActivity : Activity() {
             addView(standaloneRight, standaloneIndicatorLayout(Gravity.END))
         }
         setContentView(root)
-        updateStandaloneIndicator(FestivalConfigStore(this).load().enabled)
+        updateStandaloneIndicator(StandaloneConfigStore(this).load().enabled)
         requestScrollToBottom()
     }
 
@@ -122,7 +122,7 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         val filter = IntentFilter(TerminalLog.ACTION_LINE)
-        filter.addAction(FestivalStateBroadcast.ACTION)
+        filter.addAction(StandaloneStateBroadcast.ACTION)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {

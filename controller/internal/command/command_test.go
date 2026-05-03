@@ -1,8 +1,6 @@
 package command
 
 import (
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -100,38 +98,30 @@ func TestPathMTUOperationRejectsInvertedBounds(t *testing.T) {
 	}
 }
 
-func TestFestivalSetConfigOperationLoadsPlan(t *testing.T) {
-	planPath := filepath.Join(t.TempDir(), "plan.json")
-	if err := os.WriteFile(planPath, []byte(`{
-  "name": "lab",
-  "networks": [{
-    "name": "lab-wifi",
-    "connect": {"ssid": "Lab", "passphrase": "secret", "security": "SECURITY_WPA3_SAE"},
-    "checks": [{"name": "ping", "command": {"ping": {"host": "8.8.8.8", "count": 1}}}]
-  }]
-}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	op, err := FestivalSetConfigOperation(FestivalConfigOptions{
-		Enabled:   true,
-		PlanPath:  planPath,
-		Interval:  "30s",
-		Retention: "7d",
-		MaxSize:   "512m",
-	})
+func TestStandaloneSetEditsBuildConfigEdit(t *testing.T) {
+	edits, err := StandaloneSetEdits([]string{"festa", "lab", "wifi-group", "office", "match", "essid", "Lab"})
 	if err != nil {
-		t.Fatalf("FestivalSetConfigOperation() error = %v", err)
+		t.Fatalf("StandaloneSetEdits() error = %v", err)
+	}
+	op, err := StandaloneEditOperation(edits)
+	if err != nil {
+		t.Fatalf("StandaloneEditOperation() error = %v", err)
 	}
 	cmd, _, err := BuildRunCommand(op)
 	if err != nil {
 		t.Fatalf("BuildRunCommand() error = %v", err)
 	}
-	config := cmd.GetSetFestivalConfig().GetConfig()
-	if !config.GetEnabled() || config.GetIntervalMs() != 30000 || config.GetRetentionMs() != 604800000 || config.GetMaxBytes() != 512*1024*1024 {
-		t.Fatalf("config = %#v", config)
+	edit := cmd.GetEditStandaloneConfig().GetEdits()[0]
+	if edit.GetAction() != controlpb.StandaloneEdit_ACTION_SET || strings.Join(edit.GetPath(), "/") != "festa/lab/wifi-group/office/match/essid" || edit.GetValue() != "Lab" {
+		t.Fatalf("edit = %#v", edit)
 	}
-	if config.GetPlan().GetNetworks()[0].GetConnect().GetSsid() != "Lab" {
-		t.Fatalf("plan = %#v", config.GetPlan())
+
+	retention, err := StandaloneSetEdits([]string{"retention", "7d"})
+	if err != nil {
+		t.Fatalf("retention edit: %v", err)
+	}
+	if retention[0].Value != "604800000" {
+		t.Fatalf("retention = %#v", retention[0])
 	}
 }
 

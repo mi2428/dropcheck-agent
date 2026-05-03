@@ -15,49 +15,49 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
-type festivalSyncOptions struct {
+type standaloneSyncOptions struct {
 	OutputDir  string
 	Limit      string
 	MarkSynced bool
 }
 
-func syncFestivalRuns(ctx context.Context, state *shellState, opts festivalSyncOptions) error {
+func syncStandaloneRuns(ctx context.Context, state *shellState, opts standaloneSyncOptions) error {
 	agents, err := state.commandTargets()
 	if err != nil {
 		return err
 	}
 	outputDir := opts.OutputDir
 	if outputDir == "" {
-		outputDir = "festival-sync"
+		outputDir = "standalone-sync"
 	}
-	limit, err := parseFestivalSyncLimit(opts.Limit)
+	limit, err := parseStandaloneSyncLimit(opts.Limit)
 	if err != nil {
 		return err
 	}
 	for _, agent := range agents {
-		if err := syncFestivalRunsForAgent(ctx, state, agent, outputDir, limit, opts.MarkSynced, len(agents) > 1); err != nil {
+		if err := syncStandaloneRunsForAgent(ctx, state, agent, outputDir, limit, opts.MarkSynced, len(agents) > 1); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func syncFestivalRunsForAgent(ctx context.Context, state *shellState, agent control.AgentInfo, outputDir string, limit uint32, markSynced bool, multiAgent bool) error {
+func syncStandaloneRunsForAgent(ctx context.Context, state *shellState, agent control.AgentInfo, outputDir string, limit uint32, markSynced bool, multiAgent bool) error {
 	listLimit := ""
 	if limit > 0 {
 		listLimit = strconv.FormatUint(uint64(limit), 10)
 	}
-	listOp, err := command.FestivalListRunsOperation(command.FestivalListOptions{Limit: listLimit})
+	listOp, err := command.StandaloneListRunsOperation(command.StandaloneListOptions{Limit: listLimit})
 	if err != nil {
 		return err
 	}
-	listResult, err := runFestivalCommand(ctx, state, agent, listOp)
+	listResult, err := runStandaloneCommand(ctx, state, agent, listOp)
 	if err != nil {
 		return err
 	}
-	runs := listResult.GetFestivalRuns()
+	runs := listResult.GetStandaloneRuns()
 	if runs == nil || len(runs.GetRuns()) == 0 {
-		fmt.Printf("%s: no unsynced Dropcheck Festival runs\n", agentDisplayName(agent))
+		fmt.Printf("%s: no unsynced standalone runs\n", agentDisplayName(agent))
 		return nil
 	}
 	dir := outputDir
@@ -68,15 +68,15 @@ func syncFestivalRunsForAgent(ctx context.Context, state *shellState, agent cont
 		return err
 	}
 	for _, summary := range runs.GetRuns() {
-		getOp, err := command.FestivalRunOperation(summary.GetRunId(), markSynced)
+		getOp, err := command.StandaloneRunOperation(summary.GetRunId(), markSynced)
 		if err != nil {
 			return err
 		}
-		result, err := runFestivalCommand(ctx, state, agent, getOp)
+		result, err := runStandaloneCommand(ctx, state, agent, getOp)
 		if err != nil {
 			return err
 		}
-		archive := result.GetFestivalRun()
+		archive := result.GetStandaloneRun()
 		if archive == nil {
 			return fmt.Errorf("%s: run %s returned no archive", agentDisplayName(agent), summary.GetRunId())
 		}
@@ -97,7 +97,7 @@ func syncFestivalRunsForAgent(ctx context.Context, state *shellState, agent cont
 	return nil
 }
 
-func runFestivalCommand(ctx context.Context, state *shellState, agent control.AgentInfo, op command.Operation) (*controlpb.CommandResult, error) {
+func runStandaloneCommand(ctx context.Context, state *shellState, agent control.AgentInfo, op command.Operation) (*controlpb.CommandResult, error) {
 	cmd, _, err := buildRunCommand(op)
 	if err != nil {
 		return nil, err
@@ -111,16 +111,16 @@ func runFestivalCommand(ctx context.Context, state *shellState, agent control.Ag
 	return state.server.Run(runCtx, agent.ID, commandID, cmd)
 }
 
-func parseFestivalSyncLimit(value string) (uint32, error) {
+func parseStandaloneSyncLimit(value string) (uint32, error) {
 	if value == "" {
 		return 0, nil
 	}
 	limit, err := strconv.ParseUint(value, 10, 32)
 	if err != nil {
-		return 0, fmt.Errorf("festival sync limit must be a positive integer: %w", err)
+		return 0, fmt.Errorf("standalone sync limit must be a positive integer: %w", err)
 	}
 	if limit == 0 {
-		return 0, fmt.Errorf("festival sync limit must be a positive integer")
+		return 0, fmt.Errorf("standalone sync limit must be a positive integer")
 	}
 	return uint32(limit), nil
 }
