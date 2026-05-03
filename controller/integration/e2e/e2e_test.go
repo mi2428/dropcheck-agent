@@ -243,14 +243,14 @@ func loadConfig(t *testing.T) *e2eConfig {
 		syncDir:            filepath.Join(t.TempDir(), "standalone-sync"),
 		live:               envBool(envLive),
 		serial:             firstNonEmpty(os.Getenv(envSerial), os.Getenv("ADB_SERIAL")),
-		ssid:               firstNonEmpty(os.Getenv(envSSID), os.Getenv("DROPCHECK_FESTIVAL_WIFI_SSID")),
+		ssid:               os.Getenv(envSSID),
 		forceStopApp:       envBool(envForceStop),
 		launchAppActivity:  envBoolDefault(envLaunchApp, true),
 		launchAppEveryCase: envBoolDefault(envLaunchEach, true),
 		vars:               map[string]string{},
 	}
-	pskEnv := firstNonEmpty(os.Getenv(envPSKName), os.Getenv("DROPCHECK_FESTIVAL_WIFI_PSK_ENV"), defaultPSKEnv)
-	cfg.psk = firstNonEmpty(os.Getenv(pskEnv), os.Getenv(envPSK), os.Getenv("DROPCHECK_FESTIVAL_WIFI_PSK"))
+	pskEnv := firstNonEmpty(os.Getenv(envPSKName), defaultPSKEnv)
+	cfg.psk = firstNonEmpty(os.Getenv(pskEnv), os.Getenv(envPSK))
 	cfg.vars["run-id"] = ""
 	return cfg
 }
