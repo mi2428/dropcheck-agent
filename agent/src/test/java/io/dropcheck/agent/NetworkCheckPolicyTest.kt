@@ -30,6 +30,21 @@ class NetworkCheckPolicyTest {
     }
 
     @Test
+    fun selectsPingSourceAddressForTargetFamily() {
+        val addresses = listOf(
+            "fe80::1234%wlan0/64",
+            "192.168.22.91/22",
+            "240d:1a:beef::123/64",
+        )
+
+        assertEquals("192.168.22.91", NetworkCheckPolicy.sourceAddressForHost(addresses, "1.1.1.1"))
+        assertEquals("192.168.22.91", NetworkCheckPolicy.sourceAddressForHost(addresses, "example.com"))
+        assertEquals("240d:1a:beef::123", NetworkCheckPolicy.sourceAddressForHost(addresses, "2606:4700:4700::1111"))
+        assertEquals("192.168.22.91", NetworkCheckPolicy.pingBindTarget("wlan0", addresses, "8.8.8.8"))
+        assertEquals("wlan0", NetworkCheckPolicy.pingBindTarget("wlan0", listOf("fe80::1234%wlan0/64"), "8.8.8.8"))
+    }
+
+    @Test
     fun classifiesProcessAndProbeResults() {
         assertTrue(NetworkCheckPolicy.processSucceeded(finished = true, exitCode = 0))
         assertFalse(NetworkCheckPolicy.processSucceeded(finished = false, exitCode = 0))
@@ -72,7 +87,7 @@ class NetworkCheckPolicyTest {
             listOf("/system/bin/ping", "-I", "wlan0", "-t", "3", "-s", "80", "-c", "1", "-W", "2", "8.8.8.8"),
             NetworkCheckPolicy.traceroutePingArgs(
                 binary = "/system/bin/ping",
-                interfaceName = "wlan0",
+                bindTarget = "wlan0",
                 sizeBytes = 80,
                 ttl = 3,
                 waitSeconds = 2,
@@ -83,7 +98,7 @@ class NetworkCheckPolicyTest {
             listOf("/system/bin/ping", "-t", "1", "-c", "1", "-W", "1", "8.8.8.8"),
             NetworkCheckPolicy.traceroutePingArgs(
                 binary = "/system/bin/ping",
-                interfaceName = "",
+                bindTarget = "",
                 sizeBytes = 0,
                 ttl = 0,
                 waitSeconds = 0,
@@ -107,7 +122,7 @@ class NetworkCheckPolicyTest {
             listOf("/system/bin/ping", "-I", "wlan0", "-M", "do", "-s", "1472", "-c", "1", "-W", "2", "example.com"),
             NetworkCheckPolicy.pathMtuPingArgs(
                 binary = "/system/bin/ping",
-                interfaceName = "wlan0",
+                bindTarget = "wlan0",
                 payloadSizeBytes = 1472,
                 waitSeconds = 2,
                 host = "example.com",
