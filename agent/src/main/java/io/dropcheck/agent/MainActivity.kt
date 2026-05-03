@@ -49,14 +49,6 @@ internal fun terminalDisplayText(line: String): String {
  * driven through adb/gRPC, while this screen exposes the local log tail.
  */
 class MainActivity : Activity() {
-    private companion object {
-        const val STARTUP_TAIL_LINES = 600
-        const val MAX_DISPLAY_LINES = 1000
-        const val MAX_DISPLAY_CHARS = 300_000
-        const val MAX_LINE_CHARS = 8_000
-        const val AUTO_SCROLL_SLOP_DP = 2
-    }
-
     private val warnColor = Color.rgb(255, 214, 10)
     private val errorColor = Color.rgb(255, 82, 82)
 
@@ -72,7 +64,7 @@ class MainActivity : Activity() {
     private var followLogTail = true
     private var scrollToBottomPending = false
     private val autoScrollSlopPx: Int by lazy {
-        (AUTO_SCROLL_SLOP_DP * resources.displayMetrics.density).toInt()
+        (TerminalDisplayPolicy.AUTO_SCROLL_SLOP_DP * resources.displayMetrics.density).toInt()
     }
 
     private val receiver = object : BroadcastReceiver() {
@@ -91,7 +83,10 @@ class MainActivity : Activity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         TerminalLog.info(this, "activity onCreate")
 
-        val tail = TerminalLog.tail(this, STARTUP_TAIL_LINES.coerceAtMost(MAX_DISPLAY_LINES))
+        val tail = TerminalLog.tail(
+            this,
+            TerminalDisplayPolicy.STARTUP_TAIL_LINES.coerceAtMost(TerminalDisplayPolicy.MAX_DISPLAY_LINES),
+        )
         val initialText = SpannableStringBuilder().apply {
             appendColored("dropcheck agent\n")
             appendColored("controller commands arrive over adb reverse + gRPC bidi\n")
@@ -187,13 +182,17 @@ class MainActivity : Activity() {
     }
 
     private fun trimDisplayIfNeeded(): Int {
-        if (displayLineLengths.size <= MAX_DISPLAY_LINES && displayLogChars <= MAX_DISPLAY_CHARS) return 0
+        if (
+            displayLineLengths.size <= TerminalDisplayPolicy.MAX_DISPLAY_LINES &&
+            displayLogChars <= TerminalDisplayPolicy.MAX_DISPLAY_CHARS
+        ) return 0
 
         val text = mutableDisplayText()
         var removedLines = 0
         while (
             displayLineLengths.isNotEmpty() &&
-            (displayLineLengths.size > MAX_DISPLAY_LINES || displayLogChars > MAX_DISPLAY_CHARS)
+            (displayLineLengths.size > TerminalDisplayPolicy.MAX_DISPLAY_LINES ||
+                displayLogChars > TerminalDisplayPolicy.MAX_DISPLAY_CHARS)
         ) {
             val charsToRemove = displayLineLengths.removeFirst()
             removedLines += 1
@@ -217,11 +216,7 @@ class MainActivity : Activity() {
     }
 
     private fun boundedLine(line: String): String {
-        val withNewline = if (line.endsWith("\n")) line else "$line\n"
-        if (withNewline.length <= MAX_LINE_CHARS) return withNewline
-
-        val suffix = " ... [truncated]\n"
-        return withNewline.take(MAX_LINE_CHARS - suffix.length).trimEnd('\r', '\n') + suffix
+        return TerminalDisplayPolicy.boundedLine(line, appendNewline = true)
     }
 
     private fun isScrolledToBottom(): Boolean {
