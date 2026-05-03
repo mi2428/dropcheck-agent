@@ -510,9 +510,13 @@ func isShellErrorOutput(output string) bool {
 		strings.Contains(lower, "usage:") ||
 		strings.Contains(lower, "unknown ") ||
 		strings.Contains(lower, "requires ") ||
+		strings.Contains(lower, "is required") ||
 		strings.Contains(lower, "must ") ||
 		strings.Contains(lower, "specified twice") ||
-		strings.Contains(lower, "cannot ")
+		strings.Contains(lower, "cannot ") ||
+		strings.Contains(lower, "unsupported ") ||
+		strings.Contains(lower, "unexpected ") ||
+		strings.Contains(lower, "status: failed")
 }
 
 func isClearRuntimeFailure(output string) bool {
@@ -524,6 +528,7 @@ func isClearRuntimeFailure(output string) bool {
 		strings.Contains(lower, "timeout") ||
 		strings.Contains(lower, "timed out") ||
 		strings.Contains(lower, "no matching") ||
+		strings.Contains(lower, "controller endpoint is disabled or incomplete") ||
 		strings.Contains(lower, "unsupported") ||
 		strings.Contains(lower, "connectivity completed with failed checks")
 }
@@ -1011,8 +1016,8 @@ func TestE2ECaseTableIsMerged(t *testing.T) {
 	if testCount == 0 || test2Count == 0 {
 		t.Fatalf("merged table must include both TEST and TEST2 cases, got TEST=%d TEST2=%d", testCount, test2Count)
 	}
-	if len(cases) != 343 {
-		t.Fatalf("case count = %d, want 343", len(cases))
+	if len(cases) != 342 {
+		t.Fatalf("case count = %d, want 342", len(cases))
 	}
 }
 

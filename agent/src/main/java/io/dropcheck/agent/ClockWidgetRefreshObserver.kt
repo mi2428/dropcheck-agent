@@ -42,32 +42,32 @@ internal class ClockWidgetRefreshObserver(
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            refreshWithFollowUps()
+            requestRefreshWithFollowUps()
         }
     }
 
     private val wifiCallback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) = refreshWithFollowUps()
-        override fun onLosing(network: Network, maxMsToLive: Int) = refreshWithFollowUps()
-        override fun onLost(network: Network) = refreshWithFollowUps()
-        override fun onUnavailable() = refreshWithFollowUps()
-        override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) = refreshWithFollowUps()
-        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) = refreshWithFollowUps()
-        override fun onBlockedStatusChanged(network: Network, blocked: Boolean) = refreshWithFollowUps()
+        override fun onAvailable(network: Network) = requestRefreshWithFollowUps()
+        override fun onLosing(network: Network, maxMsToLive: Int) = requestRefreshWithFollowUps()
+        override fun onLost(network: Network) = requestRefreshWithFollowUps()
+        override fun onUnavailable() = requestRefreshWithFollowUps()
+        override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) = requestRefreshWithFollowUps()
+        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) = requestRefreshWithFollowUps()
+        override fun onBlockedStatusChanged(network: Network, blocked: Boolean) = requestRefreshWithFollowUps()
     }
 
     private val defaultCallback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) = refreshWithFollowUps()
-        override fun onLost(network: Network) = refreshWithFollowUps()
-        override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) = refreshWithFollowUps()
-        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) = refreshWithFollowUps()
+        override fun onAvailable(network: Network) = requestRefreshWithFollowUps()
+        override fun onLost(network: Network) = requestRefreshWithFollowUps()
+        override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) = requestRefreshWithFollowUps()
+        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) = requestRefreshWithFollowUps()
     }
 
     fun start() {
         if (!started.compareAndSet(false, true)) return
         registerBroadcasts()
         registerCallbacks()
-        refreshWithFollowUps()
+        requestRefreshWithFollowUps()
         pollTask = executor.scheduleWithFixedDelay(
             { refreshNow() },
             POLL_INTERVAL_MS,
@@ -98,6 +98,11 @@ internal class ClockWidgetRefreshObserver(
     fun shutdown() {
         stop()
         executor.shutdownNow()
+    }
+
+    private fun requestRefreshWithFollowUps() {
+        if (!started.get()) return
+        runCatching { executor.execute { refreshWithFollowUps() } }
     }
 
     private fun registerBroadcasts() {
