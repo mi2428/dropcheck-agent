@@ -320,6 +320,12 @@ message StandaloneConfig {
   uint32 retention_ms = 2;
   uint64 max_bytes = 3;
   repeated StandaloneFesta festas = 4;
+  StandaloneUploadConfig upload = 5;
+}
+
+message StandaloneUploadConfig {
+  string url = 1;
+  ConnectWifi wifi = 2;
 }
 
 message StandaloneFesta {

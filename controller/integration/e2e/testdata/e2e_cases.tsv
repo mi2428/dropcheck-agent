@@ -320,3 +320,7 @@ E2E-318	CLI standalone delete	cli	dropcheck configure delete standalone festa sm
 E2E-319	CLI unsupported option	cli	dropcheck show wifi status --unknown	error	Usage/unknown option error.
 E2E-320	CLI duplicate option	cli	"dropcheck request wifi connect ""<ssid>"" --passphrase <psk> --passphrase other"	error	Duplicate option error from dash parser.
 E2E-321	CLI repeatable option exception	cli	dropcheck request traceroute 1.1.1.1 --via 192.168.23.254 --via 1.1.1.1	ok	Repeatable `--via` accepted.
+E2E-322	Parser standalone upload target	shell-parser	config> set standalone upload to http://192.168.50.10:8080/dropcheck/e2e	ok	Standalone upload target URL parses.
+E2E-323	Parser standalone upload Wi-Fi	shell-parser	"config> set standalone upload via wifi essid ""<ssid>"" passphrase <psk> security wpa3 band 6ghz timeout 5s"	ok	Standalone upload management Wi-Fi parses.
+E2E-324	CLI standalone upload target	cli	dropcheck configure set standalone upload to http://192.168.50.10:8080/dropcheck/e2e	ok	CLI standalone upload target parses.
+E2E-325	CLI standalone upload Wi-Fi	cli	"dropcheck configure set standalone upload via wifi essid ""<ssid>"" passphrase <psk> security auto timeout 5s"	ok	CLI standalone upload management Wi-Fi parses.

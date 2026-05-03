@@ -366,6 +366,27 @@ func TestParseAgentCommandSurface(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "set standalone upload wifi",
+			args: []string{"configure", "set", "standalone", "upload", "via", "wifi", "essid", "NOC", "passphrase", "secret", "security", "wpa3", "band", "6ghz", "timeout", "5s"},
+			check: func(t *testing.T, run *controlpb.RunCommand) {
+				t.Helper()
+				edit := run.GetEditStandaloneConfig()
+				if edit == nil {
+					t.Fatalf("command = %T, want EditStandaloneConfig", run.GetCommand())
+				}
+				edits := edit.GetEdits()
+				if len(edits) != 6 ||
+					strings.Join(edits[0].GetPath(), ".") != "upload.wifi" ||
+					edits[0].GetAction() != controlpb.StandaloneEdit_ACTION_DELETE ||
+					strings.Join(edits[1].GetPath(), ".") != "upload.wifi.ssid" ||
+					edits[1].GetValue() != "NOC" ||
+					strings.Join(edits[5].GetPath(), ".") != "upload.wifi.timeout_ms" ||
+					edits[5].GetValue() != "5000" {
+					t.Fatalf("standalone upload wifi edits = %#v", edits)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {

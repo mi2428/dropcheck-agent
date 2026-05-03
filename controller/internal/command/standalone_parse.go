@@ -11,7 +11,7 @@ const defaultStandaloneFestaInterval = 30 * time.Second
 // StandaloneSetEdits parses tokens after "set standalone".
 func StandaloneSetEdits(args []string) ([]StandaloneEdit, error) {
 	if len(args) == 0 {
-		return nil, fmt.Errorf("usage: set standalone <enabled|disabled|retention|max-size|festa>")
+		return nil, fmt.Errorf("usage: set standalone <enabled|disabled|retention|max-size|upload|festa>")
 	}
 	switch args[0] {
 	case "enabled":
@@ -36,6 +36,8 @@ func StandaloneSetEdits(args []string) ([]StandaloneEdit, error) {
 		}
 		edit, err := StandaloneSetBytesEdit([]string{"max_bytes"}, args[1], DefaultStandaloneMaxBytes())
 		return singleEdit(edit, err)
+	case "upload":
+		return standaloneSetUploadEdits(args[1:])
 	case "festa":
 		return standaloneSetFestaEdits(args[1:])
 	default:
@@ -61,6 +63,8 @@ func StandaloneDeleteEdits(args []string) ([]StandaloneEdit, error) {
 			path = "max_bytes"
 		}
 		return []StandaloneEdit{StandaloneDeleteEdit([]string{path})}, nil
+	case "upload":
+		return standaloneDeleteUploadEdits(args[1:])
 	case "festa":
 		if len(args) < 2 {
 			return nil, fmt.Errorf("usage: delete standalone festa <name> [wifi-group <name>|check <dns|ping|http>]")
@@ -85,6 +89,104 @@ func StandaloneDeleteEdits(args []string) ([]StandaloneEdit, error) {
 		}
 	default:
 		return nil, fmt.Errorf("unknown delete standalone command %q", args[0])
+	}
+}
+
+func standaloneSetUploadEdits(args []string) ([]StandaloneEdit, error) {
+	if len(args) == 0 {
+		return nil, fmt.Errorf("usage: set standalone upload <to|via wifi>")
+	}
+	switch args[0] {
+	case "to":
+		if len(args) != 2 {
+			return nil, fmt.Errorf("usage: set standalone upload to <url>")
+		}
+		return []StandaloneEdit{StandaloneSetStringEdit([]string{"upload", "url"}, args[1])}, nil
+	case "via":
+		if len(args) < 2 || args[1] != "wifi" {
+			return nil, fmt.Errorf("usage: set standalone upload via wifi essid <ssid> passphrase <passphrase> [security <auto|wpa2|wpa3|transition>] [bssid <bssid>] [band <all|2.4ghz|5ghz|6ghz|60ghz>] [mac-randomization <auto|none|persistent|non-persistent>] [timeout <duration>]")
+		}
+		return standaloneSetUploadWifiEdits(args[2:])
+	default:
+		return nil, fmt.Errorf("unknown set standalone upload command %q", args[0])
+	}
+}
+
+func standaloneSetUploadWifiEdits(args []string) ([]StandaloneEdit, error) {
+	values, err := parseStandaloneKeyValues(args, map[string]bool{
+		"essid":             true,
+		"passphrase":        true,
+		"security":          true,
+		"bssid":             true,
+		"band":              true,
+		"mac-randomization": true,
+		"timeout":           true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if values["essid"] == "" {
+		return nil, fmt.Errorf("set standalone upload via wifi requires essid <ssid>")
+	}
+	if values["passphrase"] == "" {
+		return nil, fmt.Errorf("set standalone upload via wifi requires passphrase <passphrase>")
+	}
+	edits := []StandaloneEdit{
+		StandaloneDeleteEdit([]string{"upload", "wifi"}),
+		StandaloneSetStringEdit([]string{"upload", "wifi", "ssid"}, values["essid"]),
+		StandaloneSetStringEdit([]string{"upload", "wifi", "passphrase"}, values["passphrase"]),
+	}
+	if values["security"] != "" {
+		security, err := normalizeStandaloneSecurity(values["security"])
+		if err != nil {
+			return nil, err
+		}
+		edits = append(edits, StandaloneSetStringEdit([]string{"upload", "wifi", "security"}, security))
+	}
+	if values["bssid"] != "" {
+		edits = append(edits, StandaloneSetStringEdit([]string{"upload", "wifi", "bssid"}, values["bssid"]))
+	}
+	if values["band"] != "" {
+		band, err := normalizeStandaloneBand(values["band"])
+		if err != nil {
+			return nil, err
+		}
+		edits = append(edits, StandaloneSetStringEdit([]string{"upload", "wifi", "band"}, band))
+	}
+	if values["mac-randomization"] != "" {
+		macRandomization, err := normalizeStandaloneMacRandomization(values["mac-randomization"])
+		if err != nil {
+			return nil, err
+		}
+		edits = append(edits, StandaloneSetStringEdit([]string{"upload", "wifi", "mac_randomization"}, macRandomization))
+	}
+	if values["timeout"] != "" {
+		timeoutEdit, err := StandaloneSetMillisEdit([]string{"upload", "wifi", "timeout_ms"}, values["timeout"], 45*time.Second)
+		if err != nil {
+			return nil, err
+		}
+		edits = append(edits, timeoutEdit)
+	}
+	return edits, nil
+}
+
+func standaloneDeleteUploadEdits(args []string) ([]StandaloneEdit, error) {
+	if len(args) == 0 {
+		return []StandaloneEdit{StandaloneDeleteEdit([]string{"upload"})}, nil
+	}
+	switch args[0] {
+	case "to":
+		if len(args) != 1 {
+			return nil, fmt.Errorf("usage: delete standalone upload to")
+		}
+		return []StandaloneEdit{StandaloneDeleteEdit([]string{"upload", "url"})}, nil
+	case "via":
+		if len(args) != 2 || args[1] != "wifi" {
+			return nil, fmt.Errorf("usage: delete standalone upload via wifi")
+		}
+		return []StandaloneEdit{StandaloneDeleteEdit([]string{"upload", "wifi"})}, nil
+	default:
+		return nil, fmt.Errorf("unknown delete standalone upload command %q", args[0])
 	}
 }
 
@@ -310,6 +412,17 @@ func normalizeStandaloneBand(value string) (string, error) {
 		return "", err
 	case value == "":
 		return "all", nil
+	default:
+		return strings.ToLower(value), nil
+	}
+}
+
+func normalizeStandaloneMacRandomization(value string) (string, error) {
+	switch _, err := parseMacRandomization(value); {
+	case err != nil:
+		return "", err
+	case value == "":
+		return "", nil
 	default:
 		return strings.ToLower(value), nil
 	}

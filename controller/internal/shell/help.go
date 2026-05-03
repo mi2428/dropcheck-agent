@@ -37,6 +37,8 @@ configure mode:
   set standalone disabled
   set standalone retention <duration>
   set standalone max-size <bytes>
+  set standalone upload to <url>
+  set standalone upload via wifi essid <essid> passphrase <psk> [security <auto|wpa2|wpa3|transition>]
   set standalone festa <name> enabled
   set standalone festa <name> interval <duration>
   set standalone festa <name> wifi-group <name> match <essid|bssid> <value>
@@ -44,7 +46,7 @@ configure mode:
   set standalone festa <name> check dns name <domain> [type <A|AAAA|ALL>] [timeout <duration>]
   set standalone festa <name> check ping host <host> [count <n>] [timeout <duration>]
   set standalone festa <name> check http url <url> [expected-status <code>] [timeout <duration>]
-  delete standalone [festa <name>|festa <name> wifi-group <name>|festa <name> check <dns|ping|http>]
+  delete standalone [upload|upload to|upload via wifi|festa <name>|festa <name> wifi-group <name>|festa <name> check <dns|ping|http>]
   run show <devices|config|wifi|standalone>
   run clear standalone runs [synced|all]
   run sync standalone runs [output <dir>] [limit <n>] [mark-synced|keep-unsynced]
@@ -309,10 +311,10 @@ func resolveConfigureContextKeyword(index int, previous []string, value string) 
 		}
 	case 2:
 		if previous[0] == "set" && previous[1] == "standalone" {
-			return resolveShellKeyword("set standalone command", value, []string{"enabled", "disabled", "retention", "max-size", "festa"})
+			return resolveShellKeyword("set standalone command", value, []string{"enabled", "disabled", "retention", "max-size", "upload", "festa"})
 		}
 		if previous[0] == "delete" && previous[1] == "standalone" {
-			return resolveShellKeyword("delete standalone command", value, []string{"festa"})
+			return resolveShellKeyword("delete standalone command", value, []string{"upload", "festa"})
 		}
 	}
 	return value, nil
@@ -429,14 +431,14 @@ func configureHelpEntriesForArgs(args []string) []HelpEntry {
 			return []HelpEntry{{"standalone", "Edit persistent standalone settings"}}
 		}
 		if len(args) >= 2 && args[1] == "standalone" {
-			return []HelpEntry{{"enabled", "Start persistent checks"}, {"disabled", "Stop persistent checks"}, {"retention", "Synced-result retention such as 7d"}, {"max-size", "Store budget such as 512m"}, {"festa", "Named connectivity scenario"}}
+			return []HelpEntry{{"enabled", "Start persistent checks"}, {"disabled", "Stop persistent checks"}, {"retention", "Synced-result retention such as 7d"}, {"max-size", "Store budget such as 512m"}, {"upload", "Upload target and management Wi-Fi"}, {"festa", "Named connectivity scenario"}}
 		}
 	case "delete":
 		if len(args) == 1 {
 			return []HelpEntry{{"standalone", "Delete persistent standalone settings"}}
 		}
 		if len(args) >= 2 && args[1] == "standalone" {
-			return []HelpEntry{{"festa", "Named connectivity scenario"}}
+			return []HelpEntry{{"upload", "Upload target and management Wi-Fi"}, {"festa", "Named connectivity scenario"}}
 		}
 	case "run":
 		if len(args) == 1 {
@@ -1014,10 +1016,10 @@ func configureCompletionCandidatesForArgs(args []string) []string {
 		}
 	case 2:
 		if resolved[0] == "set" && resolved[1] == "standalone" {
-			return []string{"enabled", "disabled", "retention", "max-size", "festa"}
+			return []string{"enabled", "disabled", "retention", "max-size", "upload", "festa"}
 		}
 		if resolved[0] == "delete" && resolved[1] == "standalone" {
-			return []string{"festa"}
+			return []string{"upload", "festa"}
 		}
 		if resolved[0] == "run" {
 			if resolved[1] == "request" {
@@ -1524,9 +1526,32 @@ func wifiExpectationCompletionCandidates(args []string, allowPositionalSSID bool
 
 func setStandaloneCompletionCandidates(args []string) []string {
 	if len(args) == 0 {
-		return []string{"enabled", "disabled", "retention", "max-size", "festa"}
+		return []string{"enabled", "disabled", "retention", "max-size", "upload", "festa"}
 	}
 	switch {
+	case args[0] == "upload" && len(args) == 1:
+		return []string{"to", "via"}
+	case args[0] == "upload" && len(args) == 2 && args[1] == "to":
+		return []string{"<url>"}
+	case args[0] == "upload" && len(args) == 2 && args[1] == "via":
+		return []string{"wifi"}
+	case args[0] == "upload" && len(args) == 3 && args[1] == "via" && args[2] == "wifi":
+		return []string{"essid"}
+	case args[0] == "upload" && len(args) >= 3 && args[1] == "via" && args[2] == "wifi":
+		options := []completionOption{
+			{name: "essid", placeholder: "<essid>"},
+			{name: "passphrase", placeholder: "<passphrase>"},
+			{name: "security", placeholder: "<auto|wpa2|wpa3|transition>"},
+			{name: "bssid", placeholder: "<bssid>"},
+			{name: "band", placeholder: "<all|2.4ghz|5ghz|6ghz|60ghz>"},
+			{name: "mac-randomization", placeholder: "<auto|none|persistent|non-persistent>"},
+			{name: "timeout", placeholder: "<duration>"},
+		}
+		state := scanCompletionArgs("set standalone upload via wifi option", args[3:], options)
+		if state.pending != nil {
+			return optionValueCandidates(*state.pending)
+		}
+		return optionAndPositionalCandidates(state, options, 0)
 	case args[0] == "festa" && len(args) == 1:
 		return []string{"<name>"}
 	case args[0] == "festa" && len(args) == 2:
@@ -1553,7 +1578,7 @@ func setStandaloneCompletionCandidates(args []string) []string {
 	if state.pending != nil {
 		return optionValueCandidates(*state.pending)
 	}
-	return optionAndPositionalCandidates(state, options, 1, "festa")
+	return optionAndPositionalCandidates(state, options, 1, "upload", "festa")
 }
 
 func setStandaloneValueCompletionCandidates(last string) ([]string, bool) {
@@ -1568,9 +1593,17 @@ func setStandaloneValueCompletionCandidates(last string) ([]string, bool) {
 		return []string{"<bssid>"}, true
 	case isResolvedKeyword("set standalone option", last, []string{"passphrase"}):
 		return []string{"<passphrase>"}, true
+	case isResolvedKeyword("set standalone option", last, []string{"security"}):
+		return wifiConnectSecurityValues(), true
+	case isResolvedKeyword("set standalone option", last, []string{"band"}):
+		return wifiBandValues(), true
+	case isResolvedKeyword("set standalone option", last, []string{"mac-randomization"}):
+		return wifiMacRandomizationValues(), true
 	case isResolvedKeyword("set standalone option", last, []string{"host"}):
 		return []string{"<host>"}, true
 	case isResolvedKeyword("set standalone option", last, []string{"url"}):
+		return []string{"<url>"}, true
+	case isResolvedKeyword("set standalone option", last, []string{"to"}):
 		return []string{"<url>"}, true
 	case isResolvedKeyword("set standalone option", last, []string{"count", "expected-status"}):
 		return []string{"<n>"}, true
