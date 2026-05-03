@@ -4,7 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import java.io.File
+import java.io.RandomAccessFile
 import java.time.Instant
+import kotlin.math.min
 
 /**
  * Small append-only terminal log used by the foreground activity and gRPC logs.
@@ -18,7 +20,8 @@ object TerminalLog {
 
     private const val TAG = "dropcheck"
     private const val MAX_BYTES = 1024 * 1024
-    private const val KEEP_LINES = 3000
+    private const val KEEP_BYTES = 512 * 1024
+    private const val MAX_LINE_CHARS = 8_000
 
     /** Location of the persisted terminal tail for adb collection and the on-device activity. */
     fun file(context: Context): File = File(context.getExternalFilesDir(null) ?: context.filesDir, "terminal.log")
@@ -36,7 +39,7 @@ object TerminalLog {
      */
     @Synchronized
     fun log(context: Context, level: String, message: String, error: Throwable? = null) {
-        val rendered = if (error == null) message else "$message: $error"
+        val rendered = boundedLine(if (error == null) message else "$message: $error")
         val formatted = "${Instant.now()} ${level.padEnd(5)} $rendered"
         when (level) {
             "DEBUG" -> Log.d(TAG, rendered, error)
@@ -63,12 +66,41 @@ object TerminalLog {
     fun tail(context: Context, maxLines: Int = 160): String {
         val file = file(context)
         if (!file.exists()) return ""
-        return file.readLines().takeLast(maxLines).joinToString("\n")
+        return tailText(file)
+            .lineSequence()
+            .toList()
+            .takeLast(maxLines)
+            .joinToString("\n")
     }
 
     private fun trimIfNeeded(file: File) {
         if (!file.exists() || file.length() < MAX_BYTES) return
-        val tail = file.readLines().takeLast(KEEP_LINES).joinToString("\n")
+        val tail = tailText(file)
         file.writeText(tail + "\n")
+    }
+
+    private fun boundedLine(value: String): String {
+        if (value.length <= MAX_LINE_CHARS) return value
+        val suffix = " ... [truncated]"
+        return value.take(MAX_LINE_CHARS - suffix.length).trimEnd('\r', '\n') + suffix
+    }
+
+    private fun tailText(file: File): String {
+        val length = file.length()
+        if (length <= 0) return ""
+        val keep = min(length, KEEP_BYTES.toLong()).toInt()
+        val bytes = ByteArray(keep)
+        RandomAccessFile(file, "r").use { reader ->
+            reader.seek(length - keep)
+            reader.readFully(bytes)
+        }
+        var text = bytes.toString(Charsets.UTF_8)
+        if (length > keep) {
+            val firstNewline = text.indexOf('\n')
+            if (firstNewline >= 0) {
+                text = text.drop(firstNewline + 1)
+            }
+        }
+        return text.trimEnd('\r', '\n')
     }
 }
