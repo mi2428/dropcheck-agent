@@ -8,6 +8,9 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.widget.RemoteViews
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 @Suppress("DEPRECATION")
 /**
@@ -31,6 +34,24 @@ class AgentLogWidgetProvider : AppWidgetProvider() {
     }
 
     companion object {
+        private val updatePending = AtomicBoolean(false)
+        private val updateExecutor = Executors.newSingleThreadScheduledExecutor { task ->
+            Thread(task, "dropcheck-log-widget-update")
+        }
+
+        fun requestUpdate(context: Context) {
+            val appContext = context.applicationContext
+            if (!updatePending.compareAndSet(false, true)) return
+            updateExecutor.schedule(
+                {
+                    updatePending.set(false)
+                    updateAll(appContext)
+                },
+                UPDATE_DEBOUNCE_MS,
+                TimeUnit.MILLISECONDS,
+            )
+        }
+
         fun updateAll(context: Context) {
             val appContext = context.applicationContext
             val manager = AppWidgetManager.getInstance(appContext)
@@ -59,5 +80,7 @@ class AgentLogWidgetProvider : AppWidgetProvider() {
                 appWidgetManager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.agentLogWidgetList)
             }
         }
+
+        private const val UPDATE_DEBOUNCE_MS = 500L
     }
 }
