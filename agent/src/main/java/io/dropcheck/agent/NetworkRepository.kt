@@ -34,6 +34,7 @@ import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
+@Suppress("DEPRECATION")
 /**
  * Reads Android connectivity and Wi-Fi framework state and maps it to protobufs.
  *
@@ -41,7 +42,6 @@ import java.util.concurrent.TimeUnit
  * should describe what Android reports, while callers decide whether a command
  * succeeded.
  */
-@Suppress("DEPRECATION")
 class NetworkRepository(
     private val context: Context,
     private val logger: CommandLogger,

@@ -11,6 +11,7 @@ import java.io.File
 internal class StandaloneResultStore internal constructor(private val runsDir: File) {
     constructor(context: Context) : this(File(context.filesDir, "standalone/runs"))
 
+    /** Summary counters used by GetStandaloneStatus without loading every payload into the result. */
     data class Stats(
         val storedRuns: Int,
         val unsyncedRuns: Int,

@@ -26,6 +26,12 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 
+/**
+ * App widget provider for the compact clock and Wi-Fi status display.
+ *
+ * The widget refreshes from broadcasts, connectivity callbacks, and bounded
+ * follow-up alarms so transient Android Wi-Fi state changes settle on screen.
+ */
 class AgentClockWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         schedulePeriodicUpdate(context)
