@@ -49,6 +49,23 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name=".AgentLogWidgetProvider"
+            android:exported="false"
+            android:label="@string/agent_log_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/agent_log_widget_info" />
+        </receiver>
+
+        <service
+            android:name=".AgentLogWidgetService"
+            android:exported="true"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
+
         <service
             android:name=".AgentService"
             android:exported="true"

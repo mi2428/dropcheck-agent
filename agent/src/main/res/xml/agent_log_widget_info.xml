@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/agent_log_widget_description"
+    android:initialLayout="@layout/agent_log_widget"
+    android:minHeight="96dp"
+    android:minResizeHeight="64dp"
+    android:minResizeWidth="128dp"
+    android:minWidth="180dp"
+    android:previewLayout="@layout/agent_log_widget"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellHeight="3"
+    android:targetCellWidth="4"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen" />
