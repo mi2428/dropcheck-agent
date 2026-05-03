@@ -268,6 +268,7 @@ class AgentService : Service() {
             val config = ControllerLinkStore(this).load()
             if (!isUsableControllerLink(config)) {
                 ControllerLinkRuntimeState.markDisconnected("controller endpoint is disabled or incomplete")
+                AgentStatusBroadcast.send(this)
                 break
             }
             val endpoint = config.endpoint()
@@ -295,6 +296,7 @@ class AgentService : Service() {
             backoffMs = if (backoffMs == 0L) minBackoff else (backoffMs * 2).coerceAtMost(maxBackoff)
             val nextRetry = System.currentTimeMillis() + backoffMs
             ControllerLinkRuntimeState.markRetryAt(nextRetry, "controller disconnected; retrying")
+            AgentStatusBroadcast.send(this)
             TerminalLog.warnEvent(this, "controller.link.retry", listOf(
                 "endpoint" to latest.endpoint(),
                 "backoff_ms" to backoffMs,

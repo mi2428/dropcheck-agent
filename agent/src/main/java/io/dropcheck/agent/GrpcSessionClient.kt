@@ -75,6 +75,7 @@ class GrpcSessionClient(
             .build()
         TerminalLog.debug(service, "grpc channel built authority=${channel.authority()} session=$sessionId")
         ControllerLinkRuntimeState.markConnecting("$host:$port", transport)
+        AgentStatusBroadcast.send(service)
         val stub = DropcheckControlGrpc.newStub(channel)
         val requestsRef = arrayOfNulls<StreamObserver<AgentFrame>>(1)
 
@@ -115,6 +116,7 @@ class GrpcSessionClient(
             ) + hello.logFields())
             send(requests, hello)
             ControllerLinkRuntimeState.markConnected("$host:$port", transport)
+            AgentStatusBroadcast.send(service)
             TerminalLog.info(service, "grpc hello sent session=$sessionId agent_id=$agentId adb_serial=$adbSerial host=$host port=$port")
             startHeartbeat(requests)
             done.await()
@@ -132,6 +134,7 @@ class GrpcSessionClient(
             commandExecutor.shutdownNow()
             heartbeatExecutor.shutdownNow()
             ControllerLinkRuntimeState.markDisconnected("gRPC session ended")
+            AgentStatusBroadcast.send(service)
             runCatching { requests.onCompleted() }
                 .onSuccess { TerminalLog.debug(service, "grpc request stream completed session=$sessionId") }
                 .onFailure { TerminalLog.warn(service, "grpc request stream completion failed session=$sessionId error=$it") }
@@ -295,6 +298,8 @@ class GrpcSessionClient(
         val previous = lastControllerFrameMs.getAndSet(now)
         val gap = if (previous == 0L) 0L else now - previous
         if (controllerTimedOut.getAndSet(false)) {
+            ControllerLinkRuntimeState.markHeartbeatRecovered()
+            AgentStatusBroadcast.send(service)
             TerminalLog.warn(service, "controller connection recovered session=$sessionId seq=${frame.seq} body=${frame.bodyCase} gap_ms=$gap")
         }
     }
@@ -311,6 +316,8 @@ class GrpcSessionClient(
         if (!lastControllerTimeoutLogMs.compareAndSet(lastLog, now)) return
 
         controllerTimedOut.set(true)
+        ControllerLinkRuntimeState.markHeartbeatTimedOut("controller heartbeat timeout")
+        AgentStatusBroadcast.send(service)
         TerminalLog.warn(
             service,
             "controller heartbeat timeout session=$sessionId silent_ms=$silentMs timeout_ms=$CONTROLLER_HEARTBEAT_TIMEOUT_MS last_seen_unix_time_ms=$lastSeen; USB cable, adb reverse, or PC controller may be disconnected",

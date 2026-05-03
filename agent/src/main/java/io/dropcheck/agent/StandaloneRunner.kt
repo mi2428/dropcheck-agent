@@ -54,6 +54,7 @@ internal class StandaloneRunner(private val context: Context) {
         future = null
         StandaloneRuntimeState.running.set(false)
         StandaloneRuntimeState.currentRunId.set("")
+        AgentStatusBroadcast.send(appContext)
     }
 
     fun shutdown() {
@@ -114,6 +115,7 @@ internal class StandaloneRunner(private val context: Context) {
         StandaloneRuntimeState.running.set(true)
         StandaloneRuntimeState.currentRunId.set(runId)
         StandaloneRuntimeState.message.set("running")
+        AgentStatusBroadcast.send(appContext)
         TerminalLog.info(appContext, "standalone run start run_id=$runId festa=${festa.name.ifBlank { "-" }} wifi_groups=${festa.wifiGroupsCount}")
 
         val steps = mutableListOf<StandaloneMeasurementStep>()
@@ -173,6 +175,7 @@ internal class StandaloneRunner(private val context: Context) {
         StandaloneRuntimeState.running.set(false)
         StandaloneRuntimeState.currentRunId.set("")
         StandaloneRuntimeState.message.set(summary.message)
+        AgentStatusBroadcast.send(appContext)
         TerminalLog.info(appContext, "standalone run end run_id=$runId status=${summary.status} steps=${summary.stepCount} failed=${summary.failedStepCount}")
         return archive
     }

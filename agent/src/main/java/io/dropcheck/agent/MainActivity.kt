@@ -12,20 +12,32 @@ import android.graphics.text.LineBreakConfig
 import android.graphics.text.LineBreaker
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.Layout
 import android.text.SpannableString
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewTreeObserver
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 
 private const val TERMINAL_BREAK_OPPORTUNITY = "\u200B"
+private const val STATUS_ICON_WIDTH_DP = 31
+private const val STATUS_ICON_HEIGHT_DP = 26
+private const val STATUS_ICON_GAP_DP = 4
+private const val STATUS_ICON_LEFT_DP = 24
+private const val STATUS_ICON_TOP_DP = 14
 
 /** Adds invisible break opportunities so terminal logs can wrap at any code point. */
 internal fun terminalDisplayText(line: String): String {
@@ -52,8 +64,16 @@ class MainActivity : Activity() {
     private lateinit var logView: TextView
     private lateinit var scroll: ScrollView
     private lateinit var root: FrameLayout
-    private lateinit var standaloneLeft: View
-    private lateinit var standaloneRight: View
+    private var statusIconViews: List<ImageView> = emptyList()
+    private var controllerHeartbeatConnected = false
+    private var standaloneRunning = false
+    private val statusRefreshHandler = Handler(Looper.getMainLooper())
+    private val statusRefresh = object : Runnable {
+        override fun run() {
+            syncStatusIcons()
+            statusRefreshHandler.postDelayed(this, 1_000)
+        }
+    }
 
     private val displayLineLengths = ArrayDeque<Int>()
     private var displayLogChars = 0
@@ -66,8 +86,8 @@ class MainActivity : Activity() {
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action == StandaloneStateBroadcast.ACTION) {
-                updateStandaloneIndicator(intent.getBooleanExtra(StandaloneStateBroadcast.EXTRA_ENABLED, false))
+            if (intent.action == AgentStatusBroadcast.ACTION) {
+                syncStatusIcons()
                 return
             }
             val line = intent.getStringExtra(TerminalLog.EXTRA_LINE) ?: return
@@ -78,6 +98,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        hideSystemBars()
         TerminalLog.info(this, "activity onCreate")
 
         val tail = TerminalLog.tail(
@@ -99,9 +120,9 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.BLACK)
             typeface = Typeface.MONOSPACE
             textSize = 8f
-            includeFontPadding = true
+            includeFontPadding = false
             setLineSpacing(0f, 1.05f)
-            setPadding(18, 18, 18, 18)
+            setPadding(0, 0, 0, 0)
             setHorizontallyScrolling(false)
             breakStrategy = LineBreaker.BREAK_STRATEGY_SIMPLE
             hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NONE
@@ -117,6 +138,12 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.BLACK)
             isFillViewport = true
             addView(logView)
+            setOnTouchListener { _, event ->
+                if (event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_MOVE) {
+                    followLogTail = false
+                }
+                false
+            }
             setOnScrollChangeListener { _, _, _, _, _ ->
                 val atBottom = isScrolledToBottom()
                 followLogTail = atBottom
@@ -128,13 +155,12 @@ class MainActivity : Activity() {
         root = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
             addView(scroll)
-            standaloneLeft = standaloneIndicatorView()
-            standaloneRight = standaloneIndicatorView()
-            addView(standaloneLeft, standaloneIndicatorLayout(Gravity.START))
-            addView(standaloneRight, standaloneIndicatorLayout(Gravity.END))
+            addView(statusIconRow(), statusIconLayout())
         }
         setContentView(root)
-        updateStandaloneIndicator(StandaloneConfigStore(this).load().enabled)
+        controllerHeartbeatConnected = ControllerLinkRuntimeState.heartbeatConnected()
+        standaloneRunning = StandaloneRuntimeState.running.get()
+        updateStatusIcons()
         requestScrollToBottom()
     }
 
@@ -142,26 +168,41 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         val filter = IntentFilter(TerminalLog.ACTION_LINE)
-        filter.addAction(StandaloneStateBroadcast.ACTION)
+        filter.addAction(AgentStatusBroadcast.ACTION)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             @Suppress("DEPRECATION")
             registerReceiver(receiver, filter)
         }
+        statusRefreshHandler.post(statusRefresh)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        hideSystemBars()
+        syncStatusIcons()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) hideSystemBars()
     }
 
     override fun onStop() {
+        statusRefreshHandler.removeCallbacks(statusRefresh)
         unregisterReceiver(receiver)
         super.onStop()
     }
 
     /** Appends one broadcast terminal line and trims the view to a bounded size. */
     private fun append(line: String) {
-        appendLogLine(line, followBottom = followLogTail)
+        syncStatusIcons()
+        appendLogLine(line, followBottom = shouldFollowLogTail())
     }
 
     private fun appendLogLine(line: String, followBottom: Boolean) {
+        val preservedScrollY = if (!followBottom && ::scroll.isInitialized) scroll.scrollY else null
         val displayLine = boundedLine(line)
         val terminalLine = terminalDisplayText(displayLine)
         logView.append(colored(displayLine, terminalLine))
@@ -175,7 +216,21 @@ class MainActivity : Activity() {
         if (followBottom) {
             followLogTail = true
             requestScrollToBottom()
+        } else if (preservedScrollY != null) {
+            scroll.post {
+                if (!followLogTail) {
+                    scroll.scrollTo(0, preservedScrollY.coerceAtMost(bottomScrollY()))
+                }
+            }
         }
+    }
+
+    private fun shouldFollowLogTail(): Boolean {
+        val follow = followLogTail && (!::scroll.isInitialized || isScrolledToBottom())
+        if (!follow) {
+            followLogTail = false
+        }
+        return follow
     }
 
     private fun trimDisplayIfNeeded(): Int {
@@ -263,27 +318,96 @@ class MainActivity : Activity() {
         return span
     }
 
-    private fun standaloneIndicatorView(): View {
-        return View(this).apply {
-            setBackgroundColor(Color.YELLOW)
-            visibility = View.GONE
+    private fun statusIconRow(): LinearLayout {
+        val size = dp(STATUS_ICON_WIDTH_DP)
+        val height = dp(STATUS_ICON_HEIGHT_DP)
+        val gap = dp(STATUS_ICON_GAP_DP)
+        val icons = mutableListOf<ImageView>()
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            isClickable = false
+            isFocusable = false
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            repeat(2) { index ->
+                val icon = ImageView(this@MainActivity).apply {
+                    setImageResource(R.drawable.shownet)
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    isClickable = false
+                    isFocusable = false
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    visibility = View.GONE
+                }
+                val params = LinearLayout.LayoutParams(size, height).apply {
+                    if (index > 0) marginStart = gap
+                }
+                addView(icon, params)
+                icons += icon
+            }
+            statusIconViews = icons
         }
     }
 
-    private fun standaloneIndicatorLayout(gravity: Int): FrameLayout.LayoutParams {
-        return FrameLayout.LayoutParams(standaloneIndicatorWidthPx(), FrameLayout.LayoutParams.MATCH_PARENT, gravity)
+    private fun statusIconLayout(): FrameLayout.LayoutParams {
+        return FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.START or Gravity.TOP,
+        ).apply {
+            leftMargin = dp(STATUS_ICON_LEFT_DP)
+            topMargin = dp(STATUS_ICON_TOP_DP)
+        }
     }
 
-    private fun standaloneIndicatorWidthPx(): Int {
-        return (4 * resources.displayMetrics.density).toInt().coerceAtLeast(2)
+    private fun updateStatusIcons() {
+        val count = when {
+            standaloneRunning -> 2
+            controllerHeartbeatConnected -> 1
+            else -> 0
+        }
+        statusIconViews.forEachIndexed { index, icon ->
+            icon.visibility = if (index < count) View.VISIBLE else View.GONE
+        }
     }
 
-    private fun updateStandaloneIndicator(enabled: Boolean) {
-        if (!::root.isInitialized || !::standaloneLeft.isInitialized || !::standaloneRight.isInitialized) return
-        val visibility = if (enabled) View.VISIBLE else View.GONE
-        standaloneLeft.visibility = visibility
-        standaloneRight.visibility = visibility
-        val sidePadding = if (enabled) standaloneIndicatorWidthPx() else 0
-        scroll.setPadding(sidePadding, 0, sidePadding, 0)
+    private fun syncStatusIcons() {
+        controllerHeartbeatConnected = ControllerLinkRuntimeState.heartbeatConnected()
+        standaloneRunning = StandaloneRuntimeState.running.get()
+        updateStatusIcons()
+    }
+
+    private fun dp(value: Int): Int {
+        return (value * resources.displayMetrics.density).toInt()
+    }
+
+    private fun hideSystemBars() {
+        @Suppress("DEPRECATION")
+        window.setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            @Suppress("DEPRECATION")
+            window.setDecorFitsSystemWindows(false)
+        }
+
+        val decorView = window.decorView
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            decorView.windowInsetsController?.let { controller ->
+                controller.hide(WindowInsets.Type.systemBars())
+                controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            decorView.systemUiVisibility =
+                View.SYSTEM_UI_FLAG_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+        }
     }
 }
