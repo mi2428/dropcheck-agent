@@ -651,7 +651,9 @@ func (cfg *e2eConfig) restoreAfterCase(tc matrixCase, commandLine string) {
 			cfg.runCLICleanup("request", "wifi", "connect", cfg.ssid, "--passphrase", cfg.psk, "--security", "auto", "--timeout", "25000")
 		}
 	case strings.Contains(lower, "set controller endpoint") && strings.Contains(lower, "enabled"):
+		cfg.forceStopPackage()
 		cfg.runShellCleanup("config> set controller endpoint disabled")
+		cfg.forceStopPackage()
 	case strings.Contains(lower, "set standalone enabled"):
 		cfg.runShellCleanup("config> set standalone disabled")
 	}
@@ -665,8 +667,10 @@ func (cfg *e2eConfig) runShellCleanup(commandLine string) {
 }
 
 func (cfg *e2eConfig) resetLiveState() {
+	cfg.forceStopPackage()
 	cfg.runShellCleanup("config> set controller endpoint disabled")
 	cfg.runShellCleanup("config> set standalone disabled")
+	cfg.forceStopPackage()
 }
 
 func (cfg *e2eConfig) runCLICleanup(args ...string) {
@@ -708,6 +712,13 @@ var (
 
 func (cfg *e2eConfig) forceStop() {
 	if !cfg.forceStopApp || cfg.adb == "" || cfg.serial == "" || cfg.packageName == "" {
+		return
+	}
+	cfg.forceStopPackage()
+}
+
+func (cfg *e2eConfig) forceStopPackage() {
+	if cfg.adb == "" || cfg.serial == "" || cfg.packageName == "" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
