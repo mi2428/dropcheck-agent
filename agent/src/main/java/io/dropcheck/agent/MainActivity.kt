@@ -1,15 +1,19 @@
 package io.dropcheck.agent
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.text.LineBreakConfig
 import android.graphics.text.LineBreaker
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -40,6 +44,7 @@ private const val STATUS_ICON_LEFT_DP = 24
 private const val STATUS_ICON_TOP_DP = 14
 private const val IDLE_DIM_DELAY_MS = 60_000L
 private const val IDLE_DIM_BRIGHTNESS = 0.03f
+private const val WIFI_PERMISSION_REQUEST_CODE = 7101
 
 /** Adds invisible break opportunities so terminal logs can wrap at any code point. */
 internal fun terminalDisplayText(line: String): String {
@@ -70,6 +75,7 @@ class MainActivity : Activity() {
     private var controllerHeartbeatConnected = false
     private var standaloneRunning = false
     private var screenDimmed = false
+    private var backgroundLocationPromptShown = false
     private val statusRefreshHandler = Handler(Looper.getMainLooper())
     private val statusRefresh = object : Runnable {
         override fun run() {
@@ -200,6 +206,14 @@ class MainActivity : Activity() {
         hideSystemBars()
         syncStatusIcons()
         resetIdleDimTimer()
+        ensureWifiLocationPermissions()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == WIFI_PERMISSION_REQUEST_CODE) {
+            ensureWifiLocationPermissions()
+        }
     }
 
     override fun onUserInteraction() {
@@ -253,6 +267,48 @@ class MainActivity : Activity() {
             followLogTail = false
         }
         return follow
+    }
+
+    private fun ensureWifiLocationPermissions() {
+        val missing = requiredRuntimePermissions().filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isNotEmpty()) {
+            requestPermissions(missing.toTypedArray(), WIFI_PERMISSION_REQUEST_CODE)
+            return
+        }
+        if (!hasBackgroundLocationAccess()) {
+            promptBackgroundLocationAccess()
+        }
+    }
+
+    private fun requiredRuntimePermissions(): List<String> = buildList {
+        add(Manifest.permission.ACCESS_FINE_LOCATION)
+        add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            add(Manifest.permission.NEARBY_WIFI_DEVICES)
+        }
+    }
+
+    private fun hasBackgroundLocationAccess(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+            checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun promptBackgroundLocationAccess() {
+        if (backgroundLocationPromptShown || isFinishing || isDestroyed) return
+        backgroundLocationPromptShown = true
+        AlertDialog.Builder(this)
+            .setTitle(R.string.background_location_title)
+            .setMessage(R.string.background_location_message)
+            .setPositiveButton(R.string.background_location_open_settings) { _, _ -> openAppSettings() }
+            .setNegativeButton(R.string.background_location_later, null)
+            .show()
+    }
+
+    private fun openAppSettings() {
+        val uri = Uri.fromParts("package", packageName, null)
+        val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, uri)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(intent)
     }
 
     private fun trimDisplayIfNeeded(): Int {
