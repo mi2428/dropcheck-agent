@@ -322,25 +322,6 @@ func WifiAssertOperation(opts WifiExpectationOptions) (Operation, error) {
 	}, Options{}), nil
 }
 
-// WifiWatchOperation builds a short Wi-Fi status sampling operation.
-func WifiWatchOperation(duration string, interval string) (Operation, error) {
-	durationMs, err := parseOptionalUint32(duration, "duration_ms", 10000)
-	if err != nil {
-		return Operation{}, err
-	}
-	intervalMs, err := parseOptionalUint32(interval, "interval_ms", 1000)
-	if err != nil {
-		return Operation{}, err
-	}
-	parts := []string{"wifi", "watch"}
-	appendRawValue(&parts, duration)
-	appendRawValue(&parts, interval)
-	return NewOperation("wifi.watch", &controlpb.RunCommand{
-		Label:   strings.Join(parts, " "),
-		Command: &controlpb.RunCommand_WatchWifi{WatchWifi: &controlpb.WatchWifi{DurationMs: durationMs, IntervalMs: intervalMs}},
-	}, Options{}), nil
-}
-
 // WifiMonitorOperation builds a Wi-Fi event monitoring operation.
 func WifiMonitorOperation(duration string, interval string) (Operation, error) {
 	durationMs, err := parseOptionalUint32(duration, "duration_ms", 10000)
@@ -477,7 +458,7 @@ func PathMTUOperation(opts PathMTUOptions) (Operation, error) {
 // GlobalIPOperation builds an operation that discovers the device's public IP
 // address.
 //
-// familyValue accepts "ipv4", "ipv6", "all", "4", "6", or empty for all.
+// familyValue accepts "ipv4", "ipv6", "all", or empty for all.
 func GlobalIPOperation(familyValue string, timeoutValue string) (Operation, error) {
 	family, err := parseIpFamily(familyValue)
 	if err != nil {

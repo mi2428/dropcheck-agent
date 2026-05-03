@@ -125,6 +125,7 @@ type shellState struct {
 	selected        string
 	selectedLabel   string
 	targetAll       bool
+	requestMode     bool
 }
 
 func (s *shellState) setSelectedAgent(info control.AgentInfo) {

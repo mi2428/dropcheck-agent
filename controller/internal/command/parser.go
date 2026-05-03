@@ -87,9 +87,9 @@ func parseIpFamily(value string) (controlpb.IpFamily, error) {
 	switch strings.ToLower(value) {
 	case "", "all":
 		return controlpb.IpFamily_IP_FAMILY_ALL, nil
-	case "4", "ipv4":
+	case "ipv4":
 		return controlpb.IpFamily_IP_FAMILY_IPV4, nil
-	case "6", "ipv6":
+	case "ipv6":
 		return controlpb.IpFamily_IP_FAMILY_IPV6, nil
 	default:
 		return controlpb.IpFamily_IP_FAMILY_UNSPECIFIED, fmt.Errorf("unsupported IP family %q", value)

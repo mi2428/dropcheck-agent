@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
 	"github.com/chzyer/readline"
@@ -38,7 +39,7 @@ func replLineEditor(ctx context.Context, state *shellState) error {
 		if lineReader == nil {
 			return nil, 0, false
 		}
-		if newLine, newPos, ok := handleShellHelpKey(lineReader.Stdout(), line, pos, key); ok {
+		if newLine, newPos, ok := handleShellHelpKey(lineReader.Stdout(), line, pos, key, state); ok {
 			return newLine, newPos, ok
 		}
 		return handleShellCompletionHintKey(lineReader.Stdout(), line, pos, key, state)
@@ -142,7 +143,7 @@ func shellCompletionOffset(line string) int {
 	return offset
 }
 
-func handleShellHelpKey(w io.Writer, line []rune, pos int, key rune) ([]rune, int, bool) {
+func handleShellHelpKey(w io.Writer, line []rune, pos int, key rune, states ...*shellState) ([]rune, int, bool) {
 	if !isShellHelpRune(key) || pos <= 0 || pos > len(line) {
 		return nil, 0, false
 	}
@@ -155,7 +156,7 @@ func handleShellHelpKey(w io.Writer, line []rune, pos int, key rune) ([]rune, in
 	helpLine[len(helpLine)-1] = '?'
 	var b strings.Builder
 	b.WriteByte('\n')
-	writeShellContextHelp(&b, string(helpLine))
+	writeShellContextHelp(&b, string(helpLine), optionalShellState(states))
 	_, _ = io.WriteString(w, b.String())
 
 	newLine := append([]rune(nil), line[:questionIndex]...)
@@ -177,17 +178,21 @@ func handleShellCompletionHintKey(w io.Writer, line []rune, pos int, key rune, s
 }
 
 func (s *shellState) prompt() string {
+	prefix := "dropcheck"
+	if s.requestMode {
+		prefix = "dropcheck/request"
+	}
 	if s.targetAll {
-		return "dropcheck[all]> "
+		return prefix + "[all]> "
 	}
 	if info, ok := s.selectedAgentIfConnected(); ok {
 		s.selectedLabel = agentDisplayName(info)
-		return fmt.Sprintf("dropcheck[%s]> ", agentDisplayName(info))
+		return fmt.Sprintf("%s[%s]> ", prefix, agentDisplayName(info))
 	}
 	if s.selectedLabel != "" {
-		return fmt.Sprintf("dropcheck[%s]> ", s.selectedLabel)
+		return fmt.Sprintf("%s[%s]> ", prefix, s.selectedLabel)
 	}
-	return "dropcheck> "
+	return prefix + "> "
 }
 
 func (s *shellState) selectedAgentIfConnected() (control.AgentInfo, bool) {
@@ -204,10 +209,14 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 		return false, nil
 	}
 	if isHelpLine(line) {
-		printShellContextHelp(line)
+		printShellContextHelp(line, state)
 		return false, nil
 	}
-	command, err := parseShellLine(line)
+	parse := parseShellLine
+	if state.requestMode {
+		parse = parseShellRequestLine
+	}
+	command, err := parse(line)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return false, nil
@@ -215,10 +224,16 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 	switch command.kind {
 	case shellNoop:
 		return false, nil
+	case shellExitMode:
+		state.requestMode = false
+		return false, nil
 	case shellExit:
 		return true, nil
 	case shellHelp:
 		printShellHelp()
+		return false, nil
+	case shellEnterRequestMode:
+		state.requestMode = true
 		return false, nil
 	case shellShowDevices:
 		return false, printLocalOutput(command, func(format outputFormat) (string, error) {
@@ -227,6 +242,16 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 	case shellShowTarget:
 		return false, printLocalOutput(command, func(format outputFormat) (string, error) {
 			return renderTarget(targetView(state), format)
+		})
+	case shellShowConfig:
+		agents, err := state.commandTargets()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			return false, nil
+		}
+		return false, runConfigForAgents(ctx, state, agents, command.configScope, commandOutputOptions{
+			format:   command.pipeline.format(outputText),
+			pipeline: command.pipeline,
 		})
 	case shellSetTarget:
 		if command.targetAll {
@@ -376,6 +401,102 @@ func runOperationForAgents(ctx context.Context, state *shellState, agents []cont
 		}
 	}
 	return nil
+}
+
+func runConfigForAgents(ctx context.Context, state *shellState, agents []control.AgentInfo, scope string, output commandOutputOptions) error {
+	if len(agents) == 0 {
+		fmt.Fprintln(os.Stderr, "no Android agents connected")
+		return nil
+	}
+	if output.format == "" {
+		output.format = outputText
+	}
+	includeAgentHeader := len(agents) > 1
+	for _, agent := range agents {
+		view, err := fetchConfigView(ctx, state, agent, scope)
+		if err != nil {
+			if output.strict {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "%s: %v\n", agentDisplayName(agent), err)
+			continue
+		}
+		var out string
+		if output.format == outputJSON && includeAgentHeader {
+			out, err = renderConfigEnvelope(agentDisplayName(agent), view)
+		} else {
+			out, err = renderConfig(view, output.format)
+			if err == nil && includeAgentHeader && output.format == outputText {
+				out = fmt.Sprintf("Agent: %s\n%s", agentDisplayName(agent), out)
+			}
+		}
+		if err != nil {
+			return err
+		}
+		out, err = output.pipeline.apply(out)
+		if err != nil {
+			return err
+		}
+		fmt.Print(out)
+	}
+	return nil
+}
+
+func fetchConfigView(ctx context.Context, state *shellState, agent control.AgentInfo, scope string) (configView, error) {
+	var view configView
+	if scope == "" {
+		scope = "all"
+	}
+	if scope == "all" || scope == "standalone" {
+		result, err := fetchOperationResult(ctx, state, agent, command.StandaloneConfigOperation())
+		if err != nil {
+			return view, err
+		}
+		view.Standalone = result.GetStandaloneConfig()
+	}
+	if scope == "all" || scope == "controller_endpoint" {
+		result, err := fetchOperationResult(ctx, state, agent, command.ControllerLinkConfigOperation())
+		if err != nil {
+			return view, err
+		}
+		view.ControllerEndpoint = result.GetControllerLinkConfig()
+	}
+	return view, nil
+}
+
+func fetchOperationResult(ctx context.Context, state *shellState, agent control.AgentInfo, op Operation) (*controlpb.CommandResult, error) {
+	cmd, _, err := buildRunCommand(op)
+	if err != nil {
+		return nil, err
+	}
+	prepareCommandForAgent(state, agent, cmd)
+	commandID, err := control.RandomHex(8)
+	if err != nil {
+		return nil, err
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeoutFor(cmd))
+	result, err := state.server.Run(runCtx, agent.ID, commandID, cmd)
+	cancel()
+	if err != nil {
+		return nil, err
+	}
+	if result.GetStatus() != controlpb.CommandResult_STATUS_OK {
+		return nil, fmt.Errorf("%s: %s", resultStatusLabel(result.GetStatus()), result.GetMessage())
+	}
+	return result, nil
+}
+
+func resultStatusLabel(status controlpb.CommandResult_Status) string {
+	switch status {
+	case controlpb.CommandResult_STATUS_OK:
+		return "OK"
+	case controlpb.CommandResult_STATUS_FAILED:
+		return "FAILED"
+	case controlpb.CommandResult_STATUS_CANCELED:
+		return "CANCELED"
+	default:
+		return status.String()
+	}
 }
 
 func prepareCommandForAgent(state *shellState, agent control.AgentInfo, cmd *controlpb.RunCommand) {
