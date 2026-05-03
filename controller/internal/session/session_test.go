@@ -131,7 +131,7 @@ func connectStartedAgent(t *testing.T, path string) (func(), <-chan error) {
 			errCh <- err
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		stream, err := controlpb.NewDropcheckControlClient(conn).Session(ctx)
 		if err != nil {
 			errCh <- err
