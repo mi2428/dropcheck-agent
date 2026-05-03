@@ -28,7 +28,8 @@
 // subtest names, for example S001_help, so verbose output remains readable.
 // Commands intentionally use placeholders such as <ssid>, <psk>, <serial>,
 // <bssid> and <sync-dir> so lab secrets and machine-local paths are
-// not committed.
+// not committed. Shell commands prefixed with "request> " are executed inside
+// the interactive request mode.
 package e2e
 
 import (
@@ -120,7 +121,7 @@ func TestDropcheckShellManualMatrix(t *testing.T) {
 			cfg.runShellCleanup("set controller endpoint disabled")
 			cfg.runShellCleanup("set standalone disabled")
 			if cfg.ssid != "" && cfg.psk != "" {
-				cfg.runCLICleanup("wifi", "connect", cfg.ssid, "--passphrase", cfg.psk, "--security", "auto", "--timeout", "25000")
+				cfg.runCLICleanup("request", "wifi", "connect", cfg.ssid, "--passphrase", cfg.psk, "--security", "auto", "--timeout", "25000")
 			}
 			cfg.launchApp(t, "suite cleanup", false)
 		})
@@ -287,7 +288,7 @@ func (cfg *e2eConfig) prepareLive(t *testing.T, cases []matrixCase) {
 			cfg.launchApp(t, "after bssid discovery", true)
 		} else {
 			t.Logf("ensuring Wi-Fi connection to test SSID")
-			cfg.runCLICleanup("wifi", "connect", cfg.ssid, "--passphrase", cfg.psk, "--security", "auto", "--timeout", "25000")
+			cfg.runCLICleanup("request", "wifi", "connect", cfg.ssid, "--passphrase", cfg.psk, "--security", "auto", "--timeout", "25000")
 			cfg.launchApp(t, "after wifi setup", true)
 		}
 	}
@@ -306,8 +307,16 @@ func (cfg *e2eConfig) prepareLiveCase(t *testing.T, reason string) {
 }
 
 func runShellParser(commandLine string) commandResult {
-	if shell.IsHelpLine(commandLine) {
-		entries := shell.HelpEntries(commandLine)
+	requestLine, requestMode := requestModeCommand(commandLine)
+	parseLine := commandLine
+	if requestMode {
+		parseLine = requestLine
+	}
+	if shell.IsHelpLine(parseLine) {
+		entries := shell.HelpEntries(parseLine)
+		if requestMode {
+			entries = shell.RequestHelpEntries(parseLine)
+		}
 		if len(entries) == 0 {
 			return commandResult{Output: "help entries: <empty>", Code: 1, Err: errors.New("empty help entries")}
 		}
@@ -317,7 +326,15 @@ func runShellParser(commandLine string) commandResult {
 		}
 		return commandResult{Output: b.String(), Code: 0}
 	}
-	parsed, err := shell.ParseLine(commandLine)
+	var (
+		parsed shell.Command
+		err    error
+	)
+	if requestMode {
+		parsed, err = shell.ParseRequestLine(parseLine)
+	} else {
+		parsed, err = shell.ParseLine(parseLine)
+	}
 	if err != nil {
 		return commandResult{Output: err.Error(), Code: 1, Err: err}
 	}
@@ -332,11 +349,23 @@ func runShellParser(commandLine string) commandResult {
 }
 
 func (cfg *e2eConfig) runShellCase(tc matrixCase, commandLine string) commandResult {
+	requestLine, requestMode := requestModeCommand(commandLine)
 	input := commandLine + "\n"
+	if requestMode {
+		input = "request\n" + requestLine + "\n"
+	}
 	if commandLine != "quit" && commandLine != "exit" {
 		input += "quit\n"
 	}
 	return cfg.runExternal(timeoutFor(tc), []string{"--serial", cfg.serial, "shell"}, input)
+}
+
+func requestModeCommand(commandLine string) (string, bool) {
+	const marker = "request> "
+	if strings.HasPrefix(commandLine, marker) {
+		return strings.TrimPrefix(commandLine, marker), true
+	}
+	return commandLine, false
 }
 
 func (cfg *e2eConfig) runCLICase(tc matrixCase, commandLine string) commandResult {
@@ -586,7 +615,7 @@ func (cfg *e2eConfig) restoreAfterCase(tc matrixCase, commandLine string) {
 	switch {
 	case strings.Contains(lower, "forget"):
 		if cfg.ssid != "" && cfg.psk != "" {
-			cfg.runCLICleanup("wifi", "connect", cfg.ssid, "--passphrase", cfg.psk, "--security", "auto", "--timeout", "25000")
+			cfg.runCLICleanup("request", "wifi", "connect", cfg.ssid, "--passphrase", cfg.psk, "--security", "auto", "--timeout", "25000")
 		}
 	case strings.Contains(lower, "set target all"):
 		cfg.runShellCleanup("set target " + cfg.serial)
@@ -613,7 +642,7 @@ func (cfg *e2eConfig) runCLICleanup(args ...string) {
 }
 
 func (cfg *e2eConfig) resolveAgentPrefix() string {
-	res := cfg.runExternal(25*time.Second, []string{"--serial", cfg.serial, "--format", "json", "devices"}, "")
+	res := cfg.runExternal(25*time.Second, []string{"--serial", cfg.serial, "--format", "json", "show", "devices"}, "")
 	if match := agentID.FindStringSubmatch(res.Output); match != nil {
 		value := match[1]
 		if len(value) > 8 {
@@ -628,8 +657,8 @@ func (cfg *e2eConfig) resolveAgentPrefix() string {
 }
 
 func (cfg *e2eConfig) resolveBSSID() string {
-	cfg.runCLICleanup("wifi", "connect", cfg.ssid, "--passphrase", cfg.psk, "--security", "auto", "--timeout", "25000")
-	res := cfg.runExternal(25*time.Second, []string{"--serial", cfg.serial, "wifi", "status"}, "")
+	cfg.runCLICleanup("request", "wifi", "connect", cfg.ssid, "--passphrase", cfg.psk, "--security", "auto", "--timeout", "25000")
+	res := cfg.runExternal(25*time.Second, []string{"--serial", cfg.serial, "show", "wifi", "status"}, "")
 	if match := bssidPattern.FindStringSubmatch(res.Output); match != nil {
 		return strings.ToLower(match[1])
 	}
@@ -805,32 +834,43 @@ func caseNeedsWiFiSetup(tc matrixCase) bool {
 	}
 	wifiOrNetworkCommands := []string{
 		"show wifi",
-		"wifi scan",
-		"wifi status",
-		"wifi connect",
-		"wifi wait",
-		"wifi assert",
-		"wifi reconnect",
-		"wifi cycle",
-		"wifi disconnect",
-		"wifi forget",
+		"request wifi connect",
+		"request wifi wait",
+		"request wifi assert",
+		"request wifi reconnect",
+		"request wifi cycle",
+		"request wifi disconnect",
+		"request wifi forget",
+		"request> wifi connect",
+		"request> wifi wait",
+		"request> wifi assert",
+		"request> wifi reconnect",
+		"request> wifi cycle",
+		"request> wifi disconnect",
+		"request> wifi forget",
 		"monitor wifi",
-		"wifi monitor",
-		"wifi watch",
-		"ping",
-		"traceroute",
-		"path-mtu",
-		"global-ip",
-		"test dns",
-		"test http",
-		"test download",
-		"dropcheck dns",
-		"dropcheck http",
-		"dropcheck download",
-		"dropcheck global-ip",
-		"dropcheck path-mtu",
-		"dropcheck traceroute",
-		"dropcheck ping",
+		"request> monitor wifi",
+		"request ping",
+		"request traceroute",
+		"request path-mtu",
+		"request global-ip",
+		"request test dns",
+		"request test http",
+		"request test download",
+		"request> ping",
+		"request> traceroute",
+		"request> path-mtu",
+		"request> global-ip",
+		"request> test dns",
+		"request> test http",
+		"request> test download",
+		"dropcheck request ping",
+		"dropcheck request traceroute",
+		"dropcheck request path-mtu",
+		"dropcheck request global-ip",
+		"dropcheck request test dns",
+		"dropcheck request test http",
+		"dropcheck request test download",
 	}
 	for _, needle := range wifiOrNetworkCommands {
 		if strings.Contains(commandLine, needle) {
