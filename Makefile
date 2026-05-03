@@ -13,6 +13,9 @@ ADB_INSTALL_FLAGS  ?= -r -t
 HELP_NAME_WIDTH    := 22
 HELP_EXAMPLE_WIDTH := 60
 INTEGRATION_PACKAGE ?= ./integration/festival
+E2E_PACKAGE         ?= ./integration/e2e
+E2E_TIMEOUT         ?= 3h
+E2E_AGENT_PACKAGE   ?= io.dropcheck.agent
 
 SSID              ?= $(DROPCHECK_FESTIVAL_WIFI_SSID)
 PSK               ?= $(DROPCHECK_FESTIVAL_WIFI_PSK)
@@ -118,8 +121,20 @@ integration: ## Run real-device Dropcheck Festival tests; use TARGET=controller 
 				(cd controller && run "$(GO)" test -tags festival "$(INTEGRATION_PACKAGE)") ;; \
 			agent) die "integration supports TARGET=controller only" ;; \
 			*) die "unknown TARGET=$$target" ;; \
-		esac; \
+	esac; \
 	done
+
+.PHONY: e2e
+e2e: ## Run real-device shell/CLI e2e matrix; use SERIAL=... SSID=... PSK=...
+	@die(){ printf 'make e2e: %s\n' "$$*" >&2; exit 1; }; \
+	run(){ printf '+'; printf ' %q' "$$@"; printf '\n'; "$$@"; }; \
+	serial="$(SERIAL)"; ssid="$(SSID)"; psk="$(PSK)"; psk_env="$(PSK_ENV)"; \
+	[[ -n "$$serial" ]] || die "SERIAL is required"; \
+	[[ -n "$$ssid" ]] || die "SSID is required"; \
+	if [[ -n "$$psk" ]]; then export DROPCHECK_E2E_WIFI_PSK="$$psk"; psk_env="DROPCHECK_E2E_WIFI_PSK"; \
+	else [[ -n "$${!psk_env:-}" ]] || die "PSK or $$psk_env is required"; fi; \
+	export DROPCHECK_E2E_LIVE=1 DROPCHECK_E2E_SERIAL="$$serial" DROPCHECK_E2E_WIFI_SSID="$$ssid" DROPCHECK_E2E_WIFI_PSK_ENV="$$psk_env" DROPCHECK_E2E_ADB="$(ADB)" DROPCHECK_E2E_PACKAGE="$(E2E_AGENT_PACKAGE)"; \
+	(cd controller && run "$(GO)" test -v -tags e2e -timeout "$(E2E_TIMEOUT)" "$(E2E_PACKAGE)")
 
 .PHONY: quality
 quality: fmt lint test ## Format, lint, and test selected targets
@@ -163,8 +178,8 @@ help: ## Show this help message
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "TARGET" "agent, controller, or all; comma and space lists are accepted"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "TAGS" "Go build/test tags for controller targets, for example festival"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "DROPCHECK_FESTIVAL_*" "Environment namespace used by Dropcheck Festival integration tests"
-	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "SSID" "Dropcheck Festival Wi-Fi SSID for make integration"
-	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "PSK" "Dropcheck Festival Wi-Fi PSK for make integration; PSK_ENV can be used instead"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "SSID" "Test Wi-Fi SSID for make integration/e2e"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "PSK" "Test Wi-Fi PSK for make integration/e2e; PSK_ENV can be used instead"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "PSK_ENV" "Environment variable containing the Wi-Fi PSK, defaults to $(PSK_ENV)"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "BSSID" "Optional expected BSSID for make integration"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "BAND" "Optional Wi-Fi band for make integration"
@@ -175,8 +190,10 @@ help: ## Show this help message
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "ADB_INSTALL_FLAGS" "adb install flags, defaults to $(ADB_INSTALL_FLAGS)"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "APK" "Debug APK path, defaults to $(APK)"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "CONTROLLER_BIN" "Controller binary path under controller/, defaults to $(CONTROLLER_BIN)"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "E2E_TIMEOUT" "Go test timeout for make e2e, defaults to $(E2E_TIMEOUT)"
 	@printf "\n\033[1mExamples:\033[0m\n"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make build TARGET=agent,controller" "# Build both Android agent and Go controller"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make test TARGET=controller" "# Run controller tests"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make integration TARGET=controller SSID=Lab PSK=..." "# Run real-device Dropcheck Festival scenario"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make e2e SERIAL=DEVICE SSID=Lab PSK=..." "# Run real-device shell/CLI e2e matrix"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make install SERIAL=DEVICE" "# Build and adb install the debug APK"
