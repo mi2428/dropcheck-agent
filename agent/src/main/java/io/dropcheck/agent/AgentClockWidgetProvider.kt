@@ -265,22 +265,17 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
             }
 
             val info = snapshot.info
-            val logInfo = recentWifiLogInfo(context)
             val essid = cleanEssid(info?.ssid).takeUnless { it == UNKNOWN_VALUE }
-                ?: logInfo?.essid
                 ?: UNKNOWN_VALUE
             val bssid = cleanBssid(info?.bssid).takeUnless { it == UNKNOWN_VALUE }
-                ?: logInfo?.bssid
                 ?: UNKNOWN_VALUE
             val generation = info?.let { wifiGeneration(it) }
                 ?.takeUnless { it == "Wi-Fi unknown" }
-                ?: logInfo?.standard?.let { wifiGeneration(it, info?.frequency ?: 0) }
                 ?: "Wi-Fi unknown"
-            val frequencyMhz = info?.frequency?.takeIf { it > 0 } ?: logInfo?.frequencyMhz
+            val frequencyMhz = info?.frequency?.takeIf { it > 0 }
             val channel = frequencyMhz?.let { wifiChannel(it)?.let { channel -> "ch$channel" } ?: "${it}MHz" }
                 ?: "freq unknown"
             val rssi = info?.let { cleanRssi(it.rssi) }?.takeUnless { it == UNKNOWN_VALUE }
-                ?: logInfo?.rssiDbm?.let { "$it dBm" }
                 ?: UNKNOWN_VALUE
             return ClockWifiText(
                 infoLine = "$essid  $bssid  $generation  $channel  $rssi",
@@ -427,7 +422,6 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
         private const val UNKNOWN_VALUE = "unknown"
         private const val NONE_VALUE = "none"
         private const val PLACEHOLDER_BSSID = "02:00:00:00:00:00"
-        private const val RECENT_WIFI_LOG_LINES = 200
         private const val PERIODIC_UPDATE_INTERVAL_MS = 60_000L
         private const val PERIODIC_UPDATE_REQUEST_CODE = 11_000
         private const val WIFI_NETWORK_CALLBACK_REQUEST_CODE = 11_050
@@ -462,57 +456,6 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
         private fun WifiManager.isWifiOffOrTurningOff(): Boolean {
             return wifiState == WifiManager.WIFI_STATE_DISABLED ||
                 wifiState == WifiManager.WIFI_STATE_DISABLING
-        }
-
-        private fun recentWifiLogInfo(context: Context): RecentWifiLogInfo? {
-            var essid: String? = null
-            var bssid: String? = null
-            var standard: String? = null
-            var frequencyMhz: Int? = null
-            var rssi: Int? = null
-            TerminalLog.tail(context, RECENT_WIFI_LOG_LINES)
-                .lineSequence()
-                .toList()
-                .asReversed()
-                .forEach { line ->
-                    if (essid == null) {
-                        essid = firstUsefulField(line, "ssid", "previous_ssid")
-                            ?.removeSurrounding("\"")
-                            ?.takeUnless { it == WifiManager.UNKNOWN_SSID || it == "<unknown ssid>" }
-                    }
-                    if (bssid == null) {
-                        bssid = firstUsefulField(line, "bssid", "previous_bssid")
-                            ?.takeUnless { it == PLACEHOLDER_BSSID }
-                    }
-                    if (standard == null) {
-                        standard = firstUsefulField(line, "wifi_standard", "previous_wifi_standard")
-                            ?.takeUnless { it == "unknown" }
-                    }
-                    if (frequencyMhz == null) {
-                        frequencyMhz = firstUsefulField(line, "frequency_mhz", "previous_frequency_mhz")
-                            ?.toIntOrNull()
-                            ?.takeIf { it > 0 }
-                    }
-                    if (rssi == null) {
-                        rssi = firstUsefulField(line, "rssi_dbm", "previous_rssi_dbm")
-                            ?.toIntOrNull()
-                            ?.takeIf { it in -126..0 }
-                    }
-                    if (essid != null && bssid != null && standard != null && frequencyMhz != null && rssi != null) {
-                        return RecentWifiLogInfo(essid, bssid, standard, frequencyMhz, rssi)
-                    }
-                }
-            if (essid == null && bssid == null && standard == null && frequencyMhz == null && rssi == null) return null
-            return RecentWifiLogInfo(essid, bssid, standard, frequencyMhz, rssi)
-        }
-
-        private fun firstUsefulField(line: String, vararg keys: String): String? {
-            return keys.firstNotNullOfOrNull { key -> logField(line, key)?.takeIf { it.isNotBlank() } }
-        }
-
-        private fun logField(line: String, key: String): String? {
-            val match = Regex("""(?:^| )${Regex.escape(key)}=(?:"([^"]*)"|(\S+))""").find(line) ?: return null
-            return match.groupValues[1].ifBlank { match.groupValues[2] }
         }
 
         private fun clockSize(options: Bundle): ClockSize {
@@ -572,12 +515,4 @@ private data class ClockWifiText(
 private data class WifiAddresses(
     val ipv4: String? = null,
     val ipv6: String? = null,
-)
-
-private data class RecentWifiLogInfo(
-    val essid: String?,
-    val bssid: String?,
-    val standard: String?,
-    val frequencyMhz: Int?,
-    val rssiDbm: Int?,
 )
