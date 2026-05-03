@@ -136,6 +136,7 @@ class MainActivity : Activity() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 lineBreakWordStyle = LineBreakConfig.LINE_BREAK_WORD_STYLE_NONE
             }
+            excludeFromContentCapture()
             setText(initialText, TextView.BufferType.SPANNABLE)
         }
         if (tail.isNotBlank()) {
@@ -168,6 +169,7 @@ class MainActivity : Activity() {
         }
         root = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
+            excludeFromContentCapture()
             addView(scroll)
             addView(statusIconRow(), statusIconLayout())
         }
@@ -230,11 +232,7 @@ class MainActivity : Activity() {
         logView.append(colored(displayLine, terminalLine))
         displayLineLengths.addLast(terminalLine.length)
         displayLogChars += terminalLine.length
-        // Do not delete old lines while the user is reading scrollback; removing text above the viewport
-        // changes TextView layout and makes wrapped log lines visibly jump.
-        if (followBottom || !::scroll.isInitialized) {
-            trimDisplayIfNeeded()
-        }
+        trimDisplayIfNeeded()
         if (followBottom) {
             followLogTail = true
             requestScrollToBottom()
@@ -425,6 +423,12 @@ class MainActivity : Activity() {
 
     private fun dp(value: Int): Int {
         return (value * resources.displayMetrics.density).toInt()
+    }
+
+    private fun View.excludeFromContentCapture() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            importantForContentCapture = View.IMPORTANT_FOR_CONTENT_CAPTURE_NO_EXCLUDE_DESCENDANTS
+        }
     }
 
     private fun hideSystemBars() {
