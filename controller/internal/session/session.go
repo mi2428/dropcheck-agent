@@ -31,8 +31,6 @@ type Options struct {
 	PackageName string
 	// ListenAddr is the controller gRPC listen address. Empty uses 127.0.0.1:0.
 	ListenAddr string
-	// NoADB starts only the gRPC server and accepts direct agent connections.
-	NoADB bool
 }
 
 // Session represents a running controller session and its cleanup handles.
@@ -60,6 +58,9 @@ type Session struct {
 // startup failure, Start cleans up any gRPC server and adb reverse rules it
 // already created.
 func Start(ctx context.Context, opts Options, targets []adb.Device) (*Session, error) {
+	if len(targets) == 0 {
+		return nil, fmt.Errorf("no adb devices selected")
+	}
 	if opts.ADBPath == "" {
 		opts.ADBPath = "adb"
 	}
@@ -75,7 +76,7 @@ func Start(ctx context.Context, opts Options, targets []adb.Device) (*Session, e
 	}
 
 	attempts := 1
-	if len(targets) > 0 && listenAddrUsesEphemeralPort(opts.ListenAddr) {
+	if listenAddrUsesEphemeralPort(opts.ListenAddr) {
 		attempts = adbReversePortCollisionAttempts
 	}
 	var lastErr error
@@ -146,11 +147,6 @@ func startOnce(ctx context.Context, opts Options, targets []adb.Device, token st
 			return nil, fmt.Errorf("start Android agent serial=%s: %w\n%s", target.Serial, err, strings.TrimSpace(out))
 		}
 	}
-	if opts.NoADB || len(targets) == 0 {
-		cleanupOnError = false
-		return session, nil
-	}
-
 	waitCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	infos, err := controlServer.WaitAgents(waitCtx, len(targets))
 	cancel()

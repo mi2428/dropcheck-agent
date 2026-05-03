@@ -513,7 +513,6 @@ func isClearRuntimeFailure(output string) bool {
 		strings.Contains(lower, "timeout") ||
 		strings.Contains(lower, "timed out") ||
 		strings.Contains(lower, "no matching") ||
-		strings.Contains(lower, "controller endpoint is disabled or incomplete") ||
 		strings.Contains(lower, "not a device owner, profile owner, system app, or privileged app") ||
 		strings.Contains(lower, "unsupported") ||
 		strings.Contains(lower, "connectivity completed with failed checks")
@@ -639,10 +638,6 @@ func (cfg *e2eConfig) restoreAfterCase(tc matrixCase, commandLine string) {
 	switch {
 	case shouldRestoreWiFiAfter(commandLine):
 		cfg.restoreWiFiConnection()
-	case strings.Contains(lower, "set controller endpoint") && strings.Contains(lower, "enabled"):
-		cfg.forceStopPackage()
-		cfg.runShellCleanup("config> set controller endpoint disabled")
-		cfg.forceStopPackage()
 	case strings.Contains(lower, "set standalone enabled"):
 		cfg.runShellCleanup("config> set standalone disabled")
 	}
@@ -672,7 +667,6 @@ func (cfg *e2eConfig) runShellCleanup(commandLine string) {
 
 func (cfg *e2eConfig) resetLiveState() {
 	cfg.forceStopPackage()
-	cfg.runShellCleanup("config> set controller endpoint disabled")
 	cfg.runShellCleanup("config> set standalone disabled")
 	cfg.forceStopPackage()
 }
@@ -991,7 +985,7 @@ func oneLine(value string) string {
 	return value
 }
 
-const e2eCaseCount = 342
+const e2eCaseCount = 321
 
 var e2eCaseID = regexp.MustCompile(`^E2E-[0-9]{3}$`)
 
@@ -1117,10 +1111,6 @@ func TestE2ECaseTableCoversControllerCommandSurface(t *testing.T) {
 		{name: "shell help", runner: "shell", text: "help"},
 		{name: "shell show devices", runner: "shell", text: "show devices"},
 		{name: "shell pipeline", runner: "shell", text: "| match"},
-		{name: "shell show controller config", runner: "shell", text: "show config controller endpoint"},
-		{name: "shell show controller link", runner: "shell", text: "show controller link"},
-		{name: "shell set controller endpoint", runner: "shell", text: "set controller endpoint"},
-		{name: "shell controller reconnect", runner: "shell", text: "request> controller reconnect"},
 		{name: "shell standalone config", runner: "shell", text: "show config standalone"},
 		{name: "shell standalone status", runner: "shell", text: "show standalone status"},
 		{name: "shell standalone runs", runner: "shell", text: "show standalone runs"},
@@ -1169,7 +1159,6 @@ func TestE2ECaseTableCoversControllerCommandSurface(t *testing.T) {
 		{name: "cli download", runner: "cli", text: "dropcheck request download"},
 		{name: "cli standalone runs", runner: "cli", text: "dropcheck show standalone runs"},
 		{name: "cli standalone sync", runner: "cli", text: "dropcheck sync standalone runs"},
-		{name: "cli controller configure", runner: "cli", text: "dropcheck configure set controller endpoint"},
 		{name: "cli standalone configure", runner: "cli", text: "dropcheck configure set standalone"},
 		{name: "cli standalone delete", runner: "cli", text: "dropcheck configure delete standalone"},
 	}
@@ -1249,10 +1238,6 @@ func stripAppFlags(args []string) ([]string, error) {
 					return nil, fmt.Errorf("%s requires a value", name)
 				}
 				i++
-			}
-		case "--no-adb":
-			if hasValue {
-				return nil, fmt.Errorf("%s does not take a value", name)
 			}
 		default:
 			return append([]string(nil), args[i:]...), nil

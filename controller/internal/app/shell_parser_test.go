@@ -43,7 +43,7 @@ func shellHelpEntriesForTest(line string) []helpEntry {
 
 func parseHelpEntriesForTest(output string) []helpEntry {
 	var entries []helpEntry
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
@@ -286,13 +286,6 @@ func TestParseShellModesSeparateConfigureAndRequest(t *testing.T) {
 	}
 	assertOperationLabel(t, run.operation, "ping 1.1.1.1 1")
 
-	show, err := parseShellLineForTest("config> show controller endpoint")
-	if err != nil {
-		t.Fatalf("config show controller endpoint: %v", err)
-	}
-	if show.kind != shellShowConfig || show.configScope != "controller_endpoint" {
-		t.Fatalf("config show = %#v", show)
-	}
 }
 
 func TestParseShellStandaloneCommands(t *testing.T) {
@@ -343,55 +336,8 @@ func TestParseStandaloneSyncLimitRejectsZero(t *testing.T) {
 	}
 }
 
-func TestParseShellControllerLinkCommands(t *testing.T) {
-	set, err := parseShellLineForTest("config> set controller endpoint 192.168.7.1:37588 enabled min-backoff 1s max-backoff 30s")
-	if err != nil {
-		t.Fatalf("set controller endpoint: %v", err)
-	}
-	if set.kind != shellAgentCommand {
-		t.Fatalf("set kind = %v", set.kind)
-	}
-	cmd, _, err := buildRunCommand(set.operation)
-	if err != nil {
-		t.Fatalf("build set command: %v", err)
-	}
-	config := cmd.GetSetControllerLinkConfig().GetConfig()
-	if !config.GetEnabled() || config.GetHost() != "192.168.7.1" || config.GetPort() != 37588 {
-		t.Fatalf("controller config = %#v", config)
-	}
-
-	show, err := parseShellLineForTest("show controller link")
-	if err != nil {
-		t.Fatalf("show controller link: %v", err)
-	}
-	cmd, _, err = buildRunCommand(show.operation)
-	if err != nil {
-		t.Fatalf("build show command: %v", err)
-	}
-	if cmd.GetGetControllerLinkStatus() == nil {
-		t.Fatalf("show controller link command = %#v", cmd)
-	}
-
-	reconnect, err := parseShellLineForTest("request> controller reconnect")
-	if err != nil {
-		t.Fatalf("request> controller reconnect: %v", err)
-	}
-	cmd, _, err = buildRunCommand(reconnect.operation)
-	if err != nil {
-		t.Fatalf("build reconnect command: %v", err)
-	}
-	if cmd.GetReconnectController() == nil {
-		t.Fatalf("reconnect command = %#v", cmd)
-	}
-}
-
 func TestParseShellSetEnabledWithoutRequiredValues(t *testing.T) {
-	_, err := parseShellLineForTest("config> set controller endpoint enabled")
-	if err == nil || !strings.Contains(err.Error(), "controller endpoint is required") {
-		t.Fatalf("set controller endpoint enabled error = %v", err)
-	}
-
-	_, err = parseShellLineForTest("config> set standalone festa lab wifi-group office match")
+	_, err := parseShellLineForTest("config> set standalone festa lab wifi-group office match")
 	if err == nil || !strings.Contains(err.Error(), "wifi-group <name> <match|credential|security|band|wait|timeout>") {
 		t.Fatalf("set standalone wifi-group match error = %v", err)
 	}
@@ -558,7 +504,7 @@ func TestShellHelpAndCompletion(t *testing.T) {
 	if !slices.Equal(tokens, []string{"show", "clear", "sync", "configure", "request", "help", "quit"}) {
 		t.Fatalf("top-level help tokens = %#v", tokens)
 	}
-	for _, directRequestCommand := range []string{"wifi", "standalone", "controller", "monitor", "ping", "traceroute", "path-mtu", "global-ip", "dns", "http", "download", "exit"} {
+	for _, directRequestCommand := range []string{"wifi", "standalone", "monitor", "ping", "traceroute", "path-mtu", "global-ip", "dns", "http", "download", "exit"} {
 		if slices.Contains(tokens, directRequestCommand) {
 			t.Fatalf("top-level help tokens = %#v, unexpectedly included %q", tokens, directRequestCommand)
 		}
@@ -1001,7 +947,6 @@ func TestParseShellRejectsLinuxShapeInShell(t *testing.T) {
 	for _, line := range []string{
 		"wifi status",
 		"standalone run once",
-		"controller reconnect",
 		"monitor wifi",
 		"ping 1.1.1.1",
 		"traceroute 1.1.1.1",
@@ -1114,35 +1059,16 @@ func TestLinuxCommandBuildsOperation(t *testing.T) {
 	}
 }
 
-func TestParseLinuxControllerLinkCommands(t *testing.T) {
-	got, err := linuxcli.Parse([]string{"configure", "set", "controller", "endpoint", "192.168.7.1:37588", "enabled", "--min-backoff", "1s"})
-	if err != nil {
-		t.Fatalf("linuxcli.Parse(set controller) error = %v", err)
-	}
-	cmd, _ := operationCommand(t, got.Operation)
-	if config := cmd.GetSetControllerLinkConfig().GetConfig(); !config.GetEnabled() || config.GetHost() != "192.168.7.1" || config.GetPort() != 37588 {
-		t.Fatalf("controller config = %#v", config)
-	}
-
-	got, err = linuxcli.Parse([]string{"show", "config", "controller", "endpoint"})
-	if err != nil {
-		t.Fatalf("linuxcli.Parse(show config controller endpoint) error = %v", err)
-	}
-	if got.Kind != linuxcli.Config || got.ConfigScope != "controller_endpoint" {
-		t.Fatalf("show config controller endpoint = %#v", got)
-	}
-}
-
 func TestExtractCLIOptionsAndTopLevel(t *testing.T) {
-	global, rest, err := parseTopLevelArgs([]string{"--serial", "abc", "--listen", "0.0.0.0:37588", "--no-adb", "--format", "json", "show", "devices"})
+	global, rest, err := parseTopLevelArgs([]string{"--serial", "abc", "--listen", "127.0.0.1:37588", "--format", "json", "show", "devices"})
 	if err != nil {
 		t.Fatalf("parseTopLevelArgs() error = %v", err)
 	}
 	if global.Serial != "abc" {
 		t.Fatalf("serial = %q", global.Serial)
 	}
-	if global.ListenAddr != "0.0.0.0:37588" || !global.NoADB {
-		t.Fatalf("listen/no-adb = %q/%t", global.ListenAddr, global.NoADB)
+	if global.ListenAddr != "127.0.0.1:37588" {
+		t.Fatalf("listen = %q", global.ListenAddr)
 	}
 	if !slices.Equal(rest, []string{"--format", "json", "show", "devices"}) {
 		t.Fatalf("rest = %#v", rest)

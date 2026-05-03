@@ -4,340 +4,319 @@ E2E-002	Shell show devices	shell	show devices	ok_or_clear	Connected agent table 
 E2E-003	Shell pipe no-more	shell	show devices | no-more	ok_or_clear	Output is unchanged and no pipe error is printed.
 E2E-004	Shell pipe match except count	shell	show devices | match <serial> | except NO_MATCH | count	ok_or_clear	Prints `Count: 1 lines`.
 E2E-005	Shell pipe display JSON	shell	show devices | display json	ok_or_clear	JSON device rows are printed.
-E2E-006	Shell controller endpoint show	shell	show config controller endpoint	ok_or_clear	Current controller endpoint config renders.
-E2E-007	Shell controller link show	shell	show controller link	ok_or_clear	Current controller link status renders.
-E2E-008	Shell controller endpoint disable	shell	config> set controller endpoint disabled	ok_or_clear	Endpoint config is disabled with OK status.
-E2E-009	Shell controller endpoint enable	shell	config> set controller endpoint 127.0.0.1:1 enabled min-backoff 1s max-backoff 2s	ok_or_clear	Endpoint config is enabled and token is redacted in output.
-E2E-010	Shell standalone status	shell	show standalone status	ok_or_clear	Standalone status renders.
-E2E-011	Shell standalone config	shell	show config standalone	ok_or_clear	Standalone config renders.
-E2E-012	Shell standalone clear all	shell	clear standalone runs all	ok_or_clear	Stored standalone runs are cleared.
-E2E-013	Shell standalone festa enable	shell	config> set standalone festa smoke enabled	ok_or_clear	Standalone festa is enabled.
-E2E-014	Shell standalone Wi-Fi essid	shell	"config> set standalone festa smoke wifi-group lab match essid ""<ssid>"""	ok_or_clear	Standalone Wi-Fi group matches the test ESSID.
-E2E-015	Shell standalone Wi-Fi credential	shell	config> set standalone festa smoke wifi-group lab credential passphrase <psk>	ok_or_clear	Standalone Wi-Fi credential is stored.
-E2E-016	Shell standalone ping check	shell	config> set standalone festa smoke check ping host 1.1.1.1 count 1 timeout 8000	ok_or_clear	Standalone ping check is configured.
-E2E-017	Shell standalone run once	shell	request> standalone run once festa smoke save	ok_or_clear	A saved standalone archive is created with status OK.
-E2E-018	Shell standalone runs	shell	show standalone runs limit 5 synced	ok_or_clear	Saved run list renders and includes the new run.
-E2E-019	Shell Wi-Fi status	shell	show wifi status	ok_or_clear	Wi-Fi status renders without dispatch error.
-E2E-020	Shell IP status	shell	show ip status	ok_or_clear	IP addressing, routes, DNS, and validation render without dispatch error.
-E2E-021	Shell Wi-Fi diagnostics	shell	show wifi diagnostics	ok_or_clear	Diagnostics render status, capabilities, networks, and scan sections.
-E2E-022	Shell Wi-Fi capabilities	shell	show wifi capabilities	ok_or_clear	Capabilities render supported/unsupported Wi-Fi features.
-E2E-023	Shell Wi-Fi scan cached	shell	show wifi scan	ok_or_clear	Cached scan output renders.
-E2E-024	Shell Wi-Fi scan band	shell	show wifi scan all	ok_or_clear	Cached scan output renders for all bands.
-E2E-025	Shell Wi-Fi scan fresh	shell	show wifi scan fresh timeout 8000 all	ok_or_clear	Fresh scan completes or reports structured scan status.
-E2E-026	Shell Wi-Fi scan detail	shell	"show wifi scan detail all ""<ssid>"""	ok_or_clear	Scan detail for the test SSID renders.
-E2E-027	Shell Wi-Fi connect	shell	"request> wifi connect passphrase <psk> security auto timeout 25000 ""<ssid>"""	ok_or_clear	Device connects to the test SSID and reports IP status.
-E2E-028	Shell Wi-Fi wait	shell	"request> wifi wait connected ""<ssid>"" ip timeout 12000"	ok_or_clear	Wait condition reaches the test SSID with IP.
-E2E-029	Shell Wi-Fi assert	shell	"request> wifi assert ssid ""<ssid>"" ip timeout 5000"	ok_or_clear	Assertion passes for the test SSID with IP.
-E2E-030	Shell Wi-Fi reconnect	shell	request> wifi reconnect timeout 12000	ok_or_clear	Active Wi-Fi reconnect reaches connected state.
-E2E-031	Shell Wi-Fi monitor	shell	request> monitor wifi duration 1500 interval 500	ok_or_clear	Wi-Fi event monitor returns without timeout error.
-E2E-032	Shell Wi-Fi cycle	shell	"request> wifi cycle passphrase <psk> count 1 ping 1.1.1.1 pause 100 timeout 25000 ""<ssid>"""	ok_or_clear	One cycle connects, pings, and disconnects with pass count 1/1.
-E2E-033	Shell Wi-Fi disconnect	shell	request> wifi disconnect	ok_or_clear	Disconnect command returns a structured operation result.
-E2E-034	Shell Wi-Fi forget	shell	"request> wifi forget ""<ssid>"""	ok_or_clear	Saved test network is forgotten or best-effort success is reported.
-E2E-035	Shell ping	shell	request> ping count 1 timeout 8000 1.1.1.1	ok_or_clear	Ping result status OK with transmitted/received counts.
-E2E-036	Shell traceroute	shell	request> traceroute max-hops 30 timeout 60000 1.1.1.1	ok_or_clear	Traceroute result status OK or structured fallback reaches target.
-E2E-037	Shell path MTU	shell	request> path-mtu min-mtu 576 max-mtu 1200 timeout 20000 1.1.1.1	ok_or_clear	Path MTU discovery succeeds.
-E2E-038	Shell global IP	shell	request> global-ip ipv4 timeout 10000	ok_or_clear	Public IPv4 result renders.
-E2E-039	Shell DNS	shell	request> dns type A timeout 8000 www.google.com	ok_or_clear	A record resolution succeeds.
-E2E-040	Shell HTTP	shell	request> http expected-status 204 timeout 10000 http://connectivitycheck.gstatic.com/generate_204	ok_or_clear	HTTP status check matches 204.
-E2E-041	Shell download	shell	request> download timeout 15000 https://example.com/	ok_or_clear	Download probe succeeds with 2xx/3xx status.
-E2E-042	Shell controller reconnect disabled endpoint	shell	request> controller reconnect	ok_or_clear	Structured `STATUS_FAILED` explains endpoint disabled/incomplete.
-E2E-043	Shell quit	shell	quit	ok_or_clear	Shell exits cleanly.
-E2E-044	Shell exit	shell	exit	ok_or_clear	Shell exits cleanly.
-E2E-045	Shell rejects extra help argument	shell	help extra	error	`usage: help` parse error; shell continues.
-E2E-046	Shell rejects extra show-devices argument	shell	show devices extra	error	`usage: show devices`.
-E2E-047	Shell show controller	shell	show controller nope	error	Unknown/invalid show controller command error.
-E2E-048	Shell set controller missing endpoint	shell	config> set controller endpoint enabled	error	Usage or endpoint-required error.
-E2E-049	Shell set controller bad port	shell	config> set controller endpoint localhost:0 enabled	error	Port must be 1-65535.
-E2E-050	Shell set controller bad backoff	shell	config> set controller endpoint localhost:1234 enabled min-backoff 30s max-backoff 1s	error	Max backoff must be >= min backoff.
-E2E-051	Shell show standalone runs bad limit	shell	show standalone runs limit nope	error	Limit must be a positive integer.
-E2E-052	Shell show standalone run missing	shell	"show standalone run """""	error	Standalone run id is required.
-E2E-053	Shell set standalone enabled arity	shell	config> set standalone enabled interval 1s	error	Enabled takes no options.
-E2E-054	Shell set standalone bad retention	shell	config> set standalone retention -1s	error	Invalid duration error.
-E2E-055	Shell request standalone run arity	shell	request> standalone run once festa smoke save extra	error	Usage error.
-E2E-056	Shell clear standalone bad mode	shell	clear standalone runs invalid	error	Clear mode must be `synced` or `all`.
-E2E-057	Shell sync standalone bad limit	shell	sync standalone runs limit nope	error	Standalone sync limit parse error.
-E2E-058	Shell show Wi-Fi status extra	shell	show wifi status extra	error	`usage: show wifi status`.
-E2E-059	Shell show Wi-Fi scan duplicate band	shell	show wifi scan fresh all all	error	`wifi scan fresh band specified twice`.
-E2E-060	Shell show Wi-Fi scan bad timeout	shell	show wifi scan fresh timeout nope all	error	Timeout must be a positive integer.
-E2E-061	Shell show Wi-Fi scan detail missing target	shell	show wifi scan detail	error	Scan detail usage error.
-E2E-062	Shell show Wi-Fi scan bad band	shell	show wifi scan nope	error	Unsupported/unknown Wi-Fi band error.
-E2E-063	Shell Wi-Fi connect missing passphrase	shell	"request> wifi connect ""<ssid>"""	error	Missing passphrase error.
-E2E-064	Shell Wi-Fi connect bad security	shell	"request> wifi connect passphrase <psk> security wep ""<ssid>"""	error	Unsupported Wi-Fi security error.
-E2E-065	Shell Wi-Fi connect bad MAC mode	shell	"request> wifi connect passphrase <psk> mac-randomization weird ""<ssid>"""	error	Unsupported MAC randomization error.
-E2E-066	Shell Wi-Fi wait duplicate SSID	shell	"request> wifi wait connected ""<ssid>"" ssid other"	error	Wi-Fi SSID specified twice.
-E2E-067	Shell Wi-Fi assert bad token	shell	request> wifi assert bogus	error	Unknown expectation option error.
-E2E-068	Shell Wi-Fi reconnect bad timeout	shell	request> wifi reconnect timeout 0	error	Timeout must be a positive integer.
-E2E-069	Shell Wi-Fi cycle bad count	shell	"request> wifi cycle passphrase <psk> count 0 ""<ssid>"""	error	Count must be a positive integer.
-E2E-070	Shell monitor Wi-Fi bad duration	shell	request> monitor wifi duration 0	error	Duration must be a positive integer.
-E2E-071	Shell ping bad count	shell	request> ping count nope 1.1.1.1	error	Ping count must be a positive integer.
-E2E-072	Shell ping extra positional	shell	request> ping 1.1.1.1 extra	error	Unexpected ping argument error.
-E2E-073	Shell traceroute bad max-hops	shell	request> traceroute max-hops 0 1.1.1.1	error	Max hops must be a positive integer.
-E2E-074	Shell path MTU bad minimum	shell	request> path-mtu min-mtu nope 1.1.1.1	error	Min MTU must be a positive integer.
-E2E-075	Shell global IP duplicate family	shell	request> global-ip ipv4 ipv6	error	Family specified twice.
-E2E-076	Shell global IP bad family	shell	request> global-ip family bad	error	Unsupported IP family error.
-E2E-077	Shell DNS bad type	shell	request> dns type MX example.com	error	Unsupported DNS qtype error.
-E2E-078	Shell HTTP bad status	shell	request> http expected-status nope https://example.com/	error	Expected status must be a positive integer.
-E2E-079	Shell download missing URL	shell	request> download	error	Download usage error.
-E2E-080	Shell pipe bad regex	shell	show devices | match [	error	Regex compile error.
-E2E-081	Shell pipe unknown	shell	show devices | unknown	error	Unknown pipe error.
-E2E-082	Shell quit extra	shell	quit now	error	`usage: quit`.
-E2E-083	Shell exit extra	shell	exit now	error	`usage: exit`.
-E2E-084	Parser full-line ASCII help token	shell-parser	?	help	Top-level help entries are printed; no command dispatch.
-E2E-085	Parser full-line full-width help token	shell-parser	？	help	Top-level help entries are printed; no command dispatch.
-E2E-086	Parser context help after command prefix	shell-parser	show wifi ?	help	Contextual choices for `status`, `diagnostics`, `scan`, `capabilities`.
-E2E-087	Parser value completion help	shell-parser	request> wifi connect security ?	help	Security candidates include `auto`, `wpa2`, `wpa3`, `transition`.
-E2E-088	Parser help suffix after value-taking option	shell-parser	show wifi scan fresh timeout ?	help	Placeholder/help for timeout value, not a missing-value parse error.
-E2E-089	Shell resolves unique command prefixes	shell	sho wi sta	ok_or_clear	Unique prefixes resolve to `show wifi status` and return Wi-Fi status.
-E2E-090	Parser rejects ambiguous command prefixes	shell-parser	show wifi s	error	Ambiguous prefix error for `status` vs `scan`.
-E2E-091	Parser rejects unterminated quotes	shell-parser	"show wifi status """	error	Unterminated quote parse error.
-E2E-092	Parser empty quoted positional	shell-parser	"request> wifi connect """" passphrase <psk>"	error	Missing/empty SSID error.
-E2E-093	Parser quoted pipe handling	shell-parser	"show wifi scan detail ""Example|SSID"""	ok	The pipe inside quotes is part of the argument, not a pipeline delimiter.
-E2E-094	Parser empty pipe stage	shell-parser	show devices |	error	Pipeline usage/error for empty stage.
-E2E-095	Parser pipe command arity	shell-parser	show devices | count extra	error	`count` rejects extra arguments.
-E2E-096	Parser missing regex value	shell-parser	show devices | match	error	`match` requires a regex value.
-E2E-097	Parser regex compile error	shell-parser	"show devices | except ""["""	error	Invalid regex error.
-E2E-098	Parser display value validation	shell-parser	show devices | display xml	error	`display` rejects unsupported format.
-E2E-099	Parser display arity	shell-parser	show devices | display json extra	error	`display` rejects extra argument.
-E2E-100	Shell case-insensitive regex	shell	"show devices | match ""(?i)pixel"""	ok_or_clear	Matching output contains the Pixel device row.
-E2E-101	Shell pipeline order after display	shell	show devices | display json | count	ok_or_clear	Command succeeds and counts JSON lines.
-E2E-102	Shell rejects display after count	shell	show devices | count | display json	error	`display json` after `count` is rejected with a shell error.
-E2E-103	Parser unknown pipe stage	shell-parser	show devices | unknown	error	Unsupported pipe command error.
-E2E-104	Shell endpoint value option form	shell	config> set controller endpoint endpoint 127.0.0.1:37589 enabled	ok_or_clear	Endpoint keyword form succeeds.
-E2E-105	Shell duration suffixes and min max	shell	config> set controller endpoint 127.0.0.1:37589 enabled min-backoff 500ms max-backoff 2s	ok_or_clear	Enabled config stores endpoint and backoffs.
-E2E-106	Shell boundary ordering	shell	config> set controller endpoint 127.0.0.1:37589 enabled min-backoff 1s max-backoff 1s	ok_or_clear	Equal min/max accepted.
-E2E-107	Parser rejects inverted backoff range	shell-parser	config> set controller endpoint 127.0.0.1:37589 enabled min-backoff 3s max-backoff 1s	error	`max-backoff must be greater than or equal to min-backoff`.
-E2E-108	Parser endpoint parse error	shell-parser	config> set controller endpoint 127.0.0.1 enabled	error	Endpoint must be `host:port`.
-E2E-109	Parser port lower boundary	shell-parser	config> set controller endpoint 127.0.0.1:0 enabled	error	Port must be 1-65535.
-E2E-110	Parser port upper boundary	shell-parser	config> set controller endpoint 127.0.0.1:65536 enabled	error	Port must be 1-65535.
-E2E-111	Parser duration value error	shell-parser	config> set controller endpoint 127.0.0.1:37589 enabled min-backoff nope	error	Invalid duration error.
-E2E-112	Parser rejects controller disable arity	shell-parser	config> set controller endpoint disabled extra	error	Usage error; disabled takes no extra args.
-E2E-113	Shell restores controller endpoint state	shell	config> set controller endpoint disabled	ok_or_clear	Controller endpoint disabled; restore safe state.
-E2E-114	Shell synced flag alone	shell	show standalone runs synced	ok_or_clear	Runs list includes synced records if present, otherwise empty list succeeds.
-E2E-115	Shell option order with flag before value	shell	show standalone runs synced limit 1	ok_or_clear	Runs list limited to 1 with synced records included.
-E2E-116	Shell option order with value before flag	shell	show standalone runs limit 1 synced	ok_or_clear	Runs list limited to 1 with synced records included.
-E2E-117	Parser rejects duplicate synced flags	shell-parser	show standalone runs synced synced	error	Duplicate `synced` flags are rejected.
-E2E-118	Parser rejects duplicate limit values	shell-parser	show standalone runs limit 1 limit 2	error	Duplicate `limit` values are rejected.
-E2E-119	Parser empty run id	shell-parser	"show standalone run """""	error	Standalone run id is required.
-E2E-120	Shell default clear mode	shell	clear standalone runs	ok_or_clear	Clears only synced runs; unsynced runs remain.
-E2E-121	Shell explicit clear mode	shell	clear standalone runs synced	ok_or_clear	Explicit synced clear succeeds.
-E2E-122	Parser clear arity	shell-parser	clear standalone runs synced all	error	Usage error; only one clear mode.
-E2E-123	Parser delete festa parser	shell-parser	config> delete standalone festa smoke	ok	Delete standalone festa parses to a standalone config edit.
-E2E-124	Shell accepts day retention duration	shell	config> set standalone retention 2d	ok_or_clear	Config accepts day durations.
-E2E-125	Shell accepts gigabyte store size	shell	config> set standalone max-size 1g	ok_or_clear	Config accepts gigabyte suffix.
-E2E-126	Parser enabled arity	shell-parser	config> set standalone enabled interval 1s	error	Enabled takes no options.
-E2E-127	Parser negative duration	shell-parser	config> set standalone retention -1s	error	Invalid duration error.
-E2E-128	Parser size suffix error	shell-parser	config> set standalone max-size 1t	error	Invalid size suffix error.
-E2E-129	Parser rejects standalone disable arity	shell-parser	config> set standalone disabled plan nope	error	Usage error; disabled takes no options.
-E2E-130	Shell restores standalone enabled state	shell	config> set standalone disabled	ok_or_clear	Standalone config disabled; restore safe state.
-E2E-131	Shell runs standalone check without save	shell	request> standalone run once festa smoke	ok_or_clear	One-off standalone run runs without saving.
-E2E-132	Parser rejects standalone run flag arity	shell-parser	request> standalone run once festa smoke save extra	error	Usage/unknown option error.
-E2E-133	Parser accepts standalone run option order	shell-parser	request> standalone run once save festa smoke	ok	Flag-before-name form parses.
-E2E-134	Shell syncs with explicit mark-synced	shell	sync standalone runs output <sync-dir> limit 1 mark-synced	ok_or_clear	Sync downloads at most one run and marks it synced.
-E2E-135	Shell syncs with default mark-synced	shell	sync standalone runs output <sync-dir> limit 1	ok_or_clear	Default sync marks downloaded runs synced.
-E2E-136	Shell conflicting sync flags	shell	sync standalone runs output <sync-dir> limit 1 mark-synced keep-unsynced	error	Conflicting sync flags are rejected.
-E2E-137	Shell conflicting sync flags reversed	shell	sync standalone runs output <sync-dir> limit 1 keep-unsynced mark-synced	error	Conflicting sync flags are rejected when reversed.
-E2E-138	Parser limit boundary	shell-parser	sync standalone runs limit 0	error	Sync limit must be positive.
-E2E-139	Shell band value 2.4 GHz	shell	show wifi scan 2.4ghz	ok_or_clear	Cached scan filtered to 2.4 GHz succeeds.
-E2E-140	Shell band value 5 GHz	shell	show wifi scan 5ghz	ok_or_clear	Cached scan filtered to 5 GHz succeeds.
-E2E-141	Shell band value 6 GHz	shell	show wifi scan 6ghz	ok_or_clear	Cached scan filtered to 6 GHz succeeds even if empty.
-E2E-142	Shell band value 60 GHz	shell	show wifi scan 60ghz	ok_or_clear	Cached scan filtered to 60 GHz succeeds even if empty.
-E2E-143	Shell fresh option order	shell	show wifi scan fresh 2.4ghz timeout 12000	ok_or_clear	Fresh scan accepts band before timeout.
-E2E-144	Shell fresh option order reversed	shell	show wifi scan fresh timeout 12000 5ghz	ok_or_clear	Fresh scan accepts timeout before band.
-E2E-145	Shell fresh 6 GHz	shell	show wifi scan fresh timeout 12000 6ghz	ok_or_clear	Fresh scan accepts 6 GHz band.
-E2E-146	Shell fresh 60 GHz	shell	show wifi scan fresh timeout 12000 60ghz	ok_or_clear	Fresh scan accepts 60 GHz band even if empty/unsupported.
-E2E-147	Shell detail target-band order	shell	"show wifi scan detail ""<ssid>"" all"	ok_or_clear	Detail accepts target before band.
-E2E-148	Shell detail band-target order	shell	"show wifi scan detail 5ghz ""<ssid>"""	ok_or_clear	Detail accepts band before target.
-E2E-149	Parser detail missing target	shell-parser	show wifi scan detail	error	Usage error.
-E2E-150	Parser accepts scan-detail target named all	shell-parser	show wifi scan detail all	ok	The positional `all` value is accepted as the scan-detail target.
-E2E-151	Parser detail over-arity	shell-parser	"show wifi scan detail all ""<ssid>"" 5ghz"	error	Usage error; too many args/band twice.
-E2E-152	Parser missing timeout value	shell-parser	show wifi scan fresh timeout	error	`timeout requires a value`.
-E2E-153	Parser timeout lower boundary	shell-parser	show wifi scan fresh timeout 0	error	Timeout must be positive.
-E2E-154	Parser duplicate band	shell-parser	show wifi scan fresh 5ghz 6ghz	error	Fresh band specified twice.
-E2E-155	Parser invalid scan argument	shell-parser	show wifi scan bogus	error	Unsupported Wi-Fi band or unknown scan argument.
-E2E-156	Parser rejects duplicate scan timeout	shell-parser	show wifi scan fresh timeout 100 timeout 200	error	Duplicate scan timeout values are rejected.
-E2E-157	Shell accepts connect SSID before options	shell	"request> wifi connect ""<ssid>"" passphrase <psk>"	ok_or_clear	Positional SSID before options connects with default security/timeout.
-E2E-158	Shell accepts connect options before SSID	shell	"request> wifi connect passphrase <psk> ""<ssid>"""	ok_or_clear	SSID after options connects.
-E2E-159	Shell security wpa2	shell	"request> wifi connect passphrase <psk> security wpa2 timeout 25000 ""<ssid>"""	ok_or_clear	Either connects using WPA2 or returns clear agent unsupported/security mismatch error.
-E2E-160	Shell security wpa3	shell	"request> wifi connect passphrase <psk> security wpa3 timeout 25000 ""<ssid>"""	ok_or_clear	Connects to WPA3 test AP or returns clear mismatch error.
-E2E-161	Shell security transition	shell	"request> wifi connect passphrase <psk> security transition timeout 25000 ""<ssid>"""	ok_or_clear	Connects or returns clear mismatch error.
-E2E-162	Shell band all	shell	"request> wifi connect passphrase <psk> band all timeout 25000 ""<ssid>"""	ok_or_clear	Connects with all-band selector.
-E2E-163	Shell connect band 2.4 GHz	shell	"request> wifi connect passphrase <psk> band 2.4ghz timeout 25000 ""<ssid>"""	ok_or_clear	Connects if AP has 2.4 GHz BSSID, otherwise clear timeout/failure.
-E2E-164	Shell connect band 5 GHz	shell	"request> wifi connect passphrase <psk> band 5ghz timeout 25000 ""<ssid>"""	ok_or_clear	Connects on observed 5 GHz AP.
-E2E-165	Shell connect band 6 GHz	shell	"request> wifi connect passphrase <psk> band 6ghz timeout 25000 ""<ssid>"""	ok_or_clear	Either connects if available or clear timeout/failure.
-E2E-166	Shell connect band 60 GHz	shell	"request> wifi connect passphrase <psk> band 60ghz timeout 25000 ""<ssid>"""	ok_or_clear	Either connects if available or clear timeout/failure; no parser panic.
-E2E-167	Shell MAC auto	shell	"request> wifi connect passphrase <psk> mac-randomization auto timeout 25000 ""<ssid>"""	ok_or_clear	Connect command accepts auto MAC randomization.
-E2E-168	Shell MAC none	shell	"request> wifi connect passphrase <psk> mac-randomization none timeout 25000 ""<ssid>"""	ok_or_clear	Connect command accepts no MAC randomization.
-E2E-169	Shell MAC persistent	shell	"request> wifi connect passphrase <psk> mac-randomization persistent timeout 25000 ""<ssid>"""	ok_or_clear	Connect command accepts persistent MAC randomization.
-E2E-170	Shell MAC non-persistent	shell	"request> wifi connect passphrase <psk> mac-randomization non-persistent timeout 25000 ""<ssid>"""	ok_or_clear	Connect command accepts non-persistent MAC randomization.
-E2E-171	Shell BSSID option	shell	"request> wifi connect passphrase <psk> bssid <bssid> timeout 25000 ""<ssid>"""	ok_or_clear	Connects to the specified BSSID if still present; otherwise clear BSSID failure.
-E2E-172	Parser duplicate value option	shell-parser	"request> wifi connect passphrase <psk> security auto security wpa3 ""<ssid>"""	error	Duplicate security values are rejected.
-E2E-173	Parser duplicate passphrase	shell-parser	"request> wifi connect passphrase <psk> passphrase other ""<ssid>"""	error	Duplicate passphrase values are rejected.
-E2E-174	Parser rejects duplicate connect timeout	shell-parser	"request> wifi connect passphrase <psk> timeout 100 timeout 200 ""<ssid>"""	error	Duplicate connect timeout values are rejected.
-E2E-175	Parser missing misplaced BSSID value	shell-parser	"request> wifi connect passphrase <psk> bssid ""<ssid>"""	error	`bssid requires a value` or invalid BSSID; must not consume SSID silently.
-E2E-176	Parser missing misplaced band value	shell-parser	"request> wifi connect passphrase <psk> band ""<ssid>"""	error	Unsupported Wi-Fi band or missing value error; must not consume SSID silently.
-E2E-177	Parser rejects connect timeout boundary	shell-parser	"request> wifi connect passphrase <psk> timeout 0 ""<ssid>"""	error	Timeout must be positive.
-E2E-178	Parser timeout parse error	shell-parser	"request> wifi connect passphrase <psk> timeout nope ""<ssid>"""	error	Timeout must be positive integer.
-E2E-179	Parser extra positional	shell-parser	"request> wifi connect passphrase <psk> ""<ssid>"" extra"	error	Unexpected extra positional argument.
-E2E-180	Parser empty value	shell-parser	"request> wifi connect passphrase """" ""<ssid>"""	error	Empty passphrase values are rejected.
-E2E-181	Shell restores Wi-Fi connection state	shell	"request> wifi connect passphrase <psk> security auto timeout 25000 ""<ssid>"""	ok_or_clear	Restore known connected state after connect variants.
-E2E-182	Shell wait SSID option	shell	"request> wifi wait connected ssid ""<ssid>"" ip timeout 12000"	ok_or_clear	Keyword `ssid` form waits successfully.
-E2E-183	Shell wait BSSID	shell	request> wifi wait connected bssid <bssid> timeout 12000	ok_or_clear	Waits for BSSID if connected; otherwise clear timeout.
-E2E-184	Shell wait security	shell	request> wifi wait connected security wpa3 timeout 12000	ok_or_clear	Waits for WPA3/SAE if current security matches; otherwise clear timeout.
-E2E-185	Shell wait band	shell	request> wifi wait connected band 5ghz timeout 12000	ok_or_clear	Waits for 5 GHz current connection.
-E2E-186	Shell wait validated	shell	request> wifi wait connected validated timeout 12000	ok_or_clear	Waits for validated network.
-E2E-187	Shell combined flags	shell	request> wifi wait connected ip validated timeout 12000	ok_or_clear	Waits for both IP and validation.
-E2E-188	Shell no SSID condition	shell	request> wifi wait connected timeout 1000	ok_or_clear	Waits only for any Wi-Fi connection.
-E2E-189	Shell assert BSSID	shell	request> wifi assert bssid <bssid> timeout 5000	ok_or_clear	Assertion checks BSSID.
-E2E-190	Shell assert security	shell	request> wifi assert security wpa3 timeout 5000	ok_or_clear	Assertion checks security.
-E2E-191	Shell assert band	shell	request> wifi assert band 5ghz timeout 5000	ok_or_clear	Assertion checks band.
-E2E-192	Shell assert validated	shell	request> wifi assert validated timeout 5000	ok_or_clear	Assertion checks validation.
-E2E-193	Shell no explicit condition	shell	request> wifi assert timeout 5000	ok_or_clear	Assertion with no conditions succeeds only if connected; output should explain checks.
-E2E-194	Parser duplicate SSID	shell-parser	"request> wifi wait connected ssid ""<ssid>"" ssid other"	error	Duplicate SSID error.
-E2E-195	Parser duplicate positional SSID	shell-parser	"request> wifi wait connected ""<ssid>"" ""other"""	error	Unexpected extra positional argument.
-E2E-196	Parser accepts wait security auto	shell-parser	request> wifi wait connected security auto	ok	Security `auto` is accepted by the wait parser.
-E2E-197	Parser accepts assert security auto	shell-parser	request> wifi assert security auto	ok	Security `auto` is accepted by the assert parser.
-E2E-198	Parser wait band validation	shell-parser	request> wifi wait connected band 7ghz	error	Unsupported Wi-Fi band.
-E2E-199	Parser assert band validation	shell-parser	request> wifi assert band 7ghz	error	Unsupported Wi-Fi band.
-E2E-200	Parser wait timeout boundary	shell-parser	request> wifi wait connected timeout 0	error	Timeout must be positive.
-E2E-201	Parser assert timeout boundary	shell-parser	request> wifi assert timeout 0	error	Timeout must be positive.
-E2E-202	Parser missing wait value	shell-parser	request> wifi wait connected bssid	error	`bssid requires a value`.
-E2E-203	Parser missing assert value	shell-parser	request> wifi assert ssid	error	`ssid requires a value`.
-E2E-204	Parser assert positional rejection	shell-parser	"request> wifi assert ""<ssid>"""	error	Usage error; assert does not accept positional SSID.
-E2E-205	Parser wait subcommand validation	shell-parser	request> wifi wait disconnected	error	Usage error; only `connected` is supported.
-E2E-206	Parser rejects duplicate assert flags	shell-parser	request> wifi assert ip ip	error	Duplicate `ip` flags are rejected.
-E2E-207	Parser rejects duplicate assert timeout	shell-parser	request> wifi assert timeout 100 timeout 200	error	Duplicate assert timeout values are rejected.
-E2E-208	Shell HTTP probe	shell	"request> wifi cycle passphrase <psk> count 1 http https://www.google.com/generate_204 pause 100 timeout 25000 ""<ssid>"""	ok_or_clear	One cycle connects, HTTP check passes, disconnects.
-E2E-209	Shell combined probes	shell	"request> wifi cycle passphrase <psk> count 1 ping 1.1.1.1 http https://www.google.com/generate_204 pause 100 timeout 25000 ""<ssid>"""	ok_or_clear	One cycle runs both ping and HTTP probes.
-E2E-210	Shell forget flag	shell	"request> wifi cycle passphrase <psk> count 1 forget pause 100 timeout 25000 ""<ssid>"""	ok_or_clear	Cycle forgets network after disconnect; reconnect after case to restore.
-E2E-211	Shell restores Wi-Fi cycle state	shell	"request> wifi connect passphrase <psk> security auto timeout 25000 ""<ssid>"""	ok_or_clear	Restore connection after forget cycle.
-E2E-212	Shell accepts cycle SSID before options	shell	"request> wifi cycle ""<ssid>"" passphrase <psk> count 1 pause 100 timeout 25000"	ok_or_clear	SSID before options accepted.
-E2E-213	Shell connect option reuse	shell	"request> wifi cycle passphrase <psk> security wpa3 band 5ghz mac-randomization auto count 1 pause 100 timeout 25000 ""<ssid>"""	ok_or_clear	Cycle accepts connect sub-options.
-E2E-214	Parser count boundary	shell-parser	"request> wifi cycle passphrase <psk> count 0 ""<ssid>"""	error	Count must be positive.
-E2E-215	Parser pause boundary	shell-parser	"request> wifi cycle passphrase <psk> pause 0 ""<ssid>"""	error	Pause must be positive.
-E2E-216	Parser rejects cycle timeout boundary	shell-parser	"request> wifi cycle passphrase <psk> timeout 0 ""<ssid>"""	error	Timeout must be positive.
-E2E-217	Parser count parse error	shell-parser	"request> wifi cycle passphrase <psk> count nope ""<ssid>"""	error	Count parse error.
-E2E-218	Parser pause parse error	shell-parser	"request> wifi cycle passphrase <psk> pause nope ""<ssid>"""	error	Pause parse error.
-E2E-219	Parser missing misplaced HTTP value	shell-parser	"request> wifi cycle passphrase <psk> http ""<ssid>"""	error	`http requires a value` or invalid missing URL; must not consume SSID silently.
-E2E-220	Parser rejects cycle flag arity	shell-parser	"request> wifi cycle passphrase <psk> forget yes ""<ssid>"""	error	Unexpected extra positional or option error; `forget` takes no value.
-E2E-221	Parser missing misplaced ping value	shell-parser	"request> wifi cycle passphrase <psk> ping ""<ssid>"""	error	`ping requires a value` or missing SSID error; must not consume SSID silently.
-E2E-222	Parser duplicate count	shell-parser	"request> wifi cycle passphrase <psk> count 1 count 2 ""<ssid>"""	error	Duplicate cycle count values are rejected.
-E2E-223	Parser duplicate flag	shell-parser	"request> wifi cycle passphrase <psk> forget forget ""<ssid>"""	error	Duplicate cycle flags are rejected.
-E2E-224	Shell default reconnect timeout	shell	request> wifi reconnect	ok_or_clear	Reconnects with default timeout.
-E2E-225	Parser missing reconnect timeout	shell-parser	request> wifi reconnect timeout	error	`timeout requires a value`.
-E2E-226	Parser reconnect timeout boundary	shell-parser	request> wifi reconnect timeout 0	error	Timeout must be positive.
-E2E-227	Parser positional timeout rejection	shell-parser	request> wifi reconnect 1000	error	Usage error; shell requires `timeout <ms>` form.
-E2E-228	Parser disconnect arity	shell-parser	request> wifi disconnect now	error	Usage error.
-E2E-229	Parser forget missing target	shell-parser	request> wifi forget	error	Usage error.
-E2E-230	Parser forget arity	shell-parser	"request> wifi forget ""<ssid>"" extra"	error	Usage error.
-E2E-231	Shell monitor defaults	shell	request> monitor wifi	ok_or_clear	Monitors Wi-Fi with default duration/interval.
-E2E-232	Shell interval-only path	shell	request> monitor wifi interval 500	ok_or_clear	Uses default duration and 500 ms interval.
-E2E-233	Shell duration-only path	shell	request> monitor wifi duration 1500	ok_or_clear	Uses explicit duration and default interval.
-E2E-234	Parser missing duration	shell-parser	request> monitor wifi duration	error	`duration requires a value`.
-E2E-235	Parser missing interval	shell-parser	request> monitor wifi interval	error	`interval requires a value`.
-E2E-236	Parser duration boundary	shell-parser	request> monitor wifi duration 0	error	Duration must be positive.
-E2E-237	Parser interval boundary	shell-parser	request> monitor wifi duration 1000 interval 0	error	Interval must be positive.
-E2E-238	Shell ping defaults	shell	request> ping 1.1.1.1	ok_or_clear	Default count/timeout ping succeeds.
-E2E-239	Shell ping size	shell	request> ping 1.1.1.1 size 56 count 2 timeout 7000	ok_or_clear	Ping accepts payload size.
-E2E-240	Shell ping order	shell	request> ping count 2 size 56 timeout 7000 1.1.1.1	ok_or_clear	Options before host accepted.
-E2E-241	Parser rejects ping size zero	shell-parser	request> ping 1.1.1.1 size 0	error	Ping size zero is rejected.
-E2E-242	Parser ping size failure	shell-parser	request> ping 1.1.1.1 size nope	error	Size parse error.
-E2E-243	Parser ping timeout boundary	shell-parser	request> ping 1.1.1.1 timeout 0	error	Timeout must be positive.
-E2E-244	Parser duplicate ping count	shell-parser	request> ping 1.1.1.1 count 1 count 2	error	Duplicate ping count values are rejected.
-E2E-245	Shell traceroute defaults	shell	request> traceroute 1.1.1.1	ok_or_clear	Default traceroute succeeds or returns clear network failure.
-E2E-246	Shell traceroute size	shell	request> traceroute 1.1.1.1 size 56 max-hops 8 timeout 30000	ok_or_clear	Traceroute accepts size.
-E2E-247	Shell single via	shell	request> traceroute 1.1.1.1 via 192.168.23.254 max-hops 8 timeout 30000	ok_or_clear	Required hop is checked in renderer; pass if hop appears, otherwise clear required-hop failure.
-E2E-248	Shell repeatable via	shell	request> traceroute 1.1.1.1 via 192.168.23.254 via 1.1.1.1 max-hops 8 timeout 30000	ok_or_clear	Multiple required hops are checked.
-E2E-249	Parser missing via	shell-parser	request> traceroute 1.1.1.1 via	error	`via requires a value`.
-E2E-250	Parser traceroute size failure	shell-parser	request> traceroute 1.1.1.1 size nope	error	Size parse error.
-E2E-251	Parser traceroute timeout boundary	shell-parser	request> traceroute 1.1.1.1 timeout 0	error	Timeout must be positive.
-E2E-252	Parser duplicate max-hops	shell-parser	request> traceroute 1.1.1.1 max-hops 1 max-hops 2	error	Duplicate traceroute max-hop values are rejected.
-E2E-253	Shell path MTU defaults	shell	request> path-mtu 1.1.1.1	ok_or_clear	Default MTU search succeeds or reports clear network failure.
-E2E-254	Shell accepts path MTU minimum only	shell	request> path-mtu min-mtu 1200 1.1.1.1	ok_or_clear	Min-only path accepted.
-E2E-255	Shell accepts path MTU maximum only	shell	request> path-mtu max-mtu 1500 1.1.1.1	ok_or_clear	Max-only path accepted.
-E2E-256	Shell option order before host	shell	request> path-mtu min-mtu 1200 max-mtu 1500 timeout 30000 1.1.1.1	ok_or_clear	Full bounds path accepted.
-E2E-257	Parser min greater than max	shell-parser	request> path-mtu min-mtu 1600 max-mtu 1200 1.1.1.1	error	Path MTU minimum must not exceed the maximum.
-E2E-258	Parser max boundary	shell-parser	request> path-mtu max-mtu 0 1.1.1.1	error	Max MTU must be positive if specified.
-E2E-259	Parser path-MTU timeout boundary	shell-parser	request> path-mtu timeout 0 1.1.1.1	error	Timeout must be positive.
-E2E-260	Parser duplicate min	shell-parser	request> path-mtu min-mtu 1200 min-mtu 1300 1.1.1.1	error	Duplicate path MTU minimum values are rejected.
-E2E-261	Shell global IP defaults	shell	request> global-ip	ok_or_clear	Default all-family global IP lookup succeeds.
-E2E-262	Shell global IP family IPv6	shell	request> global-ip ipv6 timeout 7000	ok_or_clear	IPv6 family value accepted; succeeds or clear IPv6 unavailable result.
-E2E-263	Shell global IP family all	shell	request> global-ip all timeout 7000	ok_or_clear	All-family explicit value accepted.
-E2E-264	Parser numeric family 4 rejected	shell-parser	request> global-ip 4 timeout 7000	error	Numeric IPv4 shorthand is not accepted.
-E2E-265	Parser numeric family 6 rejected	shell-parser	request> global-ip 6 timeout 7000	error	Numeric IPv6 shorthand is not accepted.
-E2E-266	Shell accepts global IP family keyword	shell	request> global-ip family ipv4 timeout 7000	ok_or_clear	Keyword family form accepted.
-E2E-267	Parser missing family	shell-parser	request> global-ip family	error	`family requires a value`.
-E2E-268	Parser global-IP timeout boundary	shell-parser	request> global-ip timeout 0	error	Timeout must be positive.
-E2E-269	Parser duplicate family	shell-parser	request> global-ip family ipv4 family ipv6	error	Duplicate family error.
-E2E-270	Shell DNS defaults	shell	request> dns example.com	ok_or_clear	Default ALL qtypes (A and AAAA) succeed.
-E2E-271	Shell DNS positional qtype	shell	request> dns example.com AAAA timeout 7000	ok_or_clear	Positional AAAA qtype accepted.
-E2E-272	Shell DNS option order	shell	request> dns type ALL timeout 7000 example.com	ok_or_clear	Option qtype before name accepted.
-E2E-273	Shell DNS option order reversed	shell	request> dns example.com type A timeout 7000	ok_or_clear	Option qtype after name accepted.
-E2E-274	Parser missing DNS type	shell-parser	request> dns example.com type	error	`type requires a value`.
-E2E-275	Parser DNS timeout boundary	shell-parser	request> dns example.com timeout 0	error	Timeout must be positive.
-E2E-276	Parser too many DNS args	shell-parser	request> dns example.com A AAAA	error	Unexpected extra DNS argument.
-E2E-277	Parser duplicate DNS type	shell-parser	request> dns example.com type A type AAAA	error	Duplicate DNS type values are rejected.
-E2E-278	Shell HTTP default scheme status	shell	request> http example.com	ok_or_clear	URL is normalized to HTTPS and expected status defaults to 200.
-E2E-279	Shell HTTP option order	shell	request> http expected-status 200 timeout 7000 https://example.com	ok_or_clear	Options before URL accepted.
-E2E-280	Shell HTTP expected status after URL	shell	request> http https://www.google.com/generate_204 expected-status 204 timeout 7000	ok_or_clear	Expected 204 path succeeds.
-E2E-281	Parser HTTP status boundary	shell-parser	request> http https://example.com expected-status 0	error	Expected status must be positive.
-E2E-282	Parser HTTP timeout boundary	shell-parser	request> http https://example.com timeout 0	error	Timeout must be positive.
-E2E-283	Parser missing status	shell-parser	request> http expected-status	error	`expected-status requires a value`.
-E2E-284	Parser duplicate HTTP option	shell-parser	request> http https://example.com expected-status 200 expected-status 204	error	Duplicate HTTP expected-status values are rejected.
-E2E-285	Parser too many HTTP args	shell-parser	request> http https://example.com https://example.org	error	Unexpected extra HTTP argument.
-E2E-286	Shell download default timeout	shell	request> download https://example.com	ok_or_clear	Download probe succeeds with default timeout.
-E2E-287	Shell download option order	shell	request> download timeout 30000 https://example.com	ok_or_clear	Timeout before URL accepted.
-E2E-288	Parser missing download timeout	shell-parser	request> download timeout	error	`timeout requires a value`.
-E2E-289	Parser download timeout boundary	shell-parser	request> download https://example.com timeout 0	error	Timeout must be positive.
-E2E-290	Parser too many download args	shell-parser	request> download https://example.com https://example.org	error	Unexpected extra download argument.
-E2E-291	CLI top-level --serial	cli	dropcheck --serial <serial> show devices	ok	Devices list is printed for the selected serial.
-E2E-292	CLI --format JSON with equals form	cli	dropcheck --serial=<serial> --format json show devices	ok	JSON devices output.
-E2E-293	CLI --format text	cli	dropcheck --format text show devices	ok	Text devices output.
-E2E-294	CLI invalid global format	cli	dropcheck --format yaml show devices	error	`--format must be text or json`.
-E2E-295	CLI global target conflict	cli	dropcheck --all --target <serial> show devices	error	`--all and --target cannot be used together`.
-E2E-296	CLI global flag arity	cli	dropcheck --all=value show devices	error	`--all does not take a value`.
-E2E-297	CLI missing global flag value	cli	dropcheck --target	error	`--target requires a value`.
-E2E-298	CLI top-level --listen and --no-adb	cli	dropcheck --listen 127.0.0.1:0 --no-adb show devices	ok_or_clear	Starts without ADB bootstrap if an agent connects; otherwise reports a clear no-agent result.
-E2E-299	CLI top-level -- delimiter	cli	dropcheck -- --format json show devices	ok	Top-level delimiter leaves args for CLI parsing; JSON devices output is still produced.
-E2E-300	CLI IP status	cli	dropcheck show ip status	ok	IP addressing, routes, DNS, and validation render from the CLI.
-E2E-301	CLI scan --band	cli	dropcheck show wifi scan --band 5ghz	ok	Cached 5 GHz scan succeeds.
-E2E-302	CLI fresh scan options	cli	dropcheck show wifi scan fresh --band 5ghz --timeout 12000	ok	Fresh scan succeeds.
-E2E-303	CLI positional band	cli	dropcheck show wifi scan fresh 5ghz --timeout 12000	ok	Fresh scan positional band succeeds.
-E2E-304	CLI scan timeout restriction	cli	dropcheck show wifi scan --timeout 12000	error	`--timeout is supported only with wifi scan fresh`.
-E2E-305	CLI detail dash band	cli	"dropcheck show wifi scan detail ""<ssid>"" --band 5ghz"	ok	Scan detail succeeds.
-E2E-306	CLI detail positional band	cli	"dropcheck show wifi scan detail ""<ssid>"" 5ghz"	ok	Scan detail positional band succeeds.
-E2E-307	CLI detail invalid option combination	cli	"dropcheck show wifi scan detail ""<ssid>"" --timeout 12000"	error	`--timeout is supported only with wifi scan fresh`.
-E2E-308	CLI accepts positional connect passphrase	cli	"dropcheck request wifi connect ""<ssid>"" <psk> --security auto --timeout 25000"	ok	Positional passphrase form connects.
-E2E-309	CLI connect dash options	cli	"dropcheck request wifi connect ""<ssid>"" --passphrase <psk> --security wpa3 --band 5ghz --mac-randomization auto --timeout 25000"	ok	Dash options accepted.
-E2E-310	CLI missing value	cli	"dropcheck request wifi connect ""<ssid>"" --passphrase"	error	`--passphrase requires a value`.
-E2E-311	CLI connect arity	cli	"dropcheck request wifi connect ""<ssid>"" --passphrase <psk> extra"	error	Too many positional arguments.
-E2E-312	CLI wait flags	cli	"dropcheck request wifi wait connected ""<ssid>"" --ip --validated --timeout 12000"	ok	Wait succeeds.
-E2E-313	CLI wait --SSID	cli	"dropcheck request wifi wait connected --ssid ""<ssid>"" --ip --timeout 12000"	ok	Wait succeeds with dash `--ssid`.
-E2E-314	CLI wait positional arity	cli	"dropcheck request wifi wait connected ""<ssid>"" other"	error	Usage error.
-E2E-315	CLI assert flags	cli	"dropcheck request wifi assert --ssid ""<ssid>"" --ip --validated --timeout 5000"	ok	Assert succeeds.
-E2E-316	CLI assert positional rejection	cli	"dropcheck request wifi assert ""<ssid>"""	error	Usage error; assert requires dash `--ssid`.
-E2E-317	CLI monitor duration interval	cli	dropcheck request monitor wifi --duration 1500 --interval 500	ok	Wi-Fi monitor succeeds.
-E2E-318	CLI monitor positional values	cli	dropcheck request monitor wifi 1500 500	ok	Positional monitor duration/interval succeeds.
-E2E-319	CLI monitor interval-only	cli	dropcheck request monitor wifi --interval 500	ok	Monitor uses default duration and explicit interval.
-E2E-320	CLI positional reconnect timeout	cli	dropcheck request wifi reconnect 10000	ok	Positional reconnect timeout succeeds in CLI.
-E2E-321	CLI reconnect dash timeout	cli	dropcheck request wifi reconnect --timeout 10000	ok	Dash reconnect timeout succeeds.
-E2E-322	CLI cycle dash options	cli	"dropcheck request wifi cycle ""<ssid>"" --passphrase <psk> --count 1 --ping 1.1.1.1 --http https://www.google.com/generate_204 --pause 100 --timeout 25000"	ok	Cycle runs with dash options.
-E2E-323	CLI cycle flag	cli	"dropcheck request wifi cycle ""<ssid>"" --passphrase <psk> --forget --count 1 --pause 100 --timeout 25000"	ok	Cycle forgets after each run.
-E2E-324	CLI accepts positional ping count	cli	dropcheck request ping 1.1.1.1 2 --size 56 --timeout 7000	ok	Positional ping count form succeeds.
-E2E-325	CLI traceroute options	cli	dropcheck request traceroute 1.1.1.1 8 --via 192.168.23.254 --size 56 --timeout 30000	ok	Positional max-hops plus repeatable via works.
-E2E-326	CLI path MTU options	cli	dropcheck request path-mtu 1.1.1.1 --min-mtu 1200 --max-mtu 1500 --timeout 30000	ok	Path-MTU dash options work.
-E2E-327	CLI numeric family rejected	cli	dropcheck request global-ip 4 --timeout 7000	error	Numeric family shorthand is rejected.
-E2E-328	CLI duplicate family	cli	dropcheck request global-ip ipv4 --family ipv6	error	Family specified twice error.
-E2E-329	CLI DNS qtype positional	cli	dropcheck request dns example.com A --timeout 7000	ok	Positional DNS qtype works.
-E2E-330	CLI DNS dash type	cli	dropcheck request dns example.com --type AAAA --timeout 7000	ok	Dash DNS qtype works.
-E2E-331	CLI HTTP positional status	cli	dropcheck request http https://www.google.com/generate_204 204 --timeout 7000	ok	Positional expected status works.
-E2E-332	CLI HTTP dash status	cli	dropcheck request http https://www.google.com/generate_204 --expected-status 204 --timeout 7000	ok	Dash expected status works.
-E2E-333	CLI download timeout	cli	dropcheck request download https://example.com --timeout 30000	ok	Download dash timeout works.
-E2E-334	CLI standalone runs	cli	dropcheck show standalone runs --limit 1 --synced	ok	Standalone runs CLI flags work.
-E2E-335	CLI sync flags	cli	dropcheck sync standalone runs --output <sync-dir> --limit 1 --keep-unsynced	ok	CLI sync keep-unsynced works.
-E2E-336	CLI sync conflict semantics	cli	dropcheck sync standalone runs --output <sync-dir> --limit 1 --mark-synced --keep-unsynced	error	Conflicting sync flags are rejected consistently.
-E2E-337	CLI controller options	cli	dropcheck configure set controller endpoint 127.0.0.1:37589 enabled --min-backoff 500ms --max-backoff 2s	ok	CLI controller endpoint options work.
-E2E-338	CLI standalone set	cli	dropcheck configure set standalone retention 2d	ok	CLI standalone set works.
-E2E-339	CLI standalone delete	cli	dropcheck configure delete standalone festa smoke	ok	CLI standalone delete works even when the festa is absent.
-E2E-340	CLI unsupported option	cli	dropcheck show wifi status --unknown	error	Usage/unknown option error.
-E2E-341	CLI duplicate option	cli	"dropcheck request wifi connect ""<ssid>"" --passphrase <psk> --passphrase other"	error	Duplicate option error from dash parser.
-E2E-342	CLI repeatable option exception	cli	dropcheck request traceroute 1.1.1.1 --via 192.168.23.254 --via 1.1.1.1	ok	Repeatable `--via` accepted.
+E2E-006	Shell standalone status	shell	show standalone status	ok_or_clear	Standalone status renders.
+E2E-007	Shell standalone config	shell	show config standalone	ok_or_clear	Standalone config renders.
+E2E-008	Shell standalone clear all	shell	clear standalone runs all	ok_or_clear	Stored standalone runs are cleared.
+E2E-009	Shell standalone festa enable	shell	config> set standalone festa smoke enabled	ok_or_clear	Standalone festa is enabled.
+E2E-010	Shell standalone Wi-Fi essid	shell	"config> set standalone festa smoke wifi-group lab match essid ""<ssid>"""	ok_or_clear	Standalone Wi-Fi group matches the test ESSID.
+E2E-011	Shell standalone Wi-Fi credential	shell	config> set standalone festa smoke wifi-group lab credential passphrase <psk>	ok_or_clear	Standalone Wi-Fi credential is stored.
+E2E-012	Shell standalone ping check	shell	config> set standalone festa smoke check ping host 1.1.1.1 count 1 timeout 8000	ok_or_clear	Standalone ping check is configured.
+E2E-013	Shell standalone run once	shell	request> standalone run once festa smoke save	ok_or_clear	A saved standalone archive is created with status OK.
+E2E-014	Shell standalone runs	shell	show standalone runs limit 5 synced	ok_or_clear	Saved run list renders and includes the new run.
+E2E-015	Shell Wi-Fi status	shell	show wifi status	ok_or_clear	Wi-Fi status renders without dispatch error.
+E2E-016	Shell IP status	shell	show ip status	ok_or_clear	IP addressing, routes, DNS, and validation render without dispatch error.
+E2E-017	Shell Wi-Fi diagnostics	shell	show wifi diagnostics	ok_or_clear	Diagnostics render status, capabilities, networks, and scan sections.
+E2E-018	Shell Wi-Fi capabilities	shell	show wifi capabilities	ok_or_clear	Capabilities render supported/unsupported Wi-Fi features.
+E2E-019	Shell Wi-Fi scan cached	shell	show wifi scan	ok_or_clear	Cached scan output renders.
+E2E-020	Shell Wi-Fi scan band	shell	show wifi scan all	ok_or_clear	Cached scan output renders for all bands.
+E2E-021	Shell Wi-Fi scan fresh	shell	show wifi scan fresh timeout 8000 all	ok_or_clear	Fresh scan completes or reports structured scan status.
+E2E-022	Shell Wi-Fi scan detail	shell	"show wifi scan detail all ""<ssid>"""	ok_or_clear	Scan detail for the test SSID renders.
+E2E-023	Shell Wi-Fi connect	shell	"request> wifi connect passphrase <psk> security auto timeout 25000 ""<ssid>"""	ok_or_clear	Device connects to the test SSID and reports IP status.
+E2E-024	Shell Wi-Fi wait	shell	"request> wifi wait connected ""<ssid>"" ip timeout 12000"	ok_or_clear	Wait condition reaches the test SSID with IP.
+E2E-025	Shell Wi-Fi assert	shell	"request> wifi assert ssid ""<ssid>"" ip timeout 5000"	ok_or_clear	Assertion passes for the test SSID with IP.
+E2E-026	Shell Wi-Fi reconnect	shell	request> wifi reconnect timeout 12000	ok_or_clear	Active Wi-Fi reconnect reaches connected state.
+E2E-027	Shell Wi-Fi monitor	shell	request> monitor wifi duration 1500 interval 500	ok_or_clear	Wi-Fi event monitor returns without timeout error.
+E2E-028	Shell Wi-Fi cycle	shell	"request> wifi cycle passphrase <psk> count 1 ping 1.1.1.1 pause 100 timeout 25000 ""<ssid>"""	ok_or_clear	One cycle connects, pings, and disconnects with pass count 1/1.
+E2E-029	Shell Wi-Fi disconnect	shell	request> wifi disconnect	ok_or_clear	Disconnect command returns a structured operation result.
+E2E-030	Shell Wi-Fi forget	shell	"request> wifi forget ""<ssid>"""	ok_or_clear	Saved test network is forgotten or best-effort success is reported.
+E2E-031	Shell ping	shell	request> ping count 1 timeout 8000 1.1.1.1	ok_or_clear	Ping result status OK with transmitted/received counts.
+E2E-032	Shell traceroute	shell	request> traceroute max-hops 30 timeout 60000 1.1.1.1	ok_or_clear	Traceroute result status OK or structured fallback reaches target.
+E2E-033	Shell path MTU	shell	request> path-mtu min-mtu 576 max-mtu 1200 timeout 20000 1.1.1.1	ok_or_clear	Path MTU discovery succeeds.
+E2E-034	Shell global IP	shell	request> global-ip ipv4 timeout 10000	ok_or_clear	Public IPv4 result renders.
+E2E-035	Shell DNS	shell	request> dns type A timeout 8000 www.google.com	ok_or_clear	A record resolution succeeds.
+E2E-036	Shell HTTP	shell	request> http expected-status 204 timeout 10000 http://connectivitycheck.gstatic.com/generate_204	ok_or_clear	HTTP status check matches 204.
+E2E-037	Shell download	shell	request> download timeout 15000 https://example.com/	ok_or_clear	Download probe succeeds with 2xx/3xx status.
+E2E-038	Shell quit	shell	quit	ok_or_clear	Shell exits cleanly.
+E2E-039	Shell exit	shell	exit	ok_or_clear	Shell exits cleanly.
+E2E-040	Shell rejects extra help argument	shell	help extra	error	`usage: help` parse error; shell continues.
+E2E-041	Shell rejects extra show-devices argument	shell	show devices extra	error	`usage: show devices`.
+E2E-042	Shell show standalone runs bad limit	shell	show standalone runs limit nope	error	Limit must be a positive integer.
+E2E-043	Shell show standalone run missing	shell	"show standalone run """""	error	Standalone run id is required.
+E2E-044	Shell set standalone enabled arity	shell	config> set standalone enabled interval 1s	error	Enabled takes no options.
+E2E-045	Shell set standalone bad retention	shell	config> set standalone retention -1s	error	Invalid duration error.
+E2E-046	Shell request standalone run arity	shell	request> standalone run once festa smoke save extra	error	Usage error.
+E2E-047	Shell clear standalone bad mode	shell	clear standalone runs invalid	error	Clear mode must be `synced` or `all`.
+E2E-048	Shell sync standalone bad limit	shell	sync standalone runs limit nope	error	Standalone sync limit parse error.
+E2E-049	Shell show Wi-Fi status extra	shell	show wifi status extra	error	`usage: show wifi status`.
+E2E-050	Shell show Wi-Fi scan duplicate band	shell	show wifi scan fresh all all	error	`wifi scan fresh band specified twice`.
+E2E-051	Shell show Wi-Fi scan bad timeout	shell	show wifi scan fresh timeout nope all	error	Timeout must be a positive integer.
+E2E-052	Shell show Wi-Fi scan detail missing target	shell	show wifi scan detail	error	Scan detail usage error.
+E2E-053	Shell show Wi-Fi scan bad band	shell	show wifi scan nope	error	Unsupported/unknown Wi-Fi band error.
+E2E-054	Shell Wi-Fi connect missing passphrase	shell	"request> wifi connect ""<ssid>"""	error	Missing passphrase error.
+E2E-055	Shell Wi-Fi connect bad security	shell	"request> wifi connect passphrase <psk> security wep ""<ssid>"""	error	Unsupported Wi-Fi security error.
+E2E-056	Shell Wi-Fi connect bad MAC mode	shell	"request> wifi connect passphrase <psk> mac-randomization weird ""<ssid>"""	error	Unsupported MAC randomization error.
+E2E-057	Shell Wi-Fi wait duplicate SSID	shell	"request> wifi wait connected ""<ssid>"" ssid other"	error	Wi-Fi SSID specified twice.
+E2E-058	Shell Wi-Fi assert bad token	shell	request> wifi assert bogus	error	Unknown expectation option error.
+E2E-059	Shell Wi-Fi reconnect bad timeout	shell	request> wifi reconnect timeout 0	error	Timeout must be a positive integer.
+E2E-060	Shell Wi-Fi cycle bad count	shell	"request> wifi cycle passphrase <psk> count 0 ""<ssid>"""	error	Count must be a positive integer.
+E2E-061	Shell monitor Wi-Fi bad duration	shell	request> monitor wifi duration 0	error	Duration must be a positive integer.
+E2E-062	Shell ping bad count	shell	request> ping count nope 1.1.1.1	error	Ping count must be a positive integer.
+E2E-063	Shell ping extra positional	shell	request> ping 1.1.1.1 extra	error	Unexpected ping argument error.
+E2E-064	Shell traceroute bad max-hops	shell	request> traceroute max-hops 0 1.1.1.1	error	Max hops must be a positive integer.
+E2E-065	Shell path MTU bad minimum	shell	request> path-mtu min-mtu nope 1.1.1.1	error	Min MTU must be a positive integer.
+E2E-066	Shell global IP duplicate family	shell	request> global-ip ipv4 ipv6	error	Family specified twice.
+E2E-067	Shell global IP bad family	shell	request> global-ip family bad	error	Unsupported IP family error.
+E2E-068	Shell DNS bad type	shell	request> dns type MX example.com	error	Unsupported DNS qtype error.
+E2E-069	Shell HTTP bad status	shell	request> http expected-status nope https://example.com/	error	Expected status must be a positive integer.
+E2E-070	Shell download missing URL	shell	request> download	error	Download usage error.
+E2E-071	Shell pipe bad regex	shell	show devices | match [	error	Regex compile error.
+E2E-072	Shell pipe unknown	shell	show devices | unknown	error	Unknown pipe error.
+E2E-073	Shell quit extra	shell	quit now	error	`usage: quit`.
+E2E-074	Shell exit extra	shell	exit now	error	`usage: exit`.
+E2E-075	Parser full-line ASCII help token	shell-parser	?	help	Top-level help entries are printed; no command dispatch.
+E2E-076	Parser full-line full-width help token	shell-parser	？	help	Top-level help entries are printed; no command dispatch.
+E2E-077	Parser context help after command prefix	shell-parser	show wifi ?	help	Contextual choices for `status`, `diagnostics`, `scan`, `capabilities`.
+E2E-078	Parser value completion help	shell-parser	request> wifi connect security ?	help	Security candidates include `auto`, `wpa2`, `wpa3`, `transition`.
+E2E-079	Parser help suffix after value-taking option	shell-parser	show wifi scan fresh timeout ?	help	Placeholder/help for timeout value, not a missing-value parse error.
+E2E-080	Shell resolves unique command prefixes	shell	sho wi sta	ok_or_clear	Unique prefixes resolve to `show wifi status` and return Wi-Fi status.
+E2E-081	Parser rejects ambiguous command prefixes	shell-parser	show wifi s	error	Ambiguous prefix error for `status` vs `scan`.
+E2E-082	Parser rejects unterminated quotes	shell-parser	"show wifi status """	error	Unterminated quote parse error.
+E2E-083	Parser empty quoted positional	shell-parser	"request> wifi connect """" passphrase <psk>"	error	Missing/empty SSID error.
+E2E-084	Parser quoted pipe handling	shell-parser	"show wifi scan detail ""Example|SSID"""	ok	The pipe inside quotes is part of the argument, not a pipeline delimiter.
+E2E-085	Parser empty pipe stage	shell-parser	show devices |	error	Pipeline usage/error for empty stage.
+E2E-086	Parser pipe command arity	shell-parser	show devices | count extra	error	`count` rejects extra arguments.
+E2E-087	Parser missing regex value	shell-parser	show devices | match	error	`match` requires a regex value.
+E2E-088	Parser regex compile error	shell-parser	"show devices | except ""["""	error	Invalid regex error.
+E2E-089	Parser display value validation	shell-parser	show devices | display xml	error	`display` rejects unsupported format.
+E2E-090	Parser display arity	shell-parser	show devices | display json extra	error	`display` rejects extra argument.
+E2E-091	Shell case-insensitive regex	shell	"show devices | match ""(?i)pixel"""	ok_or_clear	Matching output contains the Pixel device row.
+E2E-092	Shell pipeline order after display	shell	show devices | display json | count	ok_or_clear	Command succeeds and counts JSON lines.
+E2E-093	Shell rejects display after count	shell	show devices | count | display json	error	`display json` after `count` is rejected with a shell error.
+E2E-094	Parser unknown pipe stage	shell-parser	show devices | unknown	error	Unsupported pipe command error.
+E2E-095	Shell synced flag alone	shell	show standalone runs synced	ok_or_clear	Runs list includes synced records if present, otherwise empty list succeeds.
+E2E-096	Shell option order with flag before value	shell	show standalone runs synced limit 1	ok_or_clear	Runs list limited to 1 with synced records included.
+E2E-097	Shell option order with value before flag	shell	show standalone runs limit 1 synced	ok_or_clear	Runs list limited to 1 with synced records included.
+E2E-098	Parser rejects duplicate synced flags	shell-parser	show standalone runs synced synced	error	Duplicate `synced` flags are rejected.
+E2E-099	Parser rejects duplicate limit values	shell-parser	show standalone runs limit 1 limit 2	error	Duplicate `limit` values are rejected.
+E2E-100	Parser empty run id	shell-parser	"show standalone run """""	error	Standalone run id is required.
+E2E-101	Shell default clear mode	shell	clear standalone runs	ok_or_clear	Clears only synced runs; unsynced runs remain.
+E2E-102	Shell explicit clear mode	shell	clear standalone runs synced	ok_or_clear	Explicit synced clear succeeds.
+E2E-103	Parser clear arity	shell-parser	clear standalone runs synced all	error	Usage error; only one clear mode.
+E2E-104	Parser delete festa parser	shell-parser	config> delete standalone festa smoke	ok	Delete standalone festa parses to a standalone config edit.
+E2E-105	Shell accepts day retention duration	shell	config> set standalone retention 2d	ok_or_clear	Config accepts day durations.
+E2E-106	Shell accepts gigabyte store size	shell	config> set standalone max-size 1g	ok_or_clear	Config accepts gigabyte suffix.
+E2E-107	Parser enabled arity	shell-parser	config> set standalone enabled interval 1s	error	Enabled takes no options.
+E2E-108	Parser negative duration	shell-parser	config> set standalone retention -1s	error	Invalid duration error.
+E2E-109	Parser size suffix error	shell-parser	config> set standalone max-size 1t	error	Invalid size suffix error.
+E2E-110	Parser rejects standalone disable arity	shell-parser	config> set standalone disabled plan nope	error	Usage error; disabled takes no options.
+E2E-111	Shell restores standalone enabled state	shell	config> set standalone disabled	ok_or_clear	Standalone config disabled; restore safe state.
+E2E-112	Shell runs standalone check without save	shell	request> standalone run once festa smoke	ok_or_clear	One-off standalone run runs without saving.
+E2E-113	Parser rejects standalone run flag arity	shell-parser	request> standalone run once festa smoke save extra	error	Usage/unknown option error.
+E2E-114	Parser accepts standalone run option order	shell-parser	request> standalone run once save festa smoke	ok	Flag-before-name form parses.
+E2E-115	Shell syncs with explicit mark-synced	shell	sync standalone runs output <sync-dir> limit 1 mark-synced	ok_or_clear	Sync downloads at most one run and marks it synced.
+E2E-116	Shell syncs with default mark-synced	shell	sync standalone runs output <sync-dir> limit 1	ok_or_clear	Default sync marks downloaded runs synced.
+E2E-117	Shell conflicting sync flags	shell	sync standalone runs output <sync-dir> limit 1 mark-synced keep-unsynced	error	Conflicting sync flags are rejected.
+E2E-118	Shell conflicting sync flags reversed	shell	sync standalone runs output <sync-dir> limit 1 keep-unsynced mark-synced	error	Conflicting sync flags are rejected when reversed.
+E2E-119	Parser limit boundary	shell-parser	sync standalone runs limit 0	error	Sync limit must be positive.
+E2E-120	Shell band value 2.4 GHz	shell	show wifi scan 2.4ghz	ok_or_clear	Cached scan filtered to 2.4 GHz succeeds.
+E2E-121	Shell band value 5 GHz	shell	show wifi scan 5ghz	ok_or_clear	Cached scan filtered to 5 GHz succeeds.
+E2E-122	Shell band value 6 GHz	shell	show wifi scan 6ghz	ok_or_clear	Cached scan filtered to 6 GHz succeeds even if empty.
+E2E-123	Shell band value 60 GHz	shell	show wifi scan 60ghz	ok_or_clear	Cached scan filtered to 60 GHz succeeds even if empty.
+E2E-124	Shell fresh option order	shell	show wifi scan fresh 2.4ghz timeout 12000	ok_or_clear	Fresh scan accepts band before timeout.
+E2E-125	Shell fresh option order reversed	shell	show wifi scan fresh timeout 12000 5ghz	ok_or_clear	Fresh scan accepts timeout before band.
+E2E-126	Shell fresh 6 GHz	shell	show wifi scan fresh timeout 12000 6ghz	ok_or_clear	Fresh scan accepts 6 GHz band.
+E2E-127	Shell fresh 60 GHz	shell	show wifi scan fresh timeout 12000 60ghz	ok_or_clear	Fresh scan accepts 60 GHz band even if empty/unsupported.
+E2E-128	Shell detail target-band order	shell	"show wifi scan detail ""<ssid>"" all"	ok_or_clear	Detail accepts target before band.
+E2E-129	Shell detail band-target order	shell	"show wifi scan detail 5ghz ""<ssid>"""	ok_or_clear	Detail accepts band before target.
+E2E-130	Parser detail missing target	shell-parser	show wifi scan detail	error	Usage error.
+E2E-131	Parser accepts scan-detail target named all	shell-parser	show wifi scan detail all	ok	The positional `all` value is accepted as the scan-detail target.
+E2E-132	Parser detail over-arity	shell-parser	"show wifi scan detail all ""<ssid>"" 5ghz"	error	Usage error; too many args/band twice.
+E2E-133	Parser missing timeout value	shell-parser	show wifi scan fresh timeout	error	`timeout requires a value`.
+E2E-134	Parser timeout lower boundary	shell-parser	show wifi scan fresh timeout 0	error	Timeout must be positive.
+E2E-135	Parser duplicate band	shell-parser	show wifi scan fresh 5ghz 6ghz	error	Fresh band specified twice.
+E2E-136	Parser invalid scan argument	shell-parser	show wifi scan bogus	error	Unsupported Wi-Fi band or unknown scan argument.
+E2E-137	Parser rejects duplicate scan timeout	shell-parser	show wifi scan fresh timeout 100 timeout 200	error	Duplicate scan timeout values are rejected.
+E2E-138	Shell accepts connect SSID before options	shell	"request> wifi connect ""<ssid>"" passphrase <psk>"	ok_or_clear	Positional SSID before options connects with default security/timeout.
+E2E-139	Shell accepts connect options before SSID	shell	"request> wifi connect passphrase <psk> ""<ssid>"""	ok_or_clear	SSID after options connects.
+E2E-140	Shell security wpa2	shell	"request> wifi connect passphrase <psk> security wpa2 timeout 25000 ""<ssid>"""	ok_or_clear	Either connects using WPA2 or returns clear agent unsupported/security mismatch error.
+E2E-141	Shell security wpa3	shell	"request> wifi connect passphrase <psk> security wpa3 timeout 25000 ""<ssid>"""	ok_or_clear	Connects to WPA3 test AP or returns clear mismatch error.
+E2E-142	Shell security transition	shell	"request> wifi connect passphrase <psk> security transition timeout 25000 ""<ssid>"""	ok_or_clear	Connects or returns clear mismatch error.
+E2E-143	Shell band all	shell	"request> wifi connect passphrase <psk> band all timeout 25000 ""<ssid>"""	ok_or_clear	Connects with all-band selector.
+E2E-144	Shell connect band 2.4 GHz	shell	"request> wifi connect passphrase <psk> band 2.4ghz timeout 25000 ""<ssid>"""	ok_or_clear	Connects if AP has 2.4 GHz BSSID, otherwise clear timeout/failure.
+E2E-145	Shell connect band 5 GHz	shell	"request> wifi connect passphrase <psk> band 5ghz timeout 25000 ""<ssid>"""	ok_or_clear	Connects on observed 5 GHz AP.
+E2E-146	Shell connect band 6 GHz	shell	"request> wifi connect passphrase <psk> band 6ghz timeout 25000 ""<ssid>"""	ok_or_clear	Either connects if available or clear timeout/failure.
+E2E-147	Shell connect band 60 GHz	shell	"request> wifi connect passphrase <psk> band 60ghz timeout 25000 ""<ssid>"""	ok_or_clear	Either connects if available or clear timeout/failure; no parser panic.
+E2E-148	Shell MAC auto	shell	"request> wifi connect passphrase <psk> mac-randomization auto timeout 25000 ""<ssid>"""	ok_or_clear	Connect command accepts auto MAC randomization.
+E2E-149	Shell MAC none	shell	"request> wifi connect passphrase <psk> mac-randomization none timeout 25000 ""<ssid>"""	ok_or_clear	Connect command accepts no MAC randomization.
+E2E-150	Shell MAC persistent	shell	"request> wifi connect passphrase <psk> mac-randomization persistent timeout 25000 ""<ssid>"""	ok_or_clear	Connect command accepts persistent MAC randomization.
+E2E-151	Shell MAC non-persistent	shell	"request> wifi connect passphrase <psk> mac-randomization non-persistent timeout 25000 ""<ssid>"""	ok_or_clear	Connect command accepts non-persistent MAC randomization.
+E2E-152	Shell BSSID option	shell	"request> wifi connect passphrase <psk> bssid <bssid> timeout 25000 ""<ssid>"""	ok_or_clear	Connects to the specified BSSID if still present; otherwise clear BSSID failure.
+E2E-153	Parser duplicate value option	shell-parser	"request> wifi connect passphrase <psk> security auto security wpa3 ""<ssid>"""	error	Duplicate security values are rejected.
+E2E-154	Parser duplicate passphrase	shell-parser	"request> wifi connect passphrase <psk> passphrase other ""<ssid>"""	error	Duplicate passphrase values are rejected.
+E2E-155	Parser rejects duplicate connect timeout	shell-parser	"request> wifi connect passphrase <psk> timeout 100 timeout 200 ""<ssid>"""	error	Duplicate connect timeout values are rejected.
+E2E-156	Parser missing misplaced BSSID value	shell-parser	"request> wifi connect passphrase <psk> bssid ""<ssid>"""	error	`bssid requires a value` or invalid BSSID; must not consume SSID silently.
+E2E-157	Parser missing misplaced band value	shell-parser	"request> wifi connect passphrase <psk> band ""<ssid>"""	error	Unsupported Wi-Fi band or missing value error; must not consume SSID silently.
+E2E-158	Parser rejects connect timeout boundary	shell-parser	"request> wifi connect passphrase <psk> timeout 0 ""<ssid>"""	error	Timeout must be positive.
+E2E-159	Parser timeout parse error	shell-parser	"request> wifi connect passphrase <psk> timeout nope ""<ssid>"""	error	Timeout must be positive integer.
+E2E-160	Parser extra positional	shell-parser	"request> wifi connect passphrase <psk> ""<ssid>"" extra"	error	Unexpected extra positional argument.
+E2E-161	Parser empty value	shell-parser	"request> wifi connect passphrase """" ""<ssid>"""	error	Empty passphrase values are rejected.
+E2E-162	Shell restores Wi-Fi connection state	shell	"request> wifi connect passphrase <psk> security auto timeout 25000 ""<ssid>"""	ok_or_clear	Restore known connected state after connect variants.
+E2E-163	Shell wait SSID option	shell	"request> wifi wait connected ssid ""<ssid>"" ip timeout 12000"	ok_or_clear	Keyword `ssid` form waits successfully.
+E2E-164	Shell wait BSSID	shell	request> wifi wait connected bssid <bssid> timeout 12000	ok_or_clear	Waits for BSSID if connected; otherwise clear timeout.
+E2E-165	Shell wait security	shell	request> wifi wait connected security wpa3 timeout 12000	ok_or_clear	Waits for WPA3/SAE if current security matches; otherwise clear timeout.
+E2E-166	Shell wait band	shell	request> wifi wait connected band 5ghz timeout 12000	ok_or_clear	Waits for 5 GHz current connection.
+E2E-167	Shell wait validated	shell	request> wifi wait connected validated timeout 12000	ok_or_clear	Waits for validated network.
+E2E-168	Shell combined flags	shell	request> wifi wait connected ip validated timeout 12000	ok_or_clear	Waits for both IP and validation.
+E2E-169	Shell no SSID condition	shell	request> wifi wait connected timeout 1000	ok_or_clear	Waits only for any Wi-Fi connection.
+E2E-170	Shell assert BSSID	shell	request> wifi assert bssid <bssid> timeout 5000	ok_or_clear	Assertion checks BSSID.
+E2E-171	Shell assert security	shell	request> wifi assert security wpa3 timeout 5000	ok_or_clear	Assertion checks security.
+E2E-172	Shell assert band	shell	request> wifi assert band 5ghz timeout 5000	ok_or_clear	Assertion checks band.
+E2E-173	Shell assert validated	shell	request> wifi assert validated timeout 5000	ok_or_clear	Assertion checks validation.
+E2E-174	Shell no explicit condition	shell	request> wifi assert timeout 5000	ok_or_clear	Assertion with no conditions succeeds only if connected; output should explain checks.
+E2E-175	Parser duplicate SSID	shell-parser	"request> wifi wait connected ssid ""<ssid>"" ssid other"	error	Duplicate SSID error.
+E2E-176	Parser duplicate positional SSID	shell-parser	"request> wifi wait connected ""<ssid>"" ""other"""	error	Unexpected extra positional argument.
+E2E-177	Parser accepts wait security auto	shell-parser	request> wifi wait connected security auto	ok	Security `auto` is accepted by the wait parser.
+E2E-178	Parser accepts assert security auto	shell-parser	request> wifi assert security auto	ok	Security `auto` is accepted by the assert parser.
+E2E-179	Parser wait band validation	shell-parser	request> wifi wait connected band 7ghz	error	Unsupported Wi-Fi band.
+E2E-180	Parser assert band validation	shell-parser	request> wifi assert band 7ghz	error	Unsupported Wi-Fi band.
+E2E-181	Parser wait timeout boundary	shell-parser	request> wifi wait connected timeout 0	error	Timeout must be positive.
+E2E-182	Parser assert timeout boundary	shell-parser	request> wifi assert timeout 0	error	Timeout must be positive.
+E2E-183	Parser missing wait value	shell-parser	request> wifi wait connected bssid	error	`bssid requires a value`.
+E2E-184	Parser missing assert value	shell-parser	request> wifi assert ssid	error	`ssid requires a value`.
+E2E-185	Parser assert positional rejection	shell-parser	"request> wifi assert ""<ssid>"""	error	Usage error; assert does not accept positional SSID.
+E2E-186	Parser wait subcommand validation	shell-parser	request> wifi wait disconnected	error	Usage error; only `connected` is supported.
+E2E-187	Parser rejects duplicate assert flags	shell-parser	request> wifi assert ip ip	error	Duplicate `ip` flags are rejected.
+E2E-188	Parser rejects duplicate assert timeout	shell-parser	request> wifi assert timeout 100 timeout 200	error	Duplicate assert timeout values are rejected.
+E2E-189	Shell HTTP probe	shell	"request> wifi cycle passphrase <psk> count 1 http https://www.google.com/generate_204 pause 100 timeout 25000 ""<ssid>"""	ok_or_clear	One cycle connects, HTTP check passes, disconnects.
+E2E-190	Shell combined probes	shell	"request> wifi cycle passphrase <psk> count 1 ping 1.1.1.1 http https://www.google.com/generate_204 pause 100 timeout 25000 ""<ssid>"""	ok_or_clear	One cycle runs both ping and HTTP probes.
+E2E-191	Shell forget flag	shell	"request> wifi cycle passphrase <psk> count 1 forget pause 100 timeout 25000 ""<ssid>"""	ok_or_clear	Cycle forgets network after disconnect; reconnect after case to restore.
+E2E-192	Shell restores Wi-Fi cycle state	shell	"request> wifi connect passphrase <psk> security auto timeout 25000 ""<ssid>"""	ok_or_clear	Restore connection after forget cycle.
+E2E-193	Shell accepts cycle SSID before options	shell	"request> wifi cycle ""<ssid>"" passphrase <psk> count 1 pause 100 timeout 25000"	ok_or_clear	SSID before options accepted.
+E2E-194	Shell connect option reuse	shell	"request> wifi cycle passphrase <psk> security wpa3 band 5ghz mac-randomization auto count 1 pause 100 timeout 25000 ""<ssid>"""	ok_or_clear	Cycle accepts connect sub-options.
+E2E-195	Parser count boundary	shell-parser	"request> wifi cycle passphrase <psk> count 0 ""<ssid>"""	error	Count must be positive.
+E2E-196	Parser pause boundary	shell-parser	"request> wifi cycle passphrase <psk> pause 0 ""<ssid>"""	error	Pause must be positive.
+E2E-197	Parser rejects cycle timeout boundary	shell-parser	"request> wifi cycle passphrase <psk> timeout 0 ""<ssid>"""	error	Timeout must be positive.
+E2E-198	Parser count parse error	shell-parser	"request> wifi cycle passphrase <psk> count nope ""<ssid>"""	error	Count parse error.
+E2E-199	Parser pause parse error	shell-parser	"request> wifi cycle passphrase <psk> pause nope ""<ssid>"""	error	Pause parse error.
+E2E-200	Parser missing misplaced HTTP value	shell-parser	"request> wifi cycle passphrase <psk> http ""<ssid>"""	error	`http requires a value` or invalid missing URL; must not consume SSID silently.
+E2E-201	Parser rejects cycle flag arity	shell-parser	"request> wifi cycle passphrase <psk> forget yes ""<ssid>"""	error	Unexpected extra positional or option error; `forget` takes no value.
+E2E-202	Parser missing misplaced ping value	shell-parser	"request> wifi cycle passphrase <psk> ping ""<ssid>"""	error	`ping requires a value` or missing SSID error; must not consume SSID silently.
+E2E-203	Parser duplicate count	shell-parser	"request> wifi cycle passphrase <psk> count 1 count 2 ""<ssid>"""	error	Duplicate cycle count values are rejected.
+E2E-204	Parser duplicate flag	shell-parser	"request> wifi cycle passphrase <psk> forget forget ""<ssid>"""	error	Duplicate cycle flags are rejected.
+E2E-205	Shell default reconnect timeout	shell	request> wifi reconnect	ok_or_clear	Reconnects with default timeout.
+E2E-206	Parser missing reconnect timeout	shell-parser	request> wifi reconnect timeout	error	`timeout requires a value`.
+E2E-207	Parser reconnect timeout boundary	shell-parser	request> wifi reconnect timeout 0	error	Timeout must be positive.
+E2E-208	Parser positional timeout rejection	shell-parser	request> wifi reconnect 1000	error	Usage error; shell requires `timeout <ms>` form.
+E2E-209	Parser disconnect arity	shell-parser	request> wifi disconnect now	error	Usage error.
+E2E-210	Parser forget missing target	shell-parser	request> wifi forget	error	Usage error.
+E2E-211	Parser forget arity	shell-parser	"request> wifi forget ""<ssid>"" extra"	error	Usage error.
+E2E-212	Shell monitor defaults	shell	request> monitor wifi	ok_or_clear	Monitors Wi-Fi with default duration/interval.
+E2E-213	Shell interval-only path	shell	request> monitor wifi interval 500	ok_or_clear	Uses default duration and 500 ms interval.
+E2E-214	Shell duration-only path	shell	request> monitor wifi duration 1500	ok_or_clear	Uses explicit duration and default interval.
+E2E-215	Parser missing duration	shell-parser	request> monitor wifi duration	error	`duration requires a value`.
+E2E-216	Parser missing interval	shell-parser	request> monitor wifi interval	error	`interval requires a value`.
+E2E-217	Parser duration boundary	shell-parser	request> monitor wifi duration 0	error	Duration must be positive.
+E2E-218	Parser interval boundary	shell-parser	request> monitor wifi duration 1000 interval 0	error	Interval must be positive.
+E2E-219	Shell ping defaults	shell	request> ping 1.1.1.1	ok_or_clear	Default count/timeout ping succeeds.
+E2E-220	Shell ping size	shell	request> ping 1.1.1.1 size 56 count 2 timeout 7000	ok_or_clear	Ping accepts payload size.
+E2E-221	Shell ping order	shell	request> ping count 2 size 56 timeout 7000 1.1.1.1	ok_or_clear	Options before host accepted.
+E2E-222	Parser rejects ping size zero	shell-parser	request> ping 1.1.1.1 size 0	error	Ping size zero is rejected.
+E2E-223	Parser ping size failure	shell-parser	request> ping 1.1.1.1 size nope	error	Size parse error.
+E2E-224	Parser ping timeout boundary	shell-parser	request> ping 1.1.1.1 timeout 0	error	Timeout must be positive.
+E2E-225	Parser duplicate ping count	shell-parser	request> ping 1.1.1.1 count 1 count 2	error	Duplicate ping count values are rejected.
+E2E-226	Shell traceroute defaults	shell	request> traceroute 1.1.1.1	ok_or_clear	Default traceroute succeeds or returns clear network failure.
+E2E-227	Shell traceroute size	shell	request> traceroute 1.1.1.1 size 56 max-hops 8 timeout 30000	ok_or_clear	Traceroute accepts size.
+E2E-228	Shell single via	shell	request> traceroute 1.1.1.1 via 192.168.23.254 max-hops 8 timeout 30000	ok_or_clear	Required hop is checked in renderer; pass if hop appears, otherwise clear required-hop failure.
+E2E-229	Shell repeatable via	shell	request> traceroute 1.1.1.1 via 192.168.23.254 via 1.1.1.1 max-hops 8 timeout 30000	ok_or_clear	Multiple required hops are checked.
+E2E-230	Parser missing via	shell-parser	request> traceroute 1.1.1.1 via	error	`via requires a value`.
+E2E-231	Parser traceroute size failure	shell-parser	request> traceroute 1.1.1.1 size nope	error	Size parse error.
+E2E-232	Parser traceroute timeout boundary	shell-parser	request> traceroute 1.1.1.1 timeout 0	error	Timeout must be positive.
+E2E-233	Parser duplicate max-hops	shell-parser	request> traceroute 1.1.1.1 max-hops 1 max-hops 2	error	Duplicate traceroute max-hop values are rejected.
+E2E-234	Shell path MTU defaults	shell	request> path-mtu 1.1.1.1	ok_or_clear	Default MTU search succeeds or reports clear network failure.
+E2E-235	Shell accepts path MTU minimum only	shell	request> path-mtu min-mtu 1200 1.1.1.1	ok_or_clear	Min-only path accepted.
+E2E-236	Shell accepts path MTU maximum only	shell	request> path-mtu max-mtu 1500 1.1.1.1	ok_or_clear	Max-only path accepted.
+E2E-237	Shell option order before host	shell	request> path-mtu min-mtu 1200 max-mtu 1500 timeout 30000 1.1.1.1	ok_or_clear	Full bounds path accepted.
+E2E-238	Parser min greater than max	shell-parser	request> path-mtu min-mtu 1600 max-mtu 1200 1.1.1.1	error	Path MTU minimum must not exceed the maximum.
+E2E-239	Parser max boundary	shell-parser	request> path-mtu max-mtu 0 1.1.1.1	error	Max MTU must be positive if specified.
+E2E-240	Parser path-MTU timeout boundary	shell-parser	request> path-mtu timeout 0 1.1.1.1	error	Timeout must be positive.
+E2E-241	Parser duplicate min	shell-parser	request> path-mtu min-mtu 1200 min-mtu 1300 1.1.1.1	error	Duplicate path MTU minimum values are rejected.
+E2E-242	Shell global IP defaults	shell	request> global-ip	ok_or_clear	Default all-family global IP lookup succeeds.
+E2E-243	Shell global IP family IPv6	shell	request> global-ip ipv6 timeout 7000	ok_or_clear	IPv6 family value accepted; succeeds or clear IPv6 unavailable result.
+E2E-244	Shell global IP family all	shell	request> global-ip all timeout 7000	ok_or_clear	All-family explicit value accepted.
+E2E-245	Parser numeric family 4 rejected	shell-parser	request> global-ip 4 timeout 7000	error	Numeric IPv4 shorthand is not accepted.
+E2E-246	Parser numeric family 6 rejected	shell-parser	request> global-ip 6 timeout 7000	error	Numeric IPv6 shorthand is not accepted.
+E2E-247	Shell accepts global IP family keyword	shell	request> global-ip family ipv4 timeout 7000	ok_or_clear	Keyword family form accepted.
+E2E-248	Parser missing family	shell-parser	request> global-ip family	error	`family requires a value`.
+E2E-249	Parser global-IP timeout boundary	shell-parser	request> global-ip timeout 0	error	Timeout must be positive.
+E2E-250	Parser duplicate family	shell-parser	request> global-ip family ipv4 family ipv6	error	Duplicate family error.
+E2E-251	Shell DNS defaults	shell	request> dns example.com	ok_or_clear	Default ALL qtypes (A and AAAA) succeed.
+E2E-252	Shell DNS positional qtype	shell	request> dns example.com AAAA timeout 7000	ok_or_clear	Positional AAAA qtype accepted.
+E2E-253	Shell DNS option order	shell	request> dns type ALL timeout 7000 example.com	ok_or_clear	Option qtype before name accepted.
+E2E-254	Shell DNS option order reversed	shell	request> dns example.com type A timeout 7000	ok_or_clear	Option qtype after name accepted.
+E2E-255	Parser missing DNS type	shell-parser	request> dns example.com type	error	`type requires a value`.
+E2E-256	Parser DNS timeout boundary	shell-parser	request> dns example.com timeout 0	error	Timeout must be positive.
+E2E-257	Parser too many DNS args	shell-parser	request> dns example.com A AAAA	error	Unexpected extra DNS argument.
+E2E-258	Parser duplicate DNS type	shell-parser	request> dns example.com type A type AAAA	error	Duplicate DNS type values are rejected.
+E2E-259	Shell HTTP default scheme status	shell	request> http example.com	ok_or_clear	URL is normalized to HTTPS and expected status defaults to 200.
+E2E-260	Shell HTTP option order	shell	request> http expected-status 200 timeout 7000 https://example.com	ok_or_clear	Options before URL accepted.
+E2E-261	Shell HTTP expected status after URL	shell	request> http https://www.google.com/generate_204 expected-status 204 timeout 7000	ok_or_clear	Expected 204 path succeeds.
+E2E-262	Parser HTTP status boundary	shell-parser	request> http https://example.com expected-status 0	error	Expected status must be positive.
+E2E-263	Parser HTTP timeout boundary	shell-parser	request> http https://example.com timeout 0	error	Timeout must be positive.
+E2E-264	Parser missing status	shell-parser	request> http expected-status	error	`expected-status requires a value`.
+E2E-265	Parser duplicate HTTP option	shell-parser	request> http https://example.com expected-status 200 expected-status 204	error	Duplicate HTTP expected-status values are rejected.
+E2E-266	Parser too many HTTP args	shell-parser	request> http https://example.com https://example.org	error	Unexpected extra HTTP argument.
+E2E-267	Shell download default timeout	shell	request> download https://example.com	ok_or_clear	Download probe succeeds with default timeout.
+E2E-268	Shell download option order	shell	request> download timeout 30000 https://example.com	ok_or_clear	Timeout before URL accepted.
+E2E-269	Parser missing download timeout	shell-parser	request> download timeout	error	`timeout requires a value`.
+E2E-270	Parser download timeout boundary	shell-parser	request> download https://example.com timeout 0	error	Timeout must be positive.
+E2E-271	Parser too many download args	shell-parser	request> download https://example.com https://example.org	error	Unexpected extra download argument.
+E2E-272	CLI top-level --serial	cli	dropcheck --serial <serial> show devices	ok	Devices list is printed for the selected serial.
+E2E-273	CLI --format JSON with equals form	cli	dropcheck --serial=<serial> --format json show devices	ok	JSON devices output.
+E2E-274	CLI --format text	cli	dropcheck --format text show devices	ok	Text devices output.
+E2E-275	CLI invalid global format	cli	dropcheck --format yaml show devices	error	`--format must be text or json`.
+E2E-276	CLI global target conflict	cli	dropcheck --all --target <serial> show devices	error	`--all and --target cannot be used together`.
+E2E-277	CLI global flag arity	cli	dropcheck --all=value show devices	error	`--all does not take a value`.
+E2E-278	CLI missing global flag value	cli	dropcheck --target	error	`--target requires a value`.
+E2E-279	CLI top-level -- delimiter	cli	dropcheck -- --format json show devices	ok	Top-level delimiter leaves args for CLI parsing; JSON devices output is still produced.
+E2E-280	CLI IP status	cli	dropcheck show ip status	ok	IP addressing, routes, DNS, and validation render from the CLI.
+E2E-281	CLI scan --band	cli	dropcheck show wifi scan --band 5ghz	ok	Cached 5 GHz scan succeeds.
+E2E-282	CLI fresh scan options	cli	dropcheck show wifi scan fresh --band 5ghz --timeout 12000	ok	Fresh scan succeeds.
+E2E-283	CLI positional band	cli	dropcheck show wifi scan fresh 5ghz --timeout 12000	ok	Fresh scan positional band succeeds.
+E2E-284	CLI scan timeout restriction	cli	dropcheck show wifi scan --timeout 12000	error	`--timeout is supported only with wifi scan fresh`.
+E2E-285	CLI detail dash band	cli	"dropcheck show wifi scan detail ""<ssid>"" --band 5ghz"	ok	Scan detail succeeds.
+E2E-286	CLI detail positional band	cli	"dropcheck show wifi scan detail ""<ssid>"" 5ghz"	ok	Scan detail positional band succeeds.
+E2E-287	CLI detail invalid option combination	cli	"dropcheck show wifi scan detail ""<ssid>"" --timeout 12000"	error	`--timeout is supported only with wifi scan fresh`.
+E2E-288	CLI accepts positional connect passphrase	cli	"dropcheck request wifi connect ""<ssid>"" <psk> --security auto --timeout 25000"	ok	Positional passphrase form connects.
+E2E-289	CLI connect dash options	cli	"dropcheck request wifi connect ""<ssid>"" --passphrase <psk> --security wpa3 --band 5ghz --mac-randomization auto --timeout 25000"	ok	Dash options accepted.
+E2E-290	CLI missing value	cli	"dropcheck request wifi connect ""<ssid>"" --passphrase"	error	`--passphrase requires a value`.
+E2E-291	CLI connect arity	cli	"dropcheck request wifi connect ""<ssid>"" --passphrase <psk> extra"	error	Too many positional arguments.
+E2E-292	CLI wait flags	cli	"dropcheck request wifi wait connected ""<ssid>"" --ip --validated --timeout 12000"	ok	Wait succeeds.
+E2E-293	CLI wait --SSID	cli	"dropcheck request wifi wait connected --ssid ""<ssid>"" --ip --timeout 12000"	ok	Wait succeeds with dash `--ssid`.
+E2E-294	CLI wait positional arity	cli	"dropcheck request wifi wait connected ""<ssid>"" other"	error	Usage error.
+E2E-295	CLI assert flags	cli	"dropcheck request wifi assert --ssid ""<ssid>"" --ip --validated --timeout 5000"	ok	Assert succeeds.
+E2E-296	CLI assert positional rejection	cli	"dropcheck request wifi assert ""<ssid>"""	error	Usage error; assert requires dash `--ssid`.
+E2E-297	CLI monitor duration interval	cli	dropcheck request monitor wifi --duration 1500 --interval 500	ok	Wi-Fi monitor succeeds.
+E2E-298	CLI monitor positional values	cli	dropcheck request monitor wifi 1500 500	ok	Positional monitor duration/interval succeeds.
+E2E-299	CLI monitor interval-only	cli	dropcheck request monitor wifi --interval 500	ok	Monitor uses default duration and explicit interval.
+E2E-300	CLI positional reconnect timeout	cli	dropcheck request wifi reconnect 10000	ok	Positional reconnect timeout succeeds in CLI.
+E2E-301	CLI reconnect dash timeout	cli	dropcheck request wifi reconnect --timeout 10000	ok	Dash reconnect timeout succeeds.
+E2E-302	CLI cycle dash options	cli	"dropcheck request wifi cycle ""<ssid>"" --passphrase <psk> --count 1 --ping 1.1.1.1 --http https://www.google.com/generate_204 --pause 100 --timeout 25000"	ok	Cycle runs with dash options.
+E2E-303	CLI cycle flag	cli	"dropcheck request wifi cycle ""<ssid>"" --passphrase <psk> --forget --count 1 --pause 100 --timeout 25000"	ok	Cycle forgets after each run.
+E2E-304	CLI accepts positional ping count	cli	dropcheck request ping 1.1.1.1 2 --size 56 --timeout 7000	ok	Positional ping count form succeeds.
+E2E-305	CLI traceroute options	cli	dropcheck request traceroute 1.1.1.1 8 --via 192.168.23.254 --size 56 --timeout 30000	ok	Positional max-hops plus repeatable via works.
+E2E-306	CLI path MTU options	cli	dropcheck request path-mtu 1.1.1.1 --min-mtu 1200 --max-mtu 1500 --timeout 30000	ok	Path-MTU dash options work.
+E2E-307	CLI numeric family rejected	cli	dropcheck request global-ip 4 --timeout 7000	error	Numeric family shorthand is rejected.
+E2E-308	CLI duplicate family	cli	dropcheck request global-ip ipv4 --family ipv6	error	Family specified twice error.
+E2E-309	CLI DNS qtype positional	cli	dropcheck request dns example.com A --timeout 7000	ok	Positional DNS qtype works.
+E2E-310	CLI DNS dash type	cli	dropcheck request dns example.com --type AAAA --timeout 7000	ok	Dash DNS qtype works.
+E2E-311	CLI HTTP positional status	cli	dropcheck request http https://www.google.com/generate_204 204 --timeout 7000	ok	Positional expected status works.
+E2E-312	CLI HTTP dash status	cli	dropcheck request http https://www.google.com/generate_204 --expected-status 204 --timeout 7000	ok	Dash expected status works.
+E2E-313	CLI download timeout	cli	dropcheck request download https://example.com --timeout 30000	ok	Download dash timeout works.
+E2E-314	CLI standalone runs	cli	dropcheck show standalone runs --limit 1 --synced	ok	Standalone runs CLI flags work.
+E2E-315	CLI sync flags	cli	dropcheck sync standalone runs --output <sync-dir> --limit 1 --keep-unsynced	ok	CLI sync keep-unsynced works.
+E2E-316	CLI sync conflict semantics	cli	dropcheck sync standalone runs --output <sync-dir> --limit 1 --mark-synced --keep-unsynced	error	Conflicting sync flags are rejected consistently.
+E2E-317	CLI standalone set	cli	dropcheck configure set standalone retention 2d	ok	CLI standalone set works.
+E2E-318	CLI standalone delete	cli	dropcheck configure delete standalone festa smoke	ok	CLI standalone delete works even when the festa is absent.
+E2E-319	CLI unsupported option	cli	dropcheck show wifi status --unknown	error	Usage/unknown option error.
+E2E-320	CLI duplicate option	cli	"dropcheck request wifi connect ""<ssid>"" --passphrase <psk> --passphrase other"	error	Duplicate option error from dash parser.
+E2E-321	CLI repeatable option exception	cli	dropcheck request traceroute 1.1.1.1 --via 192.168.23.254 --via 1.1.1.1	ok	Repeatable `--via` accepted.

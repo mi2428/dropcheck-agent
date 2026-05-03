@@ -85,19 +85,6 @@ func TestParseLineAgentCommandSurface(t *testing.T) {
 			},
 		},
 		{
-			name:      "configure controller endpoint",
-			line:      "set controller endpoint 127.0.0.1:37589 enabled min-backoff 500ms max-backoff 2s",
-			parse:     ParseConfigureLine,
-			operation: "controller.link.set",
-			check: func(t *testing.T, cmd *controlpb.RunCommand) {
-				t.Helper()
-				config := cmd.GetSetControllerLinkConfig().GetConfig()
-				if config == nil || !config.GetEnabled() || config.GetHost() != "127.0.0.1" || config.GetPort() != 37589 {
-					t.Fatalf("controller config = %#v", config)
-				}
-			},
-		},
-		{
 			name:      "configure standalone",
 			line:      "set standalone enabled",
 			parse:     ParseConfigureLine,

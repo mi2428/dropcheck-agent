@@ -54,10 +54,6 @@ internal object AgentCommandRegistry {
         Entry(RunCommand.CommandCase.GET_STANDALONE_RUN, "standalone.run"),
         Entry(RunCommand.CommandCase.CLEAR_STANDALONE_RUNS, "standalone.runs.clear"),
         Entry(RunCommand.CommandCase.RUN_STANDALONE_ONCE, "standalone.run.once"),
-        Entry(RunCommand.CommandCase.SET_CONTROLLER_LINK_CONFIG, "controller.link.set"),
-        Entry(RunCommand.CommandCase.GET_CONTROLLER_LINK_CONFIG, "controller.link.config"),
-        Entry(RunCommand.CommandCase.GET_CONTROLLER_LINK_STATUS, "controller.link.status"),
-        Entry(RunCommand.CommandCase.RECONNECT_CONTROLLER, "controller.link.reconnect"),
     )
 
     /** Capability strings sent during hello. The controller treats this as the agent's local feature set. */

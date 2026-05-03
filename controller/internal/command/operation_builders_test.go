@@ -58,27 +58,6 @@ func TestInspectionOperationBuilders(t *testing.T) {
 			wantLabel: "standalone status",
 			check:     func(cmd *controlpb.RunCommand) bool { return cmd.GetGetStandaloneStatus() != nil },
 		},
-		{
-			name:      "controller link config",
-			op:        ControllerLinkConfigOperation(),
-			wantName:  "controller.link.config",
-			wantLabel: "controller endpoint",
-			check:     func(cmd *controlpb.RunCommand) bool { return cmd.GetGetControllerLinkConfig() != nil },
-		},
-		{
-			name:      "controller link status",
-			op:        ControllerLinkStatusOperation(),
-			wantName:  "controller.link.status",
-			wantLabel: "controller link",
-			check:     func(cmd *controlpb.RunCommand) bool { return cmd.GetGetControllerLinkStatus() != nil },
-		},
-		{
-			name:      "controller reconnect",
-			op:        ControllerReconnectOperation(),
-			wantName:  "controller.link.reconnect",
-			wantLabel: "controller reconnect",
-			check:     func(cmd *controlpb.RunCommand) bool { return cmd.GetReconnectController() != nil },
-		},
 	}
 
 	for _, tt := range tests {

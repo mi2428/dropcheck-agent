@@ -35,23 +35,19 @@ func TestRenderCommandResultShowsPayloadLatency(t *testing.T) {
 	}
 }
 
-func TestRenderConfigUsesNestedControllerBlock(t *testing.T) {
+func TestRenderConfigShowsStandaloneOnly(t *testing.T) {
 	view := ConfigView{
 		Standalone: &controlpb.StandaloneConfig{Enabled: true},
-		ControllerEndpoint: &controlpb.ControllerLinkConfig{
-			Enabled: true,
-			Host:    "127.0.0.1",
-			Port:    8443,
-		},
 	}
 	text, err := Config(view, pipeline.FormatText)
 	if err != nil {
 		t.Fatalf("Config(text) error = %v", err)
 	}
-	for _, want := range []string{"standalone {\n  enabled\n}", "controller {\n  endpoint {\n    enabled\n    address 127.0.0.1:8443\n  }\n}"} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("Config(text) = %q, missing %q", text, want)
-		}
+	if !strings.Contains(text, "standalone {\n  enabled\n}") {
+		t.Fatalf("Config(text) = %q, missing standalone block", text)
+	}
+	if strings.Contains(text, "controller") {
+		t.Fatalf("Config(text) = %q, included controller config", text)
 	}
 
 	raw, err := Config(view, pipeline.FormatJSON)
@@ -62,15 +58,8 @@ func TestRenderConfigUsesNestedControllerBlock(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &got); err != nil {
 		t.Fatalf("Config(json) invalid JSON: %v\n%s", err, raw)
 	}
-	controller, ok := got["controller"].(map[string]any)
-	if !ok {
-		t.Fatalf("Config(json) = %#v, missing nested controller object", got)
-	}
-	if _, ok := controller["endpoint"].(map[string]any); !ok {
-		t.Fatalf("Config(json) controller = %#v, missing endpoint object", controller)
-	}
-	if _, ok := got["controller_endpoint"]; ok {
-		t.Fatalf("Config(json) = %#v, included flat controller_endpoint key", got)
+	if _, ok := got["controller"]; ok {
+		t.Fatalf("Config(json) = %#v, included controller config", got)
 	}
 }
 

@@ -180,7 +180,7 @@ class MainActivity : Activity() {
             addView(statusIconRow(), statusIconLayout())
         }
         setContentView(root)
-        controllerHeartbeatConnected = ControllerLinkRuntimeState.heartbeatConnected()
+        controllerHeartbeatConnected = ControllerSessionRuntimeState.heartbeatConnected()
         standaloneRunning = StandaloneRuntimeState.running.get()
         updateStatusIcons()
         resetIdleDimTimer()
@@ -449,7 +449,7 @@ class MainActivity : Activity() {
     }
 
     private fun syncStatusIcons() {
-        controllerHeartbeatConnected = ControllerLinkRuntimeState.heartbeatConnected()
+        controllerHeartbeatConnected = ControllerSessionRuntimeState.heartbeatConnected()
         standaloneRunning = StandaloneRuntimeState.running.get()
         updateStatusIcons()
     }

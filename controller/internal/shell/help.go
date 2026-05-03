@@ -15,8 +15,7 @@ func PrintHelp() {
 func writeShellHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w, `commands:
   show devices
-  show config [standalone|controller endpoint]
-  show controller link
+  show config [standalone]
   show wifi status
   show wifi diagnostics
   show wifi scan [all|2.4ghz|5ghz|6ghz|60ghz]
@@ -33,9 +32,7 @@ func writeShellHelp(w io.Writer) {
   request [<request-command>]
 
 configure mode:
-  show [standalone|controller endpoint]
-  set controller endpoint <host:port> enabled [min-backoff <duration>] [max-backoff <duration>]
-  set controller endpoint disabled
+  show [standalone]
   set standalone enabled
   set standalone disabled
   set standalone retention <duration>
@@ -48,7 +45,7 @@ configure mode:
   set standalone festa <name> check ping host <host> [count <n>] [timeout <duration>]
   set standalone festa <name> check http url <url> [expected-status <code>] [timeout <duration>]
   delete standalone [festa <name>|festa <name> wifi-group <name>|festa <name> check <dns|ping|http>]
-  run show <devices|config|wifi|standalone|controller>
+  run show <devices|config|wifi|standalone>
   run clear standalone runs [synced|all]
   run sync standalone runs [output <dir>] [limit <n>] [mark-synced|keep-unsynced]
   run request <request-command>
@@ -64,7 +61,6 @@ request mode:
   wifi assert [ssid <ssid>] [bssid <bssid>] [security <mode>] [band <band>] [ip] [validated] [timeout <ms>]
   wifi cycle passphrase <passphrase> [security <auto|wpa2|wpa3|transition>] [count <n>] [bssid <bssid>] [band <band>] [mac-randomization <mode>] [ping <host>] [http <url>] [forget] [pause <ms>] [timeout <ms>] <ssid>
   standalone run once [festa <name>] [save]
-  controller reconnect
   monitor wifi [duration <ms>] [interval <ms>]
   ping [count <n>] [size <bytes>] [timeout <ms>] <host>
   traceroute [max-hops <n>] [via <host_or_ip>] [size <bytes>] [timeout <ms>] <host>
@@ -267,7 +263,7 @@ func resolveContextKeywordInMode(index int, previous []string, value string, mod
 	case 1:
 		switch previous[0] {
 		case "show":
-			return resolveShellKeyword("show command", value, []string{"devices", "config", "wifi", "ip", "standalone", "controller"})
+			return resolveShellKeyword("show command", value, []string{"devices", "config", "wifi", "ip", "standalone"})
 		case "sync":
 			return resolveShellKeyword("sync command", value, []string{"standalone"})
 		case "clear":
@@ -275,7 +271,7 @@ func resolveContextKeywordInMode(index int, previous []string, value string, mod
 		}
 	case 2:
 		if previous[0] == "show" && previous[1] == "config" {
-			return resolveShellKeyword("show config command", value, []string{"standalone", "controller"})
+			return resolveShellKeyword("show config command", value, []string{"standalone"})
 		}
 		if previous[0] == "show" && previous[1] == "wifi" {
 			return resolveShellKeyword("show wifi command", value, []string{"status", "diagnostics", "scan", "capabilities"})
@@ -285,9 +281,6 @@ func resolveContextKeywordInMode(index int, previous []string, value string, mod
 		}
 		if previous[0] == "show" && previous[1] == "standalone" {
 			return resolveShellKeyword("show standalone command", value, []string{"status", "runs", "run"})
-		}
-		if previous[0] == "show" && previous[1] == "controller" {
-			return resolveShellKeyword("show controller command", value, []string{"link"})
 		}
 		if previous[0] == "sync" && previous[1] == "standalone" {
 			return resolveShellKeyword("sync standalone command", value, []string{"runs"})
@@ -306,23 +299,17 @@ func resolveConfigureContextKeyword(index int, previous []string, value string) 
 	case 1:
 		switch previous[0] {
 		case "show":
-			return resolveShellKeyword("show config command", value, []string{"standalone", "controller"})
+			return resolveShellKeyword("show config command", value, []string{"standalone"})
 		case "set":
-			return resolveShellKeyword("set command", value, []string{"standalone", "controller"})
+			return resolveShellKeyword("set command", value, []string{"standalone"})
 		case "delete":
 			return resolveShellKeyword("delete command", value, []string{"standalone"})
 		case "run":
 			return resolveShellKeyword("run command", value, shellTopKeywords)
 		}
 	case 2:
-		if previous[0] == "show" && previous[1] == "controller" {
-			return resolveShellKeyword("show config controller command", value, []string{"endpoint"})
-		}
 		if previous[0] == "set" && previous[1] == "standalone" {
 			return resolveShellKeyword("set standalone command", value, []string{"enabled", "disabled", "retention", "max-size", "festa"})
-		}
-		if previous[0] == "set" && previous[1] == "controller" {
-			return resolveShellKeyword("set controller command", value, []string{"endpoint"})
 		}
 		if previous[0] == "delete" && previous[1] == "standalone" {
 			return resolveShellKeyword("delete standalone command", value, []string{"festa"})
@@ -341,8 +328,6 @@ func resolveRequestContextKeyword(index int, previous []string, value string) (s
 			return resolveShellKeyword("wifi command", value, []string{"connect", "disconnect", "forget", "reconnect", "wait", "assert", "cycle"})
 		case "standalone":
 			return resolveShellKeyword("standalone command", value, []string{"run"})
-		case "controller":
-			return resolveShellKeyword("controller command", value, []string{"reconnect"})
 		case "monitor":
 			return resolveShellKeyword("monitor command", value, []string{"wifi"})
 		}
@@ -376,13 +361,10 @@ func helpEntriesForArgsInMode(args []string, mode Mode) []HelpEntry {
 	switch args[0] {
 	case "show":
 		if len(args) == 1 {
-			return []HelpEntry{{"devices", "Connected Android agents"}, {"config", "Persistent Agent App configuration"}, {"wifi", "Wi-Fi state and diagnostics"}, {"ip", "IP addressing and routing"}, {"standalone", "Standalone state and stored runs"}, {"controller", "Controller link state"}}
+			return []HelpEntry{{"devices", "Connected Android agents"}, {"config", "Persistent Agent App configuration"}, {"wifi", "Wi-Fi state and diagnostics"}, {"ip", "IP addressing and routing"}, {"standalone", "Standalone state and stored runs"}}
 		}
 		if len(args) == 2 && args[1] == "config" {
-			return []HelpEntry{{"standalone", "Standalone configuration subtree"}, {"controller", "Controller configuration subtree"}}
-		}
-		if len(args) == 3 && args[1] == "config" && args[2] == "controller" {
-			return []HelpEntry{{"endpoint", "Persistent controller reconnect endpoint"}}
+			return []HelpEntry{{"standalone", "Standalone configuration subtree"}}
 		}
 		if len(args) == 2 && args[1] == "wifi" {
 			return []HelpEntry{{"status", "Current Wi-Fi connection and IP state"}, {"diagnostics", "Wi-Fi status, capabilities, networks, and scan"}, {"scan", "Cached or fresh scan results"}, {"capabilities", "Device Wi-Fi capabilities"}}
@@ -395,9 +377,6 @@ func helpEntriesForArgsInMode(args []string, mode Mode) []HelpEntry {
 		}
 		if len(args) == 2 && args[1] == "standalone" {
 			return []HelpEntry{{"status", "Live standalone runner state"}, {"runs", "Stored run summaries"}, {"run", "Stored run archive"}}
-		}
-		if len(args) == 2 && args[1] == "controller" {
-			return []HelpEntry{{"link", "Live controller connection state"}}
 		}
 	case "clear":
 		if len(args) == 1 {
@@ -443,23 +422,14 @@ func configureHelpEntriesForArgs(args []string) []HelpEntry {
 	switch args[0] {
 	case "show":
 		if len(args) == 1 {
-			return []HelpEntry{{"standalone", "Standalone configuration subtree"}, {"controller", "Controller configuration subtree"}, {"<cr>", "Show all persistent config"}}
-		}
-		if len(args) == 2 && args[1] == "controller" {
-			return []HelpEntry{{"endpoint", "Persistent controller reconnect endpoint"}}
+			return []HelpEntry{{"standalone", "Standalone configuration subtree"}, {"<cr>", "Show all persistent config"}}
 		}
 	case "set":
 		if len(args) == 1 {
-			return []HelpEntry{{"standalone", "Edit persistent standalone settings"}, {"controller", "Change persistent controller reconnect settings"}}
+			return []HelpEntry{{"standalone", "Edit persistent standalone settings"}}
 		}
 		if len(args) >= 2 && args[1] == "standalone" {
 			return []HelpEntry{{"enabled", "Start persistent checks"}, {"disabled", "Stop persistent checks"}, {"retention", "Synced-result retention such as 7d"}, {"max-size", "Store budget such as 512m"}, {"festa", "Named connectivity scenario"}}
-		}
-		if len(args) == 2 && args[1] == "controller" {
-			return []HelpEntry{{"endpoint", "Persistent controller reconnect endpoint"}}
-		}
-		if len(args) >= 3 && args[1] == "controller" && args[2] == "endpoint" {
-			return []HelpEntry{{"<host:port>", "Controller gRPC endpoint reachable by Android"}, {"enabled", "Enable direct TCP reconnect"}, {"disabled", "Disable direct TCP reconnect"}, {"min-backoff", "First retry delay"}, {"max-backoff", "Maximum retry delay"}}
 		}
 	case "delete":
 		if len(args) == 1 {
@@ -498,10 +468,6 @@ func requestHelpEntriesForArgs(args []string) []HelpEntry {
 		}
 		if len(args) >= 2 {
 			return []HelpEntry{{"once", "Run once"}, {"festa", "Festa name"}, {"save", "Persist the archive"}}
-		}
-	case "controller":
-		if len(args) == 1 {
-			return []HelpEntry{{"reconnect", "Close this stream and reconnect through the stored endpoint"}}
 		}
 	case "monitor":
 		if len(args) == 1 {
@@ -783,7 +749,6 @@ func requestCommandHelpEntries() []HelpEntry {
 	return []HelpEntry{
 		{"wifi", "Run a Wi-Fi operation"},
 		{"standalone", "Run standalone measurements"},
-		{"controller", "Run controller link operations"},
 		{"monitor", "Run a bounded monitor"},
 		{"ping", "Ping from the selected Android agent"},
 		{"traceroute", "Traceroute from the selected Android agent"},
@@ -962,7 +927,7 @@ func completionCandidatesForArgsInMode(args []string, mode Mode) []string {
 	case 1:
 		switch resolved[0] {
 		case "show":
-			return []string{"devices", "config", "wifi", "standalone", "controller"}
+			return []string{"devices", "config", "wifi", "standalone"}
 		case "clear":
 			return []string{"standalone"}
 		case "sync":
@@ -974,16 +939,13 @@ func completionCandidatesForArgsInMode(args []string, mode Mode) []string {
 		}
 	case 2:
 		if resolved[0] == "show" && resolved[1] == "config" {
-			return []string{"standalone", "controller"}
+			return []string{"standalone"}
 		}
 		if resolved[0] == "show" && resolved[1] == "wifi" {
 			return []string{"status", "diagnostics", "scan", "capabilities"}
 		}
 		if resolved[0] == "show" && resolved[1] == "standalone" {
 			return []string{"status", "runs", "run"}
-		}
-		if resolved[0] == "show" && resolved[1] == "controller" {
-			return []string{"link"}
 		}
 		if resolved[0] == "clear" && resolved[1] == "standalone" {
 			return []string{"runs"}
@@ -992,9 +954,6 @@ func completionCandidatesForArgsInMode(args []string, mode Mode) []string {
 			return []string{"runs"}
 		}
 	case 3:
-		if resolved[0] == "show" && resolved[1] == "config" && resolved[2] == "controller" {
-			return []string{"endpoint"}
-		}
 		if resolved[0] == "show" && resolved[1] == "wifi" && resolved[2] == "scan" {
 			return []string{"fresh", "detail", "all", "2.4ghz", "5ghz", "6ghz", "60ghz"}
 		}
@@ -1043,9 +1002,9 @@ func configureCompletionCandidatesForArgs(args []string) []string {
 	case 1:
 		switch resolved[0] {
 		case "show":
-			return []string{"standalone", "controller"}
+			return []string{"standalone"}
 		case "set":
-			return []string{"standalone", "controller"}
+			return []string{"standalone"}
 		case "delete":
 			return []string{"standalone"}
 		case "run":
@@ -1054,14 +1013,8 @@ func configureCompletionCandidatesForArgs(args []string) []string {
 			return nil
 		}
 	case 2:
-		if resolved[0] == "show" && resolved[1] == "controller" {
-			return []string{"endpoint"}
-		}
 		if resolved[0] == "set" && resolved[1] == "standalone" {
 			return []string{"enabled", "disabled", "retention", "max-size", "festa"}
-		}
-		if resolved[0] == "set" && resolved[1] == "controller" {
-			return []string{"endpoint"}
 		}
 		if resolved[0] == "delete" && resolved[1] == "standalone" {
 			return []string{"festa"}
@@ -1076,13 +1029,8 @@ func configureCompletionCandidatesForArgs(args []string) []string {
 		if resolved[0] == "set" && resolved[1] == "standalone" && resolved[2] == "festa" {
 			return []string{"<name>"}
 		}
-		if resolved[0] == "set" && resolved[1] == "controller" && resolved[2] == "endpoint" {
-			return []string{"<host:port>", "enabled", "disabled", "min-backoff", "max-backoff"}
-		}
 	}
 	switch {
-	case len(resolved) >= 3 && resolved[0] == "set" && resolved[1] == "controller" && resolved[2] == "endpoint":
-		return setControllerEndpointCompletionCandidates(resolved[3:])
 	case len(resolved) >= 2 && resolved[0] == "set" && resolved[1] == "standalone":
 		return setStandaloneCompletionCandidates(resolved[2:])
 	case len(resolved) >= 2 && resolved[0] == "run":
@@ -1115,8 +1063,6 @@ func requestCompletionCandidatesForArgs(args []string) []string {
 			return []string{"connect", "disconnect", "forget", "reconnect", "wait", "assert", "cycle"}
 		case "standalone":
 			return []string{"run"}
-		case "controller":
-			return []string{"reconnect"}
 		case "monitor":
 			return []string{"wifi"}
 		}
@@ -1276,8 +1222,6 @@ func valueCompletionCandidatesForArgs(args []string) ([]string, bool) {
 		return syncStandaloneValueCompletionCandidates(last)
 	case len(args) >= 3 && args[0] == "set" && args[1] == "standalone":
 		return setStandaloneValueCompletionCandidates(last)
-	case len(args) >= 4 && args[0] == "set" && args[1] == "controller" && args[2] == "endpoint":
-		return setControllerEndpointValueCompletionCandidates(last)
 	default:
 		return nil, false
 	}
@@ -1630,32 +1574,6 @@ func setStandaloneValueCompletionCandidates(last string) ([]string, bool) {
 		return []string{"<url>"}, true
 	case isResolvedKeyword("set standalone option", last, []string{"count", "expected-status"}):
 		return []string{"<n>"}, true
-	default:
-		return nil, false
-	}
-}
-
-func setControllerEndpointCompletionCandidates(args []string) []string {
-	options := []completionOption{
-		{name: "enabled", flag: true},
-		{name: "disabled", flag: true},
-		{name: "endpoint", placeholder: "<host:port>"},
-		{name: "min-backoff", placeholder: "<duration>"},
-		{name: "max-backoff", placeholder: "<duration>"},
-	}
-	state := scanCompletionArgs("set controller endpoint option", args, options)
-	if state.pending != nil {
-		return optionValueCandidates(*state.pending)
-	}
-	return optionAndPositionalCandidates(state, options, 1, "<host:port>")
-}
-
-func setControllerEndpointValueCompletionCandidates(last string) ([]string, bool) {
-	switch {
-	case isResolvedKeyword("set controller endpoint option", last, []string{"endpoint"}):
-		return []string{"<host:port>"}, true
-	case isResolvedKeyword("set controller endpoint option", last, []string{"min-backoff", "max-backoff"}):
-		return []string{"<duration>"}, true
 	default:
 		return nil, false
 	}

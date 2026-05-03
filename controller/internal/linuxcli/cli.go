@@ -109,7 +109,7 @@ func ExtractOptions(args []string) (Options, []string, error) {
 // ExtractOptions or the app package.
 func Parse(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: dropcheck [--adb adb] [--serial SERIAL] [--package PACKAGE] [--listen ADDR] [--no-adb] shell [--target TARGET] | <command>")
+		return Command{}, fmt.Errorf("usage: dropcheck [--adb adb] [--serial SERIAL] [--package PACKAGE] [--listen ADDR] shell [--target TARGET] | <command>")
 	}
 	switch args[0] {
 	case "show":
@@ -143,7 +143,7 @@ func parseConfigure(args []string) (Command, error) {
 
 func parseShow(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: show <devices|config|wifi|ip|standalone|controller>")
+		return Command{}, fmt.Errorf("usage: show <devices|config|wifi|ip|standalone>")
 	}
 	switch args[0] {
 	case "devices":
@@ -162,9 +162,6 @@ func parseShow(args []string) (Command, error) {
 	case "standalone":
 		op, err := parseStandaloneShow(args[1:])
 		return Command{Kind: AgentCommand, Operation: op}, err
-	case "controller":
-		op, err := parseControllerShow(args[1:])
-		return Command{Kind: AgentCommand, Operation: op}, err
 	default:
 		return Command{}, fmt.Errorf("unknown show command %q", args[0])
 	}
@@ -177,18 +174,6 @@ func parseLinuxShowIP(args []string) (command.Operation, error) {
 	return command.IPStatusOperation(), nil
 }
 
-func parseControllerShow(args []string) (command.Operation, error) {
-	if len(args) != 1 {
-		return command.Operation{}, fmt.Errorf("usage: show controller link")
-	}
-	switch args[0] {
-	case "link":
-		return command.ControllerLinkStatusOperation(), nil
-	default:
-		return command.Operation{}, fmt.Errorf("unknown show controller command %q", args[0])
-	}
-}
-
 func parseShowConfig(args []string) (Command, error) {
 	switch len(args) {
 	case 0:
@@ -198,15 +183,10 @@ func parseShowConfig(args []string) (Command, error) {
 		case "standalone":
 			return Command{Kind: Config, ConfigScope: "standalone"}, nil
 		default:
-			return Command{}, fmt.Errorf("usage: show config [standalone|controller endpoint]")
+			return Command{}, fmt.Errorf("usage: show config [standalone]")
 		}
-	case 2:
-		if args[0] == "controller" && args[1] == "endpoint" {
-			return Command{Kind: Config, ConfigScope: "controller_endpoint"}, nil
-		}
-		return Command{}, fmt.Errorf("usage: show config [standalone|controller endpoint]")
 	default:
-		return Command{}, fmt.Errorf("usage: show config [standalone|controller endpoint]")
+		return Command{}, fmt.Errorf("usage: show config [standalone]")
 	}
 }
 
@@ -236,14 +216,10 @@ func parseLinuxShowWifi(args []string) (command.Operation, error) {
 
 func parseSet(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: set <standalone|controller> <command>")
-	}
-	if args[0] == "controller" {
-		op, err := parseControllerSet(args[1:])
-		return Command{Kind: AgentCommand, Operation: op}, err
+		return Command{}, fmt.Errorf("usage: set standalone <command>")
 	}
 	if args[0] != "standalone" {
-		return Command{}, fmt.Errorf("usage: set <standalone|controller> <command>")
+		return Command{}, fmt.Errorf("usage: set standalone <command>")
 	}
 	edits, err := command.StandaloneSetEdits(args[1:])
 	if err != nil {
@@ -300,41 +276,9 @@ func parseSync(args []string) (Command, error) {
 	return Command{Kind: StandaloneSync, StandaloneSyncOutput: opts.value("output"), StandaloneSyncLimit: opts.value("limit"), StandaloneSyncMark: markSynced}, nil
 }
 
-func parseControllerSet(args []string) (command.Operation, error) {
-	if len(args) == 0 || args[0] != "endpoint" {
-		return command.Operation{}, fmt.Errorf("usage: set controller endpoint <host:port> enabled [--min-backoff duration] [--max-backoff duration] | disabled")
-	}
-	if len(args) == 2 && args[1] == "disabled" {
-		return command.ControllerLinkSetConfigOperation(command.ControllerLinkConfigOptions{Enabled: false})
-	}
-	opts, err := parseDashOptions(args[1:], map[string]dashOptionSpec{
-		"endpoint":    {value: true},
-		"min-backoff": {value: true},
-		"max-backoff": {value: true},
-	})
-	if err != nil {
-		return command.Operation{}, err
-	}
-	endpoint := opts.value("endpoint")
-	positionals := append([]string(nil), opts.positionals...)
-	if len(positionals) > 0 && positionals[0] != "enabled" {
-		endpoint = positionals[0]
-		positionals = positionals[1:]
-	}
-	if len(positionals) != 1 || positionals[0] != "enabled" {
-		return command.Operation{}, fmt.Errorf("usage: set controller endpoint <host:port> enabled [--min-backoff duration] [--max-backoff duration]")
-	}
-	return command.ControllerLinkSetConfigOperation(command.ControllerLinkConfigOptions{
-		Enabled:    true,
-		Endpoint:   endpoint,
-		MinBackoff: opts.value("min-backoff"),
-		MaxBackoff: opts.value("max-backoff"),
-	})
-}
-
 func parseRequest(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: request <wifi|standalone|controller|monitor|ping|traceroute|path-mtu|global-ip|dns|http|download> <command>")
+		return Command{}, fmt.Errorf("usage: request <wifi|standalone|monitor|ping|traceroute|path-mtu|global-ip|dns|http|download> <command>")
 	}
 	if args[0] == "wifi" {
 		op, err := parseLinuxWifi(args[1:])
@@ -372,14 +316,8 @@ func parseRequest(args []string) (Command, error) {
 		op, err := parseLinuxDownload(args[1:])
 		return Command{Kind: AgentCommand, Operation: op}, err
 	}
-	if args[0] == "controller" {
-		if len(args) != 2 || args[1] != "reconnect" {
-			return Command{}, fmt.Errorf("usage: request controller reconnect")
-		}
-		return Command{Kind: AgentCommand, Operation: command.ControllerReconnectOperation()}, nil
-	}
 	if args[0] != "standalone" {
-		return Command{}, fmt.Errorf("usage: request <wifi|standalone|controller|monitor|ping|traceroute|path-mtu|global-ip|dns|http|download> <command>")
+		return Command{}, fmt.Errorf("usage: request <wifi|standalone|monitor|ping|traceroute|path-mtu|global-ip|dns|http|download> <command>")
 	}
 	return parseStandaloneRequest(args[1:])
 }

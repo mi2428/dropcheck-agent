@@ -181,11 +181,7 @@ func timeoutFor(cmd *controlpb.RunCommand) time.Duration {
 		*controlpb.RunCommand_GetStandaloneStatus,
 		*controlpb.RunCommand_ListStandaloneRuns,
 		*controlpb.RunCommand_GetStandaloneRun,
-		*controlpb.RunCommand_ClearStandaloneRuns,
-		*controlpb.RunCommand_SetControllerLinkConfig,
-		*controlpb.RunCommand_GetControllerLinkConfig,
-		*controlpb.RunCommand_GetControllerLinkStatus,
-		*controlpb.RunCommand_ReconnectController:
+		*controlpb.RunCommand_ClearStandaloneRuns:
 		return 15 * time.Second
 	default:
 		return 15 * time.Second
