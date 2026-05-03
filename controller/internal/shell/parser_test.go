@@ -1,0 +1,361 @@
+package shell
+
+import (
+	"strings"
+	"testing"
+
+	"dropcheck/controller/internal/controlpb"
+)
+
+func TestParseLineLocalCommandSurface(t *testing.T) {
+	showDevices, err := ParseLine("show devices | display json | count")
+	if err != nil {
+		t.Fatalf("ParseLine(show devices) error = %v", err)
+	}
+	if showDevices.Kind != ShowDevices {
+		t.Fatalf("show devices kind = %v, want %v", showDevices.Kind, ShowDevices)
+	}
+	if got := showDevices.Pipeline.StageCount(); got != 1 {
+		t.Fatalf("pipeline stage count = %d, want 1", got)
+	}
+	if !showDevices.Pipeline.DisplayJSON() {
+		t.Fatalf("pipeline should request JSON display")
+	}
+
+	showConfig, err := ParseLine("show config standalone")
+	if err != nil {
+		t.Fatalf("ParseLine(show config standalone) error = %v", err)
+	}
+	if showConfig.Kind != ShowConfig || showConfig.ConfigScope != "standalone" {
+		t.Fatalf("show config = kind %v scope %q", showConfig.Kind, showConfig.ConfigScope)
+	}
+
+	sync, err := ParseLine("sync standalone runs output /tmp/dropcheck-e2e limit 2 keep-unsynced")
+	if err != nil {
+		t.Fatalf("ParseLine(sync standalone runs) error = %v", err)
+	}
+	if sync.Kind != StandaloneSync {
+		t.Fatalf("sync kind = %v, want %v", sync.Kind, StandaloneSync)
+	}
+	if sync.StandaloneSyncOutput != "/tmp/dropcheck-e2e" || sync.StandaloneSyncLimit != "2" || sync.StandaloneSyncMark {
+		t.Fatalf("sync options = output %q limit %q mark %t", sync.StandaloneSyncOutput, sync.StandaloneSyncLimit, sync.StandaloneSyncMark)
+	}
+}
+
+func TestParseLineAgentCommandSurface(t *testing.T) {
+	tests := []struct {
+		name      string
+		line      string
+		parse     func(string) (Command, error)
+		operation string
+		check     func(*testing.T, *controlpb.RunCommand)
+	}{
+		{
+			name:      "show wifi status",
+			line:      "show wifi status",
+			operation: "wifi.status",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				if cmd.GetGetWifiStatus() == nil {
+					t.Fatalf("GetWifiStatus not set")
+				}
+			},
+		},
+		{
+			name:      "show wifi fresh scan",
+			line:      "show wifi scan fresh 5ghz timeout 9000",
+			operation: "wifi.scan.fresh",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				scan := cmd.GetGetFreshWifiScan()
+				if scan == nil || scan.GetBand() != controlpb.WifiBand_WIFI_BAND_5_GHZ || scan.GetTimeoutMs() != 9000 {
+					t.Fatalf("fresh scan = %#v", scan)
+				}
+			},
+		},
+		{
+			name:      "configure controller endpoint",
+			line:      "set controller endpoint 127.0.0.1:37589 enabled min-backoff 500ms max-backoff 2s",
+			parse:     ParseConfigureLine,
+			operation: "controller.link.set",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				config := cmd.GetSetControllerLinkConfig().GetConfig()
+				if config == nil || !config.GetEnabled() || config.GetHost() != "127.0.0.1" || config.GetPort() != 37589 {
+					t.Fatalf("controller config = %#v", config)
+				}
+			},
+		},
+		{
+			name:      "configure standalone",
+			line:      "set standalone enabled",
+			parse:     ParseConfigureLine,
+			operation: "standalone.config.edit",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				edit := cmd.GetEditStandaloneConfig().GetEdits()[0]
+				if edit.GetAction() != controlpb.StandaloneEdit_ACTION_SET || strings.Join(edit.GetPath(), ".") != "enabled" || edit.GetValue() != "true" {
+					t.Fatalf("standalone enabled edit not set")
+				}
+			},
+		},
+		{
+			name:      "standalone run once",
+			line:      "standalone run once festa smoke save",
+			parse:     ParseRequestLine,
+			operation: "standalone.run.once",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				run := cmd.GetRunStandaloneOnce()
+				if run == nil || run.GetFesta() != "smoke" || !run.GetSave() {
+					t.Fatalf("standalone run once = %#v", run)
+				}
+			},
+		},
+		{
+			name:      "wifi connect",
+			line:      "wifi connect passphrase secret security wpa3 band 6ghz timeout 12345 Lab",
+			parse:     ParseRequestLine,
+			operation: "wifi.connect",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				connect := cmd.GetConnectWifi()
+				if connect == nil || connect.GetSsid() != "Lab" || connect.GetSecurity() != controlpb.ConnectWifi_SECURITY_WPA3_SAE || connect.GetBand() != controlpb.WifiBand_WIFI_BAND_6_GHZ {
+					t.Fatalf("connect = %#v", connect)
+				}
+			},
+		},
+		{
+			name:      "wifi monitor",
+			line:      "monitor wifi interval 250",
+			parse:     ParseRequestLine,
+			operation: "wifi.monitor",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				monitor := cmd.GetMonitorWifi()
+				if monitor == nil || monitor.GetDurationMs() != 10000 || monitor.GetIntervalMs() != 250 {
+					t.Fatalf("monitor = %#v", monitor)
+				}
+			},
+		},
+		{
+			name:      "wifi wait",
+			line:      "wifi wait connected Lab ip validated timeout 12000",
+			parse:     ParseRequestLine,
+			operation: "wifi.wait",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				wait := cmd.GetWaitWifiConnected()
+				if wait == nil || wait.GetSsid() != "Lab" || !wait.GetRequireIp() || !wait.GetRequireValidated() || wait.GetTimeoutMs() != 12000 {
+					t.Fatalf("wifi wait = %#v", wait)
+				}
+			},
+		},
+		{
+			name:      "wifi assert",
+			line:      "wifi assert ssid Lab ip timeout 5000",
+			parse:     ParseRequestLine,
+			operation: "wifi.assert",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				assert := cmd.GetAssertWifi()
+				if assert == nil || assert.GetSsid() != "Lab" || !assert.GetRequireIp() || assert.GetTimeoutMs() != 5000 {
+					t.Fatalf("wifi assert = %#v", assert)
+				}
+			},
+		},
+		{
+			name:      "wifi reconnect",
+			line:      "wifi reconnect timeout 10000",
+			parse:     ParseRequestLine,
+			operation: "wifi.reconnect",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				if got := cmd.GetReconnectWifi().GetTimeoutMs(); got != 10000 {
+					t.Fatalf("reconnect timeout = %d, want 10000", got)
+				}
+			},
+		},
+		{
+			name:      "wifi cycle",
+			line:      "wifi cycle Lab passphrase secret count 2 ping 1.1.1.1 http https://example.test forget pause 250",
+			parse:     ParseRequestLine,
+			operation: "wifi.cycle",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				cycle := cmd.GetCycleWifi()
+				if cycle == nil || cycle.GetConnect().GetSsid() != "Lab" || cycle.GetCount() != 2 || cycle.GetPingHost() != "1.1.1.1" || !cycle.GetForgetAfterEach() {
+					t.Fatalf("wifi cycle = %#v", cycle)
+				}
+			},
+		},
+		{
+			name:      "ping",
+			line:      "ping count 5 size 64 timeout 7000 1.1.1.1",
+			parse:     ParseRequestLine,
+			operation: "ping",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				ping := cmd.GetPing()
+				if ping == nil || ping.GetHost() != "1.1.1.1" || ping.GetCount() != 5 || ping.GetSizeBytes() != 64 {
+					t.Fatalf("ping = %#v", ping)
+				}
+			},
+		},
+		{
+			name:      "traceroute",
+			line:      "traceroute 1.1.1.1 max-hops 12 via 192.0.2.1 size 80 timeout 30000",
+			parse:     ParseRequestLine,
+			operation: "traceroute",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				trace := cmd.GetTraceroute()
+				if trace == nil || trace.GetHost() != "1.1.1.1" || trace.GetMaxHops() != 12 || trace.GetSizeBytes() != 80 {
+					t.Fatalf("traceroute = %#v", trace)
+				}
+			},
+		},
+		{
+			name:      "path mtu",
+			line:      "path-mtu min-mtu 1200 max-mtu 1500 timeout 30000 1.1.1.1",
+			parse:     ParseRequestLine,
+			operation: "path-mtu",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				pmtu := cmd.GetPathMtu()
+				if pmtu == nil || pmtu.GetHost() != "1.1.1.1" || pmtu.GetMinMtuBytes() != 1200 || pmtu.GetMaxMtuBytes() != 1500 {
+					t.Fatalf("path mtu = %#v", pmtu)
+				}
+			},
+		},
+		{
+			name:      "global ip",
+			line:      "global-ip family ipv4 timeout 7000",
+			parse:     ParseRequestLine,
+			operation: "global-ip",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				global := cmd.GetGlobalIp()
+				if global == nil || global.GetFamily() != controlpb.IpFamily_IP_FAMILY_IPV4 || global.GetTimeoutMs() != 7000 {
+					t.Fatalf("global ip = %#v", global)
+				}
+			},
+		},
+		{
+			name:      "dns",
+			line:      "dns example.com A timeout 7000",
+			parse:     ParseRequestLine,
+			operation: "dns",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				dns := cmd.GetResolveDns()
+				if dns == nil || dns.GetName() != "example.com" || len(dns.GetQtypes()) != 1 || dns.GetQtypes()[0] != controlpb.DnsRecordType_DNS_RECORD_TYPE_A {
+					t.Fatalf("dns = %#v", dns)
+				}
+			},
+		},
+		{
+			name:      "download",
+			line:      "download timeout 30000 https://example.com/",
+			parse:     ParseRequestLine,
+			operation: "download",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				wget := cmd.GetWget()
+				if wget == nil || wget.GetUrl() != "https://example.com/" || wget.GetTimeoutMs() != 30000 {
+					t.Fatalf("download = %#v", wget)
+				}
+			},
+		},
+		{
+			name:      "http",
+			line:      "http expected-status 204 timeout 7000 https://www.google.com/generate_204",
+			parse:     ParseRequestLine,
+			operation: "http",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				http := cmd.GetHttpCheck()
+				if http == nil || http.GetExpectedStatus() != 204 || http.GetTimeoutMs() != 7000 {
+					t.Fatalf("http = %#v", http)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parse := tt.parse
+			if parse == nil {
+				parse = ParseLine
+			}
+			got, err := parse(tt.line)
+			if err != nil {
+				t.Fatalf("parse error = %v", err)
+			}
+			cmd := agentCommand(t, got, tt.operation)
+			tt.check(t, cmd)
+		})
+	}
+}
+
+func TestParseLineRejectsDeadAndInvalidCommandForms(t *testing.T) {
+	tests := []struct {
+		name  string
+		line  string
+		parse func(string) (Command, error)
+		want  string
+	}{
+		{
+			name:  "removed wifi watch command",
+			line:  "wifi watch duration 1000",
+			parse: ParseRequestLine,
+			want:  "unknown wifi command",
+		},
+		{
+			name:  "duplicate connect option",
+			line:  "wifi connect Lab passphrase secret passphrase other",
+			parse: ParseRequestLine,
+			want:  "passphrase specified twice",
+		},
+		{
+			name: "ambiguous show wifi prefix",
+			line: "show wifi s",
+			want: "ambiguous show wifi command",
+		},
+		{
+			name:  "bad monitor duration",
+			line:  "monitor wifi duration 0",
+			parse: ParseRequestLine,
+			want:  "duration_ms must be a positive integer",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parse := tt.parse
+			if parse == nil {
+				parse = ParseLine
+			}
+			_, err := parse(tt.line)
+			if err == nil {
+				t.Fatalf("parse succeeded, want error containing %q", tt.want)
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %q, want substring %q", err.Error(), tt.want)
+			}
+		})
+	}
+}
+
+func agentCommand(t *testing.T, got Command, operation string) *controlpb.RunCommand {
+	t.Helper()
+	if got.Kind != AgentCommand {
+		t.Fatalf("kind = %v, want %v", got.Kind, AgentCommand)
+	}
+	if got.Operation.Name != operation {
+		t.Fatalf("operation = %q, want %q", got.Operation.Name, operation)
+	}
+	if got.Operation.Command == nil {
+		t.Fatalf("operation %q has nil command", operation)
+	}
+	return got.Operation.Command
+}
