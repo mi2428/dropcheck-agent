@@ -181,6 +181,9 @@ func shellHelpEntries(line string) []HelpEntry {
 			args[i] = resolved
 		}
 	}
+	if entries := valueHelpEntriesForArgs(args); len(entries) > 0 {
+		return entries
+	}
 	if entries := helpEntriesForArgs(args); len(entries) > 0 {
 		return entries
 	}
@@ -192,6 +195,18 @@ func trimShellHelpSuffix(line string) string {
 	trimmed = strings.TrimSuffix(trimmed, "?")
 	trimmed = strings.TrimSuffix(trimmed, "？")
 	return strings.TrimSpace(trimmed)
+}
+
+func valueHelpEntriesForArgs(args []string) []HelpEntry {
+	candidates, ok := valueCompletionCandidatesForArgs(args)
+	if !ok {
+		return nil
+	}
+	entries := make([]HelpEntry, 0, len(candidates))
+	for _, candidate := range candidates {
+		entries = append(entries, HelpEntry{Token: candidate})
+	}
+	return entries
 }
 
 func resolveContextKeyword(index int, previous []string, value string) (string, error) {

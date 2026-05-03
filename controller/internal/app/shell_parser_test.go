@@ -386,6 +386,15 @@ func TestShellHelpAndCompletion(t *testing.T) {
 	if !isHelpLine("show wifi？") {
 		t.Fatalf("full-width help suffix was not recognized")
 	}
+
+	help = shellHelpEntries("show wifi scan fresh timeout ?")
+	tokens = tokens[:0]
+	for _, entry := range help {
+		tokens = append(tokens, entry.token)
+	}
+	if !slices.Equal(tokens, []string{"<ms>"}) {
+		t.Fatalf("show wifi scan fresh timeout help tokens = %#v, want <ms>", tokens)
+	}
 }
 
 func TestShellHTTPHelpAndFlexibleArgs(t *testing.T) {
@@ -744,6 +753,7 @@ func TestShellPlaceholderCompletionHints(t *testing.T) {
 		want string
 	}{
 		{line: "ping count ", want: "<n>"},
+		{line: "show wifi scan fresh timeout ", want: "<ms>"},
 		{line: "ping count 5 size 64 timeout 7000 ", want: "<host>"},
 		{line: "traceroute via ", want: "<host_or_ip>"},
 		{line: "path-mtu min-mtu ", want: "<bytes>"},
