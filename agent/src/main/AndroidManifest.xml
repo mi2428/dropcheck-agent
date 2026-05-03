@@ -61,6 +61,21 @@
                 android:resource="@xml/agent_log_widget_info" />
         </receiver>
 
+        <receiver
+            android:name=".AgentClockWidgetProvider"
+            android:exported="false"
+            android:label="@string/agent_clock_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
+                <action android:name="android.net.wifi.RSSI_CHANGED" />
+                <action android:name="android.net.wifi.STATE_CHANGE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/agent_clock_widget_info" />
+        </receiver>
+
         <service
             android:name=".AgentLogWidgetService"
             android:exported="true"

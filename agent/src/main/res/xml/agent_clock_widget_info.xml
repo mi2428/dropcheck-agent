@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/agent_clock_widget_description"
+    android:initialLayout="@layout/agent_clock_widget"
+    android:minHeight="96dp"
+    android:minResizeHeight="80dp"
+    android:minResizeWidth="128dp"
+    android:minWidth="180dp"
+    android:previewLayout="@layout/agent_clock_widget"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellHeight="2"
+    android:targetCellWidth="4"
+    android:updatePeriodMillis="1800000"
+    android:widgetCategory="home_screen" />

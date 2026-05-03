@@ -1,0 +1,296 @@
+package io.dropcheck.agent
+
+import android.annotation.SuppressLint
+import android.app.PendingIntent
+import android.appwidget.AppWidgetManager
+import android.appwidget.AppWidgetProvider
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.wifi.WifiInfo
+import android.net.wifi.WifiManager
+import android.os.Bundle
+import android.util.TypedValue
+import android.widget.RemoteViews
+
+class AgentClockWidgetProvider : AppWidgetProvider() {
+    override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
+        updateWidgets(context, appWidgetManager, appWidgetIds)
+    }
+
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: Bundle,
+    ) {
+        updateWidgets(context, appWidgetManager, intArrayOf(appWidgetId))
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onReceive(context: Context, intent: Intent) {
+        super.onReceive(context, intent)
+        when (intent.action) {
+            ConnectivityManager.CONNECTIVITY_ACTION,
+            WifiManager.RSSI_CHANGED_ACTION,
+            WifiManager.NETWORK_STATE_CHANGED_ACTION -> updateAll(context)
+        }
+    }
+
+    companion object {
+        fun updateAll(context: Context) {
+            val appContext = context.applicationContext
+            val manager = AppWidgetManager.getInstance(appContext)
+            val component = ComponentName(appContext, AgentClockWidgetProvider::class.java)
+            val appWidgetIds = manager.getAppWidgetIds(component)
+            if (appWidgetIds.isEmpty()) return
+
+            updateWidgets(appContext, manager, appWidgetIds)
+        }
+
+        private fun updateWidgets(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
+            val launchIntent = Intent(context, MainActivity::class.java)
+            val launchPendingIntent = PendingIntent.getActivity(
+                context,
+                0,
+                launchIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val wifiText = currentWifiText(context)
+
+            appWidgetIds.forEach { appWidgetId ->
+                val size = clockSize(appWidgetManager.getAppWidgetOptions(appWidgetId))
+                val views = RemoteViews(context.packageName, R.layout.agent_clock_widget).apply {
+                    setTextViewText(R.id.agentClockWifiInfo, wifiText)
+                    setTextViewTextSize(R.id.agentClockDate, TypedValue.COMPLEX_UNIT_SP, size.dateSp)
+                    setTextViewTextSize(R.id.agentClockTime, TypedValue.COMPLEX_UNIT_SP, size.timeSp)
+                    setTextViewTextSize(R.id.agentClockWifiInfo, TypedValue.COMPLEX_UNIT_SP, size.wifiSp)
+                    setOnClickPendingIntent(R.id.agentClockRoot, launchPendingIntent)
+                }
+                appWidgetManager.updateAppWidget(appWidgetId, views)
+            }
+        }
+
+        @SuppressLint("MissingPermission")
+        @Suppress("DEPRECATION")
+        private fun currentWifiText(context: Context): CharSequence {
+            val snapshot = currentWifiSnapshot(context)
+            if (!snapshot.connected) {
+                return context.getString(R.string.agent_clock_widget_wifi_placeholder)
+            }
+
+            val info = snapshot.info
+            val logInfo = recentWifiLogInfo(context)
+            val essid = cleanEssid(info?.ssid).takeUnless { it == UNKNOWN_VALUE }
+                ?: logInfo?.essid
+                ?: UNKNOWN_VALUE
+            val bssid = cleanBssid(info?.bssid).takeUnless { it == UNKNOWN_VALUE }
+                ?: logInfo?.bssid
+                ?: UNKNOWN_VALUE
+            val generation = info?.let { wifiGeneration(it) }
+                ?.takeUnless { it == "Wi-Fi unknown" }
+                ?: logInfo?.standard?.let { wifiGeneration(it, info?.frequency ?: 0) }
+                ?: "Wi-Fi unknown"
+            val frequencyMhz = info?.frequency?.takeIf { it > 0 } ?: logInfo?.frequencyMhz
+            val channel = frequencyMhz?.let { wifiChannel(it)?.let { channel -> "ch$channel" } ?: "${it}MHz" }
+                ?: "freq unknown"
+            val rssi = info?.let { cleanRssi(it.rssi) }?.takeUnless { it == UNKNOWN_VALUE }
+                ?: logInfo?.rssiDbm?.let { "$it dBm" }
+                ?: UNKNOWN_VALUE
+            return "$essid  $bssid  $generation  $channel  $rssi"
+        }
+
+        @SuppressLint("MissingPermission")
+        @Suppress("DEPRECATION")
+        private fun currentWifiSnapshot(context: Context): WifiSnapshot {
+            val appContext = context.applicationContext
+            val connectivity = appContext.getSystemService(ConnectivityManager::class.java)
+            val activeCapabilities = connectivity?.activeNetwork
+                ?.let { connectivity.getNetworkCapabilities(it) }
+            if (activeCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
+                return WifiSnapshot(
+                    connected = true,
+                    info = bestWifiInfo(appContext, activeCapabilities.transportInfo as? WifiInfo),
+                )
+            }
+
+            connectivity?.allNetworks.orEmpty().forEach { network ->
+                val capabilities = connectivity?.getNetworkCapabilities(network) ?: return@forEach
+                if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                    return WifiSnapshot(
+                        connected = true,
+                        info = bestWifiInfo(appContext, capabilities.transportInfo as? WifiInfo),
+                    )
+                }
+            }
+
+            val wifi = appContext.getSystemService(WifiManager::class.java)
+            val fallbackInfo = wifi?.connectionInfo
+            return WifiSnapshot(connected = fallbackInfo?.isUsableWifiInfo() == true, info = fallbackInfo)
+        }
+
+        @Suppress("DEPRECATION")
+        private fun bestWifiInfo(context: Context, primary: WifiInfo?): WifiInfo? {
+            if (primary?.isUsableWifiInfo() == true) return primary
+
+            val wifi = context.applicationContext.getSystemService(WifiManager::class.java)
+            return wifi?.connectionInfo ?: primary
+        }
+
+        private fun cleanEssid(ssid: String?): String {
+            val value = ssid.orEmpty().trim()
+            if (value.isBlank() || value == WifiManager.UNKNOWN_SSID || value == "<unknown ssid>") {
+                return UNKNOWN_VALUE
+            }
+            return value.removeSurrounding("\"").ifBlank { UNKNOWN_VALUE }
+        }
+
+        private fun cleanBssid(bssid: String?): String {
+            val value = bssid.orEmpty().trim()
+            if (value.isBlank() || value == PLACEHOLDER_BSSID) return UNKNOWN_VALUE
+            return value
+        }
+
+        private fun wifiGeneration(info: WifiInfo): String {
+            return wifiGeneration(wifiStandardName(info.wifiStandard), info.frequency)
+        }
+
+        private fun wifiGeneration(standard: String, frequencyMhz: Int): String {
+            return when (standard) {
+                "802.11be" -> "Wi-Fi 7"
+                "802.11ax" -> if (frequencyMhz in 5925..7125) "Wi-Fi 6E" else "Wi-Fi 6"
+                "802.11ac" -> "Wi-Fi 5"
+                "802.11n" -> "Wi-Fi 4"
+                "802.11ad" -> "WiGig"
+                "legacy" -> "Wi-Fi legacy"
+                else -> "Wi-Fi unknown"
+            }
+        }
+
+        private fun cleanRssi(rssi: Int): String {
+            return if (rssi in -126..0) "$rssi dBm" else UNKNOWN_VALUE
+        }
+
+        private fun wifiChannel(frequencyMhz: Int): Int? = when (frequencyMhz) {
+            2484 -> 14
+            in 2412..2472 -> (frequencyMhz - 2407) / 5
+            in 5000..5895 -> (frequencyMhz - 5000) / 5
+            in 5955..7115 -> (frequencyMhz - 5950) / 5
+            in 58320..70200 -> (frequencyMhz - 56160) / 2160
+            else -> null
+        }
+
+        private const val UNKNOWN_VALUE = "unknown"
+        private const val PLACEHOLDER_BSSID = "02:00:00:00:00:00"
+        private const val RECENT_WIFI_LOG_LINES = 200
+
+        private fun WifiInfo.isUsableWifiInfo(): Boolean {
+            return networkId != -1 || cleanEssid(ssid) != UNKNOWN_VALUE || cleanBssid(bssid) != UNKNOWN_VALUE
+        }
+
+        private fun recentWifiLogInfo(context: Context): RecentWifiLogInfo? {
+            var essid: String? = null
+            var bssid: String? = null
+            var standard: String? = null
+            var frequencyMhz: Int? = null
+            var rssi: Int? = null
+            TerminalLog.tail(context, RECENT_WIFI_LOG_LINES)
+                .lineSequence()
+                .toList()
+                .asReversed()
+                .forEach { line ->
+                    if (essid == null) {
+                        essid = firstUsefulField(line, "ssid", "previous_ssid")
+                            ?.removeSurrounding("\"")
+                            ?.takeUnless { it == WifiManager.UNKNOWN_SSID || it == "<unknown ssid>" }
+                    }
+                    if (bssid == null) {
+                        bssid = firstUsefulField(line, "bssid", "previous_bssid")
+                            ?.takeUnless { it == PLACEHOLDER_BSSID }
+                    }
+                    if (standard == null) {
+                        standard = firstUsefulField(line, "wifi_standard", "previous_wifi_standard")
+                            ?.takeUnless { it == "unknown" }
+                    }
+                    if (frequencyMhz == null) {
+                        frequencyMhz = firstUsefulField(line, "frequency_mhz", "previous_frequency_mhz")
+                            ?.toIntOrNull()
+                            ?.takeIf { it > 0 }
+                    }
+                    if (rssi == null) {
+                        rssi = firstUsefulField(line, "rssi_dbm", "previous_rssi_dbm")
+                            ?.toIntOrNull()
+                            ?.takeIf { it in -126..0 }
+                    }
+                    if (essid != null && bssid != null && standard != null && frequencyMhz != null && rssi != null) {
+                        return RecentWifiLogInfo(essid, bssid, standard, frequencyMhz, rssi)
+                    }
+                }
+            if (essid == null && bssid == null && standard == null && frequencyMhz == null && rssi == null) return null
+            return RecentWifiLogInfo(essid, bssid, standard, frequencyMhz, rssi)
+        }
+
+        private fun firstUsefulField(line: String, vararg keys: String): String? {
+            return keys.firstNotNullOfOrNull { key -> logField(line, key)?.takeIf { it.isNotBlank() } }
+        }
+
+        private fun logField(line: String, key: String): String? {
+            val match = Regex("""(?:^| )${Regex.escape(key)}=(?:"([^"]*)"|(\S+))""").find(line) ?: return null
+            return match.groupValues[1].ifBlank { match.groupValues[2] }
+        }
+
+        private fun clockSize(options: Bundle): ClockSize {
+            val widthDp = optionDp(
+                options,
+                AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH,
+                AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH,
+                fallback = 260,
+            )
+            val heightDp = optionDp(
+                options,
+                AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT,
+                AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT,
+                fallback = 130,
+            )
+
+            val timeByWidth = widthDp * 0.36f
+            val timeByHeight = heightDp * 0.72f
+            val timeSp = minOf(timeByWidth, timeByHeight).coerceIn(72f, 132f)
+            val dateSp = (timeSp * 0.24f).coerceIn(16f, 28f)
+            val wifiSp = (widthDp * 0.036f).coerceIn(9f, 13f)
+            return ClockSize(dateSp = dateSp, timeSp = timeSp, wifiSp = wifiSp)
+        }
+
+        private fun optionDp(options: Bundle, minKey: String, maxKey: String, fallback: Int): Int {
+            val min = options.getInt(minKey, 0)
+            val max = options.getInt(maxKey, 0)
+            return listOf(min, max)
+                .filter { it > 0 }
+                .average()
+                .takeIf { !it.isNaN() }
+                ?.toInt()
+                ?: fallback
+        }
+    }
+}
+
+private data class ClockSize(
+    val dateSp: Float,
+    val timeSp: Float,
+    val wifiSp: Float,
+)
+
+private data class WifiSnapshot(
+    val connected: Boolean,
+    val info: WifiInfo?,
+)
+
+private data class RecentWifiLogInfo(
+    val essid: String?,
+    val bssid: String?,
+    val standard: String?,
+    val frequencyMhz: Int?,
+    val rssiDbm: Int?,
+)
