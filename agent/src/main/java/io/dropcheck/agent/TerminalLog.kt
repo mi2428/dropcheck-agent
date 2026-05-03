@@ -63,8 +63,7 @@ object TerminalLog {
             setPackage(context.packageName)
             putExtra(EXTRA_LINE, formatted)
         })
-        AgentLogWidgetProvider.updateAll(context)
-        AgentClockWidgetProvider.updateAll(context)
+        AgentLogWidgetProvider.requestUpdate(context)
     }
 
     /** Reads the most recent terminal lines for display when the activity opens. */
