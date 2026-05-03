@@ -7,4 +7,8 @@
     <string name="agent_clock_widget_label">Clock</string>
     <string name="agent_clock_widget_description">Transparent clock with Wi-Fi state and IP addresses.</string>
     <string name="agent_clock_widget_wifi_placeholder">Wi-Fi disconnected</string>
+    <string name="background_location_title">Allow all the time location</string>
+    <string name="background_location_message">dropcheck uses Android Wi-Fi APIs to show SSID and BSSID in widgets and background checks. Open app settings and set Location to Allow all the time.</string>
+    <string name="background_location_open_settings">Open settings</string>
+    <string name="background_location_later">Later</string>
 </resources>

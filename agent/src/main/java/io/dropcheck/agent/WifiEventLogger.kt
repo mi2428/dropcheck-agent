@@ -65,7 +65,9 @@ internal class WifiEventLogger(
         }
     }
 
-    private val wifiCallback = object : ConnectivityManager.NetworkCallback() {
+    private val wifiCallback = object : ConnectivityManager.NetworkCallback(
+        ConnectivityManager.NetworkCallback.FLAG_INCLUDE_LOCATION_INFO,
+    ) {
         override fun onAvailable(network: Network) {
             if (!started.get()) return
             logNetworkInfo("wifi.network.available", network)
@@ -119,7 +121,9 @@ internal class WifiEventLogger(
         }
     }
 
-    private val defaultCallback = object : ConnectivityManager.NetworkCallback() {
+    private val defaultCallback = object : ConnectivityManager.NetworkCallback(
+        ConnectivityManager.NetworkCallback.FLAG_INCLUDE_LOCATION_INFO,
+    ) {
         override fun onAvailable(network: Network) {
             if (!started.get()) return
             logNetworkInfo("wifi.default_network.available", network)

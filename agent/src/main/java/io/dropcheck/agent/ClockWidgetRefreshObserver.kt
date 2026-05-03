@@ -46,7 +46,9 @@ internal class ClockWidgetRefreshObserver(
         }
     }
 
-    private val wifiCallback = object : ConnectivityManager.NetworkCallback() {
+    private val wifiCallback = object : ConnectivityManager.NetworkCallback(
+        ConnectivityManager.NetworkCallback.FLAG_INCLUDE_LOCATION_INFO,
+    ) {
         override fun onAvailable(network: Network) = requestRefreshWithFollowUps()
         override fun onLosing(network: Network, maxMsToLive: Int) = requestRefreshWithFollowUps()
         override fun onLost(network: Network) = requestRefreshWithFollowUps()
@@ -56,7 +58,9 @@ internal class ClockWidgetRefreshObserver(
         override fun onBlockedStatusChanged(network: Network, blocked: Boolean) = requestRefreshWithFollowUps()
     }
 
-    private val defaultCallback = object : ConnectivityManager.NetworkCallback() {
+    private val defaultCallback = object : ConnectivityManager.NetworkCallback(
+        ConnectivityManager.NetworkCallback.FLAG_INCLUDE_LOCATION_INFO,
+    ) {
         override fun onAvailable(network: Network) = requestRefreshWithFollowUps()
         override fun onLost(network: Network) = requestRefreshWithFollowUps()
         override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) = requestRefreshWithFollowUps()

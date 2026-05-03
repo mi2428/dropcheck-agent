@@ -259,7 +259,9 @@ class NetworkRepository(
             events += event.build()
             logger.debug("wifi monitor event type=$type message=$message network=${network ?: "none"}")
         }
-        val callback = object : ConnectivityManager.NetworkCallback() {
+        val callback = object : ConnectivityManager.NetworkCallback(
+            ConnectivityManager.NetworkCallback.FLAG_INCLUDE_LOCATION_INFO,
+        ) {
             override fun onAvailable(network: Network) {
                 addEvent("network_available", "wifi network available", network)
             }
@@ -645,6 +647,9 @@ class NetworkRepository(
         val names = buildList {
             add(Manifest.permission.ACCESS_COARSE_LOCATION)
             add(Manifest.permission.ACCESS_FINE_LOCATION)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 add(Manifest.permission.NEARBY_WIFI_DEVICES)
             }

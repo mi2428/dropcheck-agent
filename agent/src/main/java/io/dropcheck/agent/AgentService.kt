@@ -4,8 +4,12 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.Manifest
 import android.content.Intent
 import android.content.Context
+import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
+import android.location.LocationManager
 import android.os.Build
 import android.os.IBinder
 import java.util.concurrent.Executors
@@ -33,7 +37,7 @@ class AgentService : Service() {
     override fun onCreate() {
         super.onCreate()
         ensureNotificationChannel()
-        startForeground(NOTIFICATION_ID, notification("starting"))
+        startForegroundWithType("starting")
         TerminalLog.compactIfNeeded(this)
         clockWidgetObserver = ClockWidgetRefreshObserver(this)
         if (AgentClockWidgetProvider.hasClockWidgets(this)) {
@@ -52,7 +56,7 @@ class AgentService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(NOTIFICATION_ID, notification(notificationText(intent?.action)))
+        startForegroundWithType(notificationText(intent?.action))
         TerminalLog.infoEvent(this, "service.start", listOf(
             "action" to intent?.action,
             "start_id" to startId,
@@ -237,13 +241,13 @@ class AgentService : Service() {
         }
         if (StandaloneConfigStore(this).load().enabled) {
             standaloneRunner.refresh()
-            startForeground(NOTIFICATION_ID, notification("standalone checks"))
+            startForegroundWithType("standalone checks")
         }
         if (!StandaloneConfigStore(this).load().enabled && !ControllerLinkStore(this).load().enabled) {
             stopWifiEvents()
         }
         if (ControllerLinkStore(this).load().enabled) {
-            startForeground(NOTIFICATION_ID, notification("controller link retry"))
+            startForegroundWithType("controller link retry")
             queueControllerLinkLoop("session-finished")
             return
         }
@@ -386,6 +390,42 @@ class AgentService : Service() {
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_stat_dropcheck)
             .build()
+    }
+
+    private fun startForegroundWithType(text: String) {
+        val notification = notification(text)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, foregroundServiceTypeMask())
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+    }
+
+    private fun foregroundServiceTypeMask(): Int {
+        var mask = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+        } else {
+            0
+        }
+        if (canUseLocationForegroundService()) {
+            mask = mask or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+        }
+        return mask
+    }
+
+    private fun canUseLocationForegroundService(): Boolean {
+        if (!hasBackgroundLocationAccess()) return false
+        val hasForegroundLocation =
+            checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!hasForegroundLocation) return false
+        val locationManager = getSystemService(LocationManager::class.java)
+        return locationManager?.isLocationEnabled ?: true
+    }
+
+    private fun hasBackgroundLocationAccess(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+            checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
 
     companion object {
