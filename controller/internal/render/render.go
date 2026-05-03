@@ -115,8 +115,6 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 		renderWifiOperation(&b, payload.WifiOperation)
 	case *controlpb.CommandResult_WifiAssert:
 		renderWifiAssert(&b, payload.WifiAssert)
-	case *controlpb.CommandResult_WifiWatch:
-		renderWifiWatch(&b, payload.WifiWatch)
 	case *controlpb.CommandResult_WifiMonitor:
 		renderWifiMonitor(&b, payload.WifiMonitor)
 	case *controlpb.CommandResult_WifiScanDetail:
@@ -666,26 +664,6 @@ func renderWifiAssert(b *strings.Builder, result *controlpb.WifiAssertResult) {
 	if result.GetStatus() != nil {
 		renderWifiStatus(b, result.GetStatus())
 	}
-}
-
-func renderWifiWatch(b *strings.Builder, result *controlpb.WifiWatchResult) {
-	if result == nil {
-		return
-	}
-	fmt.Fprintf(b, "Wi-Fi watch: samples=%d errors=%d\n", len(result.GetSamples()), len(result.GetErrors()))
-	for _, sample := range result.GetSamples() {
-		fmt.Fprintf(b, "%s ", unixMillis(sample.GetUnixTimeMs()))
-		if sample.GetStatus() != nil {
-			conn := sample.GetStatus().GetConnection()
-			fmt.Fprintf(b, "state=%s ssid=%s rssi=%ddBm ip=%s\n",
-				empty(sample.GetStatus().GetState(), "unknown"),
-				empty(conn.GetSsid(), "none"),
-				conn.GetRssiDbm(),
-				empty(conn.GetIpv4Address(), "none"),
-			)
-		}
-	}
-	renderErrors(b, result.GetErrors())
 }
 
 func renderWifiMonitor(b *strings.Builder, result *controlpb.WifiMonitorResult) {

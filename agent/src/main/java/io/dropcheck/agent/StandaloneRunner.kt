@@ -315,6 +315,7 @@ internal class StandaloneRunner(private val context: Context) {
             .build()
     }
 
+    @Suppress("DEPRECATION")
     @SuppressLint("MissingPermission")
     private fun resolveEssid(group: StandaloneWifiGroup): String {
         if (group.essid.isNotBlank()) return group.essid
