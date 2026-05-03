@@ -146,12 +146,19 @@ class MainActivity : Activity() {
             isFillViewport = true
             addView(logView)
             setOnTouchListener { _, event ->
-                if (event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_MOVE) {
-                    followLogTail = false
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_MOVE -> {
+                        if (!isScrolledToBottom()) followLogTail = false
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        if (isScrolledToBottom()) followLogTail = true
+                    }
                 }
                 false
             }
             setOnScrollChangeListener { _, _, _, _, _ ->
+                if (scrollToBottomPending && followLogTail) return@setOnScrollChangeListener
+
                 val atBottom = isScrolledToBottom()
                 followLogTail = atBottom
                 if (atBottom && trimDisplayIfNeeded() > 0) {
@@ -241,6 +248,8 @@ class MainActivity : Activity() {
     }
 
     private fun shouldFollowLogTail(): Boolean {
+        if (followLogTail && scrollToBottomPending) return true
+
         val follow = followLogTail && (!::scroll.isInitialized || isScrolledToBottom())
         if (!follow) {
             followLogTail = false

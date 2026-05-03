@@ -19,7 +19,7 @@
         android:listSelector="@android:color/transparent"
         android:scrollbarStyle="insideOverlay"
         android:stackFromBottom="true"
-        android:transcriptMode="normal" />
+        android:transcriptMode="alwaysScroll" />
 
     <TextView
         android:id="@+id/agentLogWidgetEmpty"
