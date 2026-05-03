@@ -48,11 +48,22 @@ private class AgentLogWidgetFactory(
     override fun hasStableIds(): Boolean = true
 
     private fun loadLines() {
+        lines = AgentLogWidgetLines.load(context)
+    }
+}
+
+internal object AgentLogWidgetLines {
+    fun load(context: Context): List<WidgetLogLine> {
+        return fromTail(TerminalLog.tail(context, TerminalDisplayPolicy.MAX_DISPLAY_LINES))
+    }
+
+    fun count(context: Context): Int = load(context).size
+
+    fun fromTail(tail: String): List<WidgetLogLine> {
         val displayLines = ArrayDeque<String>()
         var displayChars = 0
 
-        TerminalLog.tail(context, TerminalDisplayPolicy.MAX_DISPLAY_LINES)
-            .lineSequence()
+        tail.lineSequence()
             .forEach { rawLine ->
                 val line = TerminalDisplayPolicy.boundedLine(rawLine, appendNewline = false)
                 val lineChars = TerminalDisplayPolicy.displayLength(line)
@@ -67,11 +78,11 @@ private class AgentLogWidgetFactory(
                     displayChars -= TerminalDisplayPolicy.displayLength(displayLines.removeFirst())
                 }
             }
-        lines = displayLines.map { WidgetLogLine(id = it.hashCode().toLong(), text = it) }
+        return displayLines.map { WidgetLogLine(id = it.hashCode().toLong(), text = it) }
     }
 }
 
-private data class WidgetLogLine(
+internal data class WidgetLogLine(
     val id: Long,
     val text: String,
 )

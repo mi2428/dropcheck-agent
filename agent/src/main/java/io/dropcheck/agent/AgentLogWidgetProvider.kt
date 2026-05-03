@@ -19,7 +19,6 @@ import android.widget.RemoteViews
 class AgentLogWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         updateWidgets(context, appWidgetManager, appWidgetIds)
-        recordLayoutVersion(context)
     }
 
     override fun onAppWidgetOptionsChanged(
@@ -29,14 +28,9 @@ class AgentLogWidgetProvider : AppWidgetProvider() {
         newOptions: Bundle,
     ) {
         updateWidgets(context, appWidgetManager, intArrayOf(appWidgetId))
-        recordLayoutVersion(context)
     }
 
     companion object {
-        private const val WIDGET_PREFS = "agent_log_widget"
-        private const val WIDGET_LAYOUT_VERSION_KEY = "layout_version"
-        private const val WIDGET_LAYOUT_VERSION = 2
-
         fun updateAll(context: Context) {
             val appContext = context.applicationContext
             val manager = AppWidgetManager.getInstance(appContext)
@@ -44,16 +38,11 @@ class AgentLogWidgetProvider : AppWidgetProvider() {
             val appWidgetIds = manager.getAppWidgetIds(component)
             if (appWidgetIds.isEmpty()) return
 
-            if (layoutVersion(appContext) != WIDGET_LAYOUT_VERSION) {
-                updateWidgets(appContext, manager, appWidgetIds)
-                recordLayoutVersion(appContext)
-                return
-            }
-
-            manager.notifyAppWidgetViewDataChanged(appWidgetIds, R.id.agentLogWidgetList)
+            updateWidgets(appContext, manager, appWidgetIds)
         }
 
         private fun updateWidgets(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
+            val lineCount = AgentLogWidgetLines.count(context)
             appWidgetIds.forEach { appWidgetId ->
                 val serviceIntent = Intent(context, AgentLogWidgetService::class.java).apply {
                     putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
@@ -62,22 +51,13 @@ class AgentLogWidgetProvider : AppWidgetProvider() {
                 val views = RemoteViews(context.packageName, R.layout.agent_log_widget).apply {
                     setRemoteAdapter(R.id.agentLogWidgetList, serviceIntent)
                     setEmptyView(R.id.agentLogWidgetList, R.id.agentLogWidgetEmpty)
+                    if (lineCount > 0) {
+                        setScrollPosition(R.id.agentLogWidgetList, lineCount - 1)
+                    }
                 }
                 appWidgetManager.updateAppWidget(appWidgetId, views)
                 appWidgetManager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.agentLogWidgetList)
             }
-        }
-
-        private fun layoutVersion(context: Context): Int {
-            return context.getSharedPreferences(WIDGET_PREFS, Context.MODE_PRIVATE)
-                .getInt(WIDGET_LAYOUT_VERSION_KEY, 0)
-        }
-
-        private fun recordLayoutVersion(context: Context) {
-            context.getSharedPreferences(WIDGET_PREFS, Context.MODE_PRIVATE)
-                .edit()
-                .putInt(WIDGET_LAYOUT_VERSION_KEY, WIDGET_LAYOUT_VERSION)
-                .apply()
         }
     }
 }
