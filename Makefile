@@ -134,7 +134,7 @@ e2e: ## Run real-device shell/CLI e2e matrix; use SERIAL=... SSID=... PSK=...
 	if [[ -n "$$psk" ]]; then export DROPCHECK_E2E_WIFI_PSK="$$psk"; psk_env="DROPCHECK_E2E_WIFI_PSK"; \
 	else [[ -n "$${!psk_env:-}" ]] || die "PSK or $$psk_env is required"; fi; \
 	export DROPCHECK_E2E_LIVE=1 DROPCHECK_E2E_SERIAL="$$serial" DROPCHECK_E2E_WIFI_SSID="$$ssid" DROPCHECK_E2E_WIFI_PSK_ENV="$$psk_env" DROPCHECK_E2E_ADB="$(ADB)" DROPCHECK_E2E_PACKAGE="$(E2E_AGENT_PACKAGE)"; \
-	(cd controller && run "$(GO)" test -v -tags e2e -timeout "$(E2E_TIMEOUT)" "$(E2E_PACKAGE)")
+	(cd controller && run "$(GO)" test -v -count=1 -tags e2e -timeout "$(E2E_TIMEOUT)" "$(E2E_PACKAGE)")
 
 .PHONY: quality
 quality: fmt lint test ## Format, lint, and test selected targets

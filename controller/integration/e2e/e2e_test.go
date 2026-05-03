@@ -11,7 +11,7 @@
 //
 //	make e2e SERIAL=45240DLAQ007HG SSID="SHIZK RADIO" PSK_ENV=DROPCHECK_E2E_WIFI_PSK
 //
-// make e2e runs go test -v. Each case prints its title, runner, command,
+// make e2e runs go test -v -count=1. Each case prints its title, runner, command,
 // result, elapsed time, per-case log path, and a short output tail.
 //
 // Useful environment variables:
@@ -20,6 +20,8 @@
 //	DROPCHECK_E2E_LOG_DIR      persistent directory for per-case logs
 //	DROPCHECK_E2E_BIN          prebuilt dropcheck binary to use instead of building a temp one
 //	DROPCHECK_E2E_LAUNCH_APP   set to 0 to avoid bringing the Android activity to the foreground
+//	DROPCHECK_E2E_LAUNCH_APP_EVERY_CASE
+//	                           set to 0 to skip per-case foregrounding; defaults to 1
 //	DROPCHECK_E2E_FORCE_STOP   set to 1 to force-stop the Android app before each live case
 //
 // The case table is testdata/e2e_cases.tsv. The title column is included in Go
@@ -62,6 +64,7 @@ const (
 	envPackage    = "DROPCHECK_E2E_PACKAGE"
 	envForceStop  = "DROPCHECK_E2E_FORCE_STOP"
 	envLaunchApp  = "DROPCHECK_E2E_LAUNCH_APP"
+	envLaunchEach = "DROPCHECK_E2E_LAUNCH_APP_EVERY_CASE"
 	defaultADB    = "adb"
 	defaultPkg    = "io.dropcheck.agent"
 	defaultPSKEnv = "DROPCHECK_E2E_WIFI_PSK"
@@ -90,14 +93,15 @@ type e2eConfig struct {
 	missingPlan    string
 	syncDir        string
 
-	live              bool
-	serial            string
-	ssid              string
-	psk               string
-	bssid             string
-	agentPref         string
-	forceStopApp      bool
-	launchAppActivity bool
+	live               bool
+	serial             string
+	ssid               string
+	psk                string
+	bssid              string
+	agentPref          string
+	forceStopApp       bool
+	launchAppActivity  bool
+	launchAppEveryCase bool
 
 	vars map[string]string
 }
@@ -111,25 +115,23 @@ type commandResult struct {
 func TestDropcheckShellManualMatrix(t *testing.T) {
 	cases := loadCases(t)
 	cfg := loadConfig(t)
-	if cfg.live {
-		cfg.prepareLive(t)
+	filter := os.Getenv(envFilter)
+	selected := filteredCases(cases, filter)
+	if cfg.live && hasLiveProcessCases(selected) {
+		cfg.prepareLive(t, selected)
 		t.Cleanup(func() {
 			cfg.runShellCleanup("set controller endpoint disabled")
 			cfg.runShellCleanup("set festival standalone disabled")
 			if cfg.ssid != "" && cfg.psk != "" {
 				cfg.runCLICleanup("wifi", "connect", cfg.ssid, "--passphrase", cfg.psk, "--security", "auto", "--timeout", "25000")
 			}
-			cfg.launchApp(t, "suite cleanup")
+			cfg.launchApp(t, "suite cleanup", false)
 		})
 	}
-	t.Logf("e2e cases=%d live=%t logs=%s filter=%q serial=%q package=%q launch_app=%t force_stop=%t", len(cases), cfg.live, cfg.logDir, os.Getenv(envFilter), cfg.serial, cfg.packageName, cfg.launchAppActivity, cfg.forceStopApp)
+	t.Logf("e2e cases=%d selected=%d live=%t logs=%s filter=%q serial=%q package=%q launch_app=%t launch_app_every_case=%t force_stop=%t", len(cases), len(selected), cfg.live, cfg.logDir, filter, cfg.serial, cfg.packageName, cfg.launchAppActivity, cfg.launchAppEveryCase, cfg.forceStopApp)
 
-	filter := os.Getenv(envFilter)
-	for _, tc := range cases {
+	for _, tc := range selected {
 		tc := tc
-		if filter != "" && !caseMatchesFilter(tc, filter) {
-			continue
-		}
 		t.Run(tc.testName(), func(t *testing.T) {
 			start := time.Now()
 			commandLine, missing := cfg.expand(tc.Command, tc.Runner)
@@ -157,7 +159,7 @@ func TestDropcheckShellManualMatrix(t *testing.T) {
 				if strings.Contains(commandLine, "<bssid>") {
 					t.Skip("BSSID could not be resolved from the device")
 				}
-				cfg.launchApp(t, "case "+tc.ID)
+				cfg.prepareLiveCase(t, "case "+tc.ID)
 				var res commandResult
 				if tc.Runner == "shell" {
 					res = cfg.runShellCase(tc, commandLine)
@@ -234,18 +236,19 @@ func loadConfig(t *testing.T) *e2eConfig {
 		t.Fatal(err)
 	}
 	cfg := &e2eConfig{
-		controllerRoot:    controllerRoot,
-		repoRoot:          filepath.Dir(controllerRoot),
-		adb:               envOr(envADB, defaultADB),
-		packageName:       envOr(envPackage, defaultPkg),
-		logDir:            logDir,
-		syncDir:           filepath.Join(t.TempDir(), "festival-sync"),
-		live:              envBool(envLive),
-		serial:            firstNonEmpty(os.Getenv(envSerial), os.Getenv("ADB_SERIAL")),
-		ssid:              firstNonEmpty(os.Getenv(envSSID), os.Getenv("DROPCHECK_FESTIVAL_WIFI_SSID")),
-		forceStopApp:      envBool(envForceStop),
-		launchAppActivity: envBoolDefault(envLaunchApp, true),
-		vars:              map[string]string{},
+		controllerRoot:     controllerRoot,
+		repoRoot:           filepath.Dir(controllerRoot),
+		adb:                envOr(envADB, defaultADB),
+		packageName:        envOr(envPackage, defaultPkg),
+		logDir:             logDir,
+		syncDir:            filepath.Join(t.TempDir(), "festival-sync"),
+		live:               envBool(envLive),
+		serial:             firstNonEmpty(os.Getenv(envSerial), os.Getenv("ADB_SERIAL")),
+		ssid:               firstNonEmpty(os.Getenv(envSSID), os.Getenv("DROPCHECK_FESTIVAL_WIFI_SSID")),
+		forceStopApp:       envBool(envForceStop),
+		launchAppActivity:  envBoolDefault(envLaunchApp, true),
+		launchAppEveryCase: envBoolDefault(envLaunchEach, true),
+		vars:               map[string]string{},
 	}
 	pskEnv := firstNonEmpty(os.Getenv(envPSKName), os.Getenv("DROPCHECK_FESTIVAL_WIFI_PSK_ENV"), defaultPSKEnv)
 	cfg.psk = firstNonEmpty(os.Getenv(pskEnv), os.Getenv(envPSK), os.Getenv("DROPCHECK_FESTIVAL_WIFI_PSK"))
@@ -255,7 +258,7 @@ func loadConfig(t *testing.T) *e2eConfig {
 	return cfg
 }
 
-func (cfg *e2eConfig) prepareLive(t *testing.T) {
+func (cfg *e2eConfig) prepareLive(t *testing.T, cases []matrixCase) {
 	t.Helper()
 	if cfg.serial == "" {
 		t.Logf("%s not set; live cases will be skipped", envSerial)
@@ -274,14 +277,36 @@ func (cfg *e2eConfig) prepareLive(t *testing.T) {
 	} else {
 		t.Logf("using dropcheck binary: %s", cfg.bin)
 	}
-	cfg.launchApp(t, "suite start")
-	cfg.agentPref = cfg.resolveAgentPrefix()
-	t.Logf("resolved agent prefix: %s", cfg.agentPref)
-	cfg.launchApp(t, "after agent discovery")
-	if cfg.ssid != "" && cfg.psk != "" {
-		cfg.bssid = cfg.resolveBSSID()
-		t.Logf("resolved bssid: %s", cfg.bssid)
-		cfg.launchApp(t, "after bssid discovery")
+	needsAgentPrefix, needsWiFiSetup, needsBSSID := liveSetupNeeds(cases)
+	t.Logf("live setup needs: agent_prefix=%t wifi_setup=%t bssid=%t", needsAgentPrefix, needsWiFiSetup, needsBSSID)
+	cfg.launchApp(t, "suite start", true)
+	if needsAgentPrefix {
+		cfg.agentPref = cfg.resolveAgentPrefix()
+		t.Logf("resolved agent prefix: %s", cfg.agentPref)
+		cfg.launchApp(t, "after agent discovery", true)
+	}
+	if needsWiFiSetup && cfg.ssid != "" && cfg.psk != "" {
+		if needsBSSID {
+			cfg.bssid = cfg.resolveBSSID()
+			t.Logf("resolved bssid: %s", cfg.bssid)
+			cfg.launchApp(t, "after bssid discovery", true)
+		} else {
+			t.Logf("ensuring Wi-Fi connection to test SSID")
+			cfg.runCLICleanup("wifi", "connect", cfg.ssid, "--passphrase", cfg.psk, "--security", "auto", "--timeout", "25000")
+			cfg.launchApp(t, "after wifi setup", true)
+		}
+	}
+}
+
+func (cfg *e2eConfig) prepareLiveCase(t *testing.T, reason string) {
+	t.Helper()
+	if cfg.forceStopApp {
+		cfg.forceStop()
+		cfg.launchApp(t, reason, true)
+		return
+	}
+	if cfg.launchAppEveryCase {
+		cfg.launchApp(t, reason, true)
 	}
 }
 
@@ -312,7 +337,6 @@ func runShellParser(commandLine string) commandResult {
 }
 
 func (cfg *e2eConfig) runShellCase(tc matrixCase, commandLine string) commandResult {
-	cfg.forceStop()
 	input := commandLine + "\n"
 	if commandLine != "quit" && commandLine != "exit" {
 		input += "quit\n"
@@ -321,7 +345,6 @@ func (cfg *e2eConfig) runShellCase(tc matrixCase, commandLine string) commandRes
 }
 
 func (cfg *e2eConfig) runCLICase(tc matrixCase, commandLine string) commandResult {
-	cfg.forceStop()
 	args, err := commandparse.SplitArgs(commandLine)
 	if err != nil {
 		return commandResult{Output: err.Error(), Code: 1, Err: err}
@@ -635,18 +658,23 @@ func (cfg *e2eConfig) forceStop() {
 	_ = cmd.Run()
 }
 
-func (cfg *e2eConfig) launchApp(t *testing.T, reason string) {
+func (cfg *e2eConfig) launchApp(t *testing.T, reason string, wait bool) {
 	t.Helper()
 	if !cfg.launchAppActivity || !cfg.live || cfg.adb == "" || cfg.serial == "" || cfg.packageName == "" {
 		return
 	}
+	args := []string{"am", "start"}
+	if wait {
+		args = append(args, "-W")
+	}
 	component := cfg.packageName + "/.MainActivity"
-	out, err := cfg.adbShell(10*time.Second, "am", "start", "-W", "-n", component, "-f", "0x34000000")
+	args = append(args, "-n", component, "-f", "0x34000000")
+	out, err := cfg.adbShell(10*time.Second, args...)
 	if err != nil {
-		t.Logf("launch app failed reason=%s component=%s err=%v output=%s", reason, component, err, strings.TrimSpace(out))
+		t.Logf("launch app failed reason=%s wait=%t component=%s err=%v output=%s", reason, wait, component, err, strings.TrimSpace(out))
 		return
 	}
-	t.Logf("launch app reason=%s component=%s output=%s", reason, component, oneLine(out))
+	t.Logf("launch app reason=%s wait=%t component=%s output=%s", reason, wait, component, oneLine(out))
 }
 
 func (cfg *e2eConfig) adbShell(timeout time.Duration, args ...string) (string, error) {
@@ -756,6 +784,89 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func filteredCases(cases []matrixCase, filter string) []matrixCase {
+	if filter == "" {
+		return cases
+	}
+	var selected []matrixCase
+	for _, tc := range cases {
+		if caseMatchesFilter(tc, filter) {
+			selected = append(selected, tc)
+		}
+	}
+	return selected
+}
+
+func hasLiveProcessCases(cases []matrixCase) bool {
+	for _, tc := range cases {
+		if tc.Runner == "shell" || tc.Runner == "cli" {
+			return true
+		}
+	}
+	return false
+}
+
+func liveSetupNeeds(cases []matrixCase) (agentPrefix bool, wifiSetup bool, bssid bool) {
+	for _, tc := range cases {
+		if tc.Runner != "shell" && tc.Runner != "cli" {
+			continue
+		}
+		if strings.Contains(tc.Command, "<agent-id-prefix-from-show-devices>") {
+			agentPrefix = true
+		}
+		if strings.Contains(tc.Command, "<bssid>") {
+			bssid = true
+			wifiSetup = true
+		}
+		if caseNeedsWiFiSetup(tc) {
+			wifiSetup = true
+		}
+	}
+	return agentPrefix, wifiSetup, bssid
+}
+
+func caseNeedsWiFiSetup(tc matrixCase) bool {
+	commandLine := strings.ToLower(tc.Command)
+	if strings.Contains(commandLine, "<ssid>") || strings.Contains(commandLine, "<psk>") || strings.Contains(commandLine, "<bssid>") {
+		return true
+	}
+	wifiOrNetworkCommands := []string{
+		"show wifi",
+		"wifi scan",
+		"wifi status",
+		"wifi connect",
+		"wifi wait",
+		"wifi assert",
+		"wifi reconnect",
+		"wifi cycle",
+		"wifi disconnect",
+		"wifi forget",
+		"monitor wifi",
+		"wifi monitor",
+		"wifi watch",
+		"ping",
+		"traceroute",
+		"path-mtu",
+		"global-ip",
+		"test dns",
+		"test http",
+		"test download",
+		"dropcheck dns",
+		"dropcheck http",
+		"dropcheck download",
+		"dropcheck global-ip",
+		"dropcheck path-mtu",
+		"dropcheck traceroute",
+		"dropcheck ping",
+	}
+	for _, needle := range wifiOrNetworkCommands {
+		if strings.Contains(commandLine, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func caseMatchesFilter(tc matrixCase, filter string) bool {

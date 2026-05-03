@@ -25,6 +25,7 @@ class AgentService : Service() {
     private lateinit var festivalRunner: FestivalStandaloneRunner
     private var current: Future<*>? = null
     private var currentMode: String = ""
+    private var currentSessionKey: String = ""
 
     override fun onCreate() {
         super.onCreate()
@@ -108,13 +109,23 @@ class AgentService : Service() {
     /**
      * Starts one gRPC session worker.
      *
-     * The service rejects concurrent sessions because command execution is
-     * single-threaded and each APK instance represents one physical device.
+     * The service rejects concurrent direct sessions because command execution
+     * is single-threaded and each APK instance represents one physical device.
+     * ADB-reverse sessions supersede older sessions so short-lived controller
+     * invocations can run back-to-back without waiting for Android cleanup.
      */
     private fun startGrpcSession(host: String, port: Int, token: String, agentId: String, adbSerial: String, transport: String) {
+        val sessionKey = "$transport:$host:$port:$token"
         synchronized(sessionLock) {
-            if (current?.isDone == false && currentMode == "direct-tcp" && transport == "adb-reverse") {
-                TerminalLog.info(this, "adb session supersedes direct controller link")
+            if (current?.isDone == false && transport == "adb-reverse") {
+                TerminalLog.infoEvent(this, "grpc.session.superseded", listOf(
+                    "previous_transport" to currentMode,
+                    "transport" to transport,
+                    "host" to host,
+                    "port" to port,
+                    "agent_id" to agentId,
+                    "adb_serial" to adbSerial,
+                ))
                 current?.cancel(true)
             } else if (current?.isDone == false) {
                 TerminalLog.warnEvent(this, "grpc.session.rejected", listOf(
@@ -129,6 +140,7 @@ class AgentService : Service() {
                 return
             }
             currentMode = transport
+            currentSessionKey = sessionKey
         }
         TerminalLog.infoEvent(this, "grpc.session.queued", listOf(
             "host" to host,
@@ -157,7 +169,7 @@ class AgentService : Service() {
                     "agent_id" to agentId,
                     "adb_serial" to adbSerial,
                 ))
-                afterGrpcSessionFinished(transport)
+                afterGrpcSessionFinished(transport, sessionKey)
             }
         }
     }
@@ -165,19 +177,19 @@ class AgentService : Service() {
     /**
      * Cleans up one completed session and decides whether direct reconnect should continue.
      *
-     * ADB sessions intentionally supersede direct-TCP sessions. When that happens
-     * the canceled direct worker may still run its finally block after the ADB
-     * worker has been queued; the transport check prevents that stale worker
-     * from queueing another direct retry over the fresh ADB session.
+     * ADB sessions intentionally supersede older sessions. The canceled worker
+     * may still run its finally block after the replacement has been queued; the
+     * session key prevents stale cleanup from clearing the fresh session state.
      */
-    private fun afterGrpcSessionFinished(transport: String) {
+    private fun afterGrpcSessionFinished(transport: String, sessionKey: String) {
         synchronized(sessionLock) {
-            if (currentMode != transport) {
+            if (currentMode != transport || currentSessionKey != sessionKey) {
                 TerminalLog.debug(this, "ignoring stale session cleanup transport=$transport current_mode=$currentMode")
                 return
             }
             current = null
             currentMode = ""
+            currentSessionKey = ""
         }
         if (FestivalConfigStore(this).load().enabled) {
             festivalRunner.refresh()
