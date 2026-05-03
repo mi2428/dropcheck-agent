@@ -19,17 +19,28 @@ class ControllerLinkRuntimeStateTest {
         ControllerLinkRuntimeState.markConnecting("192.168.7.1:37588", "direct-tcp")
         var status = ControllerLinkRuntimeState.status(config)
         assertFalse(status.connected)
+        assertFalse(ControllerLinkRuntimeState.heartbeatConnected())
         assertEquals("192.168.7.1:37588", status.endpoint)
         assertEquals("direct-tcp", status.transport)
 
         ControllerLinkRuntimeState.markConnected("192.168.7.1:37588", "direct-tcp")
         status = ControllerLinkRuntimeState.status(config)
         assertTrue(status.connected)
+        assertTrue(ControllerLinkRuntimeState.heartbeatConnected())
         assertTrue(status.lastConnectedUnixMs > 0)
+
+        ControllerLinkRuntimeState.markHeartbeatTimedOut("controller heartbeat timeout")
+        status = ControllerLinkRuntimeState.status(config)
+        assertTrue(status.connected)
+        assertFalse(ControllerLinkRuntimeState.heartbeatConnected())
+
+        ControllerLinkRuntimeState.markHeartbeatRecovered()
+        assertTrue(ControllerLinkRuntimeState.heartbeatConnected())
 
         ControllerLinkRuntimeState.markRetryAt(123_456L, "controller disconnected; retrying")
         status = ControllerLinkRuntimeState.status(config)
         assertFalse(status.connected)
+        assertFalse(ControllerLinkRuntimeState.heartbeatConnected())
         assertEquals(123_456L, status.nextRetryUnixMs)
         assertEquals("controller disconnected; retrying", status.lastError)
     }

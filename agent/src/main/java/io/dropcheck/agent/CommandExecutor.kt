@@ -215,6 +215,7 @@ class CommandExecutor(
             AgentService.requestControllerLinkRefresh(context)
         } else {
             ControllerLinkRuntimeState.markDisconnected("controller endpoint disabled")
+            AgentStatusBroadcast.send(context)
         }
         logger.info("controller endpoint config updated enabled=${config.enabled} endpoint=${config.endpoint().ifBlank { "-" }} token_present=${config.token.isNotBlank()}")
         return CommandResult.newBuilder()

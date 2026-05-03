@@ -15,10 +15,12 @@ internal object ControllerLinkRuntimeState {
     private val lastConnectedUnixMs = AtomicLong(0)
     private val lastDisconnectedUnixMs = AtomicLong(0)
     private val nextRetryUnixMs = AtomicLong(0)
+    private val heartbeatTimedOut = AtomicBoolean(false)
 
     /** Records the endpoint a session worker is attempting before hello succeeds. */
     fun markConnecting(endpointValue: String, transportValue: String) {
         connected.set(false)
+        heartbeatTimedOut.set(false)
         endpoint.set(endpointValue)
         transport.set(transportValue)
         nextRetryUnixMs.set(0)
@@ -27,6 +29,7 @@ internal object ControllerLinkRuntimeState {
     /** Records an authenticated gRPC stream after the hello frame is sent. */
     fun markConnected(endpointValue: String, transportValue: String) {
         connected.set(true)
+        heartbeatTimedOut.set(false)
         endpoint.set(endpointValue)
         transport.set(transportValue)
         lastError.set("")
@@ -37,6 +40,7 @@ internal object ControllerLinkRuntimeState {
     /** Records a stream close without scheduling information. */
     fun markDisconnected(message: String = "") {
         connected.set(false)
+        heartbeatTimedOut.set(false)
         if (message.isNotBlank()) lastError.set(message)
         lastDisconnectedUnixMs.set(System.currentTimeMillis())
     }
@@ -44,9 +48,24 @@ internal object ControllerLinkRuntimeState {
     /** Records the next direct-TCP retry chosen by the service backoff loop. */
     fun markRetryAt(unixTimeMs: Long, message: String) {
         connected.set(false)
+        heartbeatTimedOut.set(false)
         lastError.set(message)
         nextRetryUnixMs.set(unixTimeMs)
     }
+
+    fun markHeartbeatTimedOut(message: String) {
+        if (!connected.get()) return
+        heartbeatTimedOut.set(true)
+        lastError.set(message)
+    }
+
+    fun markHeartbeatRecovered() {
+        if (!connected.get()) return
+        heartbeatTimedOut.set(false)
+        lastError.set("")
+    }
+
+    fun heartbeatConnected(): Boolean = connected.get() && !heartbeatTimedOut.get()
 
     /** Builds the protocol-facing view without exposing the stored token. */
     fun status(config: ControllerLinkConfig): ControllerLinkStatus {
