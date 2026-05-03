@@ -52,21 +52,9 @@ func shortID(value string) string {
 	return value[:12]
 }
 
-// ShortID returns value shortened to the display prefix length.
-//
-// Values at or below the display length are returned unchanged.
-func ShortID(value string) string {
-	return shortID(value)
-}
-
 func empty(value, fallback string) string {
 	if value == "" {
 		return fallback
 	}
 	return value
-}
-
-// Empty returns fallback when value is empty.
-func Empty(value, fallback string) string {
-	return empty(value, fallback)
 }

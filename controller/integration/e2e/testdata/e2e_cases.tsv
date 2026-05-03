@@ -18,6 +18,7 @@ S021	TEST	standalone ping check	shell	LIVE	config> set standalone festa smoke ch
 S022	TEST	standalone run once	shell	LIVE	request> standalone run once festa smoke save	ok_or_clear	A saved standalone archive is created with status OK.	standalone run once;
 S023	TEST	standalone runs	shell	LIVE	show standalone runs limit 5 synced	ok_or_clear	Saved run list renders and includes the new run.	standalone runs;
 S024	TEST	wifi status	shell	LIVE	show wifi status	ok_or_clear	Wi-Fi status renders without dispatch error.	wifi status;
+S024A	TEST	ip status	shell	LIVE	show ip status	ok_or_clear	IP addressing, routes, DNS, and validation render without dispatch error.	ip status;
 S025	TEST	wifi diagnostics	shell	LIVE	show wifi diagnostics	ok_or_clear	Diagnostics render status, capabilities, networks, and scan sections.	wifi diagnostics;
 S026	TEST	wifi capabilities	shell	LIVE	show wifi capabilities	ok_or_clear	Capabilities render supported/unsupported Wi-Fi features.	wifi capabilities;
 S027	TEST	wifi scan cached	shell	LIVE	show wifi scan	ok_or_clear	Cached scan output renders.	wifi scan cached;
@@ -297,6 +298,7 @@ T2-CLI-006	TEST2	Global flag arity	cli	CLI	dropcheck --all=value show devices	er
 T2-CLI-007	TEST2	Missing global flag value	cli	CLI	dropcheck --target	error	`--target requires a value`.	Missing global flag value.
 T2-CLI-008	TEST2	Top-level --listen and --no-adb	cli	CLI	dropcheck --listen 127.0.0.1:0 --no-adb show devices	ok_or_clear	Starts without ADB bootstrap if an agent connects; otherwise clear no-agent behavior.	Top-level `--listen` and `--no-adb`.
 T2-CLI-009	TEST2	Top-level -- delimiter	cli	CLI	dropcheck -- --format json show devices	ok	Top-level delimiter leaves args for CLI parsing; JSON devices output is still produced.	Top-level `--` delimiter.
+T2-CLI-010-IP	TEST2	CLI IP status	cli	CLI	dropcheck show ip status	ok	IP addressing, routes, DNS, and validation render from the CLI.	CLI IP status.
 T2-CLI-010	TEST2	CLI scan --band	cli	CLI	dropcheck show wifi scan --band 5ghz	ok	Cached 5 GHz scan succeeds.	CLI scan `--band`.
 T2-CLI-011	TEST2	CLI fresh scan options	cli	CLI	dropcheck show wifi scan fresh --band 5ghz --timeout 12000	ok	Fresh scan succeeds.	CLI fresh scan options.
 T2-CLI-012	TEST2	CLI positional band	cli	CLI	dropcheck show wifi scan fresh 5ghz --timeout 12000	ok	Fresh scan positional band succeeds.	CLI positional band.

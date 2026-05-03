@@ -33,6 +33,7 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"encoding/csv"
 	"errors"
@@ -316,21 +317,19 @@ func runShellParser(commandLine string) commandResult {
 		parseLine = configureLine
 	}
 	if shell.IsHelpLine(parseLine) {
-		entries := shell.HelpEntries(parseLine)
+		var out bytes.Buffer
 		switch {
 		case requestMode:
-			entries = shell.RequestHelpEntries(parseLine)
+			shell.WriteRequestContextHelp(&out, parseLine)
 		case configureMode:
-			entries = shell.ConfigureHelpEntries(parseLine)
+			shell.WriteConfigureContextHelp(&out, parseLine)
+		default:
+			shell.WriteContextHelp(&out, parseLine)
 		}
-		if len(entries) == 0 {
-			return commandResult{Output: "help entries: <empty>", Code: 1, Err: errors.New("empty help entries")}
+		if strings.TrimSpace(out.String()) == "" {
+			return commandResult{Output: "help output: <empty>", Code: 1, Err: errors.New("empty help output")}
 		}
-		var b strings.Builder
-		for _, entry := range entries {
-			fmt.Fprintf(&b, "%s\t%s\n", entry.Token, entry.Description)
-		}
-		return commandResult{Output: b.String(), Code: 0}
+		return commandResult{Output: out.String(), Code: 0}
 	}
 	var (
 		parsed shell.Command
@@ -854,6 +853,7 @@ func caseNeedsWiFiSetup(tc matrixCase) bool {
 	}
 	wifiOrNetworkCommands := []string{
 		"show wifi",
+		"show ip",
 		"request wifi connect",
 		"request wifi wait",
 		"request wifi assert",
@@ -885,6 +885,7 @@ func caseNeedsWiFiSetup(tc matrixCase) bool {
 		"request> http",
 		"request> download",
 		"dropcheck request ping",
+		"dropcheck show ip",
 		"dropcheck request traceroute",
 		"dropcheck request path-mtu",
 		"dropcheck request global-ip",
@@ -982,8 +983,8 @@ func TestE2ECaseTableIsMerged(t *testing.T) {
 	if testCount == 0 || test2Count == 0 {
 		t.Fatalf("merged table must include both TEST and TEST2 cases, got TEST=%d TEST2=%d", testCount, test2Count)
 	}
-	if len(cases) != 339 {
-		t.Fatalf("case count = %d, want 339", len(cases))
+	if len(cases) != 341 {
+		t.Fatalf("case count = %d, want 341", len(cases))
 	}
 }
 
@@ -1009,6 +1010,7 @@ func TestE2ECaseTableCoversControllerCommandSurface(t *testing.T) {
 		{name: "shell standalone run once", runner: "shell", text: "request> standalone run once"},
 		{name: "shell standalone sync", runner: "shell", text: "sync standalone runs"},
 		{name: "shell wifi status", runner: "shell", text: "show wifi status"},
+		{name: "shell ip status", runner: "shell", text: "show ip status"},
 		{name: "shell wifi diagnostics", runner: "shell", text: "show wifi diagnostics"},
 		{name: "shell wifi capabilities", runner: "shell", text: "show wifi capabilities"},
 		{name: "shell wifi scan", runner: "shell", text: "show wifi scan"},
@@ -1030,6 +1032,7 @@ func TestE2ECaseTableCoversControllerCommandSurface(t *testing.T) {
 		{name: "shell http", runner: "shell", text: "request> http"},
 		{name: "shell download", runner: "shell", text: "request> download"},
 		{name: "cli show devices", runner: "cli", text: "dropcheck --serial"},
+		{name: "cli ip status", runner: "cli", text: "dropcheck show ip status"},
 		{name: "cli wifi scan", runner: "cli", text: "dropcheck show wifi scan"},
 		{name: "cli wifi connect", runner: "cli", text: "dropcheck request wifi connect"},
 		{name: "cli wifi wait", runner: "cli", text: "dropcheck request wifi wait"},
