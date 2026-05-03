@@ -514,6 +514,7 @@ func isShellErrorOutput(output string) bool {
 		strings.Contains(lower, "must ") ||
 		strings.Contains(lower, "specified twice") ||
 		strings.Contains(lower, "cannot ") ||
+		strings.Contains(lower, "outside uint32 millisecond range") ||
 		strings.Contains(lower, "error parsing regexp") ||
 		strings.Contains(lower, "unsupported ") ||
 		strings.Contains(lower, "unexpected ") ||
@@ -1066,6 +1067,9 @@ func TestE2EFailureClassifiers(t *testing.T) {
 	}
 	if !isShellErrorOutput("match regex: error parsing regexp: missing closing ]: `[`") {
 		t.Fatalf("regexp parse errors must count as shell errors")
+	}
+	if !isShellErrorOutput("retention_ms is outside uint32 millisecond range") {
+		t.Fatalf("retention range validation must count as a shell error")
 	}
 }
 
