@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package io.dropcheck.agent
 
 import android.annotation.SuppressLint
@@ -22,7 +24,12 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
-@Suppress("DEPRECATION")
+/**
+ * Background Wi-Fi/network event logger for lab diagnostics.
+ *
+ * It samples Android framework state after broadcasts and callbacks, then logs
+ * only snapshot changes so long test runs remain readable.
+ */
 internal class WifiEventLogger(
     private val context: Context,
 ) {

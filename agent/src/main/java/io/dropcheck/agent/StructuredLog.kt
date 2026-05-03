@@ -3,6 +3,12 @@ package io.dropcheck.agent
 import android.content.Context
 import io.dropcheck.agent.grpc.CommandLog
 
+/**
+ * Small logfmt renderer used for terminal, widget, and gRPC command log lines.
+ *
+ * The formatter keeps secrets and long process output controllable at call
+ * sites while providing stable key/value text for tests and E2E logs.
+ */
 internal object StructuredLog {
     fun format(event: String, vararg fields: Pair<String, Any?>): String {
         return format(event, fields.asList())

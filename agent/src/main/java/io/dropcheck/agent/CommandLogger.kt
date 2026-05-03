@@ -2,6 +2,7 @@ package io.dropcheck.agent
 
 import io.dropcheck.agent.grpc.CommandLog
 
+/** Command log channel used to distinguish controller work from probe output. */
 enum class CommandLogScope(val logValue: String) {
     COMMAND("command"),
     EXEC("exec"),

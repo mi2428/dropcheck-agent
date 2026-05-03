@@ -1,5 +1,6 @@
 package io.dropcheck.agent
 
+/** Formats command-scoped logs into the terminal logfmt shape. */
 internal object CommandTerminalLog {
     fun controller(commandId: String, scope: CommandLogScope, message: String): String {
         return format(listOf("command_id" to commandId), scope, message)

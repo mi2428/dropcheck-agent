@@ -10,6 +10,12 @@ import android.os.Bundle
 import android.widget.RemoteViews
 
 @Suppress("DEPRECATION")
+/**
+ * App widget provider for the bounded terminal log tail.
+ *
+ * Widget rows are backed by [AgentLogWidgetService] so large logs can be
+ * refreshed without rebuilding every RemoteViews item in this provider.
+ */
 class AgentLogWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         updateWidgets(context, appWidgetManager, appWidgetIds)

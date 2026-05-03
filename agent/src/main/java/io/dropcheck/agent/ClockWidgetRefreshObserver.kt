@@ -19,6 +19,13 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 @Suppress("DEPRECATION")
+/**
+ * Process-local observer that keeps active clock widgets fresh while the
+ * foreground service is alive.
+ *
+ * It complements AppWidgetProvider callbacks with direct connectivity
+ * callbacks and short follow-up refreshes after network churn.
+ */
 internal class ClockWidgetRefreshObserver(
     context: Context,
 ) {

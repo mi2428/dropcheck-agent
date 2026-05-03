@@ -1,5 +1,6 @@
 package io.dropcheck.agent
 
+/** Color and token classification rules shared by terminal and log widgets. */
 internal object AgentLogStyle {
     const val TEXT_COLOR = -0x1 // #FFFFFFFF
     const val WARN_COLOR = -0x29f6 // #FFFFD60A

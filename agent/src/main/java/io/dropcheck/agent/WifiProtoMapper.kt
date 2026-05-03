@@ -11,13 +11,13 @@ import io.dropcheck.agent.grpc.WifiConnection
 import io.dropcheck.agent.grpc.WifiInformationElement
 import io.dropcheck.agent.grpc.WifiScanResult
 
+@Suppress("DEPRECATION")
 /**
  * Maps Android Wi-Fi framework objects to the wire protobuf shape.
  *
  * The mapper should preserve Android-reported facts and avoid policy decisions
  * such as whether a scan or assertion succeeded.
  */
-@Suppress("DEPRECATION")
 class WifiProtoMapper(
     private val wifi: WifiManager,
 ) {

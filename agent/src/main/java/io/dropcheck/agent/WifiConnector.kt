@@ -10,13 +10,13 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import io.dropcheck.agent.grpc.ConnectWifi
 
+@Suppress("DEPRECATION")
 /**
  * Thin wrapper around privileged WifiManager configuration calls.
  *
  * Anything that can be decided without Android framework state belongs in
  * [WifiConnectorPolicy], leaving this class focused on side effects.
  */
-@Suppress("DEPRECATION")
 class WifiConnector(
     context: Context,
     private val logger: CommandLogger,

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
 
+/** RemoteViews service that adapts [TerminalLog] tail lines into widget rows. */
 class AgentLogWidgetService : RemoteViewsService() {
     override fun onGetViewFactory(intent: Intent): RemoteViewsFactory {
         return AgentLogWidgetFactory(applicationContext)
