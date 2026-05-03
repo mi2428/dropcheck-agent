@@ -286,6 +286,54 @@ func TestShellWifiConnectDefaultsSecurityToAuto(t *testing.T) {
 	}
 }
 
+func TestParseShellRejectsDuplicateOptions(t *testing.T) {
+	tests := []struct {
+		line string
+		want string
+	}{
+		{line: "show festival runs synced synced", want: "synced specified twice"},
+		{line: "show festival runs limit 1 limit 2", want: "limit specified twice"},
+		{line: "show wifi scan fresh timeout 100 timeout 200", want: "timeout specified twice"},
+		{line: "request wifi connect passphrase secret security auto security wpa3 Lab", want: "security specified twice"},
+		{line: "request wifi assert ip ip", want: "ip specified twice"},
+		{line: "request wifi cycle passphrase secret count 1 count 2 Lab", want: "count specified twice"},
+		{line: "ping 1.1.1.1 count 1 count 2", want: "count specified twice"},
+		{line: "traceroute 1.1.1.1 max-hops 1 max-hops 2", want: "max-hops specified twice"},
+		{line: "path-mtu min-mtu 1200 min-mtu 1300 1.1.1.1", want: "min-mtu specified twice"},
+		{line: "test dns example.com type A type AAAA", want: "type specified twice"},
+		{line: "test http https://example.com expected-status 200 expected-status 204", want: "expected-status specified twice"},
+		{line: "request festival sync mark-synced keep-unsynced", want: "mark-synced and keep-unsynced cannot be used together"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.line, func(t *testing.T) {
+			_, err := parseShellLine(tt.line)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("parseShellLine() error = %v, want containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseShellRejectsWifiOptionsConsumingSSID(t *testing.T) {
+	tests := []struct {
+		line string
+		want string
+	}{
+		{line: `request wifi connect passphrase secret bssid "SHIZK RADIO"`, want: "bssid requires a value before <ssid>"},
+		{line: `request wifi connect passphrase secret band "SHIZK RADIO"`, want: "band requires a value before <ssid>"},
+		{line: `request wifi cycle passphrase secret http "SHIZK RADIO"`, want: "http requires a value before <ssid>"},
+		{line: `request wifi cycle passphrase secret ping "SHIZK RADIO"`, want: "ping requires a value before <ssid>"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.line, func(t *testing.T) {
+			_, err := parseShellLine(tt.line)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("parseShellLine() error = %v, want containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseShellPipeline(t *testing.T) {
 	got, err := parseShellLine(`show wifi scan | match "Lab AP" | except guest | display json | count`)
 	if err != nil {

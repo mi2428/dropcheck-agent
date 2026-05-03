@@ -231,14 +231,18 @@ func parseShellShowFestival(args []string) (Command, error) {
 				return Command{}, err
 			}
 			if key == "synced" {
-				flags[key] = true
+				if err := setShellFlag(flags, key); err != nil {
+					return Command{}, err
+				}
 				continue
 			}
 			value, next, err := shellValue(args, i, key)
 			if err != nil {
 				return Command{}, err
 			}
-			values[key] = value
+			if err := setShellValue(values, key, value); err != nil {
+				return Command{}, err
+			}
 			i = next
 		}
 		op, err := command.FestivalListRunsOperation(command.FestivalListOptions{Limit: values["limit"], IncludeSynced: flags["synced"]})
@@ -304,7 +308,9 @@ func parseShellShowWifiScan(args []string) (Command, error) {
 				if err != nil {
 					return Command{}, err
 				}
-				values[key] = value
+				if err := setShellValue(values, key, value); err != nil {
+					return Command{}, err
+				}
 				i = next
 				continue
 			}
@@ -401,6 +407,9 @@ func parseShellSetController(args []string) (Command, error) {
 			continue
 		}
 		if key == "enabled" {
+			if enabled {
+				return Command{}, fmt.Errorf("enabled specified twice")
+			}
 			enabled = true
 			continue
 		}
@@ -408,7 +417,9 @@ func parseShellSetController(args []string) (Command, error) {
 		if err != nil {
 			return Command{}, err
 		}
-		values[key] = value
+		if err := setShellValue(values, key, value); err != nil {
+			return Command{}, err
+		}
 		i = next
 	}
 	if !enabled {
@@ -446,6 +457,9 @@ func parseShellSetFestival(args []string) (Command, error) {
 			return Command{}, err
 		}
 		if key == "enabled" {
+			if enabled {
+				return Command{}, fmt.Errorf("enabled specified twice")
+			}
 			enabled = true
 			continue
 		}
@@ -453,7 +467,9 @@ func parseShellSetFestival(args []string) (Command, error) {
 		if err != nil {
 			return Command{}, err
 		}
-		values[key] = value
+		if err := setShellValue(values, key, value); err != nil {
+			return Command{}, err
+		}
 		i = next
 	}
 	if !enabled {
@@ -545,6 +561,9 @@ func parseShellRequestFestival(args []string) (Command, error) {
 				return Command{}, err
 			}
 			if key == "save" {
+				if save {
+					return Command{}, fmt.Errorf("save specified twice")
+				}
 				save = true
 				continue
 			}
@@ -552,7 +571,9 @@ func parseShellRequestFestival(args []string) (Command, error) {
 			if err != nil {
 				return Command{}, err
 			}
-			values[key] = value
+			if err := setShellValue(values, key, value); err != nil {
+				return Command{}, err
+			}
 			i = next
 		}
 		op, err := command.FestivalRunOnceOperation(values["plan"], save)
@@ -573,6 +594,7 @@ func parseShellRequestFestival(args []string) (Command, error) {
 		return agentShellCommand(op), err
 	case "sync":
 		values := map[string]string{}
+		flagsSeen := map[string]bool{}
 		markSynced := true
 		for i := 1; i < len(args); i++ {
 			key, err := resolveShellKeyword("request festival sync option", args[i], []string{"output", "limit", "mark-synced", "keep-unsynced"})
@@ -581,15 +603,31 @@ func parseShellRequestFestival(args []string) (Command, error) {
 			}
 			switch key {
 			case "mark-synced":
+				if !markSynced && flagsSeen["keep-unsynced"] {
+					return Command{}, fmt.Errorf("mark-synced and keep-unsynced cannot be used together")
+				}
+				if flagsSeen["mark-synced"] {
+					return Command{}, fmt.Errorf("mark-synced specified twice")
+				}
+				flagsSeen["mark-synced"] = true
 				markSynced = true
 			case "keep-unsynced":
+				if flagsSeen["mark-synced"] {
+					return Command{}, fmt.Errorf("mark-synced and keep-unsynced cannot be used together")
+				}
+				if flagsSeen["keep-unsynced"] {
+					return Command{}, fmt.Errorf("keep-unsynced specified twice")
+				}
+				flagsSeen["keep-unsynced"] = true
 				markSynced = false
 			default:
 				value, next, err := shellValue(args, i, key)
 				if err != nil {
 					return Command{}, err
 				}
-				values[key] = value
+				if err := setShellValue(values, key, value); err != nil {
+					return Command{}, err
+				}
 				i = next
 			}
 		}
@@ -659,14 +697,21 @@ func parseShellWifiConnect(args []string, operation string) (Command, error) {
 			continue
 		}
 		if key == "forget" {
-			flags[key] = true
+			if err := setShellFlag(flags, key); err != nil {
+				return Command{}, err
+			}
 			continue
 		}
 		value, next, err := shellValue(args, i, key)
 		if err != nil {
 			return Command{}, err
 		}
-		values[key] = value
+		if !shellWifiValueCanBeTrailing(key) && ssid == "" && next == len(args)-1 {
+			return Command{}, fmt.Errorf("%s requires a value before <ssid>", key)
+		}
+		if err := setShellValue(values, key, value); err != nil {
+			return Command{}, err
+		}
 		i = next
 	}
 	if ssid == "" {
@@ -749,13 +794,17 @@ func parseShellWifiExpectation(wait bool, args []string, allowPositionalSSID boo
 		}
 		switch key {
 		case "ip", "validated":
-			flags[key] = true
+			if err := setShellFlag(flags, key); err != nil {
+				return Command{}, err
+			}
 		default:
 			value, next, err := shellValue(args, i, key)
 			if err != nil {
 				return Command{}, err
 			}
-			values[key] = value
+			if err := setShellValue(values, key, value); err != nil {
+				return Command{}, err
+			}
 			i = next
 		}
 	}
@@ -805,7 +854,9 @@ func parseShellMonitor(args []string) (Command, error) {
 		if err != nil {
 			return Command{}, err
 		}
-		values[key] = value
+		if err := setShellValue(values, key, value); err != nil {
+			return Command{}, err
+		}
 		i = next
 	}
 	duration := values["duration"]
@@ -835,7 +886,9 @@ func parseShellPing(args []string) (Command, error) {
 		if err != nil {
 			return Command{}, err
 		}
-		values[key] = value
+		if err := setShellValue(values, key, value); err != nil {
+			return Command{}, err
+		}
 		i = next
 	}
 	if host == "" {
@@ -870,7 +923,9 @@ func parseShellTraceroute(args []string) (Command, error) {
 		if key == "via" {
 			via = append(via, value)
 		} else {
-			values[key] = value
+			if err := setShellValue(values, key, value); err != nil {
+				return Command{}, err
+			}
 		}
 		i = next
 	}
@@ -902,7 +957,9 @@ func parseShellPathMtu(args []string) (Command, error) {
 		if err != nil {
 			return Command{}, err
 		}
-		values[key] = value
+		if err := setShellValue(values, key, value); err != nil {
+			return Command{}, err
+		}
 		i = next
 	}
 	if host == "" {
@@ -943,7 +1000,9 @@ func parseShellGlobalIp(args []string) (Command, error) {
 		if key == "family" && (family != "" || values["family"] != "") {
 			return Command{}, fmt.Errorf("global-ip family specified twice")
 		}
-		values[key] = value
+		if err := setShellValue(values, key, value); err != nil {
+			return Command{}, err
+		}
 		i = next
 	}
 	if values["family"] != "" {
@@ -992,13 +1051,17 @@ func parseShellTestDNS(args []string) (Command, error) {
 					return Command{}, err
 				}
 			}
-			values[key] = value
+			if err := setShellValue(values, key, value); err != nil {
+				return Command{}, err
+			}
 			i = next
 			continue
 		}
 		if name != "" && values["type"] == "" {
 			if qtype, err := normalizeDNSQType(args[i]); err == nil {
-				values["type"] = qtype
+				if err := setShellValue(values, "type", qtype); err != nil {
+					return Command{}, err
+				}
 				continue
 			}
 		}
@@ -1027,7 +1090,9 @@ func parseShellTestHTTP(args []string) (Command, error) {
 			if err != nil {
 				return Command{}, err
 			}
-			values[key] = value
+			if err := setShellValue(values, key, value); err != nil {
+				return Command{}, err
+			}
 			i = next
 			continue
 		}
@@ -1062,7 +1127,9 @@ func parseShellTestDownload(args []string) (Command, error) {
 		if err != nil {
 			return Command{}, err
 		}
-		values[key] = value
+		if err := setShellValue(values, key, value); err != nil {
+			return Command{}, err
+		}
 		i = next
 	}
 	if url == "" {
@@ -1081,6 +1148,31 @@ func shellValue(args []string, index int, name string) (string, int, error) {
 		return "", index, fmt.Errorf("%s requires a value", name)
 	}
 	return args[index+1], index + 1, nil
+}
+
+func setShellValue(values map[string]string, key, value string) error {
+	if _, ok := values[key]; ok {
+		return fmt.Errorf("%s specified twice", key)
+	}
+	values[key] = value
+	return nil
+}
+
+func setShellFlag(flags map[string]bool, key string) error {
+	if flags[key] {
+		return fmt.Errorf("%s specified twice", key)
+	}
+	flags[key] = true
+	return nil
+}
+
+func shellWifiValueCanBeTrailing(key string) bool {
+	switch key {
+	case "bssid", "band", "ping", "http":
+		return false
+	default:
+		return true
+	}
 }
 
 func resolveShellKeyword(Kind string, value string, candidates []string) (string, error) {
