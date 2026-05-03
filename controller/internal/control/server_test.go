@@ -3,12 +3,14 @@ package control
 import (
 	"context"
 	"errors"
+	"io"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"dropcheck/controller/internal/controlpb"
+	"google.golang.org/grpc/metadata"
 )
 
 func TestAgentsAreSortedAndResolvedByExactOrPrefix(t *testing.T) {
@@ -222,6 +224,93 @@ func TestHandleAgentFrameLogsAndDeliversError(t *testing.T) {
 	}
 }
 
+func TestSessionAuthenticatesRegistersAndCleansUpWaiters(t *testing.T) {
+	server := NewServer("token", nil)
+	stream := newFakeSessionStream()
+	stream.recvCh <- &controlpb.AgentFrame{
+		SessionId: "session-a",
+		Body: &controlpb.AgentFrame_Hello{Hello: &controlpb.AgentHello{
+			Token:             "token",
+			ControllerAgentId: "agent-a",
+			AdbSerial:         "serial-a",
+		}},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- server.Session(stream)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	info, err := server.WaitAgent(ctx)
+	if err != nil {
+		t.Fatalf("WaitAgent() error = %v", err)
+	}
+	if info.ID != "agent-a" || info.SessionID != "session-a" || info.Hello.GetAdbSerial() != "serial-a" {
+		t.Fatalf("registered agent = %#v", info)
+	}
+
+	respCh := make(chan CommandResponse, 1)
+	server.mu.Lock()
+	server.waiters["cmd-1"] = commandWaiter{agentID: "agent-a", ch: respCh}
+	server.mu.Unlock()
+
+	close(stream.recvCh)
+	if err := receiveSessionError(t, done); err != nil {
+		t.Fatalf("Session() error = %v", err)
+	}
+	if agents := server.Agents(); len(agents) != 0 {
+		t.Fatalf("Agents() after disconnect = %#v, want empty", agents)
+	}
+	select {
+	case resp := <-respCh:
+		if resp.Error.GetMessage() != "agent disconnected" || resp.Error.GetDetail() != "gRPC session ended" {
+			t.Fatalf("disconnect response = %#v", resp)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for disconnect response")
+	}
+}
+
+func TestSessionRejectsMissingOrMismatchedHello(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  *controlpb.AgentFrame
+		want string
+	}{
+		{
+			name: "missing hello",
+			msg:  &controlpb.AgentFrame{SessionId: "session-a"},
+			want: "agent did not send hello",
+		},
+		{
+			name: "token mismatch",
+			msg: &controlpb.AgentFrame{
+				SessionId: "session-a",
+				Body:      &controlpb.AgentFrame_Hello{Hello: &controlpb.AgentHello{Token: "wrong"}},
+			},
+			want: "agent hello token mismatch",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := NewServer("token", nil)
+			stream := newFakeSessionStream()
+			stream.recvCh <- tt.msg
+			close(stream.recvCh)
+
+			err := server.Session(stream)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Session() error = %v, want %q", err, tt.want)
+			}
+			if agents := server.Agents(); len(agents) != 0 {
+				t.Fatalf("Agents() = %#v, want empty", agents)
+			}
+		})
+	}
+}
+
 func addTestAgent(server *Server, info AgentInfo) {
 	server.mu.Lock()
 	defer server.mu.Unlock()
@@ -251,6 +340,66 @@ func receiveControllerFrame(t *testing.T, ch <-chan *controlpb.ControllerFrame) 
 		t.Fatalf("timed out waiting for controller frame")
 		return nil
 	}
+}
+
+func receiveSessionError(t *testing.T, ch <-chan error) error {
+	t.Helper()
+	select {
+	case err := <-ch:
+		return err
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for Session result")
+		return nil
+	}
+}
+
+type fakeSessionStream struct {
+	recvCh chan *controlpb.AgentFrame
+	sendCh chan *controlpb.ControllerFrame
+	ctx    context.Context
+}
+
+func newFakeSessionStream() *fakeSessionStream {
+	return &fakeSessionStream{
+		recvCh: make(chan *controlpb.AgentFrame, 4),
+		sendCh: make(chan *controlpb.ControllerFrame, 4),
+		ctx:    context.Background(),
+	}
+}
+
+func (s *fakeSessionStream) Send(frame *controlpb.ControllerFrame) error {
+	s.sendCh <- frame
+	return nil
+}
+
+func (s *fakeSessionStream) Recv() (*controlpb.AgentFrame, error) {
+	frame, ok := <-s.recvCh
+	if !ok {
+		return nil, io.EOF
+	}
+	return frame, nil
+}
+
+func (s *fakeSessionStream) SetHeader(metadata.MD) error {
+	return nil
+}
+
+func (s *fakeSessionStream) SendHeader(metadata.MD) error {
+	return nil
+}
+
+func (s *fakeSessionStream) SetTrailer(metadata.MD) {}
+
+func (s *fakeSessionStream) Context() context.Context {
+	return s.ctx
+}
+
+func (s *fakeSessionStream) SendMsg(any) error {
+	return nil
+}
+
+func (s *fakeSessionStream) RecvMsg(any) error {
+	return nil
 }
 
 func receiveRunResult(t *testing.T, ch <-chan struct {
