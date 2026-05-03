@@ -9,7 +9,7 @@ import org.junit.Test
 
 class AgentManifestTest {
     @Test
-    fun agentServiceUsesDataSyncForegroundTypeOnly() {
+    fun agentServiceUsesConnectedDeviceForegroundTypeOnly() {
         val manifest = parseManifest()
         val services = manifest.getElementsByTagName("service")
         var serviceType: String? = null
@@ -22,14 +22,15 @@ class AgentManifestTest {
             }
         }
 
-        assertEquals("dataSync", serviceType)
+        assertEquals("connectedDevice", serviceType)
     }
 
     @Test
-    fun manifestDoesNotDeclareLocationForegroundServicePermission() {
+    fun manifestDeclaresConnectedDeviceForegroundServicePermissionOnly() {
         val manifestText = manifestFile().readText()
 
-        assertTrue(manifestText.contains("android.permission.FOREGROUND_SERVICE_DATA_SYNC"))
+        assertTrue(manifestText.contains("android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"))
+        assertFalse(manifestText.contains("android.permission.FOREGROUND_SERVICE_DATA_SYNC"))
         assertFalse(manifestText.contains("android.permission.FOREGROUND_SERVICE_LOCATION"))
     }
 
