@@ -1,6 +1,7 @@
 package io.dropcheck.agent
 
 import android.annotation.SuppressLint
+import android.app.AlarmManager
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
@@ -12,19 +13,41 @@ import android.location.LocationManager
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.TypedValue
 import android.widget.RemoteViews
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 
 class AgentClockWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
+        schedulePeriodicUpdate(context)
+        registerWifiNetworkCallback(context)
+        AgentService.requestWidgetObserver(context)
         updateWidgets(context, appWidgetManager, appWidgetIds)
+    }
+
+    override fun onEnabled(context: Context) {
+        super.onEnabled(context)
+        schedulePeriodicUpdate(context)
+        registerWifiNetworkCallback(context)
+        AgentService.requestWidgetObserver(context)
+        updateAll(context)
+    }
+
+    override fun onDisabled(context: Context) {
+        unregisterWifiNetworkCallback(context)
+        cancelPeriodicUpdate(context)
+        cancelEventFollowUpUpdates(context)
+        AgentService.requestWidgetObserverStop(context)
+        super.onDisabled(context)
     }
 
     override fun onAppWidgetOptionsChanged(
@@ -40,21 +63,164 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         when (intent.action) {
-            ConnectivityManager.CONNECTIVITY_ACTION,
-            WifiManager.RSSI_CHANGED_ACTION,
-            WifiManager.NETWORK_STATE_CHANGED_ACTION -> updateAll(context)
+            Intent.ACTION_MY_PACKAGE_REPLACED -> {
+                registerWifiNetworkCallback(context)
+                schedulePeriodicUpdate(context)
+                AgentService.requestWidgetObserver(context)
+                updateAll(context)
+            }
+            ACTION_PERIODIC_UPDATE -> {
+                registerWifiNetworkCallback(context)
+                schedulePeriodicUpdate(context)
+                updateAll(context)
+            }
+            ACTION_WIFI_NETWORK_CALLBACK_UPDATE -> {
+                updateAll(context)
+                schedulePeriodicUpdate(context)
+                scheduleEventFollowUpUpdates(context)
+                runPromptEventFollowUpUpdates(context)
+            }
+            ACTION_EVENT_FOLLOW_UP_UPDATE -> updateAll(context)
+            in WIFI_EVENT_ACTIONS -> {
+                updateAll(context)
+                scheduleEventFollowUpUpdates(context)
+                runPromptEventFollowUpUpdates(context)
+            }
         }
+    }
+
+    private fun runPromptEventFollowUpUpdates(context: Context) {
+        if (!promptFollowUpRunning.compareAndSet(false, true)) return
+        val pendingResult = goAsync()
+        val appContext = context.applicationContext
+        Thread {
+            try {
+                var previousDelayMs = 0L
+                EVENT_FOLLOW_UP_DELAYS_MS.forEach { delayMs ->
+                    Thread.sleep(delayMs - previousDelayMs)
+                    updateAll(appContext)
+                    previousDelayMs = delayMs
+                }
+            } finally {
+                promptFollowUpRunning.set(false)
+                pendingResult.finish()
+            }
+        }.start()
     }
 
     companion object {
         fun updateAll(context: Context) {
             val appContext = context.applicationContext
             val manager = AppWidgetManager.getInstance(appContext)
-            val component = ComponentName(appContext, AgentClockWidgetProvider::class.java)
-            val appWidgetIds = manager.getAppWidgetIds(component)
+            val appWidgetIds = clockWidgetIds(appContext, manager)
             if (appWidgetIds.isEmpty()) return
 
             updateWidgets(appContext, manager, appWidgetIds)
+        }
+
+        private fun clockWidgetIds(context: Context, manager: AppWidgetManager): IntArray {
+            val component = ComponentName(context, AgentClockWidgetProvider::class.java)
+            return manager.getAppWidgetIds(component)
+        }
+
+        fun hasClockWidgets(context: Context): Boolean {
+            val appContext = context.applicationContext
+            val manager = AppWidgetManager.getInstance(appContext)
+            return clockWidgetIds(appContext, manager).isNotEmpty()
+        }
+
+        private fun schedulePeriodicUpdate(context: Context) {
+            if (!hasClockWidgets(context)) return
+            scheduleUpdateAlarm(
+                context = context,
+                action = ACTION_PERIODIC_UPDATE,
+                requestCode = PERIODIC_UPDATE_REQUEST_CODE,
+                delayMs = PERIODIC_UPDATE_INTERVAL_MS,
+            )
+        }
+
+        private fun cancelPeriodicUpdate(context: Context) {
+            cancelUpdateAlarm(context, ACTION_PERIODIC_UPDATE, PERIODIC_UPDATE_REQUEST_CODE)
+        }
+
+        private fun scheduleEventFollowUpUpdates(context: Context) {
+            EVENT_FOLLOW_UP_DELAYS_MS.forEachIndexed { index, delayMs ->
+                scheduleUpdateAlarm(
+                    context = context,
+                    action = ACTION_EVENT_FOLLOW_UP_UPDATE,
+                    requestCode = EVENT_FOLLOW_UP_REQUEST_CODE_BASE + index,
+                    delayMs = delayMs,
+                )
+            }
+        }
+
+        private fun cancelEventFollowUpUpdates(context: Context) {
+            EVENT_FOLLOW_UP_DELAYS_MS.indices.forEach { index ->
+                cancelUpdateAlarm(
+                    context,
+                    ACTION_EVENT_FOLLOW_UP_UPDATE,
+                    EVENT_FOLLOW_UP_REQUEST_CODE_BASE + index,
+                )
+            }
+        }
+
+        private fun registerWifiNetworkCallback(context: Context) {
+            if (!hasClockWidgets(context)) return
+            val appContext = context.applicationContext
+            val connectivity = appContext.getSystemService(ConnectivityManager::class.java) ?: return
+            val pendingIntent = updatePendingIntent(
+                appContext,
+                ACTION_WIFI_NETWORK_CALLBACK_UPDATE,
+                WIFI_NETWORK_CALLBACK_REQUEST_CODE,
+            )
+            val request = NetworkRequest.Builder()
+                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                .build()
+            runCatching { connectivity.unregisterNetworkCallback(pendingIntent) }
+            runCatching { connectivity.registerNetworkCallback(request, pendingIntent) }
+        }
+
+        private fun unregisterWifiNetworkCallback(context: Context) {
+            val appContext = context.applicationContext
+            val connectivity = appContext.getSystemService(ConnectivityManager::class.java) ?: return
+            runCatching {
+                connectivity.unregisterNetworkCallback(
+                    updatePendingIntent(appContext, ACTION_WIFI_NETWORK_CALLBACK_UPDATE, WIFI_NETWORK_CALLBACK_REQUEST_CODE),
+                )
+            }
+        }
+
+        private fun scheduleUpdateAlarm(
+            context: Context,
+            action: String,
+            requestCode: Int,
+            delayMs: Long,
+        ) {
+            val appContext = context.applicationContext
+            val alarm = appContext.getSystemService(AlarmManager::class.java) ?: return
+            alarm.set(
+                AlarmManager.ELAPSED_REALTIME,
+                SystemClock.elapsedRealtime() + delayMs,
+                updatePendingIntent(appContext, action, requestCode),
+            )
+        }
+
+        private fun cancelUpdateAlarm(context: Context, action: String, requestCode: Int) {
+            val appContext = context.applicationContext
+            val alarm = appContext.getSystemService(AlarmManager::class.java) ?: return
+            alarm.cancel(updatePendingIntent(appContext, action, requestCode))
+        }
+
+        private fun updatePendingIntent(context: Context, action: String, requestCode: Int): PendingIntent {
+            val intent = Intent(context, AgentClockWidgetProvider::class.java)
+                .setAction(action)
+                .setPackage(context.packageName)
+            return PendingIntent.getBroadcast(
+                context,
+                requestCode,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
         }
 
         private fun updateWidgets(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
@@ -128,6 +294,15 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
         private fun currentWifiSnapshot(context: Context): WifiSnapshot {
             val appContext = context.applicationContext
             val connectivity = appContext.getSystemService(ConnectivityManager::class.java)
+            val wifi = appContext.getSystemService(WifiManager::class.java)
+            if (wifi?.isWifiOffOrTurningOff() == true) {
+                return WifiSnapshot(
+                    connected = false,
+                    info = null,
+                    addresses = WifiAddresses(),
+                )
+            }
+
             val activeNetwork = connectivity?.activeNetwork
             val activeCapabilities = activeNetwork
                 ?.let { connectivity.getNetworkCapabilities(it) }
@@ -150,11 +325,9 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
                 }
             }
 
-            val wifi = appContext.getSystemService(WifiManager::class.java)
-            val fallbackInfo = wifi?.connectionInfo
             return WifiSnapshot(
-                connected = fallbackInfo?.isUsableWifiInfo() == true,
-                info = fallbackInfo,
+                connected = false,
+                info = null,
                 addresses = WifiAddresses(),
             )
         }
@@ -255,8 +428,25 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
         private const val NONE_VALUE = "none"
         private const val PLACEHOLDER_BSSID = "02:00:00:00:00:00"
         private const val RECENT_WIFI_LOG_LINES = 200
+        private const val PERIODIC_UPDATE_INTERVAL_MS = 60_000L
+        private const val PERIODIC_UPDATE_REQUEST_CODE = 11_000
+        private const val WIFI_NETWORK_CALLBACK_REQUEST_CODE = 11_050
+        private const val EVENT_FOLLOW_UP_REQUEST_CODE_BASE = 11_100
+        private const val ACTION_PERIODIC_UPDATE = "io.dropcheck.agent.action.CLOCK_WIDGET_PERIODIC_UPDATE"
+        private const val ACTION_WIFI_NETWORK_CALLBACK_UPDATE = "io.dropcheck.agent.action.CLOCK_WIDGET_WIFI_NETWORK_CALLBACK_UPDATE"
+        private const val ACTION_EVENT_FOLLOW_UP_UPDATE = "io.dropcheck.agent.action.CLOCK_WIDGET_EVENT_FOLLOW_UP_UPDATE"
         private const val FUSED_PROVIDER = "fused"
         private const val GPS_HARDWARE_PROVIDER = "gps_hardware"
+        @Suppress("DEPRECATION")
+        private val WIFI_EVENT_ACTIONS = setOf(
+            ConnectivityManager.CONNECTIVITY_ACTION,
+            WifiManager.WIFI_STATE_CHANGED_ACTION,
+            WifiManager.NETWORK_STATE_CHANGED_ACTION,
+            WifiManager.SUPPLICANT_STATE_CHANGED_ACTION,
+            WifiManager.RSSI_CHANGED_ACTION,
+        )
+        private val EVENT_FOLLOW_UP_DELAYS_MS = longArrayOf(1_000L, 3_000L, 8_000L)
+        private val promptFollowUpRunning = AtomicBoolean(false)
         private val LOCATION_PROVIDERS = listOf(
             LocationManager.GPS_PROVIDER,
             GPS_HARDWARE_PROVIDER,
@@ -267,6 +457,11 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
 
         private fun WifiInfo.isUsableWifiInfo(): Boolean {
             return networkId != -1 || cleanEssid(ssid) != UNKNOWN_VALUE || cleanBssid(bssid) != UNKNOWN_VALUE
+        }
+
+        private fun WifiManager.isWifiOffOrTurningOff(): Boolean {
+            return wifiState == WifiManager.WIFI_STATE_DISABLED ||
+                wifiState == WifiManager.WIFI_STATE_DISABLING
         }
 
         private fun recentWifiLogInfo(context: Context): RecentWifiLogInfo? {
