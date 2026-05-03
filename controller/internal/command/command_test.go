@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"dropcheck/controller/internal/controlpb"
@@ -82,6 +83,20 @@ func TestTracerouteOperationStoresRequiredHops(t *testing.T) {
 	}
 	if !slices.Equal(options.TracerouteRequiredHops, []string{"192.0.2.1"}) {
 		t.Fatalf("TracerouteRequiredHops = %#v", options.TracerouteRequiredHops)
+	}
+}
+
+func TestPathMTUOperationRejectsInvertedBounds(t *testing.T) {
+	_, err := PathMTUOperation(PathMTUOptions{
+		Host:   "1.1.1.1",
+		MinMTU: "1600",
+		MaxMTU: "1200",
+	})
+	if err == nil {
+		t.Fatalf("PathMTUOperation() error = nil")
+	}
+	if !strings.Contains(err.Error(), "max-mtu must be greater than or equal to min-mtu") {
+		t.Fatalf("PathMTUOperation() error = %v", err)
 	}
 }
 
