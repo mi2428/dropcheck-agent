@@ -145,8 +145,6 @@ func timeoutFor(cmd *controlpb.RunCommand) time.Duration {
 		return durationFromMillis(c.WaitWifiConnected.TimeoutMs, 35*time.Second) + 5*time.Second
 	case *controlpb.RunCommand_AssertWifi:
 		return durationFromMillis(c.AssertWifi.TimeoutMs, 10*time.Second) + 5*time.Second
-	case *controlpb.RunCommand_WatchWifi:
-		return durationFromMillis(c.WatchWifi.DurationMs, 10*time.Second) + 5*time.Second
 	case *controlpb.RunCommand_MonitorWifi:
 		return durationFromMillis(c.MonitorWifi.DurationMs, 10*time.Second) + 5*time.Second
 	case *controlpb.RunCommand_ReconnectWifi:

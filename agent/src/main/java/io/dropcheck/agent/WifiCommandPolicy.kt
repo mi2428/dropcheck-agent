@@ -26,9 +26,9 @@ internal object WifiCommandPolicy {
     const val DEFAULT_WAIT_TIMEOUT_MS = 30_000
     const val DEFAULT_ASSERT_TIMEOUT_MS = 0
 
-    /** Watch and monitor are diagnostic sampling windows, not long-running streams. */
-    const val DEFAULT_WATCH_DURATION_MS = 10_000
-    const val DEFAULT_WATCH_INTERVAL_MS = 1_000
+    /** Monitor is a diagnostic event window, not a long-running stream. */
+    const val DEFAULT_MONITOR_DURATION_MS = 10_000
+    const val DEFAULT_MONITOR_INTERVAL_MS = 1_000
 
     /** Hard caps prevent one controller command from monopolizing the single command worker. */
     const val MAX_CYCLE_COUNT = 100

@@ -103,10 +103,6 @@ internal fun RunCommand.logFields(): List<Pair<String, Any?>> {
             RunCommand.CommandCase.FORGET_WIFI -> add("target" to forgetWifi.target)
             RunCommand.CommandCase.WAIT_WIFI_CONNECTED -> addAll(waitWifiConnected.logFields())
             RunCommand.CommandCase.ASSERT_WIFI -> addAll(assertWifi.logFields("assert_"))
-            RunCommand.CommandCase.WATCH_WIFI -> {
-                add("duration_ms" to watchWifi.durationMs)
-                add("interval_ms" to watchWifi.intervalMs)
-            }
             RunCommand.CommandCase.MONITOR_WIFI -> {
                 add("duration_ms" to monitorWifi.durationMs)
                 add("interval_ms" to monitorWifi.intervalMs)
@@ -243,11 +239,6 @@ internal fun CommandResult.logFields(): List<Pair<String, Any?>> {
                 add("errors_count" to wifiAssert.errorsCount)
                 add("errors" to wifiAssert.errorsList)
                 add("elapsed_ms" to wifiAssert.elapsedMs)
-            }
-            CommandResult.PayloadCase.WIFI_WATCH -> {
-                add("samples_count" to wifiWatch.samplesCount)
-                add("errors_count" to wifiWatch.errorsCount)
-                add("errors" to wifiWatch.errorsList)
             }
             CommandResult.PayloadCase.WIFI_MONITOR -> {
                 add("events_count" to wifiMonitor.eventsCount)

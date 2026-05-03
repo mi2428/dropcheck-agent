@@ -25,11 +25,9 @@ import io.dropcheck.agent.grpc.WifiDiagnostics
 import io.dropcheck.agent.grpc.WifiBand
 import io.dropcheck.agent.grpc.WifiEvent
 import io.dropcheck.agent.grpc.WifiMonitorResult
-import io.dropcheck.agent.grpc.WifiSample
 import io.dropcheck.agent.grpc.WifiScan
 import io.dropcheck.agent.grpc.WifiScanDetail
 import io.dropcheck.agent.grpc.WifiStatus
-import io.dropcheck.agent.grpc.WifiWatchResult
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -230,38 +228,6 @@ class NetworkRepository(
         }
         logger.debug("wifi scan detail target=$target band=${wifiBandName(band)} matches=${results.size} total=${allResults.size}")
         return builder.build()
-    }
-
-    /** Samples [wifiStatus] at a fixed interval for short diagnostic windows. */
-    fun wifiWatch(durationMs: Int, intervalMs: Int): WifiWatchResult {
-        val builder = WifiWatchResult.newBuilder()
-        val boundedDuration = durationMs.coerceIn(1, 120000)
-        val boundedInterval = intervalMs.coerceIn(100, 60000)
-        val startedAt = System.currentTimeMillis()
-        val deadline = startedAt + boundedDuration
-        var index = 0
-        logger.info("wifi watch begin duration_ms=$boundedDuration interval_ms=$boundedInterval")
-        while (true) {
-            val now = System.currentTimeMillis()
-            val status = runCatching { wifiStatus() }
-                .onFailure { builder.addErrors("sample_$index=${errorSummary(it)}") }
-                .getOrNull()
-            if (status != null) {
-                builder.addSamples(WifiSample.newBuilder()
-                    .setUnixTimeMs(now)
-                    .setStatus(status)
-                    .addFields(diagnosticField("index", index))
-                    .addFields(diagnosticField("elapsed_ms", now - startedAt))
-                    .build())
-            }
-            index += 1
-            val remaining = deadline - System.currentTimeMillis()
-            if (remaining <= 0) break
-            Thread.sleep(minOf(boundedInterval.toLong(), remaining))
-        }
-        val built = builder.build()
-        logger.debug("wifi watch end samples=${built.samplesCount} errors=${built.errorsCount}")
-        return built
     }
 
     /**

@@ -26,7 +26,6 @@ import io.dropcheck.agent.grpc.RunStandaloneOnce
 import io.dropcheck.agent.grpc.SetControllerLinkConfig
 import io.dropcheck.agent.grpc.StandaloneStatus
 import io.dropcheck.agent.grpc.WaitWifiConnected
-import io.dropcheck.agent.grpc.WatchWifi
 import io.dropcheck.agent.grpc.WifiAssertResult
 import io.dropcheck.agent.grpc.WifiBand
 import io.dropcheck.agent.grpc.WifiCycleResult
@@ -78,7 +77,6 @@ class CommandExecutor(
             RunCommand.CommandCase.FORGET_WIFI -> forgetWifi(command.forgetWifi)
             RunCommand.CommandCase.WAIT_WIFI_CONNECTED -> waitWifiConnected(command.waitWifiConnected)
             RunCommand.CommandCase.ASSERT_WIFI -> assertWifi(command.assertWifi)
-            RunCommand.CommandCase.WATCH_WIFI -> watchWifi(command.watchWifi)
             RunCommand.CommandCase.MONITOR_WIFI -> monitorWifi(command.monitorWifi)
             RunCommand.CommandCase.GET_WIFI_SCAN_DETAIL -> wifiScanDetail(command.getWifiScanDetail)
             RunCommand.CommandCase.RECONNECT_WIFI -> reconnectWifi(command.reconnectWifi)
@@ -468,32 +466,14 @@ class CommandExecutor(
             .build()
     }
 
-    private fun watchWifi(command: WatchWifi): CommandResult {
-        val durationMs = WifiCommandPolicy.effectiveTimeoutMs(
-            command.durationMs,
-            WifiCommandPolicy.DEFAULT_WATCH_DURATION_MS,
-        )
-        val intervalMs = WifiCommandPolicy.effectiveTimeoutMs(
-            command.intervalMs,
-            WifiCommandPolicy.DEFAULT_WATCH_INTERVAL_MS,
-        )
-        logger.info("wifi watch requested duration_ms=$durationMs interval_ms=$intervalMs")
-        val result = networks.wifiWatch(durationMs, intervalMs)
-        return CommandResult.newBuilder()
-            .setStatus(if (result.errorsCount == 0) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
-            .setMessage("wifi watch samples=${result.samplesCount}")
-            .setWifiWatch(result)
-            .build()
-    }
-
     private fun monitorWifi(command: MonitorWifi): CommandResult {
         val durationMs = WifiCommandPolicy.effectiveTimeoutMs(
             command.durationMs,
-            WifiCommandPolicy.DEFAULT_WATCH_DURATION_MS,
+            WifiCommandPolicy.DEFAULT_MONITOR_DURATION_MS,
         )
         val intervalMs = WifiCommandPolicy.effectiveTimeoutMs(
             command.intervalMs,
-            WifiCommandPolicy.DEFAULT_WATCH_INTERVAL_MS,
+            WifiCommandPolicy.DEFAULT_MONITOR_INTERVAL_MS,
         )
         logger.info("wifi monitor requested duration_ms=$durationMs interval_ms=$intervalMs")
         val result = networks.wifiMonitor(durationMs, intervalMs)

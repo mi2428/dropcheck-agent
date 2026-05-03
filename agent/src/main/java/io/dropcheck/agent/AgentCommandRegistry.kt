@@ -36,7 +36,6 @@ internal object AgentCommandRegistry {
         Entry(RunCommand.CommandCase.FORGET_WIFI, "wifi.forget"),
         Entry(RunCommand.CommandCase.WAIT_WIFI_CONNECTED, "wifi.wait"),
         Entry(RunCommand.CommandCase.ASSERT_WIFI, "wifi.assert"),
-        Entry(RunCommand.CommandCase.WATCH_WIFI, "wifi.watch"),
         Entry(RunCommand.CommandCase.MONITOR_WIFI, "wifi.monitor"),
         Entry(RunCommand.CommandCase.RECONNECT_WIFI, "wifi.reconnect"),
         Entry(RunCommand.CommandCase.CYCLE_WIFI, "wifi.cycle"),
