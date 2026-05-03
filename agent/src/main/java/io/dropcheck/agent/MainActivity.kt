@@ -8,16 +8,17 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.text.SpannableString
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
+import android.view.Gravity
+import android.view.View
 import android.view.ViewTreeObserver
-import android.widget.ScrollView
 import android.widget.FrameLayout
+import android.widget.ScrollView
 import android.widget.TextView
 
 /**
@@ -41,6 +42,8 @@ class MainActivity : Activity() {
     private lateinit var logView: TextView
     private lateinit var scroll: ScrollView
     private lateinit var root: FrameLayout
+    private lateinit var standaloneLeft: View
+    private lateinit var standaloneRight: View
 
     private val displayLineLengths = ArrayDeque<Int>()
     private var displayLogChars = 0
@@ -54,7 +57,7 @@ class MainActivity : Activity() {
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == FestivalStateBroadcast.ACTION) {
-                updateStandaloneBorder(intent.getBooleanExtra(FestivalStateBroadcast.EXTRA_ENABLED, false))
+                updateStandaloneIndicator(intent.getBooleanExtra(FestivalStateBroadcast.EXTRA_ENABLED, false))
                 return
             }
             val line = intent.getStringExtra(TerminalLog.EXTRA_LINE) ?: return
@@ -105,9 +108,13 @@ class MainActivity : Activity() {
         root = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
             addView(scroll)
+            standaloneLeft = standaloneIndicatorView()
+            standaloneRight = standaloneIndicatorView()
+            addView(standaloneLeft, standaloneIndicatorLayout(Gravity.START))
+            addView(standaloneRight, standaloneIndicatorLayout(Gravity.END))
         }
         setContentView(root)
-        updateStandaloneBorder(FestivalConfigStore(this).load().enabled)
+        updateStandaloneIndicator(FestivalConfigStore(this).load().enabled)
         requestScrollToBottom()
     }
 
@@ -243,14 +250,27 @@ class MainActivity : Activity() {
         return line.contains(" ${level.padEnd(5)} ") || line.startsWith("$level ")
     }
 
-    private fun updateStandaloneBorder(enabled: Boolean) {
-        if (!::root.isInitialized) return
-        val strokePx = (4 * resources.displayMetrics.density).toInt().coerceAtLeast(2)
-        val drawable = GradientDrawable().apply {
-            setColor(Color.BLACK)
-            if (enabled) setStroke(strokePx, Color.YELLOW)
+    private fun standaloneIndicatorView(): View {
+        return View(this).apply {
+            setBackgroundColor(Color.YELLOW)
+            visibility = View.GONE
         }
-        root.background = drawable
-        root.setPadding(if (enabled) strokePx else 0, if (enabled) strokePx else 0, if (enabled) strokePx else 0, if (enabled) strokePx else 0)
+    }
+
+    private fun standaloneIndicatorLayout(gravity: Int): FrameLayout.LayoutParams {
+        return FrameLayout.LayoutParams(standaloneIndicatorWidthPx(), FrameLayout.LayoutParams.MATCH_PARENT, gravity)
+    }
+
+    private fun standaloneIndicatorWidthPx(): Int {
+        return (4 * resources.displayMetrics.density).toInt().coerceAtLeast(2)
+    }
+
+    private fun updateStandaloneIndicator(enabled: Boolean) {
+        if (!::root.isInitialized || !::standaloneLeft.isInitialized || !::standaloneRight.isInitialized) return
+        val visibility = if (enabled) View.VISIBLE else View.GONE
+        standaloneLeft.visibility = visibility
+        standaloneRight.visibility = visibility
+        val sidePadding = if (enabled) standaloneIndicatorWidthPx() else 0
+        scroll.setPadding(sidePadding, 0, sidePadding, 0)
     }
 }
