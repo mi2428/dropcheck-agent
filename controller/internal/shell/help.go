@@ -21,6 +21,7 @@ func writeShellHelp(w io.Writer) {
 	fmt.Fprintln(w, `commands:
   show devices
   show target
+  show config [standalone|controller endpoint]
   set target <agent_id|adb_serial|number|all>
   set controller endpoint <host:port> enabled [min-backoff <duration>] [max-backoff <duration>]
   set controller endpoint disabled
@@ -37,7 +38,8 @@ func writeShellHelp(w io.Writer) {
   set standalone festa <name> check http url <url> [expected-status <code>] [timeout <duration>]
   delete standalone [festa <name>|festa <name> wifi-group <name>|festa <name> check <dns|ping|http>]
   clear target
-  show controller endpoint
+  clear standalone runs [synced|all]
+  sync standalone runs [output <dir>] [limit <n>] [mark-synced|keep-unsynced]
   show controller link
   show wifi status
   show wifi diagnostics
@@ -46,20 +48,20 @@ func writeShellHelp(w io.Writer) {
   show wifi scan detail [all|2.4ghz|5ghz|6ghz|60ghz] <ssid|bssid>
   show wifi capabilities
   show standalone status
-  show standalone config
   show standalone runs [limit <n>] [synced]
   show standalone run <run-id>
-  request wifi connect passphrase <passphrase> [security <auto|wpa2|wpa3|transition>] [bssid <bssid>] [band <band>] [mac-randomization <mode>] [timeout <ms>] <ssid>
-  request wifi disconnect
-  request wifi forget <ssid|network_id>
-  request wifi reconnect [timeout <ms>]
-  request wifi wait connected [bssid <bssid>] [security <mode>] [band <band>] [ip] [validated] [timeout <ms>] [ssid]
-  request wifi assert [ssid <ssid>] [bssid <bssid>] [security <mode>] [band <band>] [ip] [validated] [timeout <ms>]
-  request wifi cycle passphrase <passphrase> [security <auto|wpa2|wpa3|transition>] [count <n>] [bssid <bssid>] [band <band>] [mac-randomization <mode>] [ping <host>] [http <url>] [forget] [pause <ms>] [timeout <ms>] <ssid>
-  request standalone run once [festa <name>] [save]
-  request standalone sync [output <dir>] [limit <n>] [mark-synced|keep-unsynced]
-  request standalone clear [synced|all]
-  request controller reconnect
+  request
+
+request mode:
+  wifi connect passphrase <passphrase> [security <auto|wpa2|wpa3|transition>] [bssid <bssid>] [band <band>] [mac-randomization <mode>] [timeout <ms>] <ssid>
+  wifi disconnect
+  wifi forget <ssid|network_id>
+  wifi reconnect [timeout <ms>]
+  wifi wait connected [bssid <bssid>] [security <mode>] [band <band>] [ip] [validated] [timeout <ms>] [ssid]
+  wifi assert [ssid <ssid>] [bssid <bssid>] [security <mode>] [band <band>] [ip] [validated] [timeout <ms>]
+  wifi cycle passphrase <passphrase> [security <auto|wpa2|wpa3|transition>] [count <n>] [bssid <bssid>] [band <band>] [mac-randomization <mode>] [ping <host>] [http <url>] [forget] [pause <ms>] [timeout <ms>] <ssid>
+  standalone run once [festa <name>] [save]
+  controller reconnect
   monitor wifi [duration <ms>] [interval <ms>]
   ping [count <n>] [size <bytes>] [timeout <ms>] <host>
   traceroute [max-hops <n>] [via <host_or_ip>] [size <bytes>] [timeout <ms>] <host>
@@ -68,6 +70,7 @@ func writeShellHelp(w io.Writer) {
   test dns [type A|AAAA|ALL] [timeout <ms>] <name>
   test http [expected-status <code>] [timeout <ms>] <url>
   test download [timeout <ms>] <url>
+  exit
   quit
 
 pipes:
@@ -147,8 +150,17 @@ func WriteContextHelp(w io.Writer, line string) {
 	writeShellContextHelp(w, line)
 }
 
+// WriteRequestContextHelp writes contextual help for a request-mode line to w.
+func WriteRequestContextHelp(w io.Writer, line string) {
+	writeShellContextHelpInMode(w, line, true)
+}
+
 func writeShellContextHelp(w io.Writer, line string) {
-	entries := shellHelpEntries(line)
+	writeShellContextHelpInMode(w, line, false)
+}
+
+func writeShellContextHelpInMode(w io.Writer, line string, requestMode bool) {
+	entries := shellHelpEntriesInMode(line, requestMode)
 	if len(entries) == 0 {
 		writeShellHelp(w)
 		return
@@ -171,30 +183,39 @@ func HelpEntries(line string) []HelpEntry {
 	return shellHelpEntries(line)
 }
 
+// RequestHelpEntries returns contextual help candidates for a request-mode line.
+func RequestHelpEntries(line string) []HelpEntry {
+	return shellHelpEntriesInMode(line, true)
+}
+
 func shellHelpEntries(line string) []HelpEntry {
+	return shellHelpEntriesInMode(line, false)
+}
+
+func shellHelpEntriesInMode(line string, requestMode bool) []HelpEntry {
 	commandLine := trimShellHelpSuffix(line)
 	parts, err := splitPipeline(commandLine)
 	if err != nil || len(parts) == 0 {
-		return topHelpEntries()
+		return topHelpEntriesInMode(requestMode)
 	}
 	args, err := splitArgs(parts[0])
 	if err != nil {
-		return topHelpEntries()
+		return topHelpEntriesInMode(requestMode)
 	}
 	if len(args) == 0 {
-		return topHelpEntries()
+		return topHelpEntriesInMode(requestMode)
 	}
 	// Contextual help should behave like parsing: partial but unambiguous
 	// prefixes are resolved before selecting the next set of candidates.
 	for i, arg := range args {
-		if resolved, err := resolveContextKeyword(i, args[:i], arg); err == nil {
+		if resolved, err := resolveContextKeywordInMode(i, args[:i], arg, requestMode); err == nil {
 			args[i] = resolved
 		}
 	}
-	if entries := valueHelpEntriesForArgs(args); len(entries) > 0 {
+	if entries := valueHelpEntriesForArgsInMode(args, requestMode); len(entries) > 0 {
 		return entries
 	}
-	if entries := helpEntriesForArgs(args); len(entries) > 0 {
+	if entries := helpEntriesForArgsInMode(args, requestMode); len(entries) > 0 {
 		return entries
 	}
 	return terminalHelpEntries(commandLine)
@@ -207,7 +228,12 @@ func trimShellHelpSuffix(line string) string {
 	return strings.TrimSpace(trimmed)
 }
 
-func valueHelpEntriesForArgs(args []string) []HelpEntry {
+func valueHelpEntriesForArgsInMode(args []string, requestMode bool) []HelpEntry {
+	if requestMode {
+		if entries := requestValueHelpEntriesForArgs(args); len(entries) > 0 {
+			return entries
+		}
+	}
 	candidates, ok := valueCompletionCandidatesForArgs(args)
 	if !ok {
 		return nil
@@ -219,36 +245,59 @@ func valueHelpEntriesForArgs(args []string) []HelpEntry {
 	return entries
 }
 
+func requestValueHelpEntriesForArgs(args []string) []HelpEntry {
+	candidates, ok := requestValueCompletionCandidatesForArgs(args)
+	if !ok {
+		return nil
+	}
+	entries := make([]HelpEntry, 0, len(candidates))
+	for _, candidate := range candidates {
+		entries = append(entries, HelpEntry{Token: candidate})
+	}
+	return entries
+}
+
 func resolveContextKeyword(index int, previous []string, value string) (string, error) {
+	return resolveContextKeywordInMode(index, previous, value, false)
+}
+
+func resolveContextKeywordInMode(index int, previous []string, value string, requestMode bool) (string, error) {
+	if requestMode {
+		return resolveRequestContextKeyword(index, previous, value)
+	}
 	switch index {
 	case 0:
 		return resolveShellKeyword("command", value, shellTopKeywords)
 	case 1:
 		switch previous[0] {
 		case "show":
-			return resolveShellKeyword("show command", value, []string{"devices", "target", "wifi", "standalone", "controller"})
+			return resolveShellKeyword("show command", value, []string{"devices", "target", "config", "wifi", "standalone", "controller"})
+		case "sync":
+			return resolveShellKeyword("sync command", value, []string{"standalone"})
 		case "set", "clear":
 			if previous[0] == "set" {
 				return resolveShellKeyword(previous[0]+" command", value, []string{"target", "standalone", "controller"})
 			}
-			return resolveShellKeyword(previous[0]+" command", value, []string{"target"})
-		case "request", "monitor":
-			if previous[0] == "request" {
-				return resolveShellKeyword(previous[0]+" command", value, []string{"wifi", "standalone", "controller"})
-			}
-			return resolveShellKeyword(previous[0]+" command", value, []string{"wifi"})
-		case "test":
-			return resolveShellKeyword("test command", value, []string{"dns", "http", "download"})
+			return resolveShellKeyword(previous[0]+" command", value, []string{"target", "standalone"})
 		}
 	case 2:
+		if previous[0] == "show" && previous[1] == "config" {
+			return resolveShellKeyword("show config command", value, []string{"standalone", "controller"})
+		}
 		if previous[0] == "show" && previous[1] == "wifi" {
 			return resolveShellKeyword("show wifi command", value, []string{"status", "diagnostics", "scan", "capabilities"})
 		}
 		if previous[0] == "show" && previous[1] == "standalone" {
-			return resolveShellKeyword("show standalone command", value, []string{"status", "config", "runs", "run"})
+			return resolveShellKeyword("show standalone command", value, []string{"status", "runs", "run"})
 		}
 		if previous[0] == "show" && previous[1] == "controller" {
-			return resolveShellKeyword("show controller command", value, []string{"endpoint", "link"})
+			return resolveShellKeyword("show controller command", value, []string{"link"})
+		}
+		if previous[0] == "sync" && previous[1] == "standalone" {
+			return resolveShellKeyword("sync standalone command", value, []string{"runs"})
+		}
+		if previous[0] == "clear" && previous[1] == "standalone" {
+			return resolveShellKeyword("clear standalone command", value, []string{"runs"})
 		}
 		if previous[0] == "set" && previous[1] == "standalone" {
 			return resolveShellKeyword("set standalone command", value, []string{"enabled", "disabled", "retention", "max-size", "festa"})
@@ -256,27 +305,55 @@ func resolveContextKeyword(index int, previous []string, value string) (string, 
 		if previous[0] == "set" && previous[1] == "controller" {
 			return resolveShellKeyword("set controller command", value, []string{"endpoint"})
 		}
-		if previous[0] == "request" && previous[1] == "wifi" {
-			return resolveShellKeyword("request wifi command", value, []string{"connect", "disconnect", "forget", "reconnect", "wait", "assert", "cycle"})
+	}
+	return value, nil
+}
+
+func resolveRequestContextKeyword(index int, previous []string, value string) (string, error) {
+	switch index {
+	case 0:
+		return resolveShellKeyword("request command", value, shellRequestKeywords)
+	case 1:
+		switch previous[0] {
+		case "wifi":
+			return resolveShellKeyword("wifi command", value, []string{"connect", "disconnect", "forget", "reconnect", "wait", "assert", "cycle"})
+		case "standalone":
+			return resolveShellKeyword("standalone command", value, []string{"run"})
+		case "controller":
+			return resolveShellKeyword("controller command", value, []string{"reconnect"})
+		case "monitor":
+			return resolveShellKeyword("monitor command", value, []string{"wifi"})
+		case "test":
+			return resolveShellKeyword("test command", value, []string{"dns", "http", "download"})
 		}
-		if previous[0] == "request" && previous[1] == "standalone" {
-			return resolveShellKeyword("request standalone command", value, []string{"run", "sync", "clear"})
+	case 2:
+		if previous[0] == "wifi" && previous[1] == "wait" {
+			return resolveShellKeyword("wifi wait command", value, []string{"connected"})
 		}
-		if previous[0] == "request" && previous[1] == "controller" {
-			return resolveShellKeyword("request controller command", value, []string{"reconnect"})
+		if previous[0] == "standalone" && previous[1] == "run" {
+			return resolveShellKeyword("standalone run command", value, []string{"once"})
 		}
 	}
 	return value, nil
 }
 
-func helpEntriesForArgs(args []string) []HelpEntry {
+func helpEntriesForArgsInMode(args []string, requestMode bool) []HelpEntry {
+	if requestMode {
+		return requestHelpEntriesForArgs(args)
+	}
 	if len(args) == 0 {
 		return topHelpEntries()
 	}
 	switch args[0] {
 	case "show":
 		if len(args) == 1 {
-			return []HelpEntry{{"devices", "Connected Android agents"}, {"target", "Current command target"}, {"wifi", "Wi-Fi state and diagnostics"}, {"standalone", "Standalone state, config, and stored runs"}, {"controller", "Controller endpoint and link state"}}
+			return []HelpEntry{{"devices", "Connected Android agents"}, {"target", "Current command target"}, {"config", "Persistent Agent App configuration"}, {"wifi", "Wi-Fi state and diagnostics"}, {"standalone", "Standalone state and stored runs"}, {"controller", "Controller link state"}}
+		}
+		if len(args) == 2 && args[1] == "config" {
+			return []HelpEntry{{"standalone", "Standalone configuration subtree"}, {"controller", "Controller configuration subtree"}}
+		}
+		if len(args) == 3 && args[1] == "config" && args[2] == "controller" {
+			return []HelpEntry{{"endpoint", "Persistent controller reconnect endpoint"}}
 		}
 		if len(args) == 2 && args[1] == "wifi" {
 			return []HelpEntry{{"status", "Current Wi-Fi connection and IP state"}, {"diagnostics", "Wi-Fi status, capabilities, networks, and scan"}, {"scan", "Cached or fresh scan results"}, {"capabilities", "Device Wi-Fi capabilities"}}
@@ -285,10 +362,10 @@ func helpEntriesForArgs(args []string) []HelpEntry {
 			return []HelpEntry{{"fresh", "Trigger a fresh scan"}, {"detail", "Show detail for an SSID or BSSID"}, {"all", "All bands"}, {"2.4ghz", "2.4 GHz band"}, {"5ghz", "5 GHz band"}, {"6ghz", "6 GHz band"}, {"60ghz", "60 GHz band"}}
 		}
 		if len(args) == 2 && args[1] == "standalone" {
-			return []HelpEntry{{"status", "Live standalone runner state"}, {"config", "Persistent standalone configuration"}, {"runs", "Stored run summaries"}, {"run", "Stored run archive"}}
+			return []HelpEntry{{"status", "Live standalone runner state"}, {"runs", "Stored run summaries"}, {"run", "Stored run archive"}}
 		}
 		if len(args) == 2 && args[1] == "controller" {
-			return []HelpEntry{{"endpoint", "Persistent controller reconnect endpoint"}, {"link", "Live controller connection state"}}
+			return []HelpEntry{{"link", "Live controller connection state"}}
 		}
 	case "set":
 		if len(args) == 1 {
@@ -308,25 +385,53 @@ func helpEntriesForArgs(args []string) []HelpEntry {
 		}
 	case "clear":
 		if len(args) == 1 {
-			return []HelpEntry{{"target", "Clear all-target mode and return to the first agent"}}
+			return []HelpEntry{{"target", "Clear all-target mode and return to the first agent"}, {"standalone", "Remove stored standalone run archives"}}
+		}
+		if len(args) == 2 && args[1] == "standalone" {
+			return []HelpEntry{{"runs", "Remove stored standalone run archives"}}
+		}
+		if len(args) == 3 && args[1] == "standalone" && args[2] == "runs" {
+			return []HelpEntry{{"synced", "Remove only synced runs"}, {"all", "Remove all runs"}}
 		}
 	case "request":
 		if len(args) == 1 {
-			return []HelpEntry{{"wifi", "Run a Wi-Fi operation"}, {"standalone", "Run, sync, or clear standalone measurements"}, {"controller", "Run one-shot controller link operations"}}
+			return []HelpEntry{{"<cr>", "Enter request mode"}}
 		}
-		if len(args) == 2 && args[1] == "wifi" {
-			return []HelpEntry{{"connect", "Connect to an SSID"}, {"disconnect", "Disconnect Wi-Fi"}, {"forget", "Forget an SSID or network id"}, {"reconnect", "Reconnect Wi-Fi"}, {"wait", "Wait for Wi-Fi state"}, {"assert", "Assert Wi-Fi state"}, {"cycle", "Repeat connect checks"}}
-		}
-		if len(args) >= 3 && args[1] == "wifi" {
-			return requestWifiHelp(args[2])
+	case "sync":
+		if len(args) == 1 {
+			return []HelpEntry{{"standalone", "Download stored standalone archives"}}
 		}
 		if len(args) == 2 && args[1] == "standalone" {
-			return []HelpEntry{{"run", "Run one festa"}, {"sync", "Download stored archives"}, {"clear", "Remove stored archives"}}
+			return []HelpEntry{{"runs", "Download stored standalone archives"}}
 		}
-		if len(args) >= 3 && args[1] == "standalone" {
-			return []HelpEntry{{"once", "Run once"}, {"festa", "Festa name"}, {"output", "Output directory"}, {"limit", "Maximum runs"}, {"mark-synced", "Acknowledge downloaded runs"}, {"keep-unsynced", "Do not acknowledge downloaded runs"}, {"synced", "Clear synced runs"}, {"all", "Clear all runs"}}
+		if len(args) >= 3 && args[1] == "standalone" && args[2] == "runs" {
+			return []HelpEntry{{"output", "Output directory"}, {"limit", "Maximum runs"}, {"mark-synced", "Acknowledge downloaded runs"}, {"keep-unsynced", "Do not acknowledge downloaded runs"}}
 		}
-		if len(args) == 2 && args[1] == "controller" {
+	}
+	return nil
+}
+
+func requestHelpEntriesForArgs(args []string) []HelpEntry {
+	if len(args) == 0 {
+		return requestTopHelpEntries()
+	}
+	switch args[0] {
+	case "wifi":
+		if len(args) == 1 {
+			return []HelpEntry{{"connect", "Connect to an SSID"}, {"disconnect", "Disconnect Wi-Fi"}, {"forget", "Forget an SSID or network id"}, {"reconnect", "Reconnect Wi-Fi"}, {"wait", "Wait for Wi-Fi state"}, {"assert", "Assert Wi-Fi state"}, {"cycle", "Repeat connect checks"}}
+		}
+		if len(args) >= 2 {
+			return requestWifiHelp(args[1])
+		}
+	case "standalone":
+		if len(args) == 1 {
+			return []HelpEntry{{"run", "Run one festa"}}
+		}
+		if len(args) >= 2 {
+			return []HelpEntry{{"once", "Run once"}, {"festa", "Festa name"}, {"save", "Persist the archive"}}
+		}
+	case "controller":
+		if len(args) == 1 {
 			return []HelpEntry{{"reconnect", "Close this stream and reconnect through the stored endpoint"}}
 		}
 	case "monitor":
@@ -371,7 +476,10 @@ func terminalHelpEntries(line string) []HelpEntry {
 func terminalHelpEntriesForArgs(args []string) []HelpEntry {
 	command, err := parseShellArgs(args)
 	if err != nil {
-		return nil
+		command, err = parseShellRequestModeArgs(args)
+		if err != nil {
+			return nil
+		}
 	}
 	return terminalHelpEntriesForCommand(command)
 }
@@ -491,7 +599,7 @@ func globalIPHelp(args []string) []HelpEntry {
 
 func commandSupportsPipeHelp(command Command) bool {
 	switch command.Kind {
-	case shellShowDevices, shellShowTarget, shellClearTarget, shellAgentCommand:
+	case shellShowDevices, shellShowTarget, shellShowConfig, shellClearTarget, shellAgentCommand:
 		return true
 	default:
 		return false
@@ -530,19 +638,37 @@ func requestWifiHelp(command string) []HelpEntry {
 }
 
 func topHelpEntries() []HelpEntry {
+	return topHelpEntriesInMode(false)
+}
+
+func topHelpEntriesInMode(requestMode bool) []HelpEntry {
+	if requestMode {
+		return requestTopHelpEntries()
+	}
 	return []HelpEntry{
-		{"show", "Display device, target, and Wi-Fi state"},
+		{"show", "Display state or persistent config"},
 		{"set", "Set shell target or standalone config"},
 		{"delete", "Delete standalone config nodes"},
-		{"clear", "Clear shell target state"},
-		{"request", "Run a state-changing operation"},
+		{"clear", "Clear shell target state or stored run archives"},
+		{"sync", "Download stored standalone archives"},
+		{"request", "Enter request mode"},
+		{"help", "Show command summary"},
+		{"quit", "Exit the shell"},
+	}
+}
+
+func requestTopHelpEntries() []HelpEntry {
+	return []HelpEntry{
+		{"wifi", "Run a Wi-Fi operation"},
+		{"standalone", "Run standalone measurements"},
+		{"controller", "Run controller link operations"},
 		{"monitor", "Run a bounded monitor"},
 		{"ping", "Ping from the selected Android agent"},
 		{"traceroute", "Traceroute from the selected Android agent"},
 		{"path-mtu", "Discover path MTU from the selected Android agent"},
 		{"global-ip", "Check global IPv4/IPv6 via ifconfig.me"},
 		{"test", "Run DNS, HTTP, or download checks"},
-		{"help", "Show command summary"},
+		{"exit", "Return to top-level mode"},
 		{"quit", "Exit the shell"},
 	}
 }
@@ -556,7 +682,17 @@ func CompleteLine(line string) []string {
 	return completeShellLine(line)
 }
 
+// CompleteRequestLine returns full-line completion candidates for a request
+// mode line.
+func CompleteRequestLine(line string) []string {
+	return completeShellLineInMode(line, true)
+}
+
 func completeShellLine(line string) []string {
+	return completeShellLineInMode(line, false)
+}
+
+func completeShellLineInMode(line string, requestMode bool) []string {
 	parts, err := splitPipeline(line)
 	if err != nil || len(parts) == 0 {
 		return nil
@@ -579,7 +715,7 @@ func completeShellLine(line string) []string {
 		prefix = args[len(args)-1]
 		baseArgs = args[:len(args)-1]
 	}
-	candidates := completionCandidatesForArgs(baseArgs)
+	candidates := completionCandidatesForArgsInMode(baseArgs, requestMode)
 	head := line[:len(line)-len(prefix)]
 	var out []string
 	for _, candidate := range candidates {
@@ -602,11 +738,20 @@ func CompletionHintLine(line string) string {
 	return shellCompletionHintLine(line)
 }
 
+// RequestCompletionHintLine returns inline placeholder hints for request mode.
+func RequestCompletionHintLine(line string) string {
+	return shellCompletionHintLineInMode(line, true)
+}
+
 func shellCompletionHintLine(line string) string {
+	return shellCompletionHintLineInMode(line, false)
+}
+
+func shellCompletionHintLineInMode(line string, requestMode bool) string {
 	lineRunes := []rune(line)
 	var hints []string
 	realCandidates := 0
-	for _, candidate := range completeShellLine(line) {
+	for _, candidate := range completeShellLineInMode(line, requestMode) {
 		candidateRunes := []rune(candidate)
 		if !hasRunePrefix(candidateRunes, lineRunes) {
 			continue
@@ -652,7 +797,10 @@ func completePipeSegment(line string, segment string) []string {
 	return out
 }
 
-func completionCandidatesForArgs(args []string) []string {
+func completionCandidatesForArgsInMode(args []string, requestMode bool) []string {
+	if requestMode {
+		return requestCompletionCandidatesForArgs(args)
+	}
 	if len(args) == 0 {
 		return shellTopKeywords
 	}
@@ -669,29 +817,36 @@ func completionCandidatesForArgs(args []string) []string {
 	case 1:
 		switch resolved[0] {
 		case "show":
-			return []string{"devices", "target", "wifi", "standalone", "controller"}
+			return []string{"devices", "target", "config", "wifi", "standalone", "controller"}
 		case "set":
 			return []string{"target", "standalone", "controller"}
 		case "delete":
 			return []string{"standalone"}
 		case "clear":
-			return []string{"target"}
+			return []string{"target", "standalone"}
+		case "sync":
+			return []string{"standalone"}
 		case "request":
-			return []string{"wifi", "standalone", "controller"}
-		case "monitor":
-			return []string{"wifi"}
-		case "test":
-			return []string{"dns", "http", "download"}
+			return nil
 		}
 	case 2:
+		if resolved[0] == "show" && resolved[1] == "config" {
+			return []string{"standalone", "controller"}
+		}
 		if resolved[0] == "show" && resolved[1] == "wifi" {
 			return []string{"status", "diagnostics", "scan", "capabilities"}
 		}
 		if resolved[0] == "show" && resolved[1] == "standalone" {
-			return []string{"status", "config", "runs", "run"}
+			return []string{"status", "runs", "run"}
 		}
 		if resolved[0] == "show" && resolved[1] == "controller" {
-			return []string{"endpoint", "link"}
+			return []string{"link"}
+		}
+		if resolved[0] == "clear" && resolved[1] == "standalone" {
+			return []string{"runs"}
+		}
+		if resolved[0] == "sync" && resolved[1] == "standalone" {
+			return []string{"runs"}
 		}
 		if resolved[0] == "set" && resolved[1] == "standalone" {
 			return []string{"enabled", "disabled", "retention", "max-size", "festa"}
@@ -699,19 +854,10 @@ func completionCandidatesForArgs(args []string) []string {
 		if resolved[0] == "set" && resolved[1] == "controller" {
 			return []string{"endpoint"}
 		}
-		if resolved[0] == "request" && resolved[1] == "wifi" {
-			return []string{"connect", "disconnect", "forget", "reconnect", "wait", "assert", "cycle"}
-		}
-		if resolved[0] == "request" && resolved[1] == "standalone" {
-			return []string{"run", "sync", "clear"}
-		}
-		if resolved[0] == "request" && resolved[1] == "controller" {
-			return []string{"reconnect"}
-		}
-		if resolved[0] == "monitor" && resolved[1] == "wifi" {
-			return monitorWifiCompletionCandidates(nil)
-		}
 	case 3:
+		if resolved[0] == "show" && resolved[1] == "config" && resolved[2] == "controller" {
+			return []string{"endpoint"}
+		}
 		if resolved[0] == "show" && resolved[1] == "wifi" && resolved[2] == "scan" {
 			return []string{"fresh", "detail", "all", "2.4ghz", "5ghz", "6ghz", "60ghz"}
 		}
@@ -721,39 +867,84 @@ func completionCandidatesForArgs(args []string) []string {
 		if resolved[0] == "set" && resolved[1] == "controller" && resolved[2] == "endpoint" {
 			return []string{"<host:port>", "enabled", "disabled", "min-backoff", "max-backoff"}
 		}
-		if resolved[0] == "request" && resolved[1] == "wifi" && resolved[2] == "wait" {
-			return []string{"connected"}
+		if resolved[0] == "clear" && resolved[1] == "standalone" && resolved[2] == "runs" {
+			return []string{"synced", "all"}
 		}
-		if resolved[0] == "request" && resolved[1] == "standalone" && resolved[2] == "run" {
-			return []string{"once"}
+		if resolved[0] == "sync" && resolved[1] == "standalone" && resolved[2] == "runs" {
+			return syncStandaloneCompletionCandidates(resolved[3:])
 		}
 	}
 	if len(resolved) >= 1 {
-		lastCommand := resolved[len(resolved)-1]
 		switch {
 		case len(resolved) >= 3 && resolved[0] == "show" && resolved[1] == "wifi" && resolved[2] == "scan":
 			return showWifiScanCompletionCandidates(resolved[3:])
-		case resolved[0] == "ping":
-			return pingCompletionCandidates(resolved[1:])
-		case resolved[0] == "traceroute":
-			return tracerouteCompletionCandidates(resolved[1:])
-		case resolved[0] == "path-mtu":
-			return pathMtuCompletionCandidates(resolved[1:])
-		case resolved[0] == "global-ip":
-			return globalIPCompletionCandidates(resolved[1:])
-		case resolved[0] == "test" && len(resolved) >= 2:
-			return testCompletionCandidates(resolved[1], resolved[2:])
-		case resolved[0] == "monitor" && len(resolved) >= 2 && resolved[1] == "wifi":
-			return monitorWifiCompletionCandidates(resolved[2:])
-		case resolved[0] == "request" && len(resolved) >= 3 && resolved[1] == "wifi":
-			return requestWifiCompletionCandidates(resolved[2], resolved[3:], lastCommand)
-		case resolved[0] == "request" && len(resolved) >= 3 && resolved[1] == "standalone":
-			return requestStandaloneCompletionCandidates(resolved[2], resolved[3:])
 		case resolved[0] == "set" && len(resolved) >= 3 && resolved[1] == "controller" && resolved[2] == "endpoint":
 			return setControllerEndpointCompletionCandidates(resolved[3:])
 		case resolved[0] == "set" && len(resolved) >= 2 && resolved[1] == "standalone":
 			return setStandaloneCompletionCandidates(resolved[2:])
+		case resolved[0] == "sync" && len(resolved) >= 3 && resolved[1] == "standalone" && resolved[2] == "runs":
+			return syncStandaloneCompletionCandidates(resolved[3:])
 		}
+	}
+	return nil
+}
+
+func requestCompletionCandidatesForArgs(args []string) []string {
+	if len(args) == 0 {
+		return shellRequestKeywords
+	}
+	resolved := append([]string(nil), args...)
+	for i, arg := range resolved {
+		if value, err := resolveRequestContextKeyword(i, resolved[:i], arg); err == nil {
+			resolved[i] = value
+		}
+	}
+	if candidates, ok := requestValueCompletionCandidatesForArgs(resolved); ok {
+		return candidates
+	}
+	switch len(resolved) {
+	case 1:
+		switch resolved[0] {
+		case "wifi":
+			return []string{"connect", "disconnect", "forget", "reconnect", "wait", "assert", "cycle"}
+		case "standalone":
+			return []string{"run"}
+		case "controller":
+			return []string{"reconnect"}
+		case "monitor":
+			return []string{"wifi"}
+		case "test":
+			return []string{"dns", "http", "download"}
+		}
+	case 2:
+		if resolved[0] == "wifi" && resolved[1] == "wait" {
+			return []string{"connected"}
+		}
+		if resolved[0] == "standalone" && resolved[1] == "run" {
+			return []string{"once"}
+		}
+		if resolved[0] == "monitor" && resolved[1] == "wifi" {
+			return monitorWifiCompletionCandidates(nil)
+		}
+	}
+	lastCommand := resolved[len(resolved)-1]
+	switch {
+	case resolved[0] == "ping":
+		return pingCompletionCandidates(resolved[1:])
+	case resolved[0] == "traceroute":
+		return tracerouteCompletionCandidates(resolved[1:])
+	case resolved[0] == "path-mtu":
+		return pathMtuCompletionCandidates(resolved[1:])
+	case resolved[0] == "global-ip":
+		return globalIPCompletionCandidates(resolved[1:])
+	case resolved[0] == "test" && len(resolved) >= 2:
+		return testCompletionCandidates(resolved[1], resolved[2:])
+	case resolved[0] == "monitor" && len(resolved) >= 2 && resolved[1] == "wifi":
+		return monitorWifiCompletionCandidates(resolved[2:])
+	case resolved[0] == "wifi" && len(resolved) >= 2:
+		return requestWifiCompletionCandidates(resolved[1], resolved[2:], lastCommand)
+	case resolved[0] == "standalone" && len(resolved) >= 2:
+		return requestStandaloneCompletionCandidates(resolved[1], resolved[2:])
 	}
 	return nil
 }
@@ -873,10 +1064,8 @@ func valueCompletionCandidatesForArgs(args []string) ([]string, bool) {
 			return []string{"<ms>"}, true
 		}
 		return nil, false
-	case len(args) >= 4 && args[0] == "request" && args[1] == "wifi":
-		return requestWifiValueCompletionCandidates(args[2], last)
-	case len(args) >= 4 && args[0] == "request" && args[1] == "standalone":
-		return requestStandaloneValueCompletionCandidates(args[2], last)
+	case len(args) >= 4 && args[0] == "sync" && args[1] == "standalone" && args[2] == "runs":
+		return syncStandaloneValueCompletionCandidates(last)
 	case len(args) >= 3 && args[0] == "set" && args[1] == "standalone":
 		return setStandaloneValueCompletionCandidates(last)
 	case len(args) >= 4 && args[0] == "set" && args[1] == "controller" && args[2] == "endpoint":
@@ -929,31 +1118,31 @@ func requestWifiValueCompletionCandidates(command string, last string) ([]string
 	switch command {
 	case "connect", "cycle":
 		switch {
-		case isResolvedKeyword("request wifi "+command+" option", last, []string{"security"}):
+		case isResolvedKeyword("wifi "+command+" option", last, []string{"security"}):
 			return wifiConnectSecurityValues(), true
-		case isResolvedKeyword("request wifi "+command+" option", last, []string{"band"}):
+		case isResolvedKeyword("wifi "+command+" option", last, []string{"band"}):
 			return wifiBandValues(), true
-		case isResolvedKeyword("request wifi "+command+" option", last, []string{"mac-randomization"}):
+		case isResolvedKeyword("wifi "+command+" option", last, []string{"mac-randomization"}):
 			return wifiMacRandomizationValues(), true
-		case isResolvedKeyword("request wifi "+command+" option", last, []string{"passphrase"}):
+		case isResolvedKeyword("wifi "+command+" option", last, []string{"passphrase"}):
 			return []string{"<passphrase>"}, true
-		case isResolvedKeyword("request wifi "+command+" option", last, []string{"bssid"}):
+		case isResolvedKeyword("wifi "+command+" option", last, []string{"bssid"}):
 			return []string{"<bssid>"}, true
-		case isResolvedKeyword("request wifi "+command+" option", last, []string{"timeout"}):
+		case isResolvedKeyword("wifi "+command+" option", last, []string{"timeout"}):
 			return []string{"<ms>"}, true
-		case command == "cycle" && isResolvedKeyword("request wifi "+command+" option", last, []string{"pause"}):
+		case command == "cycle" && isResolvedKeyword("wifi "+command+" option", last, []string{"pause"}):
 			return []string{"<ms>"}, true
-		case command == "cycle" && isResolvedKeyword("request wifi "+command+" option", last, []string{"count"}):
+		case command == "cycle" && isResolvedKeyword("wifi "+command+" option", last, []string{"count"}):
 			return []string{"<n>"}, true
-		case command == "cycle" && isResolvedKeyword("request wifi "+command+" option", last, []string{"ping"}):
+		case command == "cycle" && isResolvedKeyword("wifi "+command+" option", last, []string{"ping"}):
 			return []string{"<host>"}, true
-		case command == "cycle" && isResolvedKeyword("request wifi "+command+" option", last, []string{"http"}):
+		case command == "cycle" && isResolvedKeyword("wifi "+command+" option", last, []string{"http"}):
 			return []string{"<url>"}, true
 		default:
 			return nil, false
 		}
 	case "reconnect":
-		if isResolvedKeyword("request wifi reconnect option", last, []string{"timeout"}) {
+		if isResolvedKeyword("wifi reconnect option", last, []string{"timeout"}) {
 			return []string{"<ms>"}, true
 		}
 		return nil, false
@@ -1153,7 +1342,7 @@ func requestWifiCompletionCandidates(command string, args []string, last string)
 		return wifiConnectCompletionCandidates(args, false)
 	case "reconnect":
 		options := []completionOption{{name: "timeout", placeholder: "<ms>"}}
-		state := scanCompletionArgs("request wifi reconnect option", args, options)
+		state := scanCompletionArgs("wifi reconnect option", args, options)
 		if state.pending != nil {
 			return optionValueCandidates(*state.pending)
 		}
@@ -1190,7 +1379,7 @@ func wifiConnectCompletionCandidates(args []string, cycle bool) []string {
 			completionOption{name: "pause", placeholder: "<ms>"},
 		)
 	}
-	state := scanCompletionArgs("request wifi option", args, options)
+	state := scanCompletionArgs("wifi option", args, options)
 	if state.pending != nil {
 		return optionValueCandidates(*state.pending)
 	}
@@ -1303,6 +1492,56 @@ func setControllerEndpointValueCompletionCandidates(last string) ([]string, bool
 	}
 }
 
+func requestValueCompletionCandidatesForArgs(args []string) ([]string, bool) {
+	if len(args) == 0 {
+		return nil, false
+	}
+	last := args[len(args)-1]
+	switch {
+	case len(args) >= 3 && args[0] == "wifi":
+		return requestWifiValueCompletionCandidates(args[1], last)
+	case len(args) >= 3 && args[0] == "standalone":
+		return requestStandaloneValueCompletionCandidates(args[1], last)
+	case len(args) >= 3 && args[0] == "monitor" && args[1] == "wifi":
+		if isResolvedKeyword("monitor wifi option", last, []string{"duration", "interval"}) {
+			return []string{"<ms>"}, true
+		}
+		return nil, false
+	case args[0] == "ping":
+		switch {
+		case isResolvedKeyword("ping option", last, []string{"count"}):
+			return []string{"<n>"}, true
+		case isResolvedKeyword("ping option", last, []string{"size"}):
+			return []string{"<bytes>"}, true
+		case isResolvedKeyword("ping option", last, []string{"timeout"}):
+			return []string{"<ms>"}, true
+		}
+	case args[0] == "traceroute":
+		switch {
+		case isResolvedKeyword("traceroute option", last, []string{"max-hops"}):
+			return []string{"<n>"}, true
+		case isResolvedKeyword("traceroute option", last, []string{"via"}):
+			return []string{"<host_or_ip>"}, true
+		case isResolvedKeyword("traceroute option", last, []string{"size"}):
+			return []string{"<bytes>"}, true
+		case isResolvedKeyword("traceroute option", last, []string{"timeout"}):
+			return []string{"<ms>"}, true
+		}
+	case args[0] == "path-mtu":
+		switch {
+		case isResolvedKeyword("path-mtu option", last, []string{"min-mtu", "max-mtu"}):
+			return []string{"<bytes>"}, true
+		case isResolvedKeyword("path-mtu option", last, []string{"timeout"}):
+			return []string{"<ms>"}, true
+		}
+	case args[0] == "global-ip":
+		return globalIPValueCompletionCandidates(last)
+	case args[0] == "test" && len(args) >= 2:
+		return testValueCompletionCandidates(args[1], last)
+	}
+	return nil, false
+}
+
 func requestStandaloneCompletionCandidates(command string, args []string) []string {
 	switch command {
 	case "run":
@@ -1316,25 +1555,11 @@ func requestStandaloneCompletionCandidates(command string, args []string) []stri
 			{name: "festa", placeholder: "<name>"},
 			{name: "save", flag: true},
 		}
-		state := scanCompletionArgs("request standalone run once option", args[1:], options)
+		state := scanCompletionArgs("standalone run once option", args[1:], options)
 		if state.pending != nil {
 			return optionValueCandidates(*state.pending)
 		}
 		return optionAndPositionalCandidates(state, options, 0)
-	case "sync":
-		options := []completionOption{
-			{name: "output", placeholder: "<dir>"},
-			{name: "limit", placeholder: "<n>"},
-			{name: "mark-synced", flag: true},
-			{name: "keep-unsynced", flag: true},
-		}
-		state := scanCompletionArgs("request standalone sync option", args, options)
-		if state.pending != nil {
-			return optionValueCandidates(*state.pending)
-		}
-		return optionAndPositionalCandidates(state, options, 0)
-	case "clear":
-		return []string{"synced", "all"}
 	default:
 		return nil
 	}
@@ -1343,18 +1568,36 @@ func requestStandaloneCompletionCandidates(command string, args []string) []stri
 func requestStandaloneValueCompletionCandidates(command string, last string) ([]string, bool) {
 	switch command {
 	case "run":
-		if isResolvedKeyword("request standalone run once option", last, []string{"festa"}) {
+		if isResolvedKeyword("standalone run once option", last, []string{"festa"}) {
 			return []string{"<name>"}, true
-		}
-	case "sync":
-		switch {
-		case isResolvedKeyword("request standalone sync option", last, []string{"output"}):
-			return []string{"<dir>"}, true
-		case isResolvedKeyword("request standalone sync option", last, []string{"limit"}):
-			return []string{"<n>"}, true
 		}
 	}
 	return nil, false
+}
+
+func syncStandaloneCompletionCandidates(args []string) []string {
+	options := []completionOption{
+		{name: "output", placeholder: "<dir>"},
+		{name: "limit", placeholder: "<n>"},
+		{name: "mark-synced", flag: true},
+		{name: "keep-unsynced", flag: true},
+	}
+	state := scanCompletionArgs("sync standalone runs option", args, options)
+	if state.pending != nil {
+		return optionValueCandidates(*state.pending)
+	}
+	return optionAndPositionalCandidates(state, options, 0)
+}
+
+func syncStandaloneValueCompletionCandidates(last string) ([]string, bool) {
+	switch {
+	case isResolvedKeyword("sync standalone runs option", last, []string{"output"}):
+		return []string{"<dir>"}, true
+	case isResolvedKeyword("sync standalone runs option", last, []string{"limit"}):
+		return []string{"<n>"}, true
+	default:
+		return nil, false
+	}
 }
 
 func testCompletionCandidates(command string, args []string) []string {

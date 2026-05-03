@@ -13,9 +13,12 @@ type CommandKind int
 const (
 	shellNoop CommandKind = iota
 	shellExit
+	shellExitMode
 	shellHelp
+	shellEnterRequestMode
 	shellShowDevices
 	shellShowTarget
+	shellShowConfig
 	shellSetTarget
 	shellClearTarget
 	shellAgentCommand
@@ -32,9 +35,11 @@ type Command struct {
 	TargetAll bool
 	// Operation is populated when Kind is AgentCommand.
 	Operation command.Operation
-	// StandaloneSyncOutput is populated by "request standalone sync".
+	// ConfigScope is populated by "show config".
+	ConfigScope string
+	// StandaloneSyncOutput is populated by "sync standalone runs".
 	StandaloneSyncOutput string
-	// StandaloneSyncLimit caps "request standalone sync" downloads.
+	// StandaloneSyncLimit caps "sync standalone runs" downloads.
 	StandaloneSyncLimit string
 	// StandaloneSyncMark marks downloaded runs as synced.
 	StandaloneSyncMark bool
@@ -57,12 +62,18 @@ const (
 	Noop = shellNoop
 	// Exit represents "exit" or "quit".
 	Exit = shellExit
+	// ExitMode represents leaving the current shell submode.
+	ExitMode = shellExitMode
 	// Help represents the top-level help command.
 	Help = shellHelp
+	// EnterRequestMode represents entering the request submode.
+	EnterRequestMode = shellEnterRequestMode
 	// ShowDevices represents "show devices".
 	ShowDevices = shellShowDevices
 	// ShowTarget represents "show target".
 	ShowTarget = shellShowTarget
+	// ShowConfig represents "show config ...".
+	ShowConfig = shellShowConfig
 	// SetTarget represents "set target ...".
 	SetTarget = shellSetTarget
 	// ClearTarget represents "clear target".
@@ -73,7 +84,8 @@ const (
 	StandaloneSync = shellStandaloneSync
 )
 
-var shellTopKeywords = []string{"show", "set", "delete", "clear", "request", "monitor", "ping", "traceroute", "path-mtu", "global-ip", "test", "help", "exit", "quit"}
+var shellTopKeywords = []string{"show", "set", "delete", "clear", "sync", "request", "help", "exit", "quit"}
+var shellRequestKeywords = []string{"wifi", "standalone", "controller", "monitor", "ping", "traceroute", "path-mtu", "global-ip", "test", "help", "exit", "quit"}
 
 // ParseLine parses a complete interactive shell line, including pipelines.
 //
@@ -83,7 +95,17 @@ func ParseLine(line string) (Command, error) {
 	return parseShellLine(line)
 }
 
+// ParseRequestLine parses a complete interactive shell line inside request
+// mode, including pipelines.
+func ParseRequestLine(line string) (Command, error) {
+	return parseShellLineInMode(line, true)
+}
+
 func parseShellLine(line string) (Command, error) {
+	return parseShellLineInMode(line, false)
+}
+
+func parseShellLineInMode(line string, requestMode bool) (Command, error) {
 	parts, err := pipeline.Split(line)
 	if err != nil {
 		return Command{}, err
@@ -96,7 +118,7 @@ func parseShellLine(line string) (Command, error) {
 	if err != nil {
 		return Command{}, err
 	}
-	cmd, err := parseShellArgs(args)
+	cmd, err := parseShellArgsInMode(args, requestMode)
 	if err != nil {
 		return Command{}, err
 	}
@@ -114,6 +136,13 @@ func ParseArgs(args []string) (Command, error) {
 }
 
 func parseShellArgs(args []string) (Command, error) {
+	return parseShellArgsInMode(args, false)
+}
+
+func parseShellArgsInMode(args []string, requestMode bool) (Command, error) {
+	if requestMode {
+		return parseShellRequestModeArgs(args)
+	}
 	if len(args) == 0 {
 		return Command{Kind: shellNoop}, nil
 	}
@@ -140,8 +169,45 @@ func parseShellArgs(args []string) (Command, error) {
 		return parseShellDelete(args[1:])
 	case "clear":
 		return parseShellClear(args[1:])
+	case "sync":
+		return parseShellSync(args[1:])
 	case "request":
 		return parseShellRequest(args[1:])
+	default:
+		return Command{}, fmt.Errorf("unknown command %q", args[0])
+	}
+}
+
+func parseShellRequestModeArgs(args []string) (Command, error) {
+	if len(args) == 0 {
+		return Command{Kind: shellNoop}, nil
+	}
+	top, err := resolveShellKeyword("request command", args[0], shellRequestKeywords)
+	if err != nil {
+		return Command{}, err
+	}
+	switch top {
+	case "exit":
+		if len(args) != 1 {
+			return Command{}, fmt.Errorf("usage: exit")
+		}
+		return Command{Kind: shellExitMode}, nil
+	case "quit":
+		if len(args) != 1 {
+			return Command{}, fmt.Errorf("usage: quit")
+		}
+		return Command{Kind: shellExit}, nil
+	case "help":
+		if len(args) != 1 {
+			return Command{}, fmt.Errorf("usage: help")
+		}
+		return Command{Kind: shellHelp}, nil
+	case "wifi":
+		return parseShellRequestWifi(args[1:])
+	case "standalone":
+		return parseShellRequestStandalone(args[1:])
+	case "controller":
+		return parseShellRequestController(args[1:])
 	case "monitor":
 		return parseShellMonitor(args[1:])
 	case "ping":
@@ -155,15 +221,15 @@ func parseShellArgs(args []string) (Command, error) {
 	case "test":
 		return parseShellTest(args[1:])
 	default:
-		return Command{}, fmt.Errorf("unknown command %q", args[0])
+		return Command{}, fmt.Errorf("unknown request command %q", args[0])
 	}
 }
 
 func parseShellShow(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: show <devices|target|wifi|standalone|controller>")
+		return Command{}, fmt.Errorf("usage: show <devices|target|config|wifi|standalone|controller>")
 	}
-	name, err := resolveShellKeyword("show command", args[0], []string{"devices", "target", "wifi", "standalone", "controller"})
+	name, err := resolveShellKeyword("show command", args[0], []string{"devices", "target", "config", "wifi", "standalone", "controller"})
 	if err != nil {
 		return Command{}, err
 	}
@@ -178,6 +244,8 @@ func parseShellShow(args []string) (Command, error) {
 			return Command{}, fmt.Errorf("usage: show target")
 		}
 		return Command{Kind: shellShowTarget}, nil
+	case "config":
+		return parseShellShowConfig(args[1:])
 	case "wifi":
 		return parseShellShowWifi(args[1:])
 	case "standalone":
@@ -191,23 +259,54 @@ func parseShellShow(args []string) (Command, error) {
 
 func parseShellShowController(args []string) (Command, error) {
 	if len(args) != 1 {
-		return Command{}, fmt.Errorf("usage: show controller <endpoint|link>")
+		return Command{}, fmt.Errorf("usage: show controller link")
 	}
-	name, err := resolveShellKeyword("show controller command", args[0], []string{"endpoint", "link"})
+	name, err := resolveShellKeyword("show controller command", args[0], []string{"link"})
 	if err != nil {
 		return Command{}, err
 	}
-	if name == "endpoint" {
-		return agentShellCommand(command.ControllerLinkConfigOperation()), nil
+	if name != "link" {
+		return Command{}, fmt.Errorf("unknown show controller command %q", args[0])
 	}
 	return agentShellCommand(command.ControllerLinkStatusOperation()), nil
 }
 
+func parseShellShowConfig(args []string) (Command, error) {
+	switch len(args) {
+	case 0:
+		return Command{Kind: shellShowConfig, ConfigScope: "all"}, nil
+	case 1:
+		name, err := resolveShellKeyword("show config command", args[0], []string{"standalone", "controller"})
+		if err != nil {
+			return Command{}, err
+		}
+		if name == "standalone" {
+			return Command{Kind: shellShowConfig, ConfigScope: "standalone"}, nil
+		}
+		return Command{}, fmt.Errorf("usage: show config controller endpoint")
+	case 2:
+		name, err := resolveShellKeyword("show config command", args[0], []string{"controller"})
+		if err != nil {
+			return Command{}, err
+		}
+		sub, err := resolveShellKeyword("show config controller command", args[1], []string{"endpoint"})
+		if err != nil {
+			return Command{}, err
+		}
+		if name != "controller" || sub != "endpoint" {
+			return Command{}, fmt.Errorf("usage: show config controller endpoint")
+		}
+		return Command{Kind: shellShowConfig, ConfigScope: "controller_endpoint"}, nil
+	default:
+		return Command{}, fmt.Errorf("usage: show config [standalone|controller endpoint]")
+	}
+}
+
 func parseShellShowStandalone(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: show standalone <status|config|runs|run>")
+		return Command{}, fmt.Errorf("usage: show standalone <status|runs|run>")
 	}
-	name, err := resolveShellKeyword("show standalone command", args[0], []string{"status", "config", "runs", "run"})
+	name, err := resolveShellKeyword("show standalone command", args[0], []string{"status", "runs", "run"})
 	if err != nil {
 		return Command{}, err
 	}
@@ -217,11 +316,6 @@ func parseShellShowStandalone(args []string) (Command, error) {
 			return Command{}, fmt.Errorf("usage: show standalone status")
 		}
 		return agentShellCommand(command.StandaloneStatusOperation()), nil
-	case "config":
-		if len(args) != 1 {
-			return Command{}, fmt.Errorf("usage: show standalone config")
-		}
-		return agentShellCommand(command.StandaloneConfigOperation()), nil
 	case "runs":
 		values := map[string]string{}
 		flags := map[string]bool{}
@@ -463,77 +557,150 @@ func parseShellDelete(args []string) (Command, error) {
 }
 
 func parseShellClear(args []string) (Command, error) {
-	if len(args) != 1 {
-		return Command{}, fmt.Errorf("usage: clear target")
+	if len(args) == 0 {
+		return Command{}, fmt.Errorf("usage: clear <target|standalone runs>")
 	}
-	name, err := resolveShellKeyword("clear command", args[0], []string{"target"})
+	name, err := resolveShellKeyword("clear command", args[0], []string{"target", "standalone"})
 	if err != nil {
 		return Command{}, err
 	}
-	if name != "target" {
+	switch name {
+	case "target":
+		if len(args) != 1 {
+			return Command{}, fmt.Errorf("usage: clear target")
+		}
+		return Command{Kind: shellClearTarget}, nil
+	case "standalone":
+		if len(args) < 2 || len(args) > 3 {
+			return Command{}, fmt.Errorf("usage: clear standalone runs [synced|all]")
+		}
+		sub, err := resolveShellKeyword("clear standalone command", args[1], []string{"runs"})
+		if err != nil {
+			return Command{}, err
+		}
+		if sub != "runs" {
+			return Command{}, fmt.Errorf("unknown clear standalone command %q", args[1])
+		}
+		mode := "synced"
+		if len(args) == 3 {
+			mode, err = resolveShellKeyword("clear standalone runs mode", args[2], []string{"synced", "all"})
+			if err != nil {
+				return Command{}, err
+			}
+		}
+		op, err := command.StandaloneClearRunsOperation(mode)
+		return agentShellCommand(op), err
+	default:
 		return Command{}, fmt.Errorf("unknown clear command %q", args[0])
 	}
-	return Command{Kind: shellClearTarget}, nil
 }
 
 func parseShellRequest(args []string) (Command, error) {
-	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: request <wifi|standalone|controller> <command>")
+	if len(args) != 0 {
+		return Command{}, fmt.Errorf("usage: request")
 	}
-	name, err := resolveShellKeyword("request command", args[0], []string{"wifi", "standalone", "controller"})
+	return Command{Kind: shellEnterRequestMode}, nil
+}
+
+func parseShellSync(args []string) (Command, error) {
+	if len(args) < 2 {
+		return Command{}, fmt.Errorf("usage: sync standalone runs [output <dir>] [limit <n>] [mark-synced|keep-unsynced]")
+	}
+	name, err := resolveShellKeyword("sync command", args[0], []string{"standalone"})
 	if err != nil {
 		return Command{}, err
 	}
-	if name == "standalone" {
-		return parseShellRequestStandalone(args[1:])
+	sub, err := resolveShellKeyword("sync standalone command", args[1], []string{"runs"})
+	if err != nil {
+		return Command{}, err
 	}
-	if name == "controller" {
-		return parseShellRequestController(args[1:])
+	if name != "standalone" || sub != "runs" {
+		return Command{}, fmt.Errorf("usage: sync standalone runs [output <dir>] [limit <n>] [mark-synced|keep-unsynced]")
 	}
-	if name != "wifi" {
-		return Command{}, fmt.Errorf("unknown request command %q", args[0])
+	values := map[string]string{}
+	flagsSeen := map[string]bool{}
+	markSynced := true
+	for i := 2; i < len(args); i++ {
+		key, err := resolveShellKeyword("sync standalone runs option", args[i], []string{"output", "limit", "mark-synced", "keep-unsynced"})
+		if err != nil {
+			return Command{}, err
+		}
+		switch key {
+		case "mark-synced":
+			if !markSynced && flagsSeen["keep-unsynced"] {
+				return Command{}, fmt.Errorf("mark-synced and keep-unsynced cannot be used together")
+			}
+			if flagsSeen["mark-synced"] {
+				return Command{}, fmt.Errorf("mark-synced specified twice")
+			}
+			flagsSeen["mark-synced"] = true
+			markSynced = true
+		case "keep-unsynced":
+			if flagsSeen["mark-synced"] {
+				return Command{}, fmt.Errorf("mark-synced and keep-unsynced cannot be used together")
+			}
+			if flagsSeen["keep-unsynced"] {
+				return Command{}, fmt.Errorf("keep-unsynced specified twice")
+			}
+			flagsSeen["keep-unsynced"] = true
+			markSynced = false
+		default:
+			value, next, err := shellValue(args, i, key)
+			if err != nil {
+				return Command{}, err
+			}
+			if err := setShellValue(values, key, value); err != nil {
+				return Command{}, err
+			}
+			i = next
+		}
 	}
-	return parseShellRequestWifi(args[1:])
+	return Command{
+		Kind:                 shellStandaloneSync,
+		StandaloneSyncOutput: values["output"],
+		StandaloneSyncLimit:  values["limit"],
+		StandaloneSyncMark:   markSynced,
+	}, nil
 }
 
 func parseShellRequestController(args []string) (Command, error) {
 	if len(args) != 1 {
-		return Command{}, fmt.Errorf("usage: request controller reconnect")
+		return Command{}, fmt.Errorf("usage: controller reconnect")
 	}
-	name, err := resolveShellKeyword("request controller command", args[0], []string{"reconnect"})
+	name, err := resolveShellKeyword("controller command", args[0], []string{"reconnect"})
 	if err != nil {
 		return Command{}, err
 	}
 	if name != "reconnect" {
-		return Command{}, fmt.Errorf("unknown request controller command %q", args[0])
+		return Command{}, fmt.Errorf("unknown controller command %q", args[0])
 	}
 	return agentShellCommand(command.ControllerReconnectOperation()), nil
 }
 
 func parseShellRequestStandalone(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: request standalone <run|sync|clear>")
+		return Command{}, fmt.Errorf("usage: standalone run once [festa <name>] [save]")
 	}
-	name, err := resolveShellKeyword("request standalone command", args[0], []string{"run", "sync", "clear"})
+	name, err := resolveShellKeyword("standalone command", args[0], []string{"run"})
 	if err != nil {
 		return Command{}, err
 	}
 	switch name {
 	case "run":
 		if len(args) < 2 {
-			return Command{}, fmt.Errorf("usage: request standalone run once [festa <name>] [save]")
+			return Command{}, fmt.Errorf("usage: standalone run once [festa <name>] [save]")
 		}
-		sub, err := resolveShellKeyword("request standalone run command", args[1], []string{"once"})
+		sub, err := resolveShellKeyword("standalone run command", args[1], []string{"once"})
 		if err != nil {
 			return Command{}, err
 		}
 		if sub != "once" {
-			return Command{}, fmt.Errorf("unknown request standalone run command %q", args[1])
+			return Command{}, fmt.Errorf("unknown standalone run command %q", args[1])
 		}
 		values := map[string]string{}
 		save := false
 		for i := 2; i < len(args); i++ {
-			key, err := resolveShellKeyword("request standalone run once option", args[i], []string{"festa", "save"})
+			key, err := resolveShellKeyword("standalone run once option", args[i], []string{"festa", "save"})
 			if err != nil {
 				return Command{}, err
 			}
@@ -555,75 +722,16 @@ func parseShellRequestStandalone(args []string) (Command, error) {
 		}
 		op, err := command.StandaloneRunOnceOperation(command.StandaloneRunOptions{Festa: values["festa"], Save: save})
 		return agentShellCommand(op), err
-	case "clear":
-		if len(args) > 2 {
-			return Command{}, fmt.Errorf("usage: request standalone clear [synced|all]")
-		}
-		mode := "synced"
-		if len(args) == 2 {
-			var err error
-			mode, err = resolveShellKeyword("request standalone clear mode", args[1], []string{"synced", "all"})
-			if err != nil {
-				return Command{}, err
-			}
-		}
-		op, err := command.StandaloneClearRunsOperation(mode)
-		return agentShellCommand(op), err
-	case "sync":
-		values := map[string]string{}
-		flagsSeen := map[string]bool{}
-		markSynced := true
-		for i := 1; i < len(args); i++ {
-			key, err := resolveShellKeyword("request standalone sync option", args[i], []string{"output", "limit", "mark-synced", "keep-unsynced"})
-			if err != nil {
-				return Command{}, err
-			}
-			switch key {
-			case "mark-synced":
-				if !markSynced && flagsSeen["keep-unsynced"] {
-					return Command{}, fmt.Errorf("mark-synced and keep-unsynced cannot be used together")
-				}
-				if flagsSeen["mark-synced"] {
-					return Command{}, fmt.Errorf("mark-synced specified twice")
-				}
-				flagsSeen["mark-synced"] = true
-				markSynced = true
-			case "keep-unsynced":
-				if flagsSeen["mark-synced"] {
-					return Command{}, fmt.Errorf("mark-synced and keep-unsynced cannot be used together")
-				}
-				if flagsSeen["keep-unsynced"] {
-					return Command{}, fmt.Errorf("keep-unsynced specified twice")
-				}
-				flagsSeen["keep-unsynced"] = true
-				markSynced = false
-			default:
-				value, next, err := shellValue(args, i, key)
-				if err != nil {
-					return Command{}, err
-				}
-				if err := setShellValue(values, key, value); err != nil {
-					return Command{}, err
-				}
-				i = next
-			}
-		}
-		return Command{
-			Kind:                 shellStandaloneSync,
-			StandaloneSyncOutput: values["output"],
-			StandaloneSyncLimit:  values["limit"],
-			StandaloneSyncMark:   markSynced,
-		}, nil
 	default:
-		return Command{}, fmt.Errorf("unknown request standalone command %q", args[0])
+		return Command{}, fmt.Errorf("unknown standalone command %q", args[0])
 	}
 }
 
 func parseShellRequestWifi(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: request wifi <connect|disconnect|forget|reconnect|wait|assert|cycle>")
+		return Command{}, fmt.Errorf("usage: wifi <connect|disconnect|forget|reconnect|wait|assert|cycle>")
 	}
-	name, err := resolveShellKeyword("request wifi command", args[0], []string{"connect", "disconnect", "forget", "reconnect", "wait", "assert", "cycle"})
+	name, err := resolveShellKeyword("wifi command", args[0], []string{"connect", "disconnect", "forget", "reconnect", "wait", "assert", "cycle"})
 	if err != nil {
 		return Command{}, err
 	}
@@ -632,12 +740,12 @@ func parseShellRequestWifi(args []string) (Command, error) {
 		return parseShellWifiConnect(args[1:], "connect")
 	case "disconnect":
 		if len(args) != 1 {
-			return Command{}, fmt.Errorf("usage: request wifi disconnect")
+			return Command{}, fmt.Errorf("usage: wifi disconnect")
 		}
 		return agentShellCommand(command.WifiDisconnectOperation()), nil
 	case "forget":
 		if len(args) != 2 {
-			return Command{}, fmt.Errorf("usage: request wifi forget <ssid|network_id>")
+			return Command{}, fmt.Errorf("usage: wifi forget <ssid|network_id>")
 		}
 		return agentShellCommand(command.WifiForgetOperation(args[1])), nil
 	case "reconnect":
@@ -649,13 +757,13 @@ func parseShellRequestWifi(args []string) (Command, error) {
 	case "cycle":
 		return parseShellWifiConnect(args[1:], "cycle")
 	default:
-		return Command{}, fmt.Errorf("unknown request wifi command %q", args[0])
+		return Command{}, fmt.Errorf("unknown wifi command %q", args[0])
 	}
 }
 
 func parseShellWifiConnect(args []string, operation string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: request wifi %s passphrase <passphrase> [security <auto|wpa2|wpa3|transition>] ... <ssid>", operation)
+		return Command{}, fmt.Errorf("usage: wifi %s passphrase <passphrase> [security <auto|wpa2|wpa3|transition>] ... <ssid>", operation)
 	}
 	var ssid string
 	values := map[string]string{}
@@ -665,10 +773,10 @@ func parseShellWifiConnect(args []string, operation string) (Command, error) {
 		allowed = append(allowed, "count", "ping", "http", "forget", "pause")
 	}
 	for i := 0; i < len(args); i++ {
-		key, err := resolveShellKeyword("request wifi "+operation+" option", args[i], allowed)
+		key, err := resolveShellKeyword("wifi "+operation+" option", args[i], allowed)
 		if err != nil {
 			if ssid != "" {
-				return Command{}, fmt.Errorf("unexpected request wifi %s argument %q", operation, args[i])
+				return Command{}, fmt.Errorf("unexpected wifi %s argument %q", operation, args[i])
 			}
 			ssid = args[i]
 			continue
@@ -692,11 +800,11 @@ func parseShellWifiConnect(args []string, operation string) (Command, error) {
 		i = next
 	}
 	if ssid == "" {
-		return Command{}, fmt.Errorf("request wifi %s requires <ssid>", operation)
+		return Command{}, fmt.Errorf("wifi %s requires <ssid>", operation)
 	}
 	passphrase := values["passphrase"]
 	if passphrase == "" {
-		return Command{}, fmt.Errorf("request wifi %s requires passphrase <passphrase>", operation)
+		return Command{}, fmt.Errorf("wifi %s requires passphrase <passphrase>", operation)
 	}
 	opts := command.WifiConnectOptions{
 		SSID:             ssid,
@@ -728,14 +836,14 @@ func parseShellWifiReconnect(args []string) (Command, error) {
 		return agentShellCommand(op), err
 	}
 	if len(args) != 2 {
-		return Command{}, fmt.Errorf("usage: request wifi reconnect [timeout <ms>]")
+		return Command{}, fmt.Errorf("usage: wifi reconnect [timeout <ms>]")
 	}
-	key, err := resolveShellKeyword("request wifi reconnect option", args[0], []string{"timeout"})
+	key, err := resolveShellKeyword("wifi reconnect option", args[0], []string{"timeout"})
 	if err != nil {
 		return Command{}, err
 	}
 	if key != "timeout" {
-		return Command{}, fmt.Errorf("unknown request wifi reconnect option %q", args[0])
+		return Command{}, fmt.Errorf("unknown wifi reconnect option %q", args[0])
 	}
 	op, err := command.WifiReconnectOperation(args[1])
 	return agentShellCommand(op), err
@@ -743,9 +851,9 @@ func parseShellWifiReconnect(args []string) (Command, error) {
 
 func parseShellWifiWait(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: request wifi wait connected [ssid]")
+		return Command{}, fmt.Errorf("usage: wifi wait connected [ssid]")
 	}
-	_, err := resolveShellKeyword("request wifi wait command", args[0], []string{"connected"})
+	_, err := resolveShellKeyword("wifi wait command", args[0], []string{"connected"})
 	if err != nil {
 		return Command{}, err
 	}

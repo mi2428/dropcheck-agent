@@ -17,6 +17,43 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// ConfigView is the persisted Agent App configuration rendered by show config.
+type ConfigView struct {
+	Standalone         *controlpb.StandaloneConfig
+	ControllerEndpoint *controlpb.ControllerLinkConfig
+}
+
+// Config renders persisted Agent App configuration.
+func Config(view ConfigView, format pipeline.Format) (string, error) {
+	if format == pipeline.FormatJSON {
+		return renderConfigJSON(view)
+	}
+	var b strings.Builder
+	if view.Standalone != nil {
+		renderStandaloneConfigBlock(&b, view.Standalone, 0)
+	}
+	if view.ControllerEndpoint != nil {
+		renderControllerConfigBlock(&b, view.ControllerEndpoint, 0)
+	}
+	return b.String(), nil
+}
+
+// ConfigEnvelope renders a multi-agent config result as a JSON object.
+func ConfigEnvelope(agent string, view ConfigView) (string, error) {
+	config, err := configJSONValue(view)
+	if err != nil {
+		return "", err
+	}
+	data, err := json.MarshalIndent(map[string]any{
+		"agent":  agent,
+		"config": config,
+	}, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(data) + "\n", nil
+}
+
 func renderProtoMessage(message proto.Message) (string, error) {
 	data, err := protojson.MarshalOptions{
 		Multiline:     true,
@@ -743,68 +780,172 @@ func renderStandaloneConfig(b *strings.Builder, config *controlpb.StandaloneConf
 	if config == nil {
 		return
 	}
+	renderStandaloneConfigBlock(b, config, 0)
+}
+
+func renderConfigJSON(view ConfigView) (string, error) {
+	value, err := configJSONValue(view)
+	if err != nil {
+		return "", err
+	}
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(data) + "\n", nil
+}
+
+func configJSONValue(view ConfigView) (map[string]any, error) {
+	value := make(map[string]any)
+	if view.Standalone != nil {
+		data, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(view.Standalone)
+		if err != nil {
+			return nil, err
+		}
+		value["standalone"] = json.RawMessage(data)
+	}
+	if view.ControllerEndpoint != nil {
+		data, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(view.ControllerEndpoint)
+		if err != nil {
+			return nil, err
+		}
+		value["controller"] = map[string]json.RawMessage{
+			"endpoint": data,
+		}
+	}
+	return value, nil
+}
+
+func renderStandaloneConfigBlock(b *strings.Builder, config *controlpb.StandaloneConfig, depth int) {
+	if config == nil {
+		return
+	}
+	writeConfigLine(b, depth, "standalone {")
 	if config.GetEnabled() {
-		fmt.Fprintln(b, "set standalone enabled")
+		writeConfigLine(b, depth+1, "enabled")
 	} else {
-		fmt.Fprintln(b, "set standalone disabled")
+		writeConfigLine(b, depth+1, "disabled")
 	}
 	if config.GetRetentionMs() != 0 {
-		fmt.Fprintf(b, "set standalone retention %s\n", time.Duration(config.GetRetentionMs())*time.Millisecond)
+		writeConfigLine(b, depth+1, "retention %s", formatConfigDuration(config.GetRetentionMs()))
 	}
 	if config.GetMaxBytes() != 0 {
-		fmt.Fprintf(b, "set standalone max-size %s\n", formatBytes(config.GetMaxBytes()))
+		writeConfigLine(b, depth+1, "max-size %s", formatBytes(config.GetMaxBytes()))
 	}
 	for _, festa := range config.GetFestas() {
-		name := shellQuote(festa.GetName())
+		writeConfigLine(b, depth+1, "festa %s {", shellQuote(festa.GetName()))
 		if festa.GetEnabled() {
-			fmt.Fprintf(b, "set standalone festa %s enabled\n", name)
+			writeConfigLine(b, depth+2, "enabled")
 		} else {
-			fmt.Fprintf(b, "set standalone festa %s disabled\n", name)
+			writeConfigLine(b, depth+2, "disabled")
 		}
 		if festa.GetIntervalMs() != 0 {
-			fmt.Fprintf(b, "set standalone festa %s interval %s\n", name, time.Duration(festa.GetIntervalMs())*time.Millisecond)
+			writeConfigLine(b, depth+2, "interval %s", formatConfigDuration(festa.GetIntervalMs()))
 		}
 		for _, group := range festa.GetWifiGroups() {
-			groupName := shellQuote(group.GetName())
+			writeConfigLine(b, depth+2, "wifi-group %s {", shellQuote(group.GetName()))
 			if group.GetEssid() != "" {
-				fmt.Fprintf(b, "set standalone festa %s wifi-group %s match essid %s\n", name, groupName, shellQuote(group.GetEssid()))
+				writeConfigLine(b, depth+3, "match essid %s", shellQuote(group.GetEssid()))
 			}
 			if group.GetBssid() != "" {
-				fmt.Fprintf(b, "set standalone festa %s wifi-group %s match bssid %s\n", name, groupName, shellQuote(group.GetBssid()))
+				writeConfigLine(b, depth+3, "match bssid %s", shellQuote(group.GetBssid()))
 			}
 			if group.GetPassphrase() != "" {
-				fmt.Fprintf(b, "set standalone festa %s wifi-group %s credential passphrase <redacted>\n", name, groupName)
+				writeConfigLine(b, depth+3, "credential passphrase <redacted>")
 			}
 			if group.GetSecurity() != controlpb.ConnectWifi_SECURITY_UNSPECIFIED {
-				fmt.Fprintf(b, "set standalone festa %s wifi-group %s security %s\n", name, groupName, standaloneSecurityName(group.GetSecurity()))
+				writeConfigLine(b, depth+3, "security %s", standaloneSecurityName(group.GetSecurity()))
 			}
 			if group.GetBand() != controlpb.WifiBand_WIFI_BAND_UNSPECIFIED && group.GetBand() != controlpb.WifiBand_WIFI_BAND_ALL {
-				fmt.Fprintf(b, "set standalone festa %s wifi-group %s band %s\n", name, groupName, standaloneBandName(group.GetBand()))
+				writeConfigLine(b, depth+3, "band %s", standaloneBandName(group.GetBand()))
 			}
 			if group.GetRequireIp() {
-				fmt.Fprintf(b, "set standalone festa %s wifi-group %s wait ip\n", name, groupName)
+				writeConfigLine(b, depth+3, "wait ip")
 			}
 			if group.GetRequireValidated() {
-				fmt.Fprintf(b, "set standalone festa %s wifi-group %s wait validated\n", name, groupName)
+				writeConfigLine(b, depth+3, "wait validated")
 			}
 			if group.GetTimeoutMs() != 0 {
-				fmt.Fprintf(b, "set standalone festa %s wifi-group %s timeout %s\n", name, groupName, time.Duration(group.GetTimeoutMs())*time.Millisecond)
+				writeConfigLine(b, depth+3, "timeout %s", formatConfigDuration(group.GetTimeoutMs()))
 			}
+			writeConfigLine(b, depth+2, "}")
 		}
 		checks := festa.GetChecks()
 		if dns := checks.GetDns(); dns.GetEnabled() {
-			fmt.Fprintf(b, "set standalone festa %s check dns name %s type %s timeout %s\n",
-				name, shellQuote(dns.GetName()), standaloneQTypesName(dns.GetQtypes()), time.Duration(dns.GetTimeoutMs())*time.Millisecond)
+			writeConfigLine(b, depth+2, "check dns {")
+			writeConfigLine(b, depth+3, "name %s", shellQuote(dns.GetName()))
+			writeConfigLine(b, depth+3, "type %s", standaloneQTypesName(dns.GetQtypes()))
+			if dns.GetTimeoutMs() != 0 {
+				writeConfigLine(b, depth+3, "timeout %s", formatConfigDuration(dns.GetTimeoutMs()))
+			}
+			writeConfigLine(b, depth+2, "}")
 		}
 		if ping := checks.GetPing(); ping.GetEnabled() {
-			fmt.Fprintf(b, "set standalone festa %s check ping host %s count %d timeout %s\n",
-				name, shellQuote(ping.GetHost()), ping.GetCount(), time.Duration(ping.GetTimeoutMs())*time.Millisecond)
+			writeConfigLine(b, depth+2, "check ping {")
+			writeConfigLine(b, depth+3, "host %s", shellQuote(ping.GetHost()))
+			if ping.GetCount() != 0 {
+				writeConfigLine(b, depth+3, "count %d", ping.GetCount())
+			}
+			if ping.GetSizeBytes() != 0 {
+				writeConfigLine(b, depth+3, "size %d", ping.GetSizeBytes())
+			}
+			if ping.GetTimeoutMs() != 0 {
+				writeConfigLine(b, depth+3, "timeout %s", formatConfigDuration(ping.GetTimeoutMs()))
+			}
+			writeConfigLine(b, depth+2, "}")
 		}
 		if http := checks.GetHttp(); http.GetEnabled() {
-			fmt.Fprintf(b, "set standalone festa %s check http url %s expected-status %d timeout %s\n",
-				name, shellQuote(http.GetUrl()), http.GetExpectedStatus(), time.Duration(http.GetTimeoutMs())*time.Millisecond)
+			writeConfigLine(b, depth+2, "check http {")
+			writeConfigLine(b, depth+3, "url %s", shellQuote(http.GetUrl()))
+			if http.GetExpectedStatus() != 0 {
+				writeConfigLine(b, depth+3, "expected-status %d", http.GetExpectedStatus())
+			}
+			if http.GetTimeoutMs() != 0 {
+				writeConfigLine(b, depth+3, "timeout %s", formatConfigDuration(http.GetTimeoutMs()))
+			}
+			writeConfigLine(b, depth+2, "}")
 		}
+		writeConfigLine(b, depth+1, "}")
 	}
+	writeConfigLine(b, depth, "}")
+}
+
+func renderControllerConfigBlock(b *strings.Builder, config *controlpb.ControllerLinkConfig, depth int) {
+	if config == nil {
+		return
+	}
+	writeConfigLine(b, depth, "controller {")
+	writeConfigLine(b, depth+1, "endpoint {")
+	if config.GetEnabled() {
+		writeConfigLine(b, depth+2, "enabled")
+	} else {
+		writeConfigLine(b, depth+2, "disabled")
+	}
+	if config.GetHost() != "" && config.GetPort() != 0 {
+		writeConfigLine(b, depth+2, "address %s", shellQuote(fmt.Sprintf("%s:%d", config.GetHost(), config.GetPort())))
+	}
+	if config.GetMinBackoffMs() != 0 {
+		writeConfigLine(b, depth+2, "min-backoff %s", formatConfigDuration(config.GetMinBackoffMs()))
+	}
+	if config.GetMaxBackoffMs() != 0 {
+		writeConfigLine(b, depth+2, "max-backoff %s", formatConfigDuration(config.GetMaxBackoffMs()))
+	}
+	writeConfigLine(b, depth+1, "}")
+	writeConfigLine(b, depth, "}")
+}
+
+func writeConfigLine(b *strings.Builder, depth int, format string, args ...any) {
+	b.WriteString(strings.Repeat("  ", depth))
+	fmt.Fprintf(b, format, args...)
+	b.WriteByte('\n')
+}
+
+func formatConfigDuration(ms uint32) string {
+	duration := time.Duration(ms) * time.Millisecond
+	if duration%(24*time.Hour) == 0 {
+		return fmt.Sprintf("%dd", duration/(24*time.Hour))
+	}
+	return duration.String()
 }
 
 func renderStandaloneStatus(b *strings.Builder, status *controlpb.StandaloneStatus) {
