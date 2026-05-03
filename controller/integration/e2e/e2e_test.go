@@ -308,14 +308,20 @@ func (cfg *e2eConfig) prepareLiveCase(t *testing.T, reason string) {
 
 func runShellParser(commandLine string) commandResult {
 	requestLine, requestMode := requestModeCommand(commandLine)
+	configureLine, configureMode := configureModeCommand(commandLine)
 	parseLine := commandLine
 	if requestMode {
 		parseLine = requestLine
+	} else if configureMode {
+		parseLine = configureLine
 	}
 	if shell.IsHelpLine(parseLine) {
 		entries := shell.HelpEntries(parseLine)
-		if requestMode {
+		switch {
+		case requestMode:
 			entries = shell.RequestHelpEntries(parseLine)
+		case configureMode:
+			entries = shell.ConfigureHelpEntries(parseLine)
 		}
 		if len(entries) == 0 {
 			return commandResult{Output: "help entries: <empty>", Code: 1, Err: errors.New("empty help entries")}
@@ -332,6 +338,8 @@ func runShellParser(commandLine string) commandResult {
 	)
 	if requestMode {
 		parsed, err = shell.ParseRequestLine(parseLine)
+	} else if configureMode {
+		parsed, err = shell.ParseConfigureLine(parseLine)
 	} else {
 		parsed, err = shell.ParseLine(parseLine)
 	}
@@ -349,19 +357,33 @@ func runShellParser(commandLine string) commandResult {
 }
 
 func (cfg *e2eConfig) runShellCase(tc matrixCase, commandLine string) commandResult {
-	requestLine, requestMode := requestModeCommand(commandLine)
-	input := commandLine + "\n"
-	if requestMode {
-		input = "request\n" + requestLine + "\n"
-	}
+	input := shellInput(commandLine)
 	if commandLine != "quit" && commandLine != "exit" {
 		input += "quit\n"
 	}
 	return cfg.runExternal(timeoutFor(tc), []string{"--serial", cfg.serial, "shell"}, input)
 }
 
+func shellInput(commandLine string) string {
+	if requestLine, ok := requestModeCommand(commandLine); ok {
+		return "request\n" + requestLine + "\n"
+	}
+	if configureLine, ok := configureModeCommand(commandLine); ok {
+		return "configure\n" + configureLine + "\n"
+	}
+	return commandLine + "\n"
+}
+
 func requestModeCommand(commandLine string) (string, bool) {
 	const marker = "request> "
+	if strings.HasPrefix(commandLine, marker) {
+		return strings.TrimPrefix(commandLine, marker), true
+	}
+	return commandLine, false
+}
+
+func configureModeCommand(commandLine string) (string, bool) {
+	const marker = "config> "
 	if strings.HasPrefix(commandLine, marker) {
 		return strings.TrimPrefix(commandLine, marker), true
 	}
@@ -617,12 +639,10 @@ func (cfg *e2eConfig) restoreAfterCase(tc matrixCase, commandLine string) {
 		if cfg.ssid != "" && cfg.psk != "" {
 			cfg.runCLICleanup("request", "wifi", "connect", cfg.ssid, "--passphrase", cfg.psk, "--security", "auto", "--timeout", "25000")
 		}
-	case strings.Contains(lower, "set target all"):
-		cfg.runShellCleanup("set target " + cfg.serial)
 	case strings.Contains(lower, "set controller endpoint") && strings.Contains(lower, "enabled"):
-		cfg.runShellCleanup("set controller endpoint disabled")
+		cfg.runShellCleanup("config> set controller endpoint disabled")
 	case strings.Contains(lower, "set standalone enabled"):
-		cfg.runShellCleanup("set standalone disabled")
+		cfg.runShellCleanup("config> set standalone disabled")
 	}
 }
 
@@ -630,7 +650,7 @@ func (cfg *e2eConfig) runShellCleanup(commandLine string) {
 	if cfg.bin == "" || cfg.serial == "" {
 		return
 	}
-	_ = cfg.runExternal(20*time.Second, []string{"--serial", cfg.serial, "shell"}, commandLine+"\nquit\n")
+	_ = cfg.runExternal(20*time.Second, []string{"--serial", cfg.serial, "shell"}, shellInput(commandLine)+"quit\n")
 }
 
 func (cfg *e2eConfig) runCLICleanup(args ...string) {
@@ -854,23 +874,23 @@ func caseNeedsWiFiSetup(tc matrixCase) bool {
 		"request traceroute",
 		"request path-mtu",
 		"request global-ip",
-		"request test dns",
-		"request test http",
-		"request test download",
+		"request dns",
+		"request http",
+		"request download",
 		"request> ping",
 		"request> traceroute",
 		"request> path-mtu",
 		"request> global-ip",
-		"request> test dns",
-		"request> test http",
-		"request> test download",
+		"request> dns",
+		"request> http",
+		"request> download",
 		"dropcheck request ping",
 		"dropcheck request traceroute",
 		"dropcheck request path-mtu",
 		"dropcheck request global-ip",
-		"dropcheck request test dns",
-		"dropcheck request test http",
-		"dropcheck request test download",
+		"dropcheck request dns",
+		"dropcheck request http",
+		"dropcheck request download",
 	}
 	for _, needle := range wifiOrNetworkCommands {
 		if strings.Contains(commandLine, needle) {
@@ -962,8 +982,8 @@ func TestE2ECaseTableIsMerged(t *testing.T) {
 	if testCount == 0 || test2Count == 0 {
 		t.Fatalf("merged table must include both TEST and TEST2 cases, got TEST=%d TEST2=%d", testCount, test2Count)
 	}
-	if len(cases) != 355 {
-		t.Fatalf("case count = %d, want 355", len(cases))
+	if len(cases) != 339 {
+		t.Fatalf("case count = %d, want 339", len(cases))
 	}
 }
 

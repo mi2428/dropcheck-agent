@@ -1,25 +1,20 @@
 id	source	title	runner	mode	command	expect	expected	notes
 S001	TEST	help	shell	LIVE	help	help	Full command and pipe help is printed.	help;
 S002	TEST	show devices	shell	LIVE	show devices	ok_or_clear	Connected agent table includes serial `45240DLAQ007HG`.	show devices;
-S003	TEST	show target	shell	LIVE	show target	ok_or_clear	Default selected target is the connected agent.	show target;
-S004	TEST	set target number	shell	LIVE	set target 1	ok_or_clear	Target changes to agent #1.	set target number;
-S005	TEST	set target serial	shell	LIVE	set target <serial>	ok_or_clear	Target changes to the requested serial.	set target serial;
-S006	TEST	set target all	shell	LIVE	set target all	ok_or_clear	Target changes to all agents.	set target all;
-S007	TEST	clear target	shell	LIVE	clear target	ok_or_clear	Target returns to the connected default agent.	clear target;
 S008	TEST	pipe no-more	shell	LIVE	show devices | no-more	ok_or_clear	Output is unchanged and no pipe error is printed.	pipe no-more;
 S009	TEST	pipe match/except/count	shell	LIVE	show devices | match <serial> | except NO_MATCH | count	ok_or_clear	Prints `Count: 1 lines`.	pipe match/except/count;
-S010	TEST	pipe display json	shell	LIVE	show target | display json	ok_or_clear	JSON target object is printed.	pipe display json;
+S010	TEST	pipe display json	shell	LIVE	show devices | display json	ok_or_clear	JSON device rows are printed.	pipe display json;
 S011	TEST	controller endpoint show	shell	LIVE	show config controller endpoint	ok_or_clear	Current controller endpoint config renders.	controller endpoint show;
 S012	TEST	controller link show	shell	LIVE	show controller link	ok_or_clear	Current controller link status renders.	controller link show;
-S013	TEST	controller endpoint disable	shell	LIVE	set controller endpoint disabled	ok_or_clear	Endpoint config is disabled with OK status.	controller endpoint disable;
-S014	TEST	controller endpoint enable	shell	LIVE	set controller endpoint 127.0.0.1:1 enabled min-backoff 1s max-backoff 2s	ok_or_clear	Endpoint config is enabled and token is redacted in output.	controller endpoint enable;
+S013	TEST	controller endpoint disable	shell	LIVE	config> set controller endpoint disabled	ok_or_clear	Endpoint config is disabled with OK status.	controller endpoint disable;
+S014	TEST	controller endpoint enable	shell	LIVE	config> set controller endpoint 127.0.0.1:1 enabled min-backoff 1s max-backoff 2s	ok_or_clear	Endpoint config is enabled and token is redacted in output.	controller endpoint enable;
 S015	TEST	standalone status	shell	LIVE	show standalone status	ok_or_clear	Standalone status renders.	standalone status;
 S016	TEST	standalone config	shell	LIVE	show config standalone	ok_or_clear	Standalone config renders.	standalone config;
 S017	TEST	standalone clear all	shell	LIVE	clear standalone runs all	ok_or_clear	Stored standalone runs are cleared.	standalone clear all;
-S018	TEST	standalone festa enable	shell	LIVE	set standalone festa smoke enabled	ok_or_clear	Standalone festa is enabled.	standalone festa enable;
-S019	TEST	standalone wifi essid	shell	LIVE	set standalone festa smoke wifi-group lab match essid "<ssid>"	ok_or_clear	Standalone Wi-Fi group matches the test ESSID.	standalone wifi essid;
-S020	TEST	standalone wifi credential	shell	LIVE	set standalone festa smoke wifi-group lab credential passphrase <psk>	ok_or_clear	Standalone Wi-Fi credential is stored.	standalone wifi credential;
-S021	TEST	standalone ping check	shell	LIVE	set standalone festa smoke check ping host 1.1.1.1 count 1 timeout 8000	ok_or_clear	Standalone ping check is configured.	standalone ping check;
+S018	TEST	standalone festa enable	shell	LIVE	config> set standalone festa smoke enabled	ok_or_clear	Standalone festa is enabled.	standalone festa enable;
+S019	TEST	standalone wifi essid	shell	LIVE	config> set standalone festa smoke wifi-group lab match essid "<ssid>"	ok_or_clear	Standalone Wi-Fi group matches the test ESSID.	standalone wifi essid;
+S020	TEST	standalone wifi credential	shell	LIVE	config> set standalone festa smoke wifi-group lab credential passphrase <psk>	ok_or_clear	Standalone Wi-Fi credential is stored.	standalone wifi credential;
+S021	TEST	standalone ping check	shell	LIVE	config> set standalone festa smoke check ping host 1.1.1.1 count 1 timeout 8000	ok_or_clear	Standalone ping check is configured.	standalone ping check;
 S022	TEST	standalone run once	shell	LIVE	request> standalone run once festa smoke save	ok_or_clear	A saved standalone archive is created with status OK.	standalone run once;
 S023	TEST	standalone runs	shell	LIVE	show standalone runs limit 5 synced	ok_or_clear	Saved run list renders and includes the new run.	standalone runs;
 S024	TEST	wifi status	shell	LIVE	show wifi status	ok_or_clear	Wi-Fi status renders without dispatch error.	wifi status;
@@ -41,27 +36,23 @@ S039	TEST	ping	shell	LIVE	request> ping count 1 timeout 8000 1.1.1.1	ok_or_clear
 S040	TEST	traceroute	shell	LIVE	request> traceroute max-hops 30 timeout 60000 1.1.1.1	ok_or_clear	Traceroute result status OK or structured fallback reaches target.	traceroute;
 S041	TEST	path-mtu	shell	LIVE	request> path-mtu min-mtu 576 max-mtu 1200 timeout 20000 1.1.1.1	ok_or_clear	Path MTU discovery succeeds.	path-mtu; Initial disconnect log saved as `testdata/logs/S041.initial-anomaly.log`; rerun passed.
 S042	TEST	global-ip	shell	LIVE	request> global-ip ipv4 timeout 10000	ok_or_clear	Public IPv4 result renders.	global-ip;
-S043	TEST	dns	shell	LIVE	request> test dns type A timeout 8000 www.google.com	ok_or_clear	A record resolution succeeds.	dns;
-S044	TEST	http	shell	LIVE	request> test http expected-status 204 timeout 10000 http://connectivitycheck.gstatic.com/generate_204	ok_or_clear	HTTP status check matches 204.	http;
-S045	TEST	download	shell	LIVE	request> test download timeout 15000 https://example.com/	ok_or_clear	Download probe succeeds with 2xx/3xx status.	download;
+S043	TEST	dns	shell	LIVE	request> dns type A timeout 8000 www.google.com	ok_or_clear	A record resolution succeeds.	dns;
+S044	TEST	http	shell	LIVE	request> http expected-status 204 timeout 10000 http://connectivitycheck.gstatic.com/generate_204	ok_or_clear	HTTP status check matches 204.	http;
+S045	TEST	download	shell	LIVE	request> download timeout 15000 https://example.com/	ok_or_clear	Download probe succeeds with 2xx/3xx status.	download;
 S046	TEST	controller reconnect failure state	shell	LIVE	request> controller reconnect	ok_or_clear	Structured `STATUS_FAILED` explains endpoint disabled/incomplete.	controller reconnect failure state;
 S047	TEST	controller reconnect success state	shell	LIVE	request> controller reconnect	ok_or_clear	Structured OK result is returned, then current stream closes.	controller reconnect success state;
 S048	TEST	quit	shell	LIVE	quit	ok_or_clear	Shell exits cleanly.	quit;
 S049	TEST	exit	shell	LIVE	exit	ok_or_clear	Shell exits cleanly.	exit;
 F001	TEST	help	shell	SHELL_ERROR	help extra	error	`usage: help` parse error; shell continues.	help;
 F002	TEST	show devices	shell	SHELL_ERROR	show devices extra	error	`usage: show devices`.	show devices;
-F003	TEST	show target	shell	SHELL_ERROR	show target extra	error	`usage: show target`.	show target;
-F004	TEST	set target missing	shell	SHELL_ERROR	set target	error	`usage: set target <agent_id\|adb_serial\|number\|all>`.	set target missing;
-F005	TEST	set target range	shell	SHELL_ERROR	set target 999	error	`agent number 999 is out of range`.	set target range;
-F006	TEST	clear target	shell	SHELL_ERROR	clear target extra	error	`usage: clear target`.	clear target;
 F007	TEST	show controller	shell	SHELL_ERROR	show controller nope	error	Unknown/invalid show controller command error.	show controller;
-F008	TEST	set controller missing endpoint	shell	SHELL_ERROR	set controller endpoint enabled	error	Usage or endpoint-required error.	set controller missing endpoint; Fixed: now prints `controller endpoint is required`.
-F009	TEST	set controller bad port	shell	SHELL_ERROR	set controller endpoint localhost:0 enabled	error	Port must be 1-65535.	set controller bad port;
-F010	TEST	set controller bad backoff	shell	SHELL_ERROR	set controller endpoint localhost:1234 enabled min-backoff 30s max-backoff 1s	error	Max backoff must be >= min backoff.	set controller bad backoff;
+F008	TEST	set controller missing endpoint	shell	SHELL_ERROR	config> set controller endpoint enabled	error	Usage or endpoint-required error.	set controller missing endpoint; Fixed: now prints `controller endpoint is required`.
+F009	TEST	set controller bad port	shell	SHELL_ERROR	config> set controller endpoint localhost:0 enabled	error	Port must be 1-65535.	set controller bad port;
+F010	TEST	set controller bad backoff	shell	SHELL_ERROR	config> set controller endpoint localhost:1234 enabled min-backoff 30s max-backoff 1s	error	Max backoff must be >= min backoff.	set controller bad backoff;
 F011	TEST	show standalone runs bad limit	shell	SHELL_ERROR	show standalone runs limit nope	error	Limit must be a positive integer.	show standalone runs bad limit;
 F012	TEST	show standalone run missing	shell	SHELL_ERROR	show standalone run ""	error	Standalone run id is required.	show standalone run missing;
-F013	TEST	set standalone enabled arity	shell	SHELL_ERROR	set standalone enabled interval 1s	error	Enabled takes no options.	set standalone enabled arity;
-F014	TEST	set standalone bad retention	shell	SHELL_ERROR	set standalone retention -1s	error	Invalid duration error.	set standalone bad retention;
+F013	TEST	set standalone enabled arity	shell	SHELL_ERROR	config> set standalone enabled interval 1s	error	Enabled takes no options.	set standalone enabled arity;
+F014	TEST	set standalone bad retention	shell	SHELL_ERROR	config> set standalone retention -1s	error	Invalid duration error.	set standalone bad retention;
 F015	TEST	request standalone run arity	shell	SHELL_ERROR	request> standalone run once festa smoke save extra	error	Usage error.	request standalone run arity;
 F016	TEST	clear standalone bad mode	shell	SHELL_ERROR	clear standalone runs invalid	error	Clear mode must be `synced` or `all`.	clear standalone bad mode;
 F017	TEST	sync standalone bad limit	shell	SHELL_ERROR	sync standalone runs limit nope	error	Standalone sync limit parse error.	sync standalone bad limit;
@@ -84,9 +75,9 @@ F033	TEST	traceroute bad max-hops	shell	SHELL_ERROR	request> traceroute max-hops
 F034	TEST	path-mtu bad min	shell	SHELL_ERROR	request> path-mtu min-mtu nope 1.1.1.1	error	Min MTU must be a positive integer.	path-mtu bad min;
 F035	TEST	global-ip duplicate family	shell	SHELL_ERROR	request> global-ip ipv4 ipv6	error	Family specified twice.	global-ip duplicate family;
 F036	TEST	global-ip bad family	shell	SHELL_ERROR	request> global-ip family bad	error	Unsupported IP family error.	global-ip bad family;
-F037	TEST	dns bad type	shell	SHELL_ERROR	request> test dns type MX example.com	error	Unsupported DNS qtype error.	dns bad type;
-F038	TEST	http bad status	shell	SHELL_ERROR	request> test http expected-status nope https://example.com/	error	Expected status must be a positive integer.	http bad status;
-F039	TEST	download missing URL	shell	SHELL_ERROR	request> test download	error	Download usage error.	download missing URL;
+F037	TEST	dns bad type	shell	SHELL_ERROR	request> dns type MX example.com	error	Unsupported DNS qtype error.	dns bad type;
+F038	TEST	http bad status	shell	SHELL_ERROR	request> http expected-status nope https://example.com/	error	Expected status must be a positive integer.	http bad status;
+F039	TEST	download missing URL	shell	SHELL_ERROR	request> download	error	Download usage error.	download missing URL;
 F040	TEST	pipe bad regex	shell	SHELL_ERROR	show devices | match [	error	Regex compile error.	pipe bad regex;
 F041	TEST	pipe unknown	shell	SHELL_ERROR	show devices | unknown	error	Unknown pipe error.	pipe unknown;
 F042	TEST	quit extra	shell	SHELL_ERROR	quit now	error	`usage: quit`.	quit extra;
@@ -111,23 +102,16 @@ T2-PIPE-007	TEST2	Case-insensitive regex	shell	LIVE	show devices | match "(?i)pi
 T2-PIPE-008	TEST2	Pipeline order after display	shell	LIVE	show devices | display json | count	ok_or_clear	Command succeeds and counts JSON lines.	Pipeline order after display.
 T2-PIPE-009	TEST2	Pipeline type/order edge	shell	LIVE	show devices | count | display json	ok_or_clear	Resolved pipeline regression: display json after count is rejected with a clear error.	Pipeline type/order edge.
 T2-PIPE-010	TEST2	Unknown pipe stage	shell-parser	PARSER	show devices | unknown	error	Unsupported pipe command error.	Unknown pipe stage.
-T2-LOCAL-001	TEST2	Prefix target resolution	shell	LIVE	set target <serial-prefix>	ok_or_clear	Serial prefix resolves to `45240DLAQ007HG`.	Prefix target resolution.
-T2-LOCAL-002	TEST2	Restore explicit target after prefix case	shell	LIVE	set target <serial>	ok_or_clear	Full serial target remains selected.	Restore explicit target after prefix case.
-T2-LOCAL-003	TEST2	Unknown target failure	shell	LIVE	set target NO_SUCH_TARGET	ok_or_clear	Target-not-found error.	Unknown target failure.
-T2-LOCAL-004	TEST2	Local multi-target state	shell	LIVE	set target all	ok_or_clear	Multi-target mode selected.	Local multi-target state.
-T2-LOCAL-005	TEST2	Multi-target display	shell	LIVE	show target	ok_or_clear	Output states all-target mode.	Multi-target display.
-T2-LOCAL-006	TEST2	State restore	shell	LIVE	set target <serial>	ok_or_clear	Restore single target for remaining cases.	State restore.
-T2-LOCAL-007	TEST2	Agent-ID prefix resolution	shell	LIVE	set target <agent-id-prefix-from-show-devices>	ok_or_clear	Agent ID prefix resolves to the same selected device.	Agent-ID prefix resolution.
-T2-CTRL-001	TEST2	endpoint value option form	shell	STATE	set controller endpoint endpoint 127.0.0.1:37589 enabled	ok_or_clear	Endpoint keyword form succeeds.	`endpoint <value>` option form.
-T2-CTRL-002	TEST2	Duration suffixes and min/max	shell	STATE	set controller endpoint 127.0.0.1:37589 enabled min-backoff 500ms max-backoff 2s	ok_or_clear	Enabled config stores endpoint and backoffs.	Duration suffixes and min/max.
-T2-CTRL-003	TEST2	Boundary ordering	shell	STATE	set controller endpoint 127.0.0.1:37589 enabled min-backoff 1s max-backoff 1s	ok_or_clear	Equal min/max accepted.	Boundary ordering.
-T2-CTRL-004	TEST2	Backoff order failure	shell-parser	PARSER	set controller endpoint 127.0.0.1:37589 enabled min-backoff 3s max-backoff 1s	error	`max-backoff must be greater than or equal to min-backoff`.	Backoff order failure.
-T2-CTRL-005	TEST2	Endpoint parse failure	shell-parser	PARSER	set controller endpoint 127.0.0.1 enabled	error	Endpoint must be `host:port`.	Endpoint parse failure.
-T2-CTRL-006	TEST2	Port lower boundary	shell-parser	PARSER	set controller endpoint 127.0.0.1:0 enabled	error	Port must be 1-65535.	Port lower boundary.
-T2-CTRL-007	TEST2	Port upper boundary	shell-parser	PARSER	set controller endpoint 127.0.0.1:65536 enabled	error	Port must be 1-65535.	Port upper boundary.
-T2-CTRL-008	TEST2	Duration value failure	shell-parser	PARSER	set controller endpoint 127.0.0.1:37589 enabled min-backoff nope	error	Invalid duration error.	Duration value failure.
-T2-CTRL-009	TEST2	Disabled arity	shell-parser	PARSER	set controller endpoint disabled extra	error	Usage error; disabled takes no extra args.	Disabled arity.
-T2-CTRL-010	TEST2	State restore	shell	STATE	set controller endpoint disabled	ok_or_clear	Controller endpoint disabled; restore safe state.	State restore.
+T2-CTRL-001	TEST2	endpoint value option form	shell	STATE	config> set controller endpoint endpoint 127.0.0.1:37589 enabled	ok_or_clear	Endpoint keyword form succeeds.	`endpoint <value>` option form.
+T2-CTRL-002	TEST2	Duration suffixes and min/max	shell	STATE	config> set controller endpoint 127.0.0.1:37589 enabled min-backoff 500ms max-backoff 2s	ok_or_clear	Enabled config stores endpoint and backoffs.	Duration suffixes and min/max.
+T2-CTRL-003	TEST2	Boundary ordering	shell	STATE	config> set controller endpoint 127.0.0.1:37589 enabled min-backoff 1s max-backoff 1s	ok_or_clear	Equal min/max accepted.	Boundary ordering.
+T2-CTRL-004	TEST2	Backoff order failure	shell-parser	PARSER	config> set controller endpoint 127.0.0.1:37589 enabled min-backoff 3s max-backoff 1s	error	`max-backoff must be greater than or equal to min-backoff`.	Backoff order failure.
+T2-CTRL-005	TEST2	Endpoint parse failure	shell-parser	PARSER	config> set controller endpoint 127.0.0.1 enabled	error	Endpoint must be `host:port`.	Endpoint parse failure.
+T2-CTRL-006	TEST2	Port lower boundary	shell-parser	PARSER	config> set controller endpoint 127.0.0.1:0 enabled	error	Port must be 1-65535.	Port lower boundary.
+T2-CTRL-007	TEST2	Port upper boundary	shell-parser	PARSER	config> set controller endpoint 127.0.0.1:65536 enabled	error	Port must be 1-65535.	Port upper boundary.
+T2-CTRL-008	TEST2	Duration value failure	shell-parser	PARSER	config> set controller endpoint 127.0.0.1:37589 enabled min-backoff nope	error	Invalid duration error.	Duration value failure.
+T2-CTRL-009	TEST2	Disabled arity	shell-parser	PARSER	config> set controller endpoint disabled extra	error	Usage error; disabled takes no extra args.	Disabled arity.
+T2-CTRL-010	TEST2	State restore	shell	STATE	config> set controller endpoint disabled	ok_or_clear	Controller endpoint disabled; restore safe state.	State restore.
 T2-FEST-001	TEST2	synced flag alone	shell	LIVE	show standalone runs synced	ok_or_clear	Runs list includes synced records if present, otherwise empty list succeeds.	`synced` flag alone.
 T2-FEST-002	TEST2	Option order with flag before value	shell	LIVE	show standalone runs synced limit 1	ok_or_clear	Runs list limited to 1 with synced records included.	Option order with flag before value.
 T2-FEST-003	TEST2	Option order with value before flag	shell	LIVE	show standalone runs limit 1 synced	ok_or_clear	Same as above.	Option order with value before flag.
@@ -137,13 +121,13 @@ T2-FEST-006	TEST2	Empty run ID	shell-parser	PARSER	show standalone run ""	error	
 T2-FEST-007	TEST2	Default clear mode	shell	LIVE	clear standalone runs	ok_or_clear	Clears only synced runs; unsynced runs remain.	Default clear mode.
 T2-FEST-008	TEST2	Explicit clear mode	shell	LIVE	clear standalone runs synced	ok_or_clear	Explicit synced clear succeeds.	Explicit clear mode.
 T2-FEST-009	TEST2	Clear arity failure	shell-parser	PARSER	clear standalone runs synced all	error	Usage error; only one clear mode.	Clear arity failure.
-T2-FEST-010	TEST2	Duration d	shell	STATE	set standalone retention 2d	ok_or_clear	Config accepts day durations.	Duration `d`.
-T2-FEST-011	TEST2	Size g	shell	STATE	set standalone max-size 1g	ok_or_clear	Config accepts gigabyte suffix.	Size `g`.
-T2-FEST-012	TEST2	Enabled arity failure	shell-parser	PARSER	set standalone enabled interval 1s	error	Enabled takes no options.	Enabled arity failure.
-T2-FEST-013	TEST2	Negative duration	shell-parser	PARSER	set standalone retention -1s	error	Invalid duration error.	Negative duration.
-T2-FEST-014	TEST2	Size suffix failure	shell-parser	PARSER	set standalone max-size 1t	error	Invalid size suffix error.	Size suffix failure.
-T2-FEST-015	TEST2	Disabled arity	shell-parser	PARSER	set standalone disabled plan nope	error	Usage error; disabled takes no options.	Disabled arity.
-T2-FEST-016	TEST2	State restore	shell	STATE	set standalone disabled	ok_or_clear	Standalone config disabled; restore safe state.	State restore.
+T2-FEST-010	TEST2	Duration d	shell	STATE	config> set standalone retention 2d	ok_or_clear	Config accepts day durations.	Duration `d`.
+T2-FEST-011	TEST2	Size g	shell	STATE	config> set standalone max-size 1g	ok_or_clear	Config accepts gigabyte suffix.	Size `g`.
+T2-FEST-012	TEST2	Enabled arity failure	shell-parser	PARSER	config> set standalone enabled interval 1s	error	Enabled takes no options.	Enabled arity failure.
+T2-FEST-013	TEST2	Negative duration	shell-parser	PARSER	config> set standalone retention -1s	error	Invalid duration error.	Negative duration.
+T2-FEST-014	TEST2	Size suffix failure	shell-parser	PARSER	config> set standalone max-size 1t	error	Invalid size suffix error.	Size suffix failure.
+T2-FEST-015	TEST2	Disabled arity	shell-parser	PARSER	config> set standalone disabled plan nope	error	Usage error; disabled takes no options.	Disabled arity.
+T2-FEST-016	TEST2	State restore	shell	STATE	config> set standalone disabled	ok_or_clear	Standalone config disabled; restore safe state.	State restore.
 T2-FEST-017	TEST2	save omitted path	shell	LIVE	request> standalone run once festa smoke	ok_or_clear	One-off standalone run runs without saving.	`save` omitted path.
 T2-FEST-018	TEST2	Flag arity failure	shell-parser	PARSER	request> standalone run once festa smoke save extra	error	Usage/unknown option error.	Flag arity failure.
 T2-FEST-019	TEST2	Option order edge	shell-parser	PARSER	request> standalone run once save festa smoke	ok	Accepted if shell grammar allows flag before festa; otherwise stable error.	Option order edge.
@@ -283,27 +267,27 @@ T2-NET-029	TEST2	family value	shell	LIVE	request> global-ip family ipv4 timeout 
 T2-NET-030	TEST2	Missing family	shell-parser	PARSER	request> global-ip family	error	`family requires a value`.	Missing family.
 T2-NET-031	TEST2	Global-IP timeout boundary	shell-parser	PARSER	request> global-ip timeout 0	error	Timeout must be positive.	Global-IP timeout boundary.
 T2-NET-032	TEST2	Duplicate family	shell-parser	PARSER	request> global-ip family ipv4 family ipv6	error	Duplicate family error.	Duplicate family.
-T2-NET-033	TEST2	DNS defaults	shell	LIVE	request> test dns example.com	ok_or_clear	Default ALL qtypes (A and AAAA) succeed.	DNS defaults.
-T2-NET-034	TEST2	DNS positional qtype	shell	LIVE	request> test dns example.com AAAA timeout 7000	ok_or_clear	Positional AAAA qtype accepted.	DNS positional qtype.
-T2-NET-035	TEST2	DNS option order	shell	LIVE	request> test dns type ALL timeout 7000 example.com	ok_or_clear	Option qtype before name accepted.	DNS option order.
-T2-NET-036	TEST2	DNS option order reversed	shell	LIVE	request> test dns example.com type A timeout 7000	ok_or_clear	Option qtype after name accepted.	DNS option order reversed.
-T2-NET-037	TEST2	Missing DNS type	shell-parser	PARSER	request> test dns example.com type	error	`type requires a value`.	Missing DNS type.
-T2-NET-038	TEST2	DNS timeout boundary	shell-parser	PARSER	request> test dns example.com timeout 0	error	Timeout must be positive.	DNS timeout boundary.
-T2-NET-039	TEST2	Too many DNS args	shell-parser	PARSER	request> test dns example.com A AAAA	error	Unexpected extra DNS argument.	Too many DNS args.
-T2-NET-040	TEST2	Duplicate DNS type	shell-parser	PARSER	request> test dns example.com type A type AAAA	error	Resolved anomaly regression: duplicate type should be rejected or documented as last-wins.	Duplicate DNS type.
-T2-NET-041	TEST2	HTTP default scheme/status	shell	LIVE	request> test http example.com	ok_or_clear	URL is normalized to HTTPS and expected status defaults to 200.	HTTP default scheme/status.
-T2-NET-042	TEST2	HTTP option order	shell	LIVE	request> test http expected-status 200 timeout 7000 https://example.com	ok_or_clear	Options before URL accepted.	HTTP option order.
-T2-NET-043	TEST2	HTTP expected status after URL	shell	LIVE	request> test http https://www.google.com/generate_204 expected-status 204 timeout 7000	ok_or_clear	Expected 204 path succeeds.	HTTP expected status after URL.
-T2-NET-044	TEST2	HTTP status boundary	shell-parser	PARSER	request> test http https://example.com expected-status 0	error	Expected status must be positive.	HTTP status boundary.
-T2-NET-045	TEST2	HTTP timeout boundary	shell-parser	PARSER	request> test http https://example.com timeout 0	error	Timeout must be positive.	HTTP timeout boundary.
-T2-NET-046	TEST2	Missing status	shell-parser	PARSER	request> test http expected-status	error	`expected-status requires a value`.	Missing status.
-T2-NET-047	TEST2	Duplicate HTTP option	shell-parser	PARSER	request> test http https://example.com expected-status 200 expected-status 204	error	Resolved anomaly regression: duplicate expected-status should be rejected or documented as last-wins.	Duplicate HTTP option.
-T2-NET-048	TEST2	Too many HTTP args	shell-parser	PARSER	request> test http https://example.com https://example.org	error	Unexpected extra HTTP argument.	Too many HTTP args.
-T2-NET-049	TEST2	Download default timeout	shell	LIVE	request> test download https://example.com	ok_or_clear	Download probe succeeds with default timeout.	Download default timeout.
-T2-NET-050	TEST2	Download option order	shell	LIVE	request> test download timeout 30000 https://example.com	ok_or_clear	Timeout before URL accepted.	Download option order.
-T2-NET-051	TEST2	Missing download timeout	shell-parser	PARSER	request> test download timeout	error	`timeout requires a value`.	Missing download timeout.
-T2-NET-052	TEST2	Download timeout boundary	shell-parser	PARSER	request> test download https://example.com timeout 0	error	Timeout must be positive.	Download timeout boundary.
-T2-NET-053	TEST2	Too many download args	shell-parser	PARSER	request> test download https://example.com https://example.org	error	Unexpected extra download argument.	Too many download args.
+T2-NET-033	TEST2	DNS defaults	shell	LIVE	request> dns example.com	ok_or_clear	Default ALL qtypes (A and AAAA) succeed.	DNS defaults.
+T2-NET-034	TEST2	DNS positional qtype	shell	LIVE	request> dns example.com AAAA timeout 7000	ok_or_clear	Positional AAAA qtype accepted.	DNS positional qtype.
+T2-NET-035	TEST2	DNS option order	shell	LIVE	request> dns type ALL timeout 7000 example.com	ok_or_clear	Option qtype before name accepted.	DNS option order.
+T2-NET-036	TEST2	DNS option order reversed	shell	LIVE	request> dns example.com type A timeout 7000	ok_or_clear	Option qtype after name accepted.	DNS option order reversed.
+T2-NET-037	TEST2	Missing DNS type	shell-parser	PARSER	request> dns example.com type	error	`type requires a value`.	Missing DNS type.
+T2-NET-038	TEST2	DNS timeout boundary	shell-parser	PARSER	request> dns example.com timeout 0	error	Timeout must be positive.	DNS timeout boundary.
+T2-NET-039	TEST2	Too many DNS args	shell-parser	PARSER	request> dns example.com A AAAA	error	Unexpected extra DNS argument.	Too many DNS args.
+T2-NET-040	TEST2	Duplicate DNS type	shell-parser	PARSER	request> dns example.com type A type AAAA	error	Resolved anomaly regression: duplicate type should be rejected or documented as last-wins.	Duplicate DNS type.
+T2-NET-041	TEST2	HTTP default scheme/status	shell	LIVE	request> http example.com	ok_or_clear	URL is normalized to HTTPS and expected status defaults to 200.	HTTP default scheme/status.
+T2-NET-042	TEST2	HTTP option order	shell	LIVE	request> http expected-status 200 timeout 7000 https://example.com	ok_or_clear	Options before URL accepted.	HTTP option order.
+T2-NET-043	TEST2	HTTP expected status after URL	shell	LIVE	request> http https://www.google.com/generate_204 expected-status 204 timeout 7000	ok_or_clear	Expected 204 path succeeds.	HTTP expected status after URL.
+T2-NET-044	TEST2	HTTP status boundary	shell-parser	PARSER	request> http https://example.com expected-status 0	error	Expected status must be positive.	HTTP status boundary.
+T2-NET-045	TEST2	HTTP timeout boundary	shell-parser	PARSER	request> http https://example.com timeout 0	error	Timeout must be positive.	HTTP timeout boundary.
+T2-NET-046	TEST2	Missing status	shell-parser	PARSER	request> http expected-status	error	`expected-status requires a value`.	Missing status.
+T2-NET-047	TEST2	Duplicate HTTP option	shell-parser	PARSER	request> http https://example.com expected-status 200 expected-status 204	error	Resolved anomaly regression: duplicate expected-status should be rejected or documented as last-wins.	Duplicate HTTP option.
+T2-NET-048	TEST2	Too many HTTP args	shell-parser	PARSER	request> http https://example.com https://example.org	error	Unexpected extra HTTP argument.	Too many HTTP args.
+T2-NET-049	TEST2	Download default timeout	shell	LIVE	request> download https://example.com	ok_or_clear	Download probe succeeds with default timeout.	Download default timeout.
+T2-NET-050	TEST2	Download option order	shell	LIVE	request> download timeout 30000 https://example.com	ok_or_clear	Timeout before URL accepted.	Download option order.
+T2-NET-051	TEST2	Missing download timeout	shell-parser	PARSER	request> download timeout	error	`timeout requires a value`.	Missing download timeout.
+T2-NET-052	TEST2	Download timeout boundary	shell-parser	PARSER	request> download https://example.com timeout 0	error	Timeout must be positive.	Download timeout boundary.
+T2-NET-053	TEST2	Too many download args	shell-parser	PARSER	request> download https://example.com https://example.org	error	Unexpected extra download argument.	Too many download args.
 T2-CLI-001	TEST2	Top-level --serial	cli	CLI	dropcheck --serial <serial> show devices	ok	Devices list is printed for the selected serial.	Top-level `--serial`.
 T2-CLI-002	TEST2	--format json with equals form	cli	CLI	dropcheck --serial=<serial> --format json show devices	ok	JSON devices output.	`--format json` with equals form.
 T2-CLI-003	TEST2	--format text	cli	CLI	dropcheck --format text show devices	ok	Text devices output.	`--format text`.
@@ -341,16 +325,16 @@ T2-CLI-034	TEST2	CLI traceroute options	cli	CLI	dropcheck request traceroute 1.1
 T2-CLI-035	TEST2	CLI path-mtu options	cli	CLI	dropcheck request path-mtu 1.1.1.1 --min-mtu 1200 --max-mtu 1500 --timeout 30000	ok	Path-MTU dash options work.	CLI path-mtu options.
 T2-CLI-036	TEST2	CLI numeric family rejected	cli	CLI	dropcheck request global-ip 4 --timeout 7000	error	Numeric family shorthand is rejected.	CLI numeric family rejected.
 T2-CLI-037	TEST2	CLI duplicate family	cli	CLI	dropcheck request global-ip ipv4 --family ipv6	error	Family specified twice error.	CLI duplicate family.
-T2-CLI-038	TEST2	CLI DNS qtype positional	cli	CLI	dropcheck request test dns example.com A --timeout 7000	ok	Positional DNS qtype works.	CLI DNS qtype positional.
-T2-CLI-039	TEST2	CLI DNS dash type	cli	CLI	dropcheck request test dns example.com --type AAAA --timeout 7000	ok	Dash DNS qtype works.	CLI DNS dash type.
-T2-CLI-040	TEST2	CLI HTTP positional status	cli	CLI	dropcheck request test http https://www.google.com/generate_204 204 --timeout 7000	ok	Positional expected status works.	CLI HTTP positional status.
-T2-CLI-041	TEST2	CLI HTTP dash status	cli	CLI	dropcheck request test http https://www.google.com/generate_204 --expected-status 204 --timeout 7000	ok	Dash expected status works.	CLI HTTP dash status.
-T2-CLI-042	TEST2	CLI download timeout	cli	CLI	dropcheck request test download https://example.com --timeout 30000	ok	Download dash timeout works.	CLI download timeout.
+T2-CLI-038	TEST2	CLI DNS qtype positional	cli	CLI	dropcheck request dns example.com A --timeout 7000	ok	Positional DNS qtype works.	CLI DNS qtype positional.
+T2-CLI-039	TEST2	CLI DNS dash type	cli	CLI	dropcheck request dns example.com --type AAAA --timeout 7000	ok	Dash DNS qtype works.	CLI DNS dash type.
+T2-CLI-040	TEST2	CLI HTTP positional status	cli	CLI	dropcheck request http https://www.google.com/generate_204 204 --timeout 7000	ok	Positional expected status works.	CLI HTTP positional status.
+T2-CLI-041	TEST2	CLI HTTP dash status	cli	CLI	dropcheck request http https://www.google.com/generate_204 --expected-status 204 --timeout 7000	ok	Dash expected status works.	CLI HTTP dash status.
+T2-CLI-042	TEST2	CLI download timeout	cli	CLI	dropcheck request download https://example.com --timeout 30000	ok	Download dash timeout works.	CLI download timeout.
 T2-CLI-043	TEST2	CLI standalone runs	cli	CLI	dropcheck show standalone runs --limit 1 --synced	ok	Standalone runs CLI flags work.	CLI standalone runs.
 T2-CLI-044	TEST2	CLI sync flags	cli	CLI	dropcheck sync standalone runs --output <sync-dir> --limit 1 --keep-unsynced	ok	CLI sync keep-unsynced works.	CLI sync flags.
 T2-CLI-045	TEST2	CLI sync conflict semantics	cli	CLI	dropcheck sync standalone runs --output <sync-dir> --limit 1 --mark-synced --keep-unsynced	error	Conflicting sync flags are rejected consistently.	CLI sync conflict semantics.
-T2-CLI-046	TEST2	CLI controller options	cli	CLI	dropcheck set controller endpoint 127.0.0.1:37589 enabled --min-backoff 500ms --max-backoff 2s	ok	CLI controller endpoint options work.	CLI controller options.
-T2-CLI-047	TEST2	CLI standalone set	cli	CLI	dropcheck set standalone retention 2d	ok	CLI standalone set works.	CLI standalone set.
+T2-CLI-046	TEST2	CLI controller options	cli	CLI	dropcheck configure set controller endpoint 127.0.0.1:37589 enabled --min-backoff 500ms --max-backoff 2s	ok	CLI controller endpoint options work.	CLI controller options.
+T2-CLI-047	TEST2	CLI standalone set	cli	CLI	dropcheck configure set standalone retention 2d	ok	CLI standalone set works.	CLI standalone set.
 T2-CLI-048	TEST2	CLI unsupported option	cli	CLI	dropcheck show wifi status --unknown	error	Usage/unknown option error.	CLI unsupported option.
 T2-CLI-049	TEST2	CLI duplicate option	cli	CLI	dropcheck request wifi connect "<ssid>" --passphrase <psk> --passphrase other	error	Duplicate option error from dash parser.	CLI duplicate option.
 T2-CLI-050	TEST2	CLI repeatable option exception	cli	CLI	dropcheck request traceroute 1.1.1.1 --via 192.168.23.254 --via 1.1.1.1	ok	Repeatable `--via` accepted.	CLI repeatable option exception.
