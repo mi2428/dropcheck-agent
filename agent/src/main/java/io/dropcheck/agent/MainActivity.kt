@@ -20,6 +20,7 @@ import android.text.style.ForegroundColorSpan
 import android.view.Gravity
 import android.view.View
 import android.view.ViewTreeObserver
+import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -87,6 +88,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         TerminalLog.info(this, "activity onCreate")
 
         val tail = TerminalLog.tail(this, STARTUP_TAIL_LINES.coerceAtMost(MAX_DISPLAY_LINES))
