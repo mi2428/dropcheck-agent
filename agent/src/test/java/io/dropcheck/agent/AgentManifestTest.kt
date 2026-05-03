@@ -36,6 +36,13 @@ class AgentManifestTest {
         assertFalse(manifestText.contains("neverForLocation"))
     }
 
+    @Test
+    fun clockWidgetDeclaresNetworkCallbackAction() {
+        val manifestText = manifestFile().readText()
+
+        assertTrue(manifestText.contains("io.dropcheck.agent.action.CLOCK_WIDGET_NETWORK_CALLBACK_UPDATE"))
+    }
+
     private fun parseManifest() = DocumentBuilderFactory.newInstance().apply {
         isNamespaceAware = true
     }.newDocumentBuilder().parse(manifestFile())
