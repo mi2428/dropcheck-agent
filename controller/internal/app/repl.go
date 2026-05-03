@@ -50,7 +50,9 @@ func replLineEditor(ctx context.Context, state *shellState) error {
 	if err != nil {
 		return err
 	}
-	defer lineReader.Close()
+	defer func() {
+		_ = lineReader.Close()
+	}()
 	for {
 		lineReader.SetPrompt(state.prompt())
 		line, err := lineReader.Readline()

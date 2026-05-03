@@ -18,7 +18,7 @@ func WriteHelp(w io.Writer) {
 }
 
 func writeShellHelp(w io.Writer) {
-	fmt.Fprintln(w, `commands:
+	_, _ = fmt.Fprintln(w, `commands:
   show devices
   show config [standalone|controller endpoint]
   show controller link
@@ -180,10 +180,10 @@ func writeShellContextHelpInMode(w io.Writer, line string, mode Mode) {
 	}
 	for _, entry := range entries {
 		if entry.Description == "" {
-			fmt.Fprintf(w, "  %-24s\n", entry.Token)
+			_, _ = fmt.Fprintf(w, "  %-24s\n", entry.Token)
 			continue
 		}
-		fmt.Fprintf(w, "  %-24s %s\n", entry.Token, entry.Description)
+		_, _ = fmt.Fprintf(w, "  %-24s %s\n", entry.Token, entry.Description)
 	}
 }
 
@@ -248,11 +248,12 @@ func trimShellHelpSuffix(line string) string {
 }
 
 func valueHelpEntriesForArgsInMode(args []string, mode Mode) []HelpEntry {
-	if mode == ModeRequest {
+	switch mode {
+	case ModeRequest:
 		if entries := requestValueHelpEntriesForArgs(args); len(entries) > 0 {
 			return entries
 		}
-	} else if mode == ModeOperational {
+	case ModeOperational:
 		if requestArgs, ok := operationalRequestArgs(args); ok {
 			if entries := requestValueHelpEntriesForArgs(requestArgs); len(entries) > 0 {
 				return entries
@@ -466,7 +467,7 @@ func configureHelpEntriesForArgs(args []string) []HelpEntry {
 	if len(args) == 0 {
 		return configureTopHelpEntries()
 	}
-	if len(args) > 1 && !(len(args) == 2 && args[0] == "run" && args[1] == "request") {
+	if len(args) > 1 && (len(args) != 2 || args[0] != "run" || args[1] != "request") {
 		if _, err := parseShellArgsInMode(args, ModeConfigure); err == nil {
 			return nil
 		}
