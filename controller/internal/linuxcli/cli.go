@@ -26,8 +26,6 @@ const (
 	AgentCommand Kind = iota
 	// Devices lists connected agents.
 	Devices
-	// Target prints the default selected target.
-	Target
 	// Config prints persisted Agent App configuration.
 	Config
 	// StandaloneSync downloads stored standalone measurement archives.
@@ -111,15 +109,13 @@ func ExtractOptions(args []string) (Options, []string, error) {
 // ExtractOptions or the app package.
 func Parse(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: dropcheck [--adb adb] [--serial SERIAL] [--package PACKAGE] [--listen ADDR] [--no-adb] shell | <command>")
+		return Command{}, fmt.Errorf("usage: dropcheck [--adb adb] [--serial SERIAL] [--package PACKAGE] [--listen ADDR] [--no-adb] shell [--target TARGET] | <command>")
 	}
 	switch args[0] {
 	case "show":
 		return parseShow(args[1:])
-	case "set":
-		return parseSet(args[1:])
-	case "delete":
-		return parseDelete(args[1:])
+	case "configure":
+		return parseConfigure(args[1:])
 	case "clear":
 		return parseClear(args[1:])
 	case "sync":
@@ -131,9 +127,23 @@ func Parse(args []string) (Command, error) {
 	}
 }
 
+func parseConfigure(args []string) (Command, error) {
+	if len(args) == 0 {
+		return Command{}, fmt.Errorf("usage: configure <set|delete> <command>")
+	}
+	switch args[0] {
+	case "set":
+		return parseSet(args[1:])
+	case "delete":
+		return parseDelete(args[1:])
+	default:
+		return Command{}, fmt.Errorf("usage: configure <set|delete> <command>")
+	}
+}
+
 func parseShow(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: show <devices|target|config|wifi|standalone|controller>")
+		return Command{}, fmt.Errorf("usage: show <devices|config|wifi|standalone|controller>")
 	}
 	switch args[0] {
 	case "devices":
@@ -141,11 +151,6 @@ func parseShow(args []string) (Command, error) {
 			return Command{}, fmt.Errorf("usage: show devices")
 		}
 		return Command{Kind: Devices}, nil
-	case "target":
-		if len(args) != 1 {
-			return Command{}, fmt.Errorf("usage: show target")
-		}
-		return Command{Kind: Target}, nil
 	case "config":
 		return parseShowConfig(args[1:])
 	case "wifi":
@@ -251,9 +256,6 @@ func parseDelete(args []string) (Command, error) {
 }
 
 func parseClear(args []string) (Command, error) {
-	if len(args) == 1 && args[0] == "target" {
-		return Command{}, fmt.Errorf("clear target is available only in interactive shell")
-	}
 	if len(args) < 2 || args[0] != "standalone" || args[1] != "runs" || len(args) > 3 {
 		return Command{}, fmt.Errorf("usage: clear standalone runs [synced|all]")
 	}
@@ -322,7 +324,7 @@ func parseControllerSet(args []string) (command.Operation, error) {
 
 func parseRequest(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: request <wifi|standalone|controller|monitor|ping|traceroute|path-mtu|global-ip|test> <command>")
+		return Command{}, fmt.Errorf("usage: request <wifi|standalone|controller|monitor|ping|traceroute|path-mtu|global-ip|dns|http|download> <command>")
 	}
 	if args[0] == "wifi" {
 		op, err := parseLinuxWifi(args[1:])
@@ -348,8 +350,16 @@ func parseRequest(args []string) (Command, error) {
 		op, err := parseLinuxGlobalIp(args[1:])
 		return Command{Kind: AgentCommand, Operation: op}, err
 	}
-	if args[0] == "test" {
-		op, err := parseLinuxTest(args[1:])
+	if args[0] == "dns" {
+		op, err := parseLinuxDNS(args[1:])
+		return Command{Kind: AgentCommand, Operation: op}, err
+	}
+	if args[0] == "http" {
+		op, err := parseLinuxHTTP(args[1:])
+		return Command{Kind: AgentCommand, Operation: op}, err
+	}
+	if args[0] == "download" {
+		op, err := parseLinuxDownload(args[1:])
 		return Command{Kind: AgentCommand, Operation: op}, err
 	}
 	if args[0] == "controller" {
@@ -359,7 +369,7 @@ func parseRequest(args []string) (Command, error) {
 		return Command{Kind: AgentCommand, Operation: command.ControllerReconnectOperation()}, nil
 	}
 	if args[0] != "standalone" {
-		return Command{}, fmt.Errorf("usage: request <wifi|standalone|controller|monitor|ping|traceroute|path-mtu|global-ip|test> <command>")
+		return Command{}, fmt.Errorf("usage: request <wifi|standalone|controller|monitor|ping|traceroute|path-mtu|global-ip|dns|http|download> <command>")
 	}
 	return parseStandaloneRequest(args[1:])
 }
@@ -829,25 +839,9 @@ func parseLinuxDownload(args []string) (command.Operation, error) {
 		return command.Operation{}, err
 	}
 	if len(opts.positionals) != 1 {
-		return command.Operation{}, fmt.Errorf("usage: request test download <url> [--timeout ms]")
+		return command.Operation{}, fmt.Errorf("usage: request download <url> [--timeout ms]")
 	}
 	return command.DownloadOperation(opts.positionals[0], opts.value("timeout"))
-}
-
-func parseLinuxTest(args []string) (command.Operation, error) {
-	if len(args) == 0 {
-		return command.Operation{}, fmt.Errorf("usage: request test <dns|http|download>")
-	}
-	switch args[0] {
-	case "dns":
-		return parseLinuxDNS(args[1:])
-	case "http":
-		return parseLinuxHTTP(args[1:])
-	case "download":
-		return parseLinuxDownload(args[1:])
-	default:
-		return command.Operation{}, fmt.Errorf("unknown request test command %q", args[0])
-	}
 }
 
 func parseLinuxDNS(args []string) (command.Operation, error) {
@@ -859,10 +853,10 @@ func parseLinuxDNS(args []string) (command.Operation, error) {
 		return command.Operation{}, err
 	}
 	if len(opts.positionals) == 0 {
-		return command.Operation{}, fmt.Errorf("usage: request test dns <name> [--type A|AAAA|ALL] [--timeout ms]")
+		return command.Operation{}, fmt.Errorf("usage: request dns <name> [--type A|AAAA|ALL] [--timeout ms]")
 	}
 	if len(opts.positionals) > 2 {
-		return command.Operation{}, fmt.Errorf("too many positional arguments for request test dns")
+		return command.Operation{}, fmt.Errorf("too many positional arguments for request dns")
 	}
 	qtype := opts.value("type")
 	if opts.value("type") != "" {
@@ -881,10 +875,10 @@ func parseLinuxHTTP(args []string) (command.Operation, error) {
 		return command.Operation{}, err
 	}
 	if len(opts.positionals) == 0 {
-		return command.Operation{}, fmt.Errorf("usage: request test http <url> [--expected-status code] [--timeout ms]")
+		return command.Operation{}, fmt.Errorf("usage: request http <url> [--expected-status code] [--timeout ms]")
 	}
 	if len(opts.positionals) > 2 {
-		return command.Operation{}, fmt.Errorf("too many positional arguments for request test http")
+		return command.Operation{}, fmt.Errorf("too many positional arguments for request http")
 	}
 	expectedStatus := opts.value("expected-status")
 	if opts.value("expected-status") != "" {

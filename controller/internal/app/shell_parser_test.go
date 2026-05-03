@@ -11,31 +11,44 @@ import (
 )
 
 const requestModeTestPrefix = "request> "
+const configureModeTestPrefix = "config> "
 
 func parseShellLineForTest(line string) (shellCommand, error) {
 	if requestLine, ok := strings.CutPrefix(line, requestModeTestPrefix); ok {
 		return parseShellRequestLine(requestLine)
+	}
+	if configureLine, ok := strings.CutPrefix(line, configureModeTestPrefix); ok {
+		return parseShellConfigureLine(configureLine)
 	}
 	return parseShellLine(line)
 }
 
 func shellHelpEntriesForTest(line string) []helpEntry {
 	if requestLine, ok := strings.CutPrefix(line, requestModeTestPrefix); ok {
-		return shellHelpEntries(requestLine, &shellState{requestMode: true})
+		return shellHelpEntries(requestLine, &shellState{mode: shellModeRequest})
+	}
+	if configureLine, ok := strings.CutPrefix(line, configureModeTestPrefix); ok {
+		return shellHelpEntries(configureLine, &shellState{mode: shellModeConfigure})
 	}
 	return shellHelpEntries(line)
 }
 
 func completeShellLineForTest(line string, _ *shellState) []string {
 	if requestLine, ok := strings.CutPrefix(line, requestModeTestPrefix); ok {
-		return completeShellLine(requestLine, &shellState{requestMode: true})
+		return completeShellLine(requestLine, &shellState{mode: shellModeRequest})
+	}
+	if configureLine, ok := strings.CutPrefix(line, configureModeTestPrefix); ok {
+		return completeShellLine(configureLine, &shellState{mode: shellModeConfigure})
 	}
 	return completeShellLine(line, nil)
 }
 
 func shellCompletionHintLineForTest(line string, _ *shellState) string {
 	if requestLine, ok := strings.CutPrefix(line, requestModeTestPrefix); ok {
-		return shellCompletionHintLine(requestLine, &shellState{requestMode: true})
+		return shellCompletionHintLine(requestLine, &shellState{mode: shellModeRequest})
+	}
+	if configureLine, ok := strings.CutPrefix(line, configureModeTestPrefix); ok {
+		return shellCompletionHintLine(configureLine, &shellState{mode: shellModeConfigure})
 	}
 	return shellCompletionHintLine(line, nil)
 }
@@ -135,21 +148,21 @@ func TestParseShellCommands(t *testing.T) {
 			label: "global-ip ipv6 --timeout 7000",
 		},
 		{
-			name:  "request> test dns",
-			line:  "request> test dns example.test type AAAA timeout 9000",
+			name:  "request> dns",
+			line:  "request> dns example.test type AAAA timeout 9000",
 			kind:  shellAgentCommand,
 			label: "dns example.test AAAA --timeout 9000",
 		},
 		{
-			name:  "request> test download options first",
-			line:  "request> test download timeout 9000 https://example.test/file.bin",
+			name:  "request> download options first",
+			line:  "request> download timeout 9000 https://example.test/file.bin",
 			kind:  shellAgentCommand,
 			label: "download https://example.test/file.bin --timeout 9000",
 		},
 		{
-			name: "set target all",
-			line: "set target all",
-			kind: shellSetTarget,
+			name: "configure",
+			line: "configure",
+			kind: shellEnterConfigureMode,
 		},
 		{
 			name: "show devices",
@@ -192,6 +205,40 @@ func TestParseShellCommandPrefixes(t *testing.T) {
 	}
 }
 
+func TestParseShellModesSeparateConfigureAndRequest(t *testing.T) {
+	if _, err := parseShellLineForTest("set standalone enabled"); err == nil || !strings.Contains(err.Error(), `unknown command "set"`) {
+		t.Fatalf("top-level set error = %v", err)
+	}
+	if _, err := parseShellLineForTest("request ping 1.1.1.1"); err == nil || !strings.Contains(err.Error(), "usage: request") {
+		t.Fatalf("top-level request ping error = %v", err)
+	}
+
+	set, err := parseShellLineForTest("config> set standalone enabled")
+	if err != nil {
+		t.Fatalf("config set standalone: %v", err)
+	}
+	if set.kind != shellAgentCommand {
+		t.Fatalf("config set kind = %v", set.kind)
+	}
+
+	run, err := parseShellLineForTest("config> run request ping 1.1.1.1 count 1")
+	if err != nil {
+		t.Fatalf("config run request ping: %v", err)
+	}
+	if run.kind != shellAgentCommand {
+		t.Fatalf("config run request kind = %v", run.kind)
+	}
+	assertOperationLabel(t, run.operation, "ping 1.1.1.1 1")
+
+	show, err := parseShellLineForTest("config> show controller endpoint")
+	if err != nil {
+		t.Fatalf("config show controller endpoint: %v", err)
+	}
+	if show.kind != shellShowConfig || show.configScope != "controller_endpoint" {
+		t.Fatalf("config show = %#v", show)
+	}
+}
+
 func TestParseShellStandaloneCommands(t *testing.T) {
 	status, err := parseShellLineForTest("show standalone status")
 	if err != nil {
@@ -225,7 +272,7 @@ func TestParseStandaloneSyncLimitRejectsZero(t *testing.T) {
 }
 
 func TestParseShellControllerLinkCommands(t *testing.T) {
-	set, err := parseShellLineForTest("set controller endpoint 192.168.7.1:37588 enabled min-backoff 1s max-backoff 30s")
+	set, err := parseShellLineForTest("config> set controller endpoint 192.168.7.1:37588 enabled min-backoff 1s max-backoff 30s")
 	if err != nil {
 		t.Fatalf("set controller endpoint: %v", err)
 	}
@@ -267,12 +314,12 @@ func TestParseShellControllerLinkCommands(t *testing.T) {
 }
 
 func TestParseShellSetEnabledWithoutRequiredValues(t *testing.T) {
-	_, err := parseShellLineForTest("set controller endpoint enabled")
+	_, err := parseShellLineForTest("config> set controller endpoint enabled")
 	if err == nil || !strings.Contains(err.Error(), "controller endpoint is required") {
 		t.Fatalf("set controller endpoint enabled error = %v", err)
 	}
 
-	_, err = parseShellLineForTest("set standalone festa lab wifi-group office match")
+	_, err = parseShellLineForTest("config> set standalone festa lab wifi-group office match")
 	if err == nil || !strings.Contains(err.Error(), "wifi-group <name> <match|credential|security|band|wait|timeout>") {
 		t.Fatalf("set standalone wifi-group match error = %v", err)
 	}
@@ -337,8 +384,8 @@ func TestParseShellRejectsDuplicateOptions(t *testing.T) {
 		{line: "request> ping 1.1.1.1 count 1 count 2", want: "count specified twice"},
 		{line: "request> traceroute 1.1.1.1 max-hops 1 max-hops 2", want: "max-hops specified twice"},
 		{line: "request> path-mtu min-mtu 1200 min-mtu 1300 1.1.1.1", want: "min-mtu specified twice"},
-		{line: "request> test dns example.com type A type AAAA", want: "type specified twice"},
-		{line: "request> test http https://example.com expected-status 200 expected-status 204", want: "expected-status specified twice"},
+		{line: "request> dns example.com type A type AAAA", want: "type specified twice"},
+		{line: "request> http https://example.com expected-status 200 expected-status 204", want: "expected-status specified twice"},
 		{line: "sync standalone runs mark-synced keep-unsynced", want: "mark-synced and keep-unsynced cannot be used together"},
 	}
 	for _, tt := range tests {
@@ -433,41 +480,41 @@ func TestShellHelpAndCompletion(t *testing.T) {
 }
 
 func TestShellHTTPHelpAndFlexibleArgs(t *testing.T) {
-	help := shellHelpEntriesForTest("request> test http ?")
+	help := shellHelpEntriesForTest("request> http ?")
 	var tokens []string
 	for _, entry := range help {
 		tokens = append(tokens, entry.token)
 	}
 	for _, want := range []string{"<url>", "expected-status", "timeout"} {
 		if !slices.Contains(tokens, want) {
-			t.Fatalf("request> test http help tokens = %#v, missing %q", tokens, want)
+			t.Fatalf("request> http help tokens = %#v, missing %q", tokens, want)
 		}
 	}
 
-	help = shellHelpEntriesForTest("request> test http expected-status 301 http://www.wide.ad.jp ?")
+	help = shellHelpEntriesForTest("request> http expected-status 301 http://www.wide.ad.jp ?")
 	tokens = tokens[:0]
 	for _, entry := range help {
 		tokens = append(tokens, entry.token)
 	}
 	if slices.Contains(tokens, "expected-status") {
-		t.Fatalf("terminal test http help tokens = %#v, unexpectedly included expected-status", tokens)
+		t.Fatalf("terminal http help tokens = %#v, unexpectedly included expected-status", tokens)
 	}
 	for _, want := range []string{"timeout", "<cr>", "| display json"} {
 		if !slices.Contains(tokens, want) {
-			t.Fatalf("terminal test http help tokens = %#v, missing %q", tokens, want)
+			t.Fatalf("terminal http help tokens = %#v, missing %q", tokens, want)
 		}
 	}
 
-	got, err := parseShellLineForTest("request> test http expected-status 301 www.wide.ad.jp timeout 7000")
+	got, err := parseShellLineForTest("request> http expected-status 301 www.wide.ad.jp timeout 7000")
 	if err != nil {
-		t.Fatalf("parseShellLineForTest(test http) error = %v", err)
+		t.Fatalf("parseShellLineForTest(http) error = %v", err)
 	}
 	if got.operation.Name != "http" {
 		t.Fatalf("operation name = %q", got.operation.Name)
 	}
 	cmd, _, err := buildRunCommand(got.operation)
 	if err != nil {
-		t.Fatalf("buildRunCommand(test http) error = %v", err)
+		t.Fatalf("buildRunCommand(http) error = %v", err)
 	}
 	http := cmd.GetHttpCheck()
 	if http == nil {
@@ -479,52 +526,52 @@ func TestShellHTTPHelpAndFlexibleArgs(t *testing.T) {
 }
 
 func TestShellDNSHelpAndFlexibleArgs(t *testing.T) {
-	help := shellHelpEntriesForTest("request> test dns ?")
+	help := shellHelpEntriesForTest("request> dns ?")
 	var tokens []string
 	for _, entry := range help {
 		tokens = append(tokens, entry.token)
 	}
 	for _, want := range []string{"<name>", "type", "timeout"} {
 		if !slices.Contains(tokens, want) {
-			t.Fatalf("request> test dns help tokens = %#v, missing %q", tokens, want)
+			t.Fatalf("request> dns help tokens = %#v, missing %q", tokens, want)
 		}
 	}
 
-	help = shellHelpEntriesForTest("request> test dns type a wide.ad.jp ?")
+	help = shellHelpEntriesForTest("request> dns type a wide.ad.jp ?")
 	tokens = tokens[:0]
 	for _, entry := range help {
 		tokens = append(tokens, entry.token)
 	}
 	for _, unwanted := range []string{"<name>", "type"} {
 		if slices.Contains(tokens, unwanted) {
-			t.Fatalf("terminal test dns help tokens = %#v, unexpectedly included %q", tokens, unwanted)
+			t.Fatalf("terminal dns help tokens = %#v, unexpectedly included %q", tokens, unwanted)
 		}
 	}
 	for _, want := range []string{"timeout", "<cr>", "| display json"} {
 		if !slices.Contains(tokens, want) {
-			t.Fatalf("terminal test dns help tokens = %#v, missing %q", tokens, want)
+			t.Fatalf("terminal dns help tokens = %#v, missing %q", tokens, want)
 		}
 	}
 
 	tests := []struct {
 		line string
 	}{
-		{line: "request> test dns type a wide.ad.jp timeout 7000"},
-		{line: "request> test dns wide.ad.jp type A timeout 7000"},
-		{line: "request> test dns wide.ad.jp a timeout 7000"},
+		{line: "request> dns type a wide.ad.jp timeout 7000"},
+		{line: "request> dns wide.ad.jp type A timeout 7000"},
+		{line: "request> dns wide.ad.jp a timeout 7000"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.line, func(t *testing.T) {
 			got, err := parseShellLineForTest(tt.line)
 			if err != nil {
-				t.Fatalf("parseShellLineForTest(test dns) error = %v", err)
+				t.Fatalf("parseShellLineForTest(dns) error = %v", err)
 			}
 			if got.operation.Name != "dns" {
 				t.Fatalf("operation name = %q", got.operation.Name)
 			}
 			cmd, _, err := buildRunCommand(got.operation)
 			if err != nil {
-				t.Fatalf("buildRunCommand(test dns) error = %v", err)
+				t.Fatalf("buildRunCommand(dns) error = %v", err)
 			}
 			resolve := cmd.GetResolveDns()
 			if resolve == nil {
@@ -567,7 +614,7 @@ func TestShellGlobalIPHelp(t *testing.T) {
 }
 
 func TestShellTerminalHelp(t *testing.T) {
-	help := shellHelpEntriesForTest("show target ?")
+	help := shellHelpEntriesForTest("show devices ?")
 	var tokens []string
 	for _, entry := range help {
 		tokens = append(tokens, entry.token)
@@ -577,19 +624,21 @@ func TestShellTerminalHelp(t *testing.T) {
 			t.Fatalf("terminal help tokens = %#v, missing %q", tokens, want)
 		}
 	}
-	for _, unwanted := range []string{"show", "devices", "wifi"} {
+	for _, unwanted := range []string{"show", "config", "wifi"} {
 		if slices.Contains(tokens, unwanted) {
 			t.Fatalf("terminal help tokens = %#v, unexpectedly included %q", tokens, unwanted)
 		}
 	}
 
-	help = shellHelpEntriesForTest("set target all ?")
+	help = shellHelpEntriesForTest("config> set standalone enabled ?")
 	tokens = tokens[:0]
 	for _, entry := range help {
 		tokens = append(tokens, entry.token)
 	}
-	if !slices.Equal(tokens, []string{"<cr>"}) {
-		t.Fatalf("set target terminal help tokens = %#v, want <cr> only", tokens)
+	for _, want := range []string{"<cr>", "| display json", "| match <regex>", "| except <regex>", "| count", "| no-more"} {
+		if !slices.Contains(tokens, want) {
+			t.Fatalf("set standalone terminal help tokens = %#v, missing %q", tokens, want)
+		}
 	}
 }
 
@@ -624,7 +673,7 @@ func TestShellImmediateHelpKey(t *testing.T) {
 
 	line = []rune("wifi？")
 	out.Reset()
-	newLine, _, ok = handleShellHelpKey(&out, line, len(line), '？', &shellState{requestMode: true})
+	newLine, _, ok = handleShellHelpKey(&out, line, len(line), '？', &shellState{mode: shellModeRequest})
 	if !ok {
 		t.Fatalf("handleShellHelpKey full-width ok = false")
 	}
@@ -646,7 +695,7 @@ func TestShellReadlineCompleter(t *testing.T) {
 		t.Fatalf("completions = %#v, want fi", completions)
 	}
 
-	requestCompleter := shellReadlineCompleter{state: &shellState{requestMode: true}}
+	requestCompleter := shellReadlineCompleter{state: &shellState{mode: shellModeRequest}}
 	completions, offset = requestCompleter.Do([]rune("global-ip"), len([]rune("global-ip")))
 	if offset != len([]rune("global-ip")) {
 		t.Fatalf("request> global-ip offset = %d, want %d", offset, len([]rune("global-ip")))
@@ -687,11 +736,11 @@ func TestShellReadlineCompleter(t *testing.T) {
 		t.Fatalf("placeholder hint = %q, want <n>", got)
 	}
 
-	completions, _ = requestCompleter.Do([]rune("test http expected-status "), len([]rune("test http expected-status ")))
+	completions, _ = requestCompleter.Do([]rune("http expected-status "), len([]rune("http expected-status ")))
 	if len(completions) != 0 {
 		t.Fatalf("placeholder completions = %#v, want no selectable candidates", completions)
 	}
-	if got := shellCompletionHintLineForTest("request> test http expected-status ", nil); got != "<code>" {
+	if got := shellCompletionHintLineForTest("request> http expected-status ", nil); got != "<code>" {
 		t.Fatalf("placeholder hint = %q, want <code>", got)
 	}
 }
@@ -754,19 +803,19 @@ func TestShellOptionCompletion(t *testing.T) {
 			want: []string{"ipv4", "ipv6", "all", "timeout"},
 		},
 		{
-			line: "request> test dns example.test ",
+			line: "request> dns example.test ",
 			want: []string{"type", "timeout"},
 		},
 		{
-			line: "request> test dns example.test type ",
+			line: "request> dns example.test type ",
 			want: []string{"A", "AAAA", "ALL"},
 		},
 		{
-			line: "request> test http example.test ",
+			line: "request> http example.test ",
 			want: []string{"expected-status", "timeout"},
 		},
 		{
-			line: "request> test download example.test ",
+			line: "request> download example.test ",
 			want: []string{"timeout"},
 		},
 	}
@@ -794,8 +843,8 @@ func TestShellPlaceholderCompletionHints(t *testing.T) {
 		{line: "request> traceroute via ", want: "<host_or_ip>"},
 		{line: "request> path-mtu min-mtu ", want: "<bytes>"},
 		{line: "request> global-ip timeout ", want: "<ms>"},
-		{line: "request> test http expected-status ", want: "<code>"},
-		{line: "request> test download timeout ", want: "<ms>"},
+		{line: "request> http expected-status ", want: "<code>"},
+		{line: "request> download timeout ", want: "<ms>"},
 	}
 
 	for _, tt := range tests {
@@ -811,12 +860,15 @@ func TestShellPlaceholderCompletionHints(t *testing.T) {
 }
 
 func shellCompletionFragmentsForTest(line string) []string {
-	requestMode := false
+	mode := shellModeOperational
 	if strings.HasPrefix(line, requestModeTestPrefix) {
-		requestMode = true
+		mode = shellModeRequest
 		line = strings.TrimPrefix(line, requestModeTestPrefix)
+	} else if strings.HasPrefix(line, configureModeTestPrefix) {
+		mode = shellModeConfigure
+		line = strings.TrimPrefix(line, configureModeTestPrefix)
 	}
-	completer := shellReadlineCompleter{state: &shellState{requestMode: requestMode}}
+	completer := shellReadlineCompleter{state: &shellState{mode: mode}}
 	completions, _ := completer.Do([]rune(line), len([]rune(line)))
 	return shellCompletionStrings(completions)
 }
@@ -871,7 +923,7 @@ func TestParseLinuxCommands(t *testing.T) {
 		},
 		{
 			name:  "dns flags",
-			args:  []string{"request", "test", "dns", "example.test", "--type", "AAAA", "--timeout", "9000"},
+			args:  []string{"request", "dns", "example.test", "--type", "AAAA", "--timeout", "9000"},
 			label: "dns example.test AAAA --timeout 9000",
 		},
 	}
@@ -928,7 +980,7 @@ func TestLinuxCommandBuildsOperation(t *testing.T) {
 }
 
 func TestParseLinuxControllerLinkCommands(t *testing.T) {
-	got, err := linuxcli.Parse([]string{"set", "controller", "endpoint", "192.168.7.1:37588", "enabled", "--min-backoff", "1s"})
+	got, err := linuxcli.Parse([]string{"configure", "set", "controller", "endpoint", "192.168.7.1:37588", "enabled", "--min-backoff", "1s"})
 	if err != nil {
 		t.Fatalf("linuxcli.Parse(set controller) error = %v", err)
 	}

@@ -72,17 +72,17 @@ func TestLinuxWifiOperationalCommands(t *testing.T) {
 }
 
 func TestLinuxNetworkDefaultsAndNormalization(t *testing.T) {
-	download := linuxCommand(t, "request", "test", "download", "https://example.test/file.bin")
+	download := linuxCommand(t, "request", "download", "https://example.test/file.bin")
 	if got := download.GetWget(); got == nil || got.GetUrl() != "https://example.test/file.bin" || got.GetTimeoutMs() != 60000 || got.GetSelector() == nil {
 		t.Fatalf("Wget = %#v", got)
 	}
 
-	http := linuxCommand(t, "request", "test", "http", "example.test/health")
+	http := linuxCommand(t, "request", "http", "example.test/health")
 	if got := http.GetHttpCheck(); got == nil || got.GetUrl() != "https://example.test/health" || got.GetExpectedStatus() != 200 || got.GetTimeoutMs() != 5000 || got.GetSelector() == nil {
 		t.Fatalf("HttpCheck = %#v", got)
 	}
 
-	dns := linuxCommand(t, "request", "test", "dns", "example.test")
+	dns := linuxCommand(t, "request", "dns", "example.test")
 	if got := dns.GetResolveDns(); got == nil || got.GetName() != "example.test" || !slices.Equal(got.GetQtypes(), []controlpb.DnsRecordType{controlpb.DnsRecordType_DNS_RECORD_TYPE_A, controlpb.DnsRecordType_DNS_RECORD_TYPE_AAAA}) || got.GetTimeoutMs() != 5000 || got.GetSelector() == nil {
 		t.Fatalf("ResolveDns = %#v", got)
 	}

@@ -187,10 +187,14 @@ func (s *shellState) prompt() string {
 	} else if s.selectedLabel != "" {
 		label = s.selectedLabel
 	}
-	if s.requestMode {
+	switch s.mode {
+	case shellModeConfigure:
+		return fmt.Sprintf("%s(config)# ", label)
+	case shellModeRequest:
 		return fmt.Sprintf("%s(request)# ", label)
+	default:
+		return fmt.Sprintf("%s# ", label)
 	}
-	return fmt.Sprintf("%s# ", label)
 }
 
 func (s *shellState) selectedAgentIfConnected() (control.AgentInfo, bool) {
@@ -211,7 +215,10 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 		return false, nil
 	}
 	parse := parseShellLine
-	if state.requestMode {
+	switch state.mode {
+	case shellModeConfigure:
+		parse = parseShellConfigureLine
+	case shellModeRequest:
 		parse = parseShellRequestLine
 	}
 	command, err := parse(line)
@@ -223,23 +230,22 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 	case shellNoop:
 		return false, nil
 	case shellExitMode:
-		state.requestMode = false
+		state.mode = shellModeOperational
 		return false, nil
 	case shellExit:
 		return true, nil
 	case shellHelp:
 		printShellHelp()
 		return false, nil
+	case shellEnterConfigureMode:
+		state.mode = shellModeConfigure
+		return false, nil
 	case shellEnterRequestMode:
-		state.requestMode = true
+		state.mode = shellModeRequest
 		return false, nil
 	case shellShowDevices:
 		return false, printLocalOutput(command, func(format outputFormat) (string, error) {
 			return renderAgents(agentListView(state), format)
-		})
-	case shellShowTarget:
-		return false, printLocalOutput(command, func(format outputFormat) (string, error) {
-			return renderTarget(targetView(state), format)
 		})
 	case shellShowConfig:
 		agents, err := state.commandTargets()
@@ -251,36 +257,6 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 			format:   command.pipeline.format(outputText),
 			pipeline: command.pipeline,
 		})
-	case shellSetTarget:
-		if command.targetAll {
-			state.targetAll = true
-			fmt.Println("Target: all agents")
-			return false, nil
-		}
-		info, err := resolveShellAgent(state, command.target)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			return false, nil
-		}
-		state.setSelectedAgent(info)
-		state.targetAll = false
-		fmt.Printf("Target: %s\n", agentDisplayName(info))
-		return false, nil
-	case shellClearTarget:
-		state.targetAll = false
-		if info, err := selectedAgent(state); err == nil {
-			state.setSelectedAgent(info)
-		}
-		out, err := renderTarget(targetView(state), command.pipeline.format(outputText))
-		if err != nil {
-			return false, err
-		}
-		out, err = command.pipeline.apply(out)
-		if err != nil {
-			return false, err
-		}
-		fmt.Print(out)
-		return false, nil
 	case shellAgentCommand:
 		agents, err := state.commandTargets()
 		if err != nil {
@@ -334,7 +310,7 @@ func selectedAgent(state *shellState) (control.AgentInfo, error) {
 		state.setSelectedAgent(agents[0])
 		return agents[0], nil
 	default:
-		return control.AgentInfo{}, errors.New("no selected Android agent; run show devices and set target <agent>")
+		return control.AgentInfo{}, errors.New("no selected Android agent; restart shell with --target <agent|serial|number|all>")
 	}
 }
 

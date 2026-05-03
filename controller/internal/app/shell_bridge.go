@@ -14,20 +14,16 @@ const (
 	shellExit
 	shellExitMode
 	shellHelp
+	shellEnterConfigureMode
 	shellEnterRequestMode
 	shellShowDevices
-	shellShowTarget
 	shellShowConfig
-	shellSetTarget
-	shellClearTarget
 	shellAgentCommand
 	shellStandaloneSync
 )
 
 type shellCommand struct {
 	kind        shellCommandKind
-	target      string
-	targetAll   bool
 	configScope string
 	operation   Operation
 	syncOutput  string
@@ -52,11 +48,14 @@ func parseShellRequestLine(line string) (shellCommand, error) {
 	return wrapShellCommand(parsed), err
 }
 
+func parseShellConfigureLine(line string) (shellCommand, error) {
+	parsed, err := shell.ParseConfigureLine(line)
+	return wrapShellCommand(parsed), err
+}
+
 func wrapShellCommand(parsed shell.Command) shellCommand {
 	return shellCommand{
 		kind:        shellCommandKind(parsed.Kind),
-		target:      parsed.Target,
-		targetAll:   parsed.TargetAll,
 		configScope: parsed.ConfigScope,
 		operation:   parsed.Operation,
 		syncOutput:  parsed.StandaloneSyncOutput,
@@ -81,8 +80,12 @@ func printShellHelp() {
 
 func printShellContextHelp(line string, states ...*shellState) {
 	state := optionalShellState(states)
-	if state != nil && state.requestMode {
+	if state != nil && state.mode == shellModeRequest {
 		shell.WriteRequestContextHelp(os.Stdout, line)
+		return
+	}
+	if state != nil && state.mode == shellModeConfigure {
+		shell.WriteConfigureContextHelp(os.Stdout, line)
 		return
 	}
 	shell.PrintContextHelp(line)
@@ -90,8 +93,12 @@ func printShellContextHelp(line string, states ...*shellState) {
 
 func writeShellContextHelp(w io.Writer, line string, states ...*shellState) {
 	state := optionalShellState(states)
-	if state != nil && state.requestMode {
+	if state != nil && state.mode == shellModeRequest {
 		shell.WriteRequestContextHelp(w, line)
+		return
+	}
+	if state != nil && state.mode == shellModeConfigure {
+		shell.WriteConfigureContextHelp(w, line)
 		return
 	}
 	shell.WriteContextHelp(w, line)
@@ -99,8 +106,11 @@ func writeShellContextHelp(w io.Writer, line string, states ...*shellState) {
 
 func shellHelpEntries(line string, states ...*shellState) []helpEntry {
 	state := optionalShellState(states)
-	if state != nil && state.requestMode {
+	if state != nil && state.mode == shellModeRequest {
 		return wrapHelpEntries(shell.RequestHelpEntries(line))
+	}
+	if state != nil && state.mode == shellModeConfigure {
+		return wrapHelpEntries(shell.ConfigureHelpEntries(line))
 	}
 	return wrapHelpEntries(shell.HelpEntries(line))
 }
@@ -121,15 +131,21 @@ func wrapHelpEntries(entries []shell.HelpEntry) []helpEntry {
 }
 
 func completeShellLine(line string, state *shellState) []string {
-	if state != nil && state.requestMode {
+	if state != nil && state.mode == shellModeRequest {
 		return shell.CompleteRequestLine(line)
+	}
+	if state != nil && state.mode == shellModeConfigure {
+		return shell.CompleteConfigureLine(line)
 	}
 	return shell.CompleteLine(line)
 }
 
 func shellCompletionHintLine(line string, state *shellState) string {
-	if state != nil && state.requestMode {
+	if state != nil && state.mode == shellModeRequest {
 		return shell.RequestCompletionHintLine(line)
+	}
+	if state != nil && state.mode == shellModeConfigure {
+		return shell.ConfigureCompletionHintLine(line)
 	}
 	return shell.CompletionHintLine(line)
 }
