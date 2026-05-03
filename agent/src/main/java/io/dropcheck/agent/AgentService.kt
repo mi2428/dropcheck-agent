@@ -31,6 +31,7 @@ class AgentService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        TerminalLog.compactIfNeeded(this)
         ensureNotificationChannel()
         clockWidgetObserver = ClockWidgetRefreshObserver(this)
         if (AgentClockWidgetProvider.hasClockWidgets(this)) {

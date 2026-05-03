@@ -31,6 +31,12 @@ object TerminalLog {
     fun warn(context: Context, message: String, error: Throwable? = null) = log(context, "WARN", message, error)
     fun error(context: Context, message: String, error: Throwable? = null) = log(context, "ERROR", message, error)
 
+    /** Compacts an oversized persisted log without appending a new line. */
+    @Synchronized
+    fun compactIfNeeded(context: Context) {
+        compactFileIfNeeded(file(context))
+    }
+
     /**
      * Writes one formatted line to logcat, terminal.log, and the activity broadcast.
      *
@@ -50,7 +56,7 @@ object TerminalLog {
 
         val file = file(context)
         file.parentFile?.mkdirs()
-        trimIfNeeded(file)
+        compactFileIfNeeded(file)
         file.appendText(formatted + "\n")
 
         context.sendBroadcast(Intent(ACTION_LINE).apply {
@@ -73,7 +79,8 @@ object TerminalLog {
             .joinToString("\n")
     }
 
-    private fun trimIfNeeded(file: File) {
+    @Synchronized
+    internal fun compactFileIfNeeded(file: File) {
         if (!file.exists() || file.length() < MAX_BYTES) return
         val tail = tailText(file)
         file.writeText(tail + "\n")

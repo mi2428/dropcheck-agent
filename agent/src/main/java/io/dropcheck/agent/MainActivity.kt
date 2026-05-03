@@ -99,6 +99,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
+        TerminalLog.compactIfNeeded(this)
         TerminalLog.info(this, "activity onCreate")
 
         val tail = TerminalLog.tail(
