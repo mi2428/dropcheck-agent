@@ -4,6 +4,7 @@ import io.dropcheck.agent.grpc.ConnectWifi
 import io.dropcheck.agent.grpc.WifiBand
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -74,6 +75,19 @@ class WifiConnectorPolicyTest {
                 band = WifiBand.WIFI_BAND_ALL,
             ),
         )
+    }
+
+    @Test
+    fun parsesSecurityFromScanCapabilities() {
+        assertEquals(
+            ConnectWifi.Security.SECURITY_WPA3_SAE,
+            WifiConnectorPolicy.securityFromCapabilities("[WPA2-PSK-CCMP][RSN-SAE-CCMP][ESS]"),
+        )
+        assertEquals(
+            ConnectWifi.Security.SECURITY_WPA2_PSK,
+            WifiConnectorPolicy.securityFromCapabilities("[WPA2-PSK-CCMP][ESS]"),
+        )
+        assertNull(WifiConnectorPolicy.securityFromCapabilities("[OWE][ESS]"))
     }
 
     @Test
