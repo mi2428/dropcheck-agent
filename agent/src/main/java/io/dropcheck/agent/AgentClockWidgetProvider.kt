@@ -18,6 +18,7 @@ import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.TypedValue
 import android.widget.RemoteViews
 import java.net.Inet4Address
@@ -243,9 +244,21 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
                     setTextViewTextSize(R.id.agentClockWifiInfo, TypedValue.COMPLEX_UNIT_SP, size.wifiSp)
                     setTextViewTextSize(R.id.agentClockIpInfo, TypedValue.COMPLEX_UNIT_SP, size.wifiSp)
                     setTextViewTextSize(R.id.agentClockLocationInfo, TypedValue.COMPLEX_UNIT_SP, size.wifiSp)
+                    setOnClickPendingIntent(R.id.agentClockRoot, settingsPendingIntent(context))
                 }
                 appWidgetManager.updateAppWidget(appWidgetId, views)
             }
+        }
+
+        private fun settingsPendingIntent(context: Context): PendingIntent {
+            val intent = Intent(Settings.ACTION_SETTINGS)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            return PendingIntent.getActivity(
+                context,
+                SETTINGS_REQUEST_CODE,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
         }
 
         @SuppressLint("MissingPermission")
@@ -424,6 +437,7 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
         private const val PERIODIC_UPDATE_REQUEST_CODE = 11_000
         private const val WIFI_NETWORK_CALLBACK_REQUEST_CODE = 11_050
         private const val EVENT_FOLLOW_UP_REQUEST_CODE_BASE = 11_100
+        private const val SETTINGS_REQUEST_CODE = 11_200
         private const val ACTION_PERIODIC_UPDATE = "io.dropcheck.agent.action.CLOCK_WIDGET_PERIODIC_UPDATE"
         private const val ACTION_WIFI_NETWORK_CALLBACK_UPDATE = "io.dropcheck.agent.action.CLOCK_WIDGET_WIFI_NETWORK_CALLBACK_UPDATE"
         private const val ACTION_EVENT_FOLLOW_UP_UPDATE = "io.dropcheck.agent.action.CLOCK_WIDGET_EVENT_FOLLOW_UP_UPDATE"
