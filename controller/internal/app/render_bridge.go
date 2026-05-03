@@ -40,22 +40,6 @@ func agentListView(state *shellState) render.AgentListView {
 	}
 }
 
-func renderTarget(view render.TargetView, format outputFormat) (string, error) {
-	return render.Target(view, format)
-}
-
-func targetView(state *shellState) render.TargetView {
-	view := render.TargetView{
-		TargetAll:     state.targetAll,
-		Selected:      state.selected,
-		SelectedLabel: state.selectedLabel,
-	}
-	if info, ok := state.selectedAgentIfConnected(); ok {
-		view.Agent = &info
-	}
-	return view
-}
-
 func agentDisplayName(info control.AgentInfo) string {
 	return render.AgentDisplayName(info)
 }

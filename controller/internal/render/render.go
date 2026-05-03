@@ -233,18 +233,6 @@ type AgentListView struct {
 	TargetAll bool
 }
 
-// TargetView is the renderer input for the current command target.
-type TargetView struct {
-	// TargetAll indicates that commands will be broadcast to all agents.
-	TargetAll bool
-	// Selected is the selected agent ID, even if the agent has disconnected.
-	Selected string
-	// SelectedLabel is the cached human-readable label for Selected.
-	SelectedLabel string
-	// Agent is the connected agent that matches Selected, when available.
-	Agent *control.AgentInfo
-}
-
 // Agents renders the connected-agent list.
 func Agents(view AgentListView, format pipeline.Format) (string, error) {
 	if format == pipeline.FormatJSON {
@@ -302,38 +290,6 @@ func Agents(view AgentListView, format pipeline.Format) (string, error) {
 	}
 	_ = tw.Flush()
 	return b.String(), nil
-}
-
-// Target renders the active target selection.
-func Target(view TargetView, format pipeline.Format) (string, error) {
-	if format == pipeline.FormatJSON {
-		target := map[string]any{"all": view.TargetAll, "selected": view.Selected, "label": view.SelectedLabel}
-		if view.Agent != nil {
-			info := *view.Agent
-			target["agent"] = agentDisplayName(info)
-			target["id"] = info.ID
-			target["adb_serial"] = info.Hello.GetAdbSerial()
-			target["connected"] = true
-		} else if view.Selected != "" {
-			target["connected"] = false
-		}
-		data, err := json.MarshalIndent(target, "", "  ")
-		if err != nil {
-			return "", err
-		}
-		return string(data) + "\n", nil
-	}
-	if view.TargetAll {
-		return "Target: all agents\n", nil
-	}
-	if view.Agent != nil {
-		info := *view.Agent
-		return fmt.Sprintf("Target: %s (id=%s adb_serial=%s)\n", agentDisplayName(info), info.ID, empty(info.Hello.GetAdbSerial(), "unknown")), nil
-	}
-	if view.SelectedLabel != "" {
-		return fmt.Sprintf("Target: %s (disconnected)\n", view.SelectedLabel), nil
-	}
-	return "Target: none\n", nil
 }
 
 func renderWifiStatus(b *strings.Builder, status *controlpb.WifiStatus) {

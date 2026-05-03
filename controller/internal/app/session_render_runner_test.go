@@ -44,23 +44,6 @@ func TestRenderAgentsAndTargetFromConnectedAgent(t *testing.T) {
 		t.Fatalf("renderAgents(json) row = %#v", rows[0])
 	}
 
-	target, err := renderTarget(targetView(state), outputText)
-	if err != nil {
-		t.Fatalf("renderTarget(text) error = %v", err)
-	}
-	if !strings.Contains(target, "Target: R5CT12345 (id=agent-a adb_serial=R5CT12345)") {
-		t.Fatalf("renderTarget(text) = %q", target)
-	}
-
-	state.selected = "disconnected-agent"
-	state.selectedLabel = "previous-agent"
-	target, err = renderTarget(targetView(state), outputText)
-	if err != nil {
-		t.Fatalf("renderTarget(disconnected) error = %v", err)
-	}
-	if target != "Target: previous-agent (disconnected)\n" {
-		t.Fatalf("renderTarget(disconnected) = %q", target)
-	}
 }
 
 func TestShellPromptUsesAgentLabelAndModeSuffix(t *testing.T) {
