@@ -1,6 +1,6 @@
 //go:build e2e
 
-// Package e2e runs the merged Dropcheck Shell/CLI manual matrix as Go tests.
+// Package e2e runs Dropcheck's parser and real-device end-to-end matrix as Go tests.
 //
 // Parser and case-table consistency checks do not require a device:
 //
@@ -9,14 +9,14 @@
 //
 // Full live execution requires an attached Android device and test Wi-Fi:
 //
-//	make e2e SERIAL=45240DLAQ007HG SSID="SHIZK RADIO" PSK_ENV=DROPCHECK_E2E_WIFI_PSK
+//	make e2e SERIAL=<adb-serial> SSID="<test-ssid>" PSK_ENV=DROPCHECK_E2E_WIFI_PSK
 //
 // make e2e runs go test -v -count=1. Each case prints its title, runner, command,
 // result, elapsed time, per-case log path, and a short output tail.
 //
 // Useful environment variables:
 //
-//	DROPCHECK_E2E_FILTER       substring filter for case ID, title, runner, mode, command, or notes
+//	DROPCHECK_E2E_FILTER       substring filter for case ID, title, runner, command, or assertion
 //	DROPCHECK_E2E_LOG_DIR      persistent directory for per-case logs
 //	DROPCHECK_E2E_BIN          prebuilt dropcheck binary to use instead of building a temp one
 //	DROPCHECK_E2E_LAUNCH_APP   set to 0 to avoid bringing the Android activity to the foreground
@@ -25,11 +25,11 @@
 //	DROPCHECK_E2E_FORCE_STOP   set to 1 to force-stop the Android app before each live case
 //
 // The case table is testdata/e2e_cases.tsv. The title column is included in Go
-// subtest names, for example S001_help, so verbose output remains readable.
+// subtest names, for example E2E-001_shell_help, so verbose output remains readable.
 // Commands intentionally use placeholders such as <ssid>, <psk>, <serial>,
 // <bssid> and <sync-dir> so lab secrets and machine-local paths are
-// not committed. Shell commands prefixed with "request> " are executed inside
-// the interactive request mode.
+// not committed. Shell commands prefixed with "request> " or "config> " are
+// executed inside the corresponding interactive submode.
 package e2e
 
 import (
@@ -73,15 +73,12 @@ const (
 )
 
 type matrixCase struct {
-	ID       string
-	Source   string
-	Title    string
-	Runner   string
-	Mode     string
-	Command  string
-	Expect   string
-	Expected string
-	Notes    string
+	ID        string
+	Title     string
+	Runner    string
+	Command   string
+	Expect    string
+	Assertion string
 }
 
 type e2eConfig struct {
@@ -112,7 +109,7 @@ type commandResult struct {
 	Err    error
 }
 
-func TestDropcheckShellManualMatrix(t *testing.T) {
+func TestDropcheckEndToEndMatrix(t *testing.T) {
 	cases := loadCases(t)
 	cfg := loadConfig(t)
 	filter := os.Getenv(envFilter)
@@ -137,8 +134,8 @@ func TestDropcheckShellManualMatrix(t *testing.T) {
 			if missing != "" {
 				t.Skipf("missing runtime value %s for %s", missing, tc.Command)
 			}
-			expect := normalizedExpect(tc)
-			t.Logf("START %s title=%q source=%s runner=%s mode=%s expect=%s command=%s", tc.ID, tc.Title, tc.Source, tc.Runner, tc.Mode, expect, redact(commandLine, cfg.psk))
+			expect := tc.Expect
+			t.Logf("START %s title=%q runner=%s expect=%s command=%s", tc.ID, tc.Title, tc.Runner, expect, redact(commandLine, cfg.psk))
 			switch tc.Runner {
 			case "shell-parser":
 				res := runShellParser(commandLine)
@@ -197,19 +194,16 @@ func loadCases(t *testing.T) []matrixCase {
 	var cases []matrixCase
 	seen := map[string]bool{}
 	for i, row := range rows[1:] {
-		if len(row) != 9 {
-			t.Fatalf("e2e case row %d has %d fields, want 9: %#v", i+2, len(row), row)
+		if len(row) != 6 {
+			t.Fatalf("e2e case row %d has %d fields, want 6: %#v", i+2, len(row), row)
 		}
 		tc := matrixCase{
-			ID:       row[0],
-			Source:   row[1],
-			Title:    row[2],
-			Runner:   row[3],
-			Mode:     row[4],
-			Command:  row[5],
-			Expect:   row[6],
-			Expected: row[7],
-			Notes:    row[8],
+			ID:        row[0],
+			Title:     row[1],
+			Runner:    row[2],
+			Command:   row[3],
+			Expect:    row[4],
+			Assertion: row[5],
 		}
 		if seen[tc.ID] {
 			t.Fatalf("duplicate e2e case ID %q", tc.ID)
@@ -485,17 +479,6 @@ func assertProcessResult(t *testing.T, tc matrixCase, expect string, res command
 	}
 }
 
-func normalizedExpect(tc matrixCase) string {
-	switch tc.ID {
-	case "T2-FEST-006", "T2-FEST-012", "T2-FEST-022", "T2-FEST-023", "T2-NET-004", "T2-PIPE-002", "T2-PIPE-006", "T2-PIPE-009":
-		return "error"
-	case "T2-WEXP-015", "T2-WEXP-016", "T2-WSCAN-012":
-		return "ok"
-	default:
-		return tc.Expect
-	}
-}
-
 func failOnPanic(t *testing.T, output string) {
 	t.Helper()
 	lower := strings.ToLower(output)
@@ -619,8 +602,8 @@ func timeoutFor(tc matrixCase) time.Duration {
 func (cfg *e2eConfig) writeLog(t *testing.T, tc matrixCase, commandLine string, res commandResult) string {
 	t.Helper()
 	var b strings.Builder
-	fmt.Fprintf(&b, "ID: %s\nTitle: %s\nSource: %s\nRunner: %s\nMode: %s\nExpect: %s\n", tc.ID, tc.Title, tc.Source, tc.Runner, tc.Mode, normalizedExpect(tc))
-	fmt.Fprintf(&b, "Command: %s\nExpected: %s\nNotes: %s\n\n", redact(commandLine, cfg.psk), tc.Expected, tc.Notes)
+	fmt.Fprintf(&b, "ID: %s\nTitle: %s\nRunner: %s\nExpect: %s\n", tc.ID, tc.Title, tc.Runner, tc.Expect)
+	fmt.Fprintf(&b, "Command: %s\nAssertion: %s\n\n", redact(commandLine, cfg.psk), tc.Assertion)
 	fmt.Fprintf(&b, "ExitCode: %d\nError: %v\n\n", res.Code, res.Err)
 	b.WriteString(redact(res.Output, cfg.psk))
 	path := filepath.Join(cfg.logDir, tc.ID+".log")
@@ -941,11 +924,9 @@ func caseMatchesFilter(tc matrixCase, filter string) bool {
 	filter = strings.ToLower(filter)
 	return strings.Contains(strings.ToLower(tc.ID), filter) ||
 		strings.Contains(strings.ToLower(tc.Title), filter) ||
-		strings.Contains(strings.ToLower(tc.Source), filter) ||
 		strings.Contains(strings.ToLower(tc.Runner), filter) ||
-		strings.Contains(strings.ToLower(tc.Mode), filter) ||
 		strings.Contains(strings.ToLower(tc.Command), filter) ||
-		strings.Contains(strings.ToLower(tc.Notes), filter)
+		strings.Contains(strings.ToLower(tc.Assertion), filter)
 }
 
 func (tc matrixCase) testName() string {
@@ -997,17 +978,20 @@ func oneLine(value string) string {
 	return value
 }
 
-func TestE2ECaseTableIsMerged(t *testing.T) {
+const e2eCaseCount = 342
+
+var e2eCaseID = regexp.MustCompile(`^E2E-[0-9]{3}$`)
+
+func TestE2ECaseTableSchema(t *testing.T) {
 	cases := loadCases(t)
-	var testCount, test2Count int
-	for _, tc := range cases {
-		switch tc.Source {
-		case "TEST":
-			testCount++
-		case "TEST2":
-			test2Count++
-		default:
-			t.Fatalf("unknown source %q for %s", tc.Source, tc.ID)
+	if len(cases) != e2eCaseCount {
+		t.Fatalf("case count = %d, want %d", len(cases), e2eCaseCount)
+	}
+	titles := map[string]string{}
+	for index, tc := range cases {
+		wantID := fmt.Sprintf("E2E-%03d", index+1)
+		if tc.ID != wantID || !e2eCaseID.MatchString(tc.ID) {
+			t.Fatalf("case row %d has ID %q, want %q", index+2, tc.ID, wantID)
 		}
 		if strings.Contains(tc.Command, "shizkkawaii") {
 			t.Fatalf("%s leaks the lab passphrase in the case table", tc.ID)
@@ -1015,13 +999,51 @@ func TestE2ECaseTableIsMerged(t *testing.T) {
 		if strings.TrimSpace(tc.Title) == "" {
 			t.Fatalf("%s has an empty test title", tc.ID)
 		}
+		if !titleMatchesRunner(tc) {
+			t.Fatalf("%s title %q does not match runner %q", tc.ID, tc.Title, tc.Runner)
+		}
+		if previousID, ok := titles[tc.Title]; ok {
+			t.Fatalf("%s duplicates title %q from %s", tc.ID, tc.Title, previousID)
+		}
+		titles[tc.Title] = tc.ID
+		if containsStaleCaseLanguage(tc) {
+			t.Fatalf("%s contains stale case-management language", tc.ID)
+		}
 	}
-	if testCount == 0 || test2Count == 0 {
-		t.Fatalf("merged table must include both TEST and TEST2 cases, got TEST=%d TEST2=%d", testCount, test2Count)
+}
+
+func titleMatchesRunner(tc matrixCase) bool {
+	switch tc.Runner {
+	case "shell":
+		return strings.HasPrefix(tc.Title, "Shell ")
+	case "shell-parser":
+		return strings.HasPrefix(tc.Title, "Parser ")
+	case "cli":
+		return strings.HasPrefix(tc.Title, "CLI ")
+	default:
+		return false
 	}
-	if len(cases) != 342 {
-		t.Fatalf("case count = %d, want 342", len(cases))
+}
+
+func containsStaleCaseLanguage(tc matrixCase) bool {
+	text := strings.ToLower(strings.Join([]string{tc.ID, tc.Title, tc.Runner, tc.Command, tc.Expect, tc.Assertion}, "\n"))
+	staleTerms := []string{
+		"test2",
+		"mer" + "ged",
+		"manual" + " matrix",
+		"resolved" + " anom" + "aly",
+		"regression" + ":",
+		"cur" + "rently",
+		"decide" + " whether",
+		"documented" + " as",
+		"last" + "-wins",
 	}
+	for _, term := range staleTerms {
+		if strings.Contains(text, term) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestE2ECaseTableParsesShellAndCLIExpectations(t *testing.T) {
@@ -1030,7 +1052,6 @@ func TestE2ECaseTableParsesShellAndCLIExpectations(t *testing.T) {
 		if tc.Runner != "shell" && tc.Runner != "cli" {
 			continue
 		}
-		expect := normalizedExpect(tc)
 		commandLine := expandParserPlaceholders(tc.Command)
 		var res commandResult
 		switch tc.Runner {
@@ -1039,7 +1060,7 @@ func TestE2ECaseTableParsesShellAndCLIExpectations(t *testing.T) {
 		case "cli":
 			res = runCLIParser(commandLine)
 		}
-		if expect == "error" {
+		if tc.Expect == "error" {
 			if res.Err == nil {
 				t.Errorf("%s expected parser error for %s command %q", tc.ID, tc.Runner, tc.Command)
 			}
