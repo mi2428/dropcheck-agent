@@ -278,7 +278,7 @@ func Agents(view AgentListView, format pipeline.Format) (string, error) {
 	}
 	var b strings.Builder
 	tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "SEL\t#\tAGENT\tADB SERIAL\tDEVICE\tSDK\tAPP\tCONNECTED")
+	_, _ = fmt.Fprintln(tw, "SEL\t#\tAGENT\tADB SERIAL\tDEVICE\tSDK\tAPP\tCONNECTED")
 	for i, info := range agents {
 		marker := ""
 		if view.TargetAll {
@@ -289,7 +289,7 @@ func Agents(view AgentListView, format pipeline.Format) (string, error) {
 		hello := info.Hello
 		device := hello.GetDevice()
 		deviceName := strings.TrimSpace(device.GetManufacturer() + " " + device.GetModel())
-		fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%d\t%s\t%s\n",
+		_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%d\t%s\t%s\n",
 			marker,
 			i+1,
 			shortID(info.ID),
@@ -456,9 +456,9 @@ func renderTraceroute(b *strings.Builder, result *controlpb.TracerouteResult, op
 	}
 	if len(analysis.Hops) > 0 {
 		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "HOP\tHOST\tADDRESS\tRTT\tTIMEOUT\tTARGET")
+		_, _ = fmt.Fprintln(tw, "HOP\tHOST\tADDRESS\tRTT\tTIMEOUT\tTARGET")
 		for _, hop := range analysis.Hops {
-			fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%t\t%t\n",
+			_, _ = fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%t\t%t\n",
 				hop.Index,
 				empty(hop.Host, "-"),
 				empty(hop.Address, "-"),
@@ -492,9 +492,9 @@ func renderPathMtu(b *strings.Builder, result *controlpb.PathMtuResult) {
 	)
 	if len(result.GetProbes()) > 0 {
 		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "MTU\tPAYLOAD\tPASS\tEXIT\tELAPSED")
+		_, _ = fmt.Fprintln(tw, "MTU\tPAYLOAD\tPASS\tEXIT\tELAPSED")
 		for _, probe := range result.GetProbes() {
-			fmt.Fprintf(tw, "%d\t%d\t%t\t%d\t%dms\n",
+			_, _ = fmt.Fprintf(tw, "%d\t%d\t%t\t%d\t%dms\n",
 				probe.GetMtuBytes(),
 				probe.GetPayloadSizeBytes(),
 				probe.GetPassed(),
@@ -522,9 +522,9 @@ func renderGlobalIp(b *strings.Builder, result *controlpb.GlobalIpResult) {
 	)
 	if len(result.GetAddresses()) > 0 {
 		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "FAMILY\tIP\tGLOBAL\tSTATUS\tELAPSED\tERROR")
+		_, _ = fmt.Fprintln(tw, "FAMILY\tIP\tGLOBAL\tSTATUS\tELAPSED\tERROR")
 		for _, address := range result.GetAddresses() {
-			fmt.Fprintf(tw, "%s\t%s\t%t\t%d\t%dms\t%s\n",
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%t\t%d\t%dms\t%s\n",
 				ipFamilyName(address.GetFamily()),
 				empty(address.GetIp(), "-"),
 				address.GetGlobal(),
@@ -603,10 +603,10 @@ func renderWifiDiagnostics(b *strings.Builder, diagnostics *controlpb.WifiDiagno
 	if len(diagnostics.GetNetworks()) > 0 {
 		b.WriteString("\nNetworks:\n")
 		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "ID\tACTIVE\tINTERFACE\tVALIDATED\tTRANSPORTS")
+		_, _ = fmt.Fprintln(tw, "ID\tACTIVE\tINTERFACE\tVALIDATED\tTRANSPORTS")
 		for _, network := range diagnostics.GetNetworks() {
 			ip := network.GetIpStatus()
-			fmt.Fprintf(tw, "%s\t%t\t%s\t%t\t%s\n",
+			_, _ = fmt.Fprintf(tw, "%s\t%t\t%s\t%t\t%s\n",
 				empty(network.GetNetworkId(), "unknown"),
 				network.GetActive(),
 				empty(ip.GetInterfaceName(), "none"),
@@ -647,9 +647,9 @@ func renderScanResults(b *strings.Builder, results []*controlpb.WifiScanResult) 
 		return
 	}
 	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "SSID\tBSSID\tRSSI\tBAND\tFREQ\tSTANDARD\tSECURITY")
+	_, _ = fmt.Fprintln(tw, "SSID\tBSSID\tRSSI\tBAND\tFREQ\tSTANDARD\tSECURITY")
 	for _, result := range results {
-		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%d\t%s\t%s\n",
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%d\t%s\t%s\n",
 			empty(result.GetSsid(), "<hidden>"),
 			empty(result.GetBssid(), "unknown"),
 			result.GetRssiDbm(),
@@ -694,9 +694,9 @@ func renderWifiAssert(b *strings.Builder, result *controlpb.WifiAssertResult) {
 	fmt.Fprintf(b, "Wi-Fi assert: passed=%t checks=%d elapsed=%dms\n", result.GetPassed(), len(result.GetChecks()), result.GetElapsedMs())
 	if len(result.GetChecks()) > 0 {
 		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "CHECK\tPASSED\tEXPECTED\tACTUAL\tMESSAGE")
+		_, _ = fmt.Fprintln(tw, "CHECK\tPASSED\tEXPECTED\tACTUAL\tMESSAGE")
 		for _, check := range result.GetChecks() {
-			fmt.Fprintf(tw, "%s\t%t\t%s\t%s\t%s\n",
+			_, _ = fmt.Fprintf(tw, "%s\t%t\t%s\t%s\t%s\n",
 				check.GetKey(),
 				check.GetPassed(),
 				empty(check.GetExpected(), "-"),
@@ -755,13 +755,13 @@ func renderWifiCycle(b *strings.Builder, result *controlpb.WifiCycleResult) {
 	)
 	if len(result.GetSteps()) > 0 {
 		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "STEP\tCONNECTED\tPING\tHTTP\tELAPSED\tSSID\tERRORS")
+		_, _ = fmt.Fprintln(tw, "STEP\tCONNECTED\tPING\tHTTP\tELAPSED\tSSID\tERRORS")
 		for _, step := range result.GetSteps() {
 			ssid := ""
 			if step.GetConnect() != nil {
 				ssid = step.GetConnect().GetSsid()
 			}
-			fmt.Fprintf(tw, "%d\t%t\t%t\t%t\t%dms\t%s\t%s\n",
+			_, _ = fmt.Fprintf(tw, "%d\t%t\t%t\t%t\t%dms\t%s\t%s\n",
 				step.GetIndex(),
 				step.GetConnected(),
 				step.GetPingOk(),
@@ -987,9 +987,9 @@ func renderStandaloneRuns(b *strings.Builder, runs *controlpb.StandaloneRuns) {
 		return
 	}
 	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "RUN\tSTATUS\tSYNCED\tSTARTED\tFINISHED\tSTEPS\tFAILED\tFESTA")
+	_, _ = fmt.Fprintln(tw, "RUN\tSTATUS\tSYNCED\tSTARTED\tFINISHED\tSTEPS\tFAILED\tFESTA")
 	for _, run := range runs.GetRuns() {
-		fmt.Fprintf(tw, "%s\t%s\t%t\t%s\t%s\t%d\t%d\t%s\n",
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%t\t%s\t%s\t%d\t%d\t%s\n",
 			shortID(run.GetRunId()),
 			empty(run.GetStatus(), "-"),
 			run.GetSynced(),
@@ -1020,7 +1020,7 @@ func renderStandaloneRun(b *strings.Builder, run *controlpb.StandaloneRunArchive
 		return
 	}
 	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "WIFI-GROUP\tSTEP\tATTEMPT\tSTATUS\tELAPSED\tERROR")
+	_, _ = fmt.Fprintln(tw, "WIFI-GROUP\tSTEP\tATTEMPT\tSTATUS\tELAPSED\tERROR")
 	for _, step := range run.GetSteps() {
 		status := "-"
 		elapsed := int64(0)
@@ -1028,7 +1028,7 @@ func renderStandaloneRun(b *strings.Builder, run *controlpb.StandaloneRunArchive
 			status = resultStatus(step.GetResult().GetStatus())
 			elapsed = commandResultLatencyMs(step.GetResult())
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%dms\t%s\n",
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%dms\t%s\n",
 			empty(step.GetWifiGroupName(), "-"),
 			empty(step.GetStepName(), "-"),
 			step.GetAttempt(),
@@ -1104,9 +1104,9 @@ func renderDiagnosticFields(b *strings.Builder, fields []*controlpb.DiagnosticFi
 		return
 	}
 	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "FIELD\tVALUE")
+	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
 	for _, field := range fields {
-		fmt.Fprintf(tw, "%s\t%s\n", field.GetKey(), field.GetValue())
+		_, _ = fmt.Fprintf(tw, "%s\t%s\n", field.GetKey(), field.GetValue())
 	}
 	_ = tw.Flush()
 }

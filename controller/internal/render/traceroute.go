@@ -228,7 +228,7 @@ func isLikelyAddress(value string) bool {
 		if r >= '0' && r <= '9' {
 			hasDigit = true
 		}
-		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || r == ':' || r == '%') {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') && r != ':' && r != '%' {
 			return false
 		}
 	}

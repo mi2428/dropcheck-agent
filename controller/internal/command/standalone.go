@@ -42,7 +42,7 @@ func StandaloneEditOperation(edits []StandaloneEdit) (Operation, error) {
 	}
 	protoEdits := make([]*controlpb.StandaloneEdit, 0, len(edits))
 	for _, edit := range edits {
-		action := controlpb.StandaloneEdit_ACTION_SET
+		var action controlpb.StandaloneEdit_Action
 		switch edit.Action {
 		case "", "set":
 			action = controlpb.StandaloneEdit_ACTION_SET
