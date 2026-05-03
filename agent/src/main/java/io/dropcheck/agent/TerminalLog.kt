@@ -59,6 +59,7 @@ object TerminalLog {
     }
 
     /** Reads the most recent terminal lines for display when the activity opens. */
+    @Synchronized
     fun tail(context: Context, maxLines: Int = 160): String {
         val file = file(context)
         if (!file.exists()) return ""

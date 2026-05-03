@@ -14,7 +14,7 @@ class AgentLogWidgetService : RemoteViewsService() {
 private class AgentLogWidgetFactory(
     private val context: Context,
 ) : RemoteViewsService.RemoteViewsFactory {
-    private var lines: List<String> = emptyList()
+    private var lines: List<WidgetLogLine> = emptyList()
 
     override fun onCreate() {
         loadLines()
@@ -31,7 +31,7 @@ private class AgentLogWidgetFactory(
     override fun getCount(): Int = lines.size
 
     override fun getViewAt(position: Int): RemoteViews {
-        val line = lines.getOrNull(position).orEmpty()
+        val line = lines.getOrNull(position)?.text.orEmpty()
         return RemoteViews(context.packageName, R.layout.agent_log_widget_item).apply {
             setTextViewText(R.id.agentLogWidgetLine, terminalDisplayText(line))
         }
@@ -41,9 +41,9 @@ private class AgentLogWidgetFactory(
 
     override fun getViewTypeCount(): Int = 1
 
-    override fun getItemId(position: Int): Long = position.toLong()
+    override fun getItemId(position: Int): Long = lines.getOrNull(position)?.id ?: position.toLong()
 
-    override fun hasStableIds(): Boolean = false
+    override fun hasStableIds(): Boolean = true
 
     private fun loadLines() {
         val displayLines = ArrayDeque<String>()
@@ -65,6 +65,11 @@ private class AgentLogWidgetFactory(
                     displayChars -= TerminalDisplayPolicy.displayLength(displayLines.removeFirst())
                 }
             }
-        lines = displayLines.toList()
+        lines = displayLines.map { WidgetLogLine(id = it.hashCode().toLong(), text = it) }
     }
 }
+
+private data class WidgetLogLine(
+    val id: Long,
+    val text: String,
+)
