@@ -178,25 +178,23 @@ func handleShellCompletionHintKey(w io.Writer, line []rune, pos int, key rune, s
 }
 
 func (s *shellState) prompt() string {
-	prefix := "dropcheck"
-	if s.requestMode {
-		prefix = "dropcheck/request"
-	}
+	label := "dropcheck"
 	if s.targetAll {
-		return prefix + "[all]> "
-	}
-	if info, ok := s.selectedAgentIfConnected(); ok {
+		label = "all"
+	} else if info, ok := s.selectedAgentIfConnected(); ok {
 		s.selectedLabel = agentDisplayName(info)
-		return fmt.Sprintf("%s[%s]> ", prefix, agentDisplayName(info))
+		label = s.selectedLabel
+	} else if s.selectedLabel != "" {
+		label = s.selectedLabel
 	}
-	if s.selectedLabel != "" {
-		return fmt.Sprintf("%s[%s]> ", prefix, s.selectedLabel)
+	if s.requestMode {
+		return fmt.Sprintf("%s(request)# ", label)
 	}
-	return prefix + "> "
+	return fmt.Sprintf("%s# ", label)
 }
 
 func (s *shellState) selectedAgentIfConnected() (control.AgentInfo, bool) {
-	if s.selected == "" {
+	if s.selected == "" || s.server == nil {
 		return control.AgentInfo{}, false
 	}
 	info, err := s.server.ResolveAgent(s.selected)

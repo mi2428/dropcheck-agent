@@ -63,6 +63,30 @@ func TestRenderAgentsAndTargetFromConnectedAgent(t *testing.T) {
 	}
 }
 
+func TestShellPromptUsesAgentLabelAndModeSuffix(t *testing.T) {
+	state, cleanup := connectedShellState(t)
+	defer cleanup()
+
+	if got, want := state.prompt(), "R5CT12345# "; got != want {
+		t.Fatalf("prompt() = %q, want %q", got, want)
+	}
+
+	state.requestMode = true
+	if got, want := state.prompt(), "R5CT12345(request)# "; got != want {
+		t.Fatalf("request prompt() = %q, want %q", got, want)
+	}
+
+	state.targetAll = true
+	if got, want := state.prompt(), "all(request)# "; got != want {
+		t.Fatalf("all request prompt() = %q, want %q", got, want)
+	}
+
+	disconnected := &shellState{selected: "missing-agent", selectedLabel: "previous-agent"}
+	if got, want := disconnected.prompt(), "previous-agent# "; got != want {
+		t.Fatalf("disconnected prompt() = %q, want %q", got, want)
+	}
+}
+
 func TestRunOperationForAgentsDispatchesAndRendersResult(t *testing.T) {
 	state, stream, cleanup := connectedShellStateWithStream(t)
 	defer cleanup()
