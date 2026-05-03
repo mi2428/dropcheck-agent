@@ -57,16 +57,6 @@ func TestParseTopLevelCommands(t *testing.T) {
 			},
 		},
 		{
-			name: "controller config scope",
-			args: []string{"show", "config", "controller", "endpoint"},
-			check: func(t *testing.T, cmd Command) {
-				t.Helper()
-				if cmd.Kind != Config || cmd.ConfigScope != "controller_endpoint" {
-					t.Fatalf("command = %#v", cmd)
-				}
-			},
-		},
-		{
 			name: "sync standalone runs",
 			args: []string{"sync", "standalone", "runs", "--output", "out", "--limit=5", "--keep-unsynced"},
 			check: func(t *testing.T, cmd Command) {
@@ -120,16 +110,6 @@ func TestParseAgentCommandSurface(t *testing.T) {
 				}
 				if scan.GetBand() != controlpb.WifiBand_WIFI_BAND_5_GHZ || scan.GetTimeoutMs() != 8000 {
 					t.Fatalf("fresh scan = %#v", scan)
-				}
-			},
-		},
-		{
-			name: "controller link",
-			args: []string{"show", "controller", "link"},
-			check: func(t *testing.T, run *controlpb.RunCommand) {
-				t.Helper()
-				if run.GetGetControllerLinkStatus() == nil {
-					t.Fatalf("command = %T, want GetControllerLinkStatus", run.GetCommand())
 				}
 			},
 		},
@@ -367,22 +347,6 @@ func TestParseAgentCommandSurface(t *testing.T) {
 				}
 				if !clear.GetAll() || clear.GetSyncedOnly() {
 					t.Fatalf("clear standalone = %#v", clear)
-				}
-			},
-		},
-		{
-			name: "controller endpoint",
-			args: []string{"configure", "set", "controller", "endpoint", "127.0.0.1:1234", "enabled", "--min-backoff", "1s", "--max-backoff", "2s"},
-			check: func(t *testing.T, run *controlpb.RunCommand) {
-				t.Helper()
-				set := run.GetSetControllerLinkConfig()
-				if set == nil || set.GetConfig() == nil {
-					t.Fatalf("command = %T, want SetControllerLinkConfig", run.GetCommand())
-				}
-				cfg := set.GetConfig()
-				if !cfg.GetEnabled() || cfg.GetHost() != "127.0.0.1" || cfg.GetPort() != 1234 ||
-					cfg.GetMinBackoffMs() != 1000 || cfg.GetMaxBackoffMs() != 2000 {
-					t.Fatalf("controller config = %#v", cfg)
 				}
 			},
 		},

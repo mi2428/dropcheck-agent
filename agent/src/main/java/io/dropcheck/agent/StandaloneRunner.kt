@@ -388,11 +388,7 @@ internal class StandaloneRunner(private val context: Context) {
             RunCommand.CommandCase.LIST_STANDALONE_RUNS,
             RunCommand.CommandCase.GET_STANDALONE_RUN,
             RunCommand.CommandCase.CLEAR_STANDALONE_RUNS,
-            RunCommand.CommandCase.RUN_STANDALONE_ONCE,
-            RunCommand.CommandCase.SET_CONTROLLER_LINK_CONFIG,
-            RunCommand.CommandCase.GET_CONTROLLER_LINK_CONFIG,
-            RunCommand.CommandCase.GET_CONTROLLER_LINK_STATUS,
-            RunCommand.CommandCase.RECONNECT_CONTROLLER -> true
+            RunCommand.CommandCase.RUN_STANDALONE_ONCE -> true
             else -> false
         }
     }

@@ -142,26 +142,3 @@ func TestWifiFreshScanOperationBuildsCommand(t *testing.T) {
 		t.Fatalf("fresh scan = %#v", scan)
 	}
 }
-
-func TestControllerLinkSetConfigOperationBuildsCommand(t *testing.T) {
-	op, err := ControllerLinkSetConfigOperation(ControllerLinkConfigOptions{
-		Enabled:    true,
-		Endpoint:   "192.168.7.1:37588",
-		MinBackoff: "1s",
-		MaxBackoff: "30s",
-	})
-	if err != nil {
-		t.Fatalf("ControllerLinkSetConfigOperation() error = %v", err)
-	}
-	cmd, _, err := BuildRunCommand(op)
-	if err != nil {
-		t.Fatalf("BuildRunCommand() error = %v", err)
-	}
-	config := cmd.GetSetControllerLinkConfig().GetConfig()
-	if !config.GetEnabled() || config.GetHost() != "192.168.7.1" || config.GetPort() != 37588 {
-		t.Fatalf("config endpoint = %#v", config)
-	}
-	if config.GetMinBackoffMs() != 1000 || config.GetMaxBackoffMs() != 30000 {
-		t.Fatalf("config backoff = %#v", config)
-	}
-}

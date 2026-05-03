@@ -360,9 +360,8 @@ func runOperationForAgents(ctx context.Context, state *shellState, agents []cont
 	for _, agent := range agents {
 		// Each goroutine receives its own command clone. The server and render
 		// path currently treat commands as immutable, but cloning here keeps
-		// broadcast execution safe if per-agent metadata is added later.
+		// broadcast execution isolated across agents.
 		agentCmd := proto.Clone(cmd).(*controlpb.RunCommand)
-		prepareCommandForAgent(state, agent, agentCmd)
 		wg.Go(func() {
 			if err := runCommandForAgent(ctx, state, agent, agentCmd, options, output, &outputMu); err != nil {
 				errCh <- err
@@ -430,13 +429,6 @@ func fetchConfigView(ctx context.Context, state *shellState, agent control.Agent
 		}
 		view.Standalone = result.GetStandaloneConfig()
 	}
-	if scope == "all" || scope == "controller_endpoint" {
-		result, err := fetchOperationResult(ctx, state, agent, command.ControllerLinkConfigOperation())
-		if err != nil {
-			return view, err
-		}
-		view.ControllerEndpoint = result.GetControllerLinkConfig()
-	}
 	return view, nil
 }
 
@@ -445,7 +437,6 @@ func fetchOperationResult(ctx context.Context, state *shellState, agent control.
 	if err != nil {
 		return nil, err
 	}
-	prepareCommandForAgent(state, agent, cmd)
 	commandID, err := control.RandomHex(8)
 	if err != nil {
 		return nil, err
@@ -473,19 +464,6 @@ func resultStatusLabel(status controlpb.CommandResult_Status) string {
 	default:
 		return status.String()
 	}
-}
-
-func prepareCommandForAgent(state *shellState, agent control.AgentInfo, cmd *controlpb.RunCommand) {
-	link := cmd.GetSetControllerLinkConfig()
-	if link == nil || link.Config == nil || !link.Config.GetEnabled() {
-		return
-	}
-	// The parser deliberately cannot know the live session token or resolved
-	// agent identity. Inject them immediately before dispatch so set/show
-	// semantics stay typed while secrets never appear in shell history.
-	link.Config.Token = state.controllerToken
-	link.Config.AgentId = agent.ID
-	link.Config.AdbSerial = agent.Hello.GetAdbSerial()
 }
 
 func runCommandForAgent(ctx context.Context, state *shellState, agent control.AgentInfo, cmd *controlpb.RunCommand, options commandOptions, output commandOutputOptions, outputMu *sync.Mutex) error {

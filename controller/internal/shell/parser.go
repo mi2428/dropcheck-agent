@@ -87,7 +87,7 @@ const (
 )
 
 var shellTopKeywords = []string{"show", "clear", "sync", "configure", "request", "help", "quit"}
-var shellRequestCommandKeywords = []string{"wifi", "standalone", "controller", "monitor", "ping", "traceroute", "path-mtu", "global-ip", "dns", "http", "download"}
+var shellRequestCommandKeywords = []string{"wifi", "standalone", "monitor", "ping", "traceroute", "path-mtu", "global-ip", "dns", "http", "download"}
 var shellOperationalKeywords = shellTopKeywords
 var shellOperationalParseKeywords = appendShellKeywords(shellTopKeywords, []string{"exit"})
 var shellConfigureKeywords = []string{"show", "set", "delete", "run", "help", "exit", "quit"}
@@ -265,8 +265,6 @@ func parseShellRequestModeArgs(args []string) (Command, error) {
 		return parseShellRequestWifi(args[1:])
 	case "standalone":
 		return parseShellRequestStandalone(args[1:])
-	case "controller":
-		return parseShellRequestController(args[1:])
 	case "monitor":
 		return parseShellMonitor(args[1:])
 	case "ping":
@@ -290,9 +288,9 @@ func parseShellRequestModeArgs(args []string) (Command, error) {
 
 func parseShellShow(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: show <devices|config|wifi|ip|standalone|controller>")
+		return Command{}, fmt.Errorf("usage: show <devices|config|wifi|ip|standalone>")
 	}
-	name, err := resolveShellKeyword("show command", args[0], []string{"devices", "config", "wifi", "ip", "standalone", "controller"})
+	name, err := resolveShellKeyword("show command", args[0], []string{"devices", "config", "wifi", "ip", "standalone"})
 	if err != nil {
 		return Command{}, err
 	}
@@ -310,8 +308,6 @@ func parseShellShow(args []string) (Command, error) {
 		return parseShellShowIP(args[1:])
 	case "standalone":
 		return parseShellShowStandalone(args[1:])
-	case "controller":
-		return parseShellShowController(args[1:])
 	default:
 		return Command{}, fmt.Errorf("unknown show command %q", args[0])
 	}
@@ -338,48 +334,21 @@ func parseShellConfigureShow(args []string) (Command, error) {
 	return parseShellShowConfig(args)
 }
 
-func parseShellShowController(args []string) (Command, error) {
-	if len(args) != 1 {
-		return Command{}, fmt.Errorf("usage: show controller link")
-	}
-	name, err := resolveShellKeyword("show controller command", args[0], []string{"link"})
-	if err != nil {
-		return Command{}, err
-	}
-	if name != "link" {
-		return Command{}, fmt.Errorf("unknown show controller command %q", args[0])
-	}
-	return agentShellCommand(command.ControllerLinkStatusOperation()), nil
-}
-
 func parseShellShowConfig(args []string) (Command, error) {
 	switch len(args) {
 	case 0:
 		return Command{Kind: shellShowConfig, ConfigScope: "all"}, nil
 	case 1:
-		name, err := resolveShellKeyword("show config command", args[0], []string{"standalone", "controller"})
+		name, err := resolveShellKeyword("show config command", args[0], []string{"standalone"})
 		if err != nil {
 			return Command{}, err
 		}
 		if name == "standalone" {
 			return Command{Kind: shellShowConfig, ConfigScope: "standalone"}, nil
 		}
-		return Command{}, fmt.Errorf("usage: show config controller endpoint")
-	case 2:
-		name, err := resolveShellKeyword("show config command", args[0], []string{"controller"})
-		if err != nil {
-			return Command{}, err
-		}
-		sub, err := resolveShellKeyword("show config controller command", args[1], []string{"endpoint"})
-		if err != nil {
-			return Command{}, err
-		}
-		if name != "controller" || sub != "endpoint" {
-			return Command{}, fmt.Errorf("usage: show config controller endpoint")
-		}
-		return Command{Kind: shellShowConfig, ConfigScope: "controller_endpoint"}, nil
+		return Command{}, fmt.Errorf("usage: show config [standalone]")
 	default:
-		return Command{}, fmt.Errorf("usage: show config [standalone|controller endpoint]")
+		return Command{}, fmt.Errorf("usage: show config [standalone]")
 	}
 }
 
@@ -531,74 +500,18 @@ func parseShellShowWifiScan(args []string) (Command, error) {
 
 func parseShellSet(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: set <standalone|controller>")
+		return Command{}, fmt.Errorf("usage: set standalone")
 	}
-	name, err := resolveShellKeyword("set command", args[0], []string{"standalone", "controller"})
+	name, err := resolveShellKeyword("set command", args[0], []string{"standalone"})
 	if err != nil {
 		return Command{}, err
 	}
 	switch name {
 	case "standalone":
 		return parseShellSetStandalone(args[1:])
-	case "controller":
-		return parseShellSetController(args[1:])
 	default:
 		return Command{}, fmt.Errorf("unknown set command %q", args[0])
 	}
-}
-
-func parseShellSetController(args []string) (Command, error) {
-	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: set controller endpoint <host:port> enabled [min-backoff <duration>] [max-backoff <duration>] | disabled")
-	}
-	name, err := resolveShellKeyword("set controller command", args[0], []string{"endpoint"})
-	if err != nil {
-		return Command{}, err
-	}
-	if name != "endpoint" {
-		return Command{}, fmt.Errorf("unknown set controller command %q", args[0])
-	}
-	if len(args) == 2 && args[1] == "disabled" {
-		op, err := command.ControllerLinkSetConfigOperation(command.ControllerLinkConfigOptions{Enabled: false})
-		return agentShellCommand(op), err
-	}
-	values := map[string]string{}
-	enabled := false
-	for i := 1; i < len(args); i++ {
-		key, err := resolveShellKeyword("set controller endpoint option", args[i], []string{"enabled", "endpoint", "min-backoff", "max-backoff"})
-		if err != nil {
-			if values["endpoint"] != "" {
-				return Command{}, fmt.Errorf("unexpected set controller endpoint argument %q", args[i])
-			}
-			values["endpoint"] = args[i]
-			continue
-		}
-		if key == "enabled" {
-			if enabled {
-				return Command{}, fmt.Errorf("enabled specified twice")
-			}
-			enabled = true
-			continue
-		}
-		value, next, err := shellValue(args, i, key)
-		if err != nil {
-			return Command{}, err
-		}
-		if err := setShellValue(values, key, value); err != nil {
-			return Command{}, err
-		}
-		i = next
-	}
-	if !enabled {
-		return Command{}, fmt.Errorf("usage: set controller endpoint <host:port> enabled [min-backoff <duration>] [max-backoff <duration>]")
-	}
-	op, err := command.ControllerLinkSetConfigOperation(command.ControllerLinkConfigOptions{
-		Enabled:    true,
-		Endpoint:   values["endpoint"],
-		MinBackoff: values["min-backoff"],
-		MaxBackoff: values["max-backoff"],
-	})
-	return agentShellCommand(op), err
 }
 
 func parseShellSetStandalone(args []string) (Command, error) {
@@ -737,20 +650,6 @@ func parseShellSync(args []string) (Command, error) {
 		StandaloneSyncLimit:  values["limit"],
 		StandaloneSyncMark:   markSynced,
 	}, nil
-}
-
-func parseShellRequestController(args []string) (Command, error) {
-	if len(args) != 1 {
-		return Command{}, fmt.Errorf("usage: controller reconnect")
-	}
-	name, err := resolveShellKeyword("controller command", args[0], []string{"reconnect"})
-	if err != nil {
-		return Command{}, err
-	}
-	if name != "reconnect" {
-		return Command{}, fmt.Errorf("unknown controller command %q", args[0])
-	}
-	return agentShellCommand(command.ControllerReconnectOperation()), nil
 }
 
 func parseShellRequestStandalone(args []string) (Command, error) {

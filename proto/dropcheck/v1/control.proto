@@ -91,8 +91,8 @@ message CancelCommand {
 }
 
 message RunCommand {
-  reserved 24;
-  reserved "watch_wifi";
+  reserved 24, 40, 41, 42, 43;
+  reserved "watch_wifi", "set_controller_link_config", "get_controller_link_config", "get_controller_link_status", "reconnect_controller";
 
   string label = 1;
 
@@ -126,10 +126,6 @@ message RunCommand {
     GetStandaloneRun get_standalone_run = 37;
     ClearStandaloneRuns clear_standalone_runs = 38;
     RunStandaloneOnce run_standalone_once = 39;
-    SetControllerLinkConfig set_controller_link_config = 40;
-    GetControllerLinkConfig get_controller_link_config = 41;
-    GetControllerLinkStatus get_controller_link_status = 42;
-    ReconnectController reconnect_controller = 43;
   }
 }
 
@@ -319,38 +315,6 @@ message RunStandaloneOnce {
   bool save = 2;
 }
 
-message SetControllerLinkConfig {
-  ControllerLinkConfig config = 1;
-}
-
-message GetControllerLinkConfig {}
-
-message GetControllerLinkStatus {}
-
-message ReconnectController {}
-
-message ControllerLinkConfig {
-  bool enabled = 1;
-  string host = 2;
-  uint32 port = 3;
-  string token = 4;
-  string agent_id = 5;
-  string adb_serial = 6;
-  uint32 min_backoff_ms = 7;
-  uint32 max_backoff_ms = 8;
-}
-
-message ControllerLinkStatus {
-  bool enabled = 1;
-  bool connected = 2;
-  string endpoint = 3;
-  string transport = 4;
-  string last_error = 5;
-  int64 last_connected_unix_ms = 6;
-  int64 last_disconnected_unix_ms = 7;
-  int64 next_retry_unix_ms = 8;
-}
-
 message StandaloneConfig {
   bool enabled = 1;
   uint32 retention_ms = 2;
@@ -493,8 +457,8 @@ enum IpFamily {
 }
 
 message CommandResult {
-  reserved 21;
-  reserved "wifi_watch";
+  reserved 21, 34, 35;
+  reserved "wifi_watch", "controller_link_config", "controller_link_status";
 
   enum Status {
     STATUS_UNSPECIFIED = 0;
@@ -531,8 +495,6 @@ message CommandResult {
     StandaloneRuns standalone_runs = 31;
     StandaloneRunArchive standalone_run = 32;
     StandaloneClearResult standalone_clear = 33;
-    ControllerLinkConfig controller_link_config = 34;
-    ControllerLinkStatus controller_link_status = 35;
   }
 }
 

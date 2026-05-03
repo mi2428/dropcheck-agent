@@ -19,8 +19,7 @@ import java.util.concurrent.Future
  * Foreground service entry point for controller gRPC sessions.
  *
  * The service performs only Android lifecycle work: it validates the start
- * intent, keeps one active session, and retries a stored controller endpoint
- * after USB/ADB transport goes away.
+ * intent and keeps one active controller session started through ADB.
  */
 class AgentService : Service() {
     private val executor = Executors.newSingleThreadExecutor()
@@ -30,7 +29,6 @@ class AgentService : Service() {
     private var wifiEventsStarted = false
     private lateinit var standaloneRunner: StandaloneRunner
     private var current: Future<*>? = null
-    private var currentMode: String = ""
     private var currentSessionKey: String = ""
     private var currentStartId: Int = 0
 
@@ -105,11 +103,11 @@ class AgentService : Service() {
                         "token_present" to token.isNotBlank(),
                     ))
                 } else {
-                    startGrpcSession(host, port, token, agentId, adbSerial, "adb-reverse", startId)
+                    startGrpcSession(host, port, token, agentId, adbSerial, startId)
                 }
             }
-            ACTION_STANDALONE_REFRESH, ACTION_CONTROLLER_LINK_REFRESH, null -> {
-                if (StandaloneConfigStore(this).load().enabled || ControllerLinkStore(this).load().enabled) {
+            ACTION_STANDALONE_REFRESH, null -> {
+                if (StandaloneConfigStore(this).load().enabled) {
                     ensureWifiEventsStarted()
                 }
                 TerminalLog.infoEvent(this, "standalone.refresh", listOf(
@@ -117,7 +115,6 @@ class AgentService : Service() {
                     "current_active" to (current?.isDone == false),
                 ))
                 standaloneRunner.refresh()
-                startControllerLinkLoop("refresh")
             }
             else -> TerminalLog.warnEvent(this, "service.start.ignored", listOf(
                 "reason" to "unknown_action",
@@ -144,9 +141,7 @@ class AgentService : Service() {
     /**
      * Starts one gRPC session worker.
      *
-     * The service rejects concurrent direct sessions because command execution
-     * is single-threaded and each APK instance represents one physical device.
-     * ADB-reverse sessions supersede older sessions so short-lived controller
+     * ADB-started sessions supersede older sessions so short-lived controller
      * invocations can run back-to-back without waiting for Android cleanup.
      */
     private fun startGrpcSession(
@@ -155,34 +150,20 @@ class AgentService : Service() {
         token: String,
         agentId: String,
         adbSerial: String,
-        transport: String,
         startId: Int,
     ) {
-        val sessionKey = "$transport:$host:$port:$token"
+        val sessionKey = "$host:$port:$token"
         synchronized(sessionLock) {
-            if (current?.isDone == false && transport == "adb-reverse") {
+            if (current?.isDone == false) {
                 TerminalLog.infoEvent(this, "grpc.session.superseded", listOf(
-                    "previous_transport" to currentMode,
-                    "transport" to transport,
+                    "transport" to "adb-reverse",
                     "host" to host,
                     "port" to port,
                     "agent_id" to agentId,
                     "adb_serial" to adbSerial,
                 ))
                 current?.cancel(true)
-            } else if (current?.isDone == false) {
-                TerminalLog.warnEvent(this, "grpc.session.rejected", listOf(
-                    "reason" to "already_active",
-                    "host" to host,
-                    "port" to port,
-                    "transport" to transport,
-                    "agent_id" to agentId,
-                    "adb_serial" to adbSerial,
-                    "token_present" to token.isNotBlank(),
-                ))
-                return
             }
-            currentMode = transport
             currentSessionKey = sessionKey
             currentStartId = startId
             current = executor.submit {
@@ -190,28 +171,28 @@ class AgentService : Service() {
                     "thread" to Thread.currentThread().name,
                     "host" to host,
                     "port" to port,
-                    "transport" to transport,
+                    "transport" to "adb-reverse",
                     "agent_id" to agentId,
                     "adb_serial" to adbSerial,
                 ))
                 try {
-                    GrpcSessionClient(this, host, port, token, agentId, adbSerial, transport).run()
+                    GrpcSessionClient(this, host, port, token, agentId, adbSerial).run()
                 } finally {
                     TerminalLog.infoEvent(this, "grpc.session.finished", listOf(
                         "host" to host,
                         "port" to port,
-                        "transport" to transport,
+                        "transport" to "adb-reverse",
                         "agent_id" to agentId,
                         "adb_serial" to adbSerial,
                     ))
-                    afterGrpcSessionFinished(transport, sessionKey, startId)
+                    afterGrpcSessionFinished(sessionKey, startId)
                 }
             }
         }
         TerminalLog.infoEvent(this, "grpc.session.queued", listOf(
             "host" to host,
             "port" to port,
-            "transport" to transport,
+            "transport" to "adb-reverse",
             "agent_id" to agentId,
             "adb_serial" to adbSerial,
             "token_present" to token.isNotBlank(),
@@ -219,23 +200,22 @@ class AgentService : Service() {
     }
 
     /**
-     * Cleans up one completed session and decides whether direct reconnect should continue.
+     * Cleans up one completed session.
      *
-     * ADB sessions intentionally supersede older sessions. The canceled worker
+     * New sessions intentionally supersede older sessions. The canceled worker
      * may still run its finally block after the replacement has been queued; the
      * session key prevents stale cleanup from clearing the fresh session state.
      */
-    private fun afterGrpcSessionFinished(transport: String, sessionKey: String, startId: Int) {
+    private fun afterGrpcSessionFinished(sessionKey: String, startId: Int) {
         synchronized(sessionLock) {
-            if (currentMode != transport || currentSessionKey != sessionKey || currentStartId != startId) {
+            if (currentSessionKey != sessionKey || currentStartId != startId) {
                 TerminalLog.debug(
                     this,
-                    "ignoring stale session cleanup transport=$transport current_mode=$currentMode current_start_id=$currentStartId",
+                    "ignoring stale session cleanup current_start_id=$currentStartId",
                 )
                 return
             }
             current = null
-            currentMode = ""
             currentSessionKey = ""
             currentStartId = 0
         }
@@ -243,13 +223,8 @@ class AgentService : Service() {
             standaloneRunner.refresh()
             startForegroundWithType("standalone checks")
         }
-        if (!StandaloneConfigStore(this).load().enabled && !ControllerLinkStore(this).load().enabled) {
+        if (!StandaloneConfigStore(this).load().enabled) {
             stopWifiEvents()
-        }
-        if (ControllerLinkStore(this).load().enabled) {
-            startForegroundWithType("controller link retry")
-            queueControllerLinkLoop("session-finished")
-            return
         }
         if (!shouldStayStarted()) {
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -257,91 +232,8 @@ class AgentService : Service() {
         }
     }
 
-    private fun startControllerLinkLoop(reason: String) {
-        synchronized(sessionLock) {
-            if (current?.isDone == false) return
-        }
-        queueControllerLinkLoop(reason)
-    }
-
-    private fun queueControllerLinkLoop(reason: String) {
-        val config = ControllerLinkStore(this).load()
-        if (!config.enabled) return
-        synchronized(sessionLock) {
-            if (current?.isDone == false) return
-            currentMode = "direct-tcp"
-            current = executor.submit { runControllerLinkLoop(reason) }
-        }
-    }
-
-    /**
-     * Repeatedly opens direct-TCP gRPC sessions using the persisted endpoint.
-     *
-     * The loop does not evaluate standalone measurements or push data by
-     * itself. It only restores the controller command channel so the PC can pull
-     * stored structured results with the normal request/show commands.
-     */
-    private fun runControllerLinkLoop(reason: String) {
-        TerminalLog.infoEvent(this, "controller.link.loop.start", listOf("reason" to reason))
-        var backoffMs = 0L
-        while (!Thread.currentThread().isInterrupted) {
-            val config = ControllerLinkStore(this).load()
-            if (!isUsableControllerLink(config)) {
-                ControllerLinkRuntimeState.markDisconnected("controller endpoint is disabled or incomplete")
-                AgentStatusBroadcast.send(this)
-                break
-            }
-            val endpoint = config.endpoint()
-            TerminalLog.infoEvent(this, "controller.link.connect", listOf(
-                "endpoint" to endpoint,
-                "agent_id" to config.agentId,
-                "adb_serial" to config.adbSerial,
-                "token_present" to config.token.isNotBlank(),
-            ))
-            GrpcSessionClient(
-                service = this,
-                host = config.host,
-                port = config.port,
-                token = config.token,
-                agentId = config.agentId,
-                adbSerial = config.adbSerial,
-                transport = "direct-tcp",
-            ).run()
-            if (Thread.currentThread().isInterrupted) break
-
-            val latest = ControllerLinkStore(this).load()
-            if (!latest.enabled) break
-            val minBackoff = latest.minBackoffMs.takeIf { it > 0 }?.toLong() ?: DEFAULT_CONTROLLER_LINK_MIN_BACKOFF_MS
-            val maxBackoff = latest.maxBackoffMs.takeIf { it > 0 }?.toLong() ?: DEFAULT_CONTROLLER_LINK_MAX_BACKOFF_MS
-            backoffMs = if (backoffMs == 0L) minBackoff else (backoffMs * 2).coerceAtMost(maxBackoff)
-            val nextRetry = System.currentTimeMillis() + backoffMs
-            ControllerLinkRuntimeState.markRetryAt(nextRetry, "controller disconnected; retrying")
-            AgentStatusBroadcast.send(this)
-            TerminalLog.warnEvent(this, "controller.link.retry", listOf(
-                "endpoint" to latest.endpoint(),
-                "backoff_ms" to backoffMs,
-                "next_retry_unix_time_ms" to nextRetry,
-            ))
-            try {
-                Thread.sleep(backoffMs)
-            } catch (e: InterruptedException) {
-                Thread.currentThread().interrupt()
-                break
-            }
-        }
-        TerminalLog.infoEvent(this, "controller.link.loop.stop", emptyList())
-        if (!StandaloneConfigStore(this).load().enabled && !ControllerLinkStore(this).load().enabled) {
-            stopWifiEvents()
-        }
-        if (!shouldStayStarted()) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-        }
-    }
-
     private fun shouldStayStarted(): Boolean {
         return StandaloneConfigStore(this).load().enabled ||
-            ControllerLinkStore(this).load().enabled ||
             AgentClockWidgetProvider.hasClockWidgets(this)
     }
 
@@ -349,7 +241,6 @@ class AgentService : Service() {
         return when (action) {
             ACTION_WIDGET_REFRESH_OBSERVER -> "widget updates"
             ACTION_STANDALONE_REFRESH -> "standalone checks"
-            ACTION_CONTROLLER_LINK_REFRESH -> "controller link retry"
             else -> "waiting for controller"
         }
     }
@@ -367,10 +258,6 @@ class AgentService : Service() {
         wifiEvents?.stop()
         wifiEvents = null
         wifiEventsStarted = false
-    }
-
-    private fun isUsableControllerLink(config: io.dropcheck.agent.grpc.ControllerLinkConfig): Boolean {
-        return config.enabled && config.host.isNotBlank() && config.port > 0 && config.token.isNotBlank()
     }
 
     /** Creates the low-importance channel required for foreground service visibility. */
@@ -433,7 +320,6 @@ class AgentService : Service() {
         private const val NOTIFICATION_ID = 1001
         const val ACTION_GRPC_SESSION = "io.dropcheck.agent.action.GRPC_SESSION"
         const val ACTION_STANDALONE_REFRESH = "io.dropcheck.agent.action.STANDALONE_REFRESH"
-        const val ACTION_CONTROLLER_LINK_REFRESH = "io.dropcheck.agent.action.CONTROLLER_LINK_REFRESH"
         const val ACTION_WIDGET_REFRESH_OBSERVER = "io.dropcheck.agent.action.WIDGET_REFRESH_OBSERVER"
         const val ACTION_WIDGET_REFRESH_STOP = "io.dropcheck.agent.action.WIDGET_REFRESH_STOP"
         const val EXTRA_GRPC_HOST = "grpc_host"
@@ -444,11 +330,6 @@ class AgentService : Service() {
 
         fun requestStandaloneRefresh(context: Context) {
             val intent = Intent(context, AgentService::class.java).setAction(ACTION_STANDALONE_REFRESH)
-            context.startForegroundService(intent)
-        }
-
-        fun requestControllerLinkRefresh(context: Context) {
-            val intent = Intent(context, AgentService::class.java).setAction(ACTION_CONTROLLER_LINK_REFRESH)
             context.startForegroundService(intent)
         }
 
@@ -466,7 +347,5 @@ class AgentService : Service() {
             }
         }
 
-        private const val DEFAULT_CONTROLLER_LINK_MIN_BACKOFF_MS = 1_000L
-        private const val DEFAULT_CONTROLLER_LINK_MAX_BACKOFF_MS = 30_000L
     }
 }

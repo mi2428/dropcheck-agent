@@ -12,7 +12,7 @@ internal object AgentStatusBroadcast {
     fun send(context: Context) {
         context.sendBroadcast(Intent(ACTION).apply {
             setPackage(context.packageName)
-            putExtra(EXTRA_CONTROLLER_HEARTBEAT_CONNECTED, ControllerLinkRuntimeState.heartbeatConnected())
+            putExtra(EXTRA_CONTROLLER_HEARTBEAT_CONNECTED, ControllerSessionRuntimeState.heartbeatConnected())
             putExtra(EXTRA_STANDALONE_RUNNING, StandaloneRuntimeState.running.get())
         })
     }

@@ -19,8 +19,7 @@ import (
 
 // ConfigView is the persisted Agent App configuration rendered by show config.
 type ConfigView struct {
-	Standalone         *controlpb.StandaloneConfig
-	ControllerEndpoint *controlpb.ControllerLinkConfig
+	Standalone *controlpb.StandaloneConfig
 }
 
 // Config renders persisted Agent App configuration.
@@ -31,9 +30,6 @@ func Config(view ConfigView, format pipeline.Format) (string, error) {
 	var b strings.Builder
 	if view.Standalone != nil {
 		renderStandaloneConfigBlock(&b, view.Standalone, 0)
-	}
-	if view.ControllerEndpoint != nil {
-		renderControllerConfigBlock(&b, view.ControllerEndpoint, 0)
 	}
 	return b.String(), nil
 }
@@ -131,10 +127,6 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 		renderStandaloneRun(&b, payload.StandaloneRun)
 	case *controlpb.CommandResult_StandaloneClear:
 		renderStandaloneClear(&b, payload.StandaloneClear)
-	case *controlpb.CommandResult_ControllerLinkConfig:
-		renderControllerLinkConfig(&b, payload.ControllerLinkConfig)
-	case *controlpb.CommandResult_ControllerLinkStatus:
-		renderControllerLinkStatus(&b, payload.ControllerLinkStatus)
 	default:
 		if result.GetMessage() != "" {
 			fmt.Fprintf(&b, "%s\n", result.GetMessage())
@@ -738,15 +730,6 @@ func configJSONValue(view ConfigView) (map[string]any, error) {
 		}
 		value["standalone"] = json.RawMessage(data)
 	}
-	if view.ControllerEndpoint != nil {
-		data, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(view.ControllerEndpoint)
-		if err != nil {
-			return nil, err
-		}
-		value["controller"] = map[string]json.RawMessage{
-			"endpoint": data,
-		}
-	}
 	return value, nil
 }
 
@@ -841,30 +824,6 @@ func renderStandaloneConfigBlock(b *strings.Builder, config *controlpb.Standalon
 		}
 		writeConfigLine(b, depth+1, "}")
 	}
-	writeConfigLine(b, depth, "}")
-}
-
-func renderControllerConfigBlock(b *strings.Builder, config *controlpb.ControllerLinkConfig, depth int) {
-	if config == nil {
-		return
-	}
-	writeConfigLine(b, depth, "controller {")
-	writeConfigLine(b, depth+1, "endpoint {")
-	if config.GetEnabled() {
-		writeConfigLine(b, depth+2, "enabled")
-	} else {
-		writeConfigLine(b, depth+2, "disabled")
-	}
-	if config.GetHost() != "" && config.GetPort() != 0 {
-		writeConfigLine(b, depth+2, "address %s", shellQuote(fmt.Sprintf("%s:%d", config.GetHost(), config.GetPort())))
-	}
-	if config.GetMinBackoffMs() != 0 {
-		writeConfigLine(b, depth+2, "min-backoff %s", formatConfigDuration(config.GetMinBackoffMs()))
-	}
-	if config.GetMaxBackoffMs() != 0 {
-		writeConfigLine(b, depth+2, "max-backoff %s", formatConfigDuration(config.GetMaxBackoffMs()))
-	}
-	writeConfigLine(b, depth+1, "}")
 	writeConfigLine(b, depth, "}")
 }
 
@@ -979,58 +938,6 @@ func renderStandaloneClear(b *strings.Builder, result *controlpb.StandaloneClear
 		return
 	}
 	fmt.Fprintf(b, "Standalone cleared: runs=%d bytes=%s\n", result.GetRemovedRuns(), formatBytes(result.GetRemovedBytes()))
-}
-
-func renderControllerLinkConfig(b *strings.Builder, config *controlpb.ControllerLinkConfig) {
-	if config == nil {
-		return
-	}
-	endpoint := "-"
-	if config.GetHost() != "" && config.GetPort() != 0 {
-		endpoint = fmt.Sprintf("%s:%d", config.GetHost(), config.GetPort())
-	}
-	fmt.Fprintf(b, "Controller endpoint: enabled=%t endpoint=%s token=%s min-backoff=%s max-backoff=%s\n",
-		config.GetEnabled(),
-		endpoint,
-		redactedToken(config.GetToken()),
-		time.Duration(config.GetMinBackoffMs())*time.Millisecond,
-		time.Duration(config.GetMaxBackoffMs())*time.Millisecond,
-	)
-	if config.GetAgentId() != "" || config.GetAdbSerial() != "" {
-		fmt.Fprintf(b, "Identity: agent=%s adb_serial=%s\n",
-			empty(config.GetAgentId(), "-"),
-			empty(config.GetAdbSerial(), "-"),
-		)
-	}
-}
-
-func renderControllerLinkStatus(b *strings.Builder, status *controlpb.ControllerLinkStatus) {
-	if status == nil {
-		return
-	}
-	fmt.Fprintf(b, "Controller link: enabled=%t connected=%t endpoint=%s transport=%s\n",
-		status.GetEnabled(),
-		status.GetConnected(),
-		empty(status.GetEndpoint(), "-"),
-		empty(status.GetTransport(), "-"),
-	)
-	if status.GetLastConnectedUnixMs() != 0 || status.GetLastDisconnectedUnixMs() != 0 || status.GetNextRetryUnixMs() != 0 {
-		fmt.Fprintf(b, "Timing: connected=%s disconnected=%s next-retry=%s\n",
-			unixMillis(status.GetLastConnectedUnixMs()),
-			unixMillis(status.GetLastDisconnectedUnixMs()),
-			unixMillis(status.GetNextRetryUnixMs()),
-		)
-	}
-	if status.GetLastError() != "" {
-		fmt.Fprintf(b, "Last error: %s\n", status.GetLastError())
-	}
-}
-
-func redactedToken(token string) string {
-	if token == "" {
-		return "none"
-	}
-	return "<redacted>"
 }
 
 func renderDiagnosticFields(b *strings.Builder, fields []*controlpb.DiagnosticField) {
