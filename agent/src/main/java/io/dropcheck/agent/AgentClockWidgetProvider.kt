@@ -7,13 +7,20 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.location.Location
+import android.location.LocationManager
 import android.net.ConnectivityManager
+import android.net.LinkProperties
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.util.TypedValue
 import android.widget.RemoteViews
+import java.net.Inet4Address
+import java.net.Inet6Address
+import java.util.Locale
+import kotlin.math.roundToInt
 
 class AgentClockWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
@@ -63,10 +70,14 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
             appWidgetIds.forEach { appWidgetId ->
                 val size = clockSize(appWidgetManager.getAppWidgetOptions(appWidgetId))
                 val views = RemoteViews(context.packageName, R.layout.agent_clock_widget).apply {
-                    setTextViewText(R.id.agentClockWifiInfo, wifiText)
+                    setTextViewText(R.id.agentClockWifiInfo, wifiText.infoLine)
+                    setTextViewText(R.id.agentClockIpInfo, wifiText.ipLine)
+                    setTextViewText(R.id.agentClockLocationInfo, wifiText.locationLine)
                     setTextViewTextSize(R.id.agentClockDate, TypedValue.COMPLEX_UNIT_SP, size.dateSp)
                     setTextViewTextSize(R.id.agentClockTime, TypedValue.COMPLEX_UNIT_SP, size.timeSp)
                     setTextViewTextSize(R.id.agentClockWifiInfo, TypedValue.COMPLEX_UNIT_SP, size.wifiSp)
+                    setTextViewTextSize(R.id.agentClockIpInfo, TypedValue.COMPLEX_UNIT_SP, size.wifiSp)
+                    setTextViewTextSize(R.id.agentClockLocationInfo, TypedValue.COMPLEX_UNIT_SP, size.wifiSp)
                     setOnClickPendingIntent(R.id.agentClockRoot, launchPendingIntent)
                 }
                 appWidgetManager.updateAppWidget(appWidgetId, views)
@@ -75,10 +86,16 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
 
         @SuppressLint("MissingPermission")
         @Suppress("DEPRECATION")
-        private fun currentWifiText(context: Context): CharSequence {
+        private fun currentWifiText(context: Context): ClockWifiText {
             val snapshot = currentWifiSnapshot(context)
+            val ipLine = formatIpLine(snapshot.addresses)
+            val locationLine = formatGnssLine(currentGnssLocation(context))
             if (!snapshot.connected) {
-                return context.getString(R.string.agent_clock_widget_wifi_placeholder)
+                return ClockWifiText(
+                    infoLine = context.getString(R.string.agent_clock_widget_wifi_placeholder),
+                    ipLine = ipLine,
+                    locationLine = locationLine,
+                )
             }
 
             val info = snapshot.info
@@ -99,7 +116,11 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
             val rssi = info?.let { cleanRssi(it.rssi) }?.takeUnless { it == UNKNOWN_VALUE }
                 ?: logInfo?.rssiDbm?.let { "$it dBm" }
                 ?: UNKNOWN_VALUE
-            return "$essid  $bssid  $generation  $channel  $rssi"
+            return ClockWifiText(
+                infoLine = "$essid  $bssid  $generation  $channel  $rssi",
+                ipLine = ipLine,
+                locationLine = locationLine,
+            )
         }
 
         @SuppressLint("MissingPermission")
@@ -107,12 +128,14 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
         private fun currentWifiSnapshot(context: Context): WifiSnapshot {
             val appContext = context.applicationContext
             val connectivity = appContext.getSystemService(ConnectivityManager::class.java)
-            val activeCapabilities = connectivity?.activeNetwork
+            val activeNetwork = connectivity?.activeNetwork
+            val activeCapabilities = activeNetwork
                 ?.let { connectivity.getNetworkCapabilities(it) }
             if (activeCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
                 return WifiSnapshot(
                     connected = true,
                     info = bestWifiInfo(appContext, activeCapabilities.transportInfo as? WifiInfo),
+                    addresses = wifiAddresses(activeNetwork?.let { connectivity?.getLinkProperties(it) }),
                 )
             }
 
@@ -122,13 +145,18 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
                     return WifiSnapshot(
                         connected = true,
                         info = bestWifiInfo(appContext, capabilities.transportInfo as? WifiInfo),
+                        addresses = wifiAddresses(connectivity?.getLinkProperties(network)),
                     )
                 }
             }
 
             val wifi = appContext.getSystemService(WifiManager::class.java)
             val fallbackInfo = wifi?.connectionInfo
-            return WifiSnapshot(connected = fallbackInfo?.isUsableWifiInfo() == true, info = fallbackInfo)
+            return WifiSnapshot(
+                connected = fallbackInfo?.isUsableWifiInfo() == true,
+                info = fallbackInfo,
+                addresses = WifiAddresses(),
+            )
         }
 
         @Suppress("DEPRECATION")
@@ -173,6 +201,47 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
             return if (rssi in -126..0) "$rssi dBm" else UNKNOWN_VALUE
         }
 
+        private fun formatIpLine(addresses: WifiAddresses): String {
+            return "IPv4 ${addresses.ipv4 ?: NONE_VALUE}  IPv6 ${addresses.ipv6 ?: NONE_VALUE}"
+        }
+
+        private fun wifiAddresses(link: LinkProperties?): WifiAddresses {
+            val addresses = link?.linkAddresses.orEmpty()
+            val ipv4 = addresses.firstNotNullOfOrNull { linkAddress ->
+                (linkAddress.address as? Inet4Address)?.hostAddress
+            }
+            val ipv6 = addresses
+                .mapNotNull { it.address as? Inet6Address }
+                .sortedBy { it.isLinkLocalAddress }
+                .firstOrNull()
+                ?.hostAddress
+                ?.substringBefore('%')
+            return WifiAddresses(ipv4 = ipv4, ipv6 = ipv6)
+        }
+
+        @SuppressLint("MissingPermission")
+        private fun currentGnssLocation(context: Context): Location? {
+            val locationManager = context.applicationContext.getSystemService(LocationManager::class.java)
+                ?: return null
+            return LOCATION_PROVIDERS.firstNotNullOfOrNull { provider ->
+                runCatching {
+                    locationManager.getLastKnownLocation(provider)
+                }.getOrNull()
+            }
+        }
+
+        private fun formatGnssLine(location: Location?): String {
+            location ?: return "GPS/GNSS ${NONE_VALUE}"
+            val latitude = String.format(Locale.US, "%.6f", location.latitude)
+            val longitude = String.format(Locale.US, "%.6f", location.longitude)
+            val accuracy = if (location.hasAccuracy()) {
+                " +/-${location.accuracy.roundToInt()}m"
+            } else {
+                ""
+            }
+            return "GPS/GNSS $latitude,$longitude$accuracy"
+        }
+
         private fun wifiChannel(frequencyMhz: Int): Int? = when (frequencyMhz) {
             2484 -> 14
             in 2412..2472 -> (frequencyMhz - 2407) / 5
@@ -183,8 +252,18 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
         }
 
         private const val UNKNOWN_VALUE = "unknown"
+        private const val NONE_VALUE = "none"
         private const val PLACEHOLDER_BSSID = "02:00:00:00:00:00"
         private const val RECENT_WIFI_LOG_LINES = 200
+        private const val FUSED_PROVIDER = "fused"
+        private const val GPS_HARDWARE_PROVIDER = "gps_hardware"
+        private val LOCATION_PROVIDERS = listOf(
+            LocationManager.GPS_PROVIDER,
+            GPS_HARDWARE_PROVIDER,
+            FUSED_PROVIDER,
+            LocationManager.NETWORK_PROVIDER,
+            LocationManager.PASSIVE_PROVIDER,
+        )
 
         private fun WifiInfo.isUsableWifiInfo(): Boolean {
             return networkId != -1 || cleanEssid(ssid) != UNKNOWN_VALUE || cleanBssid(bssid) != UNKNOWN_VALUE
@@ -257,8 +336,9 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
 
             val timeByWidth = widthDp * 0.36f
             val timeByHeight = heightDp * 0.72f
-            val timeSp = minOf(timeByWidth, timeByHeight).coerceIn(72f, 132f)
-            val dateSp = (timeSp * 0.24f).coerceIn(16f, 28f)
+            val baseTimeSp = minOf(timeByWidth, timeByHeight).coerceIn(72f, 132f)
+            val timeSp = baseTimeSp + 12f
+            val dateSp = (baseTimeSp * 0.24f).coerceIn(16f, 28f)
             val wifiSp = (widthDp * 0.036f).coerceIn(9f, 13f)
             return ClockSize(dateSp = dateSp, timeSp = timeSp, wifiSp = wifiSp)
         }
@@ -285,6 +365,18 @@ private data class ClockSize(
 private data class WifiSnapshot(
     val connected: Boolean,
     val info: WifiInfo?,
+    val addresses: WifiAddresses,
+)
+
+private data class ClockWifiText(
+    val infoLine: CharSequence,
+    val ipLine: CharSequence,
+    val locationLine: CharSequence,
+)
+
+private data class WifiAddresses(
+    val ipv4: String? = null,
+    val ipv6: String? = null,
 )
 
 private data class RecentWifiLogInfo(

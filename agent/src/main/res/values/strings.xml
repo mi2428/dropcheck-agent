@@ -5,6 +5,6 @@
     <string name="agent_log_widget_description">Transparent dropcheck agent log viewer.</string>
     <string name="agent_log_widget_placeholder">dropcheck agent&#10;waiting for logs</string>
     <string name="agent_clock_widget_label">Clock</string>
-    <string name="agent_clock_widget_description">Transparent clock with current Wi-Fi details.</string>
+    <string name="agent_clock_widget_description">Transparent clock with Wi-Fi state and IP addresses.</string>
     <string name="agent_clock_widget_wifi_placeholder">Wi-Fi disconnected</string>
 </resources>
