@@ -530,6 +530,7 @@ func isClearRuntimeFailure(output string) bool {
 		strings.Contains(lower, "timed out") ||
 		strings.Contains(lower, "no matching") ||
 		strings.Contains(lower, "controller endpoint is disabled or incomplete") ||
+		strings.Contains(lower, "not a device owner, profile owner, system app, or privileged app") ||
 		strings.Contains(lower, "unsupported") ||
 		strings.Contains(lower, "connectivity completed with failed checks")
 }
@@ -1059,6 +1060,9 @@ func TestE2EFailureClassifiers(t *testing.T) {
 	}
 	if !isClearRuntimeFailure("Status: failed  Message: network not available for ping") {
 		t.Fatalf("network runtime failure was not accepted")
+	}
+	if !isClearRuntimeFailure("Status: failed  Message: wifi addNetworkPrivileged failed: SecurityException:Caller is not a device owner, profile owner, system app, or privileged app") {
+		t.Fatalf("platform Wi-Fi provisioning limits must count as clear runtime failures")
 	}
 	if !isShellErrorOutput("match regex: error parsing regexp: missing closing ]: `[`") {
 		t.Fatalf("regexp parse errors must count as shell errors")
