@@ -98,9 +98,10 @@ func Split(line string) ([]string, error) {
 // Parse compiles pipeline stage strings returned by Split.
 //
 // Supported stages are "display json", "match <regex>", "except <regex>",
-// "count", and "no-more".
+// "count", and "no-more". "display json" must be placed before "count".
 func Parse(parts []string) (Pipeline, error) {
 	var pipeline Pipeline
+	countSeen := false
 	for _, part := range parts {
 		args, err := command.SplitArgs(part)
 		if err != nil {
@@ -113,6 +114,9 @@ func Parse(parts []string) (Pipeline, error) {
 		case "display":
 			if len(args) != 2 || args[1] != "json" {
 				return Pipeline{}, fmt.Errorf("usage: | display json")
+			}
+			if countSeen {
+				return Pipeline{}, fmt.Errorf("display json must appear before count")
 			}
 			pipeline.displayJSON = true
 		case "match", "except":
@@ -130,6 +134,7 @@ func Parse(parts []string) (Pipeline, error) {
 				return Pipeline{}, fmt.Errorf("usage: | count")
 			}
 			pipeline.stages = append(pipeline.stages, stage{op: "count"})
+			countSeen = true
 		case "no-more":
 			if len(args) != 1 {
 				return Pipeline{}, fmt.Errorf("usage: | no-more")

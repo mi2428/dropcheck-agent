@@ -359,6 +359,11 @@ func TestParseShellPipeline(t *testing.T) {
 	if text != "Count: 1 lines\n" {
 		t.Fatalf("pipeline output = %q", text)
 	}
+
+	_, err = parseShellLine(`show devices | count | display json`)
+	if err == nil || !strings.Contains(err.Error(), "display json must appear before count") {
+		t.Fatalf("parseShellLine(count then display) error = %v", err)
+	}
 }
 
 func TestShellHelpAndCompletion(t *testing.T) {
