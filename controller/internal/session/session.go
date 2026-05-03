@@ -19,6 +19,8 @@ import (
 // pass --package.
 const DefaultPackageName = "io.dropcheck.agent"
 
+const adbReversePortCollisionAttempts = 5
+
 // Options configures control-session startup.
 type Options struct {
 	// ADBPath is the adb executable path. Empty uses "adb".
@@ -72,6 +74,26 @@ func Start(ctx context.Context, opts Options, targets []adb.Device) (*Session, e
 		return nil, fmt.Errorf("create session token: %w", err)
 	}
 
+	attempts := 1
+	if len(targets) > 0 && listenAddrUsesEphemeralPort(opts.ListenAddr) {
+		attempts = adbReversePortCollisionAttempts
+	}
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		session, err := startOnce(ctx, opts, targets, token)
+		if err == nil {
+			return session, nil
+		}
+		lastErr = err
+		if attempt == attempts || !isADBReversePortCollision(err) {
+			return nil, err
+		}
+		fmt.Fprintf(os.Stderr, "dropcheck: adb reverse port collision; retrying with a new local port attempt=%d/%d\n", attempt+1, attempts)
+	}
+	return nil, lastErr
+}
+
+func startOnce(ctx context.Context, opts Options, targets []adb.Device, token string) (*Session, error) {
 	listener, err := net.Listen("tcp", opts.ListenAddr)
 	if err != nil {
 		return nil, fmt.Errorf("listen grpc control: %w", err)
@@ -141,6 +163,23 @@ func Start(ctx context.Context, opts Options, targets []adb.Device) (*Session, e
 	session.Agents = infos
 	cleanupOnError = false
 	return session, nil
+}
+
+func listenAddrUsesEphemeralPort(addr string) bool {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	return port == "0"
+}
+
+func isADBReversePortCollision(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := err.Error()
+	return strings.Contains(message, "cannot bind listener") ||
+		strings.Contains(message, "Address already in use")
 }
 
 // Close stops the gRPC server and removes adb reverse rules.
