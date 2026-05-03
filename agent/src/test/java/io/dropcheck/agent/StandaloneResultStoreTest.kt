@@ -1,19 +1,19 @@
 package io.dropcheck.agent
 
-import io.dropcheck.agent.grpc.FestivalRunArchive
-import io.dropcheck.agent.grpc.FestivalRunSummary
+import io.dropcheck.agent.grpc.StandaloneRunArchive
+import io.dropcheck.agent.grpc.StandaloneRunSummary
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class FestivalResultStoreTest {
+class StandaloneResultStoreTest {
     @Test
     fun storesListsMarksAndClearsRuns() {
-        val dir = Files.createTempDirectory("festival-runs").toFile()
+        val dir = Files.createTempDirectory("standalone-runs").toFile()
         try {
-            val store = FestivalResultStore(dir)
+            val store = StandaloneResultStore(dir)
             store.save(archive("run-1", started = 100, synced = false))
             store.save(archive("run-2", started = 200, synced = true))
 
@@ -36,9 +36,9 @@ class FestivalResultStoreTest {
 
     @Test
     fun neverDeletesUnsyncedRunsForStoreBudget() {
-        val dir = Files.createTempDirectory("festival-runs").toFile()
+        val dir = Files.createTempDirectory("standalone-runs").toFile()
         try {
-            val store = FestivalResultStore(dir)
+            val store = StandaloneResultStore(dir)
             store.save(archive("run-1", started = 100, synced = false))
 
             val message = store.enforce(retentionMs = 0, maxBytes = 1)
@@ -50,11 +50,11 @@ class FestivalResultStoreTest {
         }
     }
 
-    private fun archive(runId: String, started: Long, synced: Boolean): FestivalRunArchive {
-        return FestivalRunArchive.newBuilder()
-            .setSummary(FestivalRunSummary.newBuilder()
+    private fun archive(runId: String, started: Long, synced: Boolean): StandaloneRunArchive {
+        return StandaloneRunArchive.newBuilder()
+            .setSummary(StandaloneRunSummary.newBuilder()
                 .setRunId(runId)
-                .setPlanName("lab")
+                .setFestaName("lab")
                 .setStartedUnixMs(started)
                 .setFinishedUnixMs(started + 10)
                 .setStatus("ok")

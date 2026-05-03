@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -85,16 +86,16 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 		renderWifiScanDetail(&b, payload.WifiScanDetail)
 	case *controlpb.CommandResult_WifiCycle:
 		renderWifiCycle(&b, payload.WifiCycle)
-	case *controlpb.CommandResult_FestivalConfig:
-		renderFestivalConfig(&b, payload.FestivalConfig)
-	case *controlpb.CommandResult_FestivalStatus:
-		renderFestivalStatus(&b, payload.FestivalStatus)
-	case *controlpb.CommandResult_FestivalRuns:
-		renderFestivalRuns(&b, payload.FestivalRuns)
-	case *controlpb.CommandResult_FestivalRun:
-		renderFestivalRun(&b, payload.FestivalRun)
-	case *controlpb.CommandResult_FestivalClear:
-		renderFestivalClear(&b, payload.FestivalClear)
+	case *controlpb.CommandResult_StandaloneConfig:
+		renderStandaloneConfig(&b, payload.StandaloneConfig)
+	case *controlpb.CommandResult_StandaloneStatus:
+		renderStandaloneStatus(&b, payload.StandaloneStatus)
+	case *controlpb.CommandResult_StandaloneRuns:
+		renderStandaloneRuns(&b, payload.StandaloneRuns)
+	case *controlpb.CommandResult_StandaloneRun:
+		renderStandaloneRun(&b, payload.StandaloneRun)
+	case *controlpb.CommandResult_StandaloneClear:
+		renderStandaloneClear(&b, payload.StandaloneClear)
 	case *controlpb.CommandResult_ControllerLinkConfig:
 		renderControllerLinkConfig(&b, payload.ControllerLinkConfig)
 	case *controlpb.CommandResult_ControllerLinkStatus:
@@ -738,31 +739,79 @@ func renderWifiCycle(b *strings.Builder, result *controlpb.WifiCycleResult) {
 	renderErrors(b, result.GetErrors())
 }
 
-func renderFestivalConfig(b *strings.Builder, config *controlpb.FestivalConfig) {
+func renderStandaloneConfig(b *strings.Builder, config *controlpb.StandaloneConfig) {
 	if config == nil {
 		return
 	}
-	plan := config.GetPlan()
-	fmt.Fprintf(b, "Dropcheck Festival standalone: enabled=%t interval=%s retention=%s max-size=%s\n",
-		config.GetEnabled(),
-		time.Duration(config.GetIntervalMs())*time.Millisecond,
-		time.Duration(config.GetRetentionMs())*time.Millisecond,
-		formatBytes(config.GetMaxBytes()),
-	)
-	if plan != nil {
-		fmt.Fprintf(b, "Plan: name=%s networks=%d global-checks=%d\n",
-			empty(plan.GetName(), "-"),
-			len(plan.GetNetworks()),
-			len(plan.GetChecks()),
-		)
+	if config.GetEnabled() {
+		fmt.Fprintln(b, "set standalone enabled")
+	} else {
+		fmt.Fprintln(b, "set standalone disabled")
+	}
+	if config.GetRetentionMs() != 0 {
+		fmt.Fprintf(b, "set standalone retention %s\n", time.Duration(config.GetRetentionMs())*time.Millisecond)
+	}
+	if config.GetMaxBytes() != 0 {
+		fmt.Fprintf(b, "set standalone max-size %s\n", formatBytes(config.GetMaxBytes()))
+	}
+	for _, festa := range config.GetFestas() {
+		name := shellQuote(festa.GetName())
+		if festa.GetEnabled() {
+			fmt.Fprintf(b, "set standalone festa %s enabled\n", name)
+		} else {
+			fmt.Fprintf(b, "set standalone festa %s disabled\n", name)
+		}
+		if festa.GetIntervalMs() != 0 {
+			fmt.Fprintf(b, "set standalone festa %s interval %s\n", name, time.Duration(festa.GetIntervalMs())*time.Millisecond)
+		}
+		for _, group := range festa.GetWifiGroups() {
+			groupName := shellQuote(group.GetName())
+			if group.GetEssid() != "" {
+				fmt.Fprintf(b, "set standalone festa %s wifi-group %s match essid %s\n", name, groupName, shellQuote(group.GetEssid()))
+			}
+			if group.GetBssid() != "" {
+				fmt.Fprintf(b, "set standalone festa %s wifi-group %s match bssid %s\n", name, groupName, shellQuote(group.GetBssid()))
+			}
+			if group.GetPassphrase() != "" {
+				fmt.Fprintf(b, "set standalone festa %s wifi-group %s credential passphrase <redacted>\n", name, groupName)
+			}
+			if group.GetSecurity() != controlpb.ConnectWifi_SECURITY_UNSPECIFIED {
+				fmt.Fprintf(b, "set standalone festa %s wifi-group %s security %s\n", name, groupName, standaloneSecurityName(group.GetSecurity()))
+			}
+			if group.GetBand() != controlpb.WifiBand_WIFI_BAND_UNSPECIFIED && group.GetBand() != controlpb.WifiBand_WIFI_BAND_ALL {
+				fmt.Fprintf(b, "set standalone festa %s wifi-group %s band %s\n", name, groupName, standaloneBandName(group.GetBand()))
+			}
+			if group.GetRequireIp() {
+				fmt.Fprintf(b, "set standalone festa %s wifi-group %s wait ip\n", name, groupName)
+			}
+			if group.GetRequireValidated() {
+				fmt.Fprintf(b, "set standalone festa %s wifi-group %s wait validated\n", name, groupName)
+			}
+			if group.GetTimeoutMs() != 0 {
+				fmt.Fprintf(b, "set standalone festa %s wifi-group %s timeout %s\n", name, groupName, time.Duration(group.GetTimeoutMs())*time.Millisecond)
+			}
+		}
+		checks := festa.GetChecks()
+		if dns := checks.GetDns(); dns.GetEnabled() {
+			fmt.Fprintf(b, "set standalone festa %s check dns name %s type %s timeout %s\n",
+				name, shellQuote(dns.GetName()), standaloneQTypesName(dns.GetQtypes()), time.Duration(dns.GetTimeoutMs())*time.Millisecond)
+		}
+		if ping := checks.GetPing(); ping.GetEnabled() {
+			fmt.Fprintf(b, "set standalone festa %s check ping host %s count %d timeout %s\n",
+				name, shellQuote(ping.GetHost()), ping.GetCount(), time.Duration(ping.GetTimeoutMs())*time.Millisecond)
+		}
+		if http := checks.GetHttp(); http.GetEnabled() {
+			fmt.Fprintf(b, "set standalone festa %s check http url %s expected-status %d timeout %s\n",
+				name, shellQuote(http.GetUrl()), http.GetExpectedStatus(), time.Duration(http.GetTimeoutMs())*time.Millisecond)
+		}
 	}
 }
 
-func renderFestivalStatus(b *strings.Builder, status *controlpb.FestivalStatus) {
+func renderStandaloneStatus(b *strings.Builder, status *controlpb.StandaloneStatus) {
 	if status == nil {
 		return
 	}
-	fmt.Fprintf(b, "Dropcheck Festival standalone: enabled=%t running=%t stored=%d unsynced=%d bytes=%s\n",
+	fmt.Fprintf(b, "Standalone: enabled=%t running=%t stored=%d unsynced=%d bytes=%s\n",
 		status.GetEnabled(),
 		status.GetRunning(),
 		status.GetStoredRuns(),
@@ -784,11 +833,11 @@ func renderFestivalStatus(b *strings.Builder, status *controlpb.FestivalStatus) 
 	}
 }
 
-func renderFestivalRuns(b *strings.Builder, runs *controlpb.FestivalRuns) {
+func renderStandaloneRuns(b *strings.Builder, runs *controlpb.StandaloneRuns) {
 	if runs == nil {
 		return
 	}
-	fmt.Fprintf(b, "Dropcheck Festival runs: returned=%d total=%d unsynced=%d\n",
+	fmt.Fprintf(b, "Standalone runs: returned=%d total=%d unsynced=%d\n",
 		len(runs.GetRuns()),
 		runs.GetTotalRuns(),
 		runs.GetUnsyncedRuns(),
@@ -797,7 +846,7 @@ func renderFestivalRuns(b *strings.Builder, runs *controlpb.FestivalRuns) {
 		return
 	}
 	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "RUN\tSTATUS\tSYNCED\tSTARTED\tFINISHED\tSTEPS\tFAILED\tPLAN")
+	fmt.Fprintln(tw, "RUN\tSTATUS\tSYNCED\tSTARTED\tFINISHED\tSTEPS\tFAILED\tFESTA")
 	for _, run := range runs.GetRuns() {
 		fmt.Fprintf(tw, "%s\t%s\t%t\t%s\t%s\t%d\t%d\t%s\n",
 			shortID(run.GetRunId()),
@@ -807,22 +856,22 @@ func renderFestivalRuns(b *strings.Builder, runs *controlpb.FestivalRuns) {
 			unixMillis(run.GetFinishedUnixMs()),
 			run.GetStepCount(),
 			run.GetFailedStepCount(),
-			empty(run.GetPlanName(), "-"),
+			empty(run.GetFestaName(), "-"),
 		)
 	}
 	_ = tw.Flush()
 }
 
-func renderFestivalRun(b *strings.Builder, run *controlpb.FestivalRunArchive) {
+func renderStandaloneRun(b *strings.Builder, run *controlpb.StandaloneRunArchive) {
 	if run == nil {
 		return
 	}
 	summary := run.GetSummary()
-	fmt.Fprintf(b, "Dropcheck Festival run: id=%s status=%s synced=%t plan=%s steps=%d failed=%d\n",
+	fmt.Fprintf(b, "Standalone run: id=%s status=%s synced=%t festa=%s steps=%d failed=%d\n",
 		summary.GetRunId(),
 		empty(summary.GetStatus(), "-"),
 		summary.GetSynced(),
-		empty(summary.GetPlanName(), "-"),
+		empty(summary.GetFestaName(), "-"),
 		summary.GetStepCount(),
 		summary.GetFailedStepCount(),
 	)
@@ -830,7 +879,7 @@ func renderFestivalRun(b *strings.Builder, run *controlpb.FestivalRunArchive) {
 		return
 	}
 	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NETWORK\tSTEP\tATTEMPT\tSTATUS\tELAPSED\tERROR")
+	fmt.Fprintln(tw, "WIFI-GROUP\tSTEP\tATTEMPT\tSTATUS\tELAPSED\tERROR")
 	for _, step := range run.GetSteps() {
 		status := "-"
 		elapsed := int64(0)
@@ -839,7 +888,7 @@ func renderFestivalRun(b *strings.Builder, run *controlpb.FestivalRunArchive) {
 			elapsed = commandResultLatencyMs(step.GetResult())
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%dms\t%s\n",
-			empty(step.GetNetworkName(), "-"),
+			empty(step.GetWifiGroupName(), "-"),
 			empty(step.GetStepName(), "-"),
 			step.GetAttempt(),
 			status,
@@ -850,11 +899,11 @@ func renderFestivalRun(b *strings.Builder, run *controlpb.FestivalRunArchive) {
 	_ = tw.Flush()
 }
 
-func renderFestivalClear(b *strings.Builder, result *controlpb.FestivalClearResult) {
+func renderStandaloneClear(b *strings.Builder, result *controlpb.StandaloneClearResult) {
 	if result == nil {
 		return
 	}
-	fmt.Fprintf(b, "Dropcheck Festival cleared: runs=%d bytes=%s\n", result.GetRemovedRuns(), formatBytes(result.GetRemovedBytes()))
+	fmt.Fprintf(b, "Standalone cleared: runs=%d bytes=%s\n", result.GetRemovedRuns(), formatBytes(result.GetRemovedBytes()))
 }
 
 func renderControllerLinkConfig(b *strings.Builder, config *controlpb.ControllerLinkConfig) {
@@ -1014,6 +1063,61 @@ func ipFamilyName(value controlpb.IpFamily) string {
 	default:
 		return "unspecified"
 	}
+}
+
+func standaloneSecurityName(value controlpb.ConnectWifi_Security) string {
+	switch value {
+	case controlpb.ConnectWifi_SECURITY_WPA2_PSK:
+		return "wpa2"
+	case controlpb.ConnectWifi_SECURITY_WPA3_SAE:
+		return "wpa3"
+	case controlpb.ConnectWifi_SECURITY_WPA2_WPA3_TRANSITION:
+		return "transition"
+	default:
+		return "auto"
+	}
+}
+
+func standaloneBandName(value controlpb.WifiBand) string {
+	switch value {
+	case controlpb.WifiBand_WIFI_BAND_2_4_GHZ:
+		return "2.4ghz"
+	case controlpb.WifiBand_WIFI_BAND_5_GHZ:
+		return "5ghz"
+	case controlpb.WifiBand_WIFI_BAND_6_GHZ:
+		return "6ghz"
+	case controlpb.WifiBand_WIFI_BAND_60_GHZ:
+		return "60ghz"
+	default:
+		return "all"
+	}
+}
+
+func standaloneQTypesName(values []controlpb.DnsRecordType) string {
+	hasA := false
+	hasAAAA := false
+	for _, value := range values {
+		hasA = hasA || value == controlpb.DnsRecordType_DNS_RECORD_TYPE_A
+		hasAAAA = hasAAAA || value == controlpb.DnsRecordType_DNS_RECORD_TYPE_AAAA
+	}
+	switch {
+	case hasA && hasAAAA:
+		return "ALL"
+	case hasAAAA:
+		return "AAAA"
+	default:
+		return "A"
+	}
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "\"\""
+	}
+	if !strings.ContainsAny(value, " \t\n\"'\\") {
+		return value
+	}
+	return strconv.Quote(value)
 }
 
 func unixMillis(ms int64) string {

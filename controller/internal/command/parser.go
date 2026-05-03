@@ -176,14 +176,14 @@ func timeoutFor(cmd *controlpb.RunCommand) time.Duration {
 		return durationFromMillis(c.ResolveDns.TimeoutMs, 10*time.Second) + 3*time.Second
 	case *controlpb.RunCommand_HttpCheck:
 		return durationFromMillis(c.HttpCheck.TimeoutMs, 10*time.Second) + 3*time.Second
-	case *controlpb.RunCommand_RunFestivalOnce:
+	case *controlpb.RunCommand_RunStandaloneOnce:
 		return 30 * time.Minute
-	case *controlpb.RunCommand_SetFestivalConfig,
-		*controlpb.RunCommand_GetFestivalConfig,
-		*controlpb.RunCommand_GetFestivalStatus,
-		*controlpb.RunCommand_ListFestivalRuns,
-		*controlpb.RunCommand_GetFestivalRun,
-		*controlpb.RunCommand_ClearFestivalRuns,
+	case *controlpb.RunCommand_EditStandaloneConfig,
+		*controlpb.RunCommand_GetStandaloneConfig,
+		*controlpb.RunCommand_GetStandaloneStatus,
+		*controlpb.RunCommand_ListStandaloneRuns,
+		*controlpb.RunCommand_GetStandaloneRun,
+		*controlpb.RunCommand_ClearStandaloneRuns,
 		*controlpb.RunCommand_SetControllerLinkConfig,
 		*controlpb.RunCommand_GetControllerLinkConfig,
 		*controlpb.RunCommand_GetControllerLinkStatus,

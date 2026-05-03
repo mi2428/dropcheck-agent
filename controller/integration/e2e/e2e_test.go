@@ -27,12 +27,11 @@
 // The case table is testdata/e2e_cases.tsv. The title column is included in Go
 // subtest names, for example S001_help, so verbose output remains readable.
 // Commands intentionally use placeholders such as <ssid>, <psk>, <serial>,
-// <bssid>, <plan>, and <sync-dir> so lab secrets and machine-local paths are
+// <bssid> and <sync-dir> so lab secrets and machine-local paths are
 // not committed.
 package e2e
 
 import (
-	"bytes"
 	"context"
 	"encoding/csv"
 	"errors"
@@ -89,8 +88,6 @@ type e2eConfig struct {
 	adb            string
 	packageName    string
 	logDir         string
-	planPath       string
-	missingPlan    string
 	syncDir        string
 
 	live               bool
@@ -121,7 +118,7 @@ func TestDropcheckShellManualMatrix(t *testing.T) {
 		cfg.prepareLive(t, selected)
 		t.Cleanup(func() {
 			cfg.runShellCleanup("set controller endpoint disabled")
-			cfg.runShellCleanup("set festival standalone disabled")
+			cfg.runShellCleanup("set standalone disabled")
 			if cfg.ssid != "" && cfg.psk != "" {
 				cfg.runCLICleanup("wifi", "connect", cfg.ssid, "--passphrase", cfg.psk, "--security", "auto", "--timeout", "25000")
 			}
@@ -241,7 +238,7 @@ func loadConfig(t *testing.T) *e2eConfig {
 		adb:                envOr(envADB, defaultADB),
 		packageName:        envOr(envPackage, defaultPkg),
 		logDir:             logDir,
-		syncDir:            filepath.Join(t.TempDir(), "festival-sync"),
+		syncDir:            filepath.Join(t.TempDir(), "standalone-sync"),
 		live:               envBool(envLive),
 		serial:             firstNonEmpty(os.Getenv(envSerial), os.Getenv("ADB_SERIAL")),
 		ssid:               firstNonEmpty(os.Getenv(envSSID), os.Getenv("DROPCHECK_FESTIVAL_WIFI_SSID")),
@@ -252,8 +249,6 @@ func loadConfig(t *testing.T) *e2eConfig {
 	}
 	pskEnv := firstNonEmpty(os.Getenv(envPSKName), os.Getenv("DROPCHECK_FESTIVAL_WIFI_PSK_ENV"), defaultPSKEnv)
 	cfg.psk = firstNonEmpty(os.Getenv(pskEnv), os.Getenv(envPSK), os.Getenv("DROPCHECK_FESTIVAL_WIFI_PSK"))
-	cfg.planPath = renderFestivalPlan(t, cfg.ssid, cfg.psk)
-	cfg.missingPlan = filepath.Join(t.TempDir(), "missing-festival-plan.json")
 	cfg.vars["run-id"] = ""
 	return cfg
 }
@@ -326,10 +321,10 @@ func runShellParser(commandLine string) commandResult {
 	if err != nil {
 		return commandResult{Output: err.Error(), Code: 1, Err: err}
 	}
-	if parsed.Kind == shell.FestivalSync && parsed.FestivalSyncLimit != "" {
-		limit, err := strconv.ParseUint(parsed.FestivalSyncLimit, 10, 32)
+	if parsed.Kind == shell.StandaloneSync && parsed.StandaloneSyncLimit != "" {
+		limit, err := strconv.ParseUint(parsed.StandaloneSyncLimit, 10, 32)
 		if err != nil || limit == 0 {
-			err := fmt.Errorf("festival sync limit must be a positive integer")
+			err := fmt.Errorf("standalone sync limit must be a positive integer")
 			return commandResult{Output: err.Error(), Code: 1, Err: err}
 		}
 	}
@@ -495,8 +490,6 @@ func (cfg *e2eConfig) expand(commandLine string, runner string) (string, string)
 		"<ssid>":                              ssid,
 		"<psk>":                               quoteToken(psk),
 		"<bssid>":                             bssid,
-		"<plan>":                              quoteToken(cfg.planPath),
-		"<missing-plan>":                      quoteToken(cfg.missingPlan),
 		"<sync-dir>":                          quoteToken(cfg.syncDir),
 	}
 	if runID := cfg.vars["run-id"]; runID != "" {
@@ -540,7 +533,7 @@ func timeoutFor(tc matrixCase) time.Duration {
 		return 90 * time.Second
 	case strings.Contains(commandLine, "path-mtu"):
 		return 60 * time.Second
-	case strings.Contains(commandLine, "festival run once"), strings.Contains(commandLine, "festival standalone enabled"):
+	case strings.Contains(commandLine, "standalone run once"), strings.Contains(commandLine, "set standalone enabled"):
 		return 90 * time.Second
 	case strings.Contains(commandLine, "wifi cycle"):
 		return 90 * time.Second
@@ -578,12 +571,12 @@ func (cfg *e2eConfig) captureVars(output string) {
 	if cfg.vars == nil {
 		cfg.vars = map[string]string{}
 	}
-	if match := festivalRunID.FindStringSubmatch(output); match != nil {
+	if match := standaloneRunID.FindStringSubmatch(output); match != nil {
 		cfg.vars["run-id"] = match[1]
 	}
 }
 
-var festivalRunID = regexp.MustCompile(`Dropcheck Festival run: id=([A-Za-z0-9._:-]+)`)
+var standaloneRunID = regexp.MustCompile(`Standalone run: id=([A-Za-z0-9._:-]+)`)
 
 func (cfg *e2eConfig) restoreAfterCase(tc matrixCase, commandLine string) {
 	if !cfg.live || cfg.bin == "" || cfg.serial == "" {
@@ -599,8 +592,8 @@ func (cfg *e2eConfig) restoreAfterCase(tc matrixCase, commandLine string) {
 		cfg.runShellCleanup("set target " + cfg.serial)
 	case strings.Contains(lower, "set controller endpoint") && strings.Contains(lower, "enabled"):
 		cfg.runShellCleanup("set controller endpoint disabled")
-	case strings.Contains(lower, "set festival standalone enabled"):
-		cfg.runShellCleanup("set festival standalone disabled")
+	case strings.Contains(lower, "set standalone enabled"):
+		cfg.runShellCleanup("set standalone disabled")
 	}
 }
 
@@ -690,28 +683,6 @@ func (cfg *e2eConfig) adbShell(timeout time.Duration, args ...string) (string, e
 		return string(out), ctx.Err()
 	}
 	return string(out), err
-}
-
-func renderFestivalPlan(t *testing.T, ssid string, psk string) string {
-	t.Helper()
-	templatePath := filepath.Join(packageDir(t), "testdata", "festival_plan.template.json")
-	data, err := os.ReadFile(templatePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ssid == "" {
-		ssid = "Test SSID"
-	}
-	if psk == "" {
-		psk = "test-passphrase"
-	}
-	rendered := strings.ReplaceAll(string(data), "{{SSID}}", ssid)
-	rendered = strings.ReplaceAll(rendered, "{{PSK}}", psk)
-	path := filepath.Join(t.TempDir(), "festival_plan.json")
-	if err := os.WriteFile(path, []byte(rendered), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return path
 }
 
 func packageDir(t *testing.T) string {
@@ -953,9 +924,6 @@ func TestE2ECaseTableIsMerged(t *testing.T) {
 	}
 	if len(cases) != 355 {
 		t.Fatalf("case count = %d, want 355", len(cases))
-	}
-	if bytes.Contains(mustReadFile(t, filepath.Join(packageDir(t), "testdata", "festival_plan.template.json")), []byte("shizkkawaii")) {
-		t.Fatalf("festival plan template leaks the lab passphrase")
 	}
 }
 

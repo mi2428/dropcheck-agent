@@ -17,7 +17,7 @@ const (
 	shellSetTarget
 	shellClearTarget
 	shellAgentCommand
-	shellFestivalSync
+	shellStandaloneSync
 )
 
 type shellCommand struct {
@@ -48,9 +48,9 @@ func wrapShellCommand(parsed shell.Command) shellCommand {
 		target:     parsed.Target,
 		targetAll:  parsed.TargetAll,
 		operation:  parsed.Operation,
-		syncOutput: parsed.FestivalSyncOutput,
-		syncLimit:  parsed.FestivalSyncLimit,
-		syncMark:   parsed.FestivalSyncMark,
+		syncOutput: parsed.StandaloneSyncOutput,
+		syncLimit:  parsed.StandaloneSyncLimit,
+		syncMark:   parsed.StandaloneSyncMark,
 		pipeline:   wrapPipePipeline(parsed.Pipeline),
 		rawCommand: parsed.RawCommand,
 	}

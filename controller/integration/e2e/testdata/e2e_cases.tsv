@@ -13,15 +13,15 @@ S011	TEST	controller endpoint show	shell	LIVE	show controller endpoint	ok_or_cle
 S012	TEST	controller link show	shell	LIVE	show controller link	ok_or_clear	Current controller link status renders.	controller link show; 
 S013	TEST	controller endpoint disable	shell	LIVE	set controller endpoint disabled	ok_or_clear	Endpoint config is disabled with OK status.	controller endpoint disable; 
 S014	TEST	controller endpoint enable	shell	LIVE	set controller endpoint 127.0.0.1:1 enabled min-backoff 1s max-backoff 2s	ok_or_clear	Endpoint config is enabled and token is redacted in output.	controller endpoint enable; 
-S015	TEST	festival standalone status	shell	LIVE	show festival standalone status	ok_or_clear	Festival standalone status renders.	festival standalone status; 
-S016	TEST	festival standalone config	shell	LIVE	show festival standalone config	ok_or_clear	Festival standalone config renders.	festival standalone config; 
-S017	TEST	festival clear all	shell	LIVE	request festival clear all	ok_or_clear	Stored Festival runs are cleared.	festival clear all; 
-S018	TEST	festival run once	shell	LIVE	request festival run once plan <plan> save	ok_or_clear	A saved Festival archive is created with status OK.	festival run once; 
-S019	TEST	festival runs	shell	LIVE	show festival runs limit 5 synced	ok_or_clear	Saved run list renders and includes the new run.	festival runs; 
-S020	TEST	festival run detail	shell	LIVE	show festival run <run-id>	ok_or_clear	The saved archive renders for the run ID from S018/S019.	festival run detail; 
-S021	TEST	festival sync	shell	LIVE	request festival sync output <sync-dir> limit 1 keep-unsynced	ok_or_clear	One unsynced run archive is downloaded.	festival sync; 
-S022	TEST	festival standalone enable	shell	LIVE	set festival standalone enabled plan <plan> interval 1h retention 1d max-size 1m	ok_or_clear	Standalone config is enabled with the plan.	festival standalone enable; 
-S023	TEST	festival standalone disable	shell	LIVE	set festival standalone disabled	ok_or_clear	Standalone config is disabled.	festival standalone disable; 
+S015	TEST	standalone status	shell	LIVE	show standalone status	ok_or_clear	Standalone status renders.	standalone status;
+S016	TEST	standalone config	shell	LIVE	show standalone config	ok_or_clear	Standalone config renders.	standalone config;
+S017	TEST	standalone clear all	shell	LIVE	request standalone clear all	ok_or_clear	Stored standalone runs are cleared.	standalone clear all;
+S018	TEST	standalone festa enable	shell	LIVE	set standalone festa smoke enabled	ok_or_clear	Standalone festa is enabled.	standalone festa enable;
+S019	TEST	standalone wifi essid	shell	LIVE	set standalone festa smoke wifi-group lab match essid "<ssid>"	ok_or_clear	Standalone Wi-Fi group matches the test ESSID.	standalone wifi essid;
+S020	TEST	standalone wifi credential	shell	LIVE	set standalone festa smoke wifi-group lab credential passphrase <psk>	ok_or_clear	Standalone Wi-Fi credential is stored.	standalone wifi credential;
+S021	TEST	standalone ping check	shell	LIVE	set standalone festa smoke check ping host 1.1.1.1 count 1 timeout 8000	ok_or_clear	Standalone ping check is configured.	standalone ping check;
+S022	TEST	standalone run once	shell	LIVE	request standalone run once festa smoke save	ok_or_clear	A saved standalone archive is created with status OK.	standalone run once;
+S023	TEST	standalone runs	shell	LIVE	show standalone runs limit 5 synced	ok_or_clear	Saved run list renders and includes the new run.	standalone runs;
 S024	TEST	wifi status	shell	LIVE	show wifi status	ok_or_clear	Wi-Fi status renders without dispatch error.	wifi status; 
 S025	TEST	wifi diagnostics	shell	LIVE	show wifi diagnostics	ok_or_clear	Diagnostics render status, capabilities, networks, and scan sections.	wifi diagnostics; 
 S026	TEST	wifi capabilities	shell	LIVE	show wifi capabilities	ok_or_clear	Capabilities render supported/unsupported Wi-Fi features.	wifi capabilities; 
@@ -58,13 +58,13 @@ F007	TEST	show controller	shell	SHELL_ERROR	show controller nope	error	Unknown/i
 F008	TEST	set controller missing endpoint	shell	SHELL_ERROR	set controller endpoint enabled	error	Usage or endpoint-required error.	set controller missing endpoint; Fixed: now prints `controller endpoint is required`.
 F009	TEST	set controller bad port	shell	SHELL_ERROR	set controller endpoint localhost:0 enabled	error	Port must be 1-65535.	set controller bad port; 
 F010	TEST	set controller bad backoff	shell	SHELL_ERROR	set controller endpoint localhost:1234 enabled min-backoff 30s max-backoff 1s	error	Max backoff must be >= min backoff.	set controller bad backoff; 
-F011	TEST	show festival runs bad limit	shell	SHELL_ERROR	show festival runs limit nope	error	Limit must be a positive integer.	show festival runs bad limit; 
-F012	TEST	show festival run missing	shell	SHELL_ERROR	show festival run ""	error	Festival run id is required.	show festival run missing; 
-F013	TEST	set festival missing plan	shell	SHELL_ERROR	set festival standalone enabled	error	Festival plan path is required or usage is printed.	set festival missing plan; Fixed: now prints `festival plan path is required`.
-F014	TEST	set festival missing file	shell	SHELL_ERROR	set festival standalone enabled plan <missing-plan>	error	Read festival plan file error.	set festival missing file; 
-F015	TEST	request festival missing file	shell	SHELL_ERROR	request festival run once plan <missing-plan>	error	Read festival plan file error.	request festival missing file; 
-F016	TEST	request festival clear bad mode	shell	SHELL_ERROR	request festival clear invalid	error	Clear mode must be `synced` or `all`.	request festival clear bad mode; 
-F017	TEST	request festival sync bad limit	shell	SHELL_ERROR	request festival sync limit nope	error	Festival sync limit parse error.	request festival sync bad limit; 
+F011	TEST	show standalone runs bad limit	shell	SHELL_ERROR	show standalone runs limit nope	error	Limit must be a positive integer.	show standalone runs bad limit;
+F012	TEST	show standalone run missing	shell	SHELL_ERROR	show standalone run ""	error	Standalone run id is required.	show standalone run missing;
+F013	TEST	set standalone enabled arity	shell	SHELL_ERROR	set standalone enabled interval 1s	error	Enabled takes no options.	set standalone enabled arity;
+F014	TEST	set standalone bad retention	shell	SHELL_ERROR	set standalone retention -1s	error	Invalid duration error.	set standalone bad retention;
+F015	TEST	request standalone run arity	shell	SHELL_ERROR	request standalone run once festa smoke save extra	error	Usage error.	request standalone run arity;
+F016	TEST	request standalone clear bad mode	shell	SHELL_ERROR	request standalone clear invalid	error	Clear mode must be `synced` or `all`.	request standalone clear bad mode;
+F017	TEST	request standalone sync bad limit	shell	SHELL_ERROR	request standalone sync limit nope	error	Standalone sync limit parse error.	request standalone sync bad limit;
 F018	TEST	show wifi status extra	shell	SHELL_ERROR	show wifi status extra	error	`usage: show wifi status`.	show wifi status extra; 
 F019	TEST	show wifi scan duplicate band	shell	SHELL_ERROR	show wifi scan fresh all all	error	`wifi scan fresh band specified twice`.	show wifi scan duplicate band; 
 F020	TEST	show wifi scan bad timeout	shell	SHELL_ERROR	show wifi scan fresh timeout nope all	error	Timeout must be a positive integer.	show wifi scan bad timeout; 
@@ -128,30 +128,30 @@ T2-CTRL-007	TEST2	Port upper boundary	shell-parser	PARSER	set controller endpoin
 T2-CTRL-008	TEST2	Duration value failure	shell-parser	PARSER	set controller endpoint 127.0.0.1:37589 enabled min-backoff nope	error	Invalid duration error.	Duration value failure.
 T2-CTRL-009	TEST2	Disabled arity	shell-parser	PARSER	set controller endpoint disabled extra	error	Usage error; disabled takes no extra args.	Disabled arity.
 T2-CTRL-010	TEST2	State restore	shell	STATE	set controller endpoint disabled	ok_or_clear	Controller endpoint disabled; restore safe state.	State restore.
-T2-FEST-001	TEST2	synced flag alone	shell	LIVE	show festival runs synced	ok_or_clear	Runs list includes synced records if present, otherwise empty list succeeds.	`synced` flag alone.
-T2-FEST-002	TEST2	Option order with flag before value	shell	LIVE	show festival runs synced limit 1	ok_or_clear	Runs list limited to 1 with synced records included.	Option order with flag before value.
-T2-FEST-003	TEST2	Option order with value before flag	shell	LIVE	show festival runs limit 1 synced	ok_or_clear	Same as above.	Option order with value before flag.
-T2-FEST-004	TEST2	Duplicate flag behavior	shell-parser	PARSER	show festival runs synced synced	error	Resolved anomaly regression: duplicate flag should be rejected or explicitly documented as idempotent.	Duplicate flag behavior.
-T2-FEST-005	TEST2	Duplicate value behavior	shell-parser	PARSER	show festival runs limit 1 limit 2	error	Resolved anomaly regression: duplicate value option should be rejected or documented as last-wins.	Duplicate value behavior.
-T2-FEST-006	TEST2	Empty run ID	shell-parser	PARSER	show festival run ""	ok	Festival run id is required.	Empty run ID.
-T2-FEST-007	TEST2	Default clear mode	shell	LIVE	request festival clear	ok_or_clear	Clears only synced runs; unsynced runs remain.	Default clear mode.
-T2-FEST-008	TEST2	Explicit clear mode	shell	LIVE	request festival clear synced	ok_or_clear	Explicit synced clear succeeds.	Explicit clear mode.
-T2-FEST-009	TEST2	Clear arity failure	shell-parser	PARSER	request festival clear synced all	error	Usage error; only one clear mode.	Clear arity failure.
-T2-FEST-010	TEST2	Duration d, size m	shell	STATE	set festival standalone enabled plan <plan> interval 1d retention 2d max-size 1m	ok_or_clear	Config accepts day durations and megabyte suffix.	Duration `d`, size `m`.
-T2-FEST-011	TEST2	Size g	shell	STATE	set festival standalone enabled plan <plan> max-size 1g	ok_or_clear	Config accepts gigabyte suffix.	Size `g`.
-T2-FEST-012	TEST2	Required plan value	shell-parser	PARSER	set festival standalone enabled interval 1s	ok	Festival plan path is required.	Required `plan` value.
-T2-FEST-013	TEST2	Negative duration	shell-parser	PARSER	set festival standalone enabled plan <plan> retention -1s	error	Invalid duration error.	Negative duration.
-T2-FEST-014	TEST2	Size suffix failure	shell-parser	PARSER	set festival standalone enabled plan <plan> max-size 1t	error	Invalid size suffix error.	Size suffix failure.
-T2-FEST-015	TEST2	Disabled arity	shell-parser	PARSER	set festival standalone disabled plan <plan>	error	Usage error; disabled takes no options.	Disabled arity.
-T2-FEST-016	TEST2	State restore	shell	STATE	set festival standalone disabled	ok_or_clear	Standalone config disabled; restore safe state.	State restore.
-T2-FEST-017	TEST2	save omitted path	shell	LIVE	request festival run once plan <plan>	ok_or_clear	One-off plan runs without saving.	`save` omitted path.
-T2-FEST-018	TEST2	Flag arity failure	shell-parser	PARSER	request festival run once plan <plan> save extra	error	Usage/unknown option error.	Flag arity failure.
-T2-FEST-019	TEST2	Option order edge	shell-parser	PARSER	request festival run once save plan <plan>	ok	Accepted if shell grammar allows flag before plan; otherwise stable error.	Option order edge.
-T2-FEST-020	TEST2	mark-synced explicit path	shell	LIVE	request festival sync output <sync-dir> limit 1 mark-synced	ok_or_clear	Sync downloads at most one run and marks it synced.	`mark-synced` explicit path.
-T2-FEST-021	TEST2	Default mark behavior	shell	LIVE	request festival sync output <sync-dir> limit 1	ok_or_clear	Default sync marks downloaded runs synced.	Default mark behavior.
-T2-FEST-022	TEST2	Conflicting sync flags	shell	LIVE	request festival sync output <sync-dir> limit 1 mark-synced keep-unsynced	ok_or_clear	Conflicting sync flags are rejected with a clear error.	Conflicting sync flags.
-T2-FEST-023	TEST2	Conflicting sync flags reversed	shell	LIVE	request festival sync output <sync-dir> limit 1 keep-unsynced mark-synced	ok_or_clear	Conflicting sync flags are rejected with a clear error.	Conflicting sync flags reversed.
-T2-FEST-024	TEST2	Limit boundary	shell-parser	PARSER	request festival sync limit 0	error	Resolved anomaly regression: expected positive limit error; current app parser may accept zero.	Limit boundary.
+T2-FEST-001	TEST2	synced flag alone	shell	LIVE	show standalone runs synced	ok_or_clear	Runs list includes synced records if present, otherwise empty list succeeds.	`synced` flag alone.
+T2-FEST-002	TEST2	Option order with flag before value	shell	LIVE	show standalone runs synced limit 1	ok_or_clear	Runs list limited to 1 with synced records included.	Option order with flag before value.
+T2-FEST-003	TEST2	Option order with value before flag	shell	LIVE	show standalone runs limit 1 synced	ok_or_clear	Same as above.	Option order with value before flag.
+T2-FEST-004	TEST2	Duplicate flag behavior	shell-parser	PARSER	show standalone runs synced synced	error	Resolved anomaly regression: duplicate flag should be rejected or explicitly documented as idempotent.	Duplicate flag behavior.
+T2-FEST-005	TEST2	Duplicate value behavior	shell-parser	PARSER	show standalone runs limit 1 limit 2	error	Resolved anomaly regression: duplicate value option should be rejected or documented as last-wins.	Duplicate value behavior.
+T2-FEST-006	TEST2	Empty run ID	shell-parser	PARSER	show standalone run ""	error	Standalone run id is required.	Empty run ID.
+T2-FEST-007	TEST2	Default clear mode	shell	LIVE	request standalone clear	ok_or_clear	Clears only synced runs; unsynced runs remain.	Default clear mode.
+T2-FEST-008	TEST2	Explicit clear mode	shell	LIVE	request standalone clear synced	ok_or_clear	Explicit synced clear succeeds.	Explicit clear mode.
+T2-FEST-009	TEST2	Clear arity failure	shell-parser	PARSER	request standalone clear synced all	error	Usage error; only one clear mode.	Clear arity failure.
+T2-FEST-010	TEST2	Duration d	shell	STATE	set standalone retention 2d	ok_or_clear	Config accepts day durations.	Duration `d`.
+T2-FEST-011	TEST2	Size g	shell	STATE	set standalone max-size 1g	ok_or_clear	Config accepts gigabyte suffix.	Size `g`.
+T2-FEST-012	TEST2	Enabled arity failure	shell-parser	PARSER	set standalone enabled interval 1s	error	Enabled takes no options.	Enabled arity failure.
+T2-FEST-013	TEST2	Negative duration	shell-parser	PARSER	set standalone retention -1s	error	Invalid duration error.	Negative duration.
+T2-FEST-014	TEST2	Size suffix failure	shell-parser	PARSER	set standalone max-size 1t	error	Invalid size suffix error.	Size suffix failure.
+T2-FEST-015	TEST2	Disabled arity	shell-parser	PARSER	set standalone disabled plan nope	error	Usage error; disabled takes no options.	Disabled arity.
+T2-FEST-016	TEST2	State restore	shell	STATE	set standalone disabled	ok_or_clear	Standalone config disabled; restore safe state.	State restore.
+T2-FEST-017	TEST2	save omitted path	shell	LIVE	request standalone run once festa smoke	ok_or_clear	One-off standalone run runs without saving.	`save` omitted path.
+T2-FEST-018	TEST2	Flag arity failure	shell-parser	PARSER	request standalone run once festa smoke save extra	error	Usage/unknown option error.	Flag arity failure.
+T2-FEST-019	TEST2	Option order edge	shell-parser	PARSER	request standalone run once save festa smoke	ok	Accepted if shell grammar allows flag before festa; otherwise stable error.	Option order edge.
+T2-FEST-020	TEST2	mark-synced explicit path	shell	LIVE	request standalone sync output <sync-dir> limit 1 mark-synced	ok_or_clear	Sync downloads at most one run and marks it synced.	`mark-synced` explicit path.
+T2-FEST-021	TEST2	Default mark behavior	shell	LIVE	request standalone sync output <sync-dir> limit 1	ok_or_clear	Default sync marks downloaded runs synced.	Default mark behavior.
+T2-FEST-022	TEST2	Conflicting sync flags	shell	LIVE	request standalone sync output <sync-dir> limit 1 mark-synced keep-unsynced	ok_or_clear	Conflicting sync flags are rejected with a clear error.	Conflicting sync flags.
+T2-FEST-023	TEST2	Conflicting sync flags reversed	shell	LIVE	request standalone sync output <sync-dir> limit 1 keep-unsynced mark-synced	ok_or_clear	Conflicting sync flags are rejected with a clear error.	Conflicting sync flags reversed.
+T2-FEST-024	TEST2	Limit boundary	shell-parser	PARSER	request standalone sync limit 0	error	Resolved anomaly regression: expected positive limit error; current app parser may accept zero.	Limit boundary.
 T2-WSCAN-001	TEST2	Band value 2.4ghz	shell	LIVE	show wifi scan 2.4ghz	ok_or_clear	Cached scan filtered to 2.4 GHz succeeds.	Band value `2.4ghz`.
 T2-WSCAN-002	TEST2	Band value 5ghz	shell	LIVE	show wifi scan 5ghz	ok_or_clear	Cached scan filtered to 5 GHz succeeds.	Band value `5ghz`.
 T2-WSCAN-003	TEST2	Band value 6ghz	shell	LIVE	show wifi scan 6ghz	ok_or_clear	Cached scan filtered to 6 GHz succeeds even if empty.	Band value `6ghz`.
@@ -346,11 +346,11 @@ T2-CLI-039	TEST2	CLI DNS dash type	cli	CLI	dropcheck dns example.com --type AAAA
 T2-CLI-040	TEST2	CLI HTTP positional status	cli	CLI	dropcheck http https://www.google.com/generate_204 204 --timeout 7000	ok	Positional expected status works.	CLI HTTP positional status.
 T2-CLI-041	TEST2	CLI HTTP dash status	cli	CLI	dropcheck http https://www.google.com/generate_204 --expected-status 204 --timeout 7000	ok	Dash expected status works.	CLI HTTP dash status.
 T2-CLI-042	TEST2	CLI download timeout	cli	CLI	dropcheck download https://example.com --timeout 30000	ok	Download dash timeout works.	CLI download timeout.
-T2-CLI-043	TEST2	CLI festival runs	cli	CLI	dropcheck show festival runs --limit 1 --synced	ok	Festival runs CLI flags work.	CLI festival runs.
-T2-CLI-044	TEST2	CLI sync flags	cli	CLI	dropcheck request festival sync --output <sync-dir> --limit 1 --keep-unsynced	ok	CLI sync keep-unsynced works.	CLI sync flags.
-T2-CLI-045	TEST2	Shell/CLI conflict semantics	cli	CLI	dropcheck request festival sync --output <sync-dir> --limit 1 --mark-synced --keep-unsynced	ok	CLI currently makes mark-synced win; compare with Shell last-wins and mark anomaly if undocumented.	Shell/CLI conflict semantics.
+T2-CLI-043	TEST2	CLI standalone runs	cli	CLI	dropcheck show standalone runs --limit 1 --synced	ok	Standalone runs CLI flags work.	CLI standalone runs.
+T2-CLI-044	TEST2	CLI sync flags	cli	CLI	dropcheck request standalone sync --output <sync-dir> --limit 1 --keep-unsynced	ok	CLI sync keep-unsynced works.	CLI sync flags.
+T2-CLI-045	TEST2	Shell/CLI conflict semantics	cli	CLI	dropcheck request standalone sync --output <sync-dir> --limit 1 --mark-synced --keep-unsynced	ok	CLI currently makes mark-synced win; compare with Shell last-wins and mark anomaly if undocumented.	Shell/CLI conflict semantics.
 T2-CLI-046	TEST2	CLI controller options	cli	CLI	dropcheck set controller endpoint 127.0.0.1:37589 enabled --min-backoff 500ms --max-backoff 2s	ok	CLI controller endpoint options work.	CLI controller options.
-T2-CLI-047	TEST2	CLI festival options	cli	CLI	dropcheck set festival standalone enabled --plan <plan> --interval 1d --retention 2d --max-size 1m	ok	CLI festival standalone options work.	CLI festival options.
+T2-CLI-047	TEST2	CLI standalone set	cli	CLI	dropcheck set standalone retention 2d	ok	CLI standalone set works.	CLI standalone set.
 T2-CLI-048	TEST2	CLI unsupported option	cli	CLI	dropcheck wifi status --unknown	error	Usage/unknown option error.	CLI unsupported option.
 T2-CLI-049	TEST2	CLI duplicate option	cli	CLI	dropcheck wifi connect "<ssid>" --passphrase <psk> --passphrase other	error	Duplicate option error from dash parser.	CLI duplicate option.
 T2-CLI-050	TEST2	CLI repeatable option exception	cli	CLI	dropcheck traceroute 1.1.1.1 --via 192.168.23.254 --via 1.1.1.1	ok	Repeatable `--via` accepted.	CLI repeatable option exception.

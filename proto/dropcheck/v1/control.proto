@@ -117,13 +117,13 @@ message RunCommand {
     Wget wget = 30;
     PathMtu path_mtu = 31;
     GlobalIp global_ip = 32;
-    SetFestivalConfig set_festival_config = 33;
-    GetFestivalConfig get_festival_config = 34;
-    GetFestivalStatus get_festival_status = 35;
-    ListFestivalRuns list_festival_runs = 36;
-    GetFestivalRun get_festival_run = 37;
-    ClearFestivalRuns clear_festival_runs = 38;
-    RunFestivalOnce run_festival_once = 39;
+    EditStandaloneConfig edit_standalone_config = 33;
+    GetStandaloneConfig get_standalone_config = 34;
+    GetStandaloneStatus get_standalone_status = 35;
+    ListStandaloneRuns list_standalone_runs = 36;
+    GetStandaloneRun get_standalone_run = 37;
+    ClearStandaloneRuns clear_standalone_runs = 38;
+    RunStandaloneOnce run_standalone_once = 39;
     SetControllerLinkConfig set_controller_link_config = 40;
     GetControllerLinkConfig get_controller_link_config = 41;
     GetControllerLinkStatus get_controller_link_status = 42;
@@ -282,31 +282,43 @@ message HttpCheck {
   NetworkSelector selector = 4;
 }
 
-message SetFestivalConfig {
-  FestivalConfig config = 1;
+message EditStandaloneConfig {
+  repeated StandaloneEdit edits = 1;
 }
 
-message GetFestivalConfig {}
+message StandaloneEdit {
+  enum Action {
+    ACTION_UNSPECIFIED = 0;
+    ACTION_SET = 1;
+    ACTION_DELETE = 2;
+  }
 
-message GetFestivalStatus {}
+  Action action = 1;
+  repeated string path = 2;
+  string value = 3;
+}
 
-message ListFestivalRuns {
+message GetStandaloneConfig {}
+
+message GetStandaloneStatus {}
+
+message ListStandaloneRuns {
   uint32 limit = 1;
   bool include_synced = 2;
 }
 
-message GetFestivalRun {
+message GetStandaloneRun {
   string run_id = 1;
   bool mark_synced = 2;
 }
 
-message ClearFestivalRuns {
+message ClearStandaloneRuns {
   bool synced_only = 1;
   bool all = 2;
 }
 
-message RunFestivalOnce {
-  FestivalPlan plan = 1;
+message RunStandaloneOnce {
+  string festa = 1;
   bool save = 2;
 }
 
@@ -342,36 +354,62 @@ message ControllerLinkStatus {
   int64 next_retry_unix_ms = 8;
 }
 
-message FestivalConfig {
+message StandaloneConfig {
   bool enabled = 1;
-  uint32 interval_ms = 2;
-  uint32 retention_ms = 3;
-  uint64 max_bytes = 4;
-  FestivalPlan plan = 5;
+  uint32 retention_ms = 2;
+  uint64 max_bytes = 3;
+  repeated StandaloneFesta festas = 4;
 }
 
-message FestivalPlan {
+message StandaloneFesta {
   string name = 1;
-  repeated FestivalNetwork networks = 2;
-  repeated FestivalStep checks = 3;
+  bool enabled = 2;
+  uint32 interval_ms = 3;
+  repeated StandaloneWifiGroup wifi_groups = 4;
+  StandaloneChecks checks = 5;
 }
 
-message FestivalNetwork {
+message StandaloneWifiGroup {
   string name = 1;
-  ConnectWifi connect = 2;
-  WaitWifiConnected wait_connected = 3;
-  repeated FestivalStep checks = 4;
-  bool disconnect_after = 5;
-  bool forget_after = 6;
-  uint32 pause_ms = 7;
+  string essid = 2;
+  string bssid = 3;
+  string passphrase = 4;
+  ConnectWifi.Security security = 5;
+  WifiBand band = 6;
+  bool require_ip = 7;
+  bool require_validated = 8;
+  uint32 timeout_ms = 9;
 }
 
-message FestivalStep {
-  string name = 1;
-  RunCommand command = 2;
+message StandaloneChecks {
+  StandaloneDnsCheck dns = 1;
+  StandalonePingCheck ping = 2;
+  StandaloneHttpCheck http = 3;
 }
 
-message FestivalStatus {
+message StandaloneDnsCheck {
+  bool enabled = 1;
+  string name = 2;
+  repeated DnsRecordType qtypes = 3;
+  uint32 timeout_ms = 4;
+}
+
+message StandalonePingCheck {
+  bool enabled = 1;
+  string host = 2;
+  uint32 count = 3;
+  uint32 timeout_ms = 4;
+  uint32 size_bytes = 5;
+}
+
+message StandaloneHttpCheck {
+  bool enabled = 1;
+  string url = 2;
+  uint32 expected_status = 3;
+  uint32 timeout_ms = 4;
+}
+
+message StandaloneStatus {
   bool enabled = 1;
   bool running = 2;
   string current_run_id = 3;
@@ -384,37 +422,37 @@ message FestivalStatus {
   string message = 10;
 }
 
-message FestivalRunSummary {
+message StandaloneRunSummary {
   string run_id = 1;
-  string plan_name = 2;
-  string plan_hash = 3;
+  string festa_name = 2;
+  string config_hash = 3;
   int64 started_unix_ms = 4;
   int64 finished_unix_ms = 5;
   string status = 6;
-  uint32 network_count = 7;
+  uint32 wifi_group_count = 7;
   uint32 step_count = 8;
   uint32 failed_step_count = 9;
   bool synced = 10;
   string message = 11;
 }
 
-message FestivalRuns {
-  repeated FestivalRunSummary runs = 1;
+message StandaloneRuns {
+  repeated StandaloneRunSummary runs = 1;
   uint32 total_runs = 2;
   uint32 unsynced_runs = 3;
 }
 
-message FestivalRunArchive {
-  FestivalRunSummary summary = 1;
+message StandaloneRunArchive {
+  StandaloneRunSummary summary = 1;
   DeviceInfo device = 2;
-  FestivalPlan plan = 3;
-  repeated FestivalMeasurementStep steps = 4;
+  StandaloneFesta festa = 3;
+  repeated StandaloneMeasurementStep steps = 4;
   repeated CommandLog logs = 5;
 }
 
-message FestivalMeasurementStep {
-  uint32 network_index = 1;
-  string network_name = 2;
+message StandaloneMeasurementStep {
+  uint32 wifi_group_index = 1;
+  string wifi_group_name = 2;
   uint32 step_index = 3;
   string step_name = 4;
   uint32 attempt = 5;
@@ -425,7 +463,7 @@ message FestivalMeasurementStep {
   string error = 10;
 }
 
-message FestivalClearResult {
+message StandaloneClearResult {
   uint32 removed_runs = 1;
   uint64 removed_bytes = 2;
 }
@@ -489,11 +527,11 @@ message CommandResult {
     WgetResult wget = 26;
     PathMtuResult path_mtu = 27;
     GlobalIpResult global_ip = 28;
-    FestivalConfig festival_config = 29;
-    FestivalStatus festival_status = 30;
-    FestivalRuns festival_runs = 31;
-    FestivalRunArchive festival_run = 32;
-    FestivalClearResult festival_clear = 33;
+    StandaloneConfig standalone_config = 29;
+    StandaloneStatus standalone_status = 30;
+    StandaloneRuns standalone_runs = 31;
+    StandaloneRunArchive standalone_run = 32;
+    StandaloneClearResult standalone_clear = 33;
     ControllerLinkConfig controller_link_config = 34;
     ControllerLinkStatus controller_link_status = 35;
   }
