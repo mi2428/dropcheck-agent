@@ -15,24 +15,30 @@ const (
 	shellExit
 	shellExitMode
 	shellHelp
+	shellEnterConfigureMode
 	shellEnterRequestMode
 	shellShowDevices
-	shellShowTarget
 	shellShowConfig
-	shellSetTarget
-	shellClearTarget
 	shellAgentCommand
 	shellStandaloneSync
+)
+
+// Mode identifies the parser context for the interactive shell.
+type Mode int
+
+const (
+	// ModeOperational is the default top-level shell mode.
+	ModeOperational Mode = iota
+	// ModeConfigure edits persistent Agent App configuration.
+	ModeConfigure
+	// ModeRequest runs one-shot requests against the selected Agent App.
+	ModeRequest
 )
 
 // Command is the parsed representation of one interactive shell command.
 type Command struct {
 	// Kind selects the shell action to perform.
 	Kind CommandKind
-	// Target is populated by "set target" commands.
-	Target string
-	// TargetAll is true for broadcast target selection.
-	TargetAll bool
 	// Operation is populated when Kind is AgentCommand.
 	Operation command.Operation
 	// ConfigScope is populated by "show config".
@@ -66,26 +72,23 @@ const (
 	ExitMode = shellExitMode
 	// Help represents the top-level help command.
 	Help = shellHelp
+	// EnterConfigureMode represents entering the configure submode.
+	EnterConfigureMode = shellEnterConfigureMode
 	// EnterRequestMode represents entering the request submode.
 	EnterRequestMode = shellEnterRequestMode
 	// ShowDevices represents "show devices".
 	ShowDevices = shellShowDevices
-	// ShowTarget represents "show target".
-	ShowTarget = shellShowTarget
 	// ShowConfig represents "show config ...".
 	ShowConfig = shellShowConfig
-	// SetTarget represents "set target ...".
-	SetTarget = shellSetTarget
-	// ClearTarget represents "clear target".
-	ClearTarget = shellClearTarget
 	// AgentCommand represents a command that should be sent to Android agents.
 	AgentCommand = shellAgentCommand
 	// StandaloneSync represents downloading stored standalone archives.
 	StandaloneSync = shellStandaloneSync
 )
 
-var shellTopKeywords = []string{"show", "set", "delete", "clear", "sync", "request", "help", "exit", "quit"}
-var shellRequestKeywords = []string{"wifi", "standalone", "controller", "monitor", "ping", "traceroute", "path-mtu", "global-ip", "test", "help", "exit", "quit"}
+var shellTopKeywords = []string{"show", "clear", "sync", "configure", "request", "help", "exit", "quit"}
+var shellConfigureKeywords = []string{"show", "set", "delete", "run", "help", "exit", "quit"}
+var shellRequestKeywords = []string{"wifi", "standalone", "controller", "monitor", "ping", "traceroute", "path-mtu", "global-ip", "dns", "http", "download", "help", "exit", "quit"}
 
 // ParseLine parses a complete interactive shell line, including pipelines.
 //
@@ -98,14 +101,20 @@ func ParseLine(line string) (Command, error) {
 // ParseRequestLine parses a complete interactive shell line inside request
 // mode, including pipelines.
 func ParseRequestLine(line string) (Command, error) {
-	return parseShellLineInMode(line, true)
+	return parseShellLineInMode(line, ModeRequest)
+}
+
+// ParseConfigureLine parses a complete interactive shell line inside configure
+// mode, including pipelines.
+func ParseConfigureLine(line string) (Command, error) {
+	return parseShellLineInMode(line, ModeConfigure)
 }
 
 func parseShellLine(line string) (Command, error) {
-	return parseShellLineInMode(line, false)
+	return parseShellLineInMode(line, ModeOperational)
 }
 
-func parseShellLineInMode(line string, requestMode bool) (Command, error) {
+func parseShellLineInMode(line string, mode Mode) (Command, error) {
 	parts, err := pipeline.Split(line)
 	if err != nil {
 		return Command{}, err
@@ -118,7 +127,7 @@ func parseShellLineInMode(line string, requestMode bool) (Command, error) {
 	if err != nil {
 		return Command{}, err
 	}
-	cmd, err := parseShellArgsInMode(args, requestMode)
+	cmd, err := parseShellArgsInMode(args, mode)
 	if err != nil {
 		return Command{}, err
 	}
@@ -136,13 +145,21 @@ func ParseArgs(args []string) (Command, error) {
 }
 
 func parseShellArgs(args []string) (Command, error) {
-	return parseShellArgsInMode(args, false)
+	return parseShellArgsInMode(args, ModeOperational)
 }
 
-func parseShellArgsInMode(args []string, requestMode bool) (Command, error) {
-	if requestMode {
+func parseShellArgsInMode(args []string, mode Mode) (Command, error) {
+	switch mode {
+	case ModeRequest:
 		return parseShellRequestModeArgs(args)
+	case ModeConfigure:
+		return parseShellConfigureModeArgs(args)
+	default:
+		return parseShellOperationalArgs(args, false)
 	}
+}
+
+func parseShellOperationalArgs(args []string, allowRequestCommand bool) (Command, error) {
 	if len(args) == 0 {
 		return Command{Kind: shellNoop}, nil
 	}
@@ -163,18 +180,65 @@ func parseShellArgsInMode(args []string, requestMode bool) (Command, error) {
 		return Command{Kind: shellHelp}, nil
 	case "show":
 		return parseShellShow(args[1:])
-	case "set":
-		return parseShellSet(args[1:])
-	case "delete":
-		return parseShellDelete(args[1:])
 	case "clear":
 		return parseShellClear(args[1:])
 	case "sync":
 		return parseShellSync(args[1:])
+	case "configure":
+		if len(args) != 1 {
+			return Command{}, fmt.Errorf("usage: configure")
+		}
+		return Command{Kind: shellEnterConfigureMode}, nil
 	case "request":
+		if allowRequestCommand && len(args) > 1 {
+			return parseShellRequestModeArgs(args[1:])
+		}
 		return parseShellRequest(args[1:])
 	default:
 		return Command{}, fmt.Errorf("unknown command %q", args[0])
+	}
+}
+
+func parseShellConfigureModeArgs(args []string) (Command, error) {
+	if len(args) == 0 {
+		return Command{Kind: shellNoop}, nil
+	}
+	top, err := resolveShellKeyword("configure command", args[0], shellConfigureKeywords)
+	if err != nil {
+		return Command{}, err
+	}
+	switch top {
+	case "exit":
+		if len(args) != 1 {
+			return Command{}, fmt.Errorf("usage: exit")
+		}
+		return Command{Kind: shellExitMode}, nil
+	case "quit":
+		if len(args) != 1 {
+			return Command{}, fmt.Errorf("usage: quit")
+		}
+		return Command{Kind: shellExit}, nil
+	case "help":
+		if len(args) != 1 {
+			return Command{}, fmt.Errorf("usage: help")
+		}
+		return Command{Kind: shellHelp}, nil
+	case "show":
+		return parseShellConfigureShow(args[1:])
+	case "set":
+		return parseShellSet(args[1:])
+	case "delete":
+		return parseShellDelete(args[1:])
+	case "run":
+		if len(args) == 1 {
+			return Command{}, fmt.Errorf("usage: run <show|clear|sync|request> <command>")
+		}
+		if len(args) == 2 && args[1] == "request" {
+			return Command{}, fmt.Errorf("usage: run request <request-command>")
+		}
+		return parseShellOperationalArgs(args[1:], true)
+	default:
+		return Command{}, fmt.Errorf("unknown configure command %q", args[0])
 	}
 }
 
@@ -218,8 +282,12 @@ func parseShellRequestModeArgs(args []string) (Command, error) {
 		return parseShellPathMtu(args[1:])
 	case "global-ip":
 		return parseShellGlobalIp(args[1:])
-	case "test":
-		return parseShellTest(args[1:])
+	case "dns":
+		return parseShellDNS(args[1:])
+	case "http":
+		return parseShellHTTP(args[1:])
+	case "download":
+		return parseShellDownload(args[1:])
 	default:
 		return Command{}, fmt.Errorf("unknown request command %q", args[0])
 	}
@@ -227,9 +295,9 @@ func parseShellRequestModeArgs(args []string) (Command, error) {
 
 func parseShellShow(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: show <devices|target|config|wifi|standalone|controller>")
+		return Command{}, fmt.Errorf("usage: show <devices|config|wifi|standalone|controller>")
 	}
-	name, err := resolveShellKeyword("show command", args[0], []string{"devices", "target", "config", "wifi", "standalone", "controller"})
+	name, err := resolveShellKeyword("show command", args[0], []string{"devices", "config", "wifi", "standalone", "controller"})
 	if err != nil {
 		return Command{}, err
 	}
@@ -239,11 +307,6 @@ func parseShellShow(args []string) (Command, error) {
 			return Command{}, fmt.Errorf("usage: show devices")
 		}
 		return Command{Kind: shellShowDevices}, nil
-	case "target":
-		if len(args) != 1 {
-			return Command{}, fmt.Errorf("usage: show target")
-		}
-		return Command{Kind: shellShowTarget}, nil
 	case "config":
 		return parseShellShowConfig(args[1:])
 	case "wifi":
@@ -255,6 +318,13 @@ func parseShellShow(args []string) (Command, error) {
 	default:
 		return Command{}, fmt.Errorf("unknown show command %q", args[0])
 	}
+}
+
+func parseShellConfigureShow(args []string) (Command, error) {
+	if len(args) == 0 {
+		return Command{Kind: shellShowConfig, ConfigScope: "all"}, nil
+	}
+	return parseShellShowConfig(args)
 }
 
 func parseShellShowController(args []string) (Command, error) {
@@ -450,21 +520,13 @@ func parseShellShowWifiScan(args []string) (Command, error) {
 
 func parseShellSet(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: set <target|standalone|controller>")
+		return Command{}, fmt.Errorf("usage: set <standalone|controller>")
 	}
-	name, err := resolveShellKeyword("set command", args[0], []string{"target", "standalone", "controller"})
+	name, err := resolveShellKeyword("set command", args[0], []string{"standalone", "controller"})
 	if err != nil {
 		return Command{}, err
 	}
 	switch name {
-	case "target":
-		if len(args) != 2 {
-			return Command{}, fmt.Errorf("usage: set target <agent_id|adb_serial|number|all>")
-		}
-		if args[1] == "all" {
-			return Command{Kind: shellSetTarget, TargetAll: true}, nil
-		}
-		return Command{Kind: shellSetTarget, Target: args[1]}, nil
 	case "standalone":
 		return parseShellSetStandalone(args[1:])
 	case "controller":
@@ -558,18 +620,13 @@ func parseShellDelete(args []string) (Command, error) {
 
 func parseShellClear(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: clear <target|standalone runs>")
+		return Command{}, fmt.Errorf("usage: clear standalone runs [synced|all]")
 	}
-	name, err := resolveShellKeyword("clear command", args[0], []string{"target", "standalone"})
+	name, err := resolveShellKeyword("clear command", args[0], []string{"standalone"})
 	if err != nil {
 		return Command{}, err
 	}
 	switch name {
-	case "target":
-		if len(args) != 1 {
-			return Command{}, fmt.Errorf("usage: clear target")
-		}
-		return Command{Kind: shellClearTarget}, nil
 	case "standalone":
 		if len(args) < 2 || len(args) > 3 {
 			return Command{}, fmt.Errorf("usage: clear standalone runs [synced|all]")
@@ -1097,34 +1154,14 @@ func parseShellGlobalIp(args []string) (Command, error) {
 	return agentShellCommand(op), err
 }
 
-func parseShellTest(args []string) (Command, error) {
+func parseShellDNS(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: test <dns|http|download>")
-	}
-	name, err := resolveShellKeyword("test command", args[0], []string{"dns", "http", "download"})
-	if err != nil {
-		return Command{}, err
-	}
-	switch name {
-	case "dns":
-		return parseShellTestDNS(args[1:])
-	case "http":
-		return parseShellTestHTTP(args[1:])
-	case "download":
-		return parseShellTestDownload(args[1:])
-	default:
-		return Command{}, fmt.Errorf("unknown test command %q", args[0])
-	}
-}
-
-func parseShellTestDNS(args []string) (Command, error) {
-	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: test dns [type A|AAAA|ALL] [timeout <ms>] <name>")
+		return Command{}, fmt.Errorf("usage: dns [type A|AAAA|ALL] [timeout <ms>] <name>")
 	}
 	var name string
 	values := map[string]string{}
 	for i := 0; i < len(args); i++ {
-		key, err := resolveShellKeyword("test dns option", args[i], []string{"type", "timeout"})
+		key, err := resolveShellKeyword("dns option", args[i], []string{"type", "timeout"})
 		if err == nil {
 			value, next, err := shellValue(args, i, key)
 			if err != nil {
@@ -1151,25 +1188,25 @@ func parseShellTestDNS(args []string) (Command, error) {
 			}
 		}
 		if name != "" {
-			return Command{}, fmt.Errorf("unexpected test dns argument %q", args[i])
+			return Command{}, fmt.Errorf("unexpected dns argument %q", args[i])
 		}
 		name = args[i]
 	}
 	if name == "" {
-		return Command{}, fmt.Errorf("usage: test dns [type A|AAAA|ALL] [timeout <ms>] <name>")
+		return Command{}, fmt.Errorf("usage: dns [type A|AAAA|ALL] [timeout <ms>] <name>")
 	}
 	op, err := command.DNSOperation(name, values["type"], values["timeout"])
 	return agentShellCommand(op), err
 }
 
-func parseShellTestHTTP(args []string) (Command, error) {
+func parseShellHTTP(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: test http [expected-status <code>] [timeout <ms>] <url>")
+		return Command{}, fmt.Errorf("usage: http [expected-status <code>] [timeout <ms>] <url>")
 	}
 	var url string
 	values := map[string]string{}
 	for i := 0; i < len(args); i++ {
-		key, err := resolveShellKeyword("test http option", args[i], []string{"expected-status", "timeout"})
+		key, err := resolveShellKeyword("http option", args[i], []string{"expected-status", "timeout"})
 		if err == nil {
 			value, next, err := shellValue(args, i, key)
 			if err != nil {
@@ -1182,28 +1219,28 @@ func parseShellTestHTTP(args []string) (Command, error) {
 			continue
 		}
 		if url != "" {
-			return Command{}, fmt.Errorf("unexpected test http argument %q", args[i])
+			return Command{}, fmt.Errorf("unexpected http argument %q", args[i])
 		}
 		url = args[i]
 	}
 	if url == "" {
-		return Command{}, fmt.Errorf("usage: test http [expected-status <code>] [timeout <ms>] <url>")
+		return Command{}, fmt.Errorf("usage: http [expected-status <code>] [timeout <ms>] <url>")
 	}
 	op, err := command.HTTPOperation(url, values["expected-status"], values["timeout"])
 	return agentShellCommand(op), err
 }
 
-func parseShellTestDownload(args []string) (Command, error) {
+func parseShellDownload(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: test download [timeout <ms>] <url>")
+		return Command{}, fmt.Errorf("usage: download [timeout <ms>] <url>")
 	}
 	var url string
 	values := map[string]string{}
 	for i := 0; i < len(args); i++ {
-		key, err := resolveShellKeyword("test download option", args[i], []string{"timeout"})
+		key, err := resolveShellKeyword("download option", args[i], []string{"timeout"})
 		if err != nil {
 			if url != "" {
-				return Command{}, fmt.Errorf("unexpected test download argument %q", args[i])
+				return Command{}, fmt.Errorf("unexpected download argument %q", args[i])
 			}
 			url = args[i]
 			continue
@@ -1218,7 +1255,7 @@ func parseShellTestDownload(args []string) (Command, error) {
 		i = next
 	}
 	if url == "" {
-		return Command{}, fmt.Errorf("usage: test download [timeout <ms>] <url>")
+		return Command{}, fmt.Errorf("usage: download [timeout <ms>] <url>")
 	}
 	op, err := command.DownloadOperation(url, values["timeout"])
 	return agentShellCommand(op), err

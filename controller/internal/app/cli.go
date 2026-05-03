@@ -51,13 +51,6 @@ func runCLI(ctx context.Context, opts shellOptions, rawArgs []string) error {
 		}
 		fmt.Print(out)
 		return nil
-	case linuxcli.Target:
-		out, err := renderTarget(targetView(state), cliOpts.Format)
-		if err != nil {
-			return err
-		}
-		fmt.Print(out)
-		return nil
 	case linuxcli.Config:
 		agents, err := state.commandTargets()
 		if err != nil {

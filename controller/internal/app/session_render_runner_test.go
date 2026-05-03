@@ -71,7 +71,7 @@ func TestShellPromptUsesAgentLabelAndModeSuffix(t *testing.T) {
 		t.Fatalf("prompt() = %q, want %q", got, want)
 	}
 
-	state.requestMode = true
+	state.mode = shellModeRequest
 	if got, want := state.prompt(), "R5CT12345(request)# "; got != want {
 		t.Fatalf("request prompt() = %q, want %q", got, want)
 	}
