@@ -122,6 +122,7 @@ T2-FEST-006	TEST2	Empty run ID	shell-parser	PARSER	show standalone run ""	error	
 T2-FEST-007	TEST2	Default clear mode	shell	LIVE	clear standalone runs	ok_or_clear	Clears only synced runs; unsynced runs remain.	Default clear mode.
 T2-FEST-008	TEST2	Explicit clear mode	shell	LIVE	clear standalone runs synced	ok_or_clear	Explicit synced clear succeeds.	Explicit clear mode.
 T2-FEST-009	TEST2	Clear arity failure	shell-parser	PARSER	clear standalone runs synced all	error	Usage error; only one clear mode.	Clear arity failure.
+T2-FEST-025	TEST2	Delete festa parser	shell-parser	PARSER	config> delete standalone festa smoke	ok	Delete standalone festa parses to a standalone config edit.	Delete festa parser.
 T2-FEST-010	TEST2	Duration d	shell	STATE	config> set standalone retention 2d	ok_or_clear	Config accepts day durations.	Duration `d`.
 T2-FEST-011	TEST2	Size g	shell	STATE	config> set standalone max-size 1g	ok_or_clear	Config accepts gigabyte suffix.	Size `g`.
 T2-FEST-012	TEST2	Enabled arity failure	shell-parser	PARSER	config> set standalone enabled interval 1s	error	Enabled takes no options.	Enabled arity failure.
@@ -302,10 +303,10 @@ T2-CLI-010-IP	TEST2	CLI IP status	cli	CLI	dropcheck show ip status	ok	IP address
 T2-CLI-010	TEST2	CLI scan --band	cli	CLI	dropcheck show wifi scan --band 5ghz	ok	Cached 5 GHz scan succeeds.	CLI scan `--band`.
 T2-CLI-011	TEST2	CLI fresh scan options	cli	CLI	dropcheck show wifi scan fresh --band 5ghz --timeout 12000	ok	Fresh scan succeeds.	CLI fresh scan options.
 T2-CLI-012	TEST2	CLI positional band	cli	CLI	dropcheck show wifi scan fresh 5ghz --timeout 12000	ok	Fresh scan positional band succeeds.	CLI positional band.
-T2-CLI-013	TEST2	CLI scan timeout restriction	cli	CLI	dropcheck show wifi scan --timeout 12000	ok	`--timeout is supported only with wifi scan fresh`.	CLI scan timeout restriction.
+T2-CLI-013	TEST2	CLI scan timeout restriction	cli	CLI	dropcheck show wifi scan --timeout 12000	error	`--timeout is supported only with wifi scan fresh`.	CLI scan timeout restriction.
 T2-CLI-014	TEST2	CLI detail dash band	cli	CLI	dropcheck show wifi scan detail "<ssid>" --band 5ghz	ok	Scan detail succeeds.	CLI detail dash band.
 T2-CLI-015	TEST2	CLI detail positional band	cli	CLI	dropcheck show wifi scan detail "<ssid>" 5ghz	ok	Scan detail positional band succeeds.	CLI detail positional band.
-T2-CLI-016	TEST2	CLI detail invalid option combination	cli	CLI	dropcheck show wifi scan detail "<ssid>" --timeout 12000	ok	`--timeout is supported only with wifi scan fresh`.	CLI detail invalid option combination.
+T2-CLI-016	TEST2	CLI detail invalid option combination	cli	CLI	dropcheck show wifi scan detail "<ssid>" --timeout 12000	error	`--timeout is supported only with wifi scan fresh`.	CLI detail invalid option combination.
 T2-CLI-017	TEST2	CLI connect positional passphrase	cli	CLI	dropcheck request wifi connect "<ssid>" <psk> --security auto --timeout 25000	ok	Positional passphrase compatibility connects.	CLI connect positional passphrase.
 T2-CLI-018	TEST2	CLI connect dash options	cli	CLI	dropcheck request wifi connect "<ssid>" --passphrase <psk> --security wpa3 --band 5ghz --mac-randomization auto --timeout 25000	ok	Dash options accepted.	CLI connect dash options.
 T2-CLI-019	TEST2	CLI missing value	cli	CLI	dropcheck request wifi connect "<ssid>" --passphrase	error	`--passphrase requires a value`.	CLI missing value.
@@ -337,6 +338,7 @@ T2-CLI-044	TEST2	CLI sync flags	cli	CLI	dropcheck sync standalone runs --output 
 T2-CLI-045	TEST2	CLI sync conflict semantics	cli	CLI	dropcheck sync standalone runs --output <sync-dir> --limit 1 --mark-synced --keep-unsynced	error	Conflicting sync flags are rejected consistently.	CLI sync conflict semantics.
 T2-CLI-046	TEST2	CLI controller options	cli	CLI	dropcheck configure set controller endpoint 127.0.0.1:37589 enabled --min-backoff 500ms --max-backoff 2s	ok	CLI controller endpoint options work.	CLI controller options.
 T2-CLI-047	TEST2	CLI standalone set	cli	CLI	dropcheck configure set standalone retention 2d	ok	CLI standalone set works.	CLI standalone set.
+T2-CLI-047A	TEST2	CLI standalone delete	cli	CLI	dropcheck configure delete standalone festa smoke	ok	CLI standalone delete works even when the festa is absent.	CLI standalone delete.
 T2-CLI-048	TEST2	CLI unsupported option	cli	CLI	dropcheck show wifi status --unknown	error	Usage/unknown option error.	CLI unsupported option.
 T2-CLI-049	TEST2	CLI duplicate option	cli	CLI	dropcheck request wifi connect "<ssid>" --passphrase <psk> --passphrase other	error	Duplicate option error from dash parser.	CLI duplicate option.
 T2-CLI-050	TEST2	CLI repeatable option exception	cli	CLI	dropcheck request traceroute 1.1.1.1 --via 192.168.23.254 --via 1.1.1.1	ok	Repeatable `--via` accepted.	CLI repeatable option exception.

@@ -318,6 +318,22 @@ func TestParseShellStandaloneCommands(t *testing.T) {
 	if sync.kind != shellStandaloneSync || sync.syncOutput != "out/standalone" || sync.syncLimit != "10" || sync.syncMark {
 		t.Fatalf("sync = %#v", sync)
 	}
+
+	del, err := parseShellLineForTest("config> delete standalone festa smoke")
+	if err != nil {
+		t.Fatalf("delete standalone festa: %v", err)
+	}
+	if del.kind != shellAgentCommand {
+		t.Fatalf("delete kind = %v", del.kind)
+	}
+	cmd, _, err = buildRunCommand(del.operation)
+	if err != nil {
+		t.Fatalf("build delete command: %v", err)
+	}
+	edits := cmd.GetEditStandaloneConfig().GetEdits()
+	if len(edits) != 1 || edits[0].GetAction() != controlpb.StandaloneEdit_ACTION_DELETE || strings.Join(edits[0].GetPath(), "/") != "festa/smoke" {
+		t.Fatalf("delete edits = %#v", edits)
+	}
 }
 
 func TestParseStandaloneSyncLimitRejectsZero(t *testing.T) {
