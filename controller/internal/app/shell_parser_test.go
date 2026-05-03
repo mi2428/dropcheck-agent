@@ -187,6 +187,13 @@ func TestParseShellFestivalCommands(t *testing.T) {
 	}
 }
 
+func TestParseFestivalSyncLimitRejectsZero(t *testing.T) {
+	_, err := parseFestivalSyncLimit("0")
+	if err == nil || !strings.Contains(err.Error(), "positive integer") {
+		t.Fatalf("parseFestivalSyncLimit(0) error = %v", err)
+	}
+}
+
 func TestParseShellControllerLinkCommands(t *testing.T) {
 	set, err := parseShellLine("set controller endpoint 192.168.7.1:37588 enabled min-backoff 1s max-backoff 30s")
 	if err != nil {

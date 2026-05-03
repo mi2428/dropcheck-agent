@@ -119,6 +119,9 @@ func parseFestivalSyncLimit(value string) (uint32, error) {
 	if err != nil {
 		return 0, fmt.Errorf("festival sync limit must be a positive integer: %w", err)
 	}
+	if limit == 0 {
+		return 0, fmt.Errorf("festival sync limit must be a positive integer")
+	}
 	return uint32(limit), nil
 }
 
