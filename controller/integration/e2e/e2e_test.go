@@ -514,6 +514,7 @@ func isShellErrorOutput(output string) bool {
 		strings.Contains(lower, "must ") ||
 		strings.Contains(lower, "specified twice") ||
 		strings.Contains(lower, "cannot ") ||
+		strings.Contains(lower, "error parsing regexp") ||
 		strings.Contains(lower, "unsupported ") ||
 		strings.Contains(lower, "unexpected ") ||
 		strings.Contains(lower, "status: failed")
@@ -1058,6 +1059,9 @@ func TestE2EFailureClassifiers(t *testing.T) {
 	}
 	if !isClearRuntimeFailure("Status: failed  Message: network not available for ping") {
 		t.Fatalf("network runtime failure was not accepted")
+	}
+	if !isShellErrorOutput("match regex: error parsing regexp: missing closing ]: `[`") {
+		t.Fatalf("regexp parse errors must count as shell errors")
 	}
 }
 
