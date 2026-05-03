@@ -28,6 +28,7 @@ class AgentService : Service() {
     private var current: Future<*>? = null
     private var currentMode: String = ""
     private var currentSessionKey: String = ""
+    private var currentStartId: Int = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -100,7 +101,7 @@ class AgentService : Service() {
                         "token_present" to token.isNotBlank(),
                     ))
                 } else {
-                    startGrpcSession(host, port, token, agentId, adbSerial, "adb-reverse")
+                    startGrpcSession(host, port, token, agentId, adbSerial, "adb-reverse", startId)
                 }
             }
             ACTION_STANDALONE_REFRESH, ACTION_CONTROLLER_LINK_REFRESH, null -> {
@@ -144,7 +145,15 @@ class AgentService : Service() {
      * ADB-reverse sessions supersede older sessions so short-lived controller
      * invocations can run back-to-back without waiting for Android cleanup.
      */
-    private fun startGrpcSession(host: String, port: Int, token: String, agentId: String, adbSerial: String, transport: String) {
+    private fun startGrpcSession(
+        host: String,
+        port: Int,
+        token: String,
+        agentId: String,
+        adbSerial: String,
+        transport: String,
+        startId: Int,
+    ) {
         val sessionKey = "$transport:$host:$port:$token"
         synchronized(sessionLock) {
             if (current?.isDone == false && transport == "adb-reverse") {
@@ -171,6 +180,29 @@ class AgentService : Service() {
             }
             currentMode = transport
             currentSessionKey = sessionKey
+            currentStartId = startId
+            current = executor.submit {
+                TerminalLog.debugEvent(this, "grpc.session.worker.start", listOf(
+                    "thread" to Thread.currentThread().name,
+                    "host" to host,
+                    "port" to port,
+                    "transport" to transport,
+                    "agent_id" to agentId,
+                    "adb_serial" to adbSerial,
+                ))
+                try {
+                    GrpcSessionClient(this, host, port, token, agentId, adbSerial, transport).run()
+                } finally {
+                    TerminalLog.infoEvent(this, "grpc.session.finished", listOf(
+                        "host" to host,
+                        "port" to port,
+                        "transport" to transport,
+                        "agent_id" to agentId,
+                        "adb_serial" to adbSerial,
+                    ))
+                    afterGrpcSessionFinished(transport, sessionKey, startId)
+                }
+            }
         }
         TerminalLog.infoEvent(this, "grpc.session.queued", listOf(
             "host" to host,
@@ -180,28 +212,6 @@ class AgentService : Service() {
             "adb_serial" to adbSerial,
             "token_present" to token.isNotBlank(),
         ))
-        current = executor.submit {
-            TerminalLog.debugEvent(this, "grpc.session.worker.start", listOf(
-                "thread" to Thread.currentThread().name,
-                "host" to host,
-                "port" to port,
-                "transport" to transport,
-                "agent_id" to agentId,
-                "adb_serial" to adbSerial,
-            ))
-            try {
-                GrpcSessionClient(this, host, port, token, agentId, adbSerial, transport).run()
-            } finally {
-                TerminalLog.infoEvent(this, "grpc.session.finished", listOf(
-                    "host" to host,
-                    "port" to port,
-                    "transport" to transport,
-                    "agent_id" to agentId,
-                    "adb_serial" to adbSerial,
-                ))
-                afterGrpcSessionFinished(transport, sessionKey)
-            }
-        }
     }
 
     /**
@@ -211,15 +221,19 @@ class AgentService : Service() {
      * may still run its finally block after the replacement has been queued; the
      * session key prevents stale cleanup from clearing the fresh session state.
      */
-    private fun afterGrpcSessionFinished(transport: String, sessionKey: String) {
+    private fun afterGrpcSessionFinished(transport: String, sessionKey: String, startId: Int) {
         synchronized(sessionLock) {
-            if (currentMode != transport || currentSessionKey != sessionKey) {
-                TerminalLog.debug(this, "ignoring stale session cleanup transport=$transport current_mode=$currentMode")
+            if (currentMode != transport || currentSessionKey != sessionKey || currentStartId != startId) {
+                TerminalLog.debug(
+                    this,
+                    "ignoring stale session cleanup transport=$transport current_mode=$currentMode current_start_id=$currentStartId",
+                )
                 return
             }
             current = null
             currentMode = ""
             currentSessionKey = ""
+            currentStartId = 0
         }
         if (StandaloneConfigStore(this).load().enabled) {
             standaloneRunner.refresh()
@@ -235,7 +249,7 @@ class AgentService : Service() {
         }
         if (!shouldStayStarted()) {
             stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            stopSelf(startId)
         }
     }
 
