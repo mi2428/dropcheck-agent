@@ -120,8 +120,7 @@ func TestDropcheckShellManualMatrix(t *testing.T) {
 	if cfg.live && hasLiveProcessCases(selected) {
 		cfg.prepareLive(t, selected)
 		t.Cleanup(func() {
-			cfg.runShellCleanup("set controller endpoint disabled")
-			cfg.runShellCleanup("set standalone disabled")
+			cfg.resetLiveState()
 			if cfg.ssid != "" && cfg.psk != "" {
 				cfg.runCLICleanup("request", "wifi", "connect", cfg.ssid, "--passphrase", cfg.psk, "--security", "auto", "--timeout", "25000")
 			}
@@ -275,6 +274,7 @@ func (cfg *e2eConfig) prepareLive(t *testing.T, cases []matrixCase) {
 	} else {
 		t.Logf("using dropcheck binary: %s", cfg.bin)
 	}
+	cfg.resetLiveState()
 	needsAgentPrefix, needsWiFiSetup, needsBSSID := liveSetupNeeds(cases)
 	t.Logf("live setup needs: agent_prefix=%t wifi_setup=%t bssid=%t", needsAgentPrefix, needsWiFiSetup, needsBSSID)
 	cfg.launchApp(t, "suite start", true)
@@ -662,6 +662,11 @@ func (cfg *e2eConfig) runShellCleanup(commandLine string) {
 		return
 	}
 	_ = cfg.runExternal(20*time.Second, []string{"--serial", cfg.serial, "shell"}, shellInput(commandLine)+"quit\n")
+}
+
+func (cfg *e2eConfig) resetLiveState() {
+	cfg.runShellCleanup("config> set controller endpoint disabled")
+	cfg.runShellCleanup("config> set standalone disabled")
 }
 
 func (cfg *e2eConfig) runCLICleanup(args ...string) {
