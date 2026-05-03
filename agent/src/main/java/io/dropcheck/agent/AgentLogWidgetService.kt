@@ -52,6 +52,7 @@ private class AgentLogWidgetFactory(
     }
 }
 
+/** Loads and bounds terminal log rows for the RemoteViews-backed log widget. */
 internal object AgentLogWidgetLines {
     fun load(context: Context): List<WidgetLogLine> {
         return fromTail(TerminalLog.tail(context, TerminalDisplayPolicy.MAX_DISPLAY_LINES))
@@ -82,6 +83,7 @@ internal object AgentLogWidgetLines {
     }
 }
 
+/** Stable row model rendered by the log widget collection adapter. */
 internal data class WidgetLogLine(
     val id: Long,
     val text: String,
