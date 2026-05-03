@@ -71,7 +71,6 @@
                 <action android:name="io.dropcheck.agent.action.CLOCK_WIDGET_PERIODIC_UPDATE" />
                 <action android:name="io.dropcheck.agent.action.CLOCK_WIDGET_WIFI_NETWORK_CALLBACK_UPDATE" />
                 <action android:name="io.dropcheck.agent.action.CLOCK_WIDGET_EVENT_FOLLOW_UP_UPDATE" />
-                <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
                 <action android:name="android.net.wifi.WIFI_STATE_CHANGED" />
                 <action android:name="android.net.wifi.RSSI_CHANGED" />
                 <action android:name="android.net.wifi.STATE_CHANGE" />

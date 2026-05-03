@@ -431,7 +431,6 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
         private const val GPS_HARDWARE_PROVIDER = "gps_hardware"
         @Suppress("DEPRECATION")
         private val WIFI_EVENT_ACTIONS = setOf(
-            ConnectivityManager.CONNECTIVITY_ACTION,
             WifiManager.WIFI_STATE_CHANGED_ACTION,
             WifiManager.NETWORK_STATE_CHANGED_ACTION,
             WifiManager.SUPPLICANT_STATE_CHANGED_ACTION,
