@@ -10,6 +10,15 @@ internal object StructuredLog {
 
     fun format(event: String, fields: Iterable<Pair<String, Any?>>): String {
         val parts = mutableListOf("event=${renderValue(event)}")
+        val renderedFields = fields(fields)
+        if (renderedFields.isNotBlank()) {
+            parts += renderedFields
+        }
+        return parts.joinToString(" ")
+    }
+
+    fun fields(fields: Iterable<Pair<String, Any?>>): String {
+        val parts = mutableListOf<String>()
         for ((key, value) in fields) {
             if (key.isBlank()) continue
             parts += "${renderKey(key)}=${renderValue(value)}"
@@ -83,8 +92,9 @@ internal fun CommandLogger.logEvent(
     level: CommandLog.Level,
     event: String,
     fields: Iterable<Pair<String, Any?>>,
+    scope: CommandLogScope = CommandLogScope.COMMAND,
 ) {
-    log(level, StructuredLog.format(event, fields))
+    log(level, StructuredLog.format(event, fields), scope)
 }
 
 internal fun CommandLogger.debugEvent(event: String, vararg fields: Pair<String, Any?>) {
@@ -117,6 +127,18 @@ internal fun CommandLogger.errorEvent(event: String, vararg fields: Pair<String,
 
 internal fun CommandLogger.errorEvent(event: String, fields: Iterable<Pair<String, Any?>>) {
     logEvent(CommandLog.Level.LEVEL_ERROR, event, fields)
+}
+
+internal fun CommandLogger.execEvent(event: String, vararg fields: Pair<String, Any?>) {
+    logEvent(CommandLog.Level.LEVEL_INFO, event, fields.asList(), CommandLogScope.EXEC)
+}
+
+internal fun CommandLogger.execEvent(event: String, fields: Iterable<Pair<String, Any?>>) {
+    logEvent(CommandLog.Level.LEVEL_INFO, event, fields, CommandLogScope.EXEC)
+}
+
+internal fun CommandLogger.execDebugEvent(event: String, fields: Iterable<Pair<String, Any?>>) {
+    logEvent(CommandLog.Level.LEVEL_DEBUG, event, fields, CommandLogScope.EXEC)
 }
 
 internal fun TerminalLog.debugEvent(

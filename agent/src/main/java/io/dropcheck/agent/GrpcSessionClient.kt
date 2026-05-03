@@ -162,8 +162,8 @@ class GrpcSessionClient(
         ) + command.logFields())
         val task = FutureTask<Unit> {
             val logger = object : CommandLogger {
-                override fun log(level: CommandLog.Level, message: String) {
-                    TerminalLog.log(service, terminalLevel(level), "command[$commandId] $message")
+                override fun log(level: CommandLog.Level, message: String, scope: CommandLogScope) {
+                    TerminalLog.log(service, terminalLevel(level), CommandTerminalLog.controller(commandId, scope, message))
                     send(requests, AgentFrame.newBuilder()
                         .setSeq(seq.getAndIncrement())
                         .setSessionId(sessionId)
@@ -179,13 +179,11 @@ class GrpcSessionClient(
 
             try {
                 logger.debugEvent("command.dispatch.begin", listOf(
-                    "command_id" to commandId,
                     "thread" to Thread.currentThread().name,
                 ) + command.logFields())
                 val startedAt = System.nanoTime()
                 val result = CommandExecutor(service, logger).execute(command)
                 logger.debugEvent("command.dispatch.end", listOf(
-                    "command_id" to commandId,
                     "dispatch_elapsed_ms" to elapsedMs(startedAt),
                 ) + result.logFields())
                 TerminalLog.infoEvent(service, "controller.response.result", listOf(
@@ -204,7 +202,10 @@ class GrpcSessionClient(
                 }
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
-                TerminalLog.warn(service, "command[$commandId] interrupted")
+                TerminalLog.warnEvent(service, "command.interrupted", listOf(
+                    "local_session_id" to sessionId,
+                    "command_id" to commandId,
+                ))
                 val result = CommandResult.newBuilder()
                     .setStatus(CommandResult.Status.STATUS_CANCELED)
                     .setMessage("command canceled")
@@ -221,7 +222,13 @@ class GrpcSessionClient(
                     .setResult(result)
                     .build())
             } catch (e: Exception) {
-                TerminalLog.error(service, "command[$commandId] failed", e)
+                TerminalLog.error(service, StructuredLog.format(
+                    "command.failed",
+                    listOf(
+                        "local_session_id" to sessionId,
+                        "command_id" to commandId,
+                    ),
+                ), e)
                 sendError(requests, commandId, "command failed", e.toString())
             } finally {
                 active.remove(commandId)

@@ -49,9 +49,6 @@ internal fun terminalDisplayText(line: String): String {
  * driven through adb/gRPC, while this screen exposes the local log tail.
  */
 class MainActivity : Activity() {
-    private val warnColor = Color.rgb(255, 214, 10)
-    private val errorColor = Color.rgb(255, 82, 82)
-
     private lateinit var logView: TextView
     private lateinit var scroll: ScrollView
     private lateinit var root: FrameLayout
@@ -98,7 +95,7 @@ class MainActivity : Activity() {
         }
 
         logView = TextView(this).apply {
-            setTextColor(Color.WHITE)
+            setTextColor(AgentLogStyle.TEXT_COLOR)
             setBackgroundColor(Color.BLACK)
             typeface = Typeface.MONOSPACE
             textSize = 8f
@@ -258,20 +255,12 @@ class MainActivity : Activity() {
         append(colored(line, terminalDisplayText(line)))
     }
 
-    /** Colors warning/error lines while leaving log text unparsed. */
+    /** Colors notable lines while leaving log text unparsed. */
     private fun colored(line: String, terminalLine: String): CharSequence {
-        val color = when {
-            isLevel(line, "ERROR") -> errorColor
-            isLevel(line, "WARN") -> warnColor
-            else -> Color.WHITE
-        }
+        val color = AgentLogStyle.colorForLine(line)
         val span = SpannableString(terminalLine)
         span.setSpan(ForegroundColorSpan(color), 0, terminalLine.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         return span
-    }
-
-    private fun isLevel(line: String, level: String): Boolean {
-        return line.contains(" ${level.padEnd(5)} ") || line.startsWith("$level ")
     }
 
     private fun standaloneIndicatorView(): View {
