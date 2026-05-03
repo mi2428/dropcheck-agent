@@ -8,8 +8,11 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.text.LineBreakConfig
+import android.graphics.text.LineBreaker
 import android.os.Build
 import android.os.Bundle
+import android.text.Layout
 import android.text.SpannableString
 import android.text.SpannableStringBuilder
 import android.text.Spanned
@@ -20,6 +23,23 @@ import android.view.ViewTreeObserver
 import android.widget.FrameLayout
 import android.widget.ScrollView
 import android.widget.TextView
+
+private const val TERMINAL_BREAK_OPPORTUNITY = "\u200B"
+
+/** Adds invisible break opportunities so terminal logs can wrap at any code point. */
+internal fun terminalDisplayText(line: String): String {
+    val display = StringBuilder(line.length * 2)
+    var index = 0
+    while (index < line.length) {
+        val codePoint = Character.codePointAt(line, index)
+        display.appendCodePoint(codePoint)
+        if (codePoint != '\n'.code && codePoint != '\r'.code) {
+            display.append(TERMINAL_BREAK_OPPORTUNITY)
+        }
+        index += Character.charCount(codePoint)
+    }
+    return display.toString()
+}
 
 /**
  * Minimal on-device terminal view for lab/debug sessions.
@@ -88,6 +108,12 @@ class MainActivity : Activity() {
             includeFontPadding = true
             setLineSpacing(0f, 1.05f)
             setPadding(18, 18, 18, 18)
+            setHorizontallyScrolling(false)
+            breakStrategy = LineBreaker.BREAK_STRATEGY_SIMPLE
+            hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NONE
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                lineBreakWordStyle = LineBreakConfig.LINE_BREAK_WORD_STYLE_NONE
+            }
             setText(initialText, TextView.BufferType.SPANNABLE)
         }
         if (tail.isNotBlank()) {
@@ -143,9 +169,10 @@ class MainActivity : Activity() {
 
     private fun appendLogLine(line: String, followBottom: Boolean) {
         val displayLine = boundedLine(line)
-        logView.append(colored(displayLine))
-        displayLineLengths.addLast(displayLine.length)
-        displayLogChars += displayLine.length
+        val terminalLine = terminalDisplayText(displayLine)
+        logView.append(colored(displayLine, terminalLine))
+        displayLineLengths.addLast(terminalLine.length)
+        displayLogChars += terminalLine.length
         // Do not delete old lines while the user is reading scrollback; removing text above the viewport
         // changes TextView layout and makes wrapped log lines visibly jump.
         if (followBottom || !::scroll.isInitialized) {
@@ -231,18 +258,18 @@ class MainActivity : Activity() {
     }
 
     private fun SpannableStringBuilder.appendColored(line: String) {
-        append(colored(line))
+        append(colored(line, terminalDisplayText(line)))
     }
 
     /** Colors warning/error lines while leaving log text unparsed. */
-    private fun colored(line: String): CharSequence {
+    private fun colored(line: String, terminalLine: String): CharSequence {
         val color = when {
             isLevel(line, "ERROR") -> errorColor
             isLevel(line, "WARN") -> warnColor
             else -> Color.WHITE
         }
-        val span = SpannableString(line)
-        span.setSpan(ForegroundColorSpan(color), 0, line.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        val span = SpannableString(terminalLine)
+        span.setSpan(ForegroundColorSpan(color), 0, terminalLine.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         return span
     }
 
