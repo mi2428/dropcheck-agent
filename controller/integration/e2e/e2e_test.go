@@ -473,7 +473,7 @@ func assertProcessResult(t *testing.T, tc matrixCase, expect string, res command
 			t.Fatalf("%s expected shell error output, rc=%d err=%v output=%s", tc.ID, res.Code, res.Err, res.Output)
 		}
 	case "ok_or_clear":
-		if res.Err == nil && res.Code == 0 {
+		if res.Err == nil && res.Code == 0 && !isFailureStatusOutput(res.Output) {
 			return
 		}
 		if !isClearRuntimeFailure(res.Output) {
@@ -517,11 +517,22 @@ func isShellErrorOutput(output string) bool {
 
 func isClearRuntimeFailure(output string) bool {
 	lower := strings.ToLower(output)
-	return isShellErrorOutput(output) ||
-		strings.Contains(output, "STATUS_FAILED") ||
+	return strings.Contains(lower, "wait for android agents") ||
+		strings.Contains(lower, "agent disconnected") ||
+		strings.Contains(lower, "network not available") ||
+		strings.Contains(lower, "did not match requested") ||
+		strings.Contains(lower, "timeout") ||
+		strings.Contains(lower, "timed out") ||
+		strings.Contains(lower, "no matching") ||
+		strings.Contains(lower, "unsupported") ||
+		strings.Contains(lower, "connectivity completed with failed checks")
+}
+
+func isFailureStatusOutput(output string) bool {
+	lower := strings.ToLower(output)
+	return strings.Contains(output, "STATUS_FAILED") ||
 		strings.Contains(lower, "status=failed") ||
-		strings.Contains(lower, "wait for android agents") ||
-		strings.Contains(lower, "agent disconnected")
+		strings.Contains(lower, "status: failed")
 }
 
 func (cfg *e2eConfig) expand(commandLine string, runner string) (string, string) {
@@ -1013,6 +1024,19 @@ func TestE2ECaseTableParsesShellAndCLIExpectations(t *testing.T) {
 		if res.Err != nil {
 			t.Errorf("%s expected parser success for %s command %q: %v", tc.ID, tc.Runner, tc.Command, res.Err)
 		}
+	}
+}
+
+func TestE2EFailureClassifiers(t *testing.T) {
+	configFailure := "Status: failed  Message: festa enabled must be true or false"
+	if !isFailureStatusOutput(configFailure) {
+		t.Fatalf("config failure status was not detected")
+	}
+	if isClearRuntimeFailure(configFailure) {
+		t.Fatalf("config validation failure must not count as a clear runtime failure")
+	}
+	if !isClearRuntimeFailure("Status: failed  Message: network not available for ping") {
+		t.Fatalf("network runtime failure was not accepted")
 	}
 }
 

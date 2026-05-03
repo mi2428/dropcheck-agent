@@ -51,9 +51,9 @@ internal object StandaloneConfigEditor {
 
     private fun set(builder: StandaloneConfig.Builder, path: List<String>, value: String): String? {
         return when {
-            path == listOf("enabled") -> parseBool(value)?.let { builder.enabled = it; null } ?: "enabled must be true or false"
-            path == listOf("retention_ms") -> parseUInt(value)?.let { builder.retentionMs = it; null } ?: "retention_ms must be uint32"
-            path == listOf("max_bytes") -> parseULong(value)?.let { builder.maxBytes = it; null } ?: "max_bytes must be uint64"
+            path == listOf("enabled") -> applyParsed(parseBool(value), "enabled must be true or false") { builder.enabled = it }
+            path == listOf("retention_ms") -> applyParsed(parseUInt(value), "retention_ms must be uint32") { builder.retentionMs = it }
+            path == listOf("max_bytes") -> applyParsed(parseULong(value), "max_bytes must be uint64") { builder.maxBytes = it }
             path.size >= 3 && path[0] == "festa" -> setFesta(builder, path.drop(1), value)
             else -> "unsupported standalone set path: ${path.joinToString(" ")}"
         }
@@ -88,8 +88,8 @@ internal object StandaloneConfigEditor {
         val index = festaIndex(config, name)
         val festa = if (index >= 0) config.getFestas(index).toBuilder() else StandaloneFesta.newBuilder().setName(name)
         val error = when {
-            path.size == 2 && path[1] == "enabled" -> parseBool(value)?.let { festa.enabled = it; null } ?: "festa enabled must be true or false"
-            path.size == 2 && path[1] == "interval_ms" -> parseUInt(value)?.let { festa.intervalMs = it; null } ?: "festa interval_ms must be uint32"
+            path.size == 2 && path[1] == "enabled" -> applyParsed(parseBool(value), "festa enabled must be true or false") { festa.enabled = it }
+            path.size == 2 && path[1] == "interval_ms" -> applyParsed(parseUInt(value), "festa interval_ms must be uint32") { festa.intervalMs = it }
             path.size >= 4 && path[1] == "wifi-group" -> setWifiGroup(festa, path.drop(2), value)
             path.size >= 4 && path[1] == "check" -> setCheck(festa, path.drop(2), value)
             else -> "unsupported standalone festa set path: ${path.joinToString(" ")}"
@@ -149,10 +149,10 @@ internal object StandaloneConfigEditor {
                 null
             }
             path == listOf(name, "security") -> {
-                parseSecurity(value)?.let { group.security = it; null } ?: "unsupported wifi security: $value"
+                applyParsed(parseSecurity(value), "unsupported wifi security: $value") { group.security = it }
             }
             path == listOf(name, "band") -> {
-                parseBand(value)?.let { group.band = it; null } ?: "unsupported wifi band: $value"
+                applyParsed(parseBand(value), "unsupported wifi band: $value") { group.band = it }
             }
             path == listOf(name, "wait", "ip") -> {
                 group.requireIp = parseBool(value) ?: true
@@ -162,7 +162,7 @@ internal object StandaloneConfigEditor {
                 group.requireValidated = parseBool(value) ?: true
                 null
             }
-            path == listOf(name, "timeout_ms") -> parseUInt(value)?.let { group.timeoutMs = it; null } ?: "wifi-group timeout_ms must be uint32"
+            path == listOf(name, "timeout_ms") -> applyParsed(parseUInt(value), "wifi-group timeout_ms must be uint32") { group.timeoutMs = it }
             else -> "unsupported standalone wifi-group set path: ${path.joinToString(" ")}"
         }
         if (error != null) return error
@@ -223,6 +223,12 @@ internal object StandaloneConfigEditor {
 
     private fun wifiGroupIndex(festa: StandaloneFesta.Builder, name: String): Int {
         return festa.wifiGroupsList.indexOfFirst { it.name == name }
+    }
+
+    private inline fun <T> applyParsed(value: T?, error: String, apply: (T) -> Unit): String? {
+        if (value == null) return error
+        apply(value)
+        return null
     }
 
     private fun parseBool(value: String): Boolean? {
