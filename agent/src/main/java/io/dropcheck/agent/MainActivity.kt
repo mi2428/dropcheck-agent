@@ -6,7 +6,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.ActivityInfo
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.text.LineBreakConfig
@@ -41,8 +40,6 @@ private const val STATUS_ICON_LEFT_DP = 24
 private const val STATUS_ICON_TOP_DP = 14
 private const val IDLE_DIM_DELAY_MS = 60_000L
 private const val IDLE_DIM_BRIGHTNESS = 0.03f
-private const val INITIAL_LANDSCAPE_RELEASE_DELAY_MS = 1_500L
-private const val STATE_INITIAL_LANDSCAPE_PENDING = "initial_landscape_pending"
 
 /** Adds invisible break opportunities so terminal logs can wrap at any code point. */
 internal fun terminalDisplayText(line: String): String {
@@ -83,19 +80,12 @@ class MainActivity : Activity() {
     private val idleDim = Runnable {
         setScreenDimmed(true)
     }
-    private val releaseInitialLandscape = Runnable {
-        if (!initialLandscapePending) return@Runnable
-
-        initialLandscapePending = false
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-    }
 
     private val displayLineLengths = ArrayDeque<Int>()
     private var displayLogChars = 0
     private var logStartIndex = 0
     private var followLogTail = true
     private var scrollToBottomPending = false
-    private var initialLandscapePending = false
     private val autoScrollSlopPx: Int by lazy {
         (TerminalDisplayPolicy.AUTO_SCROLL_SLOP_DP * resources.displayMetrics.density).toInt()
     }
@@ -113,10 +103,6 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        initialLandscapePending = savedInstanceState?.getBoolean(STATE_INITIAL_LANDSCAPE_PENDING) ?: true
-        if (initialLandscapePending) {
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-        }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
         TerminalLog.compactIfNeeded(this)
@@ -191,12 +177,6 @@ class MainActivity : Activity() {
         updateStatusIcons()
         resetIdleDimTimer()
         requestScrollToBottom()
-        scheduleInitialLandscapeRelease()
-    }
-
-    override fun onSaveInstanceState(outState: Bundle) {
-        outState.putBoolean(STATE_INITIAL_LANDSCAPE_PENDING, initialLandscapePending)
-        super.onSaveInstanceState(outState)
     }
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
@@ -429,14 +409,6 @@ class MainActivity : Activity() {
     private fun stopIdleDimTimer() {
         statusRefreshHandler.removeCallbacks(idleDim)
         setScreenDimmed(false)
-    }
-
-    private fun scheduleInitialLandscapeRelease() {
-        if (!initialLandscapePending) return
-
-        // Android has no "prefer landscape but allow portrait" mode; release the launch hint after first paint.
-        statusRefreshHandler.removeCallbacks(releaseInitialLandscape)
-        statusRefreshHandler.postDelayed(releaseInitialLandscape, INITIAL_LANDSCAPE_RELEASE_DELAY_MS)
     }
 
     private fun setScreenDimmed(dimmed: Boolean) {
