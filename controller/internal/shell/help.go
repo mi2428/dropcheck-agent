@@ -35,7 +35,6 @@ func writeShellHelp(w io.Writer) {
   sync standalone runs [output <dir>] [limit <n>] [mark-synced|keep-unsynced]
   configure
   request [<request-command>]
-  <request-command>
 
 configure mode:
   show [standalone|controller endpoint]
@@ -297,9 +296,6 @@ func resolveContextKeywordInMode(index int, previous []string, value string, mod
 	if len(previous) > 0 {
 		if previous[0] == "request" {
 			return resolveRequestContextKeyword(index-1, previous[1:], value)
-		}
-		if isDirectRequestKeyword(previous[0]) {
-			return resolveRequestContextKeyword(index, previous, value)
 		}
 	}
 	switch index {
@@ -793,7 +789,7 @@ func topHelpEntriesInMode(mode Mode) []HelpEntry {
 		{"help", "Show command summary"},
 		{"quit", "Exit the shell"},
 	}
-	return append(entries, requestCommandHelpEntries()...)
+	return entries
 }
 
 func configureTopHelpEntries() []HelpEntry {
@@ -1058,9 +1054,6 @@ func operationalRequestArgs(args []string) ([]string, bool) {
 	if args[0] == "request" {
 		return args[1:], true
 	}
-	if isDirectRequestKeyword(args[0]) {
-		return args, true
-	}
 	return nil, false
 }
 
@@ -1316,49 +1309,6 @@ func valueCompletionCandidatesForArgs(args []string) ([]string, bool) {
 		return setStandaloneValueCompletionCandidates(last)
 	case len(args) >= 4 && args[0] == "set" && args[1] == "controller" && args[2] == "endpoint":
 		return setControllerEndpointValueCompletionCandidates(last)
-	case len(args) >= 3 && args[0] == "monitor" && args[1] == "wifi":
-		if isResolvedKeyword("monitor wifi option", last, []string{"duration", "interval"}) {
-			return []string{"<ms>"}, true
-		}
-		return nil, false
-	case args[0] == "ping":
-		switch {
-		case isResolvedKeyword("ping option", last, []string{"count"}):
-			return []string{"<n>"}, true
-		case isResolvedKeyword("ping option", last, []string{"size"}):
-			return []string{"<bytes>"}, true
-		case isResolvedKeyword("ping option", last, []string{"timeout"}):
-			return []string{"<ms>"}, true
-		}
-		return nil, false
-	case args[0] == "traceroute":
-		switch {
-		case isResolvedKeyword("traceroute option", last, []string{"max-hops"}):
-			return []string{"<n>"}, true
-		case isResolvedKeyword("traceroute option", last, []string{"via"}):
-			return []string{"<host_or_ip>"}, true
-		case isResolvedKeyword("traceroute option", last, []string{"size"}):
-			return []string{"<bytes>"}, true
-		case isResolvedKeyword("traceroute option", last, []string{"timeout"}):
-			return []string{"<ms>"}, true
-		}
-		return nil, false
-	case args[0] == "path-mtu":
-		switch {
-		case isResolvedKeyword("path-mtu option", last, []string{"min-mtu", "max-mtu"}):
-			return []string{"<bytes>"}, true
-		case isResolvedKeyword("path-mtu option", last, []string{"timeout"}):
-			return []string{"<ms>"}, true
-		}
-		return nil, false
-	case args[0] == "global-ip":
-		return globalIPValueCompletionCandidates(last)
-	case args[0] == "dns":
-		return dnsValueCompletionCandidates(last)
-	case args[0] == "http":
-		return httpValueCompletionCandidates(last)
-	case args[0] == "download":
-		return downloadValueCompletionCandidates(last)
 	default:
 		return nil, false
 	}
