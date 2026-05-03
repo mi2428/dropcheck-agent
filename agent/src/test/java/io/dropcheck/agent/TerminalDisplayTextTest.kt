@@ -18,4 +18,22 @@ class TerminalDisplayTextTest {
             terminalDisplayText("a${supplementary}b\n"),
         )
     }
+
+    @Test
+    fun boundsTerminalLinesForActivityAndWidgetDisplay() {
+        assertEquals("line\n", TerminalDisplayPolicy.boundedLine("line", appendNewline = true))
+        assertEquals("line", TerminalDisplayPolicy.boundedLine("line\r\n", appendNewline = false))
+
+        val longLine = "x".repeat(TerminalDisplayPolicy.MAX_LINE_CHARS + 100)
+        val bounded = TerminalDisplayPolicy.boundedLine(longLine, appendNewline = true)
+
+        assertEquals(TerminalDisplayPolicy.MAX_LINE_CHARS, bounded.length)
+        assertEquals(true, bounded.endsWith(" ... [truncated]\n"))
+    }
+
+    @Test
+    fun displayLengthCountsInsertedBreakOpportunities() {
+        assertEquals(4, TerminalDisplayPolicy.displayLength("ab"))
+        assertEquals(3, TerminalDisplayPolicy.displayLength("a\n"))
+    }
 }

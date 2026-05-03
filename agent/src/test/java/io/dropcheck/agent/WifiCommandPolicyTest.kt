@@ -1,5 +1,6 @@
 package io.dropcheck.agent
 
+import io.dropcheck.agent.grpc.AssertWifi
 import io.dropcheck.agent.grpc.ConnectWifi
 import io.dropcheck.agent.grpc.CycleWifi
 import io.dropcheck.agent.grpc.WaitWifiConnected
@@ -11,6 +12,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WifiCommandPolicyTest {
+    @Test
+    fun appliesProtoZeroTimeoutDefaults() {
+        assertEquals(12_345, WifiCommandPolicy.effectiveTimeoutMs(12_345, WifiCommandPolicy.DEFAULT_WAIT_TIMEOUT_MS))
+        assertEquals(WifiCommandPolicy.DEFAULT_WAIT_TIMEOUT_MS, WifiCommandPolicy.effectiveTimeoutMs(0, WifiCommandPolicy.DEFAULT_WAIT_TIMEOUT_MS))
+        assertEquals(WifiCommandPolicy.DEFAULT_CONNECT_TIMEOUT_MS, WifiCommandPolicy.effectiveTimeoutMs(-1, WifiCommandPolicy.DEFAULT_CONNECT_TIMEOUT_MS))
+    }
+
     @Test
     fun classifiesFreshScanAndScanDetailResults() {
         assertTrue(WifiCommandPolicy.freshScanCompleted(emptyList()))
@@ -47,6 +55,23 @@ class WifiCommandPolicyTest {
             .build()
 
         assertTrue(WifiCommandPolicy.waitExpectation(wait).requireValidated)
+
+        val assertion = AssertWifi.newBuilder()
+            .setSsid("Lab")
+            .setBssid("11:22:33:44:55:66")
+            .setSecurity(ConnectWifi.Security.SECURITY_WPA2_PSK)
+            .setBand(WifiBand.WIFI_BAND_5_GHZ)
+            .setRequireIp(true)
+            .build()
+
+        val assertExpectation = WifiCommandPolicy.assertExpectation(assertion)
+
+        assertEquals("Lab", assertExpectation.ssid)
+        assertEquals("11:22:33:44:55:66", assertExpectation.bssid)
+        assertEquals(ConnectWifi.Security.SECURITY_WPA2_PSK, assertExpectation.security)
+        assertEquals(WifiBand.WIFI_BAND_5_GHZ, assertExpectation.band)
+        assertTrue(assertExpectation.requireIp)
+        assertFalse(assertExpectation.requireValidated)
     }
 
     @Test
