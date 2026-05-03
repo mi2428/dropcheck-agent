@@ -34,7 +34,8 @@ func writeShellHelp(w io.Writer) {
   clear standalone runs [synced|all]
   sync standalone runs [output <dir>] [limit <n>] [mark-synced|keep-unsynced]
   configure
-  request
+  request [<request-command>]
+  <request-command>
 
 configure mode:
   show [standalone|controller endpoint]
@@ -252,6 +253,12 @@ func valueHelpEntriesForArgsInMode(args []string, mode Mode) []HelpEntry {
 		if entries := requestValueHelpEntriesForArgs(args); len(entries) > 0 {
 			return entries
 		}
+	} else if mode == ModeOperational {
+		if requestArgs, ok := operationalRequestArgs(args); ok {
+			if entries := requestValueHelpEntriesForArgs(requestArgs); len(entries) > 0 {
+				return entries
+			}
+		}
 	}
 	candidates, ok := valueCompletionCandidatesForArgs(args)
 	if !ok {
@@ -287,9 +294,17 @@ func resolveContextKeywordInMode(index int, previous []string, value string, mod
 	if mode == ModeConfigure {
 		return resolveConfigureContextKeyword(index, previous, value)
 	}
+	if len(previous) > 0 {
+		if previous[0] == "request" {
+			return resolveRequestContextKeyword(index-1, previous[1:], value)
+		}
+		if isDirectRequestKeyword(previous[0]) {
+			return resolveRequestContextKeyword(index, previous, value)
+		}
+	}
 	switch index {
 	case 0:
-		return resolveShellKeyword("command", value, shellTopKeywords)
+		return resolveShellKeyword("command", value, shellOperationalKeywords)
 	case 1:
 		switch previous[0] {
 		case "show":
@@ -390,6 +405,12 @@ func helpEntriesForArgsInMode(args []string, mode Mode) []HelpEntry {
 	if len(args) == 0 {
 		return topHelpEntries()
 	}
+	if requestArgs, ok := operationalRequestArgs(args); ok {
+		if args[0] == "request" && len(args) == 1 {
+			return append([]HelpEntry{{"<cr>", "Enter request mode"}}, requestCommandHelpEntries()...)
+		}
+		return requestHelpEntriesForArgs(requestArgs)
+	}
 	switch args[0] {
 	case "show":
 		if len(args) == 1 {
@@ -425,7 +446,7 @@ func helpEntriesForArgsInMode(args []string, mode Mode) []HelpEntry {
 		}
 	case "request":
 		if len(args) == 1 {
-			return []HelpEntry{{"<cr>", "Enter request mode"}}
+			return append([]HelpEntry{{"<cr>", "Enter request mode"}}, requestCommandHelpEntries()...)
 		}
 	case "configure":
 		if len(args) == 1 {
@@ -763,15 +784,16 @@ func topHelpEntriesInMode(mode Mode) []HelpEntry {
 	case ModeConfigure:
 		return configureTopHelpEntries()
 	}
-	return []HelpEntry{
+	entries := []HelpEntry{
 		{"show", "Display state or persistent config"},
 		{"clear", "Remove stored standalone run archives"},
 		{"sync", "Download stored standalone archives"},
 		{"configure", "Enter configure mode"},
-		{"request", "Enter request mode"},
+		{"request", "Enter request mode or prefix one request"},
 		{"help", "Show command summary"},
 		{"quit", "Exit the shell"},
 	}
+	return append(entries, requestCommandHelpEntries()...)
 }
 
 func configureTopHelpEntries() []HelpEntry {
@@ -786,6 +808,13 @@ func configureTopHelpEntries() []HelpEntry {
 }
 
 func requestTopHelpEntries() []HelpEntry {
+	return append(requestCommandHelpEntries(),
+		HelpEntry{"exit", "Return to top-level mode"},
+		HelpEntry{"quit", "Exit the shell"},
+	)
+}
+
+func requestCommandHelpEntries() []HelpEntry {
 	return []HelpEntry{
 		{"wifi", "Run a Wi-Fi operation"},
 		{"standalone", "Run standalone measurements"},
@@ -798,8 +827,6 @@ func requestTopHelpEntries() []HelpEntry {
 		{"dns", "Resolve a DNS name"},
 		{"http", "Check an HTTP status"},
 		{"download", "Download a URL"},
-		{"exit", "Return to top-level mode"},
-		{"quit", "Exit the shell"},
 	}
 }
 
@@ -947,7 +974,7 @@ func completionCandidatesForArgsInMode(args []string, mode Mode) []string {
 		return configureCompletionCandidatesForArgs(args)
 	}
 	if len(args) == 0 {
-		return shellTopKeywords
+		return shellOperationalKeywords
 	}
 	resolved := append([]string(nil), args...)
 	for i, arg := range resolved {
@@ -955,8 +982,16 @@ func completionCandidatesForArgsInMode(args []string, mode Mode) []string {
 			resolved[i] = value
 		}
 	}
+	if requestArgs, ok := operationalRequestArgs(resolved); ok {
+		if candidates, ok := requestValueCompletionCandidatesForArgs(requestArgs); ok {
+			return candidates
+		}
+	}
 	if candidates, ok := valueCompletionCandidatesForArgs(resolved); ok {
 		return candidates
+	}
+	if requestArgs, ok := operationalRequestArgs(resolved); ok {
+		return requestCompletionCandidatesForArgs(requestArgs)
 	}
 	switch len(resolved) {
 	case 1:
@@ -968,7 +1003,7 @@ func completionCandidatesForArgsInMode(args []string, mode Mode) []string {
 		case "sync":
 			return []string{"standalone"}
 		case "request":
-			return nil
+			return requestCompletionCandidatesForArgs(nil)
 		case "configure":
 			return nil
 		}
@@ -1014,6 +1049,19 @@ func completionCandidatesForArgsInMode(args []string, mode Mode) []string {
 		}
 	}
 	return nil
+}
+
+func operationalRequestArgs(args []string) ([]string, bool) {
+	if len(args) == 0 {
+		return nil, false
+	}
+	if args[0] == "request" {
+		return args[1:], true
+	}
+	if isDirectRequestKeyword(args[0]) {
+		return args, true
+	}
+	return nil, false
 }
 
 func configureCompletionCandidatesForArgs(args []string) []string {

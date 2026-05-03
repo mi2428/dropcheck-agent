@@ -87,8 +87,10 @@ const (
 )
 
 var shellTopKeywords = []string{"show", "clear", "sync", "configure", "request", "help", "exit", "quit"}
+var shellDirectRequestKeywords = []string{"wifi", "standalone", "controller", "monitor", "ping", "traceroute", "path-mtu", "global-ip", "dns", "http", "download"}
+var shellOperationalKeywords = appendShellKeywords(shellTopKeywords, shellDirectRequestKeywords)
 var shellConfigureKeywords = []string{"show", "set", "delete", "run", "help", "exit", "quit"}
-var shellRequestKeywords = []string{"wifi", "standalone", "controller", "monitor", "ping", "traceroute", "path-mtu", "global-ip", "dns", "http", "download", "help", "exit", "quit"}
+var shellRequestKeywords = appendShellKeywords(shellDirectRequestKeywords, []string{"help", "exit", "quit"})
 
 // ParseLine parses a complete interactive shell line, including pipelines.
 //
@@ -159,11 +161,11 @@ func parseShellArgsInMode(args []string, mode Mode) (Command, error) {
 	}
 }
 
-func parseShellOperationalArgs(args []string, allowRequestCommand bool) (Command, error) {
+func parseShellOperationalArgs(args []string, _ bool) (Command, error) {
 	if len(args) == 0 {
 		return Command{Kind: shellNoop}, nil
 	}
-	top, err := resolveShellKeyword("command", args[0], shellTopKeywords)
+	top, err := resolveShellKeyword("command", args[0], shellOperationalKeywords)
 	if err != nil {
 		return Command{}, err
 	}
@@ -190,11 +192,14 @@ func parseShellOperationalArgs(args []string, allowRequestCommand bool) (Command
 		}
 		return Command{Kind: shellEnterConfigureMode}, nil
 	case "request":
-		if allowRequestCommand && len(args) > 1 {
+		if len(args) > 1 {
 			return parseShellRequestModeArgs(args[1:])
 		}
 		return parseShellRequest(args[1:])
 	default:
+		if isDirectRequestKeyword(top) {
+			return parseShellRequestModeArgs(args)
+		}
 		return Command{}, fmt.Errorf("unknown command %q", args[0])
 	}
 }
@@ -657,6 +662,23 @@ func parseShellRequest(args []string) (Command, error) {
 		return Command{}, fmt.Errorf("usage: request")
 	}
 	return Command{Kind: shellEnterRequestMode}, nil
+}
+
+func appendShellKeywords(groups ...[]string) []string {
+	var out []string
+	for _, group := range groups {
+		out = append(out, group...)
+	}
+	return out
+}
+
+func isDirectRequestKeyword(value string) bool {
+	for _, keyword := range shellDirectRequestKeywords {
+		if value == keyword {
+			return true
+		}
+	}
+	return false
 }
 
 func parseShellSync(args []string) (Command, error) {
