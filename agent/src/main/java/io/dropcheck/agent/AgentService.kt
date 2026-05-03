@@ -389,45 +389,25 @@ class AgentService : Service() {
 
         fun requestStandaloneRefresh(context: Context) {
             val intent = Intent(context, AgentService::class.java).setAction(ACTION_STANDALONE_REFRESH)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                @Suppress("DEPRECATION")
-                context.startService(intent)
-            }
+            context.startForegroundService(intent)
         }
 
         fun requestControllerLinkRefresh(context: Context) {
             val intent = Intent(context, AgentService::class.java).setAction(ACTION_CONTROLLER_LINK_REFRESH)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                @Suppress("DEPRECATION")
-                context.startService(intent)
-            }
+            context.startForegroundService(intent)
         }
 
         fun requestWidgetObserver(context: Context) {
             val intent = Intent(context, AgentService::class.java).setAction(ACTION_WIDGET_REFRESH_OBSERVER)
             runCatching {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    @Suppress("DEPRECATION")
-                    context.startService(intent)
-                }
+                context.startForegroundService(intent)
             }
         }
 
         fun requestWidgetObserverStop(context: Context) {
             val intent = Intent(context, AgentService::class.java).setAction(ACTION_WIDGET_REFRESH_STOP)
             runCatching {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    @Suppress("DEPRECATION")
-                    context.startService(intent)
-                }
+                context.startForegroundService(intent)
             }
         }
 
