@@ -104,6 +104,18 @@ func TestParseShellCommands(t *testing.T) {
 			label: "ping 1.1.1.1 5 --size 64 --timeout 7000",
 		},
 		{
+			name:  "request ping from top level",
+			line:  "request ping 1.1.1.1 count 5 size 64 timeout 7000",
+			kind:  shellAgentCommand,
+			label: "ping 1.1.1.1 5 --size 64 --timeout 7000",
+		},
+		{
+			name:  "direct ping from top level",
+			line:  "ping 1.1.1.1 count 5 size 64 timeout 7000",
+			kind:  shellAgentCommand,
+			label: "ping 1.1.1.1 5 --size 64 --timeout 7000",
+		},
+		{
 			name:  "request> ping options first",
 			line:  "request> ping count 5 size 64 timeout 7000 1.1.1.1",
 			kind:  shellAgentCommand,
@@ -150,6 +162,18 @@ func TestParseShellCommands(t *testing.T) {
 		{
 			name:  "request> dns",
 			line:  "request> dns example.test type AAAA timeout 9000",
+			kind:  shellAgentCommand,
+			label: "dns example.test AAAA --timeout 9000",
+		},
+		{
+			name:  "request dns from top level",
+			line:  "request dns example.test type AAAA timeout 9000",
+			kind:  shellAgentCommand,
+			label: "dns example.test AAAA --timeout 9000",
+		},
+		{
+			name:  "direct dns from top level",
+			line:  "dns example.test type AAAA timeout 9000",
 			kind:  shellAgentCommand,
 			label: "dns example.test AAAA --timeout 9000",
 		},
@@ -209,9 +233,23 @@ func TestParseShellModesSeparateConfigureAndRequest(t *testing.T) {
 	if _, err := parseShellLineForTest("set standalone enabled"); err == nil || !strings.Contains(err.Error(), `unknown command "set"`) {
 		t.Fatalf("top-level set error = %v", err)
 	}
-	if _, err := parseShellLineForTest("request ping 1.1.1.1"); err == nil || !strings.Contains(err.Error(), "usage: request") {
-		t.Fatalf("top-level request ping error = %v", err)
+	request, err := parseShellLineForTest("request ping 1.1.1.1")
+	if err != nil {
+		t.Fatalf("top-level request ping: %v", err)
 	}
+	if request.kind != shellAgentCommand {
+		t.Fatalf("top-level request ping kind = %v", request.kind)
+	}
+	assertOperationLabel(t, request.operation, "ping 1.1.1.1")
+
+	direct, err := parseShellLineForTest("ping 1.1.1.1 count 1")
+	if err != nil {
+		t.Fatalf("top-level ping: %v", err)
+	}
+	if direct.kind != shellAgentCommand {
+		t.Fatalf("top-level ping kind = %v", direct.kind)
+	}
+	assertOperationLabel(t, direct.operation, "ping 1.1.1.1 1")
 
 	set, err := parseShellLineForTest("config> set standalone enabled")
 	if err != nil {
@@ -736,6 +774,18 @@ func TestShellReadlineCompleter(t *testing.T) {
 		t.Fatalf("placeholder hint = %q, want <n>", got)
 	}
 
+	topCompleter := shellReadlineCompleter{}
+	completions, offset = topCompleter.Do([]rune("ping count "), len([]rune("ping count ")))
+	if offset != 0 {
+		t.Fatalf("top-level placeholder offset = %d, want 0", offset)
+	}
+	if len(completions) != 0 {
+		t.Fatalf("top-level placeholder completions = %#v, want no selectable candidates", completions)
+	}
+	if got := shellCompletionHintLineForTest("ping count ", nil); got != "<n>" {
+		t.Fatalf("top-level placeholder hint = %q, want <n>", got)
+	}
+
 	completions, _ = requestCompleter.Do([]rune("http expected-status "), len([]rune("http expected-status ")))
 	if len(completions) != 0 {
 		t.Fatalf("placeholder completions = %#v, want no selectable candidates", completions)
@@ -787,6 +837,14 @@ func TestShellOptionCompletion(t *testing.T) {
 			want: []string{"count", "size", "timeout"},
 		},
 		{
+			line: "request ping ",
+			want: []string{"count", "size", "timeout"},
+		},
+		{
+			line: "ping ",
+			want: []string{"count", "size", "timeout"},
+		},
+		{
 			line: "request> ping example.test ",
 			want: []string{"count", "size", "timeout"},
 		},
@@ -804,6 +862,14 @@ func TestShellOptionCompletion(t *testing.T) {
 		},
 		{
 			line: "request> dns example.test ",
+			want: []string{"type", "timeout"},
+		},
+		{
+			line: "request dns example.test ",
+			want: []string{"type", "timeout"},
+		},
+		{
+			line: "dns example.test ",
 			want: []string{"type", "timeout"},
 		},
 		{
@@ -838,8 +904,12 @@ func TestShellPlaceholderCompletionHints(t *testing.T) {
 		want string
 	}{
 		{line: "request> ping count ", want: "<n>"},
+		{line: "request ping count ", want: "<n>"},
+		{line: "ping count ", want: "<n>"},
 		{line: "show wifi scan fresh timeout ", want: "<ms>"},
 		{line: "request> ping count 5 size 64 timeout 7000 ", want: "<host>"},
+		{line: "request ping count 5 size 64 timeout 7000 ", want: "<host>"},
+		{line: "ping count 5 size 64 timeout 7000 ", want: "<host>"},
 		{line: "request> traceroute via ", want: "<host_or_ip>"},
 		{line: "request> path-mtu min-mtu ", want: "<bytes>"},
 		{line: "request> global-ip timeout ", want: "<ms>"},
