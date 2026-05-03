@@ -38,6 +38,8 @@ private const val STATUS_ICON_HEIGHT_DP = 26
 private const val STATUS_ICON_GAP_DP = 4
 private const val STATUS_ICON_LEFT_DP = 24
 private const val STATUS_ICON_TOP_DP = 14
+private const val IDLE_DIM_DELAY_MS = 60_000L
+private const val IDLE_DIM_BRIGHTNESS = 0.03f
 
 /** Adds invisible break opportunities so terminal logs can wrap at any code point. */
 internal fun terminalDisplayText(line: String): String {
@@ -67,12 +69,16 @@ class MainActivity : Activity() {
     private var statusIconViews: List<ImageView> = emptyList()
     private var controllerHeartbeatConnected = false
     private var standaloneRunning = false
+    private var screenDimmed = false
     private val statusRefreshHandler = Handler(Looper.getMainLooper())
     private val statusRefresh = object : Runnable {
         override fun run() {
             syncStatusIcons()
             statusRefreshHandler.postDelayed(this, 1_000)
         }
+    }
+    private val idleDim = Runnable {
+        setScreenDimmed(true)
     }
 
     private val displayLineLengths = ArrayDeque<Int>()
@@ -162,6 +168,7 @@ class MainActivity : Activity() {
         controllerHeartbeatConnected = ControllerLinkRuntimeState.heartbeatConnected()
         standaloneRunning = StandaloneRuntimeState.running.get()
         updateStatusIcons()
+        resetIdleDimTimer()
         requestScrollToBottom()
     }
 
@@ -183,6 +190,12 @@ class MainActivity : Activity() {
         super.onResume()
         hideSystemBars()
         syncStatusIcons()
+        resetIdleDimTimer()
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        resetIdleDimTimer()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -192,6 +205,7 @@ class MainActivity : Activity() {
 
     override fun onStop() {
         statusRefreshHandler.removeCallbacks(statusRefresh)
+        stopIdleDimTimer()
         unregisterReceiver(receiver)
         super.onStop()
     }
@@ -375,6 +389,29 @@ class MainActivity : Activity() {
         controllerHeartbeatConnected = ControllerLinkRuntimeState.heartbeatConnected()
         standaloneRunning = StandaloneRuntimeState.running.get()
         updateStatusIcons()
+    }
+
+    private fun resetIdleDimTimer() {
+        setScreenDimmed(false)
+        statusRefreshHandler.removeCallbacks(idleDim)
+        statusRefreshHandler.postDelayed(idleDim, IDLE_DIM_DELAY_MS)
+    }
+
+    private fun stopIdleDimTimer() {
+        statusRefreshHandler.removeCallbacks(idleDim)
+        setScreenDimmed(false)
+    }
+
+    private fun setScreenDimmed(dimmed: Boolean) {
+        if (screenDimmed == dimmed) return
+        screenDimmed = dimmed
+        window.attributes = window.attributes.apply {
+            screenBrightness = if (dimmed) {
+                IDLE_DIM_BRIGHTNESS
+            } else {
+                WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+            }
+        }
     }
 
     private fun dp(value: Int): Int {
