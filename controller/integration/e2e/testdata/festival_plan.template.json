@@ -1,0 +1,48 @@
+{
+  "name": "shell-e2e-smoke",
+  "networks": [
+    {
+      "name": "test-wifi",
+      "connect": {
+        "ssid": "{{SSID}}",
+        "passphrase": "{{PSK}}",
+        "timeoutMs": 25000
+      },
+      "waitConnected": {
+        "ssid": "{{SSID}}",
+        "requireIp": true,
+        "timeoutMs": 12000
+      },
+      "checks": [
+        {
+          "name": "dns-example-a",
+          "command": {
+            "label": "festival dns example.com A",
+            "resolveDns": {
+              "name": "example.com",
+              "qtypes": ["DNS_RECORD_TYPE_A"],
+              "timeoutMs": 8000,
+              "selector": {
+                "ssid": "{{SSID}}"
+              }
+            }
+          }
+        },
+        {
+          "name": "ping-cloudflare",
+          "command": {
+            "label": "festival ping 1.1.1.1",
+            "ping": {
+              "host": "1.1.1.1",
+              "count": 1,
+              "timeoutMs": 8000,
+              "selector": {
+                "ssid": "{{SSID}}"
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

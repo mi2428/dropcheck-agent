@@ -1,0 +1,356 @@
+id	source	title	runner	mode	command	expect	expected	notes
+S001	TEST	help	shell	LIVE	help	help	Full command and pipe help is printed.	help; 
+S002	TEST	show devices	shell	LIVE	show devices	ok_or_clear	Connected agent table includes serial `45240DLAQ007HG`.	show devices; 
+S003	TEST	show target	shell	LIVE	show target	ok_or_clear	Default selected target is the connected agent.	show target; 
+S004	TEST	set target number	shell	LIVE	set target 1	ok_or_clear	Target changes to agent #1.	set target number; 
+S005	TEST	set target serial	shell	LIVE	set target <serial>	ok_or_clear	Target changes to the requested serial.	set target serial; 
+S006	TEST	set target all	shell	LIVE	set target all	ok_or_clear	Target changes to all agents.	set target all; 
+S007	TEST	clear target	shell	LIVE	clear target	ok_or_clear	Target returns to the connected default agent.	clear target; 
+S008	TEST	pipe no-more	shell	LIVE	show devices | no-more	ok_or_clear	Output is unchanged and no pipe error is printed.	pipe no-more; 
+S009	TEST	pipe match/except/count	shell	LIVE	show devices | match <serial> | except NO_MATCH | count	ok_or_clear	Prints `Count: 1 lines`.	pipe match/except/count; 
+S010	TEST	pipe display json	shell	LIVE	show target | display json	ok_or_clear	JSON target object is printed.	pipe display json; 
+S011	TEST	controller endpoint show	shell	LIVE	show controller endpoint	ok_or_clear	Current controller endpoint config renders.	controller endpoint show; 
+S012	TEST	controller link show	shell	LIVE	show controller link	ok_or_clear	Current controller link status renders.	controller link show; 
+S013	TEST	controller endpoint disable	shell	LIVE	set controller endpoint disabled	ok_or_clear	Endpoint config is disabled with OK status.	controller endpoint disable; 
+S014	TEST	controller endpoint enable	shell	LIVE	set controller endpoint 127.0.0.1:1 enabled min-backoff 1s max-backoff 2s	ok_or_clear	Endpoint config is enabled and token is redacted in output.	controller endpoint enable; 
+S015	TEST	festival standalone status	shell	LIVE	show festival standalone status	ok_or_clear	Festival standalone status renders.	festival standalone status; 
+S016	TEST	festival standalone config	shell	LIVE	show festival standalone config	ok_or_clear	Festival standalone config renders.	festival standalone config; 
+S017	TEST	festival clear all	shell	LIVE	request festival clear all	ok_or_clear	Stored Festival runs are cleared.	festival clear all; 
+S018	TEST	festival run once	shell	LIVE	request festival run once plan <plan> save	ok_or_clear	A saved Festival archive is created with status OK.	festival run once; 
+S019	TEST	festival runs	shell	LIVE	show festival runs limit 5 synced	ok_or_clear	Saved run list renders and includes the new run.	festival runs; 
+S020	TEST	festival run detail	shell	LIVE	show festival run <run-id>	ok_or_clear	The saved archive renders for the run ID from S018/S019.	festival run detail; 
+S021	TEST	festival sync	shell	LIVE	request festival sync output <sync-dir> limit 1 keep-unsynced	ok_or_clear	One unsynced run archive is downloaded.	festival sync; 
+S022	TEST	festival standalone enable	shell	LIVE	set festival standalone enabled plan <plan> interval 1h retention 1d max-size 1m	ok_or_clear	Standalone config is enabled with the plan.	festival standalone enable; 
+S023	TEST	festival standalone disable	shell	LIVE	set festival standalone disabled	ok_or_clear	Standalone config is disabled.	festival standalone disable; 
+S024	TEST	wifi status	shell	LIVE	show wifi status	ok_or_clear	Wi-Fi status renders without dispatch error.	wifi status; 
+S025	TEST	wifi diagnostics	shell	LIVE	show wifi diagnostics	ok_or_clear	Diagnostics render status, capabilities, networks, and scan sections.	wifi diagnostics; 
+S026	TEST	wifi capabilities	shell	LIVE	show wifi capabilities	ok_or_clear	Capabilities render supported/unsupported Wi-Fi features.	wifi capabilities; 
+S027	TEST	wifi scan cached	shell	LIVE	show wifi scan	ok_or_clear	Cached scan output renders.	wifi scan cached; 
+S028	TEST	wifi scan band	shell	LIVE	show wifi scan all	ok_or_clear	Cached scan output renders for all bands.	wifi scan band; 
+S029	TEST	wifi scan fresh	shell	LIVE	show wifi scan fresh timeout 8000 all	ok_or_clear	Fresh scan completes or reports structured scan status.	wifi scan fresh; 
+S030	TEST	wifi scan detail	shell	LIVE	show wifi scan detail all "<ssid>"	ok_or_clear	Scan detail for the test SSID renders.	wifi scan detail; 
+S031	TEST	wifi connect	shell	LIVE	request wifi connect passphrase <psk> security auto timeout 25000 "<ssid>"	ok_or_clear	Device connects to the test SSID and reports IP status.	wifi connect; 
+S032	TEST	wifi wait	shell	LIVE	request wifi wait connected "<ssid>" ip timeout 12000	ok_or_clear	Wait condition reaches the test SSID with IP.	wifi wait; 
+S033	TEST	wifi assert	shell	LIVE	request wifi assert ssid "<ssid>" ip timeout 5000	ok_or_clear	Assertion passes for the test SSID with IP.	wifi assert; 
+S034	TEST	wifi reconnect	shell	LIVE	request wifi reconnect timeout 12000	ok_or_clear	Active Wi-Fi reconnect reaches connected state.	wifi reconnect; 
+S035	TEST	wifi monitor	shell	LIVE	monitor wifi duration 1500 interval 500	ok_or_clear	Wi-Fi event monitor returns without timeout error.	wifi monitor; 
+S036	TEST	wifi cycle	shell	LIVE	request wifi cycle passphrase <psk> count 1 ping 1.1.1.1 pause 100 timeout 25000 "<ssid>"	ok_or_clear	One cycle connects, pings, and disconnects with pass count 1/1.	wifi cycle; 
+S037	TEST	wifi disconnect	shell	LIVE	request wifi disconnect	ok_or_clear	Disconnect command returns a structured operation result.	wifi disconnect; 
+S038	TEST	wifi forget	shell	LIVE	request wifi forget "<ssid>"	ok_or_clear	Saved test network is forgotten or best-effort success is reported.	wifi forget; 
+S039	TEST	ping	shell	LIVE	ping count 1 timeout 8000 1.1.1.1	ok_or_clear	Ping result status OK with transmitted/received counts.	ping; 
+S040	TEST	traceroute	shell	LIVE	traceroute max-hops 30 timeout 60000 1.1.1.1	ok_or_clear	Traceroute result status OK or structured fallback reaches target.	traceroute; 
+S041	TEST	path-mtu	shell	LIVE	path-mtu min-mtu 576 max-mtu 1200 timeout 20000 1.1.1.1	ok_or_clear	Path MTU discovery succeeds.	path-mtu; Initial disconnect log saved as `testdata/logs/S041.initial-anomaly.log`; rerun passed.
+S042	TEST	global-ip	shell	LIVE	global-ip ipv4 timeout 10000	ok_or_clear	Public IPv4 result renders.	global-ip; 
+S043	TEST	dns	shell	LIVE	test dns type A timeout 8000 www.google.com	ok_or_clear	A record resolution succeeds.	dns; 
+S044	TEST	http	shell	LIVE	test http expected-status 204 timeout 10000 http://connectivitycheck.gstatic.com/generate_204	ok_or_clear	HTTP status check matches 204.	http; 
+S045	TEST	download	shell	LIVE	test download timeout 15000 https://example.com/	ok_or_clear	Download probe succeeds with 2xx/3xx status.	download; 
+S046	TEST	controller reconnect failure state	shell	LIVE	request controller reconnect` after endpoint disabled	ok_or_clear	Structured `STATUS_FAILED` explains endpoint disabled/incomplete.	controller reconnect failure state; 
+S047	TEST	controller reconnect success state	shell	LIVE	request controller reconnect` after endpoint enabled	ok_or_clear	Structured OK result is returned, then current stream closes.	controller reconnect success state; 
+S048	TEST	quit	shell	LIVE	quit	ok_or_clear	Shell exits cleanly.	quit; 
+S049	TEST	exit alias	shell	LIVE	exit	ok_or_clear	Shell exits cleanly.	exit alias; 
+F001	TEST	help	shell	SHELL_ERROR	help extra	error	`usage: help` parse error; shell continues.	help; 
+F002	TEST	show devices	shell	SHELL_ERROR	show devices extra	error	`usage: show devices`.	show devices; 
+F003	TEST	show target	shell	SHELL_ERROR	show target extra	error	`usage: show target`.	show target; 
+F004	TEST	set target missing	shell	SHELL_ERROR	set target	error	`usage: set target <agent_id\|adb_serial\|number\|all>`.	set target missing; 
+F005	TEST	set target range	shell	SHELL_ERROR	set target 999	error	`agent number 999 is out of range`.	set target range; 
+F006	TEST	clear target	shell	SHELL_ERROR	clear target extra	error	`usage: clear target`.	clear target; 
+F007	TEST	show controller	shell	SHELL_ERROR	show controller nope	error	Unknown/invalid show controller command error.	show controller; 
+F008	TEST	set controller missing endpoint	shell	SHELL_ERROR	set controller endpoint enabled	error	Usage or endpoint-required error.	set controller missing endpoint; Fixed: now prints `controller endpoint is required`.
+F009	TEST	set controller bad port	shell	SHELL_ERROR	set controller endpoint localhost:0 enabled	error	Port must be 1-65535.	set controller bad port; 
+F010	TEST	set controller bad backoff	shell	SHELL_ERROR	set controller endpoint localhost:1234 enabled min-backoff 30s max-backoff 1s	error	Max backoff must be >= min backoff.	set controller bad backoff; 
+F011	TEST	show festival runs bad limit	shell	SHELL_ERROR	show festival runs limit nope	error	Limit must be a positive integer.	show festival runs bad limit; 
+F012	TEST	show festival run missing	shell	SHELL_ERROR	show festival run ""	error	Festival run id is required.	show festival run missing; 
+F013	TEST	set festival missing plan	shell	SHELL_ERROR	set festival standalone enabled	error	Festival plan path is required or usage is printed.	set festival missing plan; Fixed: now prints `festival plan path is required`.
+F014	TEST	set festival missing file	shell	SHELL_ERROR	set festival standalone enabled plan <missing-plan>	error	Read festival plan file error.	set festival missing file; 
+F015	TEST	request festival missing file	shell	SHELL_ERROR	request festival run once plan <missing-plan>	error	Read festival plan file error.	request festival missing file; 
+F016	TEST	request festival clear bad mode	shell	SHELL_ERROR	request festival clear invalid	error	Clear mode must be `synced` or `all`.	request festival clear bad mode; 
+F017	TEST	request festival sync bad limit	shell	SHELL_ERROR	request festival sync limit nope	error	Festival sync limit parse error.	request festival sync bad limit; 
+F018	TEST	show wifi status extra	shell	SHELL_ERROR	show wifi status extra	error	`usage: show wifi status`.	show wifi status extra; 
+F019	TEST	show wifi scan duplicate band	shell	SHELL_ERROR	show wifi scan fresh all all	error	`wifi scan fresh band specified twice`.	show wifi scan duplicate band; 
+F020	TEST	show wifi scan bad timeout	shell	SHELL_ERROR	show wifi scan fresh timeout nope all	error	Timeout must be a positive integer.	show wifi scan bad timeout; 
+F021	TEST	show wifi scan detail missing target	shell	SHELL_ERROR	show wifi scan detail	error	Scan detail usage error.	show wifi scan detail missing target; 
+F022	TEST	show wifi scan bad band	shell	SHELL_ERROR	show wifi scan nope	error	Unsupported/unknown Wi-Fi band error.	show wifi scan bad band; 
+F023	TEST	wifi connect missing passphrase	shell	SHELL_ERROR	request wifi connect "<ssid>"	error	Missing passphrase error.	wifi connect missing passphrase; 
+F024	TEST	wifi connect bad security	shell	SHELL_ERROR	request wifi connect passphrase <psk> security wep "<ssid>"	error	Unsupported Wi-Fi security error.	wifi connect bad security; 
+F025	TEST	wifi connect bad MAC mode	shell	SHELL_ERROR	request wifi connect passphrase <psk> mac-randomization weird "<ssid>"	error	Unsupported MAC randomization error.	wifi connect bad MAC mode; 
+F026	TEST	wifi wait duplicate SSID	shell	SHELL_ERROR	request wifi wait connected "<ssid>" ssid other	error	Wi-Fi SSID specified twice.	wifi wait duplicate SSID; 
+F027	TEST	wifi assert bad token	shell	SHELL_ERROR	request wifi assert bogus	error	Unknown expectation option error.	wifi assert bad token; 
+F028	TEST	wifi reconnect bad timeout	shell	SHELL_ERROR	request wifi reconnect timeout 0	error	Timeout must be a positive integer.	wifi reconnect bad timeout; 
+F029	TEST	wifi cycle bad count	shell	SHELL_ERROR	request wifi cycle passphrase <psk> count 0 "<ssid>"	error	Count must be a positive integer.	wifi cycle bad count; 
+F030	TEST	monitor wifi bad duration	shell	SHELL_ERROR	monitor wifi duration 0	error	Duration must be a positive integer.	monitor wifi bad duration; 
+F031	TEST	ping bad count	shell	SHELL_ERROR	ping count nope 1.1.1.1	error	Ping count must be a positive integer.	ping bad count; 
+F032	TEST	ping extra positional	shell	SHELL_ERROR	ping 1.1.1.1 extra	error	Unexpected ping argument error.	ping extra positional; 
+F033	TEST	traceroute bad max-hops	shell	SHELL_ERROR	traceroute max-hops 0 1.1.1.1	error	Max hops must be a positive integer.	traceroute bad max-hops; 
+F034	TEST	path-mtu bad min	shell	SHELL_ERROR	path-mtu min-mtu nope 1.1.1.1	error	Min MTU must be a positive integer.	path-mtu bad min; 
+F035	TEST	global-ip duplicate family	shell	SHELL_ERROR	global-ip ipv4 ipv6	error	Family specified twice.	global-ip duplicate family; 
+F036	TEST	global-ip bad family	shell	SHELL_ERROR	global-ip family bad	error	Unsupported IP family error.	global-ip bad family; 
+F037	TEST	dns bad type	shell	SHELL_ERROR	test dns type MX example.com	error	Unsupported DNS qtype error.	dns bad type; 
+F038	TEST	http bad status	shell	SHELL_ERROR	test http expected-status nope https://example.com/	error	Expected status must be a positive integer.	http bad status; 
+F039	TEST	download missing URL	shell	SHELL_ERROR	test download	error	Download usage error.	download missing URL; 
+F040	TEST	pipe bad regex	shell	SHELL_ERROR	show devices | match [	error	Regex compile error.	pipe bad regex; 
+F041	TEST	pipe unknown	shell	SHELL_ERROR	show devices | unknown	error	Unknown pipe error.	pipe unknown; 
+F042	TEST	quit extra	shell	SHELL_ERROR	quit now	error	`usage: quit`.	quit extra; 
+F043	TEST	exit extra	shell	SHELL_ERROR	exit now	error	`usage: exit`.	exit extra; 
+T2-SH-001	TEST2	Full-line ASCII help token	shell-parser	PARSER	?	help	Top-level help entries are printed; no command dispatch.	Full-line ASCII help token.
+T2-SH-002	TEST2	Full-line full-width help token	shell-parser	PARSER	？	help	Top-level help entries are printed; no command dispatch.	Full-line full-width help token.
+T2-SH-003	TEST2	Context help after command prefix	shell-parser	PARSER	show wifi ?	help	Contextual choices for `status`, `diagnostics`, `scan`, `capabilities`.	Context help after command prefix.
+T2-SH-004	TEST2	Value completion/help	shell-parser	PARSER	request wifi connect security ?	help	Security candidates include `auto`, `wpa2`, `wpa3`, `transition`.	Value completion/help.
+T2-SH-005	TEST2	Help suffix after value-taking option	shell-parser	PARSER	show wifi scan fresh timeout ?	help	Placeholder/help for timeout value, not a missing-value parse error.	Help suffix after value-taking option.
+T2-SH-006	TEST2	Prefix success path	shell	LIVE	sho wi sta	ok_or_clear	Unique prefixes resolve to `show wifi status` and return Wi-Fi status.	Prefix success path.
+T2-SH-007	TEST2	Prefix failure path	shell-parser	PARSER	show wifi s	error	Ambiguous prefix error for `status` vs `scan`.	Prefix failure path.
+T2-SH-008	TEST2	Tokenizer failure	shell-parser	PARSER	show wifi status "	error	Unterminated quote parse error.	Tokenizer failure.
+T2-SH-009	TEST2	Empty quoted positional	shell-parser	PARSER	request wifi connect "" passphrase <psk>	error	Missing/empty SSID error.	Empty quoted positional.
+T2-SH-010	TEST2	Quoted pipe handling	shell-parser	PARSER	show wifi scan detail "SHIZK|RADIO"	ok	The pipe inside quotes is part of the argument, not a pipeline delimiter.	Quoted pipe handling.
+T2-PIPE-001	TEST2	Empty pipe stage	shell-parser	PARSER	show devices |	error	Pipeline usage/error for empty stage.	Empty pipe stage.
+T2-PIPE-002	TEST2	Pipe command arity	shell-parser	PARSER	show devices | count extra	ok	`count` rejects extra arguments.	Pipe command arity.
+T2-PIPE-003	TEST2	Missing regex value	shell-parser	PARSER	show devices | match	error	`match` requires a regex value.	Missing regex value.
+T2-PIPE-004	TEST2	Regex compile failure	shell-parser	PARSER	show devices | except "["	error	Invalid regex error.	Regex compile failure.
+T2-PIPE-005	TEST2	Display value validation	shell-parser	PARSER	show devices | display xml	error	`display` rejects unsupported format.	Display value validation.
+T2-PIPE-006	TEST2	Display arity	shell-parser	PARSER	show devices | display json extra	ok	`display` rejects extra argument.	Display arity.
+T2-PIPE-007	TEST2	Case-insensitive regex	shell	LIVE	show devices | match "(?i)pixel"	ok_or_clear	Matching output contains the Pixel device row.	Case-insensitive regex.
+T2-PIPE-008	TEST2	Pipeline order after display	shell	LIVE	show devices | display json | count	ok_or_clear	Command succeeds and counts JSON lines.	Pipeline order after display.
+T2-PIPE-009	TEST2	Pipeline type/order edge	shell	LIVE	show devices | count | display json	ok_or_clear	Resolved pipeline regression: display json after count is rejected with a clear error.	Pipeline type/order edge.
+T2-PIPE-010	TEST2	Unknown pipe stage	shell-parser	PARSER	show devices | unknown	error	Unsupported pipe command error.	Unknown pipe stage.
+T2-LOCAL-001	TEST2	Prefix target resolution	shell	LIVE	set target <serial-prefix>	ok_or_clear	Serial prefix resolves to `45240DLAQ007HG`.	Prefix target resolution.
+T2-LOCAL-002	TEST2	Restore explicit target after prefix case	shell	LIVE	set target <serial>	ok_or_clear	Full serial target remains selected.	Restore explicit target after prefix case.
+T2-LOCAL-003	TEST2	Unknown target failure	shell	LIVE	set target NO_SUCH_TARGET	ok_or_clear	Target-not-found error.	Unknown target failure.
+T2-LOCAL-004	TEST2	Local multi-target state	shell	LIVE	set target all	ok_or_clear	Multi-target mode selected.	Local multi-target state.
+T2-LOCAL-005	TEST2	Multi-target display	shell	LIVE	show target	ok_or_clear	Output states all-target mode.	Multi-target display.
+T2-LOCAL-006	TEST2	State restore	shell	LIVE	set target <serial>	ok_or_clear	Restore single target for remaining cases.	State restore.
+T2-LOCAL-007	TEST2	Agent-ID prefix resolution	shell	LIVE	set target <agent-id-prefix-from-show-devices>	ok_or_clear	Agent ID prefix resolves to the same selected device.	Agent-ID prefix resolution.
+T2-CTRL-001	TEST2	endpoint value option form	shell	STATE	set controller endpoint endpoint 127.0.0.1:37589 enabled	ok_or_clear	Endpoint keyword form succeeds.	`endpoint <value>` option form.
+T2-CTRL-002	TEST2	Duration suffixes and min/max	shell	STATE	set controller endpoint 127.0.0.1:37589 enabled min-backoff 500ms max-backoff 2s	ok_or_clear	Enabled config stores endpoint and backoffs.	Duration suffixes and min/max.
+T2-CTRL-003	TEST2	Boundary ordering	shell	STATE	set controller endpoint 127.0.0.1:37589 enabled min-backoff 1s max-backoff 1s	ok_or_clear	Equal min/max accepted.	Boundary ordering.
+T2-CTRL-004	TEST2	Backoff order failure	shell-parser	PARSER	set controller endpoint 127.0.0.1:37589 enabled min-backoff 3s max-backoff 1s	error	`max-backoff must be greater than or equal to min-backoff`.	Backoff order failure.
+T2-CTRL-005	TEST2	Endpoint parse failure	shell-parser	PARSER	set controller endpoint 127.0.0.1 enabled	error	Endpoint must be `host:port`.	Endpoint parse failure.
+T2-CTRL-006	TEST2	Port lower boundary	shell-parser	PARSER	set controller endpoint 127.0.0.1:0 enabled	error	Port must be 1-65535.	Port lower boundary.
+T2-CTRL-007	TEST2	Port upper boundary	shell-parser	PARSER	set controller endpoint 127.0.0.1:65536 enabled	error	Port must be 1-65535.	Port upper boundary.
+T2-CTRL-008	TEST2	Duration value failure	shell-parser	PARSER	set controller endpoint 127.0.0.1:37589 enabled min-backoff nope	error	Invalid duration error.	Duration value failure.
+T2-CTRL-009	TEST2	Disabled arity	shell-parser	PARSER	set controller endpoint disabled extra	error	Usage error; disabled takes no extra args.	Disabled arity.
+T2-CTRL-010	TEST2	State restore	shell	STATE	set controller endpoint disabled	ok_or_clear	Controller endpoint disabled; restore safe state.	State restore.
+T2-FEST-001	TEST2	synced flag alone	shell	LIVE	show festival runs synced	ok_or_clear	Runs list includes synced records if present, otherwise empty list succeeds.	`synced` flag alone.
+T2-FEST-002	TEST2	Option order with flag before value	shell	LIVE	show festival runs synced limit 1	ok_or_clear	Runs list limited to 1 with synced records included.	Option order with flag before value.
+T2-FEST-003	TEST2	Option order with value before flag	shell	LIVE	show festival runs limit 1 synced	ok_or_clear	Same as above.	Option order with value before flag.
+T2-FEST-004	TEST2	Duplicate flag behavior	shell-parser	PARSER	show festival runs synced synced	error	Resolved anomaly regression: duplicate flag should be rejected or explicitly documented as idempotent.	Duplicate flag behavior.
+T2-FEST-005	TEST2	Duplicate value behavior	shell-parser	PARSER	show festival runs limit 1 limit 2	error	Resolved anomaly regression: duplicate value option should be rejected or documented as last-wins.	Duplicate value behavior.
+T2-FEST-006	TEST2	Empty run ID	shell-parser	PARSER	show festival run ""	ok	Festival run id is required.	Empty run ID.
+T2-FEST-007	TEST2	Default clear mode	shell	LIVE	request festival clear	ok_or_clear	Clears only synced runs; unsynced runs remain.	Default clear mode.
+T2-FEST-008	TEST2	Explicit clear mode	shell	LIVE	request festival clear synced	ok_or_clear	Explicit synced clear succeeds.	Explicit clear mode.
+T2-FEST-009	TEST2	Clear arity failure	shell-parser	PARSER	request festival clear synced all	error	Usage error; only one clear mode.	Clear arity failure.
+T2-FEST-010	TEST2	Duration d, size m	shell	STATE	set festival standalone enabled plan <plan> interval 1d retention 2d max-size 1m	ok_or_clear	Config accepts day durations and megabyte suffix.	Duration `d`, size `m`.
+T2-FEST-011	TEST2	Size g	shell	STATE	set festival standalone enabled plan <plan> max-size 1g	ok_or_clear	Config accepts gigabyte suffix.	Size `g`.
+T2-FEST-012	TEST2	Required plan value	shell-parser	PARSER	set festival standalone enabled interval 1s	ok	Festival plan path is required.	Required `plan` value.
+T2-FEST-013	TEST2	Negative duration	shell-parser	PARSER	set festival standalone enabled plan <plan> retention -1s	error	Invalid duration error.	Negative duration.
+T2-FEST-014	TEST2	Size suffix failure	shell-parser	PARSER	set festival standalone enabled plan <plan> max-size 1t	error	Invalid size suffix error.	Size suffix failure.
+T2-FEST-015	TEST2	Disabled arity	shell-parser	PARSER	set festival standalone disabled plan <plan>	error	Usage error; disabled takes no options.	Disabled arity.
+T2-FEST-016	TEST2	State restore	shell	STATE	set festival standalone disabled	ok_or_clear	Standalone config disabled; restore safe state.	State restore.
+T2-FEST-017	TEST2	save omitted path	shell	LIVE	request festival run once plan <plan>	ok_or_clear	One-off plan runs without saving.	`save` omitted path.
+T2-FEST-018	TEST2	Flag arity failure	shell-parser	PARSER	request festival run once plan <plan> save extra	error	Usage/unknown option error.	Flag arity failure.
+T2-FEST-019	TEST2	Option order edge	shell-parser	PARSER	request festival run once save plan <plan>	ok	Accepted if shell grammar allows flag before plan; otherwise stable error.	Option order edge.
+T2-FEST-020	TEST2	mark-synced explicit path	shell	LIVE	request festival sync output <sync-dir> limit 1 mark-synced	ok_or_clear	Sync downloads at most one run and marks it synced.	`mark-synced` explicit path.
+T2-FEST-021	TEST2	Default mark behavior	shell	LIVE	request festival sync output <sync-dir> limit 1	ok_or_clear	Default sync marks downloaded runs synced.	Default mark behavior.
+T2-FEST-022	TEST2	Conflicting sync flags	shell	LIVE	request festival sync output <sync-dir> limit 1 mark-synced keep-unsynced	ok_or_clear	Conflicting sync flags are rejected with a clear error.	Conflicting sync flags.
+T2-FEST-023	TEST2	Conflicting sync flags reversed	shell	LIVE	request festival sync output <sync-dir> limit 1 keep-unsynced mark-synced	ok_or_clear	Conflicting sync flags are rejected with a clear error.	Conflicting sync flags reversed.
+T2-FEST-024	TEST2	Limit boundary	shell-parser	PARSER	request festival sync limit 0	error	Resolved anomaly regression: expected positive limit error; current app parser may accept zero.	Limit boundary.
+T2-WSCAN-001	TEST2	Band value 2.4ghz	shell	LIVE	show wifi scan 2.4ghz	ok_or_clear	Cached scan filtered to 2.4 GHz succeeds.	Band value `2.4ghz`.
+T2-WSCAN-002	TEST2	Band value 5ghz	shell	LIVE	show wifi scan 5ghz	ok_or_clear	Cached scan filtered to 5 GHz succeeds.	Band value `5ghz`.
+T2-WSCAN-003	TEST2	Band value 6ghz	shell	LIVE	show wifi scan 6ghz	ok_or_clear	Cached scan filtered to 6 GHz succeeds even if empty.	Band value `6ghz`.
+T2-WSCAN-004	TEST2	Band value 60ghz	shell	LIVE	show wifi scan 60ghz	ok_or_clear	Cached scan filtered to 60 GHz succeeds even if empty.	Band value `60ghz`.
+T2-WSCAN-005	TEST2	Fresh option order	shell	LIVE	show wifi scan fresh 2.4ghz timeout 12000	ok_or_clear	Fresh scan accepts band before timeout.	Fresh option order.
+T2-WSCAN-006	TEST2	Fresh option order reversed	shell	LIVE	show wifi scan fresh timeout 12000 5ghz	ok_or_clear	Fresh scan accepts timeout before band.	Fresh option order reversed.
+T2-WSCAN-007	TEST2	Fresh 6 GHz	shell	LIVE	show wifi scan fresh timeout 12000 6ghz	ok_or_clear	Fresh scan accepts 6 GHz band.	Fresh 6 GHz.
+T2-WSCAN-008	TEST2	Fresh 60 GHz	shell	LIVE	show wifi scan fresh timeout 12000 60ghz	ok_or_clear	Fresh scan accepts 60 GHz band even if empty/unsupported.	Fresh 60 GHz.
+T2-WSCAN-009	TEST2	Detail target-band order	shell	LIVE	show wifi scan detail "<ssid>" all	ok_or_clear	Detail accepts target before band.	Detail target-band order.
+T2-WSCAN-010	TEST2	Detail band-target order	shell	LIVE	show wifi scan detail 5ghz "<ssid>"	ok_or_clear	Detail accepts band before target.	Detail band-target order.
+T2-WSCAN-011	TEST2	Detail missing target	shell-parser	PARSER	show wifi scan detail	error	Usage error.	Detail missing target.
+T2-WSCAN-012	TEST2	Detail missing target after band	shell-parser	PARSER	show wifi scan detail all	error	Usage error; band without target.	Detail missing target after band.
+T2-WSCAN-013	TEST2	Detail over-arity	shell-parser	PARSER	show wifi scan detail all "<ssid>" 5ghz	error	Usage error; too many args/band twice.	Detail over-arity.
+T2-WSCAN-014	TEST2	Missing timeout value	shell-parser	PARSER	show wifi scan fresh timeout	error	`timeout requires a value`.	Missing timeout value.
+T2-WSCAN-015	TEST2	Timeout lower boundary	shell-parser	PARSER	show wifi scan fresh timeout 0	error	Timeout must be positive.	Timeout lower boundary.
+T2-WSCAN-016	TEST2	Duplicate band	shell-parser	PARSER	show wifi scan fresh 5ghz 6ghz	error	Fresh band specified twice.	Duplicate band.
+T2-WSCAN-017	TEST2	Invalid scan argument	shell-parser	PARSER	show wifi scan bogus	error	Unsupported Wi-Fi band or unknown scan argument.	Invalid scan argument.
+T2-WSCAN-018	TEST2	Duplicate timeout	shell-parser	PARSER	show wifi scan fresh timeout 100 timeout 200	error	Resolved anomaly regression: duplicate timeout should be rejected or documented as last-wins.	Duplicate timeout.
+T2-WCON-001	TEST2	Positional order	shell	STATE	request wifi connect "<ssid>" passphrase <psk>	ok_or_clear	Positional SSID before options connects with default security/timeout.	Positional order.
+T2-WCON-002	TEST2	Positional order reversed	shell	STATE	request wifi connect passphrase <psk> "<ssid>"	ok_or_clear	SSID after options connects.	Positional order reversed.
+T2-WCON-003	TEST2	Security wpa2	shell	STATE	request wifi connect passphrase <psk> security wpa2 timeout 25000 "<ssid>"	ok_or_clear	Either connects using WPA2 or returns clear agent unsupported/security mismatch error.	Security `wpa2`.
+T2-WCON-004	TEST2	Security wpa3	shell	STATE	request wifi connect passphrase <psk> security wpa3 timeout 25000 "<ssid>"	ok_or_clear	Connects to WPA3 test AP or returns clear mismatch error.	Security `wpa3`.
+T2-WCON-005	TEST2	Security transition	shell	STATE	request wifi connect passphrase <psk> security transition timeout 25000 "<ssid>"	ok_or_clear	Connects or returns clear mismatch error.	Security `transition`.
+T2-WCON-006	TEST2	Band all	shell	STATE	request wifi connect passphrase <psk> band all timeout 25000 "<ssid>"	ok_or_clear	Connects with all-band selector.	Band `all`.
+T2-WCON-007	TEST2	Band 2.4ghz	shell	STATE	request wifi connect passphrase <psk> band 2.4ghz timeout 25000 "<ssid>"	ok_or_clear	Connects if AP has 2.4 GHz BSSID, otherwise clear timeout/failure.	Band `2.4ghz`.
+T2-WCON-008	TEST2	Band 5ghz	shell	STATE	request wifi connect passphrase <psk> band 5ghz timeout 25000 "<ssid>"	ok_or_clear	Connects on observed 5 GHz AP.	Band `5ghz`.
+T2-WCON-009	TEST2	Band 6ghz	shell	STATE	request wifi connect passphrase <psk> band 6ghz timeout 25000 "<ssid>"	ok_or_clear	Either connects if available or clear timeout/failure.	Band `6ghz`.
+T2-WCON-010	TEST2	Band 60ghz	shell	STATE	request wifi connect passphrase <psk> band 60ghz timeout 25000 "<ssid>"	ok_or_clear	Either connects if available or clear timeout/failure; no parser panic.	Band `60ghz`.
+T2-WCON-011	TEST2	MAC auto	shell	STATE	request wifi connect passphrase <psk> mac-randomization auto timeout 25000 "<ssid>"	ok_or_clear	Connect command accepts auto MAC randomization.	MAC `auto`.
+T2-WCON-012	TEST2	MAC none	shell	STATE	request wifi connect passphrase <psk> mac-randomization none timeout 25000 "<ssid>"	ok_or_clear	Connect command accepts no MAC randomization.	MAC `none`.
+T2-WCON-013	TEST2	MAC persistent	shell	STATE	request wifi connect passphrase <psk> mac-randomization persistent timeout 25000 "<ssid>"	ok_or_clear	Connect command accepts persistent MAC randomization.	MAC `persistent`.
+T2-WCON-014	TEST2	MAC non-persistent	shell	STATE	request wifi connect passphrase <psk> mac-randomization non-persistent timeout 25000 "<ssid>"	ok_or_clear	Connect command accepts non-persistent MAC randomization.	MAC `non-persistent`.
+T2-WCON-015	TEST2	BSSID option	shell	STATE	request wifi connect passphrase <psk> bssid <bssid> timeout 25000 "<ssid>"	ok_or_clear	Connects to the specified BSSID if still present; otherwise clear BSSID failure.	BSSID option.
+T2-WCON-016	TEST2	Duplicate value option	shell-parser	PARSER	request wifi connect passphrase <psk> security auto security wpa3 "<ssid>"	error	Resolved anomaly regression: duplicate security should be rejected or documented as last-wins.	Duplicate value option.
+T2-WCON-017	TEST2	Duplicate passphrase	shell-parser	PARSER	request wifi connect passphrase <psk> passphrase other "<ssid>"	error	Resolved anomaly regression: duplicate passphrase should be rejected or documented as last-wins.	Duplicate passphrase.
+T2-WCON-018	TEST2	Duplicate timeout	shell-parser	PARSER	request wifi connect passphrase <psk> timeout 100 timeout 200 "<ssid>"	error	Resolved anomaly regression: duplicate timeout should be rejected or documented as last-wins.	Duplicate timeout.
+T2-WCON-019	TEST2	Missing/misplaced BSSID value	shell-parser	PARSER	request wifi connect passphrase <psk> bssid "<ssid>"	error	`bssid requires a value` or invalid BSSID; must not consume SSID silently.	Missing/misplaced BSSID value.
+T2-WCON-020	TEST2	Missing/misplaced band value	shell-parser	PARSER	request wifi connect passphrase <psk> band "<ssid>"	error	Unsupported Wi-Fi band or missing value error; must not consume SSID silently.	Missing/misplaced band value.
+T2-WCON-021	TEST2	Timeout boundary	shell-parser	PARSER	request wifi connect passphrase <psk> timeout 0 "<ssid>"	error	Timeout must be positive.	Timeout boundary.
+T2-WCON-022	TEST2	Timeout parse failure	shell-parser	PARSER	request wifi connect passphrase <psk> timeout nope "<ssid>"	error	Timeout must be positive integer.	Timeout parse failure.
+T2-WCON-023	TEST2	Extra positional	shell-parser	PARSER	request wifi connect passphrase <psk> "<ssid>" extra	error	Unexpected extra positional argument.	Extra positional.
+T2-WCON-024	TEST2	Empty value	shell-parser	PARSER	request wifi connect passphrase "" "<ssid>"	error	Resolved anomaly regression: empty passphrase should be rejected for secured connect or documented.	Empty value.
+T2-WCON-025	TEST2	State restore	shell	STATE	request wifi connect passphrase <psk> security auto timeout 25000 "<ssid>"	ok_or_clear	Restore known connected state after connect variants.	State restore.
+T2-WEXP-001	TEST2	Wait ssid option	shell	LIVE	request wifi wait connected ssid "<ssid>" ip timeout 12000	ok_or_clear	Keyword `ssid` form waits successfully.	Wait `ssid` option.
+T2-WEXP-002	TEST2	Wait bssid	shell	LIVE	request wifi wait connected bssid <bssid> timeout 12000	ok_or_clear	Waits for BSSID if connected; otherwise clear timeout.	Wait `bssid`.
+T2-WEXP-003	TEST2	Wait security	shell	LIVE	request wifi wait connected security wpa3 timeout 12000	ok_or_clear	Waits for WPA3/SAE if current security matches; otherwise clear timeout.	Wait `security`.
+T2-WEXP-004	TEST2	Wait band	shell	LIVE	request wifi wait connected band 5ghz timeout 12000	ok_or_clear	Waits for 5 GHz current connection.	Wait `band`.
+T2-WEXP-005	TEST2	Wait validated	shell	LIVE	request wifi wait connected validated timeout 12000	ok_or_clear	Waits for validated network.	Wait `validated`.
+T2-WEXP-006	TEST2	Combined flags	shell	LIVE	request wifi wait connected ip validated timeout 12000	ok_or_clear	Waits for both IP and validation.	Combined flags.
+T2-WEXP-007	TEST2	No SSID condition	shell	LIVE	request wifi wait connected timeout 1000	ok_or_clear	Waits only for any Wi-Fi connection.	No SSID condition.
+T2-WEXP-008	TEST2	Assert bssid	shell	LIVE	request wifi assert bssid <bssid> timeout 5000	ok_or_clear	Assertion checks BSSID.	Assert `bssid`.
+T2-WEXP-009	TEST2	Assert security	shell	LIVE	request wifi assert security wpa3 timeout 5000	ok_or_clear	Assertion checks security.	Assert `security`.
+T2-WEXP-010	TEST2	Assert band	shell	LIVE	request wifi assert band 5ghz timeout 5000	ok_or_clear	Assertion checks band.	Assert `band`.
+T2-WEXP-011	TEST2	Assert validated	shell	LIVE	request wifi assert validated timeout 5000	ok_or_clear	Assertion checks validation.	Assert `validated`.
+T2-WEXP-012	TEST2	No explicit condition	shell	LIVE	request wifi assert timeout 5000	ok_or_clear	Assertion with no conditions succeeds only if connected; output should explain checks.	No explicit condition.
+T2-WEXP-013	TEST2	Duplicate ssid	shell-parser	PARSER	request wifi wait connected ssid "<ssid>" ssid other	error	Duplicate SSID error.	Duplicate `ssid`.
+T2-WEXP-014	TEST2	Duplicate positional SSID	shell-parser	PARSER	request wifi wait connected "<ssid>" "other"	error	Unexpected extra positional argument.	Duplicate positional SSID.
+T2-WEXP-015	TEST2	Wait security value validation	shell-parser	PARSER	request wifi wait connected security auto	error	Unsupported wait security `auto`; wait only allows wpa2/wpa3/transition.	Wait security value validation.
+T2-WEXP-016	TEST2	Assert security value validation	shell-parser	PARSER	request wifi assert security auto	error	Unsupported assert security `auto`.	Assert security value validation.
+T2-WEXP-017	TEST2	Wait band validation	shell-parser	PARSER	request wifi wait connected band 7ghz	error	Unsupported Wi-Fi band.	Wait band validation.
+T2-WEXP-018	TEST2	Assert band validation	shell-parser	PARSER	request wifi assert band 7ghz	error	Unsupported Wi-Fi band.	Assert band validation.
+T2-WEXP-019	TEST2	Wait timeout boundary	shell-parser	PARSER	request wifi wait connected timeout 0	error	Timeout must be positive.	Wait timeout boundary.
+T2-WEXP-020	TEST2	Assert timeout boundary	shell-parser	PARSER	request wifi assert timeout 0	error	Timeout must be positive.	Assert timeout boundary.
+T2-WEXP-021	TEST2	Missing wait value	shell-parser	PARSER	request wifi wait connected bssid	error	`bssid requires a value`.	Missing wait value.
+T2-WEXP-022	TEST2	Missing assert value	shell-parser	PARSER	request wifi assert ssid	error	`ssid requires a value`.	Missing assert value.
+T2-WEXP-023	TEST2	Assert positional rejection	shell-parser	PARSER	request wifi assert "<ssid>"	error	Usage error; assert does not accept positional SSID.	Assert positional rejection.
+T2-WEXP-024	TEST2	Wait subcommand validation	shell-parser	PARSER	request wifi wait disconnected	error	Usage error; only `connected` is supported.	Wait subcommand validation.
+T2-WEXP-025	TEST2	Duplicate flag behavior	shell-parser	PARSER	request wifi assert ip ip	error	Resolved anomaly regression: duplicate flag should be rejected or documented as idempotent.	Duplicate flag behavior.
+T2-WEXP-026	TEST2	Duplicate timeout	shell-parser	PARSER	request wifi assert timeout 100 timeout 200	error	Resolved anomaly regression: duplicate timeout should be rejected or documented as last-wins.	Duplicate timeout.
+T2-WCYC-001	TEST2	http probe	shell	STATE	request wifi cycle passphrase <psk> count 1 http https://www.google.com/generate_204 pause 100 timeout 25000 "<ssid>"	ok_or_clear	One cycle connects, HTTP check passes, disconnects.	`http` probe.
+T2-WCYC-002	TEST2	Combined probes	shell	STATE	request wifi cycle passphrase <psk> count 1 ping 1.1.1.1 http https://www.google.com/generate_204 pause 100 timeout 25000 "<ssid>"	ok_or_clear	One cycle runs both ping and HTTP probes.	Combined probes.
+T2-WCYC-003	TEST2	forget flag	shell	STATE	request wifi cycle passphrase <psk> count 1 forget pause 100 timeout 25000 "<ssid>"	ok_or_clear	Cycle forgets network after disconnect; reconnect after case to restore.	`forget` flag.
+T2-WCYC-004	TEST2	State restore	shell	STATE	request wifi connect passphrase <psk> security auto timeout 25000 "<ssid>"	ok_or_clear	Restore connection after forget cycle.	State restore.
+T2-WCYC-005	TEST2	Positional order	shell	STATE	request wifi cycle "<ssid>" passphrase <psk> count 1 pause 100 timeout 25000	ok_or_clear	SSID before options accepted.	Positional order.
+T2-WCYC-006	TEST2	Connect option reuse	shell	STATE	request wifi cycle passphrase <psk> security wpa3 band 5ghz mac-randomization auto count 1 pause 100 timeout 25000 "<ssid>"	ok_or_clear	Cycle accepts connect sub-options.	Connect option reuse.
+T2-WCYC-007	TEST2	Count boundary	shell-parser	PARSER	request wifi cycle passphrase <psk> count 0 "<ssid>"	error	Count must be positive.	Count boundary.
+T2-WCYC-008	TEST2	Pause boundary	shell-parser	PARSER	request wifi cycle passphrase <psk> pause 0 "<ssid>"	error	Pause must be positive.	Pause boundary.
+T2-WCYC-009	TEST2	Timeout boundary	shell-parser	PARSER	request wifi cycle passphrase <psk> timeout 0 "<ssid>"	error	Timeout must be positive.	Timeout boundary.
+T2-WCYC-010	TEST2	Count parse failure	shell-parser	PARSER	request wifi cycle passphrase <psk> count nope "<ssid>"	error	Count parse error.	Count parse failure.
+T2-WCYC-011	TEST2	Pause parse failure	shell-parser	PARSER	request wifi cycle passphrase <psk> pause nope "<ssid>"	error	Pause parse error.	Pause parse failure.
+T2-WCYC-012	TEST2	Missing/misplaced HTTP value	shell-parser	PARSER	request wifi cycle passphrase <psk> http "<ssid>"	error	`http requires a value` or invalid missing URL; must not consume SSID silently.	Missing/misplaced HTTP value.
+T2-WCYC-013	TEST2	Flag arity	shell-parser	PARSER	request wifi cycle passphrase <psk> forget yes "<ssid>"	error	Unexpected extra positional or option error; `forget` takes no value.	Flag arity.
+T2-WCYC-014	TEST2	Missing/misplaced ping value	shell-parser	PARSER	request wifi cycle passphrase <psk> ping "<ssid>"	error	`ping requires a value` or missing SSID error; must not consume SSID silently.	Missing/misplaced ping value.
+T2-WCYC-015	TEST2	Duplicate count	shell-parser	PARSER	request wifi cycle passphrase <psk> count 1 count 2 "<ssid>"	error	Resolved anomaly regression: duplicate count should be rejected or documented as last-wins.	Duplicate count.
+T2-WCYC-016	TEST2	Duplicate flag	shell-parser	PARSER	request wifi cycle passphrase <psk> forget forget "<ssid>"	error	Resolved anomaly regression: duplicate flag should be rejected or documented as idempotent.	Duplicate flag.
+T2-WMISC-001	TEST2	Default reconnect timeout	shell	STATE	request wifi reconnect	ok_or_clear	Reconnects with default timeout.	Default reconnect timeout.
+T2-WMISC-002	TEST2	Missing reconnect timeout	shell-parser	PARSER	request wifi reconnect timeout	error	`timeout requires a value`.	Missing reconnect timeout.
+T2-WMISC-003	TEST2	Reconnect timeout boundary	shell-parser	PARSER	request wifi reconnect timeout 0	error	Timeout must be positive.	Reconnect timeout boundary.
+T2-WMISC-004	TEST2	Positional timeout rejection	shell-parser	PARSER	request wifi reconnect 1000	error	Usage error; shell requires `timeout <ms>` form.	Positional timeout rejection.
+T2-WMISC-005	TEST2	Disconnect arity	shell-parser	PARSER	request wifi disconnect now	error	Usage error.	Disconnect arity.
+T2-WMISC-006	TEST2	Forget missing target	shell-parser	PARSER	request wifi forget	error	Usage error.	Forget missing target.
+T2-WMISC-007	TEST2	Forget arity	shell-parser	PARSER	request wifi forget "<ssid>" extra	error	Usage error.	Forget arity.
+T2-WMISC-008	TEST2	Monitor defaults	shell	LIVE	monitor wifi	ok_or_clear	Monitors Wi-Fi with default duration/interval.	Monitor defaults.
+T2-WMISC-009	TEST2	Interval-only path	shell	LIVE	monitor wifi interval 500	ok_or_clear	Uses default duration and 500 ms interval.	Interval-only path.
+T2-WMISC-010	TEST2	Duration-only path	shell	LIVE	monitor wifi duration 1500	ok_or_clear	Uses explicit duration and default interval.	Duration-only path.
+T2-WMISC-011	TEST2	Missing duration	shell-parser	PARSER	monitor wifi duration	error	`duration requires a value`.	Missing duration.
+T2-WMISC-012	TEST2	Missing interval	shell-parser	PARSER	monitor wifi interval	error	`interval requires a value`.	Missing interval.
+T2-WMISC-013	TEST2	Duration boundary	shell-parser	PARSER	monitor wifi duration 0	error	Duration must be positive.	Duration boundary.
+T2-WMISC-014	TEST2	Interval boundary	shell-parser	PARSER	monitor wifi duration 1000 interval 0	error	Interval must be positive.	Interval boundary.
+T2-NET-001	TEST2	Ping defaults	shell	LIVE	ping 1.1.1.1	ok_or_clear	Default count/timeout ping succeeds.	Ping defaults.
+T2-NET-002	TEST2	Ping size	shell	LIVE	ping 1.1.1.1 size 56 count 2 timeout 7000	ok_or_clear	Ping accepts payload size.	Ping `size`.
+T2-NET-003	TEST2	Ping order	shell	LIVE	ping count 2 size 56 timeout 7000 1.1.1.1	ok_or_clear	Options before host accepted.	Ping order.
+T2-NET-004	TEST2	Ping size boundary	shell-parser	PARSER	ping 1.1.1.1 size 0	ok	Resolved anomaly regression: size 0 currently means default; decide whether acceptable.	Ping size boundary.
+T2-NET-005	TEST2	Ping size failure	shell-parser	PARSER	ping 1.1.1.1 size nope	error	Size parse error.	Ping size failure.
+T2-NET-006	TEST2	Ping timeout boundary	shell-parser	PARSER	ping 1.1.1.1 timeout 0	error	Timeout must be positive.	Ping timeout boundary.
+T2-NET-007	TEST2	Duplicate ping count	shell-parser	PARSER	ping 1.1.1.1 count 1 count 2	error	Resolved anomaly regression: duplicate count should be rejected or documented as last-wins.	Duplicate ping count.
+T2-NET-008	TEST2	Traceroute defaults	shell	LIVE	traceroute 1.1.1.1	ok_or_clear	Default traceroute succeeds or returns clear network failure.	Traceroute defaults.
+T2-NET-009	TEST2	Traceroute size	shell	LIVE	traceroute 1.1.1.1 size 56 max-hops 8 timeout 30000	ok_or_clear	Traceroute accepts size.	Traceroute `size`.
+T2-NET-010	TEST2	Single via	shell	LIVE	traceroute 1.1.1.1 via 192.168.23.254 max-hops 8 timeout 30000	ok_or_clear	Required hop is checked in renderer; pass if hop appears, otherwise clear required-hop failure.	Single `via`.
+T2-NET-011	TEST2	Repeatable via	shell	LIVE	traceroute 1.1.1.1 via 192.168.23.254 via 1.1.1.1 max-hops 8 timeout 30000	ok_or_clear	Multiple required hops are checked.	Repeatable `via`.
+T2-NET-012	TEST2	Missing via	shell-parser	PARSER	traceroute 1.1.1.1 via	error	`via requires a value`.	Missing via.
+T2-NET-013	TEST2	Traceroute size failure	shell-parser	PARSER	traceroute 1.1.1.1 size nope	error	Size parse error.	Traceroute size failure.
+T2-NET-014	TEST2	Traceroute timeout boundary	shell-parser	PARSER	traceroute 1.1.1.1 timeout 0	error	Timeout must be positive.	Traceroute timeout boundary.
+T2-NET-015	TEST2	Duplicate max-hops	shell-parser	PARSER	traceroute 1.1.1.1 max-hops 1 max-hops 2	error	Resolved anomaly regression: duplicate max-hops should be rejected or documented as last-wins.	Duplicate max-hops.
+T2-NET-016	TEST2	Path-MTU defaults	shell	LIVE	path-mtu 1.1.1.1	ok_or_clear	Default MTU search succeeds or reports clear network failure.	Path-MTU defaults.
+T2-NET-017	TEST2	min-mtu only	shell	LIVE	path-mtu min-mtu 1200 1.1.1.1	ok_or_clear	Min-only path accepted.	`min-mtu` only.
+T2-NET-018	TEST2	max-mtu only	shell	LIVE	path-mtu max-mtu 1500 1.1.1.1	ok_or_clear	Max-only path accepted.	`max-mtu` only.
+T2-NET-019	TEST2	Option order before host	shell	LIVE	path-mtu min-mtu 1200 max-mtu 1500 timeout 30000 1.1.1.1	ok_or_clear	Full bounds path accepted.	Option order before host.
+T2-NET-020	TEST2	Min greater than max	shell-parser	PARSER	path-mtu min-mtu 1600 max-mtu 1200 1.1.1.1	error	Resolved anomaly regression: invalid bounds should be rejected locally or clear agent error.	Min greater than max.
+T2-NET-021	TEST2	Max boundary	shell-parser	PARSER	path-mtu max-mtu 0 1.1.1.1	error	Max MTU must be positive if specified.	Max boundary.
+T2-NET-022	TEST2	Path-MTU timeout boundary	shell-parser	PARSER	path-mtu timeout 0 1.1.1.1	error	Timeout must be positive.	Path-MTU timeout boundary.
+T2-NET-023	TEST2	Duplicate min	shell-parser	PARSER	path-mtu min-mtu 1200 min-mtu 1300 1.1.1.1	error	Resolved anomaly regression: duplicate min-mtu should be rejected or documented as last-wins.	Duplicate min.
+T2-NET-024	TEST2	Global-IP defaults	shell	LIVE	global-ip	ok_or_clear	Default all-family global IP lookup succeeds.	Global-IP defaults.
+T2-NET-025	TEST2	Family ipv6	shell	LIVE	global-ip ipv6 timeout 7000	ok_or_clear	IPv6 alias accepted; succeeds or clear IPv6 unavailable result.	Family `ipv6`.
+T2-NET-026	TEST2	Family all	shell	LIVE	global-ip all timeout 7000	ok_or_clear	All-family explicit value accepted.	Family `all`.
+T2-NET-027	TEST2	Family alias 4	shell	LIVE	global-ip 4 timeout 7000	ok_or_clear	Numeric IPv4 alias accepted and normalized.	Family alias `4`.
+T2-NET-028	TEST2	Family alias 6	shell	LIVE	global-ip 6 timeout 7000	ok_or_clear	Numeric IPv6 alias accepted and normalized.	Family alias `6`.
+T2-NET-029	TEST2	family value	shell	LIVE	global-ip family ipv4 timeout 7000	ok_or_clear	Keyword family form accepted.	`family <value>`.
+T2-NET-030	TEST2	Missing family	shell-parser	PARSER	global-ip family	error	`family requires a value`.	Missing family.
+T2-NET-031	TEST2	Global-IP timeout boundary	shell-parser	PARSER	global-ip timeout 0	error	Timeout must be positive.	Global-IP timeout boundary.
+T2-NET-032	TEST2	Duplicate family	shell-parser	PARSER	global-ip family ipv4 family ipv6	error	Duplicate family error.	Duplicate family.
+T2-NET-033	TEST2	DNS defaults	shell	LIVE	test dns example.com	ok_or_clear	Default ALL qtypes (A and AAAA) succeed.	DNS defaults.
+T2-NET-034	TEST2	DNS positional qtype	shell	LIVE	test dns example.com AAAA timeout 7000	ok_or_clear	Positional AAAA qtype accepted.	DNS positional qtype.
+T2-NET-035	TEST2	DNS option order	shell	LIVE	test dns type ALL timeout 7000 example.com	ok_or_clear	Option qtype before name accepted.	DNS option order.
+T2-NET-036	TEST2	DNS option order reversed	shell	LIVE	test dns example.com type A timeout 7000	ok_or_clear	Option qtype after name accepted.	DNS option order reversed.
+T2-NET-037	TEST2	Missing DNS type	shell-parser	PARSER	test dns example.com type	error	`type requires a value`.	Missing DNS type.
+T2-NET-038	TEST2	DNS timeout boundary	shell-parser	PARSER	test dns example.com timeout 0	error	Timeout must be positive.	DNS timeout boundary.
+T2-NET-039	TEST2	Too many DNS args	shell-parser	PARSER	test dns example.com A AAAA	error	Unexpected extra DNS argument.	Too many DNS args.
+T2-NET-040	TEST2	Duplicate DNS type	shell-parser	PARSER	test dns example.com type A type AAAA	error	Resolved anomaly regression: duplicate type should be rejected or documented as last-wins.	Duplicate DNS type.
+T2-NET-041	TEST2	HTTP default scheme/status	shell	LIVE	test http example.com	ok_or_clear	URL is normalized to HTTPS and expected status defaults to 200.	HTTP default scheme/status.
+T2-NET-042	TEST2	HTTP option order	shell	LIVE	test http expected-status 200 timeout 7000 https://example.com	ok_or_clear	Options before URL accepted.	HTTP option order.
+T2-NET-043	TEST2	HTTP expected status after URL	shell	LIVE	test http https://www.google.com/generate_204 expected-status 204 timeout 7000	ok_or_clear	Expected 204 path succeeds.	HTTP expected status after URL.
+T2-NET-044	TEST2	HTTP status boundary	shell-parser	PARSER	test http https://example.com expected-status 0	error	Expected status must be positive.	HTTP status boundary.
+T2-NET-045	TEST2	HTTP timeout boundary	shell-parser	PARSER	test http https://example.com timeout 0	error	Timeout must be positive.	HTTP timeout boundary.
+T2-NET-046	TEST2	Missing status	shell-parser	PARSER	test http expected-status	error	`expected-status requires a value`.	Missing status.
+T2-NET-047	TEST2	Duplicate HTTP option	shell-parser	PARSER	test http https://example.com expected-status 200 expected-status 204	error	Resolved anomaly regression: duplicate expected-status should be rejected or documented as last-wins.	Duplicate HTTP option.
+T2-NET-048	TEST2	Too many HTTP args	shell-parser	PARSER	test http https://example.com https://example.org	error	Unexpected extra HTTP argument.	Too many HTTP args.
+T2-NET-049	TEST2	Download default timeout	shell	LIVE	test download https://example.com	ok_or_clear	Download probe succeeds with default timeout.	Download default timeout.
+T2-NET-050	TEST2	Download option order	shell	LIVE	test download timeout 30000 https://example.com	ok_or_clear	Timeout before URL accepted.	Download option order.
+T2-NET-051	TEST2	Missing download timeout	shell-parser	PARSER	test download timeout	error	`timeout requires a value`.	Missing download timeout.
+T2-NET-052	TEST2	Download timeout boundary	shell-parser	PARSER	test download https://example.com timeout 0	error	Timeout must be positive.	Download timeout boundary.
+T2-NET-053	TEST2	Too many download args	shell-parser	PARSER	test download https://example.com https://example.org	error	Unexpected extra download argument.	Too many download args.
+T2-CLI-001	TEST2	Top-level --serial	cli	CLI	dropcheck --serial <serial> devices	ok	Devices list is printed for the selected serial.	Top-level `--serial`.
+T2-CLI-002	TEST2	--format json with equals form	cli	CLI	dropcheck --serial=<serial> --format json devices	ok	JSON devices output.	`--format json` with equals form.
+T2-CLI-003	TEST2	--format text	cli	CLI	dropcheck --format text devices	ok	Text devices output.	`--format text`.
+T2-CLI-004	TEST2	Invalid global format	cli	CLI	dropcheck --format yaml devices	error	`--format must be text or json`.	Invalid global format.
+T2-CLI-005	TEST2	Global target conflict	cli	CLI	dropcheck --all --target <serial> devices	error	`--all and --target cannot be used together`.	Global target conflict.
+T2-CLI-006	TEST2	Global flag arity	cli	CLI	dropcheck --all=value devices	error	`--all does not take a value`.	Global flag arity.
+T2-CLI-007	TEST2	Missing global flag value	cli	CLI	dropcheck --target	error	`--target requires a value`.	Missing global flag value.
+T2-CLI-008	TEST2	Top-level --listen and --no-adb	cli	CLI	dropcheck --listen 127.0.0.1:0 --no-adb devices	ok_or_clear	Starts without ADB bootstrap if an agent connects; otherwise clear no-agent behavior.	Top-level `--listen` and `--no-adb`.
+T2-CLI-009	TEST2	Top-level -- delimiter	cli	CLI	dropcheck -- --format json devices	ok	Top-level delimiter leaves args for CLI parsing; JSON devices output is still produced.	Top-level `--` delimiter.
+T2-CLI-010	TEST2	CLI scan --band	cli	CLI	dropcheck show wifi scan --band 5ghz	ok	Cached 5 GHz scan succeeds.	CLI scan `--band`.
+T2-CLI-011	TEST2	CLI fresh scan options	cli	CLI	dropcheck wifi scan fresh --band 5ghz --timeout 12000	ok	Fresh scan succeeds.	CLI fresh scan options.
+T2-CLI-012	TEST2	CLI positional band	cli	CLI	dropcheck wifi scan fresh 5ghz --timeout 12000	ok	Fresh scan positional band succeeds.	CLI positional band.
+T2-CLI-013	TEST2	CLI scan timeout restriction	cli	CLI	dropcheck wifi scan --timeout 12000	ok	`--timeout is supported only with wifi scan fresh`.	CLI scan timeout restriction.
+T2-CLI-014	TEST2	CLI detail dash band	cli	CLI	dropcheck wifi scan detail "<ssid>" --band 5ghz	ok	Scan detail succeeds.	CLI detail dash band.
+T2-CLI-015	TEST2	CLI detail positional band	cli	CLI	dropcheck wifi scan detail "<ssid>" 5ghz	ok	Scan detail positional band succeeds.	CLI detail positional band.
+T2-CLI-016	TEST2	CLI detail invalid option combination	cli	CLI	dropcheck wifi scan detail "<ssid>" --timeout 12000	ok	`--timeout is supported only with wifi scan fresh`.	CLI detail invalid option combination.
+T2-CLI-017	TEST2	CLI connect positional passphrase	cli	CLI	dropcheck wifi connect "<ssid>" <psk> --security auto --timeout 25000	ok	Positional passphrase compatibility connects.	CLI connect positional passphrase.
+T2-CLI-018	TEST2	CLI connect dash options	cli	CLI	dropcheck wifi connect "<ssid>" --passphrase <psk> --security wpa3 --band 5ghz --mac-randomization auto --timeout 25000	ok	Dash options accepted.	CLI connect dash options.
+T2-CLI-019	TEST2	CLI missing value	cli	CLI	dropcheck wifi connect "<ssid>" --passphrase	error	`--passphrase requires a value`.	CLI missing value.
+T2-CLI-020	TEST2	CLI connect arity	cli	CLI	dropcheck wifi connect "<ssid>" --passphrase <psk> extra	error	Too many positional arguments.	CLI connect arity.
+T2-CLI-021	TEST2	CLI wait flags	cli	CLI	dropcheck wifi wait connected "<ssid>" --ip --validated --timeout 12000	ok	Wait succeeds.	CLI wait flags.
+T2-CLI-022	TEST2	CLI wait --ssid	cli	CLI	dropcheck wifi wait connected --ssid "<ssid>" --ip --timeout 12000	ok	Wait succeeds with dash `--ssid`.	CLI wait `--ssid`.
+T2-CLI-023	TEST2	CLI wait positional arity	cli	CLI	dropcheck wifi wait connected "<ssid>" other	error	Usage error.	CLI wait positional arity.
+T2-CLI-024	TEST2	CLI assert flags	cli	CLI	dropcheck wifi assert --ssid "<ssid>" --ip --validated --timeout 5000	ok	Assert succeeds.	CLI assert flags.
+T2-CLI-025	TEST2	CLI assert positional rejection	cli	CLI	dropcheck wifi assert "<ssid>"	error	Usage error; assert requires dash `--ssid`.	CLI assert positional rejection.
+T2-CLI-026	TEST2	CLI-only wifi watch	cli	CLI	dropcheck wifi watch --duration 1500 --interval 500	ok	Wi-Fi watch succeeds.	CLI-only `wifi watch`.
+T2-CLI-027	TEST2	CLI watch positional values	cli	CLI	dropcheck wifi watch 1500 500	ok	Positional watch duration/interval succeeds.	CLI watch positional values.
+T2-CLI-028	TEST2	CLI monitor interval-only	cli	CLI	dropcheck wifi monitor --interval 500	ok	Monitor uses default duration and explicit interval.	CLI monitor interval-only.
+T2-CLI-029	TEST2	CLI positional reconnect timeout	cli	CLI	dropcheck wifi reconnect 10000	ok	Positional reconnect timeout succeeds in CLI.	CLI positional reconnect timeout.
+T2-CLI-030	TEST2	CLI reconnect dash timeout	cli	CLI	dropcheck wifi reconnect --timeout 10000	ok	Dash reconnect timeout succeeds.	CLI reconnect dash timeout.
+T2-CLI-031	TEST2	CLI cycle dash options	cli	CLI	dropcheck wifi cycle "<ssid>" --passphrase <psk> --count 1 --ping 1.1.1.1 --http https://www.google.com/generate_204 --pause 100 --timeout 25000	ok	Cycle runs with dash options.	CLI cycle dash options.
+T2-CLI-032	TEST2	CLI cycle flag	cli	CLI	dropcheck wifi cycle "<ssid>" --passphrase <psk> --forget --count 1 --pause 100 --timeout 25000	ok	Cycle forgets after each run.	CLI cycle flag.
+T2-CLI-033	TEST2	CLI ping positional count	cli	CLI	dropcheck ping 1.1.1.1 2 --size 56 --timeout 7000	ok	Positional count compatibility succeeds.	CLI ping positional count.
+T2-CLI-034	TEST2	CLI traceroute options	cli	CLI	dropcheck traceroute 1.1.1.1 8 --via 192.168.23.254 --size 56 --timeout 30000	ok	Positional max-hops plus repeatable via works.	CLI traceroute options.
+T2-CLI-035	TEST2	CLI path-mtu options	cli	CLI	dropcheck path-mtu 1.1.1.1 --min-mtu 1200 --max-mtu 1500 --timeout 30000	ok	Path-MTU dash options work.	CLI path-mtu options.
+T2-CLI-036	TEST2	CLI global-ip alias	cli	CLI	dropcheck global-ip 4 --timeout 7000	ok	Numeric family positional alias works.	CLI global-ip alias.
+T2-CLI-037	TEST2	CLI duplicate family	cli	CLI	dropcheck global-ip ipv4 --family ipv6	error	Family specified twice error.	CLI duplicate family.
+T2-CLI-038	TEST2	CLI DNS qtype positional	cli	CLI	dropcheck dns example.com A --timeout 7000	ok	Positional DNS qtype works.	CLI DNS qtype positional.
+T2-CLI-039	TEST2	CLI DNS dash type	cli	CLI	dropcheck dns example.com --type AAAA --timeout 7000	ok	Dash DNS qtype works.	CLI DNS dash type.
+T2-CLI-040	TEST2	CLI HTTP positional status	cli	CLI	dropcheck http https://www.google.com/generate_204 204 --timeout 7000	ok	Positional expected status works.	CLI HTTP positional status.
+T2-CLI-041	TEST2	CLI HTTP dash status	cli	CLI	dropcheck http https://www.google.com/generate_204 --expected-status 204 --timeout 7000	ok	Dash expected status works.	CLI HTTP dash status.
+T2-CLI-042	TEST2	CLI download timeout	cli	CLI	dropcheck download https://example.com --timeout 30000	ok	Download dash timeout works.	CLI download timeout.
+T2-CLI-043	TEST2	CLI festival runs	cli	CLI	dropcheck show festival runs --limit 1 --synced	ok	Festival runs CLI flags work.	CLI festival runs.
+T2-CLI-044	TEST2	CLI sync flags	cli	CLI	dropcheck request festival sync --output <sync-dir> --limit 1 --keep-unsynced	ok	CLI sync keep-unsynced works.	CLI sync flags.
+T2-CLI-045	TEST2	Shell/CLI conflict semantics	cli	CLI	dropcheck request festival sync --output <sync-dir> --limit 1 --mark-synced --keep-unsynced	ok	CLI currently makes mark-synced win; compare with Shell last-wins and mark anomaly if undocumented.	Shell/CLI conflict semantics.
+T2-CLI-046	TEST2	CLI controller options	cli	CLI	dropcheck set controller endpoint 127.0.0.1:37589 enabled --min-backoff 500ms --max-backoff 2s	ok	CLI controller endpoint options work.	CLI controller options.
+T2-CLI-047	TEST2	CLI festival options	cli	CLI	dropcheck set festival standalone enabled --plan <plan> --interval 1d --retention 2d --max-size 1m	ok	CLI festival standalone options work.	CLI festival options.
+T2-CLI-048	TEST2	CLI unsupported option	cli	CLI	dropcheck wifi status --unknown	error	Usage/unknown option error.	CLI unsupported option.
+T2-CLI-049	TEST2	CLI duplicate option	cli	CLI	dropcheck wifi connect "<ssid>" --passphrase <psk> --passphrase other	error	Duplicate option error from dash parser.	CLI duplicate option.
+T2-CLI-050	TEST2	CLI repeatable option exception	cli	CLI	dropcheck traceroute 1.1.1.1 --via 192.168.23.254 --via 1.1.1.1	ok	Repeatable `--via` accepted.	CLI repeatable option exception.
