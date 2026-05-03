@@ -446,6 +446,25 @@ class NetworkRepository(
         return null
     }
 
+    /**
+     * Temporarily binds native process probes to the selected Android Network.
+     *
+     * ConnectivityManager-backed Java APIs can use Network directly, but child
+     * processes such as ping inherit the app process default network.
+     */
+    fun <T> withBoundNetwork(network: Network, block: () -> T): T {
+        val previous = connectivity.boundNetworkForProcess
+        val bound = connectivity.bindProcessToNetwork(network)
+        if (!bound) {
+            logger.warn("bindProcessToNetwork failed network=$network")
+        }
+        return try {
+            block()
+        } finally {
+            connectivity.bindProcessToNetwork(previous)
+        }
+    }
+
     /** Returns the best currently matching Wi-Fi network without waiting. */
     @SuppressLint("MissingPermission")
     fun selectNetwork(selector: NetworkSelector): Network? {

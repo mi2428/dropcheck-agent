@@ -57,19 +57,48 @@ internal object NetworkCheckPolicy {
         return if (host.contains(":")) "/system/bin/ping6" else "/system/bin/ping"
     }
 
-    /** Builds ping argv without shell interpolation, so host/iface values are not shell-expanded. */
+    /**
+     * Picks the most specific ping binding target for the selected network.
+     *
+     * On Android, `ping -I <iface>` can still choose a stale source address after
+     * Wi-Fi teardown/reconnect. Binding to the link address pins the probe to
+     * the selected network's address family while preserving interface names in
+     * the result payload.
+     */
+    fun pingBindTarget(interfaceName: String, addresses: List<String>, host: String): String {
+        return sourceAddressForHost(addresses, host) ?: interfaceName
+    }
+
+    fun sourceAddressForHost(addresses: List<String>, host: String): String? {
+        val ipv6 = host.contains(":")
+        return addresses.firstNotNullOfOrNull { raw ->
+            val candidate = raw.substringBefore('/').substringBefore('%').trim()
+            val parsed = runCatching { InetAddress.getByName(candidate) }.getOrNull() ?: return@firstNotNullOfOrNull null
+            val matches = if (ipv6) parsed is Inet6Address else parsed is Inet4Address
+            if (matches && isUsableSourceAddress(parsed)) candidate else null
+        }
+    }
+
+    private fun isUsableSourceAddress(address: InetAddress): Boolean {
+        return !address.isAnyLocalAddress &&
+            !address.isLoopbackAddress &&
+            !address.isLinkLocalAddress &&
+            !address.isMulticastAddress
+    }
+
+    /** Builds ping argv without shell interpolation, so host/bind target values are not shell-expanded. */
     fun pingArgs(
         binary: String,
-        interfaceName: String,
+        bindTarget: String,
         sizeBytes: Int,
         count: Int,
         host: String,
     ): List<String> {
         return buildList {
             add(binary)
-            if (interfaceName.isNotBlank()) {
+            if (bindTarget.isNotBlank()) {
                 add("-I")
-                add(interfaceName)
+                add(bindTarget)
             }
             if (sizeBytes > 0) {
                 add("-s")
@@ -89,7 +118,7 @@ internal object NetworkCheckPolicy {
     /** Builds one hop probe argv for a traceroute fallback implemented with ping TTL. */
     fun traceroutePingArgs(
         binary: String,
-        interfaceName: String,
+        bindTarget: String,
         sizeBytes: Int,
         ttl: Int,
         waitSeconds: Int,
@@ -97,9 +126,9 @@ internal object NetworkCheckPolicy {
     ): List<String> {
         return buildList {
             add(binary)
-            if (interfaceName.isNotBlank()) {
+            if (bindTarget.isNotBlank()) {
                 add("-I")
-                add(interfaceName)
+                add(bindTarget)
             }
             add("-t")
             add(ttl.coerceAtLeast(1).toString())
@@ -141,16 +170,16 @@ internal object NetworkCheckPolicy {
     /** Android ping accepts "-M do" to set DF/no-fragmentation; a failed probe means the MTU is too large. */
     fun pathMtuPingArgs(
         binary: String,
-        interfaceName: String,
+        bindTarget: String,
         payloadSizeBytes: Int,
         waitSeconds: Int,
         host: String,
     ): List<String> {
         return buildList {
             add(binary)
-            if (interfaceName.isNotBlank()) {
+            if (bindTarget.isNotBlank()) {
                 add("-I")
-                add(interfaceName)
+                add(bindTarget)
             }
             add("-M")
             add("do")
