@@ -2,7 +2,7 @@
 
 // Package e2e runs the merged Dropcheck Shell/CLI manual matrix as Go tests.
 //
-// Parser-only checks do not require a device:
+// Parser and case-table consistency checks do not require a device:
 //
 //	cd controller
 //	go test -tags e2e ./integration/e2e
@@ -49,6 +49,7 @@ import (
 	"time"
 
 	commandparse "dropcheck/controller/internal/command"
+	"dropcheck/controller/internal/linuxcli"
 	"dropcheck/controller/internal/shell"
 )
 
@@ -983,8 +984,35 @@ func TestE2ECaseTableIsMerged(t *testing.T) {
 	if testCount == 0 || test2Count == 0 {
 		t.Fatalf("merged table must include both TEST and TEST2 cases, got TEST=%d TEST2=%d", testCount, test2Count)
 	}
-	if len(cases) != 341 {
-		t.Fatalf("case count = %d, want 341", len(cases))
+	if len(cases) != 343 {
+		t.Fatalf("case count = %d, want 343", len(cases))
+	}
+}
+
+func TestE2ECaseTableParsesShellAndCLIExpectations(t *testing.T) {
+	cases := loadCases(t)
+	for _, tc := range cases {
+		if tc.Runner != "shell" && tc.Runner != "cli" {
+			continue
+		}
+		expect := normalizedExpect(tc)
+		commandLine := expandParserPlaceholders(tc.Command)
+		var res commandResult
+		switch tc.Runner {
+		case "shell":
+			res = runShellParser(commandLine)
+		case "cli":
+			res = runCLIParser(commandLine)
+		}
+		if expect == "error" {
+			if res.Err == nil {
+				t.Errorf("%s expected parser error for %s command %q", tc.ID, tc.Runner, tc.Command)
+			}
+			continue
+		}
+		if res.Err != nil {
+			t.Errorf("%s expected parser success for %s command %q: %v", tc.ID, tc.Runner, tc.Command, res.Err)
+		}
 	}
 }
 
@@ -1007,6 +1035,7 @@ func TestE2ECaseTableCoversControllerCommandSurface(t *testing.T) {
 		{name: "shell standalone runs", runner: "shell", text: "show standalone runs"},
 		{name: "shell standalone run detail parser", runner: "shell-parser", text: "show standalone run"},
 		{name: "shell standalone clear", runner: "shell", text: "clear standalone runs"},
+		{name: "shell standalone delete parser", runner: "shell-parser", text: "config> delete standalone"},
 		{name: "shell standalone run once", runner: "shell", text: "request> standalone run once"},
 		{name: "shell standalone sync", runner: "shell", text: "sync standalone runs"},
 		{name: "shell wifi status", runner: "shell", text: "show wifi status"},
@@ -1051,6 +1080,7 @@ func TestE2ECaseTableCoversControllerCommandSurface(t *testing.T) {
 		{name: "cli standalone sync", runner: "cli", text: "dropcheck sync standalone runs"},
 		{name: "cli controller configure", runner: "cli", text: "dropcheck configure set controller endpoint"},
 		{name: "cli standalone configure", runner: "cli", text: "dropcheck configure set standalone"},
+		{name: "cli standalone delete", runner: "cli", text: "dropcheck configure delete standalone"},
 	}
 	for _, want := range required {
 		if !e2eTableHasCommand(cases, want.runner, want.text) {
@@ -1079,11 +1109,63 @@ func e2eComparableCommand(value string) string {
 	return strings.Join(strings.Fields(strings.ToLower(value)), " ")
 }
 
-func mustReadFile(t *testing.T, path string) []byte {
-	t.Helper()
-	data, err := os.ReadFile(path)
+func expandParserPlaceholders(commandLine string) string {
+	return strings.NewReplacer(
+		"<serial>", "SERIAL",
+		"<ssid>", "Lab",
+		"<psk>", "secret",
+		"<bssid>", "00:11:22:33:44:55",
+		"<sync-dir>", "/tmp/dropcheck-e2e",
+	).Replace(commandLine)
+}
+
+func runCLIParser(commandLine string) commandResult {
+	args, err := commandparse.SplitArgs(commandLine)
 	if err != nil {
-		t.Fatal(err)
+		return commandResult{Output: err.Error(), Code: 1, Err: err}
 	}
-	return data
+	if len(args) > 0 && args[0] == "dropcheck" {
+		args = args[1:]
+	}
+	args, err = stripAppFlags(args)
+	if err != nil {
+		return commandResult{Output: err.Error(), Code: 1, Err: err}
+	}
+	_, args, err = linuxcli.ExtractOptions(args)
+	if err != nil {
+		return commandResult{Output: err.Error(), Code: 1, Err: err}
+	}
+	if _, err := linuxcli.Parse(args); err != nil {
+		return commandResult{Output: err.Error(), Code: 1, Err: err}
+	}
+	return commandResult{Output: "parse ok\n", Code: 0}
+}
+
+func stripAppFlags(args []string) ([]string, error) {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			return append([]string(nil), args[i+1:]...), nil
+		}
+		if !strings.HasPrefix(arg, "-") {
+			return append([]string(nil), args[i:]...), nil
+		}
+		name, _, hasValue := strings.Cut(arg, "=")
+		switch name {
+		case "--adb", "-adb", "--serial", "-serial", "--package", "-package", "--listen":
+			if !hasValue {
+				if i+1 >= len(args) {
+					return nil, fmt.Errorf("%s requires a value", name)
+				}
+				i++
+			}
+		case "--no-adb":
+			if hasValue {
+				return nil, fmt.Errorf("%s does not take a value", name)
+			}
+		default:
+			return append([]string(nil), args[i:]...), nil
+		}
+	}
+	return nil, nil
 }
