@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	festivaldsl "dropcheck/controller/internal/festival"
+	f "dropcheck/controller/internal/festival"
 	"dropcheck/controller/internal/festival/capabilities"
 	"dropcheck/controller/internal/festival/dns"
 	"dropcheck/controller/internal/festival/globalip"
@@ -42,23 +42,23 @@ func TestDropcheckFestivalEnv(t *testing.T) {
 	if ssid == "" || os.Getenv(pskEnv) == "" {
 		t.Skipf("set %s and %s to run the Dropcheck Festival scenario", envSSID, pskEnv)
 	}
-	network := festivaldsl.WiFi("env-wifi").
+	network := f.WiFi("env-wifi").
 		SSID(ssid).
 		PSKEnv(pskEnv).
 		BSSID(os.Getenv(envBSSID)).
 		Band(os.Getenv(envBand)).
 		RequireValidated(os.Getenv(envRequireValidated) == "1")
 
-	ipExpect := []festivaldsl.Expectation{
+	ipExpect := []f.Expectation{
 		ip.AddressCount().Ge(1),
 		ip.MTU().Ge(1280),
 	}
-	wifiExpect := []festivaldsl.Expectation{
+	wifiExpect := []f.Expectation{
 		wifi.Enabled().IsTrue(),
 		wifi.SSID().Eq(ssid),
 	}
 	ap := scan.APs().SSID(ssid)
-	capabilityExpect := []festivaldsl.Expectation{capabilities.ErrorCount().Eq(0)}
+	capabilityExpect := []f.Expectation{capabilities.ErrorCount().Eq(0)}
 	if bssid := os.Getenv(envBSSID); bssid != "" {
 		wifiExpect = append(wifiExpect, wifi.BSSID().Eq(bssid))
 		ap = ap.BSSID(bssid)
@@ -80,44 +80,44 @@ func TestDropcheckFestivalEnv(t *testing.T) {
 		ap = ap.ChannelWidth(width)
 	}
 
-	festivaldsl.Run(t, festivaldsl.Plan{
-		Networks: []festivaldsl.Network{network},
-		Checks: []festivaldsl.Check{
-			festivaldsl.IPStatus().
+	f.Run(t, f.Plan{
+		Networks: []f.Network{network},
+		Checks: []f.Check{
+			f.IPStatus().
 				Expect(ipExpect...),
-			festivaldsl.WiFiStatus().
+			f.WiFiStatus().
 				Expect(wifiExpect...),
-			festivaldsl.WiFiScan().
+			f.WiFiScan().
 				Fresh().
 				Band(os.Getenv(envBand)).
 				Expect(ap.Exists()),
-			festivaldsl.WiFiCapabilities().
+			f.WiFiCapabilities().
 				Expect(capabilityExpect...),
-			festivaldsl.Ping("8.8.8.8").
+			f.Ping("8.8.8.8").
 				Count(5).
 				Expect(
 					ping.Received().Ge(1),
 					ping.LossPercent().Le(100),
 					ping.AvgLatency().Gt(0).Le(2*time.Second),
 				),
-			festivaldsl.DNS("example.com").
+			f.DNS("example.com").
 				A().
 				Expect(
 					dns.AnswerCount().Ge(1),
 					dns.Elapsed().Le(5*time.Second),
 				),
-			festivaldsl.GlobalIP().
+			f.GlobalIP().
 				IPv4().
 				Expect(
 					globalip.AddressCount().Ge(1),
 				),
-			festivaldsl.PathMTU("8.8.8.8").
+			f.PathMTU("8.8.8.8").
 				Min(1200).
 				Expect(
 					pmtu.Discovered().IsTrue(),
 					pmtu.PathMTU().Ge(1200),
 				),
-			festivaldsl.Traceroute("8.8.8.8").
+			f.Traceroute("8.8.8.8").
 				MaxHops(30).
 				Expect(
 					trace.Elapsed().Le(30*time.Second),
