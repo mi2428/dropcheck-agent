@@ -119,7 +119,7 @@ func TestDropcheckEndToEndMatrix(t *testing.T) {
 		t.Cleanup(func() {
 			cfg.resetLiveState()
 			if cfg.ssid != "" && cfg.psk != "" {
-				cfg.runCLICleanup("request", "wifi", "connect", cfg.ssid, "--passphrase", cfg.psk, "--security", "auto", "--timeout", "25000")
+				cfg.restoreWiFiConnection()
 			}
 			cfg.launchApp(t, "suite cleanup", false)
 		})
@@ -284,7 +284,7 @@ func (cfg *e2eConfig) prepareLive(t *testing.T, cases []matrixCase) {
 			cfg.launchApp(t, "after bssid discovery", true)
 		} else {
 			t.Logf("ensuring Wi-Fi connection to test SSID")
-			cfg.runCLICleanup("request", "wifi", "connect", cfg.ssid, "--passphrase", cfg.psk, "--security", "auto", "--timeout", "25000")
+			cfg.restoreWiFiConnection()
 			cfg.launchApp(t, "after wifi setup", true)
 		}
 	}
@@ -637,10 +637,8 @@ func (cfg *e2eConfig) restoreAfterCase(tc matrixCase, commandLine string) {
 	}
 	lower := strings.ToLower(commandLine)
 	switch {
-	case strings.Contains(lower, "forget"):
-		if cfg.ssid != "" && cfg.psk != "" {
-			cfg.runCLICleanup("request", "wifi", "connect", cfg.ssid, "--passphrase", cfg.psk, "--security", "auto", "--timeout", "25000")
-		}
+	case shouldRestoreWiFiAfter(commandLine):
+		cfg.restoreWiFiConnection()
 	case strings.Contains(lower, "set controller endpoint") && strings.Contains(lower, "enabled"):
 		cfg.forceStopPackage()
 		cfg.runShellCleanup("config> set controller endpoint disabled")
@@ -648,6 +646,21 @@ func (cfg *e2eConfig) restoreAfterCase(tc matrixCase, commandLine string) {
 	case strings.Contains(lower, "set standalone enabled"):
 		cfg.runShellCleanup("config> set standalone disabled")
 	}
+}
+
+func shouldRestoreWiFiAfter(commandLine string) bool {
+	lower := strings.ToLower(commandLine)
+	return strings.Contains(lower, "wifi disconnect") ||
+		strings.Contains(lower, "wifi forget") ||
+		strings.Contains(lower, "wifi cycle")
+}
+
+func (cfg *e2eConfig) restoreWiFiConnection() {
+	if cfg.ssid == "" || cfg.psk == "" {
+		return
+	}
+	cfg.runCLICleanup("request", "wifi", "connect", cfg.ssid, "--passphrase", cfg.psk, "--security", "auto", "--timeout", "25000")
+	cfg.runCLICleanup("request", "wifi", "wait", "connected", cfg.ssid, "--ip", "--validated", "--timeout", "30000")
 }
 
 func (cfg *e2eConfig) runShellCleanup(commandLine string) {
@@ -688,7 +701,7 @@ func (cfg *e2eConfig) resolveAgentPrefix() string {
 }
 
 func (cfg *e2eConfig) resolveBSSID() string {
-	cfg.runCLICleanup("request", "wifi", "connect", cfg.ssid, "--passphrase", cfg.psk, "--security", "auto", "--timeout", "25000")
+	cfg.restoreWiFiConnection()
 	res := cfg.runExternal(25*time.Second, []string{"--serial", cfg.serial, "show", "wifi", "status"}, "")
 	if match := bssidPattern.FindStringSubmatch(res.Output); match != nil {
 		return strings.ToLower(match[1])
