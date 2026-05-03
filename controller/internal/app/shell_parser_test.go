@@ -13,6 +13,10 @@ import (
 const requestModeTestPrefix = "request> "
 const configureModeTestPrefix = "config> "
 
+type helpEntry struct {
+	token string
+}
+
 func parseShellLineForTest(line string) (shellCommand, error) {
 	if requestLine, ok := strings.CutPrefix(line, requestModeTestPrefix); ok {
 		return parseShellRequestLine(requestLine)
@@ -24,13 +28,38 @@ func parseShellLineForTest(line string) (shellCommand, error) {
 }
 
 func shellHelpEntriesForTest(line string) []helpEntry {
+	var b bytes.Buffer
 	if requestLine, ok := strings.CutPrefix(line, requestModeTestPrefix); ok {
-		return shellHelpEntries(requestLine, &shellState{mode: shellModeRequest})
+		writeShellContextHelp(&b, requestLine, &shellState{mode: shellModeRequest})
+		return parseHelpEntriesForTest(b.String())
 	}
 	if configureLine, ok := strings.CutPrefix(line, configureModeTestPrefix); ok {
-		return shellHelpEntries(configureLine, &shellState{mode: shellModeConfigure})
+		writeShellContextHelp(&b, configureLine, &shellState{mode: shellModeConfigure})
+		return parseHelpEntriesForTest(b.String())
 	}
-	return shellHelpEntries(line)
+	writeShellContextHelp(&b, line)
+	return parseHelpEntriesForTest(b.String())
+}
+
+func parseHelpEntriesForTest(output string) []helpEntry {
+	var entries []helpEntry
+	for _, line := range strings.Split(output, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		token := strings.TrimSpace(line)
+		if strings.HasPrefix(line, "  ") {
+			if len(line) >= 26 {
+				token = strings.TrimSpace(line[2:26])
+			} else {
+				token = strings.TrimSpace(line[2:])
+			}
+		} else if fields := strings.Fields(line); len(fields) > 0 {
+			token = fields[0]
+		}
+		entries = append(entries, helpEntry{token: token})
+	}
+	return entries
 }
 
 func completeShellLineForTest(line string, _ *shellState) []string {
@@ -66,6 +95,12 @@ func TestParseShellCommands(t *testing.T) {
 			line:  "show wifi status",
 			kind:  shellAgentCommand,
 			label: "wifi status",
+		},
+		{
+			name:  "show ip status",
+			line:  "show ip status",
+			kind:  shellAgentCommand,
+			label: "ip",
 		},
 		{
 			name:  "show wifi scan fresh",
@@ -984,6 +1019,11 @@ func TestParseLinuxCommands(t *testing.T) {
 			name:  "wifi scan fresh flags",
 			args:  []string{"show", "wifi", "scan", "fresh", "--band", "5ghz", "--timeout", "9000"},
 			label: "wifi scan fresh 5ghz --timeout 9000",
+		},
+		{
+			name:  "ip status",
+			args:  []string{"show", "ip", "status"},
+			label: "ip",
 		},
 		{
 			name:  "request> ping flags",

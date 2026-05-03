@@ -62,6 +62,17 @@ func TestParseLineAgentCommandSurface(t *testing.T) {
 			},
 		},
 		{
+			name:      "show ip status",
+			line:      "show ip status",
+			operation: "ip.status",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				if cmd.GetGetIpStatus() == nil {
+					t.Fatalf("GetIpStatus not set")
+				}
+			},
+		},
+		{
 			name:      "show wifi fresh scan",
 			line:      "show wifi scan fresh 5ghz timeout 9000",
 			operation: "wifi.scan.fresh",

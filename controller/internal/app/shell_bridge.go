@@ -33,11 +33,6 @@ type shellCommand struct {
 	rawCommand  string
 }
 
-type helpEntry struct {
-	token       string
-	description string
-}
-
 func parseShellLine(line string) (shellCommand, error) {
 	parsed, err := shell.ParseLine(line)
 	return wrapShellCommand(parsed), err
@@ -104,30 +99,11 @@ func writeShellContextHelp(w io.Writer, line string, states ...*shellState) {
 	shell.WriteContextHelp(w, line)
 }
 
-func shellHelpEntries(line string, states ...*shellState) []helpEntry {
-	state := optionalShellState(states)
-	if state != nil && state.mode == shellModeRequest {
-		return wrapHelpEntries(shell.RequestHelpEntries(line))
-	}
-	if state != nil && state.mode == shellModeConfigure {
-		return wrapHelpEntries(shell.ConfigureHelpEntries(line))
-	}
-	return wrapHelpEntries(shell.HelpEntries(line))
-}
-
 func optionalShellState(states []*shellState) *shellState {
 	if len(states) == 0 {
 		return nil
 	}
 	return states[0]
-}
-
-func wrapHelpEntries(entries []shell.HelpEntry) []helpEntry {
-	wrapped := make([]helpEntry, 0, len(entries))
-	for _, entry := range entries {
-		wrapped = append(wrapped, helpEntry{token: entry.Token, description: entry.Description})
-	}
-	return wrapped
 }
 
 func completeShellLine(line string, state *shellState) []string {

@@ -12,11 +12,6 @@ func PrintHelp() {
 	writeShellHelp(os.Stdout)
 }
 
-// WriteHelp writes the full shell help summary to w.
-func WriteHelp(w io.Writer) {
-	writeShellHelp(w)
-}
-
 func writeShellHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w, `commands:
   show devices
@@ -28,6 +23,7 @@ func writeShellHelp(w io.Writer) {
   show wifi scan fresh [timeout <ms>] [all|2.4ghz|5ghz|6ghz|60ghz]
   show wifi scan detail [all|2.4ghz|5ghz|6ghz|60ghz] <ssid|bssid>
   show wifi capabilities
+  show ip status
   show standalone status
   show standalone runs [limit <n>] [synced]
   show standalone run <run-id>
@@ -113,11 +109,6 @@ func isHelpLine(line string) bool {
 	return hasShellHelpSuffix(args[len(args)-1])
 }
 
-// IsHelpToken reports whether value is a standalone help token.
-func IsHelpToken(value string) bool {
-	return isShellHelpToken(value)
-}
-
 func isShellHelpToken(value string) bool {
 	return value == "?" || value == "？"
 }
@@ -129,11 +120,6 @@ func IsHelpRune(value rune) bool {
 
 func isShellHelpRune(value rune) bool {
 	return value == '?' || value == '？'
-}
-
-// HasHelpSuffix reports whether value ends with a supported help suffix.
-func HasHelpSuffix(value string) bool {
-	return hasShellHelpSuffix(value)
 }
 
 func hasShellHelpSuffix(value string) bool {
@@ -185,30 +171,6 @@ func writeShellContextHelpInMode(w io.Writer, line string, mode Mode) {
 		}
 		_, _ = fmt.Fprintf(w, "  %-24s %s\n", entry.Token, entry.Description)
 	}
-}
-
-// HelpEntries returns contextual help candidates for line.
-//
-// The function accepts the same trailing "?" suffix as the interactive shell,
-// resolves unambiguous command prefixes, and falls back to top-level entries
-// when the context is unknown.
-func HelpEntries(line string) []HelpEntry {
-	return shellHelpEntries(line)
-}
-
-// RequestHelpEntries returns contextual help candidates for a request-mode line.
-func RequestHelpEntries(line string) []HelpEntry {
-	return shellHelpEntriesInMode(line, ModeRequest)
-}
-
-// ConfigureHelpEntries returns contextual help candidates for a configure-mode
-// line.
-func ConfigureHelpEntries(line string) []HelpEntry {
-	return shellHelpEntriesInMode(line, ModeConfigure)
-}
-
-func shellHelpEntries(line string) []HelpEntry {
-	return shellHelpEntriesInMode(line, ModeOperational)
 }
 
 func shellHelpEntriesInMode(line string, mode Mode) []HelpEntry {
@@ -305,7 +267,7 @@ func resolveContextKeywordInMode(index int, previous []string, value string, mod
 	case 1:
 		switch previous[0] {
 		case "show":
-			return resolveShellKeyword("show command", value, []string{"devices", "config", "wifi", "standalone", "controller"})
+			return resolveShellKeyword("show command", value, []string{"devices", "config", "wifi", "ip", "standalone", "controller"})
 		case "sync":
 			return resolveShellKeyword("sync command", value, []string{"standalone"})
 		case "clear":
@@ -317,6 +279,9 @@ func resolveContextKeywordInMode(index int, previous []string, value string, mod
 		}
 		if previous[0] == "show" && previous[1] == "wifi" {
 			return resolveShellKeyword("show wifi command", value, []string{"status", "diagnostics", "scan", "capabilities"})
+		}
+		if previous[0] == "show" && previous[1] == "ip" {
+			return resolveShellKeyword("show ip command", value, []string{"status"})
 		}
 		if previous[0] == "show" && previous[1] == "standalone" {
 			return resolveShellKeyword("show standalone command", value, []string{"status", "runs", "run"})
@@ -411,7 +376,7 @@ func helpEntriesForArgsInMode(args []string, mode Mode) []HelpEntry {
 	switch args[0] {
 	case "show":
 		if len(args) == 1 {
-			return []HelpEntry{{"devices", "Connected Android agents"}, {"config", "Persistent Agent App configuration"}, {"wifi", "Wi-Fi state and diagnostics"}, {"standalone", "Standalone state and stored runs"}, {"controller", "Controller link state"}}
+			return []HelpEntry{{"devices", "Connected Android agents"}, {"config", "Persistent Agent App configuration"}, {"wifi", "Wi-Fi state and diagnostics"}, {"ip", "IP addressing and routing"}, {"standalone", "Standalone state and stored runs"}, {"controller", "Controller link state"}}
 		}
 		if len(args) == 2 && args[1] == "config" {
 			return []HelpEntry{{"standalone", "Standalone configuration subtree"}, {"controller", "Controller configuration subtree"}}
@@ -421,6 +386,9 @@ func helpEntriesForArgsInMode(args []string, mode Mode) []HelpEntry {
 		}
 		if len(args) == 2 && args[1] == "wifi" {
 			return []HelpEntry{{"status", "Current Wi-Fi connection and IP state"}, {"diagnostics", "Wi-Fi status, capabilities, networks, and scan"}, {"scan", "Cached or fresh scan results"}, {"capabilities", "Device Wi-Fi capabilities"}}
+		}
+		if len(args) == 2 && args[1] == "ip" {
+			return []HelpEntry{{"status", "IP addresses, routes, DNS, and validation state"}}
 		}
 		if len(args) == 3 && args[1] == "wifi" && args[2] == "scan" {
 			return []HelpEntry{{"fresh", "Trigger a fresh scan"}, {"detail", "Show detail for an SSID or BSSID"}, {"all", "All bands"}, {"2.4ghz", "2.4 GHz band"}, {"5ghz", "5 GHz band"}, {"6ghz", "6 GHz band"}, {"60ghz", "60 GHz band"}}

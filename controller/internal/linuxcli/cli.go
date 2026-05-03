@@ -143,7 +143,7 @@ func parseConfigure(args []string) (Command, error) {
 
 func parseShow(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: show <devices|config|wifi|standalone|controller>")
+		return Command{}, fmt.Errorf("usage: show <devices|config|wifi|ip|standalone|controller>")
 	}
 	switch args[0] {
 	case "devices":
@@ -156,6 +156,9 @@ func parseShow(args []string) (Command, error) {
 	case "wifi":
 		op, err := parseLinuxShowWifi(args[1:])
 		return Command{Kind: AgentCommand, Operation: op}, err
+	case "ip":
+		op, err := parseLinuxShowIP(args[1:])
+		return Command{Kind: AgentCommand, Operation: op}, err
 	case "standalone":
 		op, err := parseStandaloneShow(args[1:])
 		return Command{Kind: AgentCommand, Operation: op}, err
@@ -165,6 +168,13 @@ func parseShow(args []string) (Command, error) {
 	default:
 		return Command{}, fmt.Errorf("unknown show command %q", args[0])
 	}
+}
+
+func parseLinuxShowIP(args []string) (command.Operation, error) {
+	if len(args) != 1 || args[0] != "status" {
+		return command.Operation{}, fmt.Errorf("usage: show ip status")
+	}
+	return command.IPStatusOperation(), nil
 }
 
 func parseControllerShow(args []string) (command.Operation, error) {

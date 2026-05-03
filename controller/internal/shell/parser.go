@@ -139,14 +139,6 @@ func parseShellLineInMode(line string, mode Mode) (Command, error) {
 	return cmd, nil
 }
 
-// ParseArgs parses already-tokenized shell command arguments.
-//
-// Pipeline syntax is not handled here; use ParseLine when parsing raw user
-// input from the REPL.
-func ParseArgs(args []string) (Command, error) {
-	return parseShellArgs(args)
-}
-
 func parseShellArgs(args []string) (Command, error) {
 	return parseShellArgsInMode(args, ModeOperational)
 }
@@ -298,9 +290,9 @@ func parseShellRequestModeArgs(args []string) (Command, error) {
 
 func parseShellShow(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: show <devices|config|wifi|standalone|controller>")
+		return Command{}, fmt.Errorf("usage: show <devices|config|wifi|ip|standalone|controller>")
 	}
-	name, err := resolveShellKeyword("show command", args[0], []string{"devices", "config", "wifi", "standalone", "controller"})
+	name, err := resolveShellKeyword("show command", args[0], []string{"devices", "config", "wifi", "ip", "standalone", "controller"})
 	if err != nil {
 		return Command{}, err
 	}
@@ -314,6 +306,8 @@ func parseShellShow(args []string) (Command, error) {
 		return parseShellShowConfig(args[1:])
 	case "wifi":
 		return parseShellShowWifi(args[1:])
+	case "ip":
+		return parseShellShowIP(args[1:])
 	case "standalone":
 		return parseShellShowStandalone(args[1:])
 	case "controller":
@@ -321,6 +315,20 @@ func parseShellShow(args []string) (Command, error) {
 	default:
 		return Command{}, fmt.Errorf("unknown show command %q", args[0])
 	}
+}
+
+func parseShellShowIP(args []string) (Command, error) {
+	if len(args) != 1 {
+		return Command{}, fmt.Errorf("usage: show ip status")
+	}
+	name, err := resolveShellKeyword("show ip command", args[0], []string{"status"})
+	if err != nil {
+		return Command{}, err
+	}
+	if name != "status" {
+		return Command{}, fmt.Errorf("unknown show ip command %q", args[0])
+	}
+	return agentShellCommand(command.IPStatusOperation()), nil
 }
 
 func parseShellConfigureShow(args []string) (Command, error) {
