@@ -1,6 +1,5 @@
 package io.dropcheck.agent
 
-import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
@@ -49,14 +48,6 @@ class AgentLogWidgetProvider : AppWidgetProvider() {
         }
 
         private fun updateWidgets(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-            val launchIntent = Intent(context, MainActivity::class.java)
-            val launchPendingIntent = PendingIntent.getActivity(
-                context,
-                0,
-                launchIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-
             appWidgetIds.forEach { appWidgetId ->
                 val serviceIntent = Intent(context, AgentLogWidgetService::class.java).apply {
                     putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
@@ -65,7 +56,6 @@ class AgentLogWidgetProvider : AppWidgetProvider() {
                 val views = RemoteViews(context.packageName, R.layout.agent_log_widget).apply {
                     setRemoteAdapter(R.id.agentLogWidgetList, serviceIntent)
                     setEmptyView(R.id.agentLogWidgetList, R.id.agentLogWidgetEmpty)
-                    setOnClickPendingIntent(R.id.agentLogWidgetRoot, launchPendingIntent)
                 }
                 appWidgetManager.updateAppWidget(appWidgetId, views)
                 appWidgetManager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.agentLogWidgetList)
