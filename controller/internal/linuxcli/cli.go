@@ -597,14 +597,16 @@ func parseLinuxWifiConnect(args []string, operation string) (command.Operation, 
 	}
 	ssid := pos[0]
 	passphrase := opts.value("passphrase")
-	if passphrase == "" && len(pos) >= 2 {
-		passphrase = pos[1]
-	}
-	if passphrase == "" {
-		return command.Operation{}, fmt.Errorf("wifi %s requires --passphrase", operation)
-	}
-	if len(pos) > 2 {
+	switch {
+	case passphrase != "" && len(pos) > 1:
 		return command.Operation{}, fmt.Errorf("too many positional arguments for wifi %s", operation)
+	case passphrase == "" && len(pos) >= 2:
+		passphrase = pos[1]
+		if len(pos) > 2 {
+			return command.Operation{}, fmt.Errorf("too many positional arguments for wifi %s", operation)
+		}
+	case passphrase == "":
+		return command.Operation{}, fmt.Errorf("wifi %s requires --passphrase", operation)
 	}
 	connectOpts := command.WifiConnectOptions{
 		SSID:             ssid,
@@ -639,11 +641,14 @@ func parseLinuxWifiWait(args []string) (command.Operation, error) {
 	if len(opts.positionals) > 1 {
 		return command.Operation{}, fmt.Errorf("usage: wifi wait connected [ssid]")
 	}
-	var ssid string
+	waitOpts := linuxExpectationOptions(opts)
 	if len(opts.positionals) == 1 {
-		ssid = opts.positionals[0]
+		if waitOpts.SSID != "" {
+			return command.Operation{}, fmt.Errorf("wifi wait connected ssid specified twice")
+		}
+		waitOpts.SSID = opts.positionals[0]
 	}
-	return command.WifiWaitConnectedOperation(ssid, linuxExpectationOptions(opts))
+	return command.WifiWaitConnectedOperation("", waitOpts)
 }
 
 func parseLinuxWifiAssert(args []string) (command.Operation, error) {

@@ -245,10 +245,12 @@ func WifiCycleOperation(opts WifiCycleOptions) (Operation, error) {
 // WifiWaitConnectedOperation builds an operation that waits until Wi-Fi matches
 // the requested connection state.
 //
-// The ssid argument is copied into opts.SSID to support shell grammar where the
-// optional SSID is positional.
+// A non-empty ssid argument overrides opts.SSID to support shell grammar where
+// the optional SSID is positional.
 func WifiWaitConnectedOperation(ssid string, opts WifiExpectationOptions) (Operation, error) {
-	opts.SSID = ssid
+	if ssid != "" {
+		opts.SSID = ssid
+	}
 	req := &controlpb.WaitWifiConnected{
 		Ssid:             opts.SSID,
 		Bssid:            opts.BSSID,
