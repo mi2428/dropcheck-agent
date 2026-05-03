@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 
 /**
- * App widget provider for the compact clock and Wi-Fi status display.
+ * App widget provider for the compact clock, Wi-Fi status, and network address display.
  *
  * The widget refreshes from broadcasts, connectivity callbacks, and bounded
  * follow-up alarms so transient Android Wi-Fi state changes settle on screen.
@@ -38,7 +38,7 @@ import kotlin.math.roundToInt
 class AgentClockWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         schedulePeriodicUpdate(context)
-        registerWifiNetworkCallback(context)
+        registerWidgetNetworkCallback(context)
         AgentService.requestWidgetObserver(context)
         updateWidgets(context, appWidgetManager, appWidgetIds)
     }
@@ -46,13 +46,13 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
     override fun onEnabled(context: Context) {
         super.onEnabled(context)
         schedulePeriodicUpdate(context)
-        registerWifiNetworkCallback(context)
+        registerWidgetNetworkCallback(context)
         AgentService.requestWidgetObserver(context)
         updateAll(context)
     }
 
     override fun onDisabled(context: Context) {
-        unregisterWifiNetworkCallback(context)
+        unregisterWidgetNetworkCallback(context)
         cancelPeriodicUpdate(context)
         cancelEventFollowUpUpdates(context)
         AgentService.requestWidgetObserverStop(context)
@@ -73,17 +73,17 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
         super.onReceive(context, intent)
         when (intent.action) {
             Intent.ACTION_MY_PACKAGE_REPLACED -> {
-                registerWifiNetworkCallback(context)
+                registerWidgetNetworkCallback(context)
                 schedulePeriodicUpdate(context)
                 AgentService.requestWidgetObserver(context)
                 requestUpdate(context)
             }
             ACTION_PERIODIC_UPDATE -> {
-                registerWifiNetworkCallback(context)
+                registerWidgetNetworkCallback(context)
                 schedulePeriodicUpdate(context)
                 requestUpdate(context)
             }
-            ACTION_WIFI_NETWORK_CALLBACK_UPDATE -> {
+            ACTION_NETWORK_CALLBACK_UPDATE -> {
                 requestUpdate(context)
                 schedulePeriodicUpdate(context)
                 scheduleEventFollowUpUpdates(context)
@@ -191,28 +191,29 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
             }
         }
 
-        private fun registerWifiNetworkCallback(context: Context) {
+        private fun registerWidgetNetworkCallback(context: Context) {
             if (!hasClockWidgets(context)) return
             val appContext = context.applicationContext
             val connectivity = appContext.getSystemService(ConnectivityManager::class.java) ?: return
             val pendingIntent = updatePendingIntent(
                 appContext,
-                ACTION_WIFI_NETWORK_CALLBACK_UPDATE,
-                WIFI_NETWORK_CALLBACK_REQUEST_CODE,
+                ACTION_NETWORK_CALLBACK_UPDATE,
+                NETWORK_CALLBACK_REQUEST_CODE,
             )
             val request = NetworkRequest.Builder()
                 .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
                 .build()
             runCatching { connectivity.unregisterNetworkCallback(pendingIntent) }
             runCatching { connectivity.registerNetworkCallback(request, pendingIntent) }
         }
 
-        private fun unregisterWifiNetworkCallback(context: Context) {
+        private fun unregisterWidgetNetworkCallback(context: Context) {
             val appContext = context.applicationContext
             val connectivity = appContext.getSystemService(ConnectivityManager::class.java) ?: return
             runCatching {
                 connectivity.unregisterNetworkCallback(
-                    updatePendingIntent(appContext, ACTION_WIFI_NETWORK_CALLBACK_UPDATE, WIFI_NETWORK_CALLBACK_REQUEST_CODE),
+                    updatePendingIntent(appContext, ACTION_NETWORK_CALLBACK_UPDATE, NETWORK_CALLBACK_REQUEST_CODE),
                 )
             }
         }
@@ -321,13 +322,7 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
             val appContext = context.applicationContext
             val connectivity = appContext.getSystemService(ConnectivityManager::class.java)
             val wifi = appContext.getSystemService(WifiManager::class.java)
-            if (wifi?.isWifiOffOrTurningOff() == true) {
-                return WifiSnapshot(
-                    connected = false,
-                    info = null,
-                    addresses = WifiAddresses(),
-                )
-            }
+            if (wifi?.isWifiOffOrTurningOff() == true) return disconnectedWifiSnapshot(connectivity)
 
             val activeNetwork = connectivity?.activeNetwork
             val activeCapabilities = activeNetwork
@@ -336,7 +331,7 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
                 return WifiSnapshot(
                     connected = true,
                     info = bestWifiInfo(appContext, activeCapabilities.transportInfo as? WifiInfo),
-                    addresses = wifiAddresses(activeNetwork?.let { connectivity?.getLinkProperties(it) }),
+                    addresses = networkAddresses(activeNetwork?.let { connectivity?.getLinkProperties(it) }),
                 )
             }
 
@@ -346,15 +341,19 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
                     return WifiSnapshot(
                         connected = true,
                         info = bestWifiInfo(appContext, capabilities.transportInfo as? WifiInfo),
-                        addresses = wifiAddresses(connectivity?.getLinkProperties(network)),
+                        addresses = networkAddresses(connectivity?.getLinkProperties(network)),
                     )
                 }
             }
 
+            return disconnectedWifiSnapshot(connectivity)
+        }
+
+        private fun disconnectedWifiSnapshot(connectivity: ConnectivityManager?): WifiSnapshot {
             return WifiSnapshot(
                 connected = false,
                 info = null,
-                addresses = WifiAddresses(),
+                addresses = ethernetAddresses(connectivity),
             )
         }
 
@@ -400,11 +399,34 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
             return if (rssi in -126..0) "$rssi dBm" else UNKNOWN_VALUE
         }
 
-        private fun formatIpLine(addresses: WifiAddresses): String {
+        private fun formatIpLine(addresses: NetworkAddresses): String {
             return "IPv4 ${addresses.ipv4 ?: NONE_VALUE}  IPv6 ${addresses.ipv6 ?: NONE_VALUE}"
         }
 
-        private fun wifiAddresses(link: LinkProperties?): WifiAddresses {
+        @Suppress("DEPRECATION")
+        private fun ethernetAddresses(connectivity: ConnectivityManager?): NetworkAddresses {
+            connectivity ?: return NetworkAddresses()
+
+            val activeNetwork = connectivity.activeNetwork
+            val activeCapabilities = activeNetwork
+                ?.let { connectivity.getNetworkCapabilities(it) }
+            if (activeCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true) {
+                val addresses = networkAddresses(connectivity.getLinkProperties(activeNetwork))
+                if (addresses.hasAny()) return addresses
+            }
+
+            for (network in connectivity.allNetworks.orEmpty()) {
+                val capabilities = connectivity.getNetworkCapabilities(network) ?: continue
+                if (!capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) continue
+
+                val addresses = networkAddresses(connectivity.getLinkProperties(network))
+                if (addresses.hasAny()) return addresses
+            }
+
+            return NetworkAddresses()
+        }
+
+        private fun networkAddresses(link: LinkProperties?): NetworkAddresses {
             val addresses = link?.linkAddresses.orEmpty()
             val ipv4 = addresses.firstNotNullOfOrNull { linkAddress ->
                 (linkAddress.address as? Inet4Address)?.hostAddress
@@ -415,7 +437,7 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
                 .firstOrNull()
                 ?.hostAddress
                 ?.substringBefore('%')
-            return WifiAddresses(ipv4 = ipv4, ipv6 = ipv6)
+            return NetworkAddresses(ipv4 = ipv4, ipv6 = ipv6)
         }
 
         @SuppressLint("MissingPermission")
@@ -455,12 +477,12 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
         private const val PLACEHOLDER_BSSID = "02:00:00:00:00:00"
         private const val PERIODIC_UPDATE_INTERVAL_MS = 60_000L
         private const val PERIODIC_UPDATE_REQUEST_CODE = 11_000
-        private const val WIFI_NETWORK_CALLBACK_REQUEST_CODE = 11_050
+        private const val NETWORK_CALLBACK_REQUEST_CODE = 11_050
         private const val EVENT_FOLLOW_UP_REQUEST_CODE_BASE = 11_100
         private const val SETTINGS_REQUEST_CODE = 11_200
         private const val UPDATE_DEBOUNCE_MS = 250L
         private const val ACTION_PERIODIC_UPDATE = "io.dropcheck.agent.action.CLOCK_WIDGET_PERIODIC_UPDATE"
-        private const val ACTION_WIFI_NETWORK_CALLBACK_UPDATE = "io.dropcheck.agent.action.CLOCK_WIDGET_WIFI_NETWORK_CALLBACK_UPDATE"
+        private const val ACTION_NETWORK_CALLBACK_UPDATE = "io.dropcheck.agent.action.CLOCK_WIDGET_NETWORK_CALLBACK_UPDATE"
         private const val ACTION_EVENT_FOLLOW_UP_UPDATE = "io.dropcheck.agent.action.CLOCK_WIDGET_EVENT_FOLLOW_UP_UPDATE"
         private const val FUSED_PROVIDER = "fused"
         private const val GPS_HARDWARE_PROVIDER = "gps_hardware"
@@ -535,7 +557,7 @@ private data class ClockSize(
 private data class WifiSnapshot(
     val connected: Boolean,
     val info: WifiInfo?,
-    val addresses: WifiAddresses,
+    val addresses: NetworkAddresses,
 )
 
 private data class ClockWifiText(
@@ -544,7 +566,9 @@ private data class ClockWifiText(
     val locationLine: CharSequence,
 )
 
-private data class WifiAddresses(
+private data class NetworkAddresses(
     val ipv4: String? = null,
     val ipv6: String? = null,
-)
+) {
+    fun hasAny(): Boolean = ipv4 != null || ipv6 != null
+}
