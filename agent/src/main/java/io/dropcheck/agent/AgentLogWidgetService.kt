@@ -34,6 +34,7 @@ private class AgentLogWidgetFactory(
         val line = lines.getOrNull(position)?.text.orEmpty()
         return RemoteViews(context.packageName, R.layout.agent_log_widget_item).apply {
             setTextViewText(R.id.agentLogWidgetLine, terminalDisplayText(line))
+            setTextColor(R.id.agentLogWidgetLine, AgentLogStyle.colorForLine(line))
         }
     }
 

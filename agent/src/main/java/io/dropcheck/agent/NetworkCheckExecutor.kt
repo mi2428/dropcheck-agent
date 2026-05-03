@@ -99,7 +99,11 @@ class NetworkCheckExecutor(
         ))
         val binary = NetworkCheckPolicy.pingBinary(command.host)
         val args = NetworkCheckPolicy.pingArgs(binary, iface, command.sizeBytes, count, command.host)
-        logger.info("ping start command=${args.joinToString(" ")} timeout_ms=$timeoutMs")
+        logger.execEvent("probe.exec", listOf(
+            "probe" to "ping",
+            "command_line" to args.joinToString(" "),
+            "timeout_ms" to timeoutMs,
+        ))
         logger.debug("ping process start binary=$binary interface=${iface.ifBlank { "default" }} args=${args.drop(1).joinToString(" ")}")
         logger.debugEvent("process.start", listOf(
             "probe" to "ping",
@@ -195,7 +199,11 @@ class NetworkCheckExecutor(
             ))
             return tracerouteWithPing(command, maxHops, timeoutMs, iface)
         }
-        logger.info("traceroute start command=${commandArgs.joinToString(" ")} timeout_ms=$timeoutMs")
+        logger.execEvent("probe.exec", listOf(
+            "probe" to "traceroute",
+            "command_line" to commandArgs.joinToString(" "),
+            "timeout_ms" to timeoutMs,
+        ))
         logger.debugEvent("process.start", listOf(
             "probe" to "traceroute",
             "binary" to commandArgs.firstOrNull().orEmpty(),
@@ -392,6 +400,14 @@ class NetworkCheckExecutor(
             "validated" to ip.validated,
             "internet" to ip.internet,
         ))
+        logger.execEvent("probe.exec", listOf(
+            "probe" to "global_ip",
+            "service" to GLOBAL_IP_SERVICE_HOST,
+            "requested_family" to requestedFamily.name,
+            "families" to families.map { it.name },
+            "timeout_ms" to timeoutMs,
+            "iface" to ip.interfaceName.ifBlank { "default" },
+        ))
 
         val started = System.nanoTime()
         val result = GlobalIpResult.newBuilder()
@@ -473,7 +489,13 @@ class NetworkCheckExecutor(
                 waitSeconds = waitSeconds,
                 host = command.host,
             )
-            logger.debug("traceroute ping fallback hop=$ttl command=${args.joinToString(" ")} timeout_ms=$hopTimeoutMs")
+            logger.execDebugEvent("probe.exec", listOf(
+                "probe" to "traceroute",
+                "fallback" to "ping_ttl",
+                "hop" to ttl,
+                "command_line" to args.joinToString(" "),
+                "timeout_ms" to hopTimeoutMs,
+            ))
             logger.debugEvent("process.start", listOf(
                 "probe" to "traceroute_ping_ttl",
                 "ttl" to ttl,
@@ -567,7 +589,12 @@ class NetworkCheckExecutor(
             ?: return failed("wifi network not available for download")
         val ip = networks.ipStatus(network)
         val iface = ip.interfaceName
-        logger.info("download start url=${command.url} timeout_ms=$timeoutMs iface=${iface.ifBlank { "default" }}")
+        logger.execEvent("probe.exec", listOf(
+            "probe" to "download",
+            "url" to command.url,
+            "timeout_ms" to timeoutMs,
+            "iface" to iface.ifBlank { "default" },
+        ))
         logger.debugEvent("network.selected", listOf(
             "probe" to "download",
             "network_id" to ip.networkId,
@@ -678,7 +705,13 @@ class NetworkCheckExecutor(
         val result = ResolveDnsResult.newBuilder()
             .setName(command.name)
         try {
-            logger.info("dns start name=${command.name} qtypes=${qtypes.joinToString(",")}")
+            logger.execEvent("probe.exec", listOf(
+                "probe" to "dns",
+                "name" to command.name,
+                "qtypes" to qtypes.map { it.name },
+                "timeout_ms" to command.timeoutMs,
+                "iface" to ip.interfaceName.ifBlank { "default" },
+            ))
             logger.debugEvent("network.dns.lookup", listOf(
                 "name" to command.name,
                 "qtypes" to qtypes.map { it.name },
@@ -765,7 +798,12 @@ class NetworkCheckExecutor(
             .setExpectedStatus(expected)
 
         try {
-            logger.info("http start url=${command.url} expected=$expected timeout_ms=$timeoutMs")
+            logger.execEvent("probe.exec", listOf(
+                "probe" to "http",
+                "url" to command.url,
+                "expected_status" to expected,
+                "timeout_ms" to timeoutMs,
+            ))
             val conn = network.openConnection(URL(command.url)) as HttpURLConnection
             conn.connectTimeout = timeoutMs
             conn.readTimeout = timeoutMs
@@ -889,7 +927,13 @@ class NetworkCheckExecutor(
         // ping -W is specified in whole seconds, but runProcess still enforces the millisecond cap.
         val waitSeconds = ((timeoutMs + 999) / 1000).coerceAtLeast(1)
         val args = NetworkCheckPolicy.pathMtuPingArgs(binary, iface, payloadSizeBytes, waitSeconds, host)
-        logger.info("path mtu probe mtu=$mtuBytes payload=$payloadSizeBytes command=${args.joinToString(" ")} timeout_ms=$timeoutMs")
+        logger.execEvent("probe.exec", listOf(
+            "probe" to "path_mtu",
+            "mtu_bytes" to mtuBytes,
+            "payload_size_bytes" to payloadSizeBytes,
+            "command_line" to args.joinToString(" "),
+            "timeout_ms" to timeoutMs,
+        ))
         logger.debugEvent("process.start", listOf(
             "probe" to "path_mtu",
             "binary" to binary,
@@ -940,7 +984,12 @@ class NetworkCheckExecutor(
             .setFamily(family)
             .setEndpoint(endpoint)
         val started = System.nanoTime()
-        logger.info("global ip probe family=$family endpoint=$endpoint timeout_ms=$timeoutMs")
+        logger.execEvent("probe.exec", listOf(
+            "probe" to "global_ip",
+            "family" to family.name,
+            "endpoint" to endpoint,
+            "timeout_ms" to timeoutMs,
+        ))
         try {
             val socket = network.socketFactory.createSocket()
             socket.use {

@@ -346,13 +346,13 @@ internal class StandaloneRunner(private val context: Context) {
 
     private fun archiveLogger(logs: MutableList<CommandLog>): CommandLogger {
         return object : CommandLogger {
-            override fun log(level: CommandLog.Level, message: String) {
+            override fun log(level: CommandLog.Level, message: String, scope: CommandLogScope) {
                 logs += CommandLog.newBuilder()
                     .setLevel(level)
                     .setMessage(message)
                     .setUnixTimeMs(System.currentTimeMillis())
                     .build()
-                TerminalLog.log(appContext, terminalLevelName(level), "standalone $message")
+                TerminalLog.log(appContext, terminalLevelName(level), CommandTerminalLog.standalone(scope, message))
             }
         }
     }
