@@ -39,7 +39,6 @@ internal class StandaloneRunner(private val context: Context) {
     @Synchronized
     fun refresh() {
         val config = configStore.load()
-        StandaloneStateBroadcast.send(appContext, config.enabled)
         if (!config.enabled) {
             stop()
             return

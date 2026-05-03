@@ -121,7 +121,6 @@ class CommandExecutor(
         val result = StandaloneConfigEditor.apply(store.load(), command.editsList)
         if (result.error != null) return failed(result.error)
         store.save(result.config)
-        StandaloneStateBroadcast.send(context, result.config.enabled)
         AgentService.requestStandaloneRefresh(context)
         logger.info("standalone config updated enabled=${result.config.enabled} festas=${result.config.festasCount}")
         return CommandResult.newBuilder()
