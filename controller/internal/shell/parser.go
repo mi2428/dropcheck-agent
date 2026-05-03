@@ -86,11 +86,12 @@ const (
 	StandaloneSync = shellStandaloneSync
 )
 
-var shellTopKeywords = []string{"show", "clear", "sync", "configure", "request", "help", "exit", "quit"}
-var shellDirectRequestKeywords = []string{"wifi", "standalone", "controller", "monitor", "ping", "traceroute", "path-mtu", "global-ip", "dns", "http", "download"}
-var shellOperationalKeywords = appendShellKeywords(shellTopKeywords, shellDirectRequestKeywords)
+var shellTopKeywords = []string{"show", "clear", "sync", "configure", "request", "help", "quit"}
+var shellRequestCommandKeywords = []string{"wifi", "standalone", "controller", "monitor", "ping", "traceroute", "path-mtu", "global-ip", "dns", "http", "download"}
+var shellOperationalKeywords = shellTopKeywords
+var shellOperationalParseKeywords = appendShellKeywords(shellTopKeywords, []string{"exit"})
 var shellConfigureKeywords = []string{"show", "set", "delete", "run", "help", "exit", "quit"}
-var shellRequestKeywords = appendShellKeywords(shellDirectRequestKeywords, []string{"help", "exit", "quit"})
+var shellRequestKeywords = appendShellKeywords(shellRequestCommandKeywords, []string{"help", "exit", "quit"})
 
 // ParseLine parses a complete interactive shell line, including pipelines.
 //
@@ -165,7 +166,7 @@ func parseShellOperationalArgs(args []string, _ bool) (Command, error) {
 	if len(args) == 0 {
 		return Command{Kind: shellNoop}, nil
 	}
-	top, err := resolveShellKeyword("command", args[0], shellOperationalKeywords)
+	top, err := resolveShellKeyword("command", args[0], shellOperationalParseKeywords)
 	if err != nil {
 		return Command{}, err
 	}
@@ -197,9 +198,6 @@ func parseShellOperationalArgs(args []string, _ bool) (Command, error) {
 		}
 		return parseShellRequest(args[1:])
 	default:
-		if isDirectRequestKeyword(top) {
-			return parseShellRequestModeArgs(args)
-		}
 		return Command{}, fmt.Errorf("unknown command %q", args[0])
 	}
 }
@@ -670,15 +668,6 @@ func appendShellKeywords(groups ...[]string) []string {
 		out = append(out, group...)
 	}
 	return out
-}
-
-func isDirectRequestKeyword(value string) bool {
-	for _, keyword := range shellDirectRequestKeywords {
-		if value == keyword {
-			return true
-		}
-	}
-	return false
 }
 
 func parseShellSync(args []string) (Command, error) {

@@ -110,12 +110,6 @@ func TestParseShellCommands(t *testing.T) {
 			label: "ping 1.1.1.1 5 --size 64 --timeout 7000",
 		},
 		{
-			name:  "direct ping from top level",
-			line:  "ping 1.1.1.1 count 5 size 64 timeout 7000",
-			kind:  shellAgentCommand,
-			label: "ping 1.1.1.1 5 --size 64 --timeout 7000",
-		},
-		{
 			name:  "request> ping options first",
 			line:  "request> ping count 5 size 64 timeout 7000 1.1.1.1",
 			kind:  shellAgentCommand,
@@ -168,12 +162,6 @@ func TestParseShellCommands(t *testing.T) {
 		{
 			name:  "request dns from top level",
 			line:  "request dns example.test type AAAA timeout 9000",
-			kind:  shellAgentCommand,
-			label: "dns example.test AAAA --timeout 9000",
-		},
-		{
-			name:  "direct dns from top level",
-			line:  "dns example.test type AAAA timeout 9000",
 			kind:  shellAgentCommand,
 			label: "dns example.test AAAA --timeout 9000",
 		},
@@ -242,14 +230,9 @@ func TestParseShellModesSeparateConfigureAndRequest(t *testing.T) {
 	}
 	assertOperationLabel(t, request.operation, "ping 1.1.1.1")
 
-	direct, err := parseShellLineForTest("ping 1.1.1.1 count 1")
-	if err != nil {
-		t.Fatalf("top-level ping: %v", err)
+	if _, err := parseShellLineForTest("ping 1.1.1.1 count 1"); err == nil || !strings.Contains(err.Error(), `unknown command "ping"`) {
+		t.Fatalf("top-level direct ping error = %v", err)
 	}
-	if direct.kind != shellAgentCommand {
-		t.Fatalf("top-level ping kind = %v", direct.kind)
-	}
-	assertOperationLabel(t, direct.operation, "ping 1.1.1.1 1")
 
 	set, err := parseShellLineForTest("config> set standalone enabled")
 	if err != nil {
@@ -515,6 +498,29 @@ func TestShellHelpAndCompletion(t *testing.T) {
 	if !slices.Equal(tokens, []string{"<ms>"}) {
 		t.Fatalf("show wifi scan fresh timeout help tokens = %#v, want <ms>", tokens)
 	}
+
+	help = shellHelpEntriesForTest("?")
+	tokens = tokens[:0]
+	for _, entry := range help {
+		tokens = append(tokens, entry.token)
+	}
+	if !slices.Equal(tokens, []string{"show", "clear", "sync", "configure", "request", "help", "quit"}) {
+		t.Fatalf("top-level help tokens = %#v", tokens)
+	}
+	for _, directRequestCommand := range []string{"wifi", "standalone", "controller", "monitor", "ping", "traceroute", "path-mtu", "global-ip", "dns", "http", "download", "exit"} {
+		if slices.Contains(tokens, directRequestCommand) {
+			t.Fatalf("top-level help tokens = %#v, unexpectedly included %q", tokens, directRequestCommand)
+		}
+	}
+
+	topCompletions := completeShellLineForTest("p", nil)
+	if slices.Contains(topCompletions, "ping") {
+		t.Fatalf("top-level completions = %#v, unexpectedly included ping", topCompletions)
+	}
+	requestCompletions := completeShellLineForTest("request p", nil)
+	if !slices.Contains(requestCompletions, "request ping") {
+		t.Fatalf("request-prefixed completions = %#v, missing request ping", requestCompletions)
+	}
 }
 
 func TestShellHTTPHelpAndFlexibleArgs(t *testing.T) {
@@ -774,16 +780,15 @@ func TestShellReadlineCompleter(t *testing.T) {
 		t.Fatalf("placeholder hint = %q, want <n>", got)
 	}
 
-	topCompleter := shellReadlineCompleter{}
-	completions, offset = topCompleter.Do([]rune("ping count "), len([]rune("ping count ")))
+	completions, offset = completer.Do([]rune("ping count "), len([]rune("ping count ")))
 	if offset != 0 {
-		t.Fatalf("top-level placeholder offset = %d, want 0", offset)
+		t.Fatalf("top-level direct ping offset = %d, want 0", offset)
 	}
 	if len(completions) != 0 {
-		t.Fatalf("top-level placeholder completions = %#v, want no selectable candidates", completions)
+		t.Fatalf("top-level direct ping completions = %#v, want no selectable candidates", completions)
 	}
-	if got := shellCompletionHintLineForTest("ping count ", nil); got != "<n>" {
-		t.Fatalf("top-level placeholder hint = %q, want <n>", got)
+	if got := shellCompletionHintLineForTest("ping count ", nil); got != "" {
+		t.Fatalf("top-level direct ping hint = %q, want empty", got)
 	}
 
 	completions, _ = requestCompleter.Do([]rune("http expected-status "), len([]rune("http expected-status ")))
@@ -841,10 +846,6 @@ func TestShellOptionCompletion(t *testing.T) {
 			want: []string{"count", "size", "timeout"},
 		},
 		{
-			line: "ping ",
-			want: []string{"count", "size", "timeout"},
-		},
-		{
 			line: "request> ping example.test ",
 			want: []string{"count", "size", "timeout"},
 		},
@@ -866,10 +867,6 @@ func TestShellOptionCompletion(t *testing.T) {
 		},
 		{
 			line: "request dns example.test ",
-			want: []string{"type", "timeout"},
-		},
-		{
-			line: "dns example.test ",
 			want: []string{"type", "timeout"},
 		},
 		{
@@ -905,11 +902,9 @@ func TestShellPlaceholderCompletionHints(t *testing.T) {
 	}{
 		{line: "request> ping count ", want: "<n>"},
 		{line: "request ping count ", want: "<n>"},
-		{line: "ping count ", want: "<n>"},
 		{line: "show wifi scan fresh timeout ", want: "<ms>"},
 		{line: "request> ping count 5 size 64 timeout 7000 ", want: "<host>"},
 		{line: "request ping count 5 size 64 timeout 7000 ", want: "<host>"},
-		{line: "ping count 5 size 64 timeout 7000 ", want: "<host>"},
 		{line: "request> traceroute via ", want: "<host_or_ip>"},
 		{line: "request> path-mtu min-mtu ", want: "<bytes>"},
 		{line: "request> global-ip timeout ", want: "<ms>"},
@@ -952,8 +947,22 @@ func shellCompletionStrings(completions [][]rune) []string {
 }
 
 func TestParseShellRejectsLinuxShapeInShell(t *testing.T) {
-	if _, err := parseShellLineForTest("wifi status"); err == nil {
-		t.Fatalf("parseShellLineForTest(wifi status) error = nil")
+	for _, line := range []string{
+		"wifi status",
+		"standalone run once",
+		"controller reconnect",
+		"monitor wifi",
+		"ping 1.1.1.1",
+		"traceroute 1.1.1.1",
+		"path-mtu 1.1.1.1",
+		"global-ip",
+		"dns example.com",
+		"http example.com",
+		"download https://example.com",
+	} {
+		if _, err := parseShellLineForTest(line); err == nil {
+			t.Fatalf("parseShellLineForTest(%q) error = nil", line)
+		}
 	}
 	if _, err := parseShellLineForTest("devices"); err == nil {
 		t.Fatalf("parseShellLineForTest(devices) error = nil")
