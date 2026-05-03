@@ -16,7 +16,7 @@
             android:id="@+id/agentClockDate"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="0.22"
+            android:layout_weight="0.20"
             android:format12Hour="M月d日(EEE)"
             android:format24Hour="M月d日(EEE)"
             android:gravity="top|center_horizontal"
@@ -32,7 +32,7 @@
             android:id="@+id/agentClockTime"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="0.56"
+            android:layout_weight="0.52"
             android:format12Hour="h:mm"
             android:format24Hour="HH:mm"
             android:gravity="center"
@@ -42,27 +42,63 @@
             android:shadowDy="2"
             android:shadowRadius="2"
             android:textColor="#FFF4F0F0"
-            android:textSize="72sp" />
+            android:textSize="84sp" />
 
-        <TextView
-            android:id="@+id/agentClockWifiInfo"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="0.22"
-            android:fontFamily="monospace"
+            android:layout_weight="0.28"
             android:gravity="bottom|center_horizontal"
-            android:includeFontPadding="false"
-            android:lineSpacingExtra="0dp"
-            android:lineSpacingMultiplier="1.0"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:shadowColor="#CC000000"
-            android:shadowDx="1"
-            android:shadowDy="1"
-            android:shadowRadius="2"
-            android:singleLine="true"
-            android:text="@string/agent_clock_widget_wifi_placeholder"
-            android:textColor="#FFFFFFFF"
-            android:textSize="10sp" />
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/agentClockWifiInfo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:fontFamily="monospace"
+                android:gravity="center_horizontal"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:shadowColor="#CC000000"
+                android:shadowDx="1"
+                android:shadowDy="1"
+                android:shadowRadius="2"
+                android:text="@string/agent_clock_widget_wifi_placeholder"
+                android:textColor="#FFFFFFFF"
+                android:textSize="10sp" />
+
+            <TextView
+                android:id="@+id/agentClockIpInfo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:fontFamily="monospace"
+                android:gravity="center_horizontal"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:shadowColor="#CC000000"
+                android:shadowDx="1"
+                android:shadowDy="1"
+                android:shadowRadius="2"
+                android:textColor="#FFFFFFFF"
+                android:textSize="10sp" />
+
+            <TextView
+                android:id="@+id/agentClockLocationInfo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:fontFamily="monospace"
+                android:gravity="center_horizontal"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:shadowColor="#CC000000"
+                android:shadowDx="1"
+                android:shadowDy="1"
+                android:shadowRadius="2"
+                android:textColor="#FFFFFFFF"
+                android:textSize="10sp" />
+        </LinearLayout>
     </LinearLayout>
 </FrameLayout>
