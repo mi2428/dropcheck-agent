@@ -1,6 +1,7 @@
 package command
 
 import (
+	"errors"
 	"strings"
 
 	"dropcheck/controller/internal/controlpb"
@@ -453,6 +454,9 @@ func PathMTUOperation(opts PathMTUOptions) (Operation, error) {
 	maxMTU, err := parseOptionalUint32(opts.MaxMTU, "max-mtu", 0)
 	if err != nil {
 		return Operation{}, err
+	}
+	if minMTU != 0 && maxMTU != 0 && maxMTU < minMTU {
+		return Operation{}, errors.New("max-mtu must be greater than or equal to min-mtu")
 	}
 	timeoutMs, err := parseOptionalUint32(opts.Timeout, "timeout", 30000)
 	if err != nil {
