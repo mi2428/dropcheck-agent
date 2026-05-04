@@ -24,7 +24,11 @@ func TestProcessObjectParsesArchiveAndPushesMetrics(t *testing.T) {
 	if len(pusher.pushes) != 1 {
 		t.Fatalf("push count = %d, want 1", len(pusher.pushes))
 	}
-	assertSample(t, pusher.pushes[0].samples, MetricResultSuccess, map[string]string{"run_id": "run-1"}, 1)
+	assertGrouping(t, pusher.pushes[0].batch, map[string]string{
+		"festa":      "smoke",
+		"wifi_group": "lab",
+	})
+	assertSample(t, pusher.pushes[0].batch, MetricSuccess, nil, 1)
 
 	if err := ing.ProcessObject(context.Background(), ObjectRef{Key: "device/run-1.pb", ETag: "etag", Size: int64(len(data))}); err != nil {
 		t.Fatalf("dedup ProcessObject: %v", err)
@@ -34,7 +38,7 @@ func TestProcessObjectParsesArchiveAndPushesMetrics(t *testing.T) {
 	}
 }
 
-func TestProcessObjectPushesDecodeFailureMetric(t *testing.T) {
+func TestProcessObjectReturnsDecodeFailureWithoutPushingMetrics(t *testing.T) {
 	pusher := &fakePusher{}
 	ing := New(testConfig(), &fakeStore{objects: map[string][]byte{"bad.pb": []byte("not protobuf")}}, pusher, log.New(testWriter{t}, "", 0))
 
@@ -42,10 +46,9 @@ func TestProcessObjectPushesDecodeFailureMetric(t *testing.T) {
 	if err == nil {
 		t.Fatal("ProcessObject err = nil, want decode error")
 	}
-	if len(pusher.pushes) != 1 {
-		t.Fatalf("push count = %d, want 1", len(pusher.pushes))
+	if len(pusher.pushes) != 0 {
+		t.Fatalf("push count = %d, want 0", len(pusher.pushes))
 	}
-	assertSample(t, pusher.pushes[0].samples, MetricIngestSuccess, map[string]string{"status": "decode_failed"}, 0)
 }
 
 func testConfig() Config {
@@ -54,7 +57,7 @@ func testConfig() Config {
 		MinIOBucket:    "dropcheck",
 		ObjectSuffix:   ".pb",
 		PushgatewayURL: "http://pushgateway:9091",
-		PushJob:        "dropcheck_festival_results",
+		PushJob:        "dropcheck_results",
 	}
 }
 
@@ -80,16 +83,14 @@ func (s *fakeStore) ListObjects(context.Context) ([]ObjectRef, error) {
 
 type fakePusher struct {
 	pushes []struct {
-		key     string
-		samples []MetricSample
+		batch MetricBatch
 	}
 }
 
-func (p *fakePusher) Push(_ context.Context, objectKey string, samples []MetricSample) error {
+func (p *fakePusher) Push(_ context.Context, batch MetricBatch) error {
 	p.pushes = append(p.pushes, struct {
-		key     string
-		samples []MetricSample
-	}{key: objectKey, samples: samples})
+		batch MetricBatch
+	}{batch: batch})
 	return nil
 }
 
