@@ -1597,6 +1597,9 @@ func isClearRuntimeFailure(output string) bool {
 		strings.Contains(lower, "timeout") ||
 		strings.Contains(lower, "timed out") ||
 		strings.Contains(lower, "no matching") ||
+		strings.Contains(lower, "no_dns_address_for_family") ||
+		strings.Contains(lower, "dns resolution failed") ||
+		strings.Contains(lower, "one_or_more_families_failed") ||
 		strings.Contains(lower, "not a device owner, profile owner, system app, or privileged app") ||
 		strings.Contains(lower, "unsupported") ||
 		strings.Contains(lower, "connectivity completed with failed checks")
@@ -2175,6 +2178,12 @@ func TestE2EFailureClassifiers(t *testing.T) {
 	}
 	if !isClearRuntimeFailure("Status: failed  Message: network not available for ping") {
 		t.Fatalf("network runtime failure was not accepted")
+	}
+	if !isClearRuntimeFailure("Status: failed  Message: global IP check failed\nError: one_or_more_families_failed\nipv6    -   false   0       0ms      no_dns_address_for_family") {
+		t.Fatalf("missing address family for global IP must count as a clear runtime failure")
+	}
+	if !isClearRuntimeFailure("Status: failed  Message: dns resolution failed\nDNS: name=example.com elapsed=13ms answers=0") {
+		t.Fatalf("DNS runtime resolution failures must count as clear runtime failures")
 	}
 	if !isClearRuntimeFailure("Status: failed  Message: wifi addNetworkPrivileged failed: SecurityException:Caller is not a device owner, profile owner, system app, or privileged app") {
 		t.Fatalf("platform Wi-Fi provisioning limits must count as clear runtime failures")
