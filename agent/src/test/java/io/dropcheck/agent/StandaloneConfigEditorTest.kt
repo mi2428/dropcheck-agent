@@ -39,6 +39,19 @@ class StandaloneConfigEditorTest {
     }
 
     @Test
+    fun appliesFestaWifiMatchEditFromShellSyntax() {
+        val result = StandaloneConfigEditor.apply(
+            StandaloneConfig.getDefaultInstance(),
+            listOf(setEdit("Example Net MOBILE", "festa", "smoke", "wifi", "lab2", "match", "essid")),
+        )
+
+        assertNull(result.error)
+        val group = result.config.getFestas(0).getWifiGroups(0)
+        assertEquals("lab2", group.name)
+        assertEquals("Example Net MOBILE", group.essid)
+    }
+
+    @Test
     fun appliesScalarStandaloneAndWifiEdits() {
         val result = StandaloneConfigEditor.apply(
             StandaloneConfig.getDefaultInstance(),
