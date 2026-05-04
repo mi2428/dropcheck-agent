@@ -73,6 +73,7 @@ class MainActivity : Activity() {
     private lateinit var root: FrameLayout
     private var statusIconViews: List<ImageView> = emptyList()
     private var controllerHeartbeatConnected = false
+    private var standaloneActive = false
     private var standaloneRunning = false
     private var screenDimmed = false
     private var backgroundLocationPromptShown = false
@@ -99,7 +100,7 @@ class MainActivity : Activity() {
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == AgentStatusBroadcast.ACTION) {
-                syncStatusIcons()
+                applyStatusBroadcast(intent)
                 return
             }
             val line = intent.getStringExtra(TerminalLog.EXTRA_LINE) ?: return
@@ -181,6 +182,7 @@ class MainActivity : Activity() {
         }
         setContentView(root)
         controllerHeartbeatConnected = ControllerSessionRuntimeState.heartbeatConnected()
+        standaloneActive = isStandaloneActive()
         standaloneRunning = StandaloneRuntimeState.running.get()
         updateStatusIcons()
         resetIdleDimTimer()
@@ -439,7 +441,7 @@ class MainActivity : Activity() {
 
     private fun updateStatusIcons() {
         val count = when {
-            standaloneRunning -> 2
+            standaloneActive || standaloneRunning -> 2
             controllerHeartbeatConnected -> 1
             else -> 0
         }
@@ -450,8 +452,30 @@ class MainActivity : Activity() {
 
     private fun syncStatusIcons() {
         controllerHeartbeatConnected = ControllerSessionRuntimeState.heartbeatConnected()
+        standaloneActive = isStandaloneActive()
         standaloneRunning = StandaloneRuntimeState.running.get()
         updateStatusIcons()
+    }
+
+    private fun applyStatusBroadcast(intent: Intent) {
+        controllerHeartbeatConnected = intent.getBooleanExtra(
+            AgentStatusBroadcast.EXTRA_CONTROLLER_HEARTBEAT_CONNECTED,
+            ControllerSessionRuntimeState.heartbeatConnected(),
+        )
+        val broadcastStandaloneActive = intent.getBooleanExtra(
+            AgentStatusBroadcast.EXTRA_STANDALONE_ACTIVE,
+            StandaloneRuntimeState.active.get(),
+        )
+        standaloneActive = broadcastStandaloneActive || StandaloneConfigStore(this).load().enabled
+        standaloneRunning = intent.getBooleanExtra(
+            AgentStatusBroadcast.EXTRA_STANDALONE_RUNNING,
+            StandaloneRuntimeState.running.get(),
+        )
+        updateStatusIcons()
+    }
+
+    private fun isStandaloneActive(): Boolean {
+        return StandaloneRuntimeState.active.get() || StandaloneConfigStore(this).load().enabled
     }
 
     private fun resetIdleDimTimer() {

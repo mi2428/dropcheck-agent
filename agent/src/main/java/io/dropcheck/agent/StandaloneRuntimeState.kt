@@ -5,6 +5,7 @@ import java.util.concurrent.atomic.AtomicReference
 
 /** Process-local status exposed through GetStandaloneStatus. */
 internal object StandaloneRuntimeState {
+    val active = AtomicBoolean(false)
     val running = AtomicBoolean(false)
     val currentRunId = AtomicReference("")
     val message = AtomicReference("")

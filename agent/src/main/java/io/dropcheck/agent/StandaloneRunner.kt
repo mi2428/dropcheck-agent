@@ -43,6 +43,8 @@ internal class StandaloneRunner(private val context: Context) {
             stop()
             return
         }
+        StandaloneRuntimeState.active.set(true)
+        AgentStatusBroadcast.send(appContext)
         if (future?.isDone == false) return
         future = executor.submit { loop() }
     }
@@ -51,6 +53,7 @@ internal class StandaloneRunner(private val context: Context) {
     fun stop() {
         future?.cancel(true)
         future = null
+        StandaloneRuntimeState.active.set(false)
         StandaloneRuntimeState.running.set(false)
         StandaloneRuntimeState.currentRunId.set("")
         AgentStatusBroadcast.send(appContext)
@@ -62,38 +65,47 @@ internal class StandaloneRunner(private val context: Context) {
     }
 
     private fun loop() {
-        while (!Thread.currentThread().isInterrupted) {
-            val config = configStore.load()
-            if (!config.enabled) break
-            val enabledFestas = config.festasList.filter { it.enabled }
-            if (enabledFestas.isEmpty()) {
-                StandaloneRuntimeState.message.set("standalone enabled without enabled festas")
-                sleepInterruptibly(1_000)
-                continue
-            }
-            val now = System.currentTimeMillis()
-            var ran = false
-            for (festa in enabledFestas) {
-                val intervalMs = festa.intervalMs.takeIf { it > 0 }?.toLong() ?: DEFAULT_FESTA_INTERVAL_MS
-                val last = lastRuns[festa.name] ?: 0L
-                if (last == 0L || now - last >= intervalMs) {
-                    val archive = runFesta(festa, save = true)
-                    lastRuns[festa.name] = System.currentTimeMillis()
-                    val cleanup = resultStore.enforce(retentionMs(config.retentionMs), maxBytes(config.maxBytes))
-                    StandaloneRuntimeState.message.set(cleanup.ifBlank { "last run ${archive.summary.status}" })
-                    ran = true
+        try {
+            StandaloneRuntimeState.active.set(true)
+            AgentStatusBroadcast.send(appContext)
+            while (!Thread.currentThread().isInterrupted) {
+                val config = configStore.load()
+                if (!config.enabled) break
+                val enabledFestas = config.festasList.filter { it.enabled }
+                if (enabledFestas.isEmpty()) {
+                    StandaloneRuntimeState.message.set("standalone enabled without enabled festas")
+                    sleepInterruptibly(1_000)
+                    continue
                 }
-            }
-            if (ran) {
-                val upload = StandaloneUploader(appContext, resultStore).flush(config)
-                if (upload.isNotBlank()) {
-                    StandaloneRuntimeState.message.set(upload)
+                val now = System.currentTimeMillis()
+                var ran = false
+                for (festa in enabledFestas) {
+                    val intervalMs = festa.intervalMs.takeIf { it > 0 }?.toLong() ?: DEFAULT_FESTA_INTERVAL_MS
+                    val last = lastRuns[festa.name] ?: 0L
+                    if (last == 0L || now - last >= intervalMs) {
+                        val archive = runFesta(festa, save = true)
+                        lastRuns[festa.name] = System.currentTimeMillis()
+                        val cleanup = resultStore.enforce(retentionMs(config.retentionMs), maxBytes(config.maxBytes))
+                        StandaloneRuntimeState.message.set(cleanup.ifBlank { "last run ${archive.summary.status}" })
+                        ran = true
+                    }
                 }
+                if (ran) {
+                    val upload = StandaloneUploader(appContext, resultStore).flush(config)
+                    if (upload.isNotBlank()) {
+                        StandaloneRuntimeState.message.set(upload)
+                    }
+                }
+                sleepInterruptibly(if (ran) 250 else 1_000)
             }
-            sleepInterruptibly(if (ran) 250 else 1_000)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        } finally {
+            StandaloneRuntimeState.active.set(false)
+            StandaloneRuntimeState.running.set(false)
+            StandaloneRuntimeState.currentRunId.set("")
+            AgentStatusBroadcast.send(appContext)
         }
-        StandaloneRuntimeState.running.set(false)
-        StandaloneRuntimeState.currentRunId.set("")
     }
 
     fun runOnce(festaName: String, save: Boolean): StandaloneRunArchive {
@@ -117,6 +129,7 @@ internal class StandaloneRunner(private val context: Context) {
         val logs = mutableListOf<CommandLog>()
         val logger = archiveLogger(logs)
         val started = System.currentTimeMillis()
+        StandaloneRuntimeState.active.set(true)
         StandaloneRuntimeState.running.set(true)
         StandaloneRuntimeState.currentRunId.set(runId)
         StandaloneRuntimeState.message.set("running")
