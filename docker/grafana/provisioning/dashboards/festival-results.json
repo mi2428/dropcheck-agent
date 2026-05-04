@@ -92,13 +92,13 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "dropcheck_festival_result_success",
-          "legendFormat": "{{festa}} {{run_id}}",
+          "expr": "dropcheck_success",
+          "legendFormat": "{{festa}} {{wifi_group}} {{wifi_essid}}",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Run Success",
+      "title": "Test Success",
       "type": "stat"
     },
     {
@@ -133,13 +133,13 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "dropcheck_festival_result_duration_seconds",
-          "legendFormat": "{{festa}} {{run_id}}",
+          "expr": "dropcheck_duration_seconds",
+          "legendFormat": "{{festa}} {{wifi_group}} {{wifi_essid}}",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Run Duration",
+      "title": "Test Duration",
       "type": "timeseries"
     },
     {
@@ -180,14 +180,14 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "dropcheck_festival_step_success",
+          "expr": "{__name__=~\"dropcheck_(connect|wait_connected|dns|ping|http)_success\"}",
           "format": "table",
           "instant": true,
-          "legendFormat": "{{wifi_group}} {{step}}",
+          "legendFormat": "{{wifi_group}} {{target}}",
           "refId": "A"
         }
       ],
-      "title": "Latest Step Success",
+      "title": "Latest Probe Success",
       "type": "table"
     },
     {
@@ -197,7 +197,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percent"
+          "unit": "s"
         },
         "overrides": []
       },
@@ -222,13 +222,13 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "dropcheck_festival_ping_packet_loss_ratio * 100",
-          "legendFormat": "{{wifi_group}} {{host}}",
+          "expr": "dropcheck_ping_duration_seconds",
+          "legendFormat": "{{wifi_group}} {{target}}",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Ping Loss",
+      "title": "Ping Duration",
       "type": "timeseries"
     },
     {
@@ -263,8 +263,8 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "dropcheck_festival_http_status_code",
-          "legendFormat": "{{wifi_group}} {{url}}",
+          "expr": "dropcheck_http_status_code",
+          "legendFormat": "{{wifi_group}} {{target}}",
           "range": true,
           "refId": "A"
         }
@@ -278,7 +278,7 @@
   "schemaVersion": 41,
   "tags": [
     "dropcheck",
-    "festival"
+    "results"
   ],
   "templating": {
     "list": []
@@ -289,8 +289,8 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Dropcheck Festival Results",
-  "uid": "dropcheck-festival-results",
+  "title": "Dropcheck Results",
+  "uid": "dropcheck-results",
   "version": 1,
   "weekStart": ""
 }
