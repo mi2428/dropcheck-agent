@@ -281,19 +281,11 @@ class AgentService : Service() {
 
     private fun startForegroundWithType(text: String) {
         val notification = notification(text)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, foregroundServiceTypeMask())
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
+        startForeground(NOTIFICATION_ID, notification, foregroundServiceTypeMask())
     }
 
     private fun foregroundServiceTypeMask(): Int {
-        var mask = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-        } else {
-            0
-        }
+        var mask = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
         if (canUseLocationForegroundService()) {
             mask = mask or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
         }
@@ -311,8 +303,7 @@ class AgentService : Service() {
     }
 
     private fun hasBackgroundLocationAccess(): Boolean {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
-            checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+        return checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
 
     companion object {

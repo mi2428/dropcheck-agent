@@ -291,8 +291,7 @@ class MainActivity : Activity() {
     }
 
     private fun hasBackgroundLocationAccess(): Boolean {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
-            checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+        return checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun promptBackgroundLocationAccess() {
@@ -506,9 +505,7 @@ class MainActivity : Activity() {
     }
 
     private fun View.excludeFromContentCapture() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            importantForContentCapture = View.IMPORTANT_FOR_CONTENT_CAPTURE_NO_EXCLUDE_DESCENDANTS
-        }
+        importantForContentCapture = View.IMPORTANT_FOR_CONTENT_CAPTURE_NO_EXCLUDE_DESCENDANTS
     }
 
     private fun hideSystemBars() {
