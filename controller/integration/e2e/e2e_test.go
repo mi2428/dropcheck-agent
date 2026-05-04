@@ -1338,7 +1338,7 @@ func (cfg *e2eConfig) startMinIO(t *testing.T, port string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "docker", "compose", "up", "-d", "minio", "minio-init")
+	cmd := exec.CommandContext(ctx, "docker", "compose", "-f", "docker-compose.test.yml", "up", "-d", "minio", "minio-init")
 	cmd.Dir = cfg.repoRoot
 	cmd.Env = os.Environ()
 	out, err := cmd.CombinedOutput()
@@ -1404,7 +1404,7 @@ func (cfg *e2eConfig) runMinIOClient(t *testing.T, outputDir string, script stri
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	args := []string{"compose", "run", "--rm", "-T", "--entrypoint", "/bin/sh"}
+	args := []string{"compose", "-f", "docker-compose.test.yml", "run", "--rm", "-T", "--entrypoint", "/bin/sh"}
 	if outputDir != "" {
 		args = append(args, "-v", outputDir+":/out")
 	}
