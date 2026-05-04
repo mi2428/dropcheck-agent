@@ -346,6 +346,7 @@ message StandaloneWifiGroup {
   bool require_ip = 7;
   bool require_validated = 8;
   uint32 timeout_ms = 9;
+  ConnectWifi.MacRandomization mac_randomization = 10;
 }
 
 message StandaloneChecks {
