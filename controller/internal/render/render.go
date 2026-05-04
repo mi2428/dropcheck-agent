@@ -790,7 +790,7 @@ func renderStandaloneConfigBlock(b *strings.Builder, config *controlpb.Standalon
 			writeConfigLine(b, depth+2, "interval %s", formatConfigDuration(festa.GetIntervalMs()))
 		}
 		for _, group := range festa.GetWifiGroups() {
-			writeConfigLine(b, depth+2, "wifi-group %s {", shellQuote(group.GetName()))
+			writeConfigLine(b, depth+2, "wifi %s {", shellQuote(group.GetName()))
 			if group.GetEssid() != "" {
 				writeConfigLine(b, depth+3, "match essid %s", shellQuote(group.GetEssid()))
 			}
@@ -798,13 +798,16 @@ func renderStandaloneConfigBlock(b *strings.Builder, config *controlpb.Standalon
 				writeConfigLine(b, depth+3, "match bssid %s", shellQuote(group.GetBssid()))
 			}
 			if group.GetPassphrase() != "" {
-				writeConfigLine(b, depth+3, "credential passphrase <redacted>")
+				writeConfigLine(b, depth+3, "passphrase <redacted>")
 			}
 			if group.GetSecurity() != controlpb.ConnectWifi_SECURITY_UNSPECIFIED {
 				writeConfigLine(b, depth+3, "security %s", standaloneSecurityName(group.GetSecurity()))
 			}
 			if group.GetBand() != controlpb.WifiBand_WIFI_BAND_UNSPECIFIED && group.GetBand() != controlpb.WifiBand_WIFI_BAND_ALL {
 				writeConfigLine(b, depth+3, "band %s", standaloneBandName(group.GetBand()))
+			}
+			if group.GetMacRandomization() != controlpb.ConnectWifi_MAC_RANDOMIZATION_UNSPECIFIED {
+				writeConfigLine(b, depth+3, "mac-randomization %s", standaloneMacRandomizationName(group.GetMacRandomization()))
 			}
 			if group.GetRequireIp() {
 				writeConfigLine(b, depth+3, "wait ip")

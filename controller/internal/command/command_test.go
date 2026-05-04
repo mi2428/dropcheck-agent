@@ -99,7 +99,7 @@ func TestPathMTUOperationRejectsInvertedBounds(t *testing.T) {
 }
 
 func TestStandaloneSetEditsBuildConfigEdit(t *testing.T) {
-	edits, err := StandaloneSetEdits([]string{"festa", "lab", "wifi-group", "office", "match", "essid", "Lab"})
+	edits, err := StandaloneSetEdits([]string{"festa", "lab", "wifi", "office", "match", "essid", "Lab", "mac-randomization", "persistent"})
 	if err != nil {
 		t.Fatalf("StandaloneSetEdits() error = %v", err)
 	}
@@ -112,8 +112,12 @@ func TestStandaloneSetEditsBuildConfigEdit(t *testing.T) {
 		t.Fatalf("BuildRunCommand() error = %v", err)
 	}
 	edit := cmd.GetEditStandaloneConfig().GetEdits()[0]
-	if edit.GetAction() != controlpb.StandaloneEdit_ACTION_SET || strings.Join(edit.GetPath(), "/") != "festa/lab/wifi-group/office/match/essid" || edit.GetValue() != "Lab" {
+	if edit.GetAction() != controlpb.StandaloneEdit_ACTION_SET || strings.Join(edit.GetPath(), "/") != "festa/lab/wifi/office/match/essid" || edit.GetValue() != "Lab" {
 		t.Fatalf("edit = %#v", edit)
+	}
+	macEdit := cmd.GetEditStandaloneConfig().GetEdits()[1]
+	if strings.Join(macEdit.GetPath(), "/") != "festa/lab/wifi/office/mac_randomization" || macEdit.GetValue() != "persistent" {
+		t.Fatalf("mac edit = %#v", macEdit)
 	}
 
 	retention, err := StandaloneSetEdits([]string{"retention", "7d"})

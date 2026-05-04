@@ -67,18 +67,18 @@ func StandaloneDeleteEdits(args []string) ([]StandaloneEdit, error) {
 		return standaloneDeleteUploadEdits(args[1:])
 	case "festa":
 		if len(args) < 2 {
-			return nil, fmt.Errorf("usage: delete standalone festa <name> [wifi-group <name>|check <dns|ping|http>]")
+			return nil, fmt.Errorf("usage: delete standalone festa <name> [wifi <name>|check <dns|ping|http>]")
 		}
 		festa := args[1]
 		if len(args) == 2 {
 			return []StandaloneEdit{StandaloneDeleteEdit([]string{"festa", festa})}, nil
 		}
 		switch args[2] {
-		case "wifi-group":
+		case "wifi":
 			if len(args) != 4 {
-				return nil, fmt.Errorf("usage: delete standalone festa <name> wifi-group <name>")
+				return nil, fmt.Errorf("usage: delete standalone festa <name> wifi <name>")
 			}
-			return []StandaloneEdit{StandaloneDeleteEdit([]string{"festa", festa, "wifi-group", args[3]})}, nil
+			return []StandaloneEdit{StandaloneDeleteEdit([]string{"festa", festa, "wifi", args[3]})}, nil
 		case "check":
 			if len(args) != 4 || !standaloneCheckType(args[3]) {
 				return nil, fmt.Errorf("usage: delete standalone festa <name> check <dns|ping|http>")
@@ -192,7 +192,7 @@ func standaloneDeleteUploadEdits(args []string) ([]StandaloneEdit, error) {
 
 func standaloneSetFestaEdits(args []string) ([]StandaloneEdit, error) {
 	if len(args) < 2 {
-		return nil, fmt.Errorf("usage: set standalone festa <name> <enabled|disabled|interval|wifi-group|check>")
+		return nil, fmt.Errorf("usage: set standalone festa <name> <enabled|disabled|interval|wifi|check>")
 	}
 	festa := args[0]
 	switch args[1] {
@@ -212,8 +212,8 @@ func standaloneSetFestaEdits(args []string) ([]StandaloneEdit, error) {
 		}
 		edit, err := StandaloneSetMillisEdit([]string{"festa", festa, "interval_ms"}, args[2], defaultStandaloneFestaInterval)
 		return singleEdit(edit, err)
-	case "wifi-group":
-		return standaloneSetWifiGroupEdits(festa, args[2:])
+	case "wifi":
+		return standaloneSetWifiEdits(festa, args[2:])
 	case "check":
 		return standaloneSetCheckEdits(festa, args[2:])
 	default:
@@ -221,35 +221,20 @@ func standaloneSetFestaEdits(args []string) ([]StandaloneEdit, error) {
 	}
 }
 
-func standaloneSetWifiGroupEdits(festa string, args []string) ([]StandaloneEdit, error) {
-	if len(args) < 3 {
-		return nil, fmt.Errorf("usage: set standalone festa <name> wifi-group <name> <match|credential|security|band|wait|timeout>")
+func standaloneSetWifiEdits(festa string, args []string) ([]StandaloneEdit, error) {
+	if len(args) < 2 {
+		return nil, fmt.Errorf("usage: set standalone festa <name> wifi <name> <match|passphrase|band|wait|timeout>")
 	}
 	group := args[0]
-	base := []string{"festa", festa, "wifi-group", group}
+	base := []string{"festa", festa, "wifi", group}
 	switch args[1] {
 	case "match":
-		if len(args) != 4 || (args[2] != "essid" && args[2] != "bssid") {
-			return nil, fmt.Errorf("usage: set standalone festa <name> wifi-group <name> match <essid|bssid> <value>")
-		}
-		return []StandaloneEdit{StandaloneSetStringEdit(appendPath(base, "match", args[2]), args[3])}, nil
-	case "credential":
-		if len(args) != 4 || args[2] != "passphrase" {
-			return nil, fmt.Errorf("usage: set standalone festa <name> wifi-group <name> credential passphrase <value>")
-		}
-		return []StandaloneEdit{StandaloneSetStringEdit(appendPath(base, "credential", "passphrase"), args[3])}, nil
-	case "security":
-		if len(args) != 3 {
-			return nil, fmt.Errorf("usage: set standalone festa <name> wifi-group <name> security <auto|wpa2|wpa3|transition>")
-		}
-		security, err := normalizeStandaloneSecurity(args[2])
-		if err != nil {
-			return nil, err
-		}
-		return []StandaloneEdit{StandaloneSetStringEdit(appendPath(base, "security"), security)}, nil
+		return standaloneSetWifiMatchEdits(base, args[2:])
+	case "passphrase":
+		return standaloneSetWifiPassphraseEdits(base, args[2:])
 	case "band":
 		if len(args) != 3 {
-			return nil, fmt.Errorf("usage: set standalone festa <name> wifi-group <name> band <all|2.4ghz|5ghz|6ghz|60ghz>")
+			return nil, fmt.Errorf("usage: set standalone festa <name> wifi <name> band <all|2.4ghz|5ghz|6ghz|60ghz>")
 		}
 		band, err := normalizeStandaloneBand(args[2])
 		if err != nil {
@@ -258,18 +243,56 @@ func standaloneSetWifiGroupEdits(festa string, args []string) ([]StandaloneEdit,
 		return []StandaloneEdit{StandaloneSetStringEdit(appendPath(base, "band"), band)}, nil
 	case "wait":
 		if len(args) != 3 || (args[2] != "ip" && args[2] != "validated") {
-			return nil, fmt.Errorf("usage: set standalone festa <name> wifi-group <name> wait <ip|validated>")
+			return nil, fmt.Errorf("usage: set standalone festa <name> wifi <name> wait <ip|validated>")
 		}
 		return []StandaloneEdit{StandaloneSetBoolEdit(appendPath(base, "wait", args[2]), true)}, nil
 	case "timeout":
 		if len(args) != 3 {
-			return nil, fmt.Errorf("usage: set standalone festa <name> wifi-group <name> timeout <duration>")
+			return nil, fmt.Errorf("usage: set standalone festa <name> wifi <name> timeout <duration>")
 		}
 		edit, err := StandaloneSetMillisEdit(appendPath(base, "timeout_ms"), args[2], 35*time.Second)
 		return singleEdit(edit, err)
 	default:
-		return nil, fmt.Errorf("unknown set standalone wifi-group command %q", args[1])
+		return nil, fmt.Errorf("unknown set standalone wifi command %q", args[1])
 	}
+}
+
+func standaloneSetWifiMatchEdits(base []string, args []string) ([]StandaloneEdit, error) {
+	if len(args) < 2 || (args[0] != "essid" && args[0] != "bssid") {
+		return nil, fmt.Errorf("usage: set standalone festa <name> wifi <name> match <essid|bssid> <value> [mac-randomization <auto|none|persistent|non-persistent>]")
+	}
+	values, err := parseStandaloneKeyValues(args[2:], map[string]bool{"mac-randomization": true})
+	if err != nil {
+		return nil, err
+	}
+	edits := []StandaloneEdit{StandaloneSetStringEdit(appendPath(base, "match", args[0]), args[1])}
+	if values["mac-randomization"] != "" {
+		macRandomization, err := normalizeStandaloneMacRandomization(values["mac-randomization"])
+		if err != nil {
+			return nil, err
+		}
+		edits = append(edits, StandaloneSetStringEdit(appendPath(base, "mac_randomization"), macRandomization))
+	}
+	return edits, nil
+}
+
+func standaloneSetWifiPassphraseEdits(base []string, args []string) ([]StandaloneEdit, error) {
+	if len(args) < 1 {
+		return nil, fmt.Errorf("usage: set standalone festa <name> wifi <name> passphrase <passphrase> [security <auto|wpa2|wpa3|transition>]")
+	}
+	values, err := parseStandaloneKeyValues(args[1:], map[string]bool{"security": true})
+	if err != nil {
+		return nil, err
+	}
+	edits := []StandaloneEdit{StandaloneSetStringEdit(appendPath(base, "passphrase"), args[0])}
+	if values["security"] != "" {
+		security, err := normalizeStandaloneSecurity(values["security"])
+		if err != nil {
+			return nil, err
+		}
+		edits = append(edits, StandaloneSetStringEdit(appendPath(base, "security"), security))
+	}
+	return edits, nil
 }
 
 func standaloneSetCheckEdits(festa string, args []string) ([]StandaloneEdit, error) {
@@ -375,13 +398,13 @@ func standaloneSetHTTPCheckEdits(festa string, args []string) ([]StandaloneEdit,
 
 func parseStandaloneKeyValues(args []string, allowed map[string]bool) (map[string]string, error) {
 	if len(args)%2 != 0 {
-		return nil, fmt.Errorf("standalone check options must be key/value pairs")
+		return nil, fmt.Errorf("standalone options must be key/value pairs")
 	}
 	values := map[string]string{}
 	for i := 0; i < len(args); i += 2 {
 		key := args[i]
 		if !allowed[key] {
-			return nil, fmt.Errorf("unknown standalone check option %q", key)
+			return nil, fmt.Errorf("unknown standalone option %q", key)
 		}
 		if values[key] != "" {
 			return nil, fmt.Errorf("%s specified twice", key)

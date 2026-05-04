@@ -266,13 +266,12 @@ func TestStandaloneUploadToMinIOLive(t *testing.T) {
 		"config> set standalone upload to " + quoteToken(uploadURL),
 		fmt.Sprintf("config> set standalone upload via wifi essid %s passphrase %s security auto band all mac-randomization auto timeout 25000", quoteToken(ssid), quoteToken(psk)),
 		fmt.Sprintf("config> set standalone festa %s interval 2s", standaloneUploadFesta),
-		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt match essid %s", standaloneUploadFesta, quoteToken(ssid)),
-		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt credential passphrase %s", standaloneUploadFesta, quoteToken(psk)),
-		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt security auto", standaloneUploadFesta),
-		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt band all", standaloneUploadFesta),
-		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt wait ip", standaloneUploadFesta),
-		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt wait validated", standaloneUploadFesta),
-		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt timeout 25000", standaloneUploadFesta),
+		fmt.Sprintf("config> set standalone festa %s wifi mgmt match essid %s", standaloneUploadFesta, quoteToken(ssid)),
+		fmt.Sprintf("config> set standalone festa %s wifi mgmt passphrase %s security auto", standaloneUploadFesta, quoteToken(psk)),
+		fmt.Sprintf("config> set standalone festa %s wifi mgmt band all", standaloneUploadFesta),
+		fmt.Sprintf("config> set standalone festa %s wifi mgmt wait ip", standaloneUploadFesta),
+		fmt.Sprintf("config> set standalone festa %s wifi mgmt wait validated", standaloneUploadFesta),
+		fmt.Sprintf("config> set standalone festa %s wifi mgmt timeout 25000", standaloneUploadFesta),
 		fmt.Sprintf("config> set standalone festa %s check dns name %s type A timeout 8000", standaloneUploadFesta, standaloneDNSName),
 		fmt.Sprintf("config> set standalone festa %s check ping host %s count 1 timeout 8000", standaloneUploadFesta, standalonePingHost),
 		fmt.Sprintf("config> set standalone festa %s check http url %s expected-status 204 timeout 10000", standaloneUploadFesta, standaloneHTTPURL),
@@ -317,11 +316,10 @@ func TestStandaloneUploadFailureKeepsPendingRunLive(t *testing.T) {
 		"config> set standalone upload to " + quoteToken(uploadURL),
 		fmt.Sprintf("config> set standalone upload via wifi essid %s passphrase %s security auto timeout 25000", quoteToken(ssid), quoteToken(psk)),
 		fmt.Sprintf("config> set standalone festa %s interval 2s", standaloneFailureFesta),
-		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt match essid %s", standaloneFailureFesta, quoteToken(ssid)),
-		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt credential passphrase %s", standaloneFailureFesta, quoteToken(psk)),
-		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt security auto", standaloneFailureFesta),
-		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt wait ip", standaloneFailureFesta),
-		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt timeout 25000", standaloneFailureFesta),
+		fmt.Sprintf("config> set standalone festa %s wifi mgmt match essid %s", standaloneFailureFesta, quoteToken(ssid)),
+		fmt.Sprintf("config> set standalone festa %s wifi mgmt passphrase %s security auto", standaloneFailureFesta, quoteToken(psk)),
+		fmt.Sprintf("config> set standalone festa %s wifi mgmt wait ip", standaloneFailureFesta),
+		fmt.Sprintf("config> set standalone festa %s wifi mgmt timeout 25000", standaloneFailureFesta),
 		fmt.Sprintf("config> set standalone festa %s check ping host %s count 1 timeout 8000", standaloneFailureFesta, standalonePingHost),
 		fmt.Sprintf("config> set standalone festa %s enabled", standaloneFailureFesta),
 		"config> set standalone enabled",
@@ -385,10 +383,9 @@ func TestStandaloneCLIParityLive(t *testing.T) {
 	})
 	cfg.resetStandaloneFesta(t, standaloneCLIFesta)
 
-	cfg.runCLILiveCommand(t, 45*time.Second, "configure", "set", "standalone", "festa", standaloneCLIFesta, "wifi-group", "mgmt", "match", "essid", cfg.ssid)
-	cfg.runCLILiveCommand(t, 45*time.Second, "configure", "set", "standalone", "festa", standaloneCLIFesta, "wifi-group", "mgmt", "credential", "passphrase", cfg.psk)
-	cfg.runCLILiveCommand(t, 45*time.Second, "configure", "set", "standalone", "festa", standaloneCLIFesta, "wifi-group", "mgmt", "security", "auto")
-	cfg.runCLILiveCommand(t, 45*time.Second, "configure", "set", "standalone", "festa", standaloneCLIFesta, "wifi-group", "mgmt", "wait", "ip")
+	cfg.runCLILiveCommand(t, 45*time.Second, "configure", "set", "standalone", "festa", standaloneCLIFesta, "wifi", "mgmt", "match", "essid", cfg.ssid)
+	cfg.runCLILiveCommand(t, 45*time.Second, "configure", "set", "standalone", "festa", standaloneCLIFesta, "wifi", "mgmt", "passphrase", cfg.psk, "security", "auto")
+	cfg.runCLILiveCommand(t, 45*time.Second, "configure", "set", "standalone", "festa", standaloneCLIFesta, "wifi", "mgmt", "wait", "ip")
 	cfg.runCLILiveCommand(t, 45*time.Second, "configure", "set", "standalone", "festa", standaloneCLIFesta, "check", "ping", "host", standalonePingHost, "count", "1", "timeout", "8000")
 	cfg.runCLILiveCommand(t, 45*time.Second, "configure", "set", "standalone", "festa", standaloneCLIFesta, "enabled")
 
@@ -582,12 +579,11 @@ func (cfg *e2eConfig) configureStandalonePingFesta(t *testing.T, festa string, g
 	ssid, psk := cfg.ssid, cfg.psk
 	commands := []string{
 		fmt.Sprintf("config> set standalone festa %s interval 2s", festa),
-		fmt.Sprintf("config> set standalone festa %s wifi-group %s match essid %s", festa, group, quoteToken(ssid)),
-		fmt.Sprintf("config> set standalone festa %s wifi-group %s credential passphrase %s", festa, group, quoteToken(psk)),
-		fmt.Sprintf("config> set standalone festa %s wifi-group %s security auto", festa, group),
-		fmt.Sprintf("config> set standalone festa %s wifi-group %s band all", festa, group),
-		fmt.Sprintf("config> set standalone festa %s wifi-group %s wait ip", festa, group),
-		fmt.Sprintf("config> set standalone festa %s wifi-group %s timeout 25000", festa, group),
+		fmt.Sprintf("config> set standalone festa %s wifi %s match essid %s", festa, group, quoteToken(ssid)),
+		fmt.Sprintf("config> set standalone festa %s wifi %s passphrase %s security auto", festa, group, quoteToken(psk)),
+		fmt.Sprintf("config> set standalone festa %s wifi %s band all", festa, group),
+		fmt.Sprintf("config> set standalone festa %s wifi %s wait ip", festa, group),
+		fmt.Sprintf("config> set standalone festa %s wifi %s timeout 25000", festa, group),
 		fmt.Sprintf("config> set standalone festa %s check ping host %s count 1 timeout 8000", festa, standalonePingHost),
 		fmt.Sprintf("config> set standalone festa %s enabled", festa),
 	}

@@ -19,11 +19,11 @@ import (
 type ResultSource interface {
 	// Name returns the subtest name for this source.
 	Name() string
-	// Targets returns standalone Wi-Fi group results to evaluate.
+	// Targets returns standalone Wi-Fi target results to evaluate.
 	Targets() ([]ResultTarget, error)
 }
 
-// ResultTarget is one standalone Wi-Fi group result extracted from a source.
+// ResultTarget is one standalone Wi-Fi target result extracted from a source.
 type ResultTarget struct {
 	// Name is the subtest name for this target.
 	Name string
@@ -35,7 +35,7 @@ type ResultTarget struct {
 	WifiGroupIndex uint32
 	// WifiGroupName is the standalone archive group name.
 	WifiGroupName string
-	// Steps are the archived steps for this Wi-Fi group.
+	// Steps are the archived steps for this Wi-Fi target.
 	Steps []*controlpb.StandaloneMeasurementStep
 }
 

@@ -103,6 +103,42 @@ func TestRenderConfigShowsStandaloneUpload(t *testing.T) {
 	}
 }
 
+func TestRenderConfigShowsStandaloneFestaWifi(t *testing.T) {
+	view := ConfigView{
+		Standalone: &controlpb.StandaloneConfig{
+			Festas: []*controlpb.StandaloneFesta{{
+				Name:    "smoke",
+				Enabled: true,
+				WifiGroups: []*controlpb.StandaloneWifiGroup{{
+					Name:             "mgmt",
+					Essid:            "NOC",
+					Passphrase:       "secret",
+					Security:         controlpb.ConnectWifi_SECURITY_WPA2_WPA3_TRANSITION,
+					MacRandomization: controlpb.ConnectWifi_MAC_RANDOMIZATION_PERSISTENT,
+				}},
+			}},
+		},
+	}
+	text, err := Config(view, pipeline.FormatText)
+	if err != nil {
+		t.Fatalf("Config(text) error = %v", err)
+	}
+	for _, want := range []string{
+		"wifi mgmt {\n",
+		"match essid NOC\n",
+		"passphrase <redacted>\n",
+		"security transition\n",
+		"mac-randomization persistent\n",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("Config(text) = %q, missing %q", text, want)
+		}
+	}
+	if strings.Contains(text, "secret") {
+		t.Fatalf("Config(text) leaked passphrase: %q", text)
+	}
+}
+
 func TestRenderCommandResultShowsCommandLatencyFallback(t *testing.T) {
 	result := &controlpb.CommandResult{
 		Status:    controlpb.CommandResult_STATUS_OK,
