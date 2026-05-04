@@ -1,0 +1,15 @@
+FROM golang:1.26-alpine AS build
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/dropcheck-ingester ./cmd/dropcheck-ingester
+
+FROM alpine:latest
+
+RUN apk add --no-cache ca-certificates
+COPY --from=build /out/dropcheck-ingester /usr/local/bin/dropcheck-ingester
+USER 65532:65532
+EXPOSE 8082
+ENTRYPOINT ["dropcheck-ingester"]
