@@ -39,7 +39,7 @@ services:
   ingester:
     build:
       context: ./controller
-      dockerfile: Dockerfile.ingester
+      dockerfile: ../docker/ingester/Dockerfile
     restart: unless-stopped
     environment:
       DROPCHECK_INGESTER_ADDR: ":8082"
