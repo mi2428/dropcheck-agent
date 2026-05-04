@@ -149,9 +149,9 @@ func Run(t *testing.T, plan Plan, opts ...RunOption) {
 func validatePlan(plan Plan) error {
 	switch {
 	case len(plan.Networks) == 0 && len(plan.Results) == 0:
-		return fmt.Errorf("must set Networks or Results")
+		return fmt.Errorf("must set networks or results")
 	case len(plan.Networks) > 0 && len(plan.Results) > 0:
-		return fmt.Errorf("Networks and Results cannot be used together")
+		return fmt.Errorf("networks and results cannot be used together")
 	default:
 		return nil
 	}
@@ -169,7 +169,6 @@ func runPlan(t *testing.T, ctx context.Context, opRunner OperationRunner, agent 
 func runResultPlan(t *testing.T, ctx context.Context, plan Plan) {
 	t.Helper()
 	for _, source := range plan.Results {
-		source := source
 		sourceName := resultSourceName(source)
 		t.Run(testName(sourceName), func(t *testing.T) {
 			t.Helper()
@@ -184,7 +183,6 @@ func runResultPlan(t *testing.T, ctx context.Context, plan Plan) {
 				t.Fatalf("result source has no targets")
 			}
 			for _, target := range targets {
-				target := target
 				t.Run(testName(target.displayName()), func(t *testing.T) {
 					runResultTarget(t, ctx, target, plan.Checks)
 				})
