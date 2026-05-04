@@ -221,7 +221,7 @@ class MainActivity : Activity() {
         super.onStop()
     }
 
-    /** Appends one broadcast terminal line and trims the view to a bounded size. */
+    /** Appends one terminal line and trims the view to a bounded size. */
     private fun append(line: String) {
         syncStatusIcons()
         appendLogLine(line, followBottom = shouldFollowLogTail())
