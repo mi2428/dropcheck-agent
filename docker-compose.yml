@@ -32,7 +32,7 @@ services:
         mc mb --ignore-existing "local/${MINIO_BUCKET:-dropcheck}";
         mc anonymous set upload "local/${MINIO_BUCKET:-dropcheck}";
         mc anonymous get "local/${MINIO_BUCKET:-dropcheck}";
-        mc event add "local/${MINIO_BUCKET:-dropcheck}" arn:minio:sqs::ingester:webhook --event put --suffix .pb --ignore-existing;
+        mc event add "local/${MINIO_BUCKET:-dropcheck}" arn:minio:sqs::INGESTER:webhook --event put --suffix .pb --ignore-existing;
       '
     restart: "no"
 
