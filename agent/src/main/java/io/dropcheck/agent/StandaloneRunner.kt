@@ -14,6 +14,7 @@ import io.dropcheck.agent.grpc.NetworkSelector
 import io.dropcheck.agent.grpc.Ping
 import io.dropcheck.agent.grpc.ResolveDns
 import io.dropcheck.agent.grpc.RunCommand
+import io.dropcheck.agent.grpc.StandaloneCheck
 import io.dropcheck.agent.grpc.StandaloneFesta
 import io.dropcheck.agent.grpc.StandaloneMeasurementStep
 import io.dropcheck.agent.grpc.StandaloneRunArchive
@@ -215,38 +216,46 @@ internal class StandaloneRunner(private val context: Context) {
             if (!ok) onFailure()
         }
         val selector = NetworkSelector.newBuilder().setSsid(essid)
-        val checks = festa.checks
-        if (checks.dns.enabled) {
-            val qtypes = checks.dns.qtypesList.takeIf { it.isNotEmpty() } ?: listOf(DnsRecordType.DNS_RECORD_TYPE_A)
-            runCheck("dns", RunCommand.newBuilder()
-                .setLabel("standalone dns ${checks.dns.name}")
-                .setResolveDns(ResolveDns.newBuilder()
-                    .setName(checks.dns.name)
-                    .addAllQtypes(qtypes)
-                    .setTimeoutMs(checks.dns.timeoutMs.takeIf { it > 0 } ?: DEFAULT_CHECK_TIMEOUT_MS)
-                    .setSelector(selector))
-                .build())
-        }
-        if (checks.ping.enabled) {
-            runCheck("ping", RunCommand.newBuilder()
-                .setLabel("standalone ping ${checks.ping.host}")
-                .setPing(Ping.newBuilder()
-                    .setHost(checks.ping.host)
-                    .setCount(checks.ping.count.takeIf { it > 0 } ?: 3)
-                    .setTimeoutMs(checks.ping.timeoutMs.takeIf { it > 0 } ?: DEFAULT_CHECK_TIMEOUT_MS)
-                    .setSizeBytes(checks.ping.sizeBytes)
-                    .setSelector(selector))
-                .build())
-        }
-        if (checks.http.enabled) {
-            runCheck("http", RunCommand.newBuilder()
-                .setLabel("standalone http ${checks.http.url}")
-                .setHttpCheck(HttpCheck.newBuilder()
-                    .setUrl(checks.http.url)
-                    .setExpectedStatus(checks.http.expectedStatus.takeIf { it > 0 } ?: 204)
-                    .setTimeoutMs(checks.http.timeoutMs.takeIf { it > 0 } ?: DEFAULT_CHECK_TIMEOUT_MS)
-                    .setSelector(selector))
-                .build())
+        for (check in festa.checksList) {
+            val stepName = check.name.ifBlank { check.testCase.name.lowercase() }
+            when (check.testCase) {
+                StandaloneCheck.TestCase.DNS -> {
+                    val dns = check.dns
+                    val qtypes = dns.qtypesList.takeIf { it.isNotEmpty() } ?: listOf(DnsRecordType.DNS_RECORD_TYPE_A)
+                    runCheck(stepName, RunCommand.newBuilder()
+                        .setLabel("standalone ${check.name} dns ${dns.name}")
+                        .setResolveDns(ResolveDns.newBuilder()
+                            .setName(dns.name)
+                            .addAllQtypes(qtypes)
+                            .setTimeoutMs(dns.timeoutMs.takeIf { it > 0 } ?: DEFAULT_CHECK_TIMEOUT_MS)
+                            .setSelector(selector))
+                        .build())
+                }
+                StandaloneCheck.TestCase.PING -> {
+                    val ping = check.ping
+                    runCheck(stepName, RunCommand.newBuilder()
+                        .setLabel("standalone ${check.name} ping ${ping.host}")
+                        .setPing(Ping.newBuilder()
+                            .setHost(ping.host)
+                            .setCount(ping.count.takeIf { it > 0 } ?: 3)
+                            .setTimeoutMs(ping.timeoutMs.takeIf { it > 0 } ?: DEFAULT_CHECK_TIMEOUT_MS)
+                            .setSizeBytes(ping.sizeBytes)
+                            .setSelector(selector))
+                        .build())
+                }
+                StandaloneCheck.TestCase.HTTP -> {
+                    val http = check.http
+                    runCheck(stepName, RunCommand.newBuilder()
+                        .setLabel("standalone ${check.name} http ${http.url}")
+                        .setHttpCheck(HttpCheck.newBuilder()
+                            .setUrl(http.url)
+                            .setExpectedStatus(http.expectedStatus.takeIf { it > 0 } ?: 204)
+                            .setTimeoutMs(http.timeoutMs.takeIf { it > 0 } ?: DEFAULT_CHECK_TIMEOUT_MS)
+                            .setSelector(selector))
+                        .build())
+                }
+                StandaloneCheck.TestCase.TEST_NOT_SET -> Unit
+            }
         }
     }
 

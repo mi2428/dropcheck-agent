@@ -1,8 +1,9 @@
 package io.dropcheck.agent
 
+import io.dropcheck.agent.grpc.ConnectWifi
+import io.dropcheck.agent.grpc.DnsRecordType
 import io.dropcheck.agent.grpc.StandaloneConfig
 import io.dropcheck.agent.grpc.StandaloneEdit
-import io.dropcheck.agent.grpc.ConnectWifi
 import io.dropcheck.agent.grpc.WifiBand
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -80,6 +81,33 @@ class StandaloneConfigEditorTest {
         assertEquals(WifiBand.WIFI_BAND_5_GHZ, group.band)
         assertEquals(ConnectWifi.MacRandomization.MAC_RANDOMIZATION_NON_PERSISTENT, group.macRandomization)
         assertEquals(45000, group.timeoutMs)
+    }
+
+    @Test
+    fun appliesNamedCheckEdits() {
+        val result = StandaloneConfigEditor.apply(
+            StandaloneConfig.getDefaultInstance(),
+            listOf(
+                setEdit("ping", "festa", "smoke", "check", "cloudflare", "test"),
+                setEdit("1.1.1.1", "festa", "smoke", "check", "cloudflare", "host"),
+                setEdit("1", "festa", "smoke", "check", "cloudflare", "count"),
+                setEdit("8000", "festa", "smoke", "check", "cloudflare", "timeout_ms"),
+                setEdit("dns", "festa", "smoke", "check", "dns-main", "test"),
+                setEdit("example.test", "festa", "smoke", "check", "dns-main", "name"),
+                setEdit("AAAA", "festa", "smoke", "check", "dns-main", "qtypes"),
+            ),
+        )
+
+        assertNull(result.error)
+        val checks = result.config.getFestas(0).checksList
+        assertEquals(listOf("cloudflare", "dns-main"), checks.map { it.name })
+        assertTrue(checks[0].hasPing())
+        assertEquals("1.1.1.1", checks[0].ping.host)
+        assertEquals(1, checks[0].ping.count)
+        assertEquals(8000, checks[0].ping.timeoutMs)
+        assertTrue(checks[1].hasDns())
+        assertEquals("example.test", checks[1].dns.name)
+        assertEquals(listOf(DnsRecordType.DNS_RECORD_TYPE_AAAA), checks[1].dns.qtypesList)
     }
 
     @Test

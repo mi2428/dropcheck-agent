@@ -820,44 +820,59 @@ func renderStandaloneConfigBlock(b *strings.Builder, config *controlpb.Standalon
 			}
 			writeConfigLine(b, depth+2, "}")
 		}
-		checks := festa.GetChecks()
-		if dns := checks.GetDns(); dns.GetEnabled() {
-			writeConfigLine(b, depth+2, "check dns {")
-			writeConfigLine(b, depth+3, "name %s", shellQuote(dns.GetName()))
-			writeConfigLine(b, depth+3, "type %s", standaloneQTypesName(dns.GetQtypes()))
-			if dns.GetTimeoutMs() != 0 {
-				writeConfigLine(b, depth+3, "timeout %s", formatConfigDuration(dns.GetTimeoutMs()))
-			}
-			writeConfigLine(b, depth+2, "}")
-		}
-		if ping := checks.GetPing(); ping.GetEnabled() {
-			writeConfigLine(b, depth+2, "check ping {")
-			writeConfigLine(b, depth+3, "host %s", shellQuote(ping.GetHost()))
-			if ping.GetCount() != 0 {
-				writeConfigLine(b, depth+3, "count %d", ping.GetCount())
-			}
-			if ping.GetSizeBytes() != 0 {
-				writeConfigLine(b, depth+3, "size %d", ping.GetSizeBytes())
-			}
-			if ping.GetTimeoutMs() != 0 {
-				writeConfigLine(b, depth+3, "timeout %s", formatConfigDuration(ping.GetTimeoutMs()))
-			}
-			writeConfigLine(b, depth+2, "}")
-		}
-		if http := checks.GetHttp(); http.GetEnabled() {
-			writeConfigLine(b, depth+2, "check http {")
-			writeConfigLine(b, depth+3, "url %s", shellQuote(http.GetUrl()))
-			if http.GetExpectedStatus() != 0 {
-				writeConfigLine(b, depth+3, "expected-status %d", http.GetExpectedStatus())
-			}
-			if http.GetTimeoutMs() != 0 {
-				writeConfigLine(b, depth+3, "timeout %s", formatConfigDuration(http.GetTimeoutMs()))
-			}
-			writeConfigLine(b, depth+2, "}")
+		for _, check := range festa.GetChecks() {
+			renderStandaloneCheckBlock(b, check, depth+2)
 		}
 		writeConfigLine(b, depth+1, "}")
 	}
 	writeConfigLine(b, depth, "}")
+}
+
+func renderStandaloneCheckBlock(b *strings.Builder, check *controlpb.StandaloneCheck, depth int) {
+	if check == nil {
+		return
+	}
+	switch test := check.GetTest().(type) {
+	case *controlpb.StandaloneCheck_Dns:
+		writeConfigLine(b, depth, "check %s {", shellQuote(check.GetName()))
+		dns := test.Dns
+		writeConfigLine(b, depth+1, "test dns")
+		writeConfigLine(b, depth+1, "name %s", shellQuote(dns.GetName()))
+		if len(dns.GetQtypes()) > 0 {
+			writeConfigLine(b, depth+1, "type %s", standaloneQTypesName(dns.GetQtypes()))
+		}
+		if dns.GetTimeoutMs() != 0 {
+			writeConfigLine(b, depth+1, "timeout %s", formatConfigDuration(dns.GetTimeoutMs()))
+		}
+		writeConfigLine(b, depth, "}")
+	case *controlpb.StandaloneCheck_Ping:
+		writeConfigLine(b, depth, "check %s {", shellQuote(check.GetName()))
+		ping := test.Ping
+		writeConfigLine(b, depth+1, "test ping")
+		writeConfigLine(b, depth+1, "host %s", shellQuote(ping.GetHost()))
+		if ping.GetCount() != 0 {
+			writeConfigLine(b, depth+1, "count %d", ping.GetCount())
+		}
+		if ping.GetSizeBytes() != 0 {
+			writeConfigLine(b, depth+1, "size %d", ping.GetSizeBytes())
+		}
+		if ping.GetTimeoutMs() != 0 {
+			writeConfigLine(b, depth+1, "timeout %s", formatConfigDuration(ping.GetTimeoutMs()))
+		}
+		writeConfigLine(b, depth, "}")
+	case *controlpb.StandaloneCheck_Http:
+		writeConfigLine(b, depth, "check %s {", shellQuote(check.GetName()))
+		http := test.Http
+		writeConfigLine(b, depth+1, "test http")
+		writeConfigLine(b, depth+1, "url %s", shellQuote(http.GetUrl()))
+		if http.GetExpectedStatus() != 0 {
+			writeConfigLine(b, depth+1, "expected-status %d", http.GetExpectedStatus())
+		}
+		if http.GetTimeoutMs() != 0 {
+			writeConfigLine(b, depth+1, "timeout %s", formatConfigDuration(http.GetTimeoutMs()))
+		}
+		writeConfigLine(b, depth, "}")
+	}
 }
 
 func writeConfigLine(b *strings.Builder, depth int, format string, args ...any) {

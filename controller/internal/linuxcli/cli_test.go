@@ -425,6 +425,27 @@ func TestParseAgentCommandSurface(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "set standalone festa named ping check",
+			args: []string{"configure", "set", "standalone", "festa", "smoke", "check", "cloudflare", "test", "ping", "host", "1.1.1.1", "count", "1", "timeout", "8s"},
+			check: func(t *testing.T, run *controlpb.RunCommand) {
+				t.Helper()
+				edit := run.GetEditStandaloneConfig()
+				if edit == nil {
+					t.Fatalf("command = %T, want EditStandaloneConfig", run.GetCommand())
+				}
+				edits := edit.GetEdits()
+				if len(edits) != 4 ||
+					strings.Join(edits[0].GetPath(), ".") != "festa.smoke.check.cloudflare.test" ||
+					edits[0].GetValue() != "ping" ||
+					strings.Join(edits[1].GetPath(), ".") != "festa.smoke.check.cloudflare.host" ||
+					edits[1].GetValue() != "1.1.1.1" ||
+					strings.Join(edits[3].GetPath(), ".") != "festa.smoke.check.cloudflare.timeout_ms" ||
+					edits[3].GetValue() != "8000" {
+					t.Fatalf("standalone named ping check edits = %#v", edits)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {

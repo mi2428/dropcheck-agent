@@ -67,7 +67,7 @@ func StandaloneDeleteEdits(args []string) ([]StandaloneEdit, error) {
 		return standaloneDeleteUploadEdits(args[1:])
 	case "festa":
 		if len(args) < 2 {
-			return nil, fmt.Errorf("usage: delete standalone festa <name> [wifi <name>|check <dns|ping|http>]")
+			return nil, fmt.Errorf("usage: delete standalone festa <name> [wifi <name>|check <name>]")
 		}
 		festa := args[1]
 		if len(args) == 2 {
@@ -80,8 +80,8 @@ func StandaloneDeleteEdits(args []string) ([]StandaloneEdit, error) {
 			}
 			return []StandaloneEdit{StandaloneDeleteEdit([]string{"festa", festa, "wifi", args[3]})}, nil
 		case "check":
-			if len(args) != 4 || !standaloneCheckType(args[3]) {
-				return nil, fmt.Errorf("usage: delete standalone festa <name> check <dns|ping|http>")
+			if len(args) != 4 {
+				return nil, fmt.Errorf("usage: delete standalone festa <name> check <name>")
 			}
 			return []StandaloneEdit{StandaloneDeleteEdit([]string{"festa", festa, "check", args[3]})}, nil
 		default:
@@ -296,104 +296,115 @@ func standaloneSetWifiPassphraseEdits(base []string, args []string) ([]Standalon
 }
 
 func standaloneSetCheckEdits(festa string, args []string) ([]StandaloneEdit, error) {
-	if len(args) == 0 || !standaloneCheckType(args[0]) {
-		return nil, fmt.Errorf("usage: set standalone festa <name> check <dns|ping|http>")
+	if len(args) < 3 || args[1] != "test" {
+		return nil, fmt.Errorf("usage: set standalone festa <name> check <name> test <ping|dns|http>")
 	}
-	switch args[0] {
+	name := args[0]
+	if name == "" {
+		return nil, fmt.Errorf("standalone check name is required")
+	}
+	base := []string{"festa", festa, "check", name}
+	switch args[2] {
 	case "dns":
-		return standaloneSetDNSCheckEdits(festa, args[1:])
+		return standaloneSetDNSCheckEdits(base, args[3:])
 	case "ping":
-		return standaloneSetPingCheckEdits(festa, args[1:])
+		return standaloneSetPingCheckEdits(base, args[3:])
 	case "http":
-		return standaloneSetHTTPCheckEdits(festa, args[1:])
+		return standaloneSetHTTPCheckEdits(base, args[3:])
 	default:
-		return nil, fmt.Errorf("unsupported standalone check %q", args[0])
+		return nil, fmt.Errorf("unsupported standalone check test %q", args[2])
 	}
 }
 
-func standaloneSetDNSCheckEdits(festa string, args []string) ([]StandaloneEdit, error) {
+func standaloneSetDNSCheckEdits(base []string, args []string) ([]StandaloneEdit, error) {
 	values, err := parseStandaloneKeyValues(args, map[string]bool{"name": true, "type": true, "timeout": true})
 	if err != nil {
 		return nil, err
 	}
 	if values["name"] == "" {
-		return nil, fmt.Errorf("set standalone festa <name> check dns requires name <domain>")
+		return nil, fmt.Errorf("set standalone festa <name> check <name> test dns requires name <domain>")
 	}
-	qtype, err := normalizeDNSQType(values["type"])
-	if err != nil {
-		return nil, err
+	edits := []StandaloneEdit{
+		StandaloneSetStringEdit(appendPath(base, "test"), "dns"),
+		StandaloneSetStringEdit(appendPath(base, "name"), values["name"]),
 	}
-	timeoutEdit, err := StandaloneSetMillisEdit([]string{"festa", festa, "check", "dns", "timeout_ms"}, values["timeout"], 10*time.Second)
-	if err != nil {
-		return nil, err
+	if values["type"] != "" {
+		qtype, err := normalizeDNSQType(values["type"])
+		if err != nil {
+			return nil, err
+		}
+		edits = append(edits, StandaloneSetStringEdit(appendPath(base, "qtypes"), qtype))
 	}
-	return []StandaloneEdit{
-		StandaloneSetBoolEdit([]string{"festa", festa, "check", "dns", "enabled"}, true),
-		StandaloneSetStringEdit([]string{"festa", festa, "check", "dns", "name"}, values["name"]),
-		StandaloneSetStringEdit([]string{"festa", festa, "check", "dns", "qtypes"}, qtype),
-		timeoutEdit,
-	}, nil
+	if values["timeout"] != "" {
+		timeoutEdit, err := StandaloneSetMillisEdit(appendPath(base, "timeout_ms"), values["timeout"], 10*time.Second)
+		if err != nil {
+			return nil, err
+		}
+		edits = append(edits, timeoutEdit)
+	}
+	return edits, nil
 }
 
-func standaloneSetPingCheckEdits(festa string, args []string) ([]StandaloneEdit, error) {
+func standaloneSetPingCheckEdits(base []string, args []string) ([]StandaloneEdit, error) {
 	values, err := parseStandaloneKeyValues(args, map[string]bool{"host": true, "count": true, "timeout": true, "size": true})
 	if err != nil {
 		return nil, err
 	}
 	if values["host"] == "" {
-		return nil, fmt.Errorf("set standalone festa <name> check ping requires host <host>")
-	}
-	count := values["count"]
-	if count == "" {
-		count = "3"
-	}
-	if _, err := parseUint32(count, "count"); err != nil {
-		return nil, err
-	}
-	timeoutEdit, err := StandaloneSetMillisEdit([]string{"festa", festa, "check", "ping", "timeout_ms"}, values["timeout"], 10*time.Second)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("set standalone festa <name> check <name> test ping requires host <host>")
 	}
 	edits := []StandaloneEdit{
-		StandaloneSetBoolEdit([]string{"festa", festa, "check", "ping", "enabled"}, true),
-		StandaloneSetStringEdit([]string{"festa", festa, "check", "ping", "host"}, values["host"]),
-		StandaloneSetStringEdit([]string{"festa", festa, "check", "ping", "count"}, count),
-		timeoutEdit,
+		StandaloneSetStringEdit(appendPath(base, "test"), "ping"),
+		StandaloneSetStringEdit(appendPath(base, "host"), values["host"]),
+	}
+	if values["count"] != "" {
+		if _, err := parseUint32(values["count"], "count"); err != nil {
+			return nil, err
+		}
+		edits = append(edits, StandaloneSetStringEdit(appendPath(base, "count"), values["count"]))
 	}
 	if values["size"] != "" {
 		if _, err := parseUint32(values["size"], "size"); err != nil {
 			return nil, err
 		}
-		edits = append(edits, StandaloneSetStringEdit([]string{"festa", festa, "check", "ping", "size_bytes"}, values["size"]))
+		edits = append(edits, StandaloneSetStringEdit(appendPath(base, "size_bytes"), values["size"]))
+	}
+	if values["timeout"] != "" {
+		timeoutEdit, err := StandaloneSetMillisEdit(appendPath(base, "timeout_ms"), values["timeout"], 10*time.Second)
+		if err != nil {
+			return nil, err
+		}
+		edits = append(edits, timeoutEdit)
 	}
 	return edits, nil
 }
 
-func standaloneSetHTTPCheckEdits(festa string, args []string) ([]StandaloneEdit, error) {
+func standaloneSetHTTPCheckEdits(base []string, args []string) ([]StandaloneEdit, error) {
 	values, err := parseStandaloneKeyValues(args, map[string]bool{"url": true, "expected-status": true, "timeout": true})
 	if err != nil {
 		return nil, err
 	}
 	if values["url"] == "" {
-		return nil, fmt.Errorf("set standalone festa <name> check http requires url <url>")
+		return nil, fmt.Errorf("set standalone festa <name> check <name> test http requires url <url>")
 	}
-	status := values["expected-status"]
-	if status == "" {
-		status = "204"
+	edits := []StandaloneEdit{
+		StandaloneSetStringEdit(appendPath(base, "test"), "http"),
+		StandaloneSetStringEdit(appendPath(base, "url"), values["url"]),
 	}
-	if _, err := parseUint32(status, "expected-status"); err != nil {
-		return nil, err
+	if values["expected-status"] != "" {
+		if _, err := parseUint32(values["expected-status"], "expected-status"); err != nil {
+			return nil, err
+		}
+		edits = append(edits, StandaloneSetStringEdit(appendPath(base, "expected_status"), values["expected-status"]))
 	}
-	timeoutEdit, err := StandaloneSetMillisEdit([]string{"festa", festa, "check", "http", "timeout_ms"}, values["timeout"], 10*time.Second)
-	if err != nil {
-		return nil, err
+	if values["timeout"] != "" {
+		timeoutEdit, err := StandaloneSetMillisEdit(appendPath(base, "timeout_ms"), values["timeout"], 10*time.Second)
+		if err != nil {
+			return nil, err
+		}
+		edits = append(edits, timeoutEdit)
 	}
-	return []StandaloneEdit{
-		StandaloneSetBoolEdit([]string{"festa", festa, "check", "http", "enabled"}, true),
-		StandaloneSetStringEdit([]string{"festa", festa, "check", "http", "url"}, values["url"]),
-		StandaloneSetStringEdit([]string{"festa", festa, "check", "http", "expected_status"}, status),
-		timeoutEdit,
-	}, nil
+	return edits, nil
 }
 
 func parseStandaloneKeyValues(args []string, allowed map[string]bool) (map[string]string, error) {
@@ -412,10 +423,6 @@ func parseStandaloneKeyValues(args []string, allowed map[string]bool) (map[strin
 		values[key] = args[i+1]
 	}
 	return values, nil
-}
-
-func standaloneCheckType(value string) bool {
-	return value == "dns" || value == "ping" || value == "http"
 }
 
 func normalizeStandaloneSecurity(value string) (string, error) {

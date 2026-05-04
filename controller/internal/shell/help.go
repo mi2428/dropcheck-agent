@@ -43,10 +43,10 @@ configure mode:
   set standalone festa <name> interval <duration>
   set standalone festa <name> wifi <name> match <essid|bssid> <value> [mac-randomization <mode>]
   set standalone festa <name> wifi <name> passphrase <passphrase> [security <auto|wpa2|wpa3|transition>]
-  set standalone festa <name> check dns name <domain> [type <A|AAAA|ALL>] [timeout <duration>]
-  set standalone festa <name> check ping host <host> [count <n>] [timeout <duration>]
-  set standalone festa <name> check http url <url> [expected-status <code>] [timeout <duration>]
-  delete standalone [upload|upload to|upload via wifi|festa <name>|festa <name> wifi <name>|festa <name> check <dns|ping|http>]
+  set standalone festa <name> check <name> test dns name <domain> [type <A|AAAA|ALL>] [timeout <duration>]
+  set standalone festa <name> check <name> test ping host <host> [count <n>] [size <bytes>] [timeout <duration>]
+  set standalone festa <name> check <name> test http url <url> [expected-status <code>] [timeout <duration>]
+  delete standalone [upload|upload to|upload via wifi|festa <name>|festa <name> wifi <name>|festa <name> check <name>]
   run show <devices|config|wifi|standalone>
   run clear standalone runs [synced|all]
   run sync standalone runs [output <dir>] [limit <n>] [mark-synced|keep-unsynced]
@@ -471,6 +471,7 @@ func setStandaloneHelpEntries(args []string) []HelpEntry {
 		"festa":             "Named connectivity scenario",
 		"interval":          "Run interval such as 10m",
 		"check":             "Connectivity check to run",
+		"test":              "ping, dns, or http",
 		"match":             "SSID or BSSID matcher",
 		"essid":             "Match by SSID",
 		"bssid":             "Match by BSSID",
@@ -1697,13 +1698,22 @@ func setStandaloneFestaWifiCompletionCandidates(args []string) []string {
 
 func setStandaloneFestaCheckCompletionCandidates(args []string) []string {
 	if len(args) == 0 {
-		return []string{"dns", "ping", "http"}
+		return []string{"<name>"}
 	}
-	switch args[0] {
+	if len(args) == 1 {
+		return []string{"test"}
+	}
+	if args[1] != "test" {
+		return nil
+	}
+	if len(args) == 2 {
+		return []string{"ping", "dns", "http"}
+	}
+	switch args[2] {
 	case "dns":
 		return setStandaloneKeyedCompletionCandidates(
-			"set standalone festa check dns option",
-			args[1:],
+			"set standalone festa named check option",
+			args[3:],
 			[]completionOption{
 				{name: "name", placeholder: "<domain>"},
 				{name: "type", values: dnsTypeValues()},
@@ -1712,8 +1722,8 @@ func setStandaloneFestaCheckCompletionCandidates(args []string) []string {
 		)
 	case "ping":
 		return setStandaloneKeyedCompletionCandidates(
-			"set standalone festa check ping option",
-			args[1:],
+			"set standalone festa named check option",
+			args[3:],
 			[]completionOption{
 				{name: "host", placeholder: "<host>"},
 				{name: "count", placeholder: "<n>"},
@@ -1723,8 +1733,8 @@ func setStandaloneFestaCheckCompletionCandidates(args []string) []string {
 		)
 	case "http":
 		return setStandaloneKeyedCompletionCandidates(
-			"set standalone festa check http option",
-			args[1:],
+			"set standalone festa named check option",
+			args[3:],
 			[]completionOption{
 				{name: "url", placeholder: "<url>"},
 				{name: "expected-status", placeholder: "<code>"},
