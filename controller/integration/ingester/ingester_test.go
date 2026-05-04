@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -76,30 +77,23 @@ func TestBatchBackfillReadsMinIOAndPushesFestivalMetrics(t *testing.T) {
 	if !strings.Contains(pushes[0].Path, "/metrics/job/dropcheck_ingester_integration/") {
 		t.Fatalf("push path = %q, want Pushgateway job path", pushes[0].Path)
 	}
+	assertPushPathGrouping(t, pushes[0].Path, map[string]string{
+		"device_name":  "phone1",
+		"device_model": "Phone",
+		"festa":        "smoke",
+		"wifi_group":   "lab",
+		"wifi_essid":   "Lab",
+		"wifi_bssid":   "any",
+	})
 	families := pushes[0].metricFamilies(t)
-	assertGauge(t, families, core.MetricIngestSuccess, map[string]string{
-		"run_id": "run-batch-1",
-		"festa":  "smoke",
-		"status": "ok",
-	}, 1)
-	assertGauge(t, families, core.MetricResultSuccess, map[string]string{
-		"run_id":        "run-batch-1",
-		"festa":         "smoke",
-		"result_status": "ok",
-	}, 1)
-	assertGauge(t, families, core.MetricResultDuration, map[string]string{"run_id": "run-batch-1"}, 5)
-	assertGauge(t, families, core.MetricStepSuccess, map[string]string{
-		"run_id":        "run-batch-1",
-		"wifi_group":    "lab",
-		"step":          "ping",
-		"command":       "ping",
-		"result_status": "ok",
-	}, 1)
-	assertGauge(t, families, core.MetricPingReceived, map[string]string{"host": "1.1.1.1"}, 3)
-	assertGauge(t, families, core.MetricPingPacketLoss, map[string]string{"host": "1.1.1.1"}, 0)
-	assertGauge(t, families, core.MetricDNSAnswers, map[string]string{"name": "example.com"}, 1)
-	assertGauge(t, families, core.MetricHTTPSuccess, map[string]string{"url": "http://example.com/health"}, 1)
-	assertGauge(t, families, core.MetricHTTPStatusCode, map[string]string{"url": "http://example.com/health"}, 204)
+	assertGauge(t, families, core.MetricSuccess, nil, 1)
+	assertGauge(t, families, core.MetricDuration, nil, 0.51)
+	assertGauge(t, families, core.MetricPingSuccess, map[string]string{"target": "1.1.1.1"}, 1)
+	assertGauge(t, families, core.MetricPingDuration, map[string]string{"target": "1.1.1.1"}, 0.12)
+	assertGauge(t, families, core.MetricDNSSuccess, map[string]string{"target": "example.com"}, 1)
+	assertGauge(t, families, core.MetricDNSDuration, map[string]string{"target": "example.com"}, 0.09)
+	assertGauge(t, families, core.MetricHTTPSuccess, map[string]string{"target": "http://example.com/health"}, 1)
+	assertGauge(t, families, core.MetricHTTPStatusCode, map[string]string{"target": "http://example.com/health"}, 204)
 }
 
 func TestNotificationPathFetchesMinIOObjectAndDeduplicatesSameObject(t *testing.T) {
@@ -133,11 +127,17 @@ func TestNotificationPathFetchesMinIOObjectAndDeduplicatesSameObject(t *testing.
 		t.Fatalf("push requests = %d, want one push after duplicate notification", len(pushes))
 	}
 	families := pushes[0].metricFamilies(t)
-	assertGauge(t, families, core.MetricResultSuccess, map[string]string{"run_id": "run-event-1"}, 1)
-	assertGauge(t, families, core.MetricStepDuration, map[string]string{"step": "http"}, 0.11)
+	assertPushPathGrouping(t, pushes[0].Path, map[string]string{
+		"festa":      "smoke",
+		"wifi_group": "lab",
+		"wifi_essid": "Lab",
+		"wifi_bssid": "any",
+	})
+	assertGauge(t, families, core.MetricSuccess, nil, 1)
+	assertGauge(t, families, core.MetricHTTPDuration, map[string]string{"target": "http://example.com/health"}, 0.11)
 }
 
-func TestDecodeFailureStillPushesFailureMetric(t *testing.T) {
+func TestDecodeFailureReturnsErrorWithoutPushingMetrics(t *testing.T) {
 	env := newIntegrationEnv(t, "decode-failure")
 	env.putObject(t, "incoming/device/bad.pb", []byte("not a standalone archive"))
 
@@ -151,13 +151,9 @@ func TestDecodeFailureStillPushesFailureMetric(t *testing.T) {
 	}
 
 	pushes := env.pushgateway.requests()
-	if len(pushes) != 1 {
-		t.Fatalf("push requests = %d, want 1", len(pushes))
+	if len(pushes) != 0 {
+		t.Fatalf("push requests = %d, want 0", len(pushes))
 	}
-	families := pushes[0].metricFamilies(t)
-	assertGauge(t, families, core.MetricIngestSuccess, map[string]string{
-		"status": "decode_failed",
-	}, 0)
 }
 
 type integrationEnv struct {
@@ -419,6 +415,53 @@ func assertGauge(t *testing.T, families map[string]*dto.MetricFamily, name strin
 		return
 	}
 	t.Fatalf("metric %s with labels %v not found", name, labels)
+}
+
+func assertPushPathGrouping(t *testing.T, path string, labels map[string]string) {
+	t.Helper()
+	segments := decodedPushPathSegments(t, path)
+	for key, value := range labels {
+		if !containsAdjacentPushPathSegments(segments, key, value) {
+			t.Fatalf("push path %q missing grouping %s=%q", path, key, value)
+		}
+	}
+	for _, forbidden := range []string{"run_id", "object_key", "step", "command", "result_status", "wifi_band", "wifi_security"} {
+		if containsPushPathSegment(segments, forbidden) {
+			t.Fatalf("push path %q contains forbidden grouping label %q", path, forbidden)
+		}
+	}
+}
+
+func decodedPushPathSegments(t *testing.T, path string) []string {
+	t.Helper()
+	raw := strings.Split(strings.Trim(path, "/"), "/")
+	segments := make([]string, 0, len(raw))
+	for _, segment := range raw {
+		decoded, err := url.PathUnescape(segment)
+		if err != nil {
+			t.Fatalf("decode push path segment %q: %v", segment, err)
+		}
+		segments = append(segments, decoded)
+	}
+	return segments
+}
+
+func containsAdjacentPushPathSegments(segments []string, key string, value string) bool {
+	for i := 0; i+1 < len(segments); i++ {
+		if segments[i] == key && segments[i+1] == value {
+			return true
+		}
+	}
+	return false
+}
+
+func containsPushPathSegment(segments []string, value string) bool {
+	for _, segment := range segments {
+		if segment == value {
+			return true
+		}
+	}
+	return false
 }
 
 func metricHasLabels(metric *dto.Metric, labels map[string]string) bool {
