@@ -41,6 +41,10 @@ private const val STATUS_ICON_TOP_DP = 14
 private const val IDLE_DIM_DELAY_MS = 60_000L
 private const val IDLE_DIM_BRIGHTNESS = 0.03f
 private const val WIFI_PERMISSION_REQUEST_CODE = 7101
+private const val SHELL_SWIPE_MIN_DISTANCE_DP = 96
+private const val SHELL_SWIPE_MAX_OFF_AXIS_DP = 72
+private const val SHELL_PANEL_PADDING_DP = 12
+private const val SHELL_PANEL_TOP_PADDING_DP = 48
 
 /** Adds invisible break opportunities so terminal logs can wrap at any code point. */
 internal fun terminalDisplayText(line: String): String {
@@ -67,11 +71,16 @@ class MainActivity : Activity() {
     private lateinit var logView: TextView
     private lateinit var scroll: ScrollView
     private lateinit var root: FrameLayout
+    private lateinit var shellScroll: ScrollView
+    private lateinit var shellContent: LinearLayout
     private var statusIconViews: List<ImageView> = emptyList()
     private var controllerHeartbeatConnected = false
     private var standaloneActive = false
     private var standaloneRunning = false
     private var screenDimmed = false
+    private var shellVisible = false
+    private var swipeStartX = 0f
+    private var swipeStartY = 0f
     private var backgroundLocationPromptShown = false
     private val statusRefreshHandler = Handler(Looper.getMainLooper())
     private val statusRefresh = object : Runnable {
@@ -145,6 +154,7 @@ class MainActivity : Activity() {
             isFillViewport = true
             addView(logView)
             setOnTouchListener { _, event ->
+                captureSwipeStart(event)
                 when (event.actionMasked) {
                     MotionEvent.ACTION_MOVE -> {
                         autoScroll.onUserScrollMove()
@@ -156,6 +166,9 @@ class MainActivity : Activity() {
                         }
                     }
                 }
+                if (event.actionMasked == MotionEvent.ACTION_UP && maybeHandleSwipe(event, SwipeDirection.RIGHT)) {
+                    return@setOnTouchListener true
+                }
                 false
             }
             setOnScrollChangeListener { _, _, _, _, _ ->
@@ -166,10 +179,14 @@ class MainActivity : Activity() {
                 }
             }
         }
+        shellScroll = shellScreen().apply {
+            visibility = View.GONE
+        }
         root = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
             excludeFromContentCapture()
-            addView(scroll)
+            addView(scroll, matchParentLayout())
+            addView(shellScroll, matchParentLayout())
             addView(statusIconRow(), statusIconLayout())
         }
         setContentView(root)
@@ -464,6 +481,128 @@ class MainActivity : Activity() {
 
     private fun dp(value: Int): Int {
         return (value * resources.displayMetrics.density).toInt()
+    }
+
+    private fun matchParentLayout(): FrameLayout.LayoutParams {
+        return FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT,
+        )
+    }
+
+    private fun shellScreen(): ScrollView {
+        shellContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(
+                dp(SHELL_PANEL_PADDING_DP),
+                dp(SHELL_PANEL_TOP_PADDING_DP),
+                dp(SHELL_PANEL_PADDING_DP),
+                dp(SHELL_PANEL_PADDING_DP),
+            )
+            setBackgroundColor(Color.BLACK)
+            excludeFromContentCapture()
+        }
+        renderShell()
+        return ScrollView(this).apply {
+            setBackgroundColor(Color.BLACK)
+            isFillViewport = true
+            addView(shellContent)
+            setOnTouchListener { _, event ->
+                captureSwipeStart(event)
+                if (event.actionMasked == MotionEvent.ACTION_UP && maybeHandleSwipe(event, SwipeDirection.LEFT)) {
+                    return@setOnTouchListener true
+                }
+                false
+            }
+        }
+    }
+
+    private fun renderShell() {
+        if (!::shellContent.isInitialized) return
+        shellContent.removeAllViews()
+        shellContent.addView(shellText("dropcheck shell", 16f, AgentLogStyle.TEXT_COLOR))
+        shellContent.addView(shellText("mode=idle standalone=${standaloneRunningLabel()}", 10f, AgentLogStyle.TEXT_COLOR))
+        shellContent.addView(shellSpacer(8))
+        shellContent.addView(shellText("dropcheck#", 12f, Color.YELLOW))
+    }
+
+    private fun standaloneRunningLabel(): String {
+        return when {
+            StandaloneRuntimeState.running.get() -> "running"
+            StandaloneRuntimeState.active.get() -> "active"
+            else -> "inactive"
+        }
+    }
+
+    private fun shellText(text: String, sizeSp: Float, color: Int): TextView {
+        return TextView(this).apply {
+            this.text = text
+            setTextColor(color)
+            setBackgroundColor(Color.BLACK)
+            typeface = Typeface.MONOSPACE
+            textSize = sizeSp
+            includeFontPadding = false
+            setLineSpacing(0f, 1.05f)
+            setPadding(0, dp(2), 0, dp(2))
+            excludeFromContentCapture()
+        }
+    }
+
+    private fun shellSpacer(heightDp: Int): View {
+        return View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(heightDp),
+            )
+        }
+    }
+
+    private enum class SwipeDirection {
+        LEFT,
+        RIGHT,
+    }
+
+    private fun captureSwipeStart(event: MotionEvent) {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            swipeStartX = event.x
+            swipeStartY = event.y
+        }
+    }
+
+    private fun maybeHandleSwipe(event: MotionEvent, direction: SwipeDirection): Boolean {
+        val dx = event.x - swipeStartX
+        val dy = event.y - swipeStartY
+        if (kotlin.math.abs(dy) > dp(SHELL_SWIPE_MAX_OFF_AXIS_DP)) return false
+        val min = dp(SHELL_SWIPE_MIN_DISTANCE_DP)
+        return when {
+            direction == SwipeDirection.RIGHT && dx >= min -> {
+                showShell()
+                true
+            }
+            direction == SwipeDirection.LEFT && dx <= -min -> {
+                showViewer()
+                true
+            }
+            else -> false
+        }
+    }
+
+    private fun showShell() {
+        if (shellVisible) return
+        shellVisible = true
+        renderShell()
+        shellScroll.visibility = View.VISIBLE
+        scroll.visibility = View.GONE
+        resetIdleDimTimer()
+    }
+
+    private fun showViewer() {
+        if (!shellVisible) return
+        shellVisible = false
+        shellScroll.visibility = View.GONE
+        scroll.visibility = View.VISIBLE
+        requestScrollToBottom()
+        resetIdleDimTimer()
     }
 
     private fun View.excludeFromContentCapture() {
