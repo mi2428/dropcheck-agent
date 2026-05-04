@@ -87,8 +87,7 @@ class MainActivity : Activity() {
     private val displayLineLengths = ArrayDeque<Int>()
     private var displayLogChars = 0
     private var logStartIndex = 0
-    private var followLogTail = true
-    private var scrollToBottomPending = false
+    private val autoScroll = TerminalAutoScrollState()
     private val autoScrollSlopPx: Int by lazy {
         (TerminalDisplayPolicy.AUTO_SCROLL_SLOP_DP * resources.displayMetrics.density).toInt()
     }
@@ -148,19 +147,20 @@ class MainActivity : Activity() {
             setOnTouchListener { _, event ->
                 when (event.actionMasked) {
                     MotionEvent.ACTION_MOVE -> {
-                        if (!isScrolledToBottom()) followLogTail = false
+                        autoScroll.onUserScrollMove()
                     }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                        if (isScrolledToBottom()) followLogTail = true
+                        post {
+                            autoScroll.onUserScrollEnd(isScrolledToBottom())
+                            if (autoScroll.isFollowingTail) requestScrollToBottom()
+                        }
                     }
                 }
                 false
             }
             setOnScrollChangeListener { _, _, _, _, _ ->
-                if (scrollToBottomPending && followLogTail) return@setOnScrollChangeListener
-
                 val atBottom = isScrolledToBottom()
-                followLogTail = atBottom
+                autoScroll.onScrollChanged(atBottom)
                 if (atBottom && trimDisplayIfNeeded() > 0) {
                     requestScrollToBottom()
                 }
@@ -236,11 +236,11 @@ class MainActivity : Activity() {
         displayLogChars += terminalLine.length
         trimDisplayIfNeeded()
         if (followBottom) {
-            followLogTail = true
+            autoScroll.resumeFollowingTail()
             requestScrollToBottom()
         } else if (preservedScrollY != null) {
             scroll.post {
-                if (!followLogTail) {
+                if (!autoScroll.isFollowingTail) {
                     scroll.scrollTo(0, preservedScrollY.coerceAtMost(bottomScrollY()))
                 }
             }
@@ -248,13 +248,7 @@ class MainActivity : Activity() {
     }
 
     private fun shouldFollowLogTail(): Boolean {
-        if (followLogTail && scrollToBottomPending) return true
-
-        val follow = followLogTail && (!::scroll.isInitialized || isScrolledToBottom())
-        if (!follow) {
-            followLogTail = false
-        }
-        return follow
+        return autoScroll.shouldFollowTail(!::scroll.isInitialized || isScrolledToBottom())
     }
 
     private fun ensureWifiLocationPermissions() {
@@ -342,9 +336,8 @@ class MainActivity : Activity() {
     }
 
     private fun requestScrollToBottom() {
-        if (!::scroll.isInitialized || scrollToBottomPending) return
+        if (!::scroll.isInitialized || !autoScroll.markScrollToBottomPending()) return
 
-        scrollToBottomPending = true
         val observer = scroll.viewTreeObserver
         observer.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
             override fun onPreDraw(): Boolean {
@@ -354,8 +347,8 @@ class MainActivity : Activity() {
                 } else if (currentObserver.isAlive) {
                     currentObserver.removeOnPreDrawListener(this)
                 }
-                scrollToBottomPending = false
-                if (followLogTail) scrollToBottomNow()
+                autoScroll.finishScrollToBottomPending()
+                if (autoScroll.isFollowingTail) scrollToBottomNow()
                 return true
             }
         })
