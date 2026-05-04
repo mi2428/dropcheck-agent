@@ -11,6 +11,10 @@
 //
 //	make e2e SERIAL=<adb-serial> SSID="<test-ssid>" PSK_ENV=DROPCHECK_E2E_WIFI_PSK
 //
+// The live MCP tests use the same device, SSID, and PSK environment variables.
+// Without SSID/PSK they still verify MCP-driven session startup and read-only
+// Agent App operations, but skip the connect/wait/check dropcheck_run sequence.
+//
 // make e2e runs go test -v -count=1. Each case prints its title, runner, command,
 // result, elapsed time, per-case log path, and a short output tail.
 //
