@@ -1,5 +1,5 @@
 services:
-  # Local S3-compatible target for standalone upload E2E.
+  # Local S3-compatible target for standalone upload and observability E2E.
   # Anonymous PUT is enabled on http://localhost:8080/dropcheck/... by minio-init.
   minio:
     image: minio/minio:latest
@@ -7,6 +7,9 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-dropcheck}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-dropcheck-secret}
+      MINIO_NOTIFY_WEBHOOK_ENABLE_INGESTER: "on"
+      MINIO_NOTIFY_WEBHOOK_ENDPOINT_INGESTER: http://ingester:8082/minio/events
+      MINIO_NOTIFY_WEBHOOK_QUEUE_LIMIT_INGESTER: ${MINIO_NOTIFY_WEBHOOK_QUEUE_LIMIT_INGESTER:-10000}
     ports:
       - "${MINIO_API_PORT:-8080}:9000"
       - "${MINIO_CONSOLE_PORT:-8081}:9001"
@@ -29,8 +32,51 @@ services:
         mc mb --ignore-existing "local/${MINIO_BUCKET:-dropcheck}";
         mc anonymous set upload "local/${MINIO_BUCKET:-dropcheck}";
         mc anonymous get "local/${MINIO_BUCKET:-dropcheck}";
+        mc event add "local/${MINIO_BUCKET:-dropcheck}" arn:minio:sqs::INGESTER:webhook --event put --suffix .pb --ignore-existing;
       '
     restart: "no"
 
+  ingester:
+    build:
+      context: ./controller
+      dockerfile: Dockerfile.ingester
+    restart: unless-stopped
+    environment:
+      DROPCHECK_INGESTER_ADDR: ":8082"
+      DROPCHECK_INGESTER_MINIO_ENDPOINT: minio:9000
+      DROPCHECK_INGESTER_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-dropcheck}
+      DROPCHECK_INGESTER_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-dropcheck-secret}
+      DROPCHECK_INGESTER_MINIO_BUCKET: ${MINIO_BUCKET:-dropcheck}
+      DROPCHECK_INGESTER_MINIO_PREFIX: ${DROPCHECK_INGESTER_MINIO_PREFIX:-}
+      DROPCHECK_INGESTER_PUSHGATEWAY_URL: http://pushgateway:9091
+      DROPCHECK_INGESTER_POLL_INTERVAL: ${DROPCHECK_INGESTER_POLL_INTERVAL:-1m}
+    ports:
+      - "${INGESTER_HTTP_PORT:-8082}:8082"
+    depends_on:
+      - minio
+      - pushgateway
+
+  pushgateway:
+    image: prom/pushgateway:latest
+    restart: unless-stopped
+    ports:
+      - "${PUSHGATEWAY_HTTP_PORT:-9091}:9091"
+
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-1d}"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_HTTP_PORT:-9090}:9090"
+    depends_on:
+      - pushgateway
+
 volumes:
   minio-data:
+  prometheus-data:
