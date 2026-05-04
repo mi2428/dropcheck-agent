@@ -1,6 +1,6 @@
-SHELL         := /bin/bash
-.SHELLFLAGS   := -eu -o pipefail -c
-.DEFAULT_GOAL := help
+SHELL              := /bin/bash
+.SHELLFLAGS        := -eu -o pipefail -c
+.DEFAULT_GOAL      := help
 
 TARGET             ?= all
 GO                 ?= go
@@ -12,19 +12,20 @@ TAGS               ?=
 ADB_INSTALL_FLAGS  ?= -r -t
 HELP_NAME_WIDTH    := 22
 HELP_EXAMPLE_WIDTH := 60
-E2E_PACKAGE         ?= ./integration/e2e
-E2E_TIMEOUT         ?= 3h
-E2E_AGENT_PACKAGE   ?= io.dropcheck.agent
+E2E_PACKAGE        ?= ./integration/e2e
+E2E_TIMEOUT        ?= 3h
+E2E_AGENT_PACKAGE  ?= io.dropcheck.agent
 
-SSID              ?= $(DROPCHECK_E2E_WIFI_SSID)
-PSK               ?= $(DROPCHECK_E2E_WIFI_PSK)
-PSK_ENV           ?= DROPCHECK_E2E_WIFI_PSK
+SSID               ?= $(DROPCHECK_E2E_WIFI_SSID)
+PSK                ?= $(DROPCHECK_E2E_WIFI_PSK)
+PSK_ENV            ?= DROPCHECK_E2E_WIFI_PSK
 
-AGENT_BUILD_TASK ?= :agent:assembleDebug
-AGENT_TEST_TASK  ?= :agent:testDebugUnitTest
-AGENT_LINT_TASK  ?= :agent:lintDebug
-APK              ?= agent/build/outputs/apk/debug/agent-debug.apk
-CONTROLLER_BIN   ?= dist/dropcheck
+AGENT_BUILD_TASK   ?= :agent:assembleDebug
+AGENT_TEST_TASK    ?= :agent:testDebugUnitTest
+AGENT_LINT_TASK    ?= :agent:lintDebug
+APK                ?= agent/build/outputs/apk/debug/agent-debug.apk
+CONTROLLER_BIN     ?= dist/dropcheck
+CONTROLLER_MCP_BIN ?= dist/dropcheck-mcp
 
 ##@ Development
 
@@ -37,7 +38,7 @@ build: ## Build targets; use TARGET=agent,controller or TARGET=all
 	for target in $$targets; do \
 		case "$$target" in \
 			agent) run "$(GRADLE)" "$(AGENT_BUILD_TASK)" ;; \
-			controller) (cd controller; bin="$(CONTROLLER_BIN)"; [[ "$$bin" != */* ]] || run mkdir -p "$${bin%/*}"; run "$(GO)" build -o "$$bin" ./cmd/dropcheck) ;; \
+			controller) (cd controller; bin="$(CONTROLLER_BIN)"; [[ "$$bin" != */* ]] || run mkdir -p "$${bin%/*}"; run "$(GO)" build -o "$$bin" ./cmd/dropcheck; bin="$(CONTROLLER_MCP_BIN)"; [[ "$$bin" != */* ]] || run mkdir -p "$${bin%/*}"; run "$(GO)" build -o "$$bin" ./cmd/dropcheck-mcp) ;; \
 			*) die "unknown TARGET=$$target" ;; \
 		esac; \
 	done
@@ -158,6 +159,7 @@ help: ## Show this help message
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "ADB_INSTALL_FLAGS" "adb install flags, defaults to $(ADB_INSTALL_FLAGS)"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "APK" "Debug APK path, defaults to $(APK)"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "CONTROLLER_BIN" "Controller binary path under controller/, defaults to $(CONTROLLER_BIN)"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "CONTROLLER_MCP_BIN" "Controller MCP binary path under controller/, defaults to $(CONTROLLER_MCP_BIN)"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "E2E_TIMEOUT" "Go test timeout for make e2e, defaults to $(E2E_TIMEOUT)"
 	@printf "\n\033[1mExamples:\033[0m\n"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make build TARGET=agent,controller" "# Build both Android agent and Go controller"
