@@ -71,7 +71,7 @@ func TestStandaloneUploadIngesterPrometheusLive(t *testing.T) {
 		Checks: standaloneFestivalChecks(),
 	})
 
-	cfg.waitFestivalMetricsInPrometheus(t, stack.prometheusURL, runID, standaloneObservabilityFesta, 2*time.Minute)
+	cfg.waitFestivalMetricsInPrometheus(t, stack.prometheusURL, archive, 2*time.Minute)
 }
 
 type standaloneObservabilityStack struct {
@@ -253,65 +253,96 @@ func parseMinIOObjectLine(output string) string {
 	return ""
 }
 
-func (cfg *e2eConfig) waitFestivalMetricsInPrometheus(t *testing.T, prometheusURL string, runID string, festa string, timeout time.Duration) {
+func (cfg *e2eConfig) waitFestivalMetricsInPrometheus(t *testing.T, prometheusURL string, archive *controlpb.StandaloneRunArchive, timeout time.Duration) {
 	t.Helper()
-	baseLabels := map[string]string{
-		"run_id": runID,
-		"festa":  festa,
-	}
+	baseLabels := firstArchiveMetricGrouping(t, archive)
 	expectations := []struct {
 		name   string
 		labels map[string]string
 		min    float64
 	}{
 		{
-			name:   ingestermetrics.MetricIngestSuccess,
-			labels: mergeLabels(baseLabels, map[string]string{"status": "ok"}),
-			min:    1,
-		},
-		{
-			name:   ingestermetrics.MetricResultSuccess,
-			labels: mergeLabels(baseLabels, map[string]string{"result_status": "ok"}),
-			min:    1,
-		},
-		{
-			name:   ingestermetrics.MetricResultSteps,
+			name:   ingestermetrics.MetricSuccess,
 			labels: baseLabels,
-			min:    3,
+			min:    1,
 		},
 		{
-			name:   ingestermetrics.MetricResultFailedSteps,
+			name:   ingestermetrics.MetricDuration,
 			labels: baseLabels,
 			min:    0,
 		},
 		{
-			name: ingestermetrics.MetricStepSuccess,
-			labels: mergeLabels(baseLabels, map[string]string{
-				"step":          "ping",
-				"command":       "ping",
-				"result_status": "ok",
-			}),
-			min: 1,
+			name:   ingestermetrics.MetricConnectSuccess,
+			labels: baseLabels,
+			min:    1,
 		},
 		{
-			name:   ingestermetrics.MetricPingTransmitted,
-			labels: mergeLabels(baseLabels, map[string]string{"host": standalonePingHost}),
+			name:   ingestermetrics.MetricConnectDuration,
+			labels: baseLabels,
 			min:    0,
 		},
 		{
-			name:   ingestermetrics.MetricDNSAnswers,
-			labels: mergeLabels(baseLabels, map[string]string{"name": standaloneDNSName}),
+			name:   ingestermetrics.MetricWaitConnectedSuccess,
+			labels: baseLabels,
 			min:    1,
+		},
+		{
+			name:   ingestermetrics.MetricWaitConnectedDuration,
+			labels: baseLabels,
+			min:    0,
+		},
+		{
+			name:   ingestermetrics.MetricDNSSuccess,
+			labels: mergeLabels(baseLabels, map[string]string{"target": standaloneDNSName}),
+			min:    1,
+		},
+		{
+			name:   ingestermetrics.MetricDNSDuration,
+			labels: mergeLabels(baseLabels, map[string]string{"target": standaloneDNSName}),
+			min:    0,
+		},
+		{
+			name:   ingestermetrics.MetricPingSuccess,
+			labels: mergeLabels(baseLabels, map[string]string{"target": standalonePingHost}),
+			min:    1,
+		},
+		{
+			name:   ingestermetrics.MetricPingDuration,
+			labels: mergeLabels(baseLabels, map[string]string{"target": standalonePingHost}),
+			min:    0,
 		},
 		{
 			name:   ingestermetrics.MetricHTTPSuccess,
-			labels: mergeLabels(baseLabels, map[string]string{"url": standaloneHTTPURL}),
+			labels: mergeLabels(baseLabels, map[string]string{"target": standaloneHTTPURL}),
 			min:    1,
+		},
+		{
+			name:   ingestermetrics.MetricHTTPStatusCode,
+			labels: mergeLabels(baseLabels, map[string]string{"target": standaloneHTTPURL}),
+			min:    204,
+		},
+		{
+			name:   ingestermetrics.MetricHTTPDuration,
+			labels: mergeLabels(baseLabels, map[string]string{"target": standaloneHTTPURL}),
+			min:    0,
 		},
 	}
 	for _, expectation := range expectations {
 		cfg.waitPrometheusGaugeAtLeast(t, prometheusURL, expectation.name, expectation.labels, expectation.min, timeout)
 	}
+}
+
+func firstArchiveMetricGrouping(t *testing.T, archive *controlpb.StandaloneRunArchive) map[string]string {
+	t.Helper()
+	batches := ingestermetrics.ArchiveMetricBatches(archive)
+	if len(batches) == 0 {
+		t.Fatalf("archive produced no metric batches")
+	}
+	grouping := make(map[string]string, len(batches[0].Grouping))
+	for key, value := range batches[0].Grouping {
+		grouping[key] = value
+	}
+	return grouping
 }
 
 func (cfg *e2eConfig) waitPrometheusGaugeAtLeast(t *testing.T, prometheusURL string, metric string, labels map[string]string, min float64, timeout time.Duration) {
