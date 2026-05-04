@@ -329,11 +329,13 @@ message StandaloneUploadConfig {
 }
 
 message StandaloneFesta {
+  reserved 5;
+
   string name = 1;
   bool enabled = 2;
   uint32 interval_ms = 3;
   repeated StandaloneWifiGroup wifi_groups = 4;
-  StandaloneChecks checks = 5;
+  repeated StandaloneCheck checks = 6;
 }
 
 message StandaloneWifiGroup {
@@ -349,32 +351,34 @@ message StandaloneWifiGroup {
   ConnectWifi.MacRandomization mac_randomization = 10;
 }
 
-message StandaloneChecks {
-  StandaloneDnsCheck dns = 1;
-  StandalonePingCheck ping = 2;
-  StandaloneHttpCheck http = 3;
+message StandaloneCheck {
+  // User-visible check name. This is the stable key for update, delete, render,
+  // and standalone measurement step naming.
+  string name = 1;
+  oneof test {
+    StandaloneDnsCheck dns = 2;
+    StandalonePingCheck ping = 3;
+    StandaloneHttpCheck http = 4;
+  }
 }
 
 message StandaloneDnsCheck {
-  bool enabled = 1;
-  string name = 2;
-  repeated DnsRecordType qtypes = 3;
-  uint32 timeout_ms = 4;
+  string name = 1;
+  repeated DnsRecordType qtypes = 2;
+  uint32 timeout_ms = 3;
 }
 
 message StandalonePingCheck {
-  bool enabled = 1;
-  string host = 2;
-  uint32 count = 3;
-  uint32 timeout_ms = 4;
-  uint32 size_bytes = 5;
+  string host = 1;
+  uint32 count = 2;
+  uint32 timeout_ms = 3;
+  uint32 size_bytes = 4;
 }
 
 message StandaloneHttpCheck {
-  bool enabled = 1;
-  string url = 2;
-  uint32 expected_status = 3;
-  uint32 timeout_ms = 4;
+  string url = 1;
+  uint32 expected_status = 2;
+  uint32 timeout_ms = 3;
 }
 
 message StandaloneStatus {

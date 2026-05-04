@@ -2,9 +2,13 @@ package io.dropcheck.agent
 
 import io.dropcheck.agent.grpc.ConnectWifi
 import io.dropcheck.agent.grpc.DnsRecordType
+import io.dropcheck.agent.grpc.StandaloneCheck
 import io.dropcheck.agent.grpc.StandaloneConfig
+import io.dropcheck.agent.grpc.StandaloneDnsCheck
 import io.dropcheck.agent.grpc.StandaloneEdit
 import io.dropcheck.agent.grpc.StandaloneFesta
+import io.dropcheck.agent.grpc.StandaloneHttpCheck
+import io.dropcheck.agent.grpc.StandalonePingCheck
 import io.dropcheck.agent.grpc.StandaloneWifiGroup
 import io.dropcheck.agent.grpc.WifiBand
 
@@ -44,6 +48,11 @@ internal object StandaloneConfigEditor {
                 .sortedBy { it.name }
             festaBuilder.clearWifiGroups()
             festaBuilder.addAllWifiGroups(groups)
+            val checks = festaBuilder.checksList
+                .filter { it.name.isNotBlank() && it.testCase != StandaloneCheck.TestCase.TEST_NOT_SET }
+                .sortedBy { it.name }
+            festaBuilder.clearChecks()
+            festaBuilder.addAllChecks(checks)
             festaBuilder.build()
         })
         return builder.build()
@@ -151,7 +160,7 @@ internal object StandaloneConfigEditor {
             path.size == 2 && path[1] == "enabled" -> applyParsed(parseBool(value), "festa enabled must be true or false") { festa.enabled = it }
             path.size == 2 && path[1] == "interval_ms" -> applyParsed(parseUInt(value), "festa interval_ms must be uint32") { festa.intervalMs = it }
             path.size >= 4 && path[1] == "wifi" -> setWifi(festa, path.drop(2), value)
-            path.size >= 4 && path[1] == "check" -> setCheck(festa, path.drop(2), value)
+            path.size >= 3 && path[1] == "check" -> setCheck(festa, path.drop(2), value)
             else -> "unsupported standalone festa set path: ${path.joinToString(" ")}"
         }
         if (error != null) return error
@@ -175,12 +184,8 @@ internal object StandaloneConfigEditor {
                 null
             }
             path.size == 3 && path[1] == "check" -> {
-                when (path[2]) {
-                    "dns" -> festa.checks = festa.checks.toBuilder().clearDns().build()
-                    "ping" -> festa.checks = festa.checks.toBuilder().clearPing().build()
-                    "http" -> festa.checks = festa.checks.toBuilder().clearHttp().build()
-                    else -> return "unsupported standalone check: ${path[2]}"
-                }
+                val checkIndex = checkIndex(festa, path[2])
+                if (checkIndex >= 0) festa.removeChecks(checkIndex)
                 null
             }
             else -> "unsupported standalone festa delete path: ${path.joinToString(" ")}"
@@ -234,49 +239,87 @@ internal object StandaloneConfigEditor {
     }
 
     private fun setCheck(festa: StandaloneFesta.Builder, path: List<String>, value: String): String? {
-        val checks = festa.checks.toBuilder()
-        val error = when (path[0]) {
+        val name = path[0]
+        if (name.isBlank()) return "check name is required"
+        if (path.size < 2) return "unsupported standalone check set path: ${path.joinToString(" ")}"
+        val index = checkIndex(festa, name)
+        val check = if (index >= 0) festa.getChecks(index).toBuilder() else StandaloneCheck.newBuilder().setName(name)
+        val error = when (path[1]) {
+            "test" -> setCheckTest(check, value)
+            "name", "qtypes" -> setDnsCheckField(check, path[1], value)
+            "host", "count", "size_bytes" -> setPingCheckField(check, path[1], value)
+            "url", "expected_status" -> setHttpCheckField(check, path[1], value)
+            "timeout_ms" -> setCheckTimeout(check, value)
+            else -> "unsupported standalone check set path: ${path.joinToString(" ")}"
+        }
+        if (error != null) return error
+        if (index >= 0) festa.setChecks(index, check) else festa.addChecks(check)
+        return null
+    }
+
+    private fun setCheckTest(check: StandaloneCheck.Builder, value: String): String? {
+        return when (value.lowercase()) {
             "dns" -> {
-                val dns = checks.dns.toBuilder()
-                when (path.getOrNull(1)) {
-                    "enabled" -> dns.enabled = parseBool(value) ?: return "dns enabled must be true or false"
-                    "name" -> dns.name = value
-                    "qtypes" -> dns.clearQtypes().addAllQtypes(parseQTypes(value))
-                    "timeout_ms" -> dns.timeoutMs = parseUInt(value) ?: return "dns timeout_ms must be uint32"
-                    else -> return "unsupported dns check path: ${path.joinToString(" ")}"
-                }
-                checks.dns = dns.build()
+                check.dns = StandaloneDnsCheck.newBuilder().build()
                 null
             }
             "ping" -> {
-                val ping = checks.ping.toBuilder()
-                when (path.getOrNull(1)) {
-                    "enabled" -> ping.enabled = parseBool(value) ?: return "ping enabled must be true or false"
-                    "host" -> ping.host = value
-                    "count" -> ping.count = parseUInt(value) ?: return "ping count must be uint32"
-                    "timeout_ms" -> ping.timeoutMs = parseUInt(value) ?: return "ping timeout_ms must be uint32"
-                    "size_bytes" -> ping.sizeBytes = parseUInt(value) ?: return "ping size_bytes must be uint32"
-                    else -> return "unsupported ping check path: ${path.joinToString(" ")}"
-                }
-                checks.ping = ping.build()
+                check.ping = StandalonePingCheck.newBuilder().build()
                 null
             }
             "http" -> {
-                val http = checks.http.toBuilder()
-                when (path.getOrNull(1)) {
-                    "enabled" -> http.enabled = parseBool(value) ?: return "http enabled must be true or false"
-                    "url" -> http.url = value
-                    "expected_status" -> http.expectedStatus = parseUInt(value) ?: return "http expected_status must be uint32"
-                    "timeout_ms" -> http.timeoutMs = parseUInt(value) ?: return "http timeout_ms must be uint32"
-                    else -> return "unsupported http check path: ${path.joinToString(" ")}"
-                }
-                checks.http = http.build()
+                check.http = StandaloneHttpCheck.newBuilder().build()
                 null
             }
-            else -> "unsupported standalone check: ${path[0]}"
+            else -> "unsupported standalone check test: $value"
         }
-        if (error != null) return error
-        festa.checks = checks.build()
+    }
+
+    private fun setDnsCheckField(check: StandaloneCheck.Builder, field: String, value: String): String? {
+        if (!check.hasDns()) return "standalone check ${check.name} test must be dns"
+        val dns = check.dns.toBuilder()
+        when (field) {
+            "name" -> dns.name = value
+            "qtypes" -> dns.clearQtypes().addAllQtypes(parseQTypes(value))
+            else -> return "unsupported dns check path: $field"
+        }
+        check.dns = dns.build()
+        return null
+    }
+
+    private fun setPingCheckField(check: StandaloneCheck.Builder, field: String, value: String): String? {
+        if (!check.hasPing()) return "standalone check ${check.name} test must be ping"
+        val ping = check.ping.toBuilder()
+        when (field) {
+            "host" -> ping.host = value
+            "count" -> ping.count = parseUInt(value) ?: return "ping count must be uint32"
+            "size_bytes" -> ping.sizeBytes = parseUInt(value) ?: return "ping size_bytes must be uint32"
+            else -> return "unsupported ping check path: $field"
+        }
+        check.ping = ping.build()
+        return null
+    }
+
+    private fun setHttpCheckField(check: StandaloneCheck.Builder, field: String, value: String): String? {
+        if (!check.hasHttp()) return "standalone check ${check.name} test must be http"
+        val http = check.http.toBuilder()
+        when (field) {
+            "url" -> http.url = value
+            "expected_status" -> http.expectedStatus = parseUInt(value) ?: return "http expected_status must be uint32"
+            else -> return "unsupported http check path: $field"
+        }
+        check.http = http.build()
+        return null
+    }
+
+    private fun setCheckTimeout(check: StandaloneCheck.Builder, value: String): String? {
+        val timeoutMs = parseUInt(value) ?: return "check timeout_ms must be uint32"
+        when {
+            check.hasDns() -> check.dns = check.dns.toBuilder().setTimeoutMs(timeoutMs).build()
+            check.hasPing() -> check.ping = check.ping.toBuilder().setTimeoutMs(timeoutMs).build()
+            check.hasHttp() -> check.http = check.http.toBuilder().setTimeoutMs(timeoutMs).build()
+            else -> return "standalone check ${check.name} test must be set before timeout_ms"
+        }
         return null
     }
 
@@ -286,6 +329,10 @@ internal object StandaloneConfigEditor {
 
     private fun wifiGroupIndex(festa: StandaloneFesta.Builder, name: String): Int {
         return festa.wifiGroupsList.indexOfFirst { it.name == name }
+    }
+
+    private fun checkIndex(festa: StandaloneFesta.Builder, name: String): Int {
+        return festa.checksList.indexOfFirst { it.name == name }
     }
 
     private inline fun <T> applyParsed(value: T?, error: String, apply: (T) -> Unit): String? {

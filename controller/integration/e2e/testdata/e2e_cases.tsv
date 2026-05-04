@@ -10,7 +10,7 @@ E2E-008	Shell standalone clear all	shell	clear standalone runs all	ok_or_clear	S
 E2E-009	Shell standalone festa enable	shell	config> set standalone festa smoke enabled	ok_or_clear	Standalone festa is enabled.
 E2E-010	Shell standalone Wi-Fi essid	shell	"config> set standalone festa smoke wifi lab match essid ""<ssid>"""	ok_or_clear	Standalone Wi-Fi matches the test ESSID.
 E2E-011	Shell standalone Wi-Fi passphrase	shell	config> set standalone festa smoke wifi lab passphrase <psk> security auto	ok_or_clear	Standalone Wi-Fi credential and security are stored.
-E2E-012	Shell standalone ping check	shell	config> set standalone festa smoke check ping host 1.1.1.1 count 1 timeout 8000	ok_or_clear	Standalone ping check is configured.
+E2E-012	Shell standalone ping check	shell	config> set standalone festa smoke check cloudflare test ping host 1.1.1.1 count 1 timeout 8000	ok_or_clear	Standalone ping check is configured.
 E2E-013	Shell standalone run once	shell	request> standalone run once festa smoke save	ok_or_clear	A saved standalone archive is created with status OK.
 E2E-014	Shell standalone runs	shell	show standalone runs limit 5 synced	ok_or_clear	Saved run list renders and includes the new run.
 E2E-015	Shell Wi-Fi status	shell	show wifi status	ok_or_clear	Wi-Fi status renders without dispatch error.
@@ -339,12 +339,12 @@ E2E-337	Parser standalone festa Wi-Fi wait IP	shell-parser	config> set standalon
 E2E-338	Parser standalone festa Wi-Fi wait validated	shell-parser	config> set standalone festa smoke wifi lab wait validated	ok	Standalone festa Wi-Fi validation wait edit parses.
 E2E-339	Parser standalone festa Wi-Fi wait invalid	shell-parser	config> set standalone festa smoke wifi lab wait internet	error	Unsupported standalone festa Wi-Fi wait condition is rejected.
 E2E-340	Parser delete standalone festa Wi-Fi	shell-parser	config> delete standalone festa smoke wifi lab	ok	Delete standalone festa Wi-Fi parses.
-E2E-341	Parser delete standalone festa ping check	shell-parser	config> delete standalone festa smoke check ping	ok	Delete standalone festa ping check parses.
+E2E-341	Parser delete standalone festa named check	shell-parser	config> delete standalone festa smoke check cloudflare	ok	Delete standalone festa named check parses.
 E2E-342	CLI standalone status	cli	dropcheck show standalone status	ok	CLI standalone status renders runtime state.
 E2E-343	CLI standalone run config ESSID	cli	"dropcheck configure set standalone festa cli-table wifi lab match essid ""<ssid>"""	ok	CLI configures a standalone run Wi-Fi ESSID.
 E2E-344	CLI standalone run config passphrase	cli	dropcheck configure set standalone festa cli-table wifi lab passphrase <psk> security auto	ok	CLI configures a standalone run Wi-Fi credential and security mode.
 E2E-345	Parser standalone run config MAC randomization	shell-parser	"config> set standalone festa smoke wifi lab match essid ""<ssid>"" mac-randomization persistent"	ok	Standalone festa Wi-Fi MAC randomization edit parses.
-E2E-346	CLI standalone run config ping	cli	dropcheck configure set standalone festa cli-table check ping host 1.1.1.1 count 1 timeout 8000	ok	CLI configures a standalone ping check.
+E2E-346	CLI standalone run config ping	cli	dropcheck configure set standalone festa cli-table check cloudflare test ping host 1.1.1.1 count 1 timeout 8000	ok	CLI configures a standalone ping check.
 E2E-347	CLI standalone run config enable	cli	dropcheck configure set standalone festa cli-table enabled	ok	CLI enables the standalone run festa.
 E2E-348	CLI standalone run once save	cli	dropcheck request standalone run once --festa cli-table --save	ok	CLI standalone run once saves an archive and prints its run id.
 E2E-349	CLI standalone run detail	cli	dropcheck show standalone run <run-id>	ok	CLI standalone run detail fetches the saved archive by run id.

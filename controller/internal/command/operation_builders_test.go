@@ -381,20 +381,20 @@ func TestStandaloneSetAndDeleteParsersCoverChecks(t *testing.T) {
 	}{
 		{
 			name:     "dns check",
-			args:     []string{"festa", "smoke", "check", "dns", "name", "example.test", "type", "AAAA", "timeout", "2s"},
-			wantPath: "festa/smoke/check/dns/qtypes",
+			args:     []string{"festa", "smoke", "check", "dns-main", "test", "dns", "name", "example.test", "type", "AAAA", "timeout", "2s"},
+			wantPath: "festa/smoke/check/dns-main/qtypes",
 			want:     "AAAA",
 		},
 		{
 			name:     "ping check",
-			args:     []string{"festa", "smoke", "check", "ping", "host", "1.1.1.1", "count", "2", "size", "56"},
-			wantPath: "festa/smoke/check/ping/size_bytes",
+			args:     []string{"festa", "smoke", "check", "cloudflare", "test", "ping", "host", "1.1.1.1", "count", "2", "size", "56"},
+			wantPath: "festa/smoke/check/cloudflare/size_bytes",
 			want:     "56",
 		},
 		{
 			name:     "http check",
-			args:     []string{"festa", "smoke", "check", "http", "url", "https://example.test", "expected-status", "204"},
-			wantPath: "festa/smoke/check/http/expected_status",
+			args:     []string{"festa", "smoke", "check", "healthz", "test", "http", "url", "https://example.test", "expected-status", "204"},
+			wantPath: "festa/smoke/check/healthz/expected_status",
 			want:     "204",
 		},
 	}
@@ -414,15 +414,15 @@ func TestStandaloneSetAndDeleteParsersCoverChecks(t *testing.T) {
 		})
 	}
 
-	deletes, err := StandaloneDeleteEdits([]string{"festa", "smoke", "check", "dns"})
+	deletes, err := StandaloneDeleteEdits([]string{"festa", "smoke", "check", "dns-main"})
 	if err != nil {
 		t.Fatalf("StandaloneDeleteEdits() error = %v", err)
 	}
-	if len(deletes) != 1 || deletes[0].Action != "delete" || strings.Join(deletes[0].Path, "/") != "festa/smoke/check/dns" {
+	if len(deletes) != 1 || deletes[0].Action != "delete" || strings.Join(deletes[0].Path, "/") != "festa/smoke/check/dns-main" {
 		t.Fatalf("delete edits = %#v", deletes)
 	}
 
-	if _, err := StandaloneSetEdits([]string{"festa", "smoke", "check", "dns", "name", "a", "name", "b"}); err == nil {
+	if _, err := StandaloneSetEdits([]string{"festa", "smoke", "check", "dns-main", "test", "dns", "name", "a", "name", "b"}); err == nil {
 		t.Fatalf("duplicate standalone check key error = nil")
 	}
 }

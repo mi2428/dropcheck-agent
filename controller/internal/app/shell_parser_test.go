@@ -393,6 +393,25 @@ func TestParseShellStandaloneCommands(t *testing.T) {
 		t.Fatalf("quoted wifi match edits = %#v", edits)
 	}
 
+	pingCheck, err := parseShellLineForTest("config> set standalone festa smoke check cloudflare test ping host 1.1.1.1 count 1 timeout 8s")
+	if err != nil {
+		t.Fatalf("set standalone festa named ping check: %v", err)
+	}
+	cmd, _, err = buildRunCommand(pingCheck.operation)
+	if err != nil {
+		t.Fatalf("build named ping check command: %v", err)
+	}
+	edits = cmd.GetEditStandaloneConfig().GetEdits()
+	if len(edits) != 4 ||
+		strings.Join(edits[0].GetPath(), "/") != "festa/smoke/check/cloudflare/test" ||
+		edits[0].GetValue() != "ping" ||
+		strings.Join(edits[1].GetPath(), "/") != "festa/smoke/check/cloudflare/host" ||
+		edits[1].GetValue() != "1.1.1.1" ||
+		strings.Join(edits[3].GetPath(), "/") != "festa/smoke/check/cloudflare/timeout_ms" ||
+		edits[3].GetValue() != "8000" {
+		t.Fatalf("named ping check edits = %#v", edits)
+	}
+
 	delWifi, err := parseShellLineForTest("config> delete standalone festa smoke wifi mgmt")
 	if err != nil {
 		t.Fatalf("delete standalone festa wifi: %v", err)
@@ -819,13 +838,13 @@ func TestShellImmediateHelpKey(t *testing.T) {
 		t.Fatalf("full-width help output = %q, missing connect", out.String())
 	}
 
-	line = []rune("set standalone festa smoke check ping ?")
+	line = []rune("set standalone festa smoke check cloudflare test ping ?")
 	out.Reset()
 	newLine, _, ok = handleShellHelpKey(&out, line, len(line), '?', &shellState{mode: shellModeConfigure})
 	if !ok {
 		t.Fatalf("configure help key ok = false")
 	}
-	if got := string(newLine); got != "set standalone festa smoke check ping " {
+	if got := string(newLine); got != "set standalone festa smoke check cloudflare test ping " {
 		t.Fatalf("configure help new line = %q", got)
 	}
 	for _, want := range []string{"host", "count", "size", "timeout"} {
@@ -911,7 +930,7 @@ func TestShellReadlineCompleter(t *testing.T) {
 	}
 
 	configureCompleter := shellReadlineCompleter{state: &shellState{mode: shellModeConfigure}}
-	line := []rune("set standalone festa smoke check ping h")
+	line := []rune("set standalone festa smoke check cloudflare test ping h")
 	completions, offset = configureCompleter.Do(line, len(line))
 	if offset != len([]rune("h")) {
 		t.Fatalf("configure completion offset = %d, want 1", offset)
@@ -979,35 +998,39 @@ func TestShellOptionCompletion(t *testing.T) {
 			want: []string{"ip", "validated"},
 		},
 		{
-			line: "config> set standalone festa smoke check ",
-			want: []string{"dns", "ping", "http"},
+			line: "config> set standalone festa smoke check cloudflare ",
+			want: []string{"test"},
 		},
 		{
-			line: "config> set standalone festa smoke check dns ",
+			line: "config> set standalone festa smoke check cloudflare test ",
+			want: []string{"ping", "dns", "http"},
+		},
+		{
+			line: "config> set standalone festa smoke check dns-main test dns ",
 			want: []string{"name", "type", "timeout"},
 		},
 		{
-			line: "config> set standalone festa smoke check dns name example.test ",
+			line: "config> set standalone festa smoke check dns-main test dns name example.test ",
 			want: []string{"type", "timeout"},
 		},
 		{
-			line: "config> set standalone festa smoke check dns type ",
+			line: "config> set standalone festa smoke check dns-main test dns type ",
 			want: []string{"A", "AAAA", "ALL"},
 		},
 		{
-			line: "config> set standalone festa smoke check ping ",
+			line: "config> set standalone festa smoke check cloudflare test ping ",
 			want: []string{"host", "count", "size", "timeout"},
 		},
 		{
-			line: "config> set standalone festa smoke check ping host 1.1.1.1 ",
+			line: "config> set standalone festa smoke check cloudflare test ping host 1.1.1.1 ",
 			want: []string{"count", "size", "timeout"},
 		},
 		{
-			line: "config> set standalone festa smoke check http ",
+			line: "config> set standalone festa smoke check healthz test http ",
 			want: []string{"url", "expected-status", "timeout"},
 		},
 		{
-			line: "config> set standalone festa smoke check http url https://example.test ",
+			line: "config> set standalone festa smoke check healthz test http url https://example.test ",
 			want: []string{"expected-status", "timeout"},
 		},
 		{
@@ -1112,27 +1135,35 @@ func TestConfigureStandaloneDeepHelp(t *testing.T) {
 		},
 		{
 			line: "config> set standalone festa smoke check ?",
-			want: []string{"dns", "ping", "http"},
+			want: []string{"<name>"},
 		},
 		{
-			line: "config> set standalone festa smoke check ping ?",
+			line: "config> set standalone festa smoke check cloudflare ?",
+			want: []string{"test"},
+		},
+		{
+			line: "config> set standalone festa smoke check cloudflare test ?",
+			want: []string{"ping", "dns", "http"},
+		},
+		{
+			line: "config> set standalone festa smoke check cloudflare test ping ?",
 			want: []string{"host", "count", "size", "timeout"},
 		},
 		{
-			line: "config> set standalone festa smoke check ping host 1.1.1.1 ?",
+			line: "config> set standalone festa smoke check cloudflare test ping host 1.1.1.1 ?",
 			want: []string{"count", "size", "timeout", "<cr>"},
 		},
 		{
-			line: "config> set standalone festa smoke check dns type ?",
+			line: "config> set standalone festa smoke check dns-main test dns type ?",
 			want: []string{"A", "AAAA", "ALL"},
 		},
 		{
-			line: "config> set standalone festa smoke check http url https://example.test ?",
+			line: "config> set standalone festa smoke check healthz test http url https://example.test ?",
 			want: []string{"expected-status", "timeout", "<cr>"},
 		},
 		{
-			line:       "config> set standalone festa smoke check ping ?",
-			unexpected: []string{"<name>", "upload", "festa"},
+			line:       "config> set standalone festa smoke check cloudflare test ping ?",
+			unexpected: []string{"upload", "festa"},
 		},
 	}
 
@@ -1174,10 +1205,11 @@ func TestShellPlaceholderCompletionHints(t *testing.T) {
 		{line: "request> download timeout ", want: "<ms>"},
 		{line: "config> set standalone festa smoke interval ", want: "<duration>"},
 		{line: "config> set standalone festa smoke wifi mgmt match essid ", want: "<essid>"},
-		{line: "config> set standalone festa smoke check ping host ", want: "<host>"},
-		{line: "config> set standalone festa smoke check ping count ", want: "<n>"},
-		{line: "config> set standalone festa smoke check ping size ", want: "<bytes>"},
-		{line: "config> set standalone festa smoke check http expected-status ", want: "<code>"},
+		{line: "config> set standalone festa smoke check ", want: "<name>"},
+		{line: "config> set standalone festa smoke check cloudflare test ping host ", want: "<host>"},
+		{line: "config> set standalone festa smoke check cloudflare test ping count ", want: "<n>"},
+		{line: "config> set standalone festa smoke check cloudflare test ping size ", want: "<bytes>"},
+		{line: "config> set standalone festa smoke check healthz test http expected-status ", want: "<code>"},
 	}
 
 	for _, tt := range tests {

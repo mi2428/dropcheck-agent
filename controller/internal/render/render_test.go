@@ -139,6 +139,52 @@ func TestRenderConfigShowsStandaloneFestaWifi(t *testing.T) {
 	}
 }
 
+func TestRenderConfigShowsStandaloneFestaChecks(t *testing.T) {
+	view := ConfigView{
+		Standalone: &controlpb.StandaloneConfig{
+			Festas: []*controlpb.StandaloneFesta{{
+				Name: "smoke",
+				Checks: []*controlpb.StandaloneCheck{
+					{
+						Name: "cloudflare",
+						Test: &controlpb.StandaloneCheck_Ping{Ping: &controlpb.StandalonePingCheck{
+							Host:      "1.1.1.1",
+							Count:     1,
+							TimeoutMs: 8000,
+						}},
+					},
+					{
+						Name: "dns-main",
+						Test: &controlpb.StandaloneCheck_Dns{Dns: &controlpb.StandaloneDnsCheck{
+							Name:   "example.test",
+							Qtypes: []controlpb.DnsRecordType{controlpb.DnsRecordType_DNS_RECORD_TYPE_AAAA},
+						}},
+					},
+				},
+			}},
+		},
+	}
+	text, err := Config(view, pipeline.FormatText)
+	if err != nil {
+		t.Fatalf("Config(text) error = %v", err)
+	}
+	for _, want := range []string{
+		"check cloudflare {\n",
+		"test ping\n",
+		"host 1.1.1.1\n",
+		"count 1\n",
+		"timeout 8s\n",
+		"check dns-main {\n",
+		"test dns\n",
+		"name example.test\n",
+		"type AAAA\n",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("Config(text) = %q, missing %q", text, want)
+		}
+	}
+}
+
 func TestRenderCommandResultShowsCommandLatencyFallback(t *testing.T) {
 	result := &controlpb.CommandResult{
 		Status:    controlpb.CommandResult_STATUS_OK,
