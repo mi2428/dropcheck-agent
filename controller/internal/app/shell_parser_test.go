@@ -378,6 +378,21 @@ func TestParseShellStandaloneCommands(t *testing.T) {
 		t.Fatalf("wifi passphrase edits = %#v", edits)
 	}
 
+	quotedWifiMatch, err := parseShellLineForTest(`config> set standalone festa smoke wifi lab2 match essid "SHIZK RADIO MOBILE"`)
+	if err != nil {
+		t.Fatalf("set standalone festa quoted wifi match: %v", err)
+	}
+	cmd, _, err = buildRunCommand(quotedWifiMatch.operation)
+	if err != nil {
+		t.Fatalf("build quoted wifi match command: %v", err)
+	}
+	edits = cmd.GetEditStandaloneConfig().GetEdits()
+	if len(edits) != 1 ||
+		strings.Join(edits[0].GetPath(), "/") != "festa/smoke/wifi/lab2/match/essid" ||
+		edits[0].GetValue() != "SHIZK RADIO MOBILE" {
+		t.Fatalf("quoted wifi match edits = %#v", edits)
+	}
+
 	delWifi, err := parseShellLineForTest("config> delete standalone festa smoke wifi mgmt")
 	if err != nil {
 		t.Fatalf("delete standalone festa wifi: %v", err)
@@ -803,6 +818,26 @@ func TestShellImmediateHelpKey(t *testing.T) {
 	if !strings.Contains(out.String(), "connect") {
 		t.Fatalf("full-width help output = %q, missing connect", out.String())
 	}
+
+	line = []rune("set standalone festa smoke check ping ?")
+	out.Reset()
+	newLine, _, ok = handleShellHelpKey(&out, line, len(line), '?', &shellState{mode: shellModeConfigure})
+	if !ok {
+		t.Fatalf("configure help key ok = false")
+	}
+	if got := string(newLine); got != "set standalone festa smoke check ping " {
+		t.Fatalf("configure help new line = %q", got)
+	}
+	for _, want := range []string{"host", "count", "size", "timeout"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("configure help output = %q, missing %q", out.String(), want)
+		}
+	}
+	for _, unexpected := range []string{"<name>", "upload"} {
+		if strings.Contains(out.String(), unexpected) {
+			t.Fatalf("configure help output = %q, unexpectedly included %q", out.String(), unexpected)
+		}
+	}
 }
 
 func TestShellReadlineCompleter(t *testing.T) {
@@ -811,8 +846,8 @@ func TestShellReadlineCompleter(t *testing.T) {
 	if offset != len([]rune("wi")) {
 		t.Fatalf("offset = %d, want %d", offset, len([]rune("wi")))
 	}
-	if len(completions) != 1 || string(completions[0]) != "fi" {
-		t.Fatalf("completions = %#v, want fi", completions)
+	if len(completions) != 1 || string(completions[0]) != "fi " {
+		t.Fatalf("completions = %#v, want fi plus a space", completions)
 	}
 
 	requestCompleter := shellReadlineCompleter{state: &shellState{mode: shellModeRequest}}
@@ -833,13 +868,13 @@ func TestShellReadlineCompleter(t *testing.T) {
 
 	completions, _ = requestCompleter.Do([]rune("global-ip ipv4 "), len([]rune("global-ip ipv4 ")))
 	if !slices.ContainsFunc(completions, func(candidate []rune) bool {
-		return string(candidate) == "timeout"
+		return strings.TrimSpace(string(candidate)) == "timeout"
 	}) {
 		t.Fatalf("request> global-ip completions = %#v, missing timeout", completions)
 	}
 	for _, unexpected := range []string{"ipv4", "ipv6", "all"} {
 		if slices.ContainsFunc(completions, func(candidate []rune) bool {
-			return string(candidate) == unexpected
+			return strings.TrimSpace(string(candidate)) == unexpected
 		}) {
 			t.Fatalf("request> global-ip completions = %#v, unexpectedly included %q", completions, unexpected)
 		}
@@ -873,6 +908,16 @@ func TestShellReadlineCompleter(t *testing.T) {
 	}
 	if got := shellCompletionHintLineForTest("request> http expected-status ", nil); got != "<code>" {
 		t.Fatalf("placeholder hint = %q, want <code>", got)
+	}
+
+	configureCompleter := shellReadlineCompleter{state: &shellState{mode: shellModeConfigure}}
+	line := []rune("set standalone festa smoke check ping h")
+	completions, offset = configureCompleter.Do(line, len(line))
+	if offset != len([]rune("h")) {
+		t.Fatalf("configure completion offset = %d, want 1", offset)
+	}
+	if len(completions) != 1 || string(completions[0]) != "ost " {
+		t.Fatalf("configure completion = %#v, want ost plus a space", completions)
 	}
 }
 
@@ -928,6 +973,42 @@ func TestShellOptionCompletion(t *testing.T) {
 		{
 			line: "config> set standalone festa smoke wifi mgmt passphrase secret security ",
 			want: []string{"auto", "wpa2", "wpa3", "transition"},
+		},
+		{
+			line: "config> set standalone festa smoke wifi mgmt wait ",
+			want: []string{"ip", "validated"},
+		},
+		{
+			line: "config> set standalone festa smoke check ",
+			want: []string{"dns", "ping", "http"},
+		},
+		{
+			line: "config> set standalone festa smoke check dns ",
+			want: []string{"name", "type", "timeout"},
+		},
+		{
+			line: "config> set standalone festa smoke check dns name example.test ",
+			want: []string{"type", "timeout"},
+		},
+		{
+			line: "config> set standalone festa smoke check dns type ",
+			want: []string{"A", "AAAA", "ALL"},
+		},
+		{
+			line: "config> set standalone festa smoke check ping ",
+			want: []string{"host", "count", "size", "timeout"},
+		},
+		{
+			line: "config> set standalone festa smoke check ping host 1.1.1.1 ",
+			want: []string{"count", "size", "timeout"},
+		},
+		{
+			line: "config> set standalone festa smoke check http ",
+			want: []string{"url", "expected-status", "timeout"},
+		},
+		{
+			line: "config> set standalone festa smoke check http url https://example.test ",
+			want: []string{"expected-status", "timeout"},
 		},
 		{
 			line: "request> wifi wait connected security ",
@@ -995,6 +1076,87 @@ func TestShellOptionCompletion(t *testing.T) {
 	}
 }
 
+func TestConfigureStandaloneDeepHelp(t *testing.T) {
+	tests := []struct {
+		line       string
+		want       []string
+		unexpected []string
+	}{
+		{
+			line: "config> set standalone festa ?",
+			want: []string{"<name>"},
+		},
+		{
+			line: "config> set standalone festa smoke ?",
+			want: []string{"enabled", "disabled", "interval", "wifi", "check"},
+		},
+		{
+			line: "config> set standalone festa smoke wifi ?",
+			want: []string{"<name>"},
+		},
+		{
+			line: "config> set standalone festa smoke wifi mgmt ?",
+			want: []string{"match", "passphrase", "band", "wait", "timeout"},
+		},
+		{
+			line: "config> set standalone festa smoke wifi mgmt match ?",
+			want: []string{"essid", "bssid"},
+		},
+		{
+			line: `config> set standalone festa smoke wifi mgmt match essid "SHIZK RADIO" ?`,
+			want: []string{"mac-randomization", "<cr>"},
+		},
+		{
+			line: "config> set standalone festa smoke wifi mgmt wait ?",
+			want: []string{"ip", "validated"},
+		},
+		{
+			line: "config> set standalone festa smoke check ?",
+			want: []string{"dns", "ping", "http"},
+		},
+		{
+			line: "config> set standalone festa smoke check ping ?",
+			want: []string{"host", "count", "size", "timeout"},
+		},
+		{
+			line: "config> set standalone festa smoke check ping host 1.1.1.1 ?",
+			want: []string{"count", "size", "timeout", "<cr>"},
+		},
+		{
+			line: "config> set standalone festa smoke check dns type ?",
+			want: []string{"A", "AAAA", "ALL"},
+		},
+		{
+			line: "config> set standalone festa smoke check http url https://example.test ?",
+			want: []string{"expected-status", "timeout", "<cr>"},
+		},
+		{
+			line:       "config> set standalone festa smoke check ping ?",
+			unexpected: []string{"<name>", "upload", "festa"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.line, func(t *testing.T) {
+			help := shellHelpEntriesForTest(tt.line)
+			var tokens []string
+			for _, entry := range help {
+				tokens = append(tokens, entry.token)
+			}
+			for _, want := range tt.want {
+				if !slices.Contains(tokens, want) {
+					t.Fatalf("help tokens = %#v, missing %q", tokens, want)
+				}
+			}
+			for _, unexpected := range tt.unexpected {
+				if slices.Contains(tokens, unexpected) {
+					t.Fatalf("help tokens = %#v, unexpectedly included %q", tokens, unexpected)
+				}
+			}
+		})
+	}
+}
+
 func TestShellPlaceholderCompletionHints(t *testing.T) {
 	tests := []struct {
 		line string
@@ -1010,6 +1172,12 @@ func TestShellPlaceholderCompletionHints(t *testing.T) {
 		{line: "request> global-ip timeout ", want: "<ms>"},
 		{line: "request> http expected-status ", want: "<code>"},
 		{line: "request> download timeout ", want: "<ms>"},
+		{line: "config> set standalone festa smoke interval ", want: "<duration>"},
+		{line: "config> set standalone festa smoke wifi mgmt match essid ", want: "<essid>"},
+		{line: "config> set standalone festa smoke check ping host ", want: "<host>"},
+		{line: "config> set standalone festa smoke check ping count ", want: "<n>"},
+		{line: "config> set standalone festa smoke check ping size ", want: "<bytes>"},
+		{line: "config> set standalone festa smoke check http expected-status ", want: "<code>"},
 	}
 
 	for _, tt := range tests {
@@ -1041,7 +1209,7 @@ func shellCompletionFragmentsForTest(line string) []string {
 func shellCompletionStrings(completions [][]rune) []string {
 	out := make([]string, 0, len(completions))
 	for _, completion := range completions {
-		out = append(out, string(completion))
+		out = append(out, strings.TrimSuffix(string(completion), " "))
 	}
 	return out
 }

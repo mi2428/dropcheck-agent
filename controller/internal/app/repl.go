@@ -104,6 +104,7 @@ func (c shellReadlineCompleter) Do(line []rune, pos int) ([][]rune, int) {
 	}
 	prefix := string(line[:pos])
 	prefixRunes := []rune(prefix)
+	var fullCandidates []string
 	var completions [][]rune
 	for _, candidate := range completeShellLine(prefix, c.state) {
 		candidateRunes := []rune(candidate)
@@ -114,9 +115,22 @@ func (c shellReadlineCompleter) Do(line []rune, pos int) ([][]rune, int) {
 		if isPlaceholderCandidate(string(completion)) {
 			continue
 		}
+		fullCandidates = append(fullCandidates, candidate)
 		completions = append(completions, completion)
 	}
+	if len(completions) == 1 && len(completions[0]) > 0 && shouldAppendReadlineCompletionSpace(fullCandidates[0], c.state) {
+		completions[0] = append(completions[0], ' ')
+	}
 	return completions, shellCompletionOffset(prefix)
+}
+
+func shouldAppendReadlineCompletionSpace(candidate string, state *shellState) bool {
+	for _, exact := range completeShellLine(candidate, state) {
+		if exact == candidate+" " {
+			return true
+		}
+	}
+	return false
 }
 
 func hasRunePrefix(value []rune, prefix []rune) bool {
