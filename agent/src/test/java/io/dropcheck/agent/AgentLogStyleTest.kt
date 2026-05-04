@@ -22,7 +22,26 @@ class AgentLogStyleTest {
     fun keepsWarningAndErrorPriority() {
         assertEquals(
             AgentLogStyle.ERROR_COLOR,
-            AgentLogStyle.colorForLine("2026-05-03T00:00:00Z ERROR event=probe.exec probe=http scope=exec"),
+            AgentLogStyle.colorForLine("2026-05-03T00:00:00Z ERROR event=command.executor.end source=standalone status=STATUS_FAILED scope=command"),
+        )
+    }
+
+    @Test
+    fun colorsStandaloneCommandFailuresOrange() {
+        val failed = "2026-05-03T00:00:00Z DEBUG event=command.executor.end command_case=PING status=STATUS_FAILED payload_case=PING message=\"ping failed\" elapsed_ms=1001 source=standalone scope=command"
+
+        assertEquals(
+            AgentLogStyle.COMMAND_FAILED_COLOR,
+            AgentLogStyle.colorForLine(failed),
+        )
+        assertTrue(AgentLogStyle.isStandaloneCommandFailureLine(failed))
+    }
+
+    @Test
+    fun doesNotColorControllerFailuresOrange() {
+        assertEquals(
+            AgentLogStyle.TEXT_COLOR,
+            AgentLogStyle.colorForLine("DEBUG event=command.executor.end command_case=PING status=STATUS_FAILED command_id=abc scope=command"),
         )
         assertEquals(
             AgentLogStyle.WARN_COLOR,
