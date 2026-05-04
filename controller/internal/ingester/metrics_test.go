@@ -5,17 +5,63 @@ import (
 	"time"
 
 	"dropcheck/controller/internal/controlpb"
-	dto "github.com/prometheus/client_model/go"
 )
 
-func TestBuildRegistryEmitsRunAndProbeMetrics(t *testing.T) {
-	started := int64(1_700_000_000_000)
-	archive := &controlpb.StandaloneRunArchive{
+func TestArchiveMetricsBuildsBlackboxStyleSeries(t *testing.T) {
+	archive := metricArchiveFixture()
+	samples := ArchiveMetrics(archive, 250*time.Millisecond)
+
+	assertSample(t, samples, MetricIngestSuccess, map[string]string{"run_id": "run-1", "status": "ok"}, 1)
+	assertSample(t, samples, MetricResultSuccess, map[string]string{"run_id": "run-1", "festa": "smoke"}, 1)
+	assertSample(t, samples, MetricResultDuration, map[string]string{"run_id": "run-1"}, 2)
+	assertSample(t, samples, MetricStepSuccess, map[string]string{"step": "ping", "command": "ping"}, 1)
+	assertSample(t, samples, MetricStepDuration, map[string]string{"step": "ping"}, 0.12)
+	assertSample(t, samples, MetricPingReceived, map[string]string{"host": "1.1.1.1"}, 3)
+	assertSample(t, samples, MetricPingPacketLoss, map[string]string{"host": "1.1.1.1"}, 0)
+	assertSample(t, samples, MetricDNSAnswers, map[string]string{"name": "example.com"}, 1)
+	assertSample(t, samples, MetricHTTPSuccess, map[string]string{"url": "http://example.com/health"}, 1)
+}
+
+func TestIngestFailureMetrics(t *testing.T) {
+	samples := IngestFailureMetrics(100*time.Millisecond, "decode_failed", errFixture("bad protobuf"))
+	assertSample(t, samples, MetricIngestSuccess, map[string]string{"status": "decode_failed", "error": "bad_protobuf"}, 0)
+	assertSample(t, samples, MetricIngestDuration, map[string]string{"status": "decode_failed"}, 0.1)
+}
+
+func assertSample(t *testing.T, samples []MetricSample, name string, labels map[string]string, value float64) {
+	t.Helper()
+	for _, sample := range samples {
+		if sample.Name != name {
+			continue
+		}
+		matched := true
+		for key, want := range labels {
+			if sample.Labels[key] != want {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			if sample.Value != value {
+				t.Fatalf("%s labels=%v value=%v, want %v", name, labels, sample.Value, value)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing sample %s labels=%v in %#v", name, labels, samples)
+}
+
+type errFixture string
+
+func (e errFixture) Error() string { return string(e) }
+
+func metricArchiveFixture() *controlpb.StandaloneRunArchive {
+	return &controlpb.StandaloneRunArchive{
 		Summary: &controlpb.StandaloneRunSummary{
 			RunId:           "run-1",
 			FestaName:       "smoke",
-			StartedUnixMs:   started,
-			FinishedUnixMs:  started + 2500,
+			StartedUnixMs:   1000,
+			FinishedUnixMs:  3000,
 			Status:          "ok",
 			WifiGroupCount:  1,
 			StepCount:       3,
@@ -24,150 +70,62 @@ func TestBuildRegistryEmitsRunAndProbeMetrics(t *testing.T) {
 		Device: &controlpb.DeviceInfo{
 			Manufacturer: "Acme",
 			Model:        "Phone",
-			Device:       "phone1",
+			Device:       "phone",
 		},
 		Steps: []*controlpb.StandaloneMeasurementStep{
-			step(1, "lab", 1, "ping", started, started+120, &controlpb.RunCommand{
-				Command: &controlpb.RunCommand_Ping{Ping: &controlpb.Ping{Host: "1.1.1.1"}},
-			}, &controlpb.CommandResult{
-				Status:    controlpb.CommandResult_STATUS_OK,
-				ElapsedMs: 120,
-				Payload: &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{
-					Host:              "1.1.1.1",
-					Transmitted:       3,
-					Received:          3,
-					PacketLossPercent: 0,
-					MinMs:             10,
-					AvgMs:             20,
-					MaxMs:             30,
-					ElapsedMs:         120,
-				}},
-			}),
-			step(1, "lab", 2, "dns", started+200, started+290, &controlpb.RunCommand{
-				Command: &controlpb.RunCommand_ResolveDns{ResolveDns: &controlpb.ResolveDns{Name: "example.com"}},
-			}, &controlpb.CommandResult{
-				Status:    controlpb.CommandResult_STATUS_OK,
-				ElapsedMs: 90,
-				Payload: &controlpb.CommandResult_ResolveDns{ResolveDns: &controlpb.ResolveDnsResult{
-					Name:      "example.com",
-					ElapsedMs: 90,
-					Answers: []*controlpb.DnsAnswer{{
-						Type:    controlpb.DnsRecordType_DNS_RECORD_TYPE_A,
-						Address: "93.184.216.34",
+			{
+				WifiGroupIndex: 1,
+				WifiGroupName:  "lab",
+				StepIndex:      1,
+				StepName:       "ping",
+				StartedUnixMs:  1000,
+				FinishedUnixMs: 1200,
+				Command:        &controlpb.RunCommand{Command: &controlpb.RunCommand_Ping{Ping: &controlpb.Ping{Host: "1.1.1.1"}}},
+				Result: &controlpb.CommandResult{
+					Status:    controlpb.CommandResult_STATUS_OK,
+					ElapsedMs: 120,
+					Payload: &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{
+						Host:              "1.1.1.1",
+						Transmitted:       3,
+						Received:          3,
+						PacketLossPercent: 0,
+						MinMs:             10,
+						AvgMs:             20,
+						MaxMs:             30,
 					}},
-				}},
-			}),
-			step(1, "lab", 3, "http", started+400, started+510, &controlpb.RunCommand{
-				Command: &controlpb.RunCommand_HttpCheck{HttpCheck: &controlpb.HttpCheck{Url: "http://example.com/health"}},
-			}, &controlpb.CommandResult{
-				Status:    controlpb.CommandResult_STATUS_OK,
-				ElapsedMs: 110,
-				Payload: &controlpb.CommandResult_HttpCheck{HttpCheck: &controlpb.HttpCheckResult{
-					Url:            "http://example.com/health",
-					Status:         204,
-					ExpectedStatus: 204,
-					Matched:        true,
-					ElapsedMs:      110,
-				}},
-			}),
+				},
+			},
+			{
+				WifiGroupIndex: 1,
+				WifiGroupName:  "lab",
+				StepIndex:      2,
+				StepName:       "dns",
+				Command:        &controlpb.RunCommand{Command: &controlpb.RunCommand_ResolveDns{ResolveDns: &controlpb.ResolveDns{Name: "example.com"}}},
+				Result: &controlpb.CommandResult{
+					Status: controlpb.CommandResult_STATUS_OK,
+					Payload: &controlpb.CommandResult_ResolveDns{ResolveDns: &controlpb.ResolveDnsResult{
+						Name:      "example.com",
+						ElapsedMs: 55,
+						Answers:   []*controlpb.DnsAnswer{{Type: controlpb.DnsRecordType_DNS_RECORD_TYPE_A, Address: "93.184.216.34"}},
+					}},
+				},
+			},
+			{
+				WifiGroupIndex: 1,
+				WifiGroupName:  "lab",
+				StepIndex:      3,
+				StepName:       "http",
+				Command:        &controlpb.RunCommand{Command: &controlpb.RunCommand_HttpCheck{HttpCheck: &controlpb.HttpCheck{Url: "http://example.com/health"}}},
+				Result: &controlpb.CommandResult{
+					Status: controlpb.CommandResult_STATUS_OK,
+					Payload: &controlpb.CommandResult_HttpCheck{HttpCheck: &controlpb.HttpCheckResult{
+						Url:       "http://example.com/health",
+						Status:    204,
+						Matched:   true,
+						ElapsedMs: 75,
+					}},
+				},
+			},
 		},
 	}
-	registry, err := BuildRegistry(PushInput{
-		Archive:        archive,
-		Meta:           ObjectMeta{Bucket: "dropcheck", Key: "incoming/device/run.pb", Size: 1234},
-		Trigger:        triggerNotification,
-		IngestSuccess:  true,
-		IngestDuration: 150 * time.Millisecond,
-	})
-	if err != nil {
-		t.Fatalf("BuildRegistry: %v", err)
-	}
-	families, err := registry.Gather()
-	if err != nil {
-		t.Fatalf("Gather: %v", err)
-	}
-	assertMetric(t, families, "dropcheck_festival_ingest_success", nil, 1)
-	assertMetric(t, families, "dropcheck_festival_run_success", map[string]string{"run_status": "ok", "festa": "smoke"}, 1)
-	assertMetric(t, families, "dropcheck_festival_run_duration_seconds", nil, 2.5)
-	assertMetric(t, families, "dropcheck_festival_step_success", map[string]string{"wifi_group": "lab", "step": "ping", "command": "ping", "status": "ok"}, 1)
-	assertMetric(t, families, "dropcheck_festival_ping_duration_seconds", map[string]string{"target": "1.1.1.1"}, 0.12)
-	assertMetric(t, families, "dropcheck_festival_dns_answers", map[string]string{"target": "example.com"}, 1)
-	assertMetric(t, families, "dropcheck_festival_http_success", map[string]string{"target": "http://example.com/health"}, 1)
-	assertMetric(t, families, "dropcheck_festival_http_status_code", map[string]string{"target": "http://example.com/health"}, 204)
-}
-
-func TestBuildRegistryEmitsDecodeFailureMetric(t *testing.T) {
-	registry, err := BuildRegistry(PushInput{
-		Meta:           ObjectMeta{Bucket: "dropcheck", Key: "bad.pb", Size: 12},
-		Trigger:        triggerBatch,
-		IngestSuccess:  false,
-		IngestReason:   reasonDecode,
-		IngestDuration: 10 * time.Millisecond,
-	})
-	if err != nil {
-		t.Fatalf("BuildRegistry: %v", err)
-	}
-	families, err := registry.Gather()
-	if err != nil {
-		t.Fatalf("Gather: %v", err)
-	}
-	assertMetric(t, families, "dropcheck_festival_ingest_success", map[string]string{"ingest_reason": "decode", "source_object": "bad.pb"}, 0)
-	if metricFamily(families, "dropcheck_festival_run_success") != nil {
-		t.Fatalf("run metrics should not be emitted for a decode failure")
-	}
-}
-
-func step(groupIndex uint32, group string, stepIndex uint32, name string, started, finished int64, command *controlpb.RunCommand, result *controlpb.CommandResult) *controlpb.StandaloneMeasurementStep {
-	return &controlpb.StandaloneMeasurementStep{
-		WifiGroupIndex: groupIndex,
-		WifiGroupName:  group,
-		StepIndex:      stepIndex,
-		StepName:       name,
-		StartedUnixMs:  started,
-		FinishedUnixMs: finished,
-		Command:        command,
-		Result:         result,
-	}
-}
-
-func assertMetric(t *testing.T, families []*dto.MetricFamily, name string, labels map[string]string, want float64) {
-	t.Helper()
-	family := metricFamily(families, name)
-	if family == nil {
-		t.Fatalf("metric %s not found", name)
-	}
-	for _, metric := range family.GetMetric() {
-		if metricHasLabels(metric, labels) {
-			if got := metric.GetGauge().GetValue(); got != want {
-				t.Fatalf("metric %s value = %v, want %v labels=%v", name, got, want, labels)
-			}
-			return
-		}
-	}
-	t.Fatalf("metric %s with labels %v not found", name, labels)
-}
-
-func metricFamily(families []*dto.MetricFamily, name string) *dto.MetricFamily {
-	for _, family := range families {
-		if family.GetName() == name {
-			return family
-		}
-	}
-	return nil
-}
-
-func metricHasLabels(metric *dto.Metric, labels map[string]string) bool {
-	for key, want := range labels {
-		found := false
-		for _, label := range metric.GetLabel() {
-			if label.GetName() == key {
-				found = label.GetValue() == want
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-	return true
 }
