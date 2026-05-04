@@ -12,10 +12,14 @@ import (
 
 // ObjectRef identifies a MinIO object that may contain a standalone run archive.
 type ObjectRef struct {
+	// Bucket is the source bucket name when supplied by notifications.
 	Bucket string
-	Key    string
-	ETag   string
-	Size   int64
+	// Key is the object key inside the bucket.
+	Key string
+	// ETag is the object entity tag used for in-memory deduplication.
+	ETag string
+	// Size is the object size in bytes used for in-memory deduplication.
+	Size int64
 }
 
 func (o ObjectRef) signature() string {
@@ -33,7 +37,9 @@ func (o ObjectRef) signature() string {
 
 // ObjectStore reads standalone result objects from MinIO or a compatible store.
 type ObjectStore interface {
+	// GetObject returns the full object payload for key.
 	GetObject(ctx context.Context, key string) ([]byte, error)
+	// ListObjects returns all candidate objects under the configured prefix.
 	ListObjects(ctx context.Context) ([]ObjectRef, error)
 }
 
@@ -46,6 +52,7 @@ type MinIOStore struct {
 	limit  int64
 }
 
+// NewMinIOStore creates an ObjectStore backed by MinIO's S3-compatible client.
 func NewMinIOStore(cfg Config) (*MinIOStore, error) {
 	limit := cfg.MaxObjectBytes
 	if limit <= 0 {
@@ -67,6 +74,7 @@ func NewMinIOStore(cfg Config) (*MinIOStore, error) {
 	}, nil
 }
 
+// GetObject reads one object and enforces the configured maximum object size.
 func (s *MinIOStore) GetObject(ctx context.Context, key string) ([]byte, error) {
 	object, err := s.client.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})
 	if err != nil {
@@ -83,6 +91,7 @@ func (s *MinIOStore) GetObject(ctx context.Context, key string) ([]byte, error) 
 	return data, nil
 }
 
+// ListObjects returns matching objects under the store prefix.
 func (s *MinIOStore) ListObjects(ctx context.Context) ([]ObjectRef, error) {
 	var objects []ObjectRef
 	for info := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{

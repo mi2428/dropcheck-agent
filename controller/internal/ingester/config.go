@@ -16,24 +16,36 @@ const (
 	defaultMinIOBucket    = "dropcheck"
 	defaultObjectSuffix   = ".pb"
 	defaultPushgatewayURL = "http://pushgateway:9091"
-	defaultPushJob        = "dropcheck_festival_results"
+	defaultPushJob        = "dropcheck_results"
 	defaultBatchInterval  = time.Minute
 	defaultMaxObjectBytes = 64 << 20
 )
 
-// Config controls the Festival Results ingester runtime.
+// Config controls the Dropcheck result ingester runtime.
 type Config struct {
-	ListenAddr     string
-	MinIOEndpoint  string
+	// ListenAddr is the HTTP bind address for health checks and MinIO events.
+	ListenAddr string
+	// MinIOEndpoint is the host:port for the S3-compatible object store.
+	MinIOEndpoint string
+	// MinIOAccessKey authenticates object store reads and bucket scans.
 	MinIOAccessKey string
+	// MinIOSecretKey authenticates object store reads and bucket scans.
 	MinIOSecretKey string
-	MinIOBucket    string
-	MinIOPrefix    string
-	MinIOUseSSL    bool
-	ObjectSuffix   string
+	// MinIOBucket is the bucket containing standalone result archives.
+	MinIOBucket string
+	// MinIOPrefix limits batch backfills to one object key prefix.
+	MinIOPrefix string
+	// MinIOUseSSL enables HTTPS for the object store client.
+	MinIOUseSSL bool
+	// ObjectSuffix filters candidate result objects, normally ".pb".
+	ObjectSuffix string
+	// PushgatewayURL is the base URL of Prometheus Pushgateway.
 	PushgatewayURL string
-	PushJob        string
-	BatchInterval  time.Duration
+	// PushJob is the Pushgateway job label used for all ingested results.
+	PushJob string
+	// BatchInterval controls how often the ingester backfills missed objects.
+	BatchInterval time.Duration
+	// MaxObjectBytes caps protobuf object reads to avoid unbounded memory use.
 	MaxObjectBytes int64
 }
 

@@ -22,6 +22,7 @@ type Ingester struct {
 	processed sync.Map
 }
 
+// New creates an Ingester using the supplied object store and metric pusher.
 func New(cfg Config, store ObjectStore, pusher MetricPusher, logger *log.Logger) *Ingester {
 	if logger == nil {
 		logger = log.Default()
@@ -34,6 +35,8 @@ func New(cfg Config, store ObjectStore, pusher MetricPusher, logger *log.Logger)
 	}
 }
 
+// Run serves the notification HTTP endpoint and scheduled backfill loop until
+// ctx is canceled or either path returns a fatal error.
 func (i *Ingester) Run(ctx context.Context) error {
 	server := &http.Server{
 		Addr:              i.cfg.ListenAddr,
@@ -67,6 +70,10 @@ func (i *Ingester) Run(ctx context.Context) error {
 	}
 }
 
+// Handler returns the ingester HTTP routes.
+//
+// The handler exposes /healthz for readiness checks and /minio/events for
+// MinIO webhook notifications.
 func (i *Ingester) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -107,6 +114,7 @@ func (i *Ingester) handleNotification(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprintf(w, "processed=%d\n", len(objects))
 }
 
+// RunBatches runs an immediate backfill and then repeats it on BatchInterval.
 func (i *Ingester) RunBatches(ctx context.Context) error {
 	if err := i.ProcessBatch(ctx); err != nil {
 		i.logger.Printf("initial batch failed: %v", err)
@@ -125,6 +133,8 @@ func (i *Ingester) RunBatches(ctx context.Context) error {
 	}
 }
 
+// ProcessBatch scans the configured object prefix and processes every matching
+// result archive that has not already been seen with the same object signature.
 func (i *Ingester) ProcessBatch(ctx context.Context) error {
 	objects, err := i.store.ListObjects(ctx)
 	if err != nil {
@@ -145,6 +155,9 @@ func (i *Ingester) ProcessBatch(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
+// ProcessObject parses one object and pushes its metrics batches.
+//
+// Objects that do not match the configured prefix or suffix are ignored.
 func (i *Ingester) ProcessObject(ctx context.Context, object ObjectRef) error {
 	if !objectMatches(object.Key, i.cfg.MinIOPrefix, i.cfg.ObjectSuffix) {
 		return nil
@@ -155,19 +168,24 @@ func (i *Ingester) ProcessObject(ctx context.Context, object ObjectRef) error {
 	start := time.Now()
 	data, err := i.store.GetObject(ctx, object.Key)
 	if err != nil {
-		pushErr := i.pusher.Push(ctx, object.Key, IngestFailureMetrics(time.Since(start), "fetch_failed", err))
-		return errors.Join(fmt.Errorf("fetch object: %w", err), pushErr)
+		return fmt.Errorf("fetch object: %w", err)
 	}
 	archive := &controlpb.StandaloneRunArchive{}
 	if err := proto.Unmarshal(data, archive); err != nil {
-		pushErr := i.pusher.Push(ctx, object.Key, IngestFailureMetrics(time.Since(start), "decode_failed", err))
-		return errors.Join(fmt.Errorf("decode standalone archive: %w", err), pushErr)
+		return fmt.Errorf("decode standalone archive: %w", err)
 	}
-	if err := i.pusher.Push(ctx, object.Key, ArchiveMetrics(archive, time.Since(start))); err != nil {
-		return fmt.Errorf("push metrics: %w", err)
+	var pushErrs []error
+	batches := ArchiveMetricBatches(archive)
+	for _, batch := range batches {
+		if err := i.pusher.Push(ctx, batch); err != nil {
+			pushErrs = append(pushErrs, err)
+		}
+	}
+	if len(pushErrs) > 0 {
+		return fmt.Errorf("push metrics: %w", errors.Join(pushErrs...))
 	}
 	i.markProcessed(object)
-	i.logger.Printf("ingested key=%q run_id=%q bytes=%d", object.Key, archive.GetSummary().GetRunId(), len(data))
+	i.logger.Printf("ingested key=%q run_id=%q bytes=%d batches=%d duration=%s", object.Key, archive.GetSummary().GetRunId(), len(data), len(batches), time.Since(start))
 	return nil
 }
 

@@ -3,9 +3,7 @@ package ingester
 import (
 	"context"
 	"fmt"
-	"maps"
 	"strings"
-	"time"
 
 	"dropcheck/controller/internal/controlpb"
 	"github.com/prometheus/client_golang/prometheus"
@@ -13,30 +11,52 @@ import (
 )
 
 const (
-	MetricIngestSuccess     = "dropcheck_festival_ingest_success"
-	MetricIngestDuration    = "dropcheck_festival_ingest_duration_seconds"
-	MetricResultSuccess     = "dropcheck_festival_result_success"
-	MetricResultDuration    = "dropcheck_festival_result_duration_seconds"
-	MetricResultWifiGroups  = "dropcheck_festival_result_wifi_groups"
-	MetricResultSteps       = "dropcheck_festival_result_steps"
-	MetricResultFailedSteps = "dropcheck_festival_result_failed_steps"
-	MetricStepSuccess       = "dropcheck_festival_step_success"
-	MetricStepDuration      = "dropcheck_festival_step_duration_seconds"
-	MetricPingTransmitted   = "dropcheck_festival_ping_transmitted_packets"
-	MetricPingReceived      = "dropcheck_festival_ping_received_packets"
-	MetricPingPacketLoss    = "dropcheck_festival_ping_packet_loss_ratio"
-	MetricPingLatency       = "dropcheck_festival_ping_latency_seconds"
-	MetricDNSAnswers        = "dropcheck_festival_dns_answers"
-	MetricDNSDuration       = "dropcheck_festival_dns_duration_seconds"
-	MetricHTTPSuccess       = "dropcheck_festival_http_success"
-	MetricHTTPStatusCode    = "dropcheck_festival_http_status_code"
-	MetricHTTPDuration      = "dropcheck_festival_http_duration_seconds"
-	MetricWgetBytes         = "dropcheck_festival_wget_bytes"
-	MetricWgetThroughput    = "dropcheck_festival_wget_throughput_bytes_per_second"
-	MetricPathMTUSuccess    = "dropcheck_festival_path_mtu_success"
-	MetricPathMTUBytes      = "dropcheck_festival_path_mtu_bytes"
-	MetricGlobalIPAddresses = "dropcheck_festival_global_ip_addresses"
+	// MetricSuccess is 1 when every step in a Wi-Fi group succeeded.
+	MetricSuccess = "dropcheck_success"
+	// MetricDuration is the Wi-Fi group run duration in seconds.
+	MetricDuration = "dropcheck_duration_seconds"
+	// MetricConnectSuccess is 1 when the Wi-Fi connect step succeeded.
+	MetricConnectSuccess = "dropcheck_connect_success"
+	// MetricConnectDuration is the Wi-Fi connect step duration in seconds.
+	MetricConnectDuration = "dropcheck_connect_duration_seconds"
+	// MetricWaitConnectedSuccess is 1 when the Wi-Fi connected assertion succeeded.
+	MetricWaitConnectedSuccess = "dropcheck_wait_connected_success"
+	// MetricWaitConnectedDuration is the Wi-Fi connected assertion duration in seconds.
+	MetricWaitConnectedDuration = "dropcheck_wait_connected_duration_seconds"
+	// MetricDNSSuccess is 1 when a DNS probe succeeded.
+	MetricDNSSuccess = "dropcheck_dns_success"
+	// MetricDNSDuration is the DNS probe duration in seconds.
+	MetricDNSDuration = "dropcheck_dns_duration_seconds"
+	// MetricPingSuccess is 1 when a ping probe succeeded.
+	MetricPingSuccess = "dropcheck_ping_success"
+	// MetricPingDuration is the ping probe duration in seconds.
+	MetricPingDuration = "dropcheck_ping_duration_seconds"
+	// MetricHTTPSuccess is 1 when an HTTP probe matched its expected status.
+	MetricHTTPSuccess = "dropcheck_http_success"
+	// MetricHTTPStatusCode is the HTTP status code observed by an HTTP probe.
+	MetricHTTPStatusCode = "dropcheck_http_status_code"
+	// MetricHTTPDuration is the HTTP probe duration in seconds.
+	MetricHTTPDuration = "dropcheck_http_duration_seconds"
 )
+
+const (
+	groupingDeviceName  = "device_name"
+	groupingDeviceModel = "device_model"
+	groupingFesta       = "festa"
+	groupingWifiGroup   = "wifi_group"
+	groupingWifiESSID   = "wifi_essid"
+	groupingWifiBSSID   = "wifi_bssid"
+	labelTarget         = "target"
+)
+
+var groupingLabelNames = []string{
+	groupingDeviceName,
+	groupingDeviceModel,
+	groupingFesta,
+	groupingWifiGroup,
+	groupingWifiESSID,
+	groupingWifiBSSID,
+}
 
 type metricDef struct {
 	Help   string
@@ -44,60 +64,79 @@ type metricDef struct {
 }
 
 var metricDefs = map[string]metricDef{
-	MetricIngestSuccess:     {"Whether the ingester parsed and pushed a Festival result object.", []string{"run_id", "festa", "status", "error"}},
-	MetricIngestDuration:    {"Seconds spent ingesting a Festival result object.", []string{"run_id", "festa", "status", "error"}},
-	MetricResultSuccess:     {"Whether a Festival result archive completed without failed steps.", archiveLabels()},
-	MetricResultDuration:    {"Festival result archive duration in seconds.", archiveLabels()},
-	MetricResultWifiGroups:  {"Number of Wi-Fi groups in the Festival result archive.", archiveLabels()},
-	MetricResultSteps:       {"Number of measurement steps in the Festival result archive.", archiveLabels()},
-	MetricResultFailedSteps: {"Number of failed measurement steps in the Festival result archive.", archiveLabels()},
-	MetricStepSuccess:       {"Whether a Festival measurement step succeeded.", stepLabels()},
-	MetricStepDuration:      {"Festival measurement step duration in seconds.", stepLabels()},
-	MetricPingTransmitted:   {"Ping packets transmitted by a Festival measurement step.", append(stepLabels(), "host")},
-	MetricPingReceived:      {"Ping packets received by a Festival measurement step.", append(stepLabels(), "host")},
-	MetricPingPacketLoss:    {"Ping packet loss ratio for a Festival measurement step.", append(stepLabels(), "host")},
-	MetricPingLatency:       {"Ping latency in seconds for a Festival measurement step.", append(stepLabels(), "host", "stat")},
-	MetricDNSAnswers:        {"DNS answer count for a Festival measurement step.", append(stepLabels(), "name")},
-	MetricDNSDuration:       {"DNS resolution duration in seconds for a Festival measurement step.", append(stepLabels(), "name")},
-	MetricHTTPSuccess:       {"Whether an HTTP check matched its expected status.", append(stepLabels(), "url")},
-	MetricHTTPStatusCode:    {"HTTP status code observed by a Festival measurement step.", append(stepLabels(), "url")},
-	MetricHTTPDuration:      {"HTTP check duration in seconds for a Festival measurement step.", append(stepLabels(), "url")},
-	MetricWgetBytes:         {"Bytes read by a Festival download measurement step.", append(stepLabels(), "url")},
-	MetricWgetThroughput:    {"Download throughput in bytes per second for a Festival measurement step.", append(stepLabels(), "url")},
-	MetricPathMTUSuccess:    {"Whether path MTU discovery converged.", append(stepLabels(), "host")},
-	MetricPathMTUBytes:      {"Discovered path MTU in bytes.", append(stepLabels(), "host")},
-	MetricGlobalIPAddresses: {"Number of global IP addresses observed.", append(stepLabels(), "service", "family")},
+	MetricSuccess:               {"Whether the latest Dropcheck run for this Wi-Fi group succeeded.", nil},
+	MetricDuration:              {"Seconds spent by the latest Dropcheck run for this Wi-Fi group.", nil},
+	MetricConnectSuccess:        {"Whether the latest Wi-Fi connect step succeeded.", nil},
+	MetricConnectDuration:       {"Seconds spent by the latest Wi-Fi connect step.", nil},
+	MetricWaitConnectedSuccess:  {"Whether the latest Wi-Fi connected assertion succeeded.", nil},
+	MetricWaitConnectedDuration: {"Seconds spent by the latest Wi-Fi connected assertion.", nil},
+	MetricDNSSuccess:            {"Whether the latest DNS probe succeeded.", []string{labelTarget}},
+	MetricDNSDuration:           {"Seconds spent by the latest DNS probe.", []string{labelTarget}},
+	MetricPingSuccess:           {"Whether the latest ping probe succeeded.", []string{labelTarget}},
+	MetricPingDuration:          {"Seconds spent by the latest ping probe.", []string{labelTarget}},
+	MetricHTTPSuccess:           {"Whether the latest HTTP probe matched its expected status.", []string{labelTarget}},
+	MetricHTTPStatusCode:        {"HTTP status code observed by the latest HTTP probe.", []string{labelTarget}},
+	MetricHTTPDuration:          {"Seconds spent by the latest HTTP probe.", []string{labelTarget}},
 }
 
-// MetricSample is one gauge value to push for a Festival result object.
+// MetricSample is one gauge value inside a MetricBatch.
+//
+// Labels only contains labels that vary within a Pushgateway group. Stable labels
+// such as festa, device, and Wi-Fi identifiers live on MetricBatch.Grouping so a
+// new object upload overwrites the previous values for the same tested unit.
 type MetricSample struct {
-	Name   string
+	// Name is one of the Metric* constants.
+	Name string
+	// Labels contains per-metric labels, currently only target on probe metrics.
 	Labels map[string]string
-	Value  float64
+	// Value is the gauge value to push.
+	Value float64
 }
 
-// MetricPusher writes metric samples for one object grouping key.
+// MetricBatch is the complete Pushgateway payload for one tested Wi-Fi unit.
+//
+// Pushgateway grouping labels become Prometheus labels after scrape, but they
+// must not also appear in MetricSample.Labels. This keeps run_id and object_key
+// out of the metric identity while preserving labels needed to find a failing
+// Wi-Fi test.
+type MetricBatch struct {
+	// Grouping is the stable Pushgateway grouping for one tested Wi-Fi unit.
+	Grouping map[string]string
+	// Samples is the complete set of gauges that should replace the group.
+	Samples []MetricSample
+}
+
+// MetricPusher writes one tested Wi-Fi unit to a metrics sink.
 type MetricPusher interface {
-	Push(ctx context.Context, objectKey string, samples []MetricSample) error
+	Push(ctx context.Context, batch MetricBatch) error
 }
 
-// PushgatewayPusher pushes Festival result metrics to Prometheus Pushgateway.
+// PushgatewayPusher pushes Dropcheck result metrics to Prometheus Pushgateway.
 type PushgatewayPusher struct {
 	url string
 	job string
 }
 
+// NewPushgatewayPusher creates a pusher for the configured Pushgateway endpoint
+// and job name.
 func NewPushgatewayPusher(url, job string) *PushgatewayPusher {
 	return &PushgatewayPusher{url: strings.TrimRight(url, "/"), job: job}
 }
 
-func (p *PushgatewayPusher) Push(ctx context.Context, objectKey string, samples []MetricSample) error {
+// Push replaces the Pushgateway group for one tested Wi-Fi unit.
+func (p *PushgatewayPusher) Push(ctx context.Context, batch MetricBatch) error {
+	if len(batch.Samples) == 0 {
+		return nil
+	}
 	registry := prometheus.NewRegistry()
 	gauges := map[string]*prometheus.GaugeVec{}
-	for _, sample := range samples {
+	for _, sample := range batch.Samples {
 		def, ok := metricDefs[sample.Name]
 		if !ok {
 			return fmt.Errorf("unknown metric %q", sample.Name)
+		}
+		if err := validateSampleLabels(sample, def.Labels); err != nil {
+			return err
 		}
 		gauge, ok := gauges[sample.Name]
 		if !ok {
@@ -114,218 +153,240 @@ func (p *PushgatewayPusher) Push(ctx context.Context, objectKey string, samples 
 		}
 		gauge.With(labels).Set(sample.Value)
 	}
-	return push.New(p.url, p.job).
-		Grouping("object_key", objectKey).
-		Gatherer(registry).
-		PushContext(ctx)
+
+	pusher := push.New(p.url, p.job).Gatherer(registry)
+	for _, label := range groupingLabelNames {
+		pusher = pusher.Grouping(label, nonEmptyLabel(batch.Grouping[label], "unknown"))
+	}
+	return pusher.PushContext(ctx)
 }
 
-func ArchiveMetrics(archive *controlpb.StandaloneRunArchive, ingestDuration time.Duration) []MetricSample {
-	summary := archive.GetSummary()
-	labels := labelsForArchive(archive)
-	ingestLabels := map[string]string{
-		"run_id": labels["run_id"],
-		"festa":  labels["festa"],
-		"status": "ok",
-		"error":  "",
-	}
-	samples := []MetricSample{
-		{Name: MetricIngestSuccess, Labels: ingestLabels, Value: 1},
-		{Name: MetricIngestDuration, Labels: ingestLabels, Value: ingestDuration.Seconds()},
-		{Name: MetricResultSuccess, Labels: labels, Value: boolFloat(resultSucceeded(summary))},
-		{Name: MetricResultDuration, Labels: labels, Value: unixMillisDuration(summary.GetStartedUnixMs(), summary.GetFinishedUnixMs())},
-		{Name: MetricResultWifiGroups, Labels: labels, Value: float64(summary.GetWifiGroupCount())},
-		{Name: MetricResultSteps, Labels: labels, Value: float64(summary.GetStepCount())},
-		{Name: MetricResultFailedSteps, Labels: labels, Value: float64(summary.GetFailedStepCount())},
-	}
-	for _, step := range archive.GetSteps() {
-		samples = append(samples, stepMetrics(labels, step)...)
-	}
-	return samples
-}
-
-func IngestFailureMetrics(duration time.Duration, status string, err error) []MetricSample {
-	labels := map[string]string{
-		"run_id": "",
-		"festa":  "",
-		"status": status,
-		"error":  errorLabel(err),
-	}
-	return []MetricSample{
-		{Name: MetricIngestSuccess, Labels: labels, Value: 0},
-		{Name: MetricIngestDuration, Labels: labels, Value: duration.Seconds()},
-	}
-}
-
-func stepMetrics(archiveLabels map[string]string, step *controlpb.StandaloneMeasurementStep) []MetricSample {
-	if step == nil {
+// ArchiveMetricBatches converts a standalone result archive into one metrics
+// batch per Wi-Fi group. Each batch is intentionally keyed by stable test-unit
+// labels instead of run_id or object_key, so Pushgateway replaces old values
+// rather than accumulating one series per upload.
+func ArchiveMetricBatches(archive *controlpb.StandaloneRunArchive) []MetricBatch {
+	if archive == nil {
 		return nil
 	}
-	labels := labelsForStep(archiveLabels, step)
-	duration := stepDurationSeconds(step)
-	samples := []MetricSample{
-		{Name: MetricStepSuccess, Labels: labels, Value: boolFloat(stepSucceeded(step))},
-		{Name: MetricStepDuration, Labels: labels, Value: duration},
-	}
-	result := step.GetResult()
-	if ping := result.GetPing(); ping != nil {
-		pingLabels := cloneLabels(labels)
-		pingLabels["host"] = ping.GetHost()
-		samples = append(samples,
-			MetricSample{Name: MetricPingTransmitted, Labels: pingLabels, Value: float64(ping.GetTransmitted())},
-			MetricSample{Name: MetricPingReceived, Labels: pingLabels, Value: float64(ping.GetReceived())},
-			MetricSample{Name: MetricPingPacketLoss, Labels: pingLabels, Value: ping.GetPacketLossPercent() / 100},
-		)
-		for _, stat := range []struct {
-			name  string
-			value float64
-		}{
-			{"min", ping.GetMinMs()},
-			{"avg", ping.GetAvgMs()},
-			{"max", ping.GetMaxMs()},
-		} {
-			statLabels := cloneLabels(pingLabels)
-			statLabels["stat"] = stat.name
-			samples = append(samples, MetricSample{Name: MetricPingLatency, Labels: statLabels, Value: stat.value / 1000})
+	groups := map[string]*wifiMetricGroup{}
+	order := []string{}
+	for _, step := range archive.GetSteps() {
+		if step == nil {
+			continue
 		}
+		grouping := groupingForStep(archive, step)
+		key := groupingKey(grouping)
+		group := groups[key]
+		if group == nil {
+			group = &wifiMetricGroup{grouping: grouping}
+			groups[key] = group
+			order = append(order, key)
+		}
+		group.record(step)
+		group.samples = append(group.samples, operationMetrics(step)...)
 	}
-	if dns := result.GetResolveDns(); dns != nil {
-		dnsLabels := cloneLabels(labels)
-		dnsLabels["name"] = dns.GetName()
-		samples = append(samples,
-			MetricSample{Name: MetricDNSAnswers, Labels: dnsLabels, Value: float64(len(dns.GetAnswers()))},
-			MetricSample{Name: MetricDNSDuration, Labels: dnsLabels, Value: millisSeconds(dns.GetElapsedMs())},
-		)
+
+	batches := make([]MetricBatch, 0, len(order))
+	for _, key := range order {
+		group := groups[key]
+		samples := []MetricSample{
+			{Name: MetricSuccess, Value: boolFloat(group.succeeded())},
+			{Name: MetricDuration, Value: group.durationSeconds()},
+		}
+		samples = append(samples, group.samples...)
+		batches = append(batches, MetricBatch{
+			Grouping: group.grouping,
+			Samples:  samples,
+		})
 	}
-	if httpCheck := result.GetHttpCheck(); httpCheck != nil {
-		httpLabels := cloneLabels(labels)
-		httpLabels["url"] = httpCheck.GetUrl()
-		samples = append(samples,
-			MetricSample{Name: MetricHTTPSuccess, Labels: httpLabels, Value: boolFloat(httpCheck.GetMatched())},
-			MetricSample{Name: MetricHTTPStatusCode, Labels: httpLabels, Value: float64(httpCheck.GetStatus())},
-			MetricSample{Name: MetricHTTPDuration, Labels: httpLabels, Value: millisSeconds(httpCheck.GetElapsedMs())},
-		)
+	return batches
+}
+
+type wifiMetricGroup struct {
+	grouping       map[string]string
+	samples        []MetricSample
+	seenStep       bool
+	failed         bool
+	startedUnixMs  int64
+	finishedUnixMs int64
+	durationTotal  float64
+}
+
+func (g *wifiMetricGroup) record(step *controlpb.StandaloneMeasurementStep) {
+	g.seenStep = true
+	if !stepSucceeded(step) {
+		g.failed = true
 	}
-	if wget := result.GetWget(); wget != nil {
-		wgetLabels := cloneLabels(labels)
-		wgetLabels["url"] = wget.GetUrl()
-		samples = append(samples,
-			MetricSample{Name: MetricWgetBytes, Labels: wgetLabels, Value: float64(wget.GetBytesRead())},
-			MetricSample{Name: MetricWgetThroughput, Labels: wgetLabels, Value: wget.GetThroughputBps() / 8},
-		)
+	g.durationTotal += stepDurationSeconds(step)
+	started := step.GetStartedUnixMs()
+	finished := step.GetFinishedUnixMs()
+	if started > 0 && (g.startedUnixMs == 0 || started < g.startedUnixMs) {
+		g.startedUnixMs = started
 	}
-	if pmtu := result.GetPathMtu(); pmtu != nil {
-		pmtuLabels := cloneLabels(labels)
-		pmtuLabels["host"] = pmtu.GetHost()
-		samples = append(samples,
-			MetricSample{Name: MetricPathMTUSuccess, Labels: pmtuLabels, Value: boolFloat(pmtu.GetDiscovered())},
-			MetricSample{Name: MetricPathMTUBytes, Labels: pmtuLabels, Value: float64(pmtu.GetPathMtuBytes())},
-		)
+	if finished > g.finishedUnixMs {
+		g.finishedUnixMs = finished
 	}
-	if globalIP := result.GetGlobalIp(); globalIP != nil {
-		globalLabels := cloneLabels(labels)
-		globalLabels["service"] = globalIP.GetService()
-		globalLabels["family"] = strings.ToLower(strings.TrimPrefix(globalIP.GetRequestedFamily().String(), "IP_FAMILY_"))
-		count := 0
-		for _, address := range globalIP.GetAddresses() {
-			if address.GetGlobal() {
-				count++
+}
+
+func (g *wifiMetricGroup) succeeded() bool {
+	return g.seenStep && !g.failed
+}
+
+func (g *wifiMetricGroup) durationSeconds() float64 {
+	if duration := unixMillisDuration(g.startedUnixMs, g.finishedUnixMs); duration > 0 {
+		return duration
+	}
+	return g.durationTotal
+}
+
+func operationMetrics(step *controlpb.StandaloneMeasurementStep) []MetricSample {
+	result := step.GetResult()
+	command := step.GetCommand()
+	switch {
+	case command.GetConnectWifi() != nil || result.GetConnectWifi() != nil:
+		return []MetricSample{
+			{Name: MetricConnectSuccess, Value: boolFloat(connectSucceeded(step))},
+			{Name: MetricConnectDuration, Value: stepDurationSeconds(step)},
+		}
+	case command.GetWaitWifiConnected() != nil || result.GetWifiAssert() != nil:
+		return []MetricSample{
+			{Name: MetricWaitConnectedSuccess, Value: boolFloat(waitConnectedSucceeded(step))},
+			{Name: MetricWaitConnectedDuration, Value: waitConnectedDurationSeconds(step)},
+		}
+	case command.GetResolveDns() != nil || result.GetResolveDns() != nil:
+		dns := result.GetResolveDns()
+		target := nonEmptyLabel(firstNonEmpty(dns.GetName(), command.GetResolveDns().GetName()), "unknown")
+		labels := map[string]string{labelTarget: target}
+		return []MetricSample{
+			{Name: MetricDNSSuccess, Labels: labels, Value: boolFloat(dnsSucceeded(step))},
+			{Name: MetricDNSDuration, Labels: labels, Value: dnsDurationSeconds(step)},
+		}
+	case command.GetPing() != nil || result.GetPing() != nil:
+		ping := result.GetPing()
+		target := nonEmptyLabel(firstNonEmpty(ping.GetHost(), command.GetPing().GetHost()), "unknown")
+		labels := map[string]string{labelTarget: target}
+		return []MetricSample{
+			{Name: MetricPingSuccess, Labels: labels, Value: boolFloat(stepSucceeded(step))},
+			{Name: MetricPingDuration, Labels: labels, Value: pingDurationSeconds(step)},
+		}
+	case command.GetHttpCheck() != nil || result.GetHttpCheck() != nil:
+		httpCheck := result.GetHttpCheck()
+		target := nonEmptyLabel(firstNonEmpty(httpCheck.GetUrl(), command.GetHttpCheck().GetUrl()), "unknown")
+		labels := map[string]string{labelTarget: target}
+		return []MetricSample{
+			{Name: MetricHTTPSuccess, Labels: labels, Value: boolFloat(httpSucceeded(step))},
+			{Name: MetricHTTPStatusCode, Labels: labels, Value: float64(httpCheck.GetStatus())},
+			{Name: MetricHTTPDuration, Labels: labels, Value: httpDurationSeconds(step)},
+		}
+	default:
+		return nil
+	}
+}
+
+func groupingForStep(archive *controlpb.StandaloneRunArchive, step *controlpb.StandaloneMeasurementStep) map[string]string {
+	device := archive.GetDevice()
+	wifi := wifiGroupForStep(archive, step)
+	festaName := firstNonEmpty(archive.GetSummary().GetFestaName(), archive.GetFesta().GetName(), "unknown")
+	wifiGroupName := firstNonEmpty(step.GetWifiGroupName(), wifi.GetName(), wifiGroupFallback(step.GetWifiGroupIndex()))
+	wifiESSID := firstNonEmpty(wifi.GetEssid(), commandSSID(step.GetCommand()), resultSSID(step.GetResult()), "unknown")
+	wifiBSSID := firstNonEmpty(wifi.GetBssid(), commandBSSID(step.GetCommand()), "any")
+	return map[string]string{
+		groupingDeviceName:  nonEmptyLabel(device.GetDevice(), "unknown"),
+		groupingDeviceModel: nonEmptyLabel(device.GetModel(), "unknown"),
+		groupingFesta:       nonEmptyLabel(festaName, "unknown"),
+		groupingWifiGroup:   nonEmptyLabel(wifiGroupName, "default"),
+		groupingWifiESSID:   nonEmptyLabel(wifiESSID, "unknown"),
+		groupingWifiBSSID:   nonEmptyLabel(wifiBSSID, "any"),
+	}
+}
+
+func wifiGroupForStep(archive *controlpb.StandaloneRunArchive, step *controlpb.StandaloneMeasurementStep) *controlpb.StandaloneWifiGroup {
+	groups := archive.GetFesta().GetWifiGroups()
+	if name := strings.TrimSpace(step.GetWifiGroupName()); name != "" {
+		for _, group := range groups {
+			if group.GetName() == name {
+				return group
 			}
 		}
-		samples = append(samples, MetricSample{Name: MetricGlobalIPAddresses, Labels: globalLabels, Value: float64(count)})
 	}
-	return samples
-}
-
-func labelsForArchive(archive *controlpb.StandaloneRunArchive) map[string]string {
-	summary := archive.GetSummary()
-	device := archive.GetDevice()
-	festa := firstNonEmpty(summary.GetFestaName(), archive.GetFesta().GetName(), "unknown")
-	return map[string]string{
-		"run_id":              firstNonEmpty(summary.GetRunId(), "unknown"),
-		"festa":               festa,
-		"result_status":       firstNonEmpty(summary.GetStatus(), "unknown"),
-		"device_manufacturer": device.GetManufacturer(),
-		"device_model":        device.GetModel(),
-		"device_name":         device.GetDevice(),
+	index := step.GetWifiGroupIndex()
+	if index > 0 && int(index) <= len(groups) {
+		return groups[index-1]
 	}
+	return nil
 }
 
-func labelsForStep(archiveLabels map[string]string, step *controlpb.StandaloneMeasurementStep) map[string]string {
-	labels := map[string]string{
-		"run_id":        archiveLabels["run_id"],
-		"festa":         archiveLabels["festa"],
-		"wifi_group":    firstNonEmpty(step.GetWifiGroupName(), fmt.Sprintf("wifi_group_%d", step.GetWifiGroupIndex())),
-		"step":          firstNonEmpty(step.GetStepName(), fmt.Sprintf("step_%d", step.GetStepIndex())),
-		"command":       commandKind(step.GetCommand()),
-		"result_status": resultStatus(step),
+func groupingKey(grouping map[string]string) string {
+	parts := make([]string, 0, len(groupingLabelNames))
+	for _, label := range groupingLabelNames {
+		parts = append(parts, grouping[label])
 	}
-	return labels
+	return strings.Join(parts, "\xff")
 }
 
-func archiveLabels() []string {
-	return []string{"run_id", "festa", "result_status", "device_manufacturer", "device_model", "device_name"}
+func connectSucceeded(step *controlpb.StandaloneMeasurementStep) bool {
+	if !stepSucceeded(step) {
+		return false
+	}
+	connect := step.GetResult().GetConnectWifi()
+	return connect == nil || connect.GetConnected()
 }
 
-func stepLabels() []string {
-	return []string{"run_id", "festa", "wifi_group", "step", "command", "result_status"}
+func waitConnectedSucceeded(step *controlpb.StandaloneMeasurementStep) bool {
+	if !stepSucceeded(step) {
+		return false
+	}
+	assert := step.GetResult().GetWifiAssert()
+	return assert == nil || assert.GetPassed()
 }
 
-func resultSucceeded(summary *controlpb.StandaloneRunSummary) bool {
-	return strings.EqualFold(summary.GetStatus(), "ok") && summary.GetFailedStepCount() == 0
+func dnsSucceeded(step *controlpb.StandaloneMeasurementStep) bool {
+	if !stepSucceeded(step) {
+		return false
+	}
+	dns := step.GetResult().GetResolveDns()
+	return dns == nil || dns.GetError() == ""
+}
+
+func httpSucceeded(step *controlpb.StandaloneMeasurementStep) bool {
+	if !stepSucceeded(step) {
+		return false
+	}
+	httpCheck := step.GetResult().GetHttpCheck()
+	return httpCheck == nil || (httpCheck.GetMatched() && httpCheck.GetError() == "")
+}
+
+func waitConnectedDurationSeconds(step *controlpb.StandaloneMeasurementStep) float64 {
+	if elapsed := step.GetResult().GetWifiAssert().GetElapsedMs(); elapsed > 0 {
+		return millisSeconds(elapsed)
+	}
+	return stepDurationSeconds(step)
+}
+
+func dnsDurationSeconds(step *controlpb.StandaloneMeasurementStep) float64 {
+	if elapsed := step.GetResult().GetResolveDns().GetElapsedMs(); elapsed > 0 {
+		return millisSeconds(elapsed)
+	}
+	return stepDurationSeconds(step)
+}
+
+func pingDurationSeconds(step *controlpb.StandaloneMeasurementStep) float64 {
+	if elapsed := step.GetResult().GetPing().GetElapsedMs(); elapsed > 0 {
+		return millisSeconds(elapsed)
+	}
+	return stepDurationSeconds(step)
+}
+
+func httpDurationSeconds(step *controlpb.StandaloneMeasurementStep) float64 {
+	if elapsed := step.GetResult().GetHttpCheck().GetElapsedMs(); elapsed > 0 {
+		return millisSeconds(elapsed)
+	}
+	return stepDurationSeconds(step)
 }
 
 func stepSucceeded(step *controlpb.StandaloneMeasurementStep) bool {
 	return step.GetError() == "" && step.GetResult().GetStatus() == controlpb.CommandResult_STATUS_OK
-}
-
-func resultStatus(step *controlpb.StandaloneMeasurementStep) string {
-	if step.GetError() != "" {
-		return "error"
-	}
-	result := step.GetResult()
-	if result == nil {
-		return "missing"
-	}
-	status := strings.TrimPrefix(result.GetStatus().String(), "STATUS_")
-	status = strings.ToLower(status)
-	if status == "unspecified" {
-		return "unknown"
-	}
-	return status
-}
-
-func commandKind(command *controlpb.RunCommand) string {
-	switch {
-	case command.GetConnectWifi() != nil:
-		return "connect_wifi"
-	case command.GetWaitWifiConnected() != nil:
-		return "wait_wifi_connected"
-	case command.GetPing() != nil:
-		return "ping"
-	case command.GetResolveDns() != nil:
-		return "dns"
-	case command.GetHttpCheck() != nil:
-		return "http"
-	case command.GetWget() != nil:
-		return "wget"
-	case command.GetPathMtu() != nil:
-		return "path_mtu"
-	case command.GetGlobalIp() != nil:
-		return "global_ip"
-	case command.GetGetIpStatus() != nil:
-		return "ip_status"
-	case command.GetGetWifiStatus() != nil:
-		return "wifi_status"
-	case command.GetGetWifiScan() != nil || command.GetGetFreshWifiScan() != nil:
-		return "wifi_scan"
-	case command.GetGetWifiCapabilities() != nil:
-		return "wifi_capabilities"
-	case command.GetTraceroute() != nil:
-		return "traceroute"
-	default:
-		return "unknown"
-	}
 }
 
 func stepDurationSeconds(step *controlpb.StandaloneMeasurementStep) float64 {
@@ -333,6 +394,37 @@ func stepDurationSeconds(step *controlpb.StandaloneMeasurementStep) float64 {
 		return millisSeconds(elapsed)
 	}
 	return unixMillisDuration(step.GetStartedUnixMs(), step.GetFinishedUnixMs())
+}
+
+func commandSSID(command *controlpb.RunCommand) string {
+	return firstNonEmpty(
+		command.GetConnectWifi().GetSsid(),
+		command.GetWaitWifiConnected().GetSsid(),
+		command.GetResolveDns().GetSelector().GetSsid(),
+		command.GetPing().GetSelector().GetSsid(),
+		command.GetHttpCheck().GetSelector().GetSsid(),
+	)
+}
+
+func commandBSSID(command *controlpb.RunCommand) string {
+	return firstNonEmpty(
+		command.GetConnectWifi().GetBssid(),
+		command.GetWaitWifiConnected().GetBssid(),
+	)
+}
+
+func resultSSID(result *controlpb.CommandResult) string {
+	return firstNonEmpty(
+		result.GetConnectWifi().GetSsid(),
+		result.GetWifiAssert().GetStatus().GetConnection().GetSsid(),
+	)
+}
+
+func wifiGroupFallback(index uint32) string {
+	if index == 0 {
+		return "default"
+	}
+	return fmt.Sprintf("wifi_group_%d", index)
 }
 
 func unixMillisDuration(start, finish int64) float64 {
@@ -365,26 +457,31 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func cloneLabels(labels map[string]string) map[string]string {
-	out := make(map[string]string, len(labels)+2)
-	maps.Copy(out, labels)
-	return out
+func nonEmptyLabel(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value != "" {
+		return value
+	}
+	return fallback
 }
 
-func errorLabel(err error) string {
-	if err == nil {
-		return ""
-	}
-	name := err.Error()
-	if idx := strings.Index(name, ":"); idx >= 0 {
-		name = name[:idx]
-	}
-	name = strings.ToLower(name)
-	name = strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
-			return r
+func validateSampleLabels(sample MetricSample, labels []string) error {
+	for _, label := range labels {
+		if strings.TrimSpace(sample.Labels[label]) == "" {
+			return fmt.Errorf("%s missing label %q", sample.Name, label)
 		}
-		return '_'
-	}, name)
-	return strings.Trim(name, "_")
+	}
+	for label := range sample.Labels {
+		found := false
+		for _, want := range labels {
+			if label == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("%s has unexpected label %q", sample.Name, label)
+		}
+	}
+	return nil
 }
