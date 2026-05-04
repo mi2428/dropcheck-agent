@@ -33,16 +33,16 @@ const (
 	envChannelWidth     = "DROPCHECK_FESTIVAL_WIFI_CHANNEL_WIDTH"
 )
 
-func TestDropcheckFestivalEnv(t *testing.T) {
+func TestFestivalSmoke(t *testing.T) {
 	ssid := os.Getenv(envSSID)
 	pskEnv := os.Getenv(envPSKName)
 	if pskEnv == "" {
 		pskEnv = envPSK
 	}
 	if ssid == "" || os.Getenv(pskEnv) == "" {
-		t.Skipf("set %s and %s to run the Dropcheck Festival scenario", envSSID, pskEnv)
+		t.Skipf("set %s and %s to run the Dropcheck Festival smoke test", envSSID, pskEnv)
 	}
-	network := f.WiFi("env-wifi").
+	network := f.WiFi("smoke-wifi").
 		SSID(ssid).
 		PSKEnv(pskEnv).
 		BSSID(os.Getenv(envBSSID)).
