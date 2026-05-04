@@ -44,7 +44,7 @@ object TerminalLog {
     }
 
     /**
-     * Writes one formatted line to logcat, terminal.log, and the activity broadcast.
+     * Writes one formatted line to logcat, terminal.log, and in-process listeners.
      *
      * The method is synchronized so file trim/append operations remain ordered
      * across gRPC, command, and heartbeat executors.
