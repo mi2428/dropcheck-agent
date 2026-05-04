@@ -344,6 +344,53 @@ func TestParseShellStandaloneCommands(t *testing.T) {
 		t.Fatalf("upload wifi edits = %#v", edits)
 	}
 
+	wifiMatch, err := parseShellLineForTest("config> set standalone festa smoke wifi mgmt match essid NOC mac-randomization non-persistent")
+	if err != nil {
+		t.Fatalf("set standalone festa wifi match: %v", err)
+	}
+	cmd, _, err = buildRunCommand(wifiMatch.operation)
+	if err != nil {
+		t.Fatalf("build wifi match command: %v", err)
+	}
+	edits = cmd.GetEditStandaloneConfig().GetEdits()
+	if len(edits) != 2 ||
+		strings.Join(edits[0].GetPath(), "/") != "festa/smoke/wifi/mgmt/match/essid" ||
+		edits[0].GetValue() != "NOC" ||
+		strings.Join(edits[1].GetPath(), "/") != "festa/smoke/wifi/mgmt/mac_randomization" ||
+		edits[1].GetValue() != "non-persistent" {
+		t.Fatalf("wifi match edits = %#v", edits)
+	}
+
+	wifiPassphrase, err := parseShellLineForTest("config> set standalone festa smoke wifi mgmt passphrase secret security wpa3")
+	if err != nil {
+		t.Fatalf("set standalone festa wifi passphrase: %v", err)
+	}
+	cmd, _, err = buildRunCommand(wifiPassphrase.operation)
+	if err != nil {
+		t.Fatalf("build wifi passphrase command: %v", err)
+	}
+	edits = cmd.GetEditStandaloneConfig().GetEdits()
+	if len(edits) != 2 ||
+		strings.Join(edits[0].GetPath(), "/") != "festa/smoke/wifi/mgmt/passphrase" ||
+		edits[0].GetValue() != "secret" ||
+		strings.Join(edits[1].GetPath(), "/") != "festa/smoke/wifi/mgmt/security" ||
+		edits[1].GetValue() != "wpa3" {
+		t.Fatalf("wifi passphrase edits = %#v", edits)
+	}
+
+	delWifi, err := parseShellLineForTest("config> delete standalone festa smoke wifi mgmt")
+	if err != nil {
+		t.Fatalf("delete standalone festa wifi: %v", err)
+	}
+	cmd, _, err = buildRunCommand(delWifi.operation)
+	if err != nil {
+		t.Fatalf("build delete wifi command: %v", err)
+	}
+	edits = cmd.GetEditStandaloneConfig().GetEdits()
+	if len(edits) != 1 || edits[0].GetAction() != controlpb.StandaloneEdit_ACTION_DELETE || strings.Join(edits[0].GetPath(), "/") != "festa/smoke/wifi/mgmt" {
+		t.Fatalf("delete wifi edits = %#v", edits)
+	}
+
 	del, err := parseShellLineForTest("config> delete standalone festa smoke")
 	if err != nil {
 		t.Fatalf("delete standalone festa: %v", err)
@@ -369,9 +416,9 @@ func TestParseStandaloneSyncLimitRejectsZero(t *testing.T) {
 }
 
 func TestParseShellSetEnabledWithoutRequiredValues(t *testing.T) {
-	_, err := parseShellLineForTest("config> set standalone festa lab wifi-group office match")
-	if err == nil || !strings.Contains(err.Error(), "wifi-group <name> <match|credential|security|band|wait|timeout>") {
-		t.Fatalf("set standalone wifi-group match error = %v", err)
+	_, err := parseShellLineForTest("config> set standalone festa lab wifi office match")
+	if err == nil || !strings.Contains(err.Error(), "wifi <name> match <essid|bssid> <value>") {
+		t.Fatalf("set standalone wifi match error = %v", err)
 	}
 }
 
@@ -857,6 +904,30 @@ func TestShellOptionCompletion(t *testing.T) {
 		{
 			line: "request> wifi connect Lab mac-randomization ",
 			want: []string{"auto", "none", "persistent", "non-persistent"},
+		},
+		{
+			line: "config> set standalone festa smoke ",
+			want: []string{"enabled", "disabled", "interval", "wifi", "check"},
+		},
+		{
+			line: "config> set standalone festa smoke wifi mgmt ",
+			want: []string{"match", "passphrase", "band", "wait", "timeout"},
+		},
+		{
+			line: "config> set standalone festa smoke wifi mgmt match ",
+			want: []string{"essid", "bssid"},
+		},
+		{
+			line: "config> set standalone festa smoke wifi mgmt match essid Lab mac-randomization ",
+			want: []string{"auto", "none", "persistent", "non-persistent"},
+		},
+		{
+			line: "config> set standalone festa smoke wifi mgmt passphrase secret ",
+			want: []string{"security"},
+		},
+		{
+			line: "config> set standalone festa smoke wifi mgmt passphrase secret security ",
+			want: []string{"auto", "wpa2", "wpa3", "transition"},
 		},
 		{
 			line: "request> wifi wait connected security ",

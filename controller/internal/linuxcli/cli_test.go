@@ -387,6 +387,44 @@ func TestParseAgentCommandSurface(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "set standalone festa wifi match",
+			args: []string{"configure", "set", "standalone", "festa", "smoke", "wifi", "mgmt", "match", "essid", "NOC", "mac-randomization", "auto"},
+			check: func(t *testing.T, run *controlpb.RunCommand) {
+				t.Helper()
+				edit := run.GetEditStandaloneConfig()
+				if edit == nil {
+					t.Fatalf("command = %T, want EditStandaloneConfig", run.GetCommand())
+				}
+				edits := edit.GetEdits()
+				if len(edits) != 2 ||
+					strings.Join(edits[0].GetPath(), ".") != "festa.smoke.wifi.mgmt.match.essid" ||
+					edits[0].GetValue() != "NOC" ||
+					strings.Join(edits[1].GetPath(), ".") != "festa.smoke.wifi.mgmt.mac_randomization" ||
+					edits[1].GetValue() != "auto" {
+					t.Fatalf("standalone festa wifi match edits = %#v", edits)
+				}
+			},
+		},
+		{
+			name: "set standalone festa wifi passphrase",
+			args: []string{"configure", "set", "standalone", "festa", "smoke", "wifi", "mgmt", "passphrase", "secret", "security", "transition"},
+			check: func(t *testing.T, run *controlpb.RunCommand) {
+				t.Helper()
+				edit := run.GetEditStandaloneConfig()
+				if edit == nil {
+					t.Fatalf("command = %T, want EditStandaloneConfig", run.GetCommand())
+				}
+				edits := edit.GetEdits()
+				if len(edits) != 2 ||
+					strings.Join(edits[0].GetPath(), ".") != "festa.smoke.wifi.mgmt.passphrase" ||
+					edits[0].GetValue() != "secret" ||
+					strings.Join(edits[1].GetPath(), ".") != "festa.smoke.wifi.mgmt.security" ||
+					edits[1].GetValue() != "transition" {
+					t.Fatalf("standalone festa wifi passphrase edits = %#v", edits)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {

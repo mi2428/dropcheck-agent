@@ -41,12 +41,12 @@ configure mode:
   set standalone upload via wifi essid <essid> passphrase <psk> [security <auto|wpa2|wpa3|transition>]
   set standalone festa <name> enabled
   set standalone festa <name> interval <duration>
-  set standalone festa <name> wifi-group <name> match <essid|bssid> <value>
-  set standalone festa <name> wifi-group <name> credential passphrase <value>
+  set standalone festa <name> wifi <name> match <essid|bssid> <value> [mac-randomization <mode>]
+  set standalone festa <name> wifi <name> passphrase <passphrase> [security <auto|wpa2|wpa3|transition>]
   set standalone festa <name> check dns name <domain> [type <A|AAAA|ALL>] [timeout <duration>]
   set standalone festa <name> check ping host <host> [count <n>] [timeout <duration>]
   set standalone festa <name> check http url <url> [expected-status <code>] [timeout <duration>]
-  delete standalone [upload|upload to|upload via wifi|festa <name>|festa <name> wifi-group <name>|festa <name> check <dns|ping|http>]
+  delete standalone [upload|upload to|upload via wifi|festa <name>|festa <name> wifi <name>|festa <name> check <dns|ping|http>]
   run show <devices|config|wifi|standalone>
   run clear standalone runs [synced|all]
   run sync standalone runs [output <dir>] [limit <n>] [mark-synced|keep-unsynced]
@@ -1555,13 +1555,38 @@ func setStandaloneCompletionCandidates(args []string) []string {
 	case args[0] == "festa" && len(args) == 1:
 		return []string{"<name>"}
 	case args[0] == "festa" && len(args) == 2:
-		return []string{"enabled", "disabled", "interval", "wifi-group", "check"}
-	case args[0] == "festa" && len(args) >= 3 && args[2] == "wifi-group":
+		return []string{"enabled", "disabled", "interval", "wifi", "check"}
+	case args[0] == "festa" && len(args) >= 3 && args[2] == "wifi":
 		if len(args) == 3 {
 			return []string{"<name>"}
 		}
 		if len(args) == 4 {
-			return []string{"match", "credential", "security", "band", "wait", "timeout"}
+			return []string{"match", "passphrase", "band", "wait", "timeout"}
+		}
+		if len(args) >= 5 && args[4] == "match" {
+			options := []completionOption{{name: "mac-randomization", values: wifiMacRandomizationValues()}}
+			if len(args) == 5 {
+				return []string{"essid", "bssid"}
+			}
+			if len(args) == 6 {
+				return []string{"<value>"}
+			}
+			state := scanCompletionArgs("set standalone festa wifi match option", args[7:], options)
+			if state.pending != nil {
+				return optionValueCandidates(*state.pending)
+			}
+			return optionAndPositionalCandidates(state, options, 0)
+		}
+		if len(args) >= 5 && args[4] == "passphrase" {
+			options := []completionOption{{name: "security", values: wifiConnectSecurityValues()}}
+			if len(args) == 5 {
+				return []string{"<passphrase>"}
+			}
+			state := scanCompletionArgs("set standalone festa wifi passphrase option", args[6:], options)
+			if state.pending != nil {
+				return optionValueCandidates(*state.pending)
+			}
+			return optionAndPositionalCandidates(state, options, 0)
 		}
 	case args[0] == "festa" && len(args) >= 3 && args[2] == "check":
 		if len(args) == 3 {

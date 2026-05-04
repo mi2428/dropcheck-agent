@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	// MetricSuccess is 1 when every step in a Wi-Fi group succeeded.
+	// MetricSuccess is 1 when every step in a Wi-Fi target succeeded.
 	MetricSuccess = "dropcheck_success"
-	// MetricDuration is the Wi-Fi group run duration in seconds.
+	// MetricDuration is the Wi-Fi target run duration in seconds.
 	MetricDuration = "dropcheck_duration_seconds"
 	// MetricConnectSuccess is 1 when the Wi-Fi connect step succeeded.
 	MetricConnectSuccess = "dropcheck_connect_success"
@@ -68,8 +68,8 @@ type metricDef struct {
 }
 
 var metricDefs = map[string]metricDef{
-	MetricSuccess:               {"Whether the latest Dropcheck run for this Wi-Fi group succeeded.", nil},
-	MetricDuration:              {"Seconds spent by the latest Dropcheck run for this Wi-Fi group.", nil},
+	MetricSuccess:               {"Whether the latest Dropcheck run for this Wi-Fi target succeeded.", nil},
+	MetricDuration:              {"Seconds spent by the latest Dropcheck run for this Wi-Fi target.", nil},
 	MetricConnectSuccess:        {"Whether the latest Wi-Fi connect step succeeded.", nil},
 	MetricConnectDuration:       {"Seconds spent by the latest Wi-Fi connect step.", nil},
 	MetricWaitConnectedSuccess:  {"Whether the latest Wi-Fi connected assertion succeeded.", nil},
@@ -208,7 +208,7 @@ func pushgatewayPathValue(value string) string {
 }
 
 // ArchiveMetricBatches converts a standalone result archive into one metrics
-// batch per Wi-Fi group. Each batch is intentionally keyed by stable test-unit
+// batch per Wi-Fi target. Each batch is intentionally keyed by stable test-unit
 // labels instead of run_id or object_key, so Pushgateway replaces old values
 // rather than accumulating one series per upload.
 func ArchiveMetricBatches(archive *controlpb.StandaloneRunArchive) []MetricBatch {
