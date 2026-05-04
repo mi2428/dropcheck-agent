@@ -44,6 +44,7 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -53,15 +54,25 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	commandparse "dropcheck/controller/internal/command"
+	"dropcheck/controller/internal/controlpb"
 	f "dropcheck/controller/internal/festival"
+	"dropcheck/controller/internal/festival/capabilities"
 	"dropcheck/controller/internal/festival/dns"
+	"dropcheck/controller/internal/festival/globalip"
+	"dropcheck/controller/internal/festival/ip"
 	"dropcheck/controller/internal/festival/ping"
+	"dropcheck/controller/internal/festival/pmtu"
+	"dropcheck/controller/internal/festival/scan"
+	"dropcheck/controller/internal/festival/trace"
+	"dropcheck/controller/internal/festival/wifi"
 	"dropcheck/controller/internal/linuxcli"
 	"dropcheck/controller/internal/shell"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -84,12 +95,17 @@ const (
 	defaultPSKEnv = "DROPCHECK_E2E_WIFI_PSK"
 
 	standaloneUploadFesta  = "upload-e2e"
+	standaloneFailureFesta = "upload-failure-e2e"
+	standaloneArchiveFesta = "archive-e2e"
+	standaloneCLIFesta     = "cli-e2e"
 	standaloneUploadBucket = "dropcheck"
 	standaloneUploadPrefix = "e2e"
 	standaloneDNSName      = "example.com"
 	standalonePingHost     = "1.1.1.1"
 	standaloneHTTPURL      = "http://connectivitycheck.gstatic.com/generate_204"
 	defaultMinIOAPIPort    = "8080"
+
+	festivalReplayChildEnv = "DROPCHECK_E2E_FESTIVAL_REPLAY_CHILD"
 )
 
 type matrixCase struct {
@@ -224,22 +240,8 @@ func TestFestivalDSLLive(t *testing.T) {
 
 func TestStandaloneUploadToMinIOLive(t *testing.T) {
 	cfg := loadConfig(t)
-	if !cfg.live {
-		t.Skipf("set %s=1 to run live standalone upload E2E", envLive)
-	}
-	if cfg.serial == "" {
-		t.Skipf("%s or ADB_SERIAL is required", envSerial)
-	}
-	if cfg.ssid == "" || cfg.psk == "" {
-		t.Skipf("%s and %s are required for standalone upload E2E", envSSID, envPSK)
-	}
-	cfg.prepareLive(t, []matrixCase{{
-		ID:      "standalone-upload-minio",
-		Title:   "Shell standalone upload MinIO",
-		Runner:  "shell",
-		Command: "show devices",
-		Expect:  "ok",
-	}})
+	requireLiveStandalone(t, cfg, "standalone upload E2E")
+	cfg.prepareStandaloneLive(t, "standalone-upload-minio", "Shell standalone upload MinIO")
 	uploadURL := cfg.ensureStandaloneUploadURL(t)
 	if cfg.managedMinIO {
 		cfg.clearStandaloneUploadObjects(t)
@@ -254,22 +256,18 @@ func TestStandaloneUploadToMinIOLive(t *testing.T) {
 	ssid, psk := cfg.ssid, cfg.psk
 	t.Logf("standalone upload live target=%s wifi_ssid=%q", uploadURL, ssid)
 
-	preClean := []string{
-		"config> set standalone disabled",
-		"clear standalone runs all",
-		"config> delete standalone upload",
-		"config> delete standalone festa " + standaloneUploadFesta,
-	}
-	for _, line := range preClean {
-		cfg.runShellLiveCommand(t, line, 45*time.Second)
-	}
+	cfg.resetStandaloneFesta(t, standaloneUploadFesta)
 
 	commands := []string{
 		"config> set standalone upload to " + quoteToken(uploadURL),
-		fmt.Sprintf("config> set standalone upload via wifi essid %s passphrase %s security auto timeout 25000", quoteToken(ssid), quoteToken(psk)),
+		fmt.Sprintf("config> set standalone upload via wifi essid %s passphrase %s security auto band all mac-randomization auto timeout 25000", quoteToken(ssid), quoteToken(psk)),
+		fmt.Sprintf("config> set standalone festa %s interval 2s", standaloneUploadFesta),
 		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt match essid %s", standaloneUploadFesta, quoteToken(ssid)),
 		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt credential passphrase %s", standaloneUploadFesta, quoteToken(psk)),
 		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt security auto", standaloneUploadFesta),
+		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt band all", standaloneUploadFesta),
+		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt wait ip", standaloneUploadFesta),
+		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt wait validated", standaloneUploadFesta),
 		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt timeout 25000", standaloneUploadFesta),
 		fmt.Sprintf("config> set standalone festa %s check dns name %s type A timeout 8000", standaloneUploadFesta, standaloneDNSName),
 		fmt.Sprintf("config> set standalone festa %s check ping host %s count 1 timeout 8000", standaloneUploadFesta, standalonePingHost),
@@ -294,6 +292,163 @@ func TestStandaloneUploadToMinIOLive(t *testing.T) {
 			f.StandaloneArchiveBytes("minio-upload", archive),
 		},
 		Checks: standaloneFestivalChecks(),
+	})
+}
+
+func TestStandaloneUploadFailureKeepsPendingRunLive(t *testing.T) {
+	cfg := loadConfig(t)
+	requireLiveStandalone(t, cfg, "standalone upload failure E2E")
+	cfg.prepareStandaloneLive(t, "standalone-upload-failure", "Shell standalone upload failure")
+	uploadURL, requests := cfg.startStandaloneUploadHTTPServer(t, http.StatusInternalServerError, "forced standalone upload failure")
+	t.Cleanup(func() {
+		cfg.runShellCleanup("config> set standalone disabled")
+		cfg.runShellCleanup("clear standalone runs all")
+		cfg.runShellCleanup("config> delete standalone upload")
+		cfg.runShellCleanup("config> delete standalone festa " + standaloneFailureFesta)
+	})
+	cfg.resetStandaloneFesta(t, standaloneFailureFesta)
+
+	ssid, psk := cfg.ssid, cfg.psk
+	commands := []string{
+		"config> set standalone upload to " + quoteToken(uploadURL),
+		fmt.Sprintf("config> set standalone upload via wifi essid %s passphrase %s security auto timeout 25000", quoteToken(ssid), quoteToken(psk)),
+		fmt.Sprintf("config> set standalone festa %s interval 2s", standaloneFailureFesta),
+		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt match essid %s", standaloneFailureFesta, quoteToken(ssid)),
+		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt credential passphrase %s", standaloneFailureFesta, quoteToken(psk)),
+		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt security auto", standaloneFailureFesta),
+		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt wait ip", standaloneFailureFesta),
+		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt timeout 25000", standaloneFailureFesta),
+		fmt.Sprintf("config> set standalone festa %s check ping host %s count 1 timeout 8000", standaloneFailureFesta, standalonePingHost),
+		fmt.Sprintf("config> set standalone festa %s enabled", standaloneFailureFesta),
+		"config> set standalone enabled",
+	}
+	for _, line := range commands {
+		cfg.runShellLiveCommand(t, line, 90*time.Second)
+	}
+
+	status := cfg.waitStandaloneStatusMatch(t, standaloneUploadStopped, 2*time.Minute)
+	stored, unsynced := standaloneStatusCounts(t, status)
+	if requests.Load() == 0 {
+		t.Fatalf("failure upload server did not receive a PUT; status=%s", oneLine(redact(status, psk)))
+	}
+	if stored == 0 || unsynced == 0 {
+		t.Fatalf("failed standalone upload did not leave an unsynced run: stored=%d unsynced=%d status=%s", stored, unsynced, oneLine(redact(status, psk)))
+	}
+	runs := cfg.runShellLiveCommand(t, "show standalone runs limit 5", 35*time.Second)
+	if !strings.Contains(runs, standaloneFailureFesta) || !strings.Contains(runs, "false") {
+		t.Fatalf("failed upload run was not visible as unsynced: %s", oneLine(redact(runs, psk)))
+	}
+}
+
+func TestStandaloneArchiveLifecycleLive(t *testing.T) {
+	cfg := loadConfig(t)
+	requireLiveStandalone(t, cfg, "standalone archive lifecycle E2E")
+	cfg.prepareStandaloneLive(t, "standalone-archive-lifecycle", "Shell standalone archive lifecycle")
+	t.Cleanup(func() {
+		cfg.runShellCleanup("config> set standalone disabled")
+		cfg.runShellCleanup("clear standalone runs all")
+		cfg.runShellCleanup("config> delete standalone festa " + standaloneArchiveFesta)
+	})
+	cfg.resetStandaloneFesta(t, standaloneArchiveFesta)
+	cfg.configureStandalonePingFesta(t, standaloneArchiveFesta, "mgmt")
+
+	runOutput := cfg.runShellLiveCommand(t, "request> standalone run once festa "+standaloneArchiveFesta+" save", 90*time.Second)
+	runID := requireStandaloneRunID(t, runOutput)
+	detail := cfg.runShellLiveCommand(t, "show standalone run "+quoteToken(runID), 35*time.Second)
+	assertStandaloneRunDetail(t, detail, runID, standaloneArchiveFesta, false)
+
+	keepDir := filepath.Join(t.TempDir(), "keep")
+	syncKeep := cfg.runShellLiveCommand(t, "sync standalone runs output "+quoteToken(keepDir)+" limit 1 keep-unsynced", 60*time.Second)
+	assertSyncedArchiveFile(t, keepDir, runID, syncKeep)
+	detail = cfg.runShellLiveCommand(t, "show standalone run "+quoteToken(runID), 35*time.Second)
+	assertStandaloneRunDetail(t, detail, runID, standaloneArchiveFesta, false)
+
+	markDir := filepath.Join(t.TempDir(), "mark")
+	syncMark := cfg.runShellLiveCommand(t, "sync standalone runs output "+quoteToken(markDir)+" limit 1 mark-synced", 60*time.Second)
+	assertSyncedArchiveFile(t, markDir, runID, syncMark)
+	detail = cfg.runShellLiveCommand(t, "show standalone run "+quoteToken(runID), 35*time.Second)
+	assertStandaloneRunDetail(t, detail, runID, standaloneArchiveFesta, true)
+}
+
+func TestStandaloneCLIParityLive(t *testing.T) {
+	cfg := loadConfig(t)
+	requireLiveStandalone(t, cfg, "standalone CLI parity E2E")
+	cfg.prepareStandaloneLive(t, "standalone-cli-parity", "CLI standalone parity")
+	t.Cleanup(func() {
+		cfg.runShellCleanup("config> set standalone disabled")
+		cfg.runShellCleanup("clear standalone runs all")
+		cfg.runShellCleanup("config> delete standalone festa " + standaloneCLIFesta)
+	})
+	cfg.resetStandaloneFesta(t, standaloneCLIFesta)
+
+	cfg.runCLILiveCommand(t, 45*time.Second, "configure", "set", "standalone", "festa", standaloneCLIFesta, "wifi-group", "mgmt", "match", "essid", cfg.ssid)
+	cfg.runCLILiveCommand(t, 45*time.Second, "configure", "set", "standalone", "festa", standaloneCLIFesta, "wifi-group", "mgmt", "credential", "passphrase", cfg.psk)
+	cfg.runCLILiveCommand(t, 45*time.Second, "configure", "set", "standalone", "festa", standaloneCLIFesta, "wifi-group", "mgmt", "security", "auto")
+	cfg.runCLILiveCommand(t, 45*time.Second, "configure", "set", "standalone", "festa", standaloneCLIFesta, "wifi-group", "mgmt", "wait", "ip")
+	cfg.runCLILiveCommand(t, 45*time.Second, "configure", "set", "standalone", "festa", standaloneCLIFesta, "check", "ping", "host", standalonePingHost, "count", "1", "timeout", "8000")
+	cfg.runCLILiveCommand(t, 45*time.Second, "configure", "set", "standalone", "festa", standaloneCLIFesta, "enabled")
+
+	runOutput := cfg.runCLILiveCommand(t, 90*time.Second, "request", "standalone", "run", "once", "--festa", standaloneCLIFesta, "--save")
+	runID := requireStandaloneRunID(t, runOutput)
+	status := cfg.runCLILiveCommand(t, 35*time.Second, "show", "standalone", "status")
+	if !strings.Contains(status, "Standalone:") {
+		t.Fatalf("CLI standalone status did not render standalone status: %s", oneLine(redact(status, cfg.psk)))
+	}
+	detail := cfg.runCLILiveCommand(t, 35*time.Second, "show", "standalone", "run", runID)
+	assertStandaloneRunDetail(t, detail, runID, standaloneCLIFesta, false)
+}
+
+func TestFestivalStandaloneResultReplayScenarios(t *testing.T) {
+	archive := standaloneReplayArchiveFixture()
+	f.Run(t, f.Plan{
+		Name: "standalone-replay-e2e-fixture",
+		Results: []f.ResultSource{
+			f.StandaloneArchive("full-standalone-archive", archive),
+			f.StandaloneArchiveBytes("full-standalone-archive-bytes", mustMarshalStandaloneArchive(t, archive)),
+		},
+		Checks: standaloneReplayChecks(),
+	})
+
+	for _, tc := range []struct {
+		name string
+		want string
+	}{
+		{name: "missing_wait", want: "wait_connected missing from standalone result"},
+		{name: "failed_connect", want: "connect status=STATUS_FAILED"},
+		{name: "missing_ping", want: "no archived ping step"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runFestivalReplayFailureChild(t, tc.name, tc.want)
+		})
+	}
+}
+
+func TestFestivalStandaloneResultReplayFailureChild(t *testing.T) {
+	name := os.Getenv(festivalReplayChildEnv)
+	if name == "" {
+		t.Skipf("set %s to run a failing replay fixture child", festivalReplayChildEnv)
+	}
+	archive := standaloneReplayArchiveFixture()
+	switch name {
+	case "missing_wait":
+		archive.Steps = removeStandaloneStep(archive.GetSteps(), "wait_connected")
+	case "failed_connect":
+		step := archive.GetSteps()[0]
+		step.Result = &controlpb.CommandResult{
+			Status:  controlpb.CommandResult_STATUS_FAILED,
+			Message: "forced connect failure",
+		}
+	case "missing_ping":
+		archive.Steps = removeStandaloneStep(archive.GetSteps(), "ping")
+	default:
+		t.Fatalf("unknown replay failure fixture %q", name)
+	}
+	f.Run(t, f.Plan{
+		Name: "standalone-replay-failure-" + name,
+		Results: []f.ResultSource{
+			f.StandaloneArchive(name, archive),
+		},
+		Checks: standaloneReplayChecks(),
 	})
 }
 
@@ -329,6 +484,555 @@ func standaloneFestivalChecks() []f.Check {
 				return nil
 			})),
 	}
+}
+
+func standaloneReplayChecks() []f.Check {
+	checks := []f.Check{
+		f.IPStatus().
+			Expect(
+				ip.Validated().IsTrue(),
+				ip.Internet().IsTrue(),
+				ip.IPv4Address().InCIDR("192.168.10.0/24"),
+				ip.MTU().Ge(1280),
+			),
+		f.WiFiStatus().
+			Expect(
+				wifi.Enabled().IsTrue(),
+				wifi.SSID().Eq("Lab"),
+				wifi.BSSID().Eq("aa:bb:cc:dd:ee:ff"),
+				wifi.Standard().Eq("be"),
+				wifi.Band().Eq("6ghz"),
+			),
+		f.WiFiScan().
+			Fresh().
+			Band("6ghz").
+			Timeout(5 * time.Second).
+			Expect(
+				scan.APs().
+					SSID("Lab").
+					BSSID("aa:bb:cc:dd:ee:ff").
+					Standard("be").
+					Channel(37).
+					Security("wpa3_sae").
+					Exists(),
+			),
+		f.WiFiCapabilities().
+			Expect(
+				capabilities.Band("6ghz").Supported(),
+				capabilities.Standard("be").Supported(),
+				capabilities.Security("wpa3_sae").Supported(),
+				capabilities.ErrorCount().Eq(0),
+			),
+		f.GlobalIP().
+			IPv4().
+			Expect(globalip.AddressCount().Ge(1)),
+		f.PathMTU("8.8.8.8").
+			Min(1200).
+			Max(1500).
+			Expect(pmtu.Discovered().IsTrue(), pmtu.PathMTU().Ge(1200)),
+		f.Traceroute("8.8.8.8").
+			MaxHops(30).
+			Expect(trace.OutputContains("8.8.8.8")),
+	}
+	return append(checks, standaloneFestivalChecks()...)
+}
+
+func requireLiveStandalone(t *testing.T, cfg *e2eConfig, name string) {
+	t.Helper()
+	if !cfg.live {
+		t.Skipf("set %s=1 to run live %s", envLive, name)
+	}
+	if cfg.serial == "" {
+		t.Skipf("%s or ADB_SERIAL is required for %s", envSerial, name)
+	}
+	if cfg.ssid == "" || cfg.psk == "" {
+		t.Skipf("%s and %s are required for %s", envSSID, envPSK, name)
+	}
+}
+
+func (cfg *e2eConfig) prepareStandaloneLive(t *testing.T, id string, title string) {
+	t.Helper()
+	cfg.prepareLive(t, []matrixCase{{
+		ID:      id,
+		Title:   title,
+		Runner:  "shell",
+		Command: `request> wifi connect passphrase <psk> security auto timeout 25000 "<ssid>"`,
+		Expect:  "ok",
+	}})
+}
+
+func (cfg *e2eConfig) resetStandaloneFesta(t *testing.T, festa string) {
+	t.Helper()
+	for _, line := range []string{
+		"config> set standalone disabled",
+		"clear standalone runs all",
+		"config> delete standalone upload",
+		"config> delete standalone festa " + festa,
+	} {
+		cfg.runShellLiveCommand(t, line, 45*time.Second)
+	}
+}
+
+func (cfg *e2eConfig) configureStandalonePingFesta(t *testing.T, festa string, group string) {
+	t.Helper()
+	ssid, psk := cfg.ssid, cfg.psk
+	commands := []string{
+		fmt.Sprintf("config> set standalone festa %s interval 2s", festa),
+		fmt.Sprintf("config> set standalone festa %s wifi-group %s match essid %s", festa, group, quoteToken(ssid)),
+		fmt.Sprintf("config> set standalone festa %s wifi-group %s credential passphrase %s", festa, group, quoteToken(psk)),
+		fmt.Sprintf("config> set standalone festa %s wifi-group %s security auto", festa, group),
+		fmt.Sprintf("config> set standalone festa %s wifi-group %s band all", festa, group),
+		fmt.Sprintf("config> set standalone festa %s wifi-group %s wait ip", festa, group),
+		fmt.Sprintf("config> set standalone festa %s wifi-group %s timeout 25000", festa, group),
+		fmt.Sprintf("config> set standalone festa %s check ping host %s count 1 timeout 8000", festa, standalonePingHost),
+		fmt.Sprintf("config> set standalone festa %s enabled", festa),
+	}
+	for _, line := range commands {
+		cfg.runShellLiveCommand(t, line, 90*time.Second)
+	}
+}
+
+func (cfg *e2eConfig) runCLILiveCommand(t *testing.T, timeout time.Duration, args ...string) string {
+	t.Helper()
+	fullArgs := append([]string{"--serial", cfg.serial}, args...)
+	res := cfg.runExternal(timeout, fullArgs, "")
+	output := redact(res.Output, cfg.psk)
+	if res.Err != nil || res.Code != 0 {
+		t.Fatalf("live CLI command failed: args=%q rc=%d err=%v output=%s", fullArgs, res.Code, res.Err, output)
+	}
+	if isShellErrorOutput(res.Output) || isFailureStatusOutput(res.Output) {
+		t.Fatalf("live CLI command returned failure: args=%q output=%s", fullArgs, output)
+	}
+	return res.Output
+}
+
+func (cfg *e2eConfig) waitStandaloneStatusMatch(t *testing.T, pattern *regexp.Regexp, timeout time.Duration) string {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	var last string
+	for time.Now().Before(deadline) {
+		last = cfg.runShellLiveCommand(t, "show standalone status", 35*time.Second)
+		if pattern.MatchString(last) {
+			return last
+		}
+		time.Sleep(2 * time.Second)
+	}
+	t.Fatalf("standalone status did not match %s within %s; last=%s", pattern, timeout, oneLine(redact(last, cfg.psk)))
+	return ""
+}
+
+func (cfg *e2eConfig) startStandaloneUploadHTTPServer(t *testing.T, status int, body string) (string, *atomic.Int32) {
+	t.Helper()
+	requests := &atomic.Int32{}
+	listener, err := net.Listen("tcp", "0.0.0.0:0")
+	if err != nil {
+		t.Fatalf("listen for standalone upload failure server: %v", err)
+	}
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			requests.Add(1)
+		}
+		_, _ = io.Copy(io.Discard, r.Body)
+		_ = r.Body.Close()
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	})}
+	go func() {
+		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			t.Logf("standalone upload HTTP server stopped: %v", err)
+		}
+	}()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Shutdown(ctx)
+	})
+
+	port := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
+	if cfg.setupADBReverse(t, port) {
+		return fmt.Sprintf("http://127.0.0.1:%s/dropcheck/failure", port), requests
+	}
+	host := hostIPv4Address()
+	if host == "" {
+		t.Fatalf("adb reverse failed and no non-loopback IPv4 address was found for failure upload server")
+	}
+	return fmt.Sprintf("http://%s:%s/dropcheck/failure", host, port), requests
+}
+
+func standaloneStatusCounts(t *testing.T, status string) (stored int, unsynced int) {
+	t.Helper()
+	match := standaloneStatusLine.FindStringSubmatch(status)
+	if match == nil {
+		t.Fatalf("standalone status line not found: %s", oneLine(status))
+	}
+	stored = parsePositiveInt(t, match[1], "stored")
+	unsynced = parsePositiveInt(t, match[2], "unsynced")
+	return stored, unsynced
+}
+
+func parsePositiveInt(t *testing.T, value string, name string) int {
+	t.Helper()
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		t.Fatalf("parse %s count %q: %v", name, value, err)
+	}
+	return parsed
+}
+
+func requireStandaloneRunID(t *testing.T, output string) string {
+	t.Helper()
+	match := standaloneRunID.FindStringSubmatch(output)
+	if match == nil {
+		t.Fatalf("standalone run id not found in output: %s", oneLine(output))
+	}
+	return match[1]
+}
+
+func assertStandaloneRunDetail(t *testing.T, output string, runID string, festa string, synced bool) {
+	t.Helper()
+	for _, want := range []string{
+		"Standalone run: id=" + runID,
+		"synced=" + strconv.FormatBool(synced),
+		"festa=" + festa,
+		"ping",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("standalone run detail missing %q: %s", want, oneLine(output))
+		}
+	}
+}
+
+func assertSyncedArchiveFile(t *testing.T, outputDir string, runID string, syncOutput string) {
+	t.Helper()
+	var matches []string
+	if err := filepath.WalkDir(outputDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || filepath.Ext(path) != ".json" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(data), runID) {
+			matches = append(matches, path)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("walk synced archive dir %s: %v", outputDir, err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("synced archive files containing %s = %d, want 1; sync output=%s", runID, len(matches), oneLine(syncOutput))
+	}
+}
+
+func runFestivalReplayFailureChild(t *testing.T, name string, want string) {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestFestivalStandaloneResultReplayFailureChild$", "-test.v")
+	cmd.Env = append(os.Environ(), festivalReplayChildEnv+"="+name)
+	cmd.Dir = packageDir(t)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("festival replay failure child %s unexpectedly passed:\n%s", name, out)
+	}
+	if !strings.Contains(string(out), want) {
+		t.Fatalf("festival replay failure child %s output missing %q:\n%s", name, want, out)
+	}
+}
+
+func mustMarshalStandaloneArchive(t *testing.T, archive *controlpb.StandaloneRunArchive) []byte {
+	t.Helper()
+	data, err := proto.Marshal(archive)
+	if err != nil {
+		t.Fatalf("marshal standalone archive fixture: %v", err)
+	}
+	return data
+}
+
+func removeStandaloneStep(steps []*controlpb.StandaloneMeasurementStep, name string) []*controlpb.StandaloneMeasurementStep {
+	filtered := make([]*controlpb.StandaloneMeasurementStep, 0, len(steps))
+	for _, step := range steps {
+		if step.GetStepName() != name {
+			filtered = append(filtered, step)
+		}
+	}
+	return filtered
+}
+
+func standaloneReplayArchiveFixture() *controlpb.StandaloneRunArchive {
+	const (
+		group = "lab"
+		ssid  = "Lab"
+	)
+	selector := &controlpb.NetworkSelector{Ssid: ssid}
+	steps := []*controlpb.StandaloneMeasurementStep{
+		standaloneReplayStep(1, group, 1, "connect", &controlpb.RunCommand{
+			Label: "standalone connect lab",
+			Command: &controlpb.RunCommand_ConnectWifi{ConnectWifi: &controlpb.ConnectWifi{
+				Ssid:       ssid,
+				Passphrase: "secret",
+				Security:   controlpb.ConnectWifi_SECURITY_WPA2_PSK,
+				Band:       controlpb.WifiBand_WIFI_BAND_5_GHZ,
+				TimeoutMs:  35000,
+			}},
+		}, &controlpb.CommandResult{
+			Status:  controlpb.CommandResult_STATUS_OK,
+			Message: "connected",
+			Payload: &controlpb.CommandResult_ConnectWifi{ConnectWifi: &controlpb.ConnectWifiResult{
+				Ssid:      ssid,
+				Connected: true,
+			}},
+		}),
+		standaloneReplayStep(1, group, 2, "wait_connected", &controlpb.RunCommand{
+			Label: "standalone wait lab",
+			Command: &controlpb.RunCommand_WaitWifiConnected{WaitWifiConnected: &controlpb.WaitWifiConnected{
+				Ssid:             ssid,
+				Security:         controlpb.ConnectWifi_SECURITY_WPA2_PSK,
+				Band:             controlpb.WifiBand_WIFI_BAND_5_GHZ,
+				RequireIp:        true,
+				RequireValidated: true,
+				TimeoutMs:        35000,
+			}},
+		}, &controlpb.CommandResult{
+			Status:  controlpb.CommandResult_STATUS_OK,
+			Message: "connected",
+			Payload: &controlpb.CommandResult_WifiAssert{WifiAssert: &controlpb.WifiAssertResult{
+				Passed: true,
+			}},
+		}),
+		standaloneReplayStep(1, group, 3, "ip", &controlpb.RunCommand{
+			Label:   "standalone ip status",
+			Command: &controlpb.RunCommand_GetIpStatus{GetIpStatus: &controlpb.GetIpStatus{Selector: selector}},
+		}, standaloneReplayResult("ip.status")),
+		standaloneReplayStep(1, group, 4, "wifi", &controlpb.RunCommand{
+			Label:   "standalone wifi status",
+			Command: &controlpb.RunCommand_GetWifiStatus{GetWifiStatus: &controlpb.GetWifiStatus{}},
+		}, standaloneReplayResult("wifi.status")),
+		standaloneReplayStep(1, group, 5, "wifi_scan", &controlpb.RunCommand{
+			Label: "standalone wifi scan fresh",
+			Command: &controlpb.RunCommand_GetFreshWifiScan{GetFreshWifiScan: &controlpb.GetFreshWifiScan{
+				Band:      controlpb.WifiBand_WIFI_BAND_6_GHZ,
+				TimeoutMs: 5000,
+			}},
+		}, standaloneReplayResult("wifi.scan.fresh")),
+		standaloneReplayStep(1, group, 6, "wifi_capabilities", &controlpb.RunCommand{
+			Label:   "standalone wifi capabilities",
+			Command: &controlpb.RunCommand_GetWifiCapabilities{GetWifiCapabilities: &controlpb.GetWifiCapabilities{}},
+		}, standaloneReplayResult("wifi.capabilities")),
+		standaloneReplayStep(1, group, 7, "global_ip", &controlpb.RunCommand{
+			Label: "standalone global-ip",
+			Command: &controlpb.RunCommand_GlobalIp{GlobalIp: &controlpb.GlobalIp{
+				Family:    controlpb.IpFamily_IP_FAMILY_IPV4,
+				TimeoutMs: 10000,
+				Selector:  selector,
+			}},
+		}, standaloneReplayResult("global-ip")),
+		standaloneReplayStep(1, group, 8, "path_mtu", &controlpb.RunCommand{
+			Label: "standalone path-mtu 8.8.8.8",
+			Command: &controlpb.RunCommand_PathMtu{PathMtu: &controlpb.PathMtu{
+				Host:        "8.8.8.8",
+				TimeoutMs:   20000,
+				Selector:    selector,
+				MinMtuBytes: 1200,
+				MaxMtuBytes: 1500,
+			}},
+		}, standaloneReplayResult("path-mtu")),
+		standaloneReplayStep(1, group, 9, "traceroute", &controlpb.RunCommand{
+			Label: "standalone traceroute 8.8.8.8",
+			Command: &controlpb.RunCommand_Traceroute{Traceroute: &controlpb.Traceroute{
+				Host:      "8.8.8.8",
+				MaxHops:   30,
+				TimeoutMs: 30000,
+				Selector:  selector,
+			}},
+		}, standaloneReplayResult("traceroute")),
+		standaloneReplayStep(1, group, 10, "dns", &controlpb.RunCommand{
+			Label: "standalone dns " + standaloneDNSName,
+			Command: &controlpb.RunCommand_ResolveDns{ResolveDns: &controlpb.ResolveDns{
+				Name:      standaloneDNSName,
+				Qtypes:    []controlpb.DnsRecordType{controlpb.DnsRecordType_DNS_RECORD_TYPE_A},
+				TimeoutMs: 8000,
+				Selector:  selector,
+			}},
+		}, standaloneReplayResult("dns")),
+		standaloneReplayStep(1, group, 11, "ping", &controlpb.RunCommand{
+			Label: "standalone ping " + standalonePingHost,
+			Command: &controlpb.RunCommand_Ping{Ping: &controlpb.Ping{
+				Host:      standalonePingHost,
+				Count:     1,
+				TimeoutMs: 8000,
+				Selector:  selector,
+			}},
+		}, standaloneReplayResult("ping")),
+		standaloneReplayStep(1, group, 12, "http", &controlpb.RunCommand{
+			Label: "standalone http " + standaloneHTTPURL,
+			Command: &controlpb.RunCommand_HttpCheck{HttpCheck: &controlpb.HttpCheck{
+				Url:            standaloneHTTPURL,
+				ExpectedStatus: 204,
+				TimeoutMs:      10000,
+				Selector:       selector,
+			}},
+		}, standaloneReplayResult("http")),
+	}
+	return &controlpb.StandaloneRunArchive{
+		Summary: &controlpb.StandaloneRunSummary{
+			RunId:           "replay-run-1",
+			FestaName:       "replay",
+			Status:          "ok",
+			WifiGroupCount:  1,
+			StepCount:       uint32(len(steps)),
+			FailedStepCount: 0,
+		},
+		Festa: &controlpb.StandaloneFesta{
+			Name: "replay",
+			WifiGroups: []*controlpb.StandaloneWifiGroup{{
+				Name:             group,
+				Essid:            ssid,
+				Passphrase:       "secret",
+				Security:         controlpb.ConnectWifi_SECURITY_WPA2_PSK,
+				Band:             controlpb.WifiBand_WIFI_BAND_5_GHZ,
+				RequireIp:        true,
+				RequireValidated: true,
+			}},
+		},
+		Steps: steps,
+		Device: &controlpb.DeviceInfo{
+			Manufacturer: "Dropcheck",
+			Model:        "Replay",
+		},
+	}
+}
+
+func standaloneReplayStep(groupIndex uint32, groupName string, stepIndex uint32, name string, command *controlpb.RunCommand, result *controlpb.CommandResult) *controlpb.StandaloneMeasurementStep {
+	return &controlpb.StandaloneMeasurementStep{
+		WifiGroupIndex: groupIndex,
+		WifiGroupName:  groupName,
+		StepIndex:      stepIndex,
+		StepName:       name,
+		Attempt:        1,
+		Command:        command,
+		Result:         result,
+	}
+}
+
+func standaloneReplayResult(name string) *controlpb.CommandResult {
+	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK}
+	switch name {
+	case "ip.status":
+		result.Payload = &controlpb.CommandResult_IpStatus{IpStatus: &controlpb.IpStatus{
+			NetworkId:         "100",
+			Transports:        []string{"wifi"},
+			Validated:         true,
+			Internet:          true,
+			InterfaceName:     "wlan0",
+			Mtu:               1500,
+			Addresses:         []string{"192.168.10.23/24", "fe80::123/64"},
+			DnsServers:        []string{"192.168.10.1"},
+			DhcpServer:        "192.168.10.1",
+			Routes:            []string{"0.0.0.0/0 -> 192.168.10.1 wlan0"},
+			Capabilities:      []string{"internet", "validated"},
+			RawLinkProperties: "LinkProperties{LinkAddresses: [192.168.10.23/24]}",
+		}}
+	case "wifi.status":
+		result.Payload = &controlpb.CommandResult_WifiStatus{WifiStatus: &controlpb.WifiStatus{
+			Enabled: true,
+			State:   "enabled",
+			Connection: &controlpb.WifiConnection{
+				Ssid:            "Lab",
+				Bssid:           "aa:bb:cc:dd:ee:ff",
+				RssiDbm:         -45,
+				FrequencyMhz:    6135,
+				LinkSpeedMbps:   2401,
+				TxLinkSpeedMbps: 2401,
+				RxLinkSpeedMbps: 2401,
+				WifiStandard:    "802.11be",
+				ChannelWidth:    "160MHz",
+				SecurityType:    "wpa3_sae",
+			},
+		}}
+	case "wifi.scan.fresh":
+		result.Payload = &controlpb.CommandResult_WifiScan{WifiScan: &controlpb.WifiScan{
+			Results: []*controlpb.WifiScanResult{{
+				Ssid:          "Lab",
+				Bssid:         "aa:bb:cc:dd:ee:ff",
+				Capabilities:  "[RSN-SAE-CCMP][EHT][ESS]",
+				RssiDbm:       -41,
+				FrequencyMhz:  6135,
+				Band:          "6GHz",
+				ChannelWidth:  "320MHz",
+				WifiStandard:  "802.11be",
+				SecurityTypes: []string{"wpa3_sae"},
+			}},
+		}}
+	case "wifi.capabilities":
+		result.Payload = &controlpb.CommandResult_WifiCapabilities{WifiCapabilities: &controlpb.WifiCapabilities{
+			SupportedBands:         []string{"2.4GHz", "5GHz", "6GHz"},
+			SupportedStandards:     []string{"802.11ax", "802.11be"},
+			SupportedSecurityModes: []string{"wpa3_sae"},
+		}}
+	case "global-ip":
+		result.Payload = &controlpb.CommandResult_GlobalIp{GlobalIp: &controlpb.GlobalIpResult{
+			RequestedFamily: controlpb.IpFamily_IP_FAMILY_IPV4,
+			ElapsedMs:       100,
+			Addresses: []*controlpb.GlobalIpAddress{{
+				Family: controlpb.IpFamily_IP_FAMILY_IPV4,
+				Ip:     "203.0.113.10",
+				Global: true,
+				Status: 200,
+			}},
+		}}
+	case "path-mtu":
+		result.Payload = &controlpb.CommandResult_PathMtu{PathMtu: &controlpb.PathMtuResult{
+			Host:         "8.8.8.8",
+			Discovered:   true,
+			PathMtuBytes: 1400,
+			Probes: []*controlpb.PathMtuProbe{{
+				MtuBytes: 1400,
+				Passed:   true,
+			}},
+		}}
+	case "traceroute":
+		result.Payload = &controlpb.CommandResult_Traceroute{Traceroute: &controlpb.TracerouteResult{
+			Host:      "8.8.8.8",
+			MaxHops:   30,
+			Output:    "1 192.0.2.1 1.0 ms\n2 8.8.8.8 5.0 ms\n",
+			ElapsedMs: 500,
+		}}
+	case "dns":
+		result.Payload = &controlpb.CommandResult_ResolveDns{ResolveDns: &controlpb.ResolveDnsResult{
+			Name:      standaloneDNSName,
+			ElapsedMs: 80,
+			Answers: []*controlpb.DnsAnswer{{
+				Type:    controlpb.DnsRecordType_DNS_RECORD_TYPE_A,
+				Address: "93.184.216.34",
+			}},
+		}}
+	case "ping":
+		result.Payload = &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{
+			Host:              standalonePingHost,
+			Count:             1,
+			Transmitted:       1,
+			Received:          1,
+			PacketLossPercent: 0,
+			MinMs:             10,
+			AvgMs:             20,
+			MaxMs:             30,
+			ElapsedMs:         80,
+		}}
+	case "http":
+		result.Payload = &controlpb.CommandResult_HttpCheck{HttpCheck: &controlpb.HttpCheckResult{
+			Url:            standaloneHTTPURL,
+			Status:         204,
+			ExpectedStatus: 204,
+			Matched:        true,
+			ElapsedMs:      100,
+		}}
+	default:
+		result.Message = name
+	}
+	return result
 }
 
 func loadCases(t *testing.T) []matrixCase {
@@ -1011,6 +1715,8 @@ func (cfg *e2eConfig) captureVars(output string) {
 var (
 	standaloneRunID         = regexp.MustCompile(`Standalone run: id=([A-Za-z0-9._:-]+)`)
 	standaloneUploadSuccess = regexp.MustCompile(`standalone upload completed: uploaded=[1-9][0-9]* last_http_status=2[0-9][0-9]`)
+	standaloneUploadStopped = regexp.MustCompile(`standalone upload stopped: .*status=500`)
+	standaloneStatusLine    = regexp.MustCompile(`Standalone: enabled=\S+ running=\S+ stored=([0-9]+) unsynced=([0-9]+)`)
 )
 
 func (cfg *e2eConfig) restoreAfterCase(tc matrixCase, commandLine string) {
@@ -1368,7 +2074,7 @@ func oneLine(value string) string {
 	return value
 }
 
-const e2eCaseCount = 325
+const e2eCaseCount = 349
 
 var e2eCaseID = regexp.MustCompile(`^E2E-[0-9]{3}$`)
 
@@ -1540,6 +2246,9 @@ func TestE2ECaseTableCoversControllerCommandSurface(t *testing.T) {
 		{name: "cli http", runner: "cli", text: "dropcheck request http"},
 		{name: "cli download", runner: "cli", text: "dropcheck request download"},
 		{name: "cli standalone runs", runner: "cli", text: "dropcheck show standalone runs"},
+		{name: "cli standalone status", runner: "cli", text: "dropcheck show standalone status"},
+		{name: "cli standalone run detail", runner: "cli", text: "dropcheck show standalone run"},
+		{name: "cli standalone run once", runner: "cli", text: "dropcheck request standalone run once"},
 		{name: "cli standalone sync", runner: "cli", text: "dropcheck sync standalone runs"},
 		{name: "cli standalone configure", runner: "cli", text: "dropcheck configure set standalone"},
 		{name: "cli standalone upload configure", runner: "cli", text: "dropcheck configure set standalone upload"},
