@@ -3,6 +3,7 @@ package ingester
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -366,9 +367,7 @@ func firstNonEmpty(values ...string) string {
 
 func cloneLabels(labels map[string]string) map[string]string {
 	out := make(map[string]string, len(labels)+2)
-	for key, value := range labels {
-		out[key] = value
-	}
+	maps.Copy(out, labels)
 	return out
 }
 

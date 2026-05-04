@@ -99,18 +99,6 @@ func envOrAny(names []string, fallback string) string {
 	return fallback
 }
 
-func envBool(name string, fallback bool) (bool, error) {
-	value := strings.TrimSpace(os.Getenv(name))
-	if value == "" {
-		return fallback, nil
-	}
-	parsed, err := strconv.ParseBool(value)
-	if err != nil {
-		return false, fmt.Errorf("%s: %w", name, err)
-	}
-	return parsed, nil
-}
-
 func envBoolAny(names []string, fallback bool) (bool, error) {
 	for _, name := range names {
 		value := strings.TrimSpace(os.Getenv(name))
@@ -124,18 +112,6 @@ func envBoolAny(names []string, fallback bool) (bool, error) {
 		return parsed, nil
 	}
 	return fallback, nil
-}
-
-func envDuration(name string, fallback time.Duration) (time.Duration, error) {
-	value := strings.TrimSpace(os.Getenv(name))
-	if value == "" {
-		return fallback, nil
-	}
-	parsed, err := time.ParseDuration(value)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", name, err)
-	}
-	return parsed, nil
 }
 
 func envDurationAny(names []string, fallback time.Duration) (time.Duration, error) {
