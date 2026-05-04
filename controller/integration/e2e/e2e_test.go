@@ -27,6 +27,8 @@
 //	                           Optional MinIO path-style bucket/prefix URL override for the
 //	                           standalone upload live test. By default the test starts this
 //	                           repo's docker-compose MinIO and reaches it through adb reverse.
+//	                           The default MinIO path also fetches the uploaded protobuf and
+//	                           evaluates it with the Festival DSL.
 //
 // The case table is testdata/e2e_cases.tsv. The title column is included in Go
 // subtest names, for example E2E-001_shell_help, so verbose output remains readable.
@@ -55,6 +57,9 @@ import (
 	"time"
 
 	commandparse "dropcheck/controller/internal/command"
+	f "dropcheck/controller/internal/festival"
+	"dropcheck/controller/internal/festival/dns"
+	"dropcheck/controller/internal/festival/ping"
 	"dropcheck/controller/internal/linuxcli"
 	"dropcheck/controller/internal/shell"
 )
@@ -81,6 +86,9 @@ const (
 	standaloneUploadFesta  = "upload-e2e"
 	standaloneUploadBucket = "dropcheck"
 	standaloneUploadPrefix = "e2e"
+	standaloneDNSName      = "example.com"
+	standalonePingHost     = "1.1.1.1"
+	standaloneHTTPURL      = "http://connectivitycheck.gstatic.com/generate_204"
 	defaultMinIOAPIPort    = "8080"
 )
 
@@ -112,6 +120,7 @@ type e2eConfig struct {
 	forceStopApp       bool
 	launchAppActivity  bool
 	launchAppEveryCase bool
+	managedMinIO       bool
 
 	vars map[string]string
 }
@@ -140,7 +149,6 @@ func TestDropcheckEndToEndMatrix(t *testing.T) {
 	t.Logf("e2e cases=%d selected=%d live=%t logs=%s filter=%q serial=%q package=%q launch_app=%t launch_app_every_case=%t force_stop=%t", len(cases), len(selected), cfg.live, cfg.logDir, filter, cfg.serial, cfg.packageName, cfg.launchAppActivity, cfg.launchAppEveryCase, cfg.forceStopApp)
 
 	for _, tc := range selected {
-		tc := tc
 		t.Run(tc.testName(), func(t *testing.T) {
 			start := time.Now()
 			commandLine, missing := cfg.expand(tc.Command, tc.Runner)
@@ -187,6 +195,33 @@ func TestDropcheckEndToEndMatrix(t *testing.T) {
 	}
 }
 
+func TestFestivalDSLLive(t *testing.T) {
+	cfg := loadConfig(t)
+	if !cfg.live {
+		t.Skipf("set %s=1 to run live Festival DSL E2E", envLive)
+	}
+	if cfg.serial == "" {
+		t.Skipf("%s or ADB_SERIAL is required", envSerial)
+	}
+	if cfg.ssid == "" || cfg.psk == "" {
+		t.Skipf("%s and %s are required for live Festival DSL E2E", envSSID, envPSK)
+	}
+
+	f.Run(t, f.Plan{
+		Name: "festival-live-e2e",
+		Networks: []f.Network{
+			f.WiFi("e2e-wifi").
+				SSID(cfg.ssid).
+				PSK(cfg.psk).
+				Security("auto").
+				ConnectTimeout(30 * time.Second).
+				WaitTimeout(30 * time.Second).
+				DisconnectAfter(false),
+		},
+		Checks: standaloneFestivalChecks(),
+	}, f.WithADBPath(cfg.adb), f.WithSerial(cfg.serial), f.WithPackageName(cfg.packageName))
+}
+
 func TestStandaloneUploadToMinIOLive(t *testing.T) {
 	cfg := loadConfig(t)
 	if !cfg.live {
@@ -206,6 +241,9 @@ func TestStandaloneUploadToMinIOLive(t *testing.T) {
 		Expect:  "ok",
 	}})
 	uploadURL := cfg.ensureStandaloneUploadURL(t)
+	if cfg.managedMinIO {
+		cfg.clearStandaloneUploadObjects(t)
+	}
 	t.Cleanup(func() {
 		cfg.runShellCleanup("config> set standalone disabled")
 		cfg.runShellCleanup("clear standalone runs all")
@@ -233,6 +271,9 @@ func TestStandaloneUploadToMinIOLive(t *testing.T) {
 		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt credential passphrase %s", standaloneUploadFesta, quoteToken(psk)),
 		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt security auto", standaloneUploadFesta),
 		fmt.Sprintf("config> set standalone festa %s wifi-group mgmt timeout 25000", standaloneUploadFesta),
+		fmt.Sprintf("config> set standalone festa %s check dns name %s type A timeout 8000", standaloneUploadFesta, standaloneDNSName),
+		fmt.Sprintf("config> set standalone festa %s check ping host %s count 1 timeout 8000", standaloneUploadFesta, standalonePingHost),
+		fmt.Sprintf("config> set standalone festa %s check http url %s expected-status 204 timeout 10000", standaloneUploadFesta, standaloneHTTPURL),
 		fmt.Sprintf("config> set standalone festa %s enabled", standaloneUploadFesta),
 		"config> set standalone enabled",
 	}
@@ -242,6 +283,52 @@ func TestStandaloneUploadToMinIOLive(t *testing.T) {
 
 	status := cfg.waitStandaloneUploadSuccess(t, 2*time.Minute)
 	t.Logf("standalone upload succeeded from Android perspective: %s", oneLine(redact(status, psk)))
+	if !cfg.managedMinIO {
+		t.Logf("skipping MinIO fetch and Festival evaluation because %s overrides the managed local MinIO target", envUploadURL)
+		return
+	}
+	archive := cfg.fetchStandaloneUploadArchiveFromMinIO(t)
+	f.Run(t, f.Plan{
+		Name: "standalone-minio-eval",
+		Results: []f.ResultSource{
+			f.StandaloneArchiveBytes("minio-upload", archive),
+		},
+		Checks: standaloneFestivalChecks(),
+	})
+}
+
+func standaloneFestivalChecks() []f.Check {
+	return []f.Check{
+		f.DNS(standaloneDNSName).
+			A().
+			Timeout(8*time.Second).
+			Expect(dns.AnswerCount().Ge(1), dns.Elapsed().Le(8*time.Second)),
+		f.Ping(standalonePingHost).
+			Count(1).
+			Timeout(8 * time.Second).
+			Expect(ping.Assert("payload matches request", func(result ping.Result) error {
+				if result.Host != standalonePingHost {
+					return fmt.Errorf("host=%s want %s", result.Host, standalonePingHost)
+				}
+				if result.Count != 1 {
+					return fmt.Errorf("count=%d want 1", result.Count)
+				}
+				return nil
+			})),
+		f.HTTP(standaloneHTTPURL).
+			ExpectedStatus(204).
+			Timeout(10 * time.Second).
+			Expect(f.Assert("http matched", func(result f.Result) error {
+				http := result.Run.Raw.GetHttpCheck()
+				if http == nil {
+					return fmt.Errorf("missing HTTP result payload")
+				}
+				if !http.GetMatched() {
+					return fmt.Errorf("status=%d expected=%d error=%s", http.GetStatus(), http.GetExpectedStatus(), http.GetError())
+				}
+				return nil
+			})),
+	}
 }
 
 func loadCases(t *testing.T) []matrixCase {
@@ -441,16 +528,16 @@ func shellInput(commandLine string) string {
 
 func requestModeCommand(commandLine string) (string, bool) {
 	const marker = "request> "
-	if strings.HasPrefix(commandLine, marker) {
-		return strings.TrimPrefix(commandLine, marker), true
+	if after, ok := strings.CutPrefix(commandLine, marker); ok {
+		return after, true
 	}
 	return commandLine, false
 }
 
 func configureModeCommand(commandLine string) (string, bool) {
 	const marker = "config> "
-	if strings.HasPrefix(commandLine, marker) {
-		return strings.TrimPrefix(commandLine, marker), true
+	if after, ok := strings.CutPrefix(commandLine, marker); ok {
+		return after, true
 	}
 	return commandLine, false
 }
@@ -528,6 +615,7 @@ func (cfg *e2eConfig) ensureStandaloneUploadURL(t *testing.T) string {
 	}
 	port := envOr("MINIO_API_PORT", defaultMinIOAPIPort)
 	cfg.startMinIO(t, port)
+	cfg.managedMinIO = true
 	waitHTTPReady(t, fmt.Sprintf("http://127.0.0.1:%s/minio/health/ready", port), 90*time.Second)
 
 	if cfg.setupADBReverse(t, port) {
@@ -557,6 +645,77 @@ func (cfg *e2eConfig) startMinIO(t *testing.T, port string) {
 		t.Fatalf("start MinIO on host port %s: %v\n%s", port, err, out)
 	}
 	t.Logf("MinIO started for standalone upload E2E on host port %s", port)
+}
+
+func (cfg *e2eConfig) clearStandaloneUploadObjects(t *testing.T) {
+	t.Helper()
+	script := minIOAliasScript() + fmt.Sprintf(`
+mc rm --recursive --force "local/${MINIO_BUCKET:-%s}/%s" >/dev/null 2>&1 || true
+`, standaloneUploadBucket, standaloneUploadPrefix)
+	cfg.runMinIOClient(t, "", script)
+}
+
+func (cfg *e2eConfig) fetchStandaloneUploadArchiveFromMinIO(t *testing.T) []byte {
+	t.Helper()
+	tmpRoot := filepath.Join(cfg.repoRoot, ".tmp")
+	if err := os.MkdirAll(tmpRoot, 0o755); err != nil {
+		t.Fatalf("create MinIO fetch temp root: %v", err)
+	}
+	outDir, err := os.MkdirTemp(tmpRoot, "e2e-minio-")
+	if err != nil {
+		t.Fatalf("create MinIO fetch temp dir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(outDir)
+	})
+	script := minIOAliasScript() + fmt.Sprintf(`
+object="$(mc find "local/${MINIO_BUCKET:-%s}/%s" --name "*.pb" 2>/dev/null | sort | tail -n 1 || true)"
+if [ -z "$object" ]; then
+  echo "no standalone protobuf objects found under %s" >&2
+  exit 1
+fi
+mc cp "$object" /out/standalone.pb >/dev/null
+printf 'object=%%s\n' "$object"
+`, standaloneUploadBucket, standaloneUploadPrefix, standaloneUploadPrefix)
+	out := cfg.runMinIOClient(t, outDir, script)
+	path := filepath.Join(outDir, "standalone.pb")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read fetched standalone archive %s: %v; mc output=%s", path, err, oneLine(out))
+	}
+	if len(data) == 0 {
+		t.Fatalf("fetched standalone archive is empty; mc output=%s", oneLine(out))
+	}
+	t.Logf("fetched standalone archive from MinIO: bytes=%d %s", len(data), oneLine(out))
+	return data
+}
+
+func minIOAliasScript() string {
+	return `set -eu
+mc alias set local http://minio:9000 "${MINIO_ROOT_USER:-dropcheck}" "${MINIO_ROOT_PASSWORD:-dropcheck-secret}" >/dev/null
+`
+}
+
+func (cfg *e2eConfig) runMinIOClient(t *testing.T, outputDir string, script string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	args := []string{"compose", "run", "--rm", "-T", "--entrypoint", "/bin/sh"}
+	if outputDir != "" {
+		args = append(args, "-v", outputDir+":/out")
+	}
+	args = append(args, "minio-init", "-c", script)
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd.Dir = cfg.repoRoot
+	cmd.Env = os.Environ()
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		err = ctx.Err()
+	}
+	if err != nil {
+		t.Fatalf("run MinIO client command: %v\n%s", err, out)
+	}
+	return string(out)
 }
 
 func waitHTTPReady(t *testing.T, url string, timeout time.Duration) {
