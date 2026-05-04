@@ -14,15 +14,14 @@ const (
 	defaultMinIOAccessKey = "dropcheck"
 	defaultMinIOSecretKey = "dropcheck-secret"
 	defaultMinIOBucket    = "dropcheck"
+	defaultObjectSuffix   = ".pb"
 	defaultPushgatewayURL = "http://pushgateway:9091"
-	defaultJobName        = "dropcheck_festival"
-	defaultPollInterval   = time.Minute
+	defaultPushJob        = "dropcheck_festival_results"
+	defaultBatchInterval  = time.Minute
 	defaultMaxObjectBytes = 64 << 20
-	defaultQueueSize      = 128
-	defaultWorkers        = 2
 )
 
-// Config contains runtime settings for the Festival results ingester.
+// Config controls the Festival Results ingester runtime.
 type Config struct {
 	ListenAddr     string
 	MinIOEndpoint  string
@@ -30,80 +29,72 @@ type Config struct {
 	MinIOSecretKey string
 	MinIOBucket    string
 	MinIOPrefix    string
-	MinIOSecure    bool
+	MinIOUseSSL    bool
+	ObjectSuffix   string
 	PushgatewayURL string
-	JobName        string
-	PollInterval   time.Duration
+	PushJob        string
+	BatchInterval  time.Duration
 	MaxObjectBytes int64
-	QueueSize      int
-	Workers        int
 }
 
-// ConfigFromEnv builds Config from DROPCHECK_INGESTER_* environment variables.
+// ConfigFromEnv loads runtime configuration from environment variables.
 func ConfigFromEnv() (Config, error) {
+	useSSL, err := envBoolAny([]string{"DROPCHECK_INGESTER_MINIO_SECURE", "DROPCHECK_MINIO_USE_SSL"}, false)
+	if err != nil {
+		return Config{}, err
+	}
+	interval, err := envDurationAny([]string{"DROPCHECK_INGESTER_POLL_INTERVAL", "DROPCHECK_BATCH_INTERVAL"}, defaultBatchInterval)
+	if err != nil {
+		return Config{}, err
+	}
+	maxObjectBytes, err := envInt64("DROPCHECK_INGESTER_MAX_OBJECT_BYTES", defaultMaxObjectBytes)
+	if err != nil {
+		return Config{}, err
+	}
 	cfg := Config{
-		ListenAddr:     envString("DROPCHECK_INGESTER_ADDR", defaultListenAddr),
-		MinIOEndpoint:  envString("DROPCHECK_INGESTER_MINIO_ENDPOINT", defaultMinIOEndpoint),
-		MinIOAccessKey: envString("DROPCHECK_INGESTER_MINIO_ACCESS_KEY", defaultMinIOAccessKey),
-		MinIOSecretKey: envString("DROPCHECK_INGESTER_MINIO_SECRET_KEY", defaultMinIOSecretKey),
-		MinIOBucket:    envString("DROPCHECK_INGESTER_MINIO_BUCKET", defaultMinIOBucket),
-		MinIOPrefix:    strings.Trim(strings.TrimSpace(os.Getenv("DROPCHECK_INGESTER_MINIO_PREFIX")), "/"),
-		PushgatewayURL: strings.TrimRight(envString("DROPCHECK_INGESTER_PUSHGATEWAY_URL", defaultPushgatewayURL), "/"),
-		JobName:        envString("DROPCHECK_INGESTER_JOB", defaultJobName),
-		PollInterval:   defaultPollInterval,
-		MaxObjectBytes: defaultMaxObjectBytes,
-		QueueSize:      defaultQueueSize,
-		Workers:        defaultWorkers,
-	}
-	var err error
-	if cfg.MinIOSecure, err = envBool("DROPCHECK_INGESTER_MINIO_SECURE", false); err != nil {
-		return Config{}, err
-	}
-	if cfg.PollInterval, err = envDuration("DROPCHECK_INGESTER_POLL_INTERVAL", defaultPollInterval); err != nil {
-		return Config{}, err
-	}
-	if cfg.MaxObjectBytes, err = envInt64("DROPCHECK_INGESTER_MAX_OBJECT_BYTES", defaultMaxObjectBytes); err != nil {
-		return Config{}, err
-	}
-	if cfg.QueueSize, err = envInt("DROPCHECK_INGESTER_QUEUE_SIZE", defaultQueueSize); err != nil {
-		return Config{}, err
-	}
-	if cfg.Workers, err = envInt("DROPCHECK_INGESTER_WORKERS", defaultWorkers); err != nil {
-		return Config{}, err
-	}
-	if cfg.ListenAddr == "" {
-		return Config{}, fmt.Errorf("DROPCHECK_INGESTER_ADDR is empty")
+		ListenAddr:     envOr("DROPCHECK_INGESTER_ADDR", defaultListenAddr),
+		MinIOEndpoint:  envOrAny([]string{"DROPCHECK_INGESTER_MINIO_ENDPOINT", "DROPCHECK_MINIO_ENDPOINT"}, defaultMinIOEndpoint),
+		MinIOAccessKey: envOrAny([]string{"DROPCHECK_INGESTER_MINIO_ACCESS_KEY", "DROPCHECK_MINIO_ACCESS_KEY"}, defaultMinIOAccessKey),
+		MinIOSecretKey: envOrAny([]string{"DROPCHECK_INGESTER_MINIO_SECRET_KEY", "DROPCHECK_MINIO_SECRET_KEY"}, defaultMinIOSecretKey),
+		MinIOBucket:    envOrAny([]string{"DROPCHECK_INGESTER_MINIO_BUCKET", "DROPCHECK_MINIO_BUCKET"}, defaultMinIOBucket),
+		MinIOPrefix:    strings.Trim(strings.TrimSpace(envOrAny([]string{"DROPCHECK_INGESTER_MINIO_PREFIX", "DROPCHECK_MINIO_PREFIX"}, "")), "/"),
+		MinIOUseSSL:    useSSL,
+		ObjectSuffix:   envOrAny([]string{"DROPCHECK_INGESTER_OBJECT_SUFFIX", "DROPCHECK_OBJECT_SUFFIX"}, defaultObjectSuffix),
+		PushgatewayURL: strings.TrimRight(envOrAny([]string{"DROPCHECK_INGESTER_PUSHGATEWAY_URL", "DROPCHECK_PUSHGATEWAY_URL"}, defaultPushgatewayURL), "/"),
+		PushJob:        envOrAny([]string{"DROPCHECK_INGESTER_JOB", "DROPCHECK_PUSH_JOB"}, defaultPushJob),
+		BatchInterval:  interval,
+		MaxObjectBytes: maxObjectBytes,
 	}
 	if cfg.MinIOEndpoint == "" {
-		return Config{}, fmt.Errorf("DROPCHECK_INGESTER_MINIO_ENDPOINT is empty")
+		return Config{}, fmt.Errorf("DROPCHECK_MINIO_ENDPOINT is required")
 	}
 	if cfg.MinIOBucket == "" {
-		return Config{}, fmt.Errorf("DROPCHECK_INGESTER_MINIO_BUCKET is empty")
+		return Config{}, fmt.Errorf("DROPCHECK_MINIO_BUCKET is required")
 	}
 	if cfg.PushgatewayURL == "" {
-		return Config{}, fmt.Errorf("DROPCHECK_INGESTER_PUSHGATEWAY_URL is empty")
+		return Config{}, fmt.Errorf("DROPCHECK_PUSHGATEWAY_URL is required")
 	}
-	if cfg.JobName == "" {
-		return Config{}, fmt.Errorf("DROPCHECK_INGESTER_JOB is empty")
+	if cfg.PushJob == "" {
+		return Config{}, fmt.Errorf("DROPCHECK_PUSH_JOB is required")
 	}
-	if cfg.PollInterval <= 0 {
+	if cfg.BatchInterval <= 0 {
 		return Config{}, fmt.Errorf("DROPCHECK_INGESTER_POLL_INTERVAL must be positive")
 	}
 	if cfg.MaxObjectBytes <= 0 {
 		return Config{}, fmt.Errorf("DROPCHECK_INGESTER_MAX_OBJECT_BYTES must be positive")
 	}
-	if cfg.QueueSize <= 0 {
-		return Config{}, fmt.Errorf("DROPCHECK_INGESTER_QUEUE_SIZE must be positive")
-	}
-	if cfg.Workers <= 0 {
-		return Config{}, fmt.Errorf("DROPCHECK_INGESTER_WORKERS must be positive")
-	}
 	return cfg, nil
 }
 
-func envString(name, fallback string) string {
-	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
-		return value
+func envOr(name, fallback string) string {
+	return envOrAny([]string{name}, fallback)
+}
+
+func envOrAny(names []string, fallback string) string {
+	for _, name := range names {
+		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+			return value
+		}
 	}
 	return fallback
 }
@@ -120,16 +111,46 @@ func envBool(name string, fallback bool) (bool, error) {
 	return parsed, nil
 }
 
-func envInt(name string, fallback int) (int, error) {
+func envBoolAny(names []string, fallback bool) (bool, error) {
+	for _, name := range names {
+		value := strings.TrimSpace(os.Getenv(name))
+		if value == "" {
+			continue
+		}
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return false, fmt.Errorf("%s: %w", name, err)
+		}
+		return parsed, nil
+	}
+	return fallback, nil
+}
+
+func envDuration(name string, fallback time.Duration) (time.Duration, error) {
 	value := strings.TrimSpace(os.Getenv(name))
 	if value == "" {
 		return fallback, nil
 	}
-	parsed, err := strconv.Atoi(value)
+	parsed, err := time.ParseDuration(value)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", name, err)
 	}
 	return parsed, nil
+}
+
+func envDurationAny(names []string, fallback time.Duration) (time.Duration, error) {
+	for _, name := range names {
+		value := strings.TrimSpace(os.Getenv(name))
+		if value == "" {
+			continue
+		}
+		parsed, err := time.ParseDuration(value)
+		if err != nil {
+			return 0, fmt.Errorf("%s: %w", name, err)
+		}
+		return parsed, nil
+	}
+	return fallback, nil
 }
 
 func envInt64(name string, fallback int64) (int64, error) {
@@ -142,20 +163,4 @@ func envInt64(name string, fallback int64) (int64, error) {
 		return 0, fmt.Errorf("%s: %w", name, err)
 	}
 	return parsed, nil
-}
-
-func envDuration(name string, fallback time.Duration) (time.Duration, error) {
-	value := strings.TrimSpace(os.Getenv(name))
-	if value == "" {
-		return fallback, nil
-	}
-	parsed, err := time.ParseDuration(value)
-	if err == nil {
-		return parsed, nil
-	}
-	millis, intErr := strconv.ParseInt(value, 10, 64)
-	if intErr != nil {
-		return 0, fmt.Errorf("%s: %w", name, err)
-	}
-	return time.Duration(millis) * time.Millisecond, nil
 }
