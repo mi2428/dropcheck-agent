@@ -15,6 +15,8 @@ HELP_EXAMPLE_WIDTH := 60
 E2E_PACKAGE        ?= ./integration/e2e
 E2E_TIMEOUT        ?= 3h
 E2E_AGENT_PACKAGE  ?= io.dropcheck.agent
+INTEGRATION_PACKAGE ?= ./integration/ingester
+INTEGRATION_TIMEOUT ?= 10m
 
 SSID               ?= $(DROPCHECK_E2E_WIFI_SSID)
 PSK                ?= $(DROPCHECK_E2E_WIFI_PSK)
@@ -112,6 +114,11 @@ e2e: ## Run real-device shell/CLI e2e matrix; use SERIAL=... SSID=... PSK=...
 	export DROPCHECK_E2E_LIVE=1 DROPCHECK_E2E_SERIAL="$$serial" DROPCHECK_E2E_WIFI_SSID="$$ssid" DROPCHECK_E2E_WIFI_PSK_ENV="$$psk_env" DROPCHECK_E2E_ADB="$(ADB)" DROPCHECK_E2E_PACKAGE="$(E2E_AGENT_PACKAGE)"; \
 	(cd controller && run "$(GO)" test -v -count=1 -tags e2e -timeout "$(E2E_TIMEOUT)" "$(E2E_PACKAGE)")
 
+.PHONY: integration
+integration: ## Run Docker-backed integration tests
+	@run(){ printf '+'; printf ' %q' "$$@"; printf '\n'; "$$@"; }; \
+	(cd controller && run "$(GO)" test -v -count=1 -tags integration -timeout "$(INTEGRATION_TIMEOUT)" "$(INTEGRATION_PACKAGE)")
+
 .PHONY: quality
 quality: fmt lint test ## Format, lint, and test selected targets
 
@@ -163,8 +170,11 @@ help: ## Show this help message
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "CONTROLLER_MCP_BIN" "Controller MCP binary path under controller/, defaults to $(CONTROLLER_MCP_BIN)"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "CONTROLLER_INGESTER_BIN" "Controller ingester binary path under controller/, defaults to $(CONTROLLER_INGESTER_BIN)"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "E2E_TIMEOUT" "Go test timeout for make e2e, defaults to $(E2E_TIMEOUT)"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "INTEGRATION_PACKAGE" "Docker-backed integration package, defaults to $(INTEGRATION_PACKAGE)"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "INTEGRATION_TIMEOUT" "Go test timeout for make integration, defaults to $(INTEGRATION_TIMEOUT)"
 	@printf "\n\033[1mExamples:\033[0m\n"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make build TARGET=agent,controller" "# Build both Android agent and Go controller"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make test TARGET=controller" "# Run controller tests"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make integration" "# Run Docker-backed ingester integration tests"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make e2e SERIAL=DEVICE SSID=Lab PSK=..." "# Run real-device shell/CLI e2e matrix"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make install SERIAL=DEVICE" "# Build and adb install the debug APK"
