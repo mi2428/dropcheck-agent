@@ -5,6 +5,7 @@ package ingester_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"log"
@@ -74,10 +75,8 @@ func TestBatchBackfillReadsMinIOAndPushesFestivalMetrics(t *testing.T) {
 	if len(pushes) != 1 {
 		t.Fatalf("push requests = %d, want 1", len(pushes))
 	}
-	if !strings.Contains(pushes[0].Path, "/metrics/job/dropcheck_ingester_integration/") {
-		t.Fatalf("push path = %q, want Pushgateway job path", pushes[0].Path)
-	}
 	assertPushPathGrouping(t, pushes[0].Path, map[string]string{
+		"job":          "dropcheck_ingester_integration",
 		"device_name":  "phone1",
 		"device_model": "Phone",
 		"festa":        "smoke",
@@ -436,10 +435,24 @@ func decodedPushPathSegments(t *testing.T, path string) []string {
 	t.Helper()
 	raw := strings.Split(strings.Trim(path, "/"), "/")
 	segments := make([]string, 0, len(raw))
-	for _, segment := range raw {
+	for i := 0; i < len(raw); i++ {
+		segment := raw[i]
 		decoded, err := url.PathUnescape(segment)
 		if err != nil {
 			t.Fatalf("decode push path segment %q: %v", segment, err)
+		}
+		if label, ok := strings.CutSuffix(decoded, "@base64"); ok {
+			segments = append(segments, label)
+			i++
+			if i >= len(raw) {
+				t.Fatalf("base64 push path label %q missing value in path %q", decoded, path)
+			}
+			value, err := base64.RawURLEncoding.DecodeString(raw[i])
+			if err != nil {
+				t.Fatalf("decode base64 push path segment %q: %v", raw[i], err)
+			}
+			segments = append(segments, string(value))
+			continue
 		}
 		segments = append(segments, decoded)
 	}
