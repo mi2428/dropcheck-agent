@@ -24,12 +24,12 @@ class StandaloneConfigEditorTest {
     }
 
     @Test
-    fun appliesWifiGroupMatchAndDeleteEdits() {
+    fun appliesWifiMatchAndDeleteEdits() {
         val configured = StandaloneConfigEditor.apply(
             StandaloneConfig.getDefaultInstance(),
             listOf(
-                setEdit("Lab SSID", "festa", "smoke", "wifi-group", "lab", "match", "essid"),
-                deleteEdit("festa", "smoke", "wifi-group", "lab"),
+                setEdit("Lab SSID", "festa", "smoke", "wifi", "lab", "match", "essid"),
+                deleteEdit("festa", "smoke", "wifi", "lab"),
             ),
         )
 
@@ -39,7 +39,7 @@ class StandaloneConfigEditorTest {
     }
 
     @Test
-    fun appliesScalarStandaloneAndWifiGroupEdits() {
+    fun appliesScalarStandaloneAndWifiEdits() {
         val result = StandaloneConfigEditor.apply(
             StandaloneConfig.getDefaultInstance(),
             listOf(
@@ -47,9 +47,11 @@ class StandaloneConfigEditorTest {
                 setEdit("60000", "retention_ms"),
                 setEdit("1048576", "max_bytes"),
                 setEdit("30000", "festa", "smoke", "interval_ms"),
-                setEdit("wpa3", "festa", "smoke", "wifi-group", "lab", "security"),
-                setEdit("5ghz", "festa", "smoke", "wifi-group", "lab", "band"),
-                setEdit("45000", "festa", "smoke", "wifi-group", "lab", "timeout_ms"),
+                setEdit("secret", "festa", "smoke", "wifi", "lab", "passphrase"),
+                setEdit("wpa3", "festa", "smoke", "wifi", "lab", "security"),
+                setEdit("5ghz", "festa", "smoke", "wifi", "lab", "band"),
+                setEdit("non-persistent", "festa", "smoke", "wifi", "lab", "mac_randomization"),
+                setEdit("45000", "festa", "smoke", "wifi", "lab", "timeout_ms"),
             ),
         )
 
@@ -60,8 +62,10 @@ class StandaloneConfigEditorTest {
         val festa = result.config.getFestas(0)
         assertEquals(30000, festa.intervalMs)
         val group = festa.getWifiGroups(0)
+        assertEquals("secret", group.passphrase)
         assertEquals(ConnectWifi.Security.SECURITY_WPA3_SAE, group.security)
         assertEquals(WifiBand.WIFI_BAND_5_GHZ, group.band)
+        assertEquals(ConnectWifi.MacRandomization.MAC_RANDOMIZATION_NON_PERSISTENT, group.macRandomization)
         assertEquals(45000, group.timeoutMs)
     }
 

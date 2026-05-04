@@ -157,7 +157,7 @@ internal class StandaloneRunner(private val context: Context) {
             }
 
             if (resolvedEssid.isBlank()) {
-                steps += failedStep(groupIndex + 1, group.name, stepIndex++, "resolve", "wifi-group requires essid or scan-visible bssid")
+                steps += failedStep(groupIndex + 1, group.name, stepIndex++, "resolve", "wifi requires essid or scan-visible bssid")
                 failed += 1
                 continue
             }
@@ -316,6 +316,7 @@ internal class StandaloneRunner(private val context: Context) {
                 .setSecurity(group.security)
                 .setBssid(group.bssid)
                 .setBand(group.band)
+                .setMacRandomization(group.macRandomization)
                 .setTimeoutMs(group.timeoutMs.takeIf { it > 0 } ?: DEFAULT_WIFI_TIMEOUT_MS))
             .build()
     }

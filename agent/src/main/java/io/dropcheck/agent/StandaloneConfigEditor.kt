@@ -150,7 +150,7 @@ internal object StandaloneConfigEditor {
         val error = when {
             path.size == 2 && path[1] == "enabled" -> applyParsed(parseBool(value), "festa enabled must be true or false") { festa.enabled = it }
             path.size == 2 && path[1] == "interval_ms" -> applyParsed(parseUInt(value), "festa interval_ms must be uint32") { festa.intervalMs = it }
-            path.size >= 4 && path[1] == "wifi-group" -> setWifiGroup(festa, path.drop(2), value)
+            path.size >= 4 && path[1] == "wifi" -> setWifi(festa, path.drop(2), value)
             path.size >= 4 && path[1] == "check" -> setCheck(festa, path.drop(2), value)
             else -> "unsupported standalone festa set path: ${path.joinToString(" ")}"
         }
@@ -169,7 +169,7 @@ internal object StandaloneConfigEditor {
         }
         val festa = config.getFestas(index).toBuilder()
         val error = when {
-            path.size == 3 && path[1] == "wifi-group" -> {
+            path.size == 3 && path[1] == "wifi" -> {
                 val groupIndex = wifiGroupIndex(festa, path[2])
                 if (groupIndex >= 0) festa.removeWifiGroups(groupIndex)
                 null
@@ -190,9 +190,9 @@ internal object StandaloneConfigEditor {
         return null
     }
 
-    private fun setWifiGroup(festa: StandaloneFesta.Builder, path: List<String>, value: String): String? {
+    private fun setWifi(festa: StandaloneFesta.Builder, path: List<String>, value: String): String? {
         val name = path[0]
-        if (name.isBlank()) return "wifi-group name is required"
+        if (name.isBlank()) return "wifi name is required"
         val index = wifiGroupIndex(festa, name)
         val group = if (index >= 0) festa.getWifiGroups(index).toBuilder() else StandaloneWifiGroup.newBuilder().setName(name)
         val error = when {
@@ -204,7 +204,7 @@ internal object StandaloneConfigEditor {
                 group.bssid = value
                 null
             }
-            path == listOf(name, "credential", "passphrase") -> {
+            path == listOf(name, "passphrase") -> {
                 group.passphrase = value
                 null
             }
@@ -214,6 +214,9 @@ internal object StandaloneConfigEditor {
             path == listOf(name, "band") -> {
                 applyParsed(parseBand(value), "unsupported wifi band: $value") { group.band = it }
             }
+            path == listOf(name, "mac_randomization") -> {
+                applyParsed(parseMacRandomization(value), "unsupported wifi MAC randomization: $value") { group.macRandomization = it }
+            }
             path == listOf(name, "wait", "ip") -> {
                 group.requireIp = parseBool(value) ?: true
                 null
@@ -222,8 +225,8 @@ internal object StandaloneConfigEditor {
                 group.requireValidated = parseBool(value) ?: true
                 null
             }
-            path == listOf(name, "timeout_ms") -> applyParsed(parseUInt(value), "wifi-group timeout_ms must be uint32") { group.timeoutMs = it }
-            else -> "unsupported standalone wifi-group set path: ${path.joinToString(" ")}"
+            path == listOf(name, "timeout_ms") -> applyParsed(parseUInt(value), "wifi timeout_ms must be uint32") { group.timeoutMs = it }
+            else -> "unsupported standalone wifi set path: ${path.joinToString(" ")}"
         }
         if (error != null) return error
         if (index >= 0) festa.setWifiGroups(index, group) else festa.addWifiGroups(group)
