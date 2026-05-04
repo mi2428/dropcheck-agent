@@ -161,7 +161,7 @@ internal class ClockWidgetRefreshObserver(
 
     private fun refreshNow() {
         if (!started.get()) return
-        runCatching { AgentClockWidgetProvider.updateAll(appContext) }
+        runCatching { AgentClockWidgetProvider.requestUpdate(appContext) }
     }
 
     private companion object {

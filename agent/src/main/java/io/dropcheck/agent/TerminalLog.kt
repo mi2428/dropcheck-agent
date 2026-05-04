@@ -1,11 +1,11 @@
 package io.dropcheck.agent
 
 import android.content.Context
-import android.content.Intent
 import android.util.Log
 import java.io.File
 import java.io.RandomAccessFile
 import java.time.Instant
+import java.util.concurrent.CopyOnWriteArraySet
 import kotlin.math.min
 
 /**
@@ -15,13 +15,11 @@ import kotlin.math.min
  * often driven over adb sessions where a local tail is easier to collect.
  */
 object TerminalLog {
-    const val ACTION_LINE = "io.dropcheck.agent.TERMINAL_LINE"
-    const val EXTRA_LINE = "line"
-
     private const val TAG = "dropcheck"
     private const val MAX_BYTES = 1024 * 1024
     private const val KEEP_BYTES = 512 * 1024
     private const val MAX_LINE_CHARS = 8_000
+    private val listeners = CopyOnWriteArraySet<(String) -> Unit>()
 
     /** Location of the persisted terminal tail for adb collection and the on-device activity. */
     fun file(context: Context): File = File(context.getExternalFilesDir(null) ?: context.filesDir, "terminal.log")
@@ -30,6 +28,14 @@ object TerminalLog {
     fun info(context: Context, message: String) = log(context, "INFO", message)
     fun warn(context: Context, message: String, error: Throwable? = null) = log(context, "WARN", message, error)
     fun error(context: Context, message: String, error: Throwable? = null) = log(context, "ERROR", message, error)
+
+    fun addListener(listener: (String) -> Unit) {
+        listeners.add(listener)
+    }
+
+    fun removeListener(listener: (String) -> Unit) {
+        listeners.remove(listener)
+    }
 
     /** Compacts an oversized persisted log without appending a new line. */
     @Synchronized
@@ -59,10 +65,7 @@ object TerminalLog {
         compactFileIfNeeded(file)
         file.appendText(formatted + "\n")
 
-        context.sendBroadcast(Intent(ACTION_LINE).apply {
-            setPackage(context.packageName)
-            putExtra(EXTRA_LINE, formatted)
-        })
+        listeners.forEach { listener -> runCatching { listener(formatted) } }
         AgentLogWidgetProvider.requestUpdate(context)
     }
 

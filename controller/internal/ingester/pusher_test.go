@@ -2,6 +2,7 @@ package ingester
 
 import (
 	"context"
+	"encoding/base64"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -31,10 +32,10 @@ func TestPushgatewayPusherUsesStableGroupingPath(t *testing.T) {
 	err := pusher.Push(context.Background(), MetricBatch{
 		Grouping: map[string]string{
 			"device_name":  "phone",
-			"device_model": "Phone",
+			"device_model": "Pixel 9",
 			"festa":        "smoke",
 			"wifi_group":   "lab",
-			"wifi_essid":   "Lab",
+			"wifi_essid":   "SHIZK RADIO",
 			"wifi_bssid":   "aa:bb:cc:dd:ee:ff",
 		},
 		Samples: []MetricSample{
@@ -48,12 +49,15 @@ func TestPushgatewayPusherUsesStableGroupingPath(t *testing.T) {
 
 	assertGroupingPath(t, gotPath, map[string]string{
 		"device_name":  "phone",
-		"device_model": "Phone",
+		"device_model": "Pixel 9",
 		"festa":        "smoke",
 		"wifi_group":   "lab",
-		"wifi_essid":   "Lab",
+		"wifi_essid":   "SHIZK RADIO",
 		"wifi_bssid":   "aa:bb:cc:dd:ee:ff",
 	})
+	if strings.Contains(gotPath, "+") {
+		t.Fatalf("path encodes spaces as plus signs: %q", gotPath)
+	}
 	for _, forbidden := range []string{"run_id", "object_key", "step", "command", "result_status", "wifi_band", "wifi_security"} {
 		if strings.Contains(gotPath, "/"+url.PathEscape(forbidden)+"/") || strings.Contains(gotBody, forbidden) {
 			t.Fatalf("pushed payload contains forbidden identity %q: path=%q body=%s", forbidden, gotPath, gotBody)
@@ -84,10 +88,24 @@ func decodedPathSegments(t *testing.T, path string) []string {
 	t.Helper()
 	raw := strings.Split(strings.Trim(path, "/"), "/")
 	segments := make([]string, 0, len(raw))
-	for _, segment := range raw {
+	for i := 0; i < len(raw); i++ {
+		segment := raw[i]
 		decoded, err := url.PathUnescape(segment)
 		if err != nil {
 			t.Fatalf("decode path segment %q: %v", segment, err)
+		}
+		if label, ok := strings.CutSuffix(decoded, "@base64"); ok {
+			segments = append(segments, label)
+			i++
+			if i >= len(raw) {
+				t.Fatalf("base64 path label %q missing value in path %q", decoded, path)
+			}
+			value, err := base64.RawURLEncoding.DecodeString(raw[i])
+			if err != nil {
+				t.Fatalf("decode base64 path segment %q: %v", raw[i], err)
+			}
+			segments = append(segments, string(value))
+			continue
 		}
 		segments = append(segments, decoded)
 	}

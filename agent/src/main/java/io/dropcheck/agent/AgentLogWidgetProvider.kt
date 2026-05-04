@@ -7,10 +7,12 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.widget.RemoteViews
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 @Suppress("DEPRECATION")
 /**
@@ -35,6 +37,7 @@ class AgentLogWidgetProvider : AppWidgetProvider() {
 
     companion object {
         private val updatePending = AtomicBoolean(false)
+        private val lastUpdateElapsedMs = AtomicLong(0)
         private val updateExecutor = Executors.newSingleThreadScheduledExecutor { task ->
             Thread(task, "dropcheck-log-widget-update")
         }
@@ -42,12 +45,19 @@ class AgentLogWidgetProvider : AppWidgetProvider() {
         fun requestUpdate(context: Context) {
             val appContext = context.applicationContext
             if (!updatePending.compareAndSet(false, true)) return
+            val elapsedMs = SystemClock.elapsedRealtime()
+            val nextAllowedMs = lastUpdateElapsedMs.get() + MIN_UPDATE_INTERVAL_MS
+            val delayMs = maxOf(UPDATE_DEBOUNCE_MS, nextAllowedMs - elapsedMs)
             updateExecutor.schedule(
                 {
-                    updatePending.set(false)
-                    updateAll(appContext)
+                    try {
+                        updateAll(appContext)
+                        lastUpdateElapsedMs.set(SystemClock.elapsedRealtime())
+                    } finally {
+                        updatePending.set(false)
+                    }
                 },
-                UPDATE_DEBOUNCE_MS,
+                delayMs,
                 TimeUnit.MILLISECONDS,
             )
         }
@@ -82,5 +92,6 @@ class AgentLogWidgetProvider : AppWidgetProvider() {
         }
 
         private const val UPDATE_DEBOUNCE_MS = 500L
+        private const val MIN_UPDATE_INTERVAL_MS = 2_000L
     }
 }

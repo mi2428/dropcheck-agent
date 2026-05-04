@@ -1,13 +1,17 @@
 package ingester
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 
 	"dropcheck/controller/internal/controlpb"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/push"
+	"github.com/prometheus/common/expfmt"
 )
 
 const (
@@ -154,11 +158,53 @@ func (p *PushgatewayPusher) Push(ctx context.Context, batch MetricBatch) error {
 		gauge.With(labels).Set(sample.Value)
 	}
 
-	pusher := push.New(p.url, p.job).Gatherer(registry)
-	for _, label := range groupingLabelNames {
-		pusher = pusher.Grouping(label, nonEmptyLabel(batch.Grouping[label], "unknown"))
+	return p.pushGatherer(ctx, registry, batch.Grouping)
+}
+
+func (p *PushgatewayPusher) pushGatherer(ctx context.Context, gatherer prometheus.Gatherer, grouping map[string]string) error {
+	families, err := gatherer.Gather()
+	if err != nil {
+		return err
 	}
-	return pusher.PushContext(ctx)
+	var body bytes.Buffer
+	format := expfmt.NewFormat(expfmt.TypeTextPlain)
+	encoder := expfmt.NewEncoder(&body, format)
+	for _, family := range families {
+		if err := encoder.Encode(family); err != nil {
+			return err
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, p.fullURL(grouping), &body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", string(format))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusAccepted {
+		return nil
+	}
+	responseBody, _ := io.ReadAll(resp.Body)
+	return fmt.Errorf("unexpected status code %d while pushing to %s: %s", resp.StatusCode, p.fullURL(grouping), responseBody)
+}
+
+func (p *PushgatewayPusher) fullURL(grouping map[string]string) string {
+	components := []string{"job@base64", pushgatewayPathValue(p.job)}
+	for _, label := range groupingLabelNames {
+		components = append(components, label+"@base64", pushgatewayPathValue(nonEmptyLabel(grouping[label], "unknown")))
+	}
+	return p.url + "/metrics/" + strings.Join(components, "/")
+}
+
+func pushgatewayPathValue(value string) string {
+	if value == "" {
+		return "="
+	}
+	return base64.RawURLEncoding.EncodeToString([]byte(value))
 }
 
 // ArchiveMetricBatches converts a standalone result archive into one metrics

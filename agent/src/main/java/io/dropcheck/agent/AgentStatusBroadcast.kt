@@ -1,21 +1,22 @@
 package io.dropcheck.agent
 
 import android.content.Context
-import android.content.Intent
+import java.util.concurrent.CopyOnWriteArraySet
 
-/** Broadcasts process-local status used by the on-device activity chrome. */
+/** Notifies process-local status listeners used by the on-device activity chrome. */
 internal object AgentStatusBroadcast {
-    const val ACTION = "io.dropcheck.agent.AGENT_STATUS"
-    const val EXTRA_CONTROLLER_HEARTBEAT_CONNECTED = "controller_heartbeat_connected"
-    const val EXTRA_STANDALONE_ACTIVE = "standalone_active"
-    const val EXTRA_STANDALONE_RUNNING = "standalone_running"
+    private val listeners = CopyOnWriteArraySet<() -> Unit>()
 
+    fun addListener(listener: () -> Unit) {
+        listeners.add(listener)
+    }
+
+    fun removeListener(listener: () -> Unit) {
+        listeners.remove(listener)
+    }
+
+    @Suppress("UNUSED_PARAMETER")
     fun send(context: Context) {
-        context.sendBroadcast(Intent(ACTION).apply {
-            setPackage(context.packageName)
-            putExtra(EXTRA_CONTROLLER_HEARTBEAT_CONNECTED, ControllerSessionRuntimeState.heartbeatConnected())
-            putExtra(EXTRA_STANDALONE_ACTIVE, StandaloneRuntimeState.active.get())
-            putExtra(EXTRA_STANDALONE_RUNNING, StandaloneRuntimeState.running.get())
-        })
+        listeners.forEach { listener -> runCatching { listener() } }
     }
 }

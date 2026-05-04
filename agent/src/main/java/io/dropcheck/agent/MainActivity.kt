@@ -1,13 +1,9 @@
 package io.dropcheck.agent
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
-import android.content.BroadcastReceiver
-import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
@@ -97,15 +93,11 @@ class MainActivity : Activity() {
         (TerminalDisplayPolicy.AUTO_SCROLL_SLOP_DP * resources.displayMetrics.density).toInt()
     }
 
-    private val receiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action == AgentStatusBroadcast.ACTION) {
-                applyStatusBroadcast(intent)
-                return
-            }
-            val line = intent.getStringExtra(TerminalLog.EXTRA_LINE) ?: return
-            append(line)
-        }
+    private val terminalLogListener: (String) -> Unit = { line ->
+        runOnUiThread { append(line) }
+    }
+    private val statusListener: () -> Unit = {
+        runOnUiThread { syncStatusIcons() }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -189,17 +181,10 @@ class MainActivity : Activity() {
         requestScrollToBottom()
     }
 
-    @SuppressLint("UnspecifiedRegisterReceiverFlag")
     override fun onStart() {
         super.onStart()
-        val filter = IntentFilter(TerminalLog.ACTION_LINE)
-        filter.addAction(AgentStatusBroadcast.ACTION)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("DEPRECATION")
-            registerReceiver(receiver, filter)
-        }
+        TerminalLog.addListener(terminalLogListener)
+        AgentStatusBroadcast.addListener(statusListener)
         statusRefreshHandler.post(statusRefresh)
     }
 
@@ -231,7 +216,8 @@ class MainActivity : Activity() {
     override fun onStop() {
         statusRefreshHandler.removeCallbacks(statusRefresh)
         stopIdleDimTimer()
-        unregisterReceiver(receiver)
+        TerminalLog.removeListener(terminalLogListener)
+        AgentStatusBroadcast.removeListener(statusListener)
         super.onStop()
     }
 
@@ -453,23 +439,6 @@ class MainActivity : Activity() {
         controllerHeartbeatConnected = ControllerSessionRuntimeState.heartbeatConnected()
         standaloneActive = isStandaloneActive()
         standaloneRunning = StandaloneRuntimeState.running.get()
-        updateStatusIcons()
-    }
-
-    private fun applyStatusBroadcast(intent: Intent) {
-        controllerHeartbeatConnected = intent.getBooleanExtra(
-            AgentStatusBroadcast.EXTRA_CONTROLLER_HEARTBEAT_CONNECTED,
-            ControllerSessionRuntimeState.heartbeatConnected(),
-        )
-        val broadcastStandaloneActive = intent.getBooleanExtra(
-            AgentStatusBroadcast.EXTRA_STANDALONE_ACTIVE,
-            StandaloneRuntimeState.active.get(),
-        )
-        standaloneActive = broadcastStandaloneActive || StandaloneConfigStore(this).load().enabled
-        standaloneRunning = intent.getBooleanExtra(
-            AgentStatusBroadcast.EXTRA_STANDALONE_RUNNING,
-            StandaloneRuntimeState.running.get(),
-        )
         updateStatusIcons()
     }
 
