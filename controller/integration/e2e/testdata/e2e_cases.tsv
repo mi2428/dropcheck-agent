@@ -324,3 +324,27 @@ E2E-322	Parser standalone upload target	shell-parser	config> set standalone uplo
 E2E-323	Parser standalone upload Wi-Fi	shell-parser	"config> set standalone upload via wifi essid ""<ssid>"" passphrase <psk> security wpa3 band 6ghz timeout 5s"	ok	Standalone upload management Wi-Fi parses.
 E2E-324	CLI standalone upload target	cli	dropcheck configure set standalone upload to http://192.168.50.10:8080/dropcheck/e2e	ok	CLI standalone upload target parses.
 E2E-325	CLI standalone upload Wi-Fi	cli	"dropcheck configure set standalone upload via wifi essid ""<ssid>"" passphrase <psk> security auto timeout 5s"	ok	CLI standalone upload management Wi-Fi parses.
+E2E-326	Parser standalone upload Wi-Fi full selector	shell-parser	"config> set standalone upload via wifi essid ""<ssid>"" passphrase <psk> security wpa2 bssid 00:11:22:33:44:55 band 5ghz mac-randomization persistent timeout 5s"	ok	Standalone upload management Wi-Fi accepts bssid, band, MAC randomization, and timeout together.
+E2E-327	Parser standalone upload missing ESSID	shell-parser	config> set standalone upload via wifi passphrase <psk>	error	Standalone upload management Wi-Fi requires essid.
+E2E-328	Parser standalone upload duplicate passphrase	shell-parser	"config> set standalone upload via wifi essid ""<ssid>"" passphrase <psk> passphrase other"	error	Duplicate standalone upload passphrase values are rejected.
+E2E-329	Parser standalone upload invalid MAC mode	shell-parser	"config> set standalone upload via wifi essid ""<ssid>"" passphrase <psk> mac-randomization weird"	error	Unsupported standalone upload MAC randomization is rejected.
+E2E-330	CLI standalone upload Wi-Fi full selector	cli	"dropcheck configure set standalone upload via wifi essid ""<ssid>"" passphrase <psk> security wpa2 bssid 00:11:22:33:44:55 band 5ghz mac-randomization persistent timeout 5s"	ok	CLI standalone upload management Wi-Fi accepts the full selector option set.
+E2E-331	CLI standalone upload missing passphrase	cli	"dropcheck configure set standalone upload via wifi essid ""<ssid>"""	error	CLI standalone upload management Wi-Fi requires passphrase.
+E2E-332	Parser delete standalone upload target	shell-parser	config> delete standalone upload to	ok	Delete standalone upload target parses.
+E2E-333	Parser delete standalone upload Wi-Fi	shell-parser	config> delete standalone upload via wifi	ok	Delete standalone upload management Wi-Fi parses.
+E2E-334	Parser standalone festa disabled	shell-parser	config> set standalone festa smoke disabled	ok	Standalone festa disabled edit parses.
+E2E-335	Parser standalone festa interval	shell-parser	config> set standalone festa smoke interval 2s	ok	Standalone festa interval edit parses.
+E2E-336	Parser standalone festa Wi-Fi group band	shell-parser	config> set standalone festa smoke wifi-group lab band 5ghz	ok	Standalone festa Wi-Fi group band edit parses.
+E2E-337	Parser standalone festa Wi-Fi wait IP	shell-parser	config> set standalone festa smoke wifi-group lab wait ip	ok	Standalone festa Wi-Fi group IP wait edit parses.
+E2E-338	Parser standalone festa Wi-Fi wait validated	shell-parser	config> set standalone festa smoke wifi-group lab wait validated	ok	Standalone festa Wi-Fi group validation wait edit parses.
+E2E-339	Parser standalone festa Wi-Fi wait invalid	shell-parser	config> set standalone festa smoke wifi-group lab wait internet	error	Unsupported standalone festa Wi-Fi wait condition is rejected.
+E2E-340	Parser delete standalone festa Wi-Fi group	shell-parser	config> delete standalone festa smoke wifi-group lab	ok	Delete standalone festa Wi-Fi group parses.
+E2E-341	Parser delete standalone festa ping check	shell-parser	config> delete standalone festa smoke check ping	ok	Delete standalone festa ping check parses.
+E2E-342	CLI standalone status	cli	dropcheck show standalone status	ok	CLI standalone status renders runtime state.
+E2E-343	CLI standalone run config ESSID	cli	"dropcheck configure set standalone festa cli-table wifi-group lab match essid ""<ssid>"""	ok	CLI configures a standalone run Wi-Fi ESSID.
+E2E-344	CLI standalone run config credential	cli	dropcheck configure set standalone festa cli-table wifi-group lab credential passphrase <psk>	ok	CLI configures a standalone run Wi-Fi credential.
+E2E-345	CLI standalone run config security	cli	dropcheck configure set standalone festa cli-table wifi-group lab security auto	ok	CLI configures a standalone run Wi-Fi security mode.
+E2E-346	CLI standalone run config ping	cli	dropcheck configure set standalone festa cli-table check ping host 1.1.1.1 count 1 timeout 8000	ok	CLI configures a standalone ping check.
+E2E-347	CLI standalone run config enable	cli	dropcheck configure set standalone festa cli-table enabled	ok	CLI enables the standalone run festa.
+E2E-348	CLI standalone run once save	cli	dropcheck request standalone run once --festa cli-table --save	ok	CLI standalone run once saves an archive and prints its run id.
+E2E-349	CLI standalone run detail	cli	dropcheck show standalone run <run-id>	ok	CLI standalone run detail fetches the saved archive by run id.
