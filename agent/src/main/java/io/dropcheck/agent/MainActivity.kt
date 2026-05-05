@@ -15,22 +15,28 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.Layout
+import android.text.InputType
 import android.text.SpannableString
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewTreeObserver
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import java.util.concurrent.Executors
 
 private const val TERMINAL_BREAK_OPPORTUNITY = "\u200B"
 private const val STATUS_ICON_WIDTH_DP = 31
@@ -64,8 +70,8 @@ internal fun terminalDisplayText(line: String): String {
 /**
  * Minimal on-device terminal view for lab/debug sessions.
  *
- * It intentionally avoids app navigation or controls; controller interaction is
- * driven through adb/gRPC, while this screen exposes the local log tail.
+ * It keeps the main screen as a local log tail and exposes a small swipe-in
+ * shell for lab-only Wi-Fi target switching.
  */
 class MainActivity : Activity() {
     private lateinit var logView: TextView
@@ -73,12 +79,14 @@ class MainActivity : Activity() {
     private lateinit var root: FrameLayout
     private lateinit var shellScroll: ScrollView
     private lateinit var shellContent: LinearLayout
+    private var shellInput: EditText? = null
     private var statusIconViews: List<ImageView> = emptyList()
     private var controllerHeartbeatConnected = false
     private var standaloneActive = false
     private var standaloneRunning = false
     private var screenDimmed = false
     private var shellVisible = false
+    private var shellBusy = false
     private var swipeStartX = 0f
     private var swipeStartY = 0f
     private var backgroundLocationPromptShown = false
@@ -107,6 +115,8 @@ class MainActivity : Activity() {
     private val statusListener: () -> Unit = {
         runOnUiThread { syncStatusIcons() }
     }
+    private val shellExecutor = Executors.newSingleThreadExecutor()
+    private val shellTranscript = ArrayDeque<ShellTranscriptLine>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -236,6 +246,11 @@ class MainActivity : Activity() {
         TerminalLog.removeListener(terminalLogListener)
         AgentStatusBroadcast.removeListener(statusListener)
         super.onStop()
+    }
+
+    override fun onDestroy() {
+        shellExecutor.shutdownNow()
+        super.onDestroy()
     }
 
     /** Appends one terminal line and trims the view to a bounded size. */
@@ -519,11 +534,25 @@ class MainActivity : Activity() {
 
     private fun renderShell() {
         if (!::shellContent.isInitialized) return
+        val useController = StandaloneWifiUseController(applicationContext)
         shellContent.removeAllViews()
         shellContent.addView(shellText("dropcheck shell", 16f, AgentLogStyle.TEXT_COLOR))
-        shellContent.addView(shellText("mode=idle standalone=${standaloneRunningLabel()}", 10f, AgentLogStyle.TEXT_COLOR))
+        shellContent.addView(shellText("mode=idle standalone=${standaloneRunningLabel()} ${useController.statusText()}", 10f, AgentLogStyle.TEXT_COLOR))
+        val liveNames = useController.liveWifiNames()
+        if (liveNames.isNotEmpty()) {
+            shellContent.addView(shellText("live wifi: ${liveNames.joinToString(" ")}", 10f, AgentLogStyle.TEXT_COLOR))
+        }
         shellContent.addView(shellSpacer(8))
-        shellContent.addView(shellText("dropcheck#", 12f, Color.YELLOW))
+        if (shellTranscript.isEmpty()) {
+            shellHelpLines(liveNames).forEach { shellContent.addView(shellText(it, 11f, AgentLogStyle.TEXT_COLOR)) }
+            shellContent.addView(shellSpacer(4))
+        } else {
+            shellTranscript.takeLast(SHELL_TRANSCRIPT_MAX_LINES).forEach {
+                shellContent.addView(shellText(it.text, 11f, it.color))
+            }
+            shellContent.addView(shellSpacer(4))
+        }
+        shellContent.addView(shellInputRow())
     }
 
     private fun standaloneRunningLabel(): String {
@@ -546,6 +575,94 @@ class MainActivity : Activity() {
             setPadding(0, dp(2), 0, dp(2))
             excludeFromContentCapture()
         }
+    }
+
+    private fun shellInputRow(): LinearLayout {
+        val input = EditText(this).apply {
+            setTextColor(AgentLogStyle.TEXT_COLOR)
+            setHintTextColor(Color.DKGRAY)
+            setBackgroundColor(Color.BLACK)
+            typeface = Typeface.MONOSPACE
+            textSize = 12f
+            includeFontPadding = false
+            setSingleLine(true)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            imeOptions = EditorInfo.IME_ACTION_DONE
+            hint = if (shellBusy) "running..." else "use <name>"
+            isEnabled = !shellBusy
+            excludeFromContentCapture()
+            setOnEditorActionListener { view, actionId, event ->
+                val enterKey = event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_UP
+                if (actionId == EditorInfo.IME_ACTION_DONE || enterKey) {
+                    submitShellInput(view.text.toString())
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+        shellInput = input
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(shellText("dropcheck# ", 12f, Color.YELLOW))
+            addView(input, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
+    }
+
+    private fun submitShellInput(raw: String) {
+        val line = raw.trim()
+        shellInput?.setText("")
+        if (line.isBlank() || shellBusy) return
+        appendShellLine("dropcheck# $line", Color.YELLOW)
+        when (val command = AgentShellParser.parse(line)) {
+            AgentShellCommand.Noop -> Unit
+            AgentShellCommand.Help -> {
+                shellHelpLines(StandaloneWifiUseController(applicationContext).liveWifiNames()).forEach { appendShellLine(it) }
+            }
+            AgentShellCommand.ShowUse -> {
+                appendShellLine(StandaloneWifiUseController(applicationContext).statusText())
+            }
+            AgentShellCommand.ClearUse -> runShellCommand {
+                StandaloneWifiUseController(applicationContext).clearUse()
+            }
+            is AgentShellCommand.Use -> runShellCommand {
+                StandaloneWifiUseController(applicationContext).use(command.name)
+            }
+            is AgentShellCommand.Invalid -> appendShellLine(command.message, Color.rgb(255, 180, 80))
+        }
+    }
+
+    private fun runShellCommand(action: () -> StandaloneUseResult) {
+        shellBusy = true
+        renderShell()
+        shellExecutor.submit {
+            val result = runCatching { action() }.getOrElse {
+                StandaloneUseResult(false, it.message ?: it.toString())
+            }
+            runOnUiThread {
+                shellBusy = false
+                appendShellLine(result.message, if (result.ok) AgentLogStyle.TEXT_COLOR else Color.rgb(255, 180, 80))
+                syncStatusIcons()
+            }
+        }
+    }
+
+    private fun appendShellLine(text: String, color: Int = AgentLogStyle.TEXT_COLOR) {
+        shellTranscript.addLast(ShellTranscriptLine(text, color))
+        while (shellTranscript.size > SHELL_TRANSCRIPT_MAX_LINES) shellTranscript.removeFirst()
+        renderShell()
+        shellScroll.post { shellScroll.fullScroll(View.FOCUS_DOWN) }
+        shellInput?.requestFocus()
+    }
+
+    private fun shellHelpLines(liveNames: List<String>): List<String> = buildList {
+        add("commands:")
+        add("  use <name>    connect to standalone festa live wifi <name>")
+        add("  clear use     restore standalone enabled state")
+        add("  show use      show current use override")
+        add("  help          show this help")
+        if (liveNames.isNotEmpty()) add("names: ${liveNames.joinToString(" ")}")
     }
 
     private fun shellSpacer(heightDp: Int): View {
@@ -593,6 +710,10 @@ class MainActivity : Activity() {
         renderShell()
         shellScroll.visibility = View.VISIBLE
         scroll.visibility = View.GONE
+        shellInput?.requestFocus()
+        shellInput?.post {
+            getSystemService(InputMethodManager::class.java)?.showSoftInput(shellInput, InputMethodManager.SHOW_IMPLICIT)
+        }
         resetIdleDimTimer()
     }
 
@@ -623,5 +744,14 @@ class MainActivity : Activity() {
             controller.hide(WindowInsets.Type.systemBars())
             controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
+    }
+
+    private data class ShellTranscriptLine(
+        val text: String,
+        val color: Int,
+    )
+
+    private companion object {
+        const val SHELL_TRANSCRIPT_MAX_LINES = 80
     }
 }
