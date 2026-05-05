@@ -46,4 +46,11 @@ class CommandTerminalLogTest {
         assertTrue(line.contains("command_id=abc123"))
         assertTrue(line.contains("scope=exec"))
     }
+
+    @Test
+    fun marksAgentShellMessages() {
+        val line = CommandTerminalLog.agentShell(CommandLogScope.COMMAND, "use ap1")
+
+        assertEquals("event=command.log source=agent-shell scope=command msg=\"use ap1\"", line)
+    }
 }

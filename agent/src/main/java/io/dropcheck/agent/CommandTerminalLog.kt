@@ -10,6 +10,10 @@ internal object CommandTerminalLog {
         return format(listOf("source" to "standalone"), scope, message)
     }
 
+    fun agentShell(scope: CommandLogScope, message: String): String {
+        return format(listOf("source" to "agent-shell"), scope, message)
+    }
+
     private fun format(contextFields: List<Pair<String, Any?>>, scope: CommandLogScope, message: String): String {
         val fields = contextFields + ("scope" to scope.logValue)
         return if (message.startsWith("event=")) {
