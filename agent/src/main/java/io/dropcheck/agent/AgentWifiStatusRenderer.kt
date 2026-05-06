@@ -3,6 +3,7 @@ package io.dropcheck.agent
 import io.dropcheck.agent.grpc.IpStatus
 import io.dropcheck.agent.grpc.MloLinkInfo
 import io.dropcheck.agent.grpc.WifiConnection
+import io.dropcheck.agent.grpc.WifiInformationElement
 import io.dropcheck.agent.grpc.WifiStatus
 
 /** Text renderer used by the on-device shell for `show wifi status`. */
@@ -17,8 +18,9 @@ internal object AgentWifiStatusRenderer {
             "networks" to status.wifiNetworkCount.toString(),
         )
         if (status.permissionsList.isNotEmpty()) renderPermissions(out, status.permissionsList)
-        if (status.hasConnection() && status.connection.ssid.isNotBlank()) renderConnection(out, status.connection)
-        if (status.hasIpStatus()) renderIPStatus(out, status.ipStatus)
+        val connection = status.connection.takeIf { status.hasConnection() && it.ssid.isNotBlank() }
+        if (connection != null) renderConnection(out, connection)
+        if (status.hasIpStatus()) renderIPStatus(out, status.ipStatus, connection)
         return out
     }
 
@@ -57,7 +59,140 @@ internal object AgentWifiStatusRenderer {
                 "signal" to "${conn.signalLevel}/${conn.maxSignalLevel}",
             )
         }
+        renderConnectionCapabilities(out, conn)
         renderMLO(out, conn)
+    }
+
+    private fun renderConnectionCapabilities(out: MutableList<String>, conn: WifiConnection) {
+        val rows = connectionCapabilityRows(conn)
+        if (rows.isEmpty()) return
+        section(out, "Connection Capabilities")
+        table(out,
+            listOf("CAPABILITY", "SOURCE", "DETAIL"),
+            rows.map { row -> listOf(row.capability, row.source, empty(row.detail, "-")) },
+        )
+    }
+
+    private data class CapabilityRow(val capability: String, val source: String, val detail: String)
+
+    private fun connectionCapabilityRows(conn: WifiConnection): List<CapabilityRow> {
+        val rows = mutableListOf<CapabilityRow>()
+        if (conn.hiddenSsid) rows += CapabilityRow("hidden_ssid", "android", "true")
+        if (conn.restricted) rows += CapabilityRow("restricted", "android", "true")
+        if (conn.passpointFqdn.isNotBlank()) rows += CapabilityRow("passpoint_fqdn", "android", conn.passpointFqdn)
+        if (conn.passpointProviderFriendlyName.isNotBlank()) {
+            rows += CapabilityRow("passpoint_provider", "android", conn.passpointProviderFriendlyName)
+        }
+        if (conn.passpointUniqueId.isNotBlank()) rows += CapabilityRow("passpoint_unique_id", "android", conn.passpointUniqueId)
+        if (conn.maxSupportedTxLinkSpeedMbps > 0) {
+            rows += CapabilityRow("max_supported_tx", "android", "${conn.maxSupportedTxLinkSpeedMbps}Mbps")
+        }
+        if (conn.maxSupportedRxLinkSpeedMbps > 0) {
+            rows += CapabilityRow("max_supported_rx", "android", "${conn.maxSupportedRxLinkSpeedMbps}Mbps")
+        }
+        rows += informationElementCapabilityRows(conn.informationElementsList, CapabilityMode.ALL)
+        return rows.sortedWith(compareBy<CapabilityRow> { it.capability }.thenBy { it.source }.thenBy { it.detail })
+    }
+
+    private enum class CapabilityMode { ALL, CONNECTION }
+
+    private fun informationElementCapabilityRows(elements: List<WifiInformationElement>, mode: CapabilityMode): List<CapabilityRow> {
+        return elements.mapNotNull { element ->
+            val name = informationElementCapabilityName(element, mode) ?: return@mapNotNull null
+            CapabilityRow(name, "ie", informationElementDetail(element))
+        }
+    }
+
+    private fun informationElementCapabilityName(element: WifiInformationElement, mode: CapabilityMode): String? {
+        return when (element.id) {
+            54 -> "11r"
+            55 -> "fast_bss_transition"
+            70 -> "11k"
+            107 -> "interworking"
+            111 -> "roaming_consortium"
+            127 -> when {
+                informationElementBit(element, 19) -> "11v_bss_transition"
+                mode == CapabilityMode.ALL -> informationElementName(element)
+                else -> null
+            }
+            201 -> "reduced_neighbor_report"
+            255 -> when (element.idExt) {
+                107 -> "eht_multi_link"
+                else -> if (mode == CapabilityMode.ALL) informationElementExtensionName(element.idExt) else null
+            }
+            else -> if (mode == CapabilityMode.ALL) informationElementName(element) else null
+        }
+    }
+
+    private fun informationElementDetail(element: WifiInformationElement): String {
+        val parts = mutableListOf("id=${element.id}")
+        val ext = informationElementExt(element)
+        if (ext != "-") parts += "ext=$ext"
+        parts += "bytes=${element.byteCount}"
+        if (element.id == 127 && informationElementBit(element, 19)) parts += "bss_transition=true"
+        return parts.joinToString(" ")
+    }
+
+    private fun informationElementExt(element: WifiInformationElement): String {
+        return if (element.id == 255 || element.idExt > 0) element.idExt.toString() else "-"
+    }
+
+    private fun informationElementName(element: WifiInformationElement): String {
+        if (element.id == 255) return informationElementExtensionName(element.idExt)
+        return when (element.id) {
+            0 -> "ssid"
+            1 -> "supported_rates"
+            3 -> "dsss_parameter_set"
+            5 -> "tim"
+            7 -> "country"
+            11 -> "bss_load"
+            32 -> "power_constraint"
+            33 -> "power_capability"
+            35 -> "tpc_report"
+            36 -> "supported_channels"
+            42 -> "erp"
+            45 -> "ht_capabilities"
+            48 -> "rsn"
+            50 -> "extended_supported_rates"
+            54 -> "mobility_domain_11r"
+            55 -> "fast_bss_transition"
+            59 -> "supported_operating_classes"
+            61 -> "ht_operation"
+            70 -> "rm_enabled_capabilities_11k"
+            74 -> "overlapping_bss_scan_parameters"
+            107 -> "interworking"
+            111 -> "roaming_consortium"
+            127 -> "extended_capabilities"
+            191 -> "vht_capabilities"
+            192 -> "vht_operation"
+            195 -> "tx_power_envelope"
+            201 -> "reduced_neighbor_report"
+            221 -> "vendor_specific"
+            else -> "unknown_${element.id}"
+        }
+    }
+
+    private fun informationElementExtensionName(idExt: Int): String = when (idExt) {
+        35 -> "he_capabilities"
+        36 -> "he_operation"
+        37 -> "uora_parameter_set"
+        38 -> "mu_edca_parameter_set"
+        39 -> "spatial_reuse_parameter_set"
+        45 -> "he_bss_load"
+        106 -> "eht_operation"
+        107 -> "eht_multi_link"
+        108 -> "eht_capabilities"
+        else -> "extension_$idExt"
+    }
+
+    private fun informationElementBit(element: WifiInformationElement, bit: Int): Boolean {
+        if (bit < 0) return false
+        val byteIndex = bit / 8
+        val hexIndex = byteIndex * 2
+        val hex = element.bytesHex
+        if (hexIndex + 2 > hex.length) return false
+        val byteValue = hex.substring(hexIndex, hexIndex + 2).toIntOrNull(16) ?: return false
+        return byteValue and (1 shl (bit % 8)) != 0
     }
 
     private fun renderMLO(out: MutableList<String>, conn: WifiConnection) {
@@ -102,7 +237,7 @@ internal object AgentWifiStatusRenderer {
         )
     }
 
-    private fun renderIPStatus(out: MutableList<String>, status: IpStatus) {
+    private fun renderIPStatus(out: MutableList<String>, status: IpStatus, connection: WifiConnection?) {
         section(out, "Network")
         kv(out,
             "id" to empty(status.networkId, "unknown"),
@@ -112,6 +247,7 @@ internal object AgentWifiStatusRenderer {
             "interface" to empty(status.interfaceName, "none"),
             "mtu" to status.mtu.toString(),
         )
+        renderNetworkCapabilities(out, status, connection)
         listSection(out, "Addresses", status.addressesList)
         listSection(out, "DNS", status.dnsServersList)
         if (status.dhcpServer.isNotBlank()) {
@@ -124,6 +260,48 @@ internal object AgentWifiStatusRenderer {
                 "active" to status.privateDnsActive.toString(),
                 "server" to empty(status.privateDnsServerName, "none"),
             )
+        }
+    }
+
+    private fun renderNetworkCapabilities(out: MutableList<String>, status: IpStatus, connection: WifiConnection?) {
+        val capabilities = networkCapabilitiesForDetail(status.capabilitiesList)
+        val signalStrength = networkSignalStrengthForDetail(status, connection)
+        if (capabilities.isEmpty() &&
+            status.enterpriseIdsList.isEmpty() &&
+            status.subscriptionIdsList.isEmpty() &&
+            status.downstreamKbps == 0 &&
+            status.upstreamKbps == 0 &&
+            signalStrength == null &&
+            status.networkSpecifier.isBlank() &&
+            status.ownerUid <= 0
+        ) {
+            return
+        }
+        section(out, "Network Capabilities")
+        val rows = mutableListOf<Pair<String, String>>()
+        if (capabilities.isNotEmpty()) rows += "capabilities" to capabilities.joinToString(",")
+        if (status.downstreamKbps > 0) rows += "downstream_kbps" to status.downstreamKbps.toString()
+        if (status.upstreamKbps > 0) rows += "upstream_kbps" to status.upstreamKbps.toString()
+        if (signalStrength != null) rows += "signal_strength" to signalStrength.toString()
+        if (status.networkSpecifier.isNotBlank()) rows += "network_specifier" to status.networkSpecifier
+        if (status.ownerUid > 0) rows += "owner_uid" to status.ownerUid.toString()
+        if (status.enterpriseIdsList.isNotEmpty()) rows += "enterprise_ids" to status.enterpriseIdsList.joinToString(",")
+        if (status.subscriptionIdsList.isNotEmpty()) rows += "subscription_ids" to status.subscriptionIdsList.joinToString(",")
+        kv(out, *rows.toTypedArray())
+    }
+
+    private fun networkSignalStrengthForDetail(status: IpStatus, connection: WifiConnection?): Int? {
+        val signalStrength = status.signalStrength
+        if (signalStrength == 0 || signalStrength == Int.MIN_VALUE) return null
+        if (connection != null && connection.rssiDbm == signalStrength) return null
+        return signalStrength
+    }
+
+    private fun networkCapabilitiesForDetail(values: List<String>): List<String> {
+        return values.filterNot { value ->
+            value.isBlank() ||
+                value.equals("internet", ignoreCase = true) ||
+                value.equals("validated", ignoreCase = true)
         }
     }
 
