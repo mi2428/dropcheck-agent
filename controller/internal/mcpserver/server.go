@@ -3,6 +3,8 @@ package mcpserver
 import (
 	"context"
 
+	"dropcheck/controller/internal/version"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -14,7 +16,7 @@ func NewServer(backend Backend) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "dropcheck-mcp",
 		Title:   "Dropcheck MCP",
-		Version: "0.1.0",
+		Version: version.Version,
 	}, nil)
 	registerTools(server, backend)
 	return server

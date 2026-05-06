@@ -7,6 +7,7 @@ plugins {
 }
 
 val protobufVersion = "4.34.1"
+val dropcheckVersion = providers.gradleProperty("dropcheckVersion").orElse("0.0.0-dev").get()
 
 android {
     namespace = "io.dropcheck.agent"
@@ -17,7 +18,11 @@ android {
         minSdk = 31
         targetSdk = 36
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = dropcheckVersion
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     compileOptions {
