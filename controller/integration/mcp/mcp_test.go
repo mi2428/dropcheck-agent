@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -174,6 +175,21 @@ func structuredMap(t *testing.T, result *mcp.CallToolResult) map[string]any {
 	return out
 }
 
+func assertContentIncludesStructuredJSON(t *testing.T, result *mcp.CallToolResult, structured map[string]any) {
+	t.Helper()
+	for _, content := range result.Content {
+		text := content.(*mcp.TextContent).Text
+		var decoded map[string]any
+		if err := json.Unmarshal([]byte(text), &decoded); err != nil {
+			continue
+		}
+		if reflect.DeepEqual(decoded, structured) {
+			return
+		}
+	}
+	t.Fatalf("content does not include structured JSON: content=%#v structured=%#v", result.Content, structured)
+}
+
 func TestToolsListIncludesDropcheckOperations(t *testing.T) {
 	session, cleanup := connectMCP(t, newFakeBackend())
 	defer cleanup()
@@ -339,6 +355,7 @@ func TestWifiConnectUsesPassphraseEnvAndRedactsOutput(t *testing.T) {
 	if strings.Contains(string(encoded), "super-secret") {
 		t.Fatalf("structured output leaked passphrase: %s", encoded)
 	}
+	assertContentIncludesStructuredJSON(t, result, structured)
 	for _, content := range result.Content {
 		if text := content.(*mcp.TextContent).Text; strings.Contains(text, "super-secret") {
 			t.Fatalf("content leaked passphrase: %s", text)
@@ -403,6 +420,7 @@ func TestFailedAgentStatusBecomesToolError(t *testing.T) {
 	if structured["success"] != false || structured["status"] != "failed" {
 		t.Fatalf("structured=%v", structured)
 	}
+	assertContentIncludesStructuredJSON(t, result, structured)
 }
 
 func TestDropcheckCommandParsesCLIGrammar(t *testing.T) {
