@@ -12,11 +12,19 @@ import (
 )
 
 func toolResult(text string, structured map[string]any, isError bool) (*mcp.CallToolResult, map[string]any, error) {
+	content := []mcp.Content{
+		&mcp.TextContent{Text: text},
+	}
+	if structured != nil {
+		data, err := json.Marshal(structured)
+		if err != nil {
+			return nil, nil, fmt.Errorf("marshal structured tool content: %w", err)
+		}
+		content = append(content, &mcp.TextContent{Text: string(data)})
+	}
 	return &mcp.CallToolResult{
 		IsError: isError,
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: text},
-		},
+		Content: content,
 	}, structured, nil
 }
 
