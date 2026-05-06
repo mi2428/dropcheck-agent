@@ -19,6 +19,7 @@ const (
 	shellShowDevices
 	shellShowConfig
 	shellAgentCommand
+	shellADBDiagnostics
 	shellStandaloneSync
 )
 
@@ -26,6 +27,7 @@ type shellCommand struct {
 	kind        shellCommandKind
 	configScope string
 	operation   Operation
+	adbKind     string
 	syncOutput  string
 	syncLimit   string
 	syncMark    bool
@@ -53,6 +55,7 @@ func wrapShellCommand(parsed shell.Command) shellCommand {
 		kind:        shellCommandKind(parsed.Kind),
 		configScope: parsed.ConfigScope,
 		operation:   parsed.Operation,
+		adbKind:     parsed.ADBDiagnosticsKind,
 		syncOutput:  parsed.StandaloneSyncOutput,
 		syncLimit:   parsed.StandaloneSyncLimit,
 		syncMark:    parsed.StandaloneSyncMark,

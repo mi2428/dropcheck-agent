@@ -40,6 +40,17 @@ func TestParseLineLocalCommandSurface(t *testing.T) {
 	if sync.StandaloneSyncOutput != "/tmp/dropcheck-e2e" || sync.StandaloneSyncLimit != "2" || sync.StandaloneSyncMark {
 		t.Fatalf("sync options = output %q limit %q mark %t", sync.StandaloneSyncOutput, sync.StandaloneSyncLimit, sync.StandaloneSyncMark)
 	}
+
+	adbDiag, err := ParseLine("show adb dumpsys connectivity requests | display json")
+	if err != nil {
+		t.Fatalf("ParseLine(show adb dumpsys connectivity requests) error = %v", err)
+	}
+	if adbDiag.Kind != ADBDiagnostics || adbDiag.ADBDiagnosticsKind != "dumpsys-connectivity-requests" {
+		t.Fatalf("adb diagnostics = kind %v adb kind %q", adbDiag.Kind, adbDiag.ADBDiagnosticsKind)
+	}
+	if !adbDiag.Pipeline.DisplayJSON() {
+		t.Fatalf("adb diagnostics pipeline should request JSON display")
+	}
 }
 
 func TestParseLineAgentCommandSurface(t *testing.T) {

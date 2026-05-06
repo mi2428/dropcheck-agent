@@ -116,7 +116,7 @@ func runShell(ctx context.Context, opts shellOptions, args []string) error {
 	}
 	defer controlSession.Close()
 
-	state := &shellState{server: controlSession.Server}
+	state := &shellState{server: controlSession.Server, adbPath: opts.ADBPath}
 	if err := selectShellStartupTarget(state, controlSession.Agents, targetOpts.target); err != nil {
 		return err
 	}
@@ -184,6 +184,7 @@ const (
 
 type shellState struct {
 	server        *control.Server
+	adbPath       string
 	selected      string
 	selectedLabel string
 	targetAll     bool

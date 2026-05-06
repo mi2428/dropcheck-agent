@@ -109,6 +109,11 @@ func TestParseShellCommands(t *testing.T) {
 			label: "wifi scan fresh 5ghz --timeout 9000",
 		},
 		{
+			name: "show adb diagnostics full",
+			line: "show adb diagnostics full",
+			kind: shellADBDiagnostics,
+		},
+		{
 			name:  "request> wifi connect",
 			line:  "request> wifi connect Lab passphrase secret security wpa3 bssid aa:bb:cc:dd:ee:ff band 6ghz mac-randomization non-persistent timeout 12345",
 			kind:  shellAgentCommand,
