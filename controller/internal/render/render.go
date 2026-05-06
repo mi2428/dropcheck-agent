@@ -1,9 +1,11 @@
 package render
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -362,11 +364,13 @@ func renderWifiStatus(b *strings.Builder, status *controlpb.WifiStatus) {
 	if len(status.GetPermissions()) > 0 {
 		renderPermissions(b, status.GetPermissions())
 	}
-	if conn := status.GetConnection(); conn != nil && conn.GetSsid() != "" {
+	var conn *controlpb.WifiConnection
+	if status.GetConnection() != nil && status.GetConnection().GetSsid() != "" {
+		conn = status.GetConnection()
 		renderWifiConnection(b, conn)
 	}
 	if status.GetIpStatus() != nil {
-		renderIPStatus(b, status.GetIpStatus())
+		renderIPStatusWithOptions(b, status.GetIpStatus(), ipRenderOptions{connection: conn})
 	}
 }
 
@@ -405,7 +409,68 @@ func renderWifiConnection(b *strings.Builder, conn *controlpb.WifiConnection) {
 			kv("signal", fmt.Sprintf("%d/%d", conn.GetSignalLevel(), conn.GetMaxSignalLevel())),
 		)
 	}
+	renderWifiConnectionCapabilities(b, conn)
 	renderWifiConnectionMLO(b, conn)
+}
+
+func renderWifiConnectionCapabilities(b *strings.Builder, conn *controlpb.WifiConnection) {
+	rows := wifiConnectionCapabilityRows(conn)
+	if len(rows) == 0 {
+		return
+	}
+	writeSection(b, "Connection Capabilities")
+	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "CAPABILITY\tSOURCE\tDETAIL")
+	for _, row := range rows {
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", row.capability, row.source, empty(row.detail, "-"))
+	}
+	_ = tw.Flush()
+}
+
+type wifiCapabilityRow struct {
+	capability string
+	source     string
+	detail     string
+}
+
+func wifiConnectionCapabilityRows(conn *controlpb.WifiConnection) []wifiCapabilityRow {
+	rows := []wifiCapabilityRow{}
+	if conn.GetHiddenSsid() {
+		rows = append(rows, wifiCapabilityRow{"hidden_ssid", "android", "true"})
+	}
+	if conn.GetRestricted() {
+		rows = append(rows, wifiCapabilityRow{"restricted", "android", "true"})
+	}
+	if conn.GetPasspointFqdn() != "" {
+		rows = append(rows, wifiCapabilityRow{"passpoint_fqdn", "android", conn.GetPasspointFqdn()})
+	}
+	if conn.GetPasspointProviderFriendlyName() != "" {
+		rows = append(rows, wifiCapabilityRow{"passpoint_provider", "android", conn.GetPasspointProviderFriendlyName()})
+	}
+	if conn.GetPasspointUniqueId() != "" {
+		rows = append(rows, wifiCapabilityRow{"passpoint_unique_id", "android", conn.GetPasspointUniqueId()})
+	}
+	if conn.GetMaxSupportedTxLinkSpeedMbps() > 0 {
+		rows = append(rows, wifiCapabilityRow{"max_supported_tx", "android", fmt.Sprintf("%dMbps", conn.GetMaxSupportedTxLinkSpeedMbps())})
+	}
+	if conn.GetMaxSupportedRxLinkSpeedMbps() > 0 {
+		rows = append(rows, wifiCapabilityRow{"max_supported_rx", "android", fmt.Sprintf("%dMbps", conn.GetMaxSupportedRxLinkSpeedMbps())})
+	}
+	rows = append(rows, informationElementCapabilityRows(conn.GetInformationElements(), informationElementCapabilityModeAll)...)
+	sortWifiCapabilityRows(rows)
+	return rows
+}
+
+func sortWifiCapabilityRows(rows []wifiCapabilityRow) {
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].capability != rows[j].capability {
+			return rows[i].capability < rows[j].capability
+		}
+		if rows[i].source != rows[j].source {
+			return rows[i].source < rows[j].source
+		}
+		return rows[i].detail < rows[j].detail
+	})
 }
 
 func renderWifiConnectionMLO(b *strings.Builder, conn *controlpb.WifiConnection) {
@@ -469,7 +534,15 @@ func renderConnectWifi(b *strings.Builder, result *controlpb.ConnectWifiResult) 
 	}
 }
 
+type ipRenderOptions struct {
+	connection *controlpb.WifiConnection
+}
+
 func renderIPStatus(b *strings.Builder, status *controlpb.IpStatus) {
+	renderIPStatusWithOptions(b, status, ipRenderOptions{})
+}
+
+func renderIPStatusWithOptions(b *strings.Builder, status *controlpb.IpStatus, options ipRenderOptions) {
 	if status == nil {
 		return
 	}
@@ -483,6 +556,7 @@ func renderIPStatus(b *strings.Builder, status *controlpb.IpStatus) {
 	)
 	writeListSection(b, "Addresses", status.GetAddresses())
 	writeListSection(b, "DNS", status.GetDnsServers())
+	renderNetworkCapabilities(b, status, options)
 	if status.GetDhcpServer() != "" {
 		writeKVSection(b, "DHCP", kv("server", status.GetDhcpServer()))
 	}
@@ -492,6 +566,76 @@ func renderIPStatus(b *strings.Builder, status *controlpb.IpStatus) {
 			kv("server", empty(status.GetPrivateDnsServerName(), "none")),
 		)
 	}
+}
+
+func renderNetworkCapabilities(b *strings.Builder, status *controlpb.IpStatus, options ipRenderOptions) {
+	capabilities := networkCapabilitiesForDetail(status.GetCapabilities())
+	signalStrength, showSignalStrength := networkSignalStrengthForDetail(status, options.connection)
+	if len(capabilities) == 0 &&
+		len(status.GetEnterpriseIds()) == 0 &&
+		len(status.GetSubscriptionIds()) == 0 &&
+		status.GetDownstreamKbps() == 0 &&
+		status.GetUpstreamKbps() == 0 &&
+		!showSignalStrength &&
+		status.GetNetworkSpecifier() == "" &&
+		status.GetOwnerUid() <= 0 {
+		return
+	}
+	rows := []kvRow{}
+	if len(capabilities) > 0 {
+		rows = append(rows, kv("capabilities", strings.Join(capabilities, ",")))
+	}
+	if status.GetDownstreamKbps() > 0 {
+		rows = append(rows, kv("downstream_kbps", status.GetDownstreamKbps()))
+	}
+	if status.GetUpstreamKbps() > 0 {
+		rows = append(rows, kv("upstream_kbps", status.GetUpstreamKbps()))
+	}
+	if showSignalStrength {
+		rows = append(rows, kv("signal_strength", signalStrength))
+	}
+	if status.GetNetworkSpecifier() != "" {
+		rows = append(rows, kv("network_specifier", status.GetNetworkSpecifier()))
+	}
+	if status.GetOwnerUid() > 0 {
+		rows = append(rows, kv("owner_uid", status.GetOwnerUid()))
+	}
+	if len(status.GetEnterpriseIds()) > 0 {
+		rows = append(rows, kv("enterprise_ids", strings.Join(status.GetEnterpriseIds(), ",")))
+	}
+	if len(status.GetSubscriptionIds()) > 0 {
+		values := make([]string, 0, len(status.GetSubscriptionIds()))
+		for _, id := range status.GetSubscriptionIds() {
+			values = append(values, strconv.Itoa(int(id)))
+		}
+		rows = append(rows, kv("subscription_ids", strings.Join(values, ",")))
+	}
+	writeKVSection(b, "Network Capabilities", rows...)
+}
+
+func networkSignalStrengthForDetail(status *controlpb.IpStatus, connection *controlpb.WifiConnection) (int32, bool) {
+	const androidSignalStrengthUnspecified = int32(-1 << 31)
+	signalStrength := status.GetSignalStrength()
+	if signalStrength == 0 || signalStrength == androidSignalStrengthUnspecified {
+		return 0, false
+	}
+	if connection != nil && connection.GetRssiDbm() == signalStrength {
+		return 0, false
+	}
+	return signalStrength, true
+}
+
+func networkCapabilitiesForDetail(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		switch strings.ToLower(value) {
+		case "", "internet", "validated":
+			continue
+		default:
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func renderPing(b *strings.Builder, result *controlpb.PingResult, status controlpb.CommandResult_Status) {
@@ -730,9 +874,9 @@ func renderScanResults(b *strings.Builder, results []*controlpb.WifiScanResult) 
 		return
 	}
 	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "SSID\tBSSID\tRSSI\tBAND\tFREQ\tSTANDARD\tSECURITY\tAP_MLD\tAP_LINK\tAFFILIATED")
+	_, _ = fmt.Fprintln(tw, "SSID\tBSSID\tRSSI\tBAND\tFREQ\tSTANDARD\tSECURITY\tFLAGS\tAP_MLD\tAP_LINK\tAFFILIATED")
 	for _, result := range results {
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%d\t%s\t%s\t%s\t%s\t%d\n",
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%d\t%s\t%s\t%s\t%s\t%s\t%d\n",
 			empty(result.GetSsid(), "<hidden>"),
 			empty(result.GetBssid(), "unknown"),
 			result.GetRssiDbm(),
@@ -740,6 +884,7 @@ func renderScanResults(b *strings.Builder, results []*controlpb.WifiScanResult) 
 			result.GetFrequencyMhz(),
 			empty(result.GetWifiStandard(), "-"),
 			empty(strings.Join(result.GetSecurityTypes(), ","), empty(result.GetCapabilities(), "-")),
+			empty(strings.Join(scanConnectionCapabilityFlags(result), ","), "-"),
 			empty(result.GetApMldMacAddress(), "<none>"),
 			scanMLOLinkID(result),
 			len(result.GetAffiliatedMloLinks()),
@@ -747,6 +892,10 @@ func renderScanResults(b *strings.Builder, results []*controlpb.WifiScanResult) 
 	}
 	_ = tw.Flush()
 	renderScanMLOLinks(b, results)
+}
+
+func scanConnectionCapabilityFlags(result *controlpb.WifiScanResult) []string {
+	return informationElementCapabilityNames(result.GetInformationElements(), informationElementCapabilityModeConnection)
 }
 
 func renderScanMLOLinks(b *strings.Builder, results []*controlpb.WifiScanResult) {
@@ -783,6 +932,194 @@ func renderScanMLOLinks(b *strings.Builder, results []*controlpb.WifiScanResult)
 		}
 	}
 	_ = tw.Flush()
+}
+
+func informationElementExt(element *controlpb.WifiInformationElement) string {
+	if element.GetId() == 255 || element.GetIdExt() > 0 {
+		return strconv.Itoa(int(element.GetIdExt()))
+	}
+	return "-"
+}
+
+type informationElementCapabilityMode int
+
+const (
+	informationElementCapabilityModeAll informationElementCapabilityMode = iota
+	informationElementCapabilityModeConnection
+)
+
+func informationElementCapabilityRows(elements []*controlpb.WifiInformationElement, mode informationElementCapabilityMode) []wifiCapabilityRow {
+	rows := make([]wifiCapabilityRow, 0, len(elements))
+	for _, element := range elements {
+		name, ok := informationElementCapabilityName(element, mode)
+		if !ok {
+			continue
+		}
+		rows = append(rows, wifiCapabilityRow{
+			capability: name,
+			source:     "ie",
+			detail:     informationElementDetail(element),
+		})
+	}
+	return rows
+}
+
+func informationElementCapabilityNames(elements []*controlpb.WifiInformationElement, mode informationElementCapabilityMode) []string {
+	rows := informationElementCapabilityRows(elements, mode)
+	names := make([]string, 0, len(rows))
+	for _, row := range rows {
+		names = append(names, row.capability)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func informationElementCapabilityName(element *controlpb.WifiInformationElement, mode informationElementCapabilityMode) (string, bool) {
+	switch element.GetId() {
+	case 54:
+		return "11r", true
+	case 55:
+		return "fast_bss_transition", true
+	case 70:
+		return "11k", true
+	case 107:
+		return "interworking", true
+	case 111:
+		return "roaming_consortium", true
+	case 127:
+		if informationElementBit(element, 19) {
+			return "11v_bss_transition", true
+		}
+		return informationElementName(element), mode == informationElementCapabilityModeAll
+	case 201:
+		return "reduced_neighbor_report", true
+	case 255:
+		switch element.GetIdExt() {
+		case 107:
+			return "eht_multi_link", true
+		}
+		return informationElementExtensionName(element.GetIdExt()), mode == informationElementCapabilityModeAll
+	default:
+		return informationElementName(element), mode == informationElementCapabilityModeAll
+	}
+}
+
+func informationElementDetail(element *controlpb.WifiInformationElement) string {
+	parts := []string{fmt.Sprintf("id=%d", element.GetId())}
+	if ext := informationElementExt(element); ext != "-" {
+		parts = append(parts, "ext="+ext)
+	}
+	parts = append(parts, fmt.Sprintf("bytes=%d", element.GetByteCount()))
+	if element.GetId() == 127 && informationElementBit(element, 19) {
+		parts = append(parts, "bss_transition=true")
+	}
+	return strings.Join(parts, " ")
+}
+
+func informationElementName(element *controlpb.WifiInformationElement) string {
+	if element.GetId() == 255 {
+		return informationElementExtensionName(element.GetIdExt())
+	}
+	switch element.GetId() {
+	case 0:
+		return "ssid"
+	case 1:
+		return "supported_rates"
+	case 3:
+		return "dsss_parameter_set"
+	case 5:
+		return "tim"
+	case 7:
+		return "country"
+	case 11:
+		return "bss_load"
+	case 32:
+		return "power_constraint"
+	case 33:
+		return "power_capability"
+	case 35:
+		return "tpc_report"
+	case 36:
+		return "supported_channels"
+	case 42:
+		return "erp"
+	case 45:
+		return "ht_capabilities"
+	case 48:
+		return "rsn"
+	case 50:
+		return "extended_supported_rates"
+	case 54:
+		return "mobility_domain_11r"
+	case 55:
+		return "fast_bss_transition"
+	case 59:
+		return "supported_operating_classes"
+	case 61:
+		return "ht_operation"
+	case 70:
+		return "rm_enabled_capabilities_11k"
+	case 74:
+		return "overlapping_bss_scan_parameters"
+	case 107:
+		return "interworking"
+	case 111:
+		return "roaming_consortium"
+	case 127:
+		return "extended_capabilities"
+	case 191:
+		return "vht_capabilities"
+	case 192:
+		return "vht_operation"
+	case 195:
+		return "tx_power_envelope"
+	case 201:
+		return "reduced_neighbor_report"
+	case 221:
+		return "vendor_specific"
+	default:
+		return fmt.Sprintf("unknown_%d", element.GetId())
+	}
+}
+
+func informationElementExtensionName(idExt int32) string {
+	switch idExt {
+	case 35:
+		return "he_capabilities"
+	case 36:
+		return "he_operation"
+	case 37:
+		return "uora_parameter_set"
+	case 38:
+		return "mu_edca_parameter_set"
+	case 39:
+		return "spatial_reuse_parameter_set"
+	case 45:
+		return "he_bss_load"
+	case 106:
+		return "eht_operation"
+	case 107:
+		return "eht_multi_link"
+	case 108:
+		return "eht_capabilities"
+	default:
+		return fmt.Sprintf("extension_%d", idExt)
+	}
+}
+
+func informationElementBit(element *controlpb.WifiInformationElement, bit int) bool {
+	if bit < 0 {
+		return false
+	}
+	bytes, err := hex.DecodeString(element.GetBytesHex())
+	if err != nil {
+		return false
+	}
+	byteIndex := bit / 8
+	if byteIndex >= len(bytes) {
+		return false
+	}
+	return bytes[byteIndex]&(1<<uint(bit%8)) != 0
 }
 
 func scanMLOLinkID(result *controlpb.WifiScanResult) string {
