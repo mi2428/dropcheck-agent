@@ -50,7 +50,9 @@ class AgentWifiMloRendererTest {
             "AP_MLD",
             "02:00:00:00:00:01",
             "MLO Scan Links",
-            "[*] scan Lab",
+            "[*] Lab",
+            "ap_mld=02:00:00:00:00:01 link=2 bssid=aa:bb:cc:dd:ee:ff",
+            "band=6ghz ch=5 freq=5975MHz width=80MHz rssi=-45dBm",
             "[+] affiliated Lab",
             "Current AP Relation",
             "same_mld_results",
@@ -63,6 +65,7 @@ class AgentWifiMloRendererTest {
         assertTrue(out.indexOf("Current AP Relation") < out.indexOf("Connected MLO"))
         assertTrue(out.indexOf("Connected MLO") < out.indexOf("MLO Scan"))
         assertFalse(out.contains("Legacy  11:22:33:44:55:66"))
+        assertFalse(out.contains("scan Lab"))
         assertFalse(out.contains("connected_ap_mld_not_seen_in_scan"))
     }
 

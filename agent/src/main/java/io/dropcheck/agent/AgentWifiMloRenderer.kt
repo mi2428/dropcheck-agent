@@ -128,11 +128,9 @@ internal object AgentWifiMloRenderer {
         current: WifiConnection?,
     ) {
         blockGap(out)
-        blockTitle(out, resultMark(group, result, current), "scan", result.ssid)
-        out += "  ap_mld=${group.displayMld}"
-        out += "  link=${scanLinkID(result)} bssid=${empty(result.bssid, "unknown")}"
-        out += "  band=${empty(result.band, wifiBandFromFrequency(result.frequencyMhz))} ch=${wifiChannelFromFrequency(result.frequencyMhz)} freq=${result.frequencyMhz}MHz"
-        out += "  width=${empty(formatWifiChannelWidth(result.channelWidth), "unknown")} rssi=${result.rssiDbm}dBm"
+        blockTitle(out, resultMark(group, result, current), empty(result.ssid, "<hidden>"))
+        out += "  ap_mld=${group.displayMld} link=${scanLinkID(result)} bssid=${empty(result.bssid, "unknown")}"
+        out += "  band=${empty(result.band, wifiBandFromFrequency(result.frequencyMhz))} ch=${wifiChannelFromFrequency(result.frequencyMhz)} freq=${result.frequencyMhz}MHz width=${empty(formatWifiChannelWidth(result.channelWidth), "unknown")} rssi=${result.rssiDbm}dBm"
     }
 
     private fun renderAffiliatedLinkBlock(
@@ -143,16 +141,15 @@ internal object AgentWifiMloRenderer {
         current: WifiConnection?,
     ) {
         blockGap(out)
-        blockTitle(out, linkMark(group, link, current), "affiliated", result.ssid)
+        blockTitle(out, linkMark(group, link, current), "affiliated ${empty(result.ssid, "<hidden>")}")
         out += "  ap_mld=${group.displayMld}"
         out += "  link=${link.linkId} parent_bssid=${empty(result.bssid, "unknown")}"
-        out += "  band=${empty(link.band, "unknown")} ch=${link.channel} state=${empty(link.state, "unknown")}"
-        out += "  rssi=${link.rssiDbm}dBm ap_mac=${empty(link.apMacAddress, "unknown")}"
+        out += "  band=${empty(link.band, "unknown")} ch=${link.channel} state=${empty(link.state, "unknown")} rssi=${link.rssiDbm}dBm ap_mac=${empty(link.apMacAddress, "unknown")}"
     }
 
-    private fun blockTitle(out: MutableList<String>, mark: String, type: String, ssid: String) {
+    private fun blockTitle(out: MutableList<String>, mark: String, label: String) {
         val prefix = mark.ifBlank { "-" }
-        out += "[$prefix] $type ${empty(ssid, "<hidden>")}"
+        out += "[$prefix] $label"
     }
 
     private fun blockGap(out: MutableList<String>) {

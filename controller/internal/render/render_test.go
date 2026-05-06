@@ -435,7 +435,9 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 		"MLO Scan Links",
 		"Network MLO",
 		"MLO Capability Signals",
-		"[*] scan Lab",
+		"[*] Lab",
+		"ap_mld=02:00:00:00:00:01 link=2 bssid=aa:bb:cc:dd:ee:ff",
+		"band=6ghz ch=5 freq=5975MHz width=80MHz rssi=-45dBm",
 		"[+] affiliated Lab",
 		"tid_to_link_mapping_negotiation",
 		"Diagnostics / Warnings",
@@ -446,5 +448,8 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 	}
 	if strings.Contains(out, "connected_ap_mld_not_seen_in_scan") {
 		t.Fatalf("rendered output = %q, unexpected connected_ap_mld_not_seen_in_scan", out)
+	}
+	if strings.Contains(out, "scan Lab") {
+		t.Fatalf("rendered output = %q, unexpected scan label", out)
 	}
 }
