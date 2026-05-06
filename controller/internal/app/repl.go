@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 
+	"dropcheck/controller/internal/adb"
+	"dropcheck/controller/internal/adbdiag"
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
@@ -283,6 +285,16 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 			format:   command.pipeline.format(outputText),
 			pipeline: command.pipeline,
 		})
+	case shellADBDiagnostics:
+		agents, err := state.commandTargets()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			return false, nil
+		}
+		return false, runADBDiagnosticsForAgents(ctx, state, agents, command.adbKind, commandOutputOptions{
+			format:   command.pipeline.format(outputText),
+			pipeline: command.pipeline,
+		})
 	case shellStandaloneSync:
 		if err := syncStandaloneRuns(ctx, state, standaloneSyncOptions{
 			OutputDir:  command.syncOutput,
@@ -389,6 +401,65 @@ func runOperationForAgents(ctx context.Context, state *shellState, agents []cont
 			return err
 		}
 	}
+	return nil
+}
+
+func runADBDiagnosticsForAgents(ctx context.Context, state *shellState, agents []control.AgentInfo, kind string, output commandOutputOptions) error {
+	if len(agents) == 0 {
+		fmt.Fprintln(os.Stderr, "no Android agents connected")
+		return nil
+	}
+	if output.format == "" {
+		output.format = outputText
+	}
+
+	var outputMu sync.Mutex
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(agents))
+	for _, agent := range agents {
+		wg.Go(func() {
+			if err := runADBDiagnosticsForAgent(ctx, state, agent, kind, output, &outputMu); err != nil {
+				errCh <- err
+			}
+		})
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func runADBDiagnosticsForAgent(ctx context.Context, state *shellState, agent control.AgentInfo, kind string, output commandOutputOptions, outputMu *sync.Mutex) error {
+	serial := agent.Hello.GetAdbSerial()
+	if serial == "" {
+		outputMu.Lock()
+		defer outputMu.Unlock()
+		fmt.Fprintf(os.Stderr, "%s: adb serial is not available for diagnostics\n", agentDisplayName(agent))
+		return nil
+	}
+	bundle, err := adbdiag.Collect(ctx, adb.Client{Path: state.adbPath, Serial: serial}, agentDisplayName(agent), kind)
+	outputMu.Lock()
+	defer outputMu.Unlock()
+	if err != nil {
+		if output.strict {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "%s: %v\n", agentDisplayName(agent), err)
+		return nil
+	}
+	out, err := adbdiag.Render(bundle, output.format)
+	if err != nil {
+		return err
+	}
+	out, err = output.pipeline.apply(out)
+	if err != nil {
+		return err
+	}
+	fmt.Print(out)
 	return nil
 }
 

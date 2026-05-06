@@ -82,6 +82,31 @@ exit 7
 	}
 }
 
+func TestClientRunSeparatesStreamsAndExitCode(t *testing.T) {
+	path := fakeADB(t, `
+printf 'stdout:%s\n' "$*"
+echo "stderr-line" >&2
+exit 3
+`)
+
+	result, err := Client{Path: path, Serial: "R5CT12345", Timeout: 5 * time.Second}.Run(context.Background(), "shell", "cmd", "wifi", "status")
+	if err == nil {
+		t.Fatalf("Run() error = nil")
+	}
+	if result.ExitCode != 3 {
+		t.Fatalf("Run() exit code = %d, want 3", result.ExitCode)
+	}
+	if !strings.Contains(result.Stdout, "stdout:-s R5CT12345 shell cmd wifi status") {
+		t.Fatalf("Run() stdout = %q", result.Stdout)
+	}
+	if strings.TrimSpace(result.Stderr) != "stderr-line" {
+		t.Fatalf("Run() stderr = %q", result.Stderr)
+	}
+	if strings.Join(result.Args, " ") != "-s R5CT12345 shell cmd wifi status" {
+		t.Fatalf("Run() args = %#v", result.Args)
+	}
+}
+
 func TestClientSessionCommands(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "adb.log")
 	t.Setenv("ADB_LOG", logPath)

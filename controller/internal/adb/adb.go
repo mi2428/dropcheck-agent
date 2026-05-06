@@ -36,6 +36,22 @@ type Device struct {
 	Raw string
 }
 
+// Result describes one adb process execution.
+type Result struct {
+	// Args are the exact argv passed to adb, including "-s <serial>" when set.
+	Args []string
+	// Stdout is the process stdout stream.
+	Stdout string
+	// Stderr is the process stderr stream.
+	Stderr string
+	// ExitCode is the process exit code. It is -1 when the process did not exit normally.
+	ExitCode int
+	// TimedOut reports whether the client timeout or parent context stopped the process.
+	TimedOut bool
+	// Elapsed is the wall-clock runtime for the adb process.
+	Elapsed time.Duration
+}
+
 // Reverse maps a local TCP port on the Android device back to the same
 // controller port on the host.
 func (c Client) Reverse(ctx context.Context, port int) error {
@@ -117,6 +133,22 @@ func (c Client) ListDevices(ctx context.Context) ([]Device, error) {
 // failures the returned error includes the adb command and the most useful
 // message emitted by the process.
 func (c Client) Output(ctx context.Context, args ...string) (string, error) {
+	result, err := c.Run(ctx, args...)
+	out := result.Stdout + result.Stderr
+	if err != nil {
+		msg := strings.TrimSpace(out)
+		if msg == "" {
+			msg = err.Error()
+		}
+		return out, fmt.Errorf("adb %s: %s", strings.Join(result.Args, " "), msg)
+	}
+	return out, nil
+}
+
+// Run executes adb with args and returns stdout, stderr, exit status, and timing.
+//
+// When Serial is set, Run prefixes the command with "-s <serial>".
+func (c Client) Run(ctx context.Context, args ...string) (Result, error) {
 	if c.Path == "" {
 		c.Path = "adb"
 	}
@@ -133,22 +165,23 @@ func (c Client) Output(ctx context.Context, args ...string) (string, error) {
 	}
 	full = append(full, args...)
 
+	result := Result{Args: append([]string(nil), full...), ExitCode: -1}
 	cmd := exec.CommandContext(cmdCtx, c.Path, full...)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	started := time.Now()
 	err := cmd.Run()
-	out := stdout.String() + stderr.String()
+	result.Elapsed = time.Since(started)
+	result.Stdout = stdout.String()
+	result.Stderr = stderr.String()
+	if cmd.ProcessState != nil {
+		result.ExitCode = cmd.ProcessState.ExitCode()
+	}
 	if cmdCtx.Err() != nil {
-		return out, cmdCtx.Err()
+		result.TimedOut = true
+		return result, cmdCtx.Err()
 	}
-	if err != nil {
-		msg := strings.TrimSpace(out)
-		if msg == "" {
-			msg = err.Error()
-		}
-		return out, fmt.Errorf("adb %s: %s", strings.Join(full, " "), msg)
-	}
-	return out, nil
+	return result, err
 }

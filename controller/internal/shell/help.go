@@ -23,6 +23,10 @@ func writeShellHelp(w io.Writer) {
   show wifi scan detail [all|2.4ghz|5ghz|6ghz|60ghz] <ssid|bssid>
   show wifi capabilities
   show ip status
+  show adb cmd wifi status
+  show adb dumpsys wifi
+  show adb dumpsys connectivity [networks|requests|diagnostics|trafficcontroller]
+  show adb diagnostics full
   show standalone status
   show standalone runs [limit <n>] [synced]
   show standalone run <run-id>
@@ -47,7 +51,7 @@ configure mode:
   set standalone festa <name> check <name> test ping host <host> [count <n>] [size <bytes>] [timeout <duration>]
   set standalone festa <name> check <name> test http url <url> [expected-status <code>] [timeout <duration>]
   delete standalone [upload|upload to|upload via wifi|festa <name>|festa <name> wifi <name>|festa <name> check <name>]
-  run show <devices|config|wifi|standalone>
+  run show <devices|config|wifi|ip|adb|standalone>
   run clear standalone runs [synced|all]
   run sync standalone runs [output <dir>] [limit <n>] [mark-synced|keep-unsynced]
   run request <request-command>
@@ -265,7 +269,7 @@ func resolveContextKeywordInMode(index int, previous []string, value string, mod
 	case 1:
 		switch previous[0] {
 		case "show":
-			return resolveShellKeyword("show command", value, []string{"devices", "config", "wifi", "ip", "standalone"})
+			return resolveShellKeyword("show command", value, []string{"devices", "config", "wifi", "ip", "standalone", "adb"})
 		case "sync":
 			return resolveShellKeyword("sync command", value, []string{"standalone"})
 		case "clear":
@@ -283,6 +287,9 @@ func resolveContextKeywordInMode(index int, previous []string, value string, mod
 		}
 		if previous[0] == "show" && previous[1] == "standalone" {
 			return resolveShellKeyword("show standalone command", value, []string{"status", "runs", "run"})
+		}
+		if previous[0] == "show" && previous[1] == "adb" {
+			return resolveShellKeyword("show adb command", value, []string{"cmd", "dumpsys", "diagnostics", "wifi", "connectivity"})
 		}
 		if previous[0] == "sync" && previous[1] == "standalone" {
 			return resolveShellKeyword("sync standalone command", value, []string{"runs"})
@@ -363,7 +370,7 @@ func helpEntriesForArgsInMode(args []string, mode Mode) []HelpEntry {
 	switch args[0] {
 	case "show":
 		if len(args) == 1 {
-			return []HelpEntry{{"devices", "Connected Android agents"}, {"config", "Persistent Agent App configuration"}, {"wifi", "Wi-Fi state and diagnostics"}, {"ip", "IP addressing and routing"}, {"standalone", "Standalone state and stored runs"}}
+			return []HelpEntry{{"devices", "Connected Android agents"}, {"config", "Persistent Agent App configuration"}, {"wifi", "Wi-Fi state and diagnostics"}, {"ip", "IP addressing and routing"}, {"standalone", "Standalone state and stored runs"}, {"adb", "Raw ADB diagnostics from the selected device"}}
 		}
 		if len(args) == 2 && args[1] == "config" {
 			return []HelpEntry{{"standalone", "Standalone configuration subtree"}}
@@ -379,6 +386,9 @@ func helpEntriesForArgsInMode(args []string, mode Mode) []HelpEntry {
 		}
 		if len(args) == 2 && args[1] == "standalone" {
 			return []HelpEntry{{"status", "Live standalone runner state"}, {"runs", "Stored run summaries"}, {"run", "Stored run archive"}}
+		}
+		if len(args) >= 2 && args[1] == "adb" {
+			return adbHelpEntries(args[2:])
 		}
 	case "clear":
 		if len(args) == 1 {
@@ -734,11 +744,55 @@ func globalIPHelp(args []string) []HelpEntry {
 
 func commandSupportsPipeHelp(command Command) bool {
 	switch command.Kind {
-	case shellShowDevices, shellShowConfig, shellAgentCommand:
+	case shellShowDevices, shellShowConfig, shellAgentCommand, shellADBDiagnostics:
 		return true
 	default:
 		return false
 	}
+}
+
+func adbHelpEntries(args []string) []HelpEntry {
+	if len(args) == 0 {
+		return []HelpEntry{
+			{"cmd", "Run whitelisted adb shell cmd diagnostics"},
+			{"dumpsys", "Run whitelisted adb shell dumpsys diagnostics"},
+			{"diagnostics", "Run the full raw diagnostics bundle"},
+			{"wifi", "Wi-Fi status or dumpsys shortcuts"},
+			{"connectivity", "Connectivity dumpsys shortcuts"},
+		}
+	}
+	switch args[0] {
+	case "cmd":
+		if len(args) == 1 {
+			return []HelpEntry{{"wifi", "Android cmd wifi diagnostics"}}
+		}
+		if len(args) == 2 && args[1] == "wifi" {
+			return []HelpEntry{{"status", "Run adb shell cmd wifi status"}}
+		}
+	case "dumpsys":
+		if len(args) == 1 {
+			return []HelpEntry{{"wifi", "Run adb shell dumpsys wifi"}, {"connectivity", "Run adb shell dumpsys connectivity"}}
+		}
+		if len(args) == 2 && args[1] == "connectivity" {
+			return []HelpEntry{{"networks", "Only current networks"}, {"requests", "Only network requests"}, {"diagnostics", "Connectivity --diag measurements"}, {"--diag", "Connectivity --diag measurements"}, {"trafficcontroller", "Traffic controller/BPF maps"}}
+		}
+	case "diagnostics":
+		if len(args) == 1 {
+			return []HelpEntry{{"full", "Run cmd wifi status plus Wi-Fi and connectivity dumps"}}
+		}
+	case "wifi":
+		if len(args) == 1 {
+			return []HelpEntry{{"status", "Run adb shell cmd wifi status"}, {"dumpsys", "Run adb shell dumpsys wifi"}}
+		}
+	case "connectivity":
+		if len(args) == 1 {
+			return []HelpEntry{{"dumpsys", "Run adb shell dumpsys connectivity"}, {"networks", "Only current networks"}, {"requests", "Only network requests"}, {"diagnostics", "Connectivity --diag measurements"}, {"--diag", "Connectivity --diag measurements"}, {"trafficcontroller", "Traffic controller/BPF maps"}}
+		}
+	}
+	if _, err := parseShellArgs(append([]string{"show", "adb"}, args...)); err == nil {
+		return terminalHelpEntriesForArgs(append([]string{"show", "adb"}, args...))
+	}
+	return nil
 }
 
 func pipeHelpEntries() []HelpEntry {
@@ -995,7 +1049,7 @@ func completionCandidatesForArgsInMode(args []string, mode Mode) []string {
 	case 1:
 		switch resolved[0] {
 		case "show":
-			return []string{"devices", "config", "wifi", "standalone"}
+			return []string{"devices", "config", "wifi", "ip", "standalone", "adb"}
 		case "clear":
 			return []string{"standalone"}
 		case "sync":
@@ -1015,6 +1069,9 @@ func completionCandidatesForArgsInMode(args []string, mode Mode) []string {
 		if resolved[0] == "show" && resolved[1] == "standalone" {
 			return []string{"status", "runs", "run"}
 		}
+		if resolved[0] == "show" && resolved[1] == "adb" {
+			return []string{"cmd", "dumpsys", "diagnostics", "wifi", "connectivity"}
+		}
 		if resolved[0] == "clear" && resolved[1] == "standalone" {
 			return []string{"runs"}
 		}
@@ -1024,6 +1081,21 @@ func completionCandidatesForArgsInMode(args []string, mode Mode) []string {
 	case 3:
 		if resolved[0] == "show" && resolved[1] == "wifi" && resolved[2] == "scan" {
 			return []string{"fresh", "detail", "all", "2.4ghz", "5ghz", "6ghz", "60ghz"}
+		}
+		if resolved[0] == "show" && resolved[1] == "adb" && resolved[2] == "cmd" {
+			return []string{"wifi"}
+		}
+		if resolved[0] == "show" && resolved[1] == "adb" && resolved[2] == "dumpsys" {
+			return []string{"wifi", "connectivity"}
+		}
+		if resolved[0] == "show" && resolved[1] == "adb" && resolved[2] == "diagnostics" {
+			return []string{"full"}
+		}
+		if resolved[0] == "show" && resolved[1] == "adb" && resolved[2] == "wifi" {
+			return []string{"status", "dumpsys"}
+		}
+		if resolved[0] == "show" && resolved[1] == "adb" && resolved[2] == "connectivity" {
+			return []string{"dumpsys", "networks", "requests", "diagnostics", "--diag", "trafficcontroller"}
 		}
 		if resolved[0] == "clear" && resolved[1] == "standalone" && resolved[2] == "runs" {
 			return []string{"synced", "all"}
@@ -1036,6 +1108,10 @@ func completionCandidatesForArgsInMode(args []string, mode Mode) []string {
 		switch {
 		case len(resolved) >= 3 && resolved[0] == "show" && resolved[1] == "wifi" && resolved[2] == "scan":
 			return showWifiScanCompletionCandidates(resolved[3:])
+		case len(resolved) == 4 && resolved[0] == "show" && resolved[1] == "adb" && resolved[2] == "cmd" && resolved[3] == "wifi":
+			return []string{"status"}
+		case len(resolved) == 4 && resolved[0] == "show" && resolved[1] == "adb" && resolved[2] == "dumpsys" && resolved[3] == "connectivity":
+			return []string{"networks", "requests", "diagnostics", "--diag", "trafficcontroller"}
 		case resolved[0] == "sync" && len(resolved) >= 3 && resolved[1] == "standalone" && resolved[2] == "runs":
 			return syncStandaloneCompletionCandidates(resolved[3:])
 		}

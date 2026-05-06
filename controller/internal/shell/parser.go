@@ -20,6 +20,7 @@ const (
 	shellShowDevices
 	shellShowConfig
 	shellAgentCommand
+	shellADBDiagnostics
 	shellStandaloneSync
 )
 
@@ -49,6 +50,8 @@ type Command struct {
 	StandaloneSyncLimit string
 	// StandaloneSyncMark marks downloaded runs as synced.
 	StandaloneSyncMark bool
+	// ADBDiagnosticsKind is populated by "show adb ...".
+	ADBDiagnosticsKind string
 	// Pipeline contains output filters parsed from "| ..." suffixes.
 	Pipeline pipeline.Pipeline
 	// RawCommand is the command segment before any pipeline stages.
@@ -82,6 +85,8 @@ const (
 	ShowConfig = shellShowConfig
 	// AgentCommand represents a command that should be sent to Android agents.
 	AgentCommand = shellAgentCommand
+	// ADBDiagnostics represents a local adb diagnostics command.
+	ADBDiagnostics = shellADBDiagnostics
 	// StandaloneSync represents downloading stored standalone archives.
 	StandaloneSync = shellStandaloneSync
 )
@@ -288,9 +293,9 @@ func parseShellRequestModeArgs(args []string) (Command, error) {
 
 func parseShellShow(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: show <devices|config|wifi|ip|standalone>")
+		return Command{}, fmt.Errorf("usage: show <devices|config|wifi|ip|standalone|adb>")
 	}
-	name, err := resolveShellKeyword("show command", args[0], []string{"devices", "config", "wifi", "ip", "standalone"})
+	name, err := resolveShellKeyword("show command", args[0], []string{"devices", "config", "wifi", "ip", "standalone", "adb"})
 	if err != nil {
 		return Command{}, err
 	}
@@ -308,8 +313,100 @@ func parseShellShow(args []string) (Command, error) {
 		return parseShellShowIP(args[1:])
 	case "standalone":
 		return parseShellShowStandalone(args[1:])
+	case "adb":
+		return parseShellShowADB(args[1:])
 	default:
 		return Command{}, fmt.Errorf("unknown show command %q", args[0])
+	}
+}
+
+func parseShellShowADB(args []string) (Command, error) {
+	if len(args) == 0 {
+		return Command{}, fmt.Errorf("usage: show adb <cmd|dumpsys|diagnostics|wifi|connectivity>")
+	}
+	name, err := resolveShellKeyword("show adb command", args[0], []string{"cmd", "dumpsys", "diagnostics", "wifi", "connectivity"})
+	if err != nil {
+		return Command{}, err
+	}
+	switch name {
+	case "cmd":
+		if len(args) == 3 && args[1] == "wifi" && args[2] == "status" {
+			return adbDiagnosticsShellCommand("cmd-wifi-status"), nil
+		}
+		return Command{}, fmt.Errorf("usage: show adb cmd wifi status")
+	case "dumpsys":
+		return parseShellShowADBDumpsys(args[1:])
+	case "diagnostics":
+		if len(args) == 2 && args[1] == "full" {
+			return adbDiagnosticsShellCommand("full"), nil
+		}
+		return Command{}, fmt.Errorf("usage: show adb diagnostics full")
+	case "wifi":
+		if len(args) == 2 && args[1] == "status" {
+			return adbDiagnosticsShellCommand("cmd-wifi-status"), nil
+		}
+		if len(args) == 2 && args[1] == "dumpsys" {
+			return adbDiagnosticsShellCommand("dumpsys-wifi"), nil
+		}
+		return Command{}, fmt.Errorf("usage: show adb wifi <status|dumpsys>")
+	case "connectivity":
+		return parseShellShowADBConnectivity(args[1:])
+	default:
+		return Command{}, fmt.Errorf("unknown show adb command %q", args[0])
+	}
+}
+
+func parseShellShowADBDumpsys(args []string) (Command, error) {
+	if len(args) == 0 {
+		return Command{}, fmt.Errorf("usage: show adb dumpsys <wifi|connectivity>")
+	}
+	service, err := resolveShellKeyword("show adb dumpsys service", args[0], []string{"wifi", "connectivity"})
+	if err != nil {
+		return Command{}, err
+	}
+	switch service {
+	case "wifi":
+		if len(args) != 1 {
+			return Command{}, fmt.Errorf("usage: show adb dumpsys wifi")
+		}
+		return adbDiagnosticsShellCommand("dumpsys-wifi"), nil
+	case "connectivity":
+		if len(args) == 1 {
+			return adbDiagnosticsShellCommand("dumpsys-connectivity"), nil
+		}
+		return parseShellShowADBConnectivity(args[1:])
+	default:
+		return Command{}, fmt.Errorf("unknown show adb dumpsys service %q", args[0])
+	}
+}
+
+func parseShellShowADBConnectivity(args []string) (Command, error) {
+	if len(args) == 0 {
+		return adbDiagnosticsShellCommand("dumpsys-connectivity"), nil
+	}
+	if len(args) != 1 {
+		return Command{}, fmt.Errorf("usage: show adb connectivity [dumpsys|networks|requests|diagnostics|trafficcontroller]")
+	}
+	if args[0] == "--diag" {
+		return adbDiagnosticsShellCommand("dumpsys-connectivity-diagnostics"), nil
+	}
+	name, err := resolveShellKeyword("show adb connectivity command", args[0], []string{"dumpsys", "networks", "requests", "diagnostics", "trafficcontroller"})
+	if err != nil {
+		return Command{}, err
+	}
+	switch name {
+	case "dumpsys":
+		return adbDiagnosticsShellCommand("dumpsys-connectivity"), nil
+	case "networks":
+		return adbDiagnosticsShellCommand("dumpsys-connectivity-networks"), nil
+	case "requests":
+		return adbDiagnosticsShellCommand("dumpsys-connectivity-requests"), nil
+	case "diagnostics":
+		return adbDiagnosticsShellCommand("dumpsys-connectivity-diagnostics"), nil
+	case "trafficcontroller":
+		return adbDiagnosticsShellCommand("dumpsys-connectivity-trafficcontroller"), nil
+	default:
+		return Command{}, fmt.Errorf("unknown show adb connectivity command %q", args[0])
 	}
 }
 
@@ -1181,6 +1278,10 @@ func parseShellDownload(args []string) (Command, error) {
 
 func agentShellCommand(op command.Operation) Command {
 	return Command{Kind: shellAgentCommand, Operation: op}
+}
+
+func adbDiagnosticsShellCommand(kind string) Command {
+	return Command{Kind: shellADBDiagnostics, ADBDiagnosticsKind: kind}
 }
 
 func shellValue(args []string, index int, name string) (string, int, error) {
