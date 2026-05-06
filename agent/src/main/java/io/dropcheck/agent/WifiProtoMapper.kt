@@ -10,6 +10,7 @@ import io.dropcheck.agent.grpc.MloLinkInfo
 import io.dropcheck.agent.grpc.WifiConnection
 import io.dropcheck.agent.grpc.WifiInformationElement
 import io.dropcheck.agent.grpc.WifiScanResult
+import java.util.Collections
 
 @Suppress("DEPRECATION")
 /**
@@ -20,7 +21,10 @@ import io.dropcheck.agent.grpc.WifiScanResult
  */
 class WifiProtoMapper(
     private val wifi: WifiManager,
+    private val onMloUnavailable: (List<Pair<String, Any?>>) -> Unit = {},
 ) {
+    private val reportedMloUnavailable = Collections.synchronizedSet(mutableSetOf<String>())
+
     /**
      * Maps a connected WifiInfo snapshot.
      *
@@ -63,12 +67,24 @@ class WifiProtoMapper(
             builder.passpointUniqueId = info.passpointUniqueId.orEmpty()
         }
         if (Build.VERSION.SDK_INT >= 33) {
-            builder.apMldMacAddress = info.apMldMacAddress?.toString().orEmpty()
-            builder.apMloLinkId = info.apMloLinkId
-            builder.addAllAffiliatedMloLinks(info.affiliatedMloLinks.map { mloLinkInfo(it) })
+            runCatching { info.apMldMacAddress?.toString().orEmpty() }
+                .onSuccess { builder.apMldMacAddress = it }
+                .onFailure { warnMloUnavailable("api_call_failed", "scope" to "connection", "field" to "ap_mld_mac_address", "error" to errorSummary(it)) }
+            runCatching { info.apMloLinkId }
+                .onSuccess { builder.apMloLinkId = it }
+                .onFailure { warnMloUnavailable("api_call_failed", "scope" to "connection", "field" to "ap_mlo_link_id", "error" to errorSummary(it)) }
+            runCatching { info.affiliatedMloLinks.map { mloLinkInfo(it) } }
+                .onSuccess { builder.addAllAffiliatedMloLinks(it) }
+                .onFailure { warnMloUnavailable("api_call_failed", "scope" to "connection", "field" to "affiliated_mlo_links", "error" to errorSummary(it)) }
+        } else {
+            warnMloUnavailable("android_api_unavailable", "scope" to "connection", "required_sdk" to 33)
         }
         if (Build.VERSION.SDK_INT >= 34) {
-            builder.addAllAssociatedMloLinks(info.associatedMloLinks.map { mloLinkInfo(it) })
+            runCatching { info.associatedMloLinks.map { mloLinkInfo(it) } }
+                .onSuccess { builder.addAllAssociatedMloLinks(it) }
+                .onFailure { warnMloUnavailable("api_call_failed", "scope" to "connection", "field" to "associated_mlo_links", "error" to errorSummary(it)) }
+        } else {
+            warnMloUnavailable("android_api_unavailable", "scope" to "connection", "field" to "associated_mlo_links", "required_sdk" to 34)
         }
         builder.addAllInformationElements(info.informationElements.orEmpty().map { informationElement(it) })
         return builder.build()
@@ -121,9 +137,17 @@ class WifiProtoMapper(
         if (Build.VERSION.SDK_INT >= 33) {
             builder.wifiSsid = result.wifiSsid?.toString().orEmpty()
             builder.addAllSecurityTypes(result.securityTypes.map { securityTypeName(it) })
-            builder.apMldMacAddress = result.apMldMacAddress?.toString().orEmpty()
-            builder.apMloLinkId = result.apMloLinkId
-            builder.addAllAffiliatedMloLinks(result.affiliatedMloLinks.map { mloLinkInfo(it) })
+            runCatching { result.apMldMacAddress?.toString().orEmpty() }
+                .onSuccess { builder.apMldMacAddress = it }
+                .onFailure { warnMloUnavailable("api_call_failed", "scope" to "scan", "field" to "ap_mld_mac_address", "error" to errorSummary(it)) }
+            runCatching { result.apMloLinkId }
+                .onSuccess { builder.apMloLinkId = it }
+                .onFailure { warnMloUnavailable("api_call_failed", "scope" to "scan", "field" to "ap_mlo_link_id", "error" to errorSummary(it)) }
+            runCatching { result.affiliatedMloLinks.map { mloLinkInfo(it) } }
+                .onSuccess { builder.addAllAffiliatedMloLinks(it) }
+                .onFailure { warnMloUnavailable("api_call_failed", "scope" to "scan", "field" to "affiliated_mlo_links", "error" to errorSummary(it)) }
+        } else {
+            warnMloUnavailable("android_api_unavailable", "scope" to "scan", "required_sdk" to 33)
         }
         if (Build.VERSION.SDK_INT >= 35) {
             builder.responder80211AzNtb = result.is80211azNtbResponder
@@ -157,6 +181,18 @@ class WifiProtoMapper(
                 .setRxLinkSpeedMbps(link.rxLinkSpeedMbps)
         }
         return builder.build()
+    }
+
+    private fun warnMloUnavailable(reason: String, vararg fields: Pair<String, Any?>) {
+        val allFields = listOf("reason" to reason, "sdk" to Build.VERSION.SDK_INT) + fields
+        val key = allFields.joinToString("|") { "${it.first}=${it.second}" }
+        if (reportedMloUnavailable.add(key)) {
+            onMloUnavailable(allFields)
+        }
+    }
+
+    private fun errorSummary(error: Throwable): String {
+        return "${error.javaClass.simpleName}:${error.message.orEmpty()}"
     }
 
     /** Copies the raw information element bytes as hex for controller-side decoding. */

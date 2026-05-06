@@ -325,6 +325,58 @@ func renderWifiConnection(b *strings.Builder, conn *controlpb.WifiConnection) {
 			conn.GetMaxSignalLevel(),
 		)
 	}
+	renderWifiConnectionMLO(b, conn)
+}
+
+func renderWifiConnectionMLO(b *strings.Builder, conn *controlpb.WifiConnection) {
+	if !wifiConnectionHasMLO(conn) {
+		return
+	}
+	fmt.Fprintf(b, "MLO: ap_mld=%s ap_link_id=%s affiliated=%d associated=%d\n",
+		empty(conn.GetApMldMacAddress(), "<none>"),
+		mloLinkID(conn.GetApMloLinkId()),
+		len(conn.GetAffiliatedMloLinks()),
+		len(conn.GetAssociatedMloLinks()),
+	)
+	renderMLOLinks(b, "Affiliated MLO links", conn.GetAffiliatedMloLinks())
+	renderMLOLinks(b, "Associated MLO links", conn.GetAssociatedMloLinks())
+}
+
+func wifiConnectionHasMLO(conn *controlpb.WifiConnection) bool {
+	return conn.GetApMldMacAddress() != "" ||
+		conn.GetApMloLinkId() != 0 ||
+		len(conn.GetAffiliatedMloLinks()) > 0 ||
+		len(conn.GetAssociatedMloLinks()) > 0
+}
+
+func renderMLOLinks(b *strings.Builder, title string, links []*controlpb.MloLinkInfo) {
+	if len(links) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "%s:\n", title)
+	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "ID\tSTATE\tBAND\tCHANNEL\tRSSI\tTX\tRX\tAP_MAC\tSTA_MAC")
+	for _, link := range links {
+		_, _ = fmt.Fprintf(tw, "%d\t%s\t%s\t%d\t%d\t%d\t%d\t%s\t%s\n",
+			link.GetLinkId(),
+			empty(link.GetState(), "unknown"),
+			empty(link.GetBand(), "unknown"),
+			link.GetChannel(),
+			link.GetRssiDbm(),
+			link.GetTxLinkSpeedMbps(),
+			link.GetRxLinkSpeedMbps(),
+			empty(link.GetApMacAddress(), "unknown"),
+			empty(link.GetStaMacAddress(), "unknown"),
+		)
+	}
+	_ = tw.Flush()
+}
+
+func mloLinkID(id int32) string {
+	if id < 0 {
+		return "<none>"
+	}
+	return strconv.Itoa(int(id))
 }
 
 func renderConnectWifi(b *strings.Builder, result *controlpb.ConnectWifiResult) {

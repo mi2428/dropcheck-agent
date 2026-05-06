@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"dropcheck/controller/internal/adb"
 	"dropcheck/controller/internal/adbdiag"
@@ -560,6 +561,10 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 	runCtx, cancel := context.WithTimeout(ctx, timeoutFor(cmd))
 	result, err := state.server.Run(runCtx, agent.ID, commandID, cmd)
 	cancel()
+	adbMLOText := ""
+	if err == nil && output.format == outputText && isWifiStatusResult(result) {
+		adbMLOText = wifiStatusADBMLORender(ctx, state, agent)
+	}
 
 	// Multiple agents execute concurrently, but terminal output is a shared
 	// stream. Serialize rendering and printing so multi-line text and JSON
@@ -583,6 +588,12 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 		out, err = renderCommandResultEnvelope(agentDisplayName(agent), commandID, result)
 	} else {
 		out, err = renderCommandResult(agentDisplayName(agent), result, options, output.format)
+		if err == nil && adbMLOText != "" {
+			if !strings.HasSuffix(out, "\n") {
+				out += "\n"
+			}
+			out += adbMLOText
+		}
 		if err == nil && output.includeAgentHeader && output.format == outputText {
 			out = fmt.Sprintf("Agent: %s\n%s", agentDisplayName(agent), out)
 		}
@@ -596,6 +607,26 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 	}
 	fmt.Print(out)
 	return nil
+}
+
+func isWifiStatusResult(result *controlpb.CommandResult) bool {
+	if result == nil {
+		return false
+	}
+	return result.GetWifiStatus() != nil
+}
+
+func wifiStatusADBMLORender(ctx context.Context, state *shellState, agent control.AgentInfo) string {
+	serial := agent.Hello.GetAdbSerial()
+	if serial == "" {
+		return ""
+	}
+	summary := adbdiag.CollectMLO(ctx, adb.Client{
+		Path:    state.adbPath,
+		Serial:  serial,
+		Timeout: 8 * time.Second,
+	})
+	return adbdiag.RenderMLOSummary(summary)
 }
 
 func useLineEditor() bool {
