@@ -46,7 +46,8 @@ class NetworkRepository(
 ) {
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
     private val wifi = context.applicationContext.getSystemService(WifiManager::class.java)
-    private val mapper = WifiProtoMapper(wifi)
+    private val mloUnavailableWarnings = Collections.synchronizedSet(mutableSetOf<String>())
+    private val mapper = WifiProtoMapper(wifi) { warnMloUnavailable(it) }
 
     /**
      * Captures a point-in-time Wi-Fi status snapshot.
@@ -76,6 +77,7 @@ class NetworkRepository(
             .setActiveNetwork(active?.toString().orEmpty())
             .setWifiNetworkCount(wifiNetworks.size)
             .addAllPermissions(permissionSummary())
+        logMloCapabilityWarnings()
 
         if (bestInfo != null) {
             builder.connection = mapper.wifiConnection(bestInfo)
@@ -87,6 +89,68 @@ class NetworkRepository(
             logger.debug("wifiStatus no usable WifiInfo selected_network=${selected ?: "none"}")
         }
         return builder.build()
+    }
+
+    private fun logMloCapabilityWarnings() {
+        if (Build.VERSION.SDK_INT < 33) {
+            warnMloUnavailable(listOf(
+                "reason" to "android_api_unavailable",
+                "sdk" to Build.VERSION.SDK_INT,
+                "scope" to "status",
+                "required_sdk" to 33,
+            ))
+            return
+        }
+        runCatching { wifi.isWifiStandardSupported(ScanResult.WIFI_STANDARD_11BE) }
+            .onSuccess { supported ->
+                if (!supported) {
+                    warnMloUnavailable(listOf(
+                        "reason" to "wifi_7_standard_unsupported",
+                        "sdk" to Build.VERSION.SDK_INT,
+                    ))
+                }
+            }
+            .onFailure {
+                warnMloUnavailable(listOf(
+                    "reason" to "api_call_failed",
+                    "sdk" to Build.VERSION.SDK_INT,
+                    "field" to "wifi_standard_11be",
+                    "error" to errorSummary(it),
+                ))
+            }
+        if (Build.VERSION.SDK_INT < 34) {
+            warnMloUnavailable(listOf(
+                "reason" to "android_api_unavailable",
+                "sdk" to Build.VERSION.SDK_INT,
+                "field" to "tid_to_link_negotiation",
+                "required_sdk" to 34,
+            ))
+            return
+        }
+        runCatching { wifi.isTidToLinkMappingNegotiationSupported }
+            .onSuccess { supported ->
+                if (!supported) {
+                    warnMloUnavailable(listOf(
+                        "reason" to "tid_to_link_negotiation_unsupported",
+                        "sdk" to Build.VERSION.SDK_INT,
+                    ))
+                }
+            }
+            .onFailure {
+                warnMloUnavailable(listOf(
+                    "reason" to "api_call_failed",
+                    "sdk" to Build.VERSION.SDK_INT,
+                    "field" to "tid_to_link_negotiation",
+                    "error" to errorSummary(it),
+                ))
+            }
+    }
+
+    private fun warnMloUnavailable(fields: List<Pair<String, Any?>>) {
+        val key = fields.joinToString("|") { "${it.first}=${it.second}" }
+        if (mloUnavailableWarnings.add(key)) {
+            TerminalLog.warnEvent(context.applicationContext, "wifi.mlo.unavailable", fields)
+        }
     }
 
     /** Builds a broad diagnostic bundle: current status, capabilities, networks, and scan cache. */

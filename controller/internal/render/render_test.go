@@ -238,3 +238,46 @@ func TestRenderWifiStatusShowsChannelAndBandwidth(t *testing.T) {
 		t.Fatalf("rendered output = %q, duplicated wifi connection", out)
 	}
 }
+
+func TestRenderWifiStatusShowsMLOFields(t *testing.T) {
+	result := &controlpb.CommandResult{
+		Status: controlpb.CommandResult_STATUS_OK,
+		Payload: &controlpb.CommandResult_WifiStatus{
+			WifiStatus: &controlpb.WifiStatus{
+				Enabled: true,
+				Connection: &controlpb.WifiConnection{
+					Ssid:            "Lab",
+					Bssid:           "aa:bb:cc:dd:ee:ff",
+					FrequencyMhz:    5975,
+					ApMldMacAddress: "02:00:00:00:00:01",
+					ApMloLinkId:     2,
+					AssociatedMloLinks: []*controlpb.MloLinkInfo{{
+						LinkId:          2,
+						State:           "active",
+						Band:            "6ghz",
+						Channel:         5,
+						RssiDbm:         -48,
+						TxLinkSpeedMbps: 1200,
+						RxLinkSpeedMbps: 1200,
+						ApMacAddress:    "02:00:00:00:00:02",
+					}},
+				},
+			},
+		},
+	}
+
+	out, err := CommandResult("agent", result, command.Options{}, pipeline.FormatText)
+	if err != nil {
+		t.Fatalf("renderCommandResult() error = %v", err)
+	}
+	for _, want := range []string{
+		"MLO: ap_mld=02:00:00:00:00:01 ap_link_id=2 affiliated=0 associated=1",
+		"Associated MLO links:",
+		"active",
+		"1200",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered output = %q, missing %q", out, want)
+		}
+	}
+}

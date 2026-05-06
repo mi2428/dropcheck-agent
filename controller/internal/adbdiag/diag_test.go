@@ -46,3 +46,47 @@ func TestRenderTextIncludesCommandOutput(t *testing.T) {
 		}
 	}
 }
+
+func TestParseMLOSummaryExtractsCmdWifiAndDumpsysFields(t *testing.T) {
+	text := `WifiInfo: SSID: "Lab" MLO Information: , Is TID-To-Link negotiation supported by the AP: false, AP MLD Address: 02:00:00:00:00:01, AP MLO Link Id: 2, AP MLO Affiliated links: [link_id=2], Vendor Data: <none>
+timestamp_ms=1,wifi_link_count=1,Link Stats from link_id=2,state=2,radio_id=0,frequency_mhz=5975,beacon_rx=42,rssi_mgmt=-47,rssi=-48,channel_width=3,mlo_mode=1`
+
+	summary := ParseMLOSummary(text)
+	if summary.TIDToLinkSupported != "false" ||
+		summary.APMLDAddress != "02:00:00:00:00:01" ||
+		summary.APMLOLinkID != "2" ||
+		summary.MLOMode != "1" ||
+		summary.WifiLinkCount != "1" ||
+		len(summary.LinkStats) != 1 {
+		t.Fatalf("summary = %#v", summary)
+	}
+	link := summary.LinkStats[0]
+	if link.LinkID != "2" || link.FrequencyMHz != "5975" || link.RSSI != "-48" || link.RSSIMgmt != "-47" || link.ChannelWidth != "3" {
+		t.Fatalf("link = %#v", link)
+	}
+}
+
+func TestRenderMLOSummary(t *testing.T) {
+	out := RenderMLOSummary(MLOSummary{
+		TIDToLinkSupported: "false",
+		APMLDAddress:       "<none>",
+		APMLOLinkID:        "<none>",
+		MLOMode:            "0",
+		WifiLinkCount:      "1",
+		LinkStats: []MLOLinkStat{{
+			LinkID:       "0",
+			State:        "2",
+			RadioID:      "0",
+			FrequencyMHz: "5220",
+			RSSI:         "-58",
+			RSSIMgmt:     "-58",
+			ChannelWidth: "0",
+			BeaconRx:     "472263",
+		}},
+	})
+	for _, want := range []string{"ADB MLO:", "tid_to_link=false", "wifi_link_count=1", "ADB MLO link stats:", "5220"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("RenderMLOSummary() = %q, missing %q", out, want)
+		}
+	}
+}
