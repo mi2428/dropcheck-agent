@@ -1,9 +1,11 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -11,6 +13,13 @@ import (
 	"dropcheck/controller/internal/session"
 	"dropcheck/controller/internal/version"
 )
+
+var errHelpRequested = errors.New("help requested")
+
+type helpRow struct {
+	usage       string
+	description string
+}
 
 // Run executes the dropcheck controller application for args.
 //
@@ -24,7 +33,15 @@ func Run(args []string) error {
 	}
 	opts, rest, err := parseTopLevelArgs(args)
 	if err != nil {
-		return usage()
+		if errors.Is(err, errHelpRequested) {
+			writeTopLevelHelp(os.Stdout)
+			return nil
+		}
+		return fmt.Errorf("%w\n\nrun 'dropcheck --help' for usage", err)
+	}
+	if len(rest) == 1 && rest[0] == "help" {
+		writeTopLevelHelp(os.Stdout)
+		return nil
 	}
 	if len(rest) == 1 && rest[0] == "shell" {
 		return runShell(context.Background(), opts, nil)
@@ -33,13 +50,91 @@ func Run(args []string) error {
 		return runShell(context.Background(), opts, rest[1:])
 	}
 	if len(rest) == 0 {
-		return usage()
+		writeTopLevelHelp(os.Stdout)
+		return nil
 	}
 	return runCLI(context.Background(), opts, rest)
 }
 
-func usage() error {
-	return errors.New("usage: dropcheck [--version] [--adb adb] [--serial SERIAL] [--package PACKAGE] [--listen ADDR] shell [--target TARGET] | <command>")
+func topLevelHelp() string {
+	var b bytes.Buffer
+	writeTopLevelHelp(&b)
+	return b.String()
+}
+
+func writeTopLevelHelp(w io.Writer) {
+	_, _ = fmt.Fprintln(w, "Dropcheck controller.")
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Usage:")
+	_, _ = fmt.Fprintln(w, "  dropcheck [flags] shell [--target TARGET]")
+	_, _ = fmt.Fprintln(w, "  dropcheck [flags] [--format text|json] [--target TARGET|--all] <command>")
+	_, _ = fmt.Fprintln(w, "  dropcheck --version")
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Commands:")
+	writeHelpRows(w, []helpRow{
+		{"shell", "start the interactive controller shell"},
+		{"show devices", "list connected Android agents"},
+		{"show config [standalone]", "print agent configuration"},
+		{"show wifi <topic>", "show Wi-Fi status and diagnostics"},
+		{"show ip status", "show IP and routing status"},
+		{"show standalone <topic>", "show standalone runs and status"},
+		{"configure <set|delete> ...", "edit agent configuration"},
+		{"clear standalone runs [synced|all]", "delete stored runs"},
+		{"sync standalone runs [options]", "download stored standalone runs"},
+		{"request <command> ...", "run a one-shot agent operation"},
+	})
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Global flags:")
+	writeHelpRows(w, []helpRow{
+		{"-h, --help", "show this help"},
+		{"--version", "print version and exit"},
+		{"--adb PATH", `adb executable (default "adb")`},
+		{"--serial SERIAL", "adb serial; defaults to ADB_SERIAL"},
+		{"--package PACKAGE", fmt.Sprintf("Android package (default %q)", session.DefaultPackageName)},
+		{"--listen ADDR", `gRPC listen address (default "127.0.0.1:0")`},
+	})
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "CLI output and target flags:")
+	writeHelpRows(w, []helpRow{
+		{"--format text|json", "output format for one-shot commands"},
+		{"--target TARGET", "select one agent by ID, prefix, or adb serial"},
+		{"--all", "run agent commands on all connected agents"},
+	})
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Common request commands:")
+	writeHelpRows(w, []helpRow{
+		{"request wifi scan fresh [options]", "run a fresh Wi-Fi scan"},
+		{"request wifi connect <ssid>", "connect to Wi-Fi"},
+		{"request ping <host> [options]", "run ICMP ping"},
+		{"request traceroute <host>", "run traceroute"},
+		{"request dns <name> [options]", "resolve DNS"},
+		{"request http <url> [options]", "check HTTP status"},
+	})
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, `Notes:
+  Top-level flags accept either single or double dash, for example -serial or --serial.
+
+Examples:
+  dropcheck shell
+  dropcheck --serial R5CT12345 shell
+  dropcheck --format json show devices
+  dropcheck request ping 1.1.1.1 --count 5
+  dropcheck request wifi scan fresh --timeout 9000`)
+}
+
+func writeHelpRows(w io.Writer, rows []helpRow) {
+	const usageWidth = 36
+	for _, row := range rows {
+		if row.description == "" {
+			_, _ = fmt.Fprintf(w, "  %s\n", row.usage)
+			continue
+		}
+		if len(row.usage) > usageWidth {
+			_, _ = fmt.Fprintf(w, "  %s\n  %-*s  %s\n", row.usage, usageWidth, "", row.description)
+			continue
+		}
+		_, _ = fmt.Fprintf(w, "  %-*s  %s\n", usageWidth, row.usage, row.description)
+	}
 }
 
 type shellOptions = session.Options
@@ -65,8 +160,8 @@ func parseTopLevelArgs(args []string) (shellOptions, []string, error) {
 		}
 		name, value, hasValue := strings.Cut(arg, "=")
 		switch name {
-		case "--help", "-h":
-			return opts, nil, fmt.Errorf("help requested")
+		case "--help", "-help", "-h":
+			return opts, nil, errHelpRequested
 		case "--adb", "-adb":
 			if !hasValue {
 				if i+1 >= len(args) {
@@ -94,7 +189,7 @@ func parseTopLevelArgs(args []string) (shellOptions, []string, error) {
 				value = args[i]
 			}
 			opts.PackageName = value
-		case "--listen":
+		case "--listen", "-listen":
 			if !hasValue {
 				if i+1 >= len(args) {
 					return opts, nil, fmt.Errorf("%s requires a value", name)
