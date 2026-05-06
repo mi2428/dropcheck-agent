@@ -1,5 +1,10 @@
 package command
 
+const (
+	// WifiRenderModeMLO renders WifiDiagnostics as an MLO-focused summary.
+	WifiRenderModeMLO = "mlo"
+)
+
 // Options describes controller-local behavior attached to an Operation.
 //
 // These options are intentionally kept outside controlpb.RunCommand because
@@ -9,4 +14,6 @@ type Options struct {
 	// TracerouteRequiredHops lists hop hostnames or addresses that should appear
 	// in rendered traceroute output.
 	TracerouteRequiredHops []string
+	// WifiRenderMode selects a controller-only Wi-Fi diagnostics presentation.
+	WifiRenderMode string
 }

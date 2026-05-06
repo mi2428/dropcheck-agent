@@ -192,10 +192,10 @@ func parseShowConfig(args []string) (Command, error) {
 
 func parseLinuxShowWifi(args []string) (command.Operation, error) {
 	if len(args) == 0 {
-		return command.Operation{}, fmt.Errorf("usage: show wifi <status|diagnostics|scan|capabilities>")
+		return command.Operation{}, fmt.Errorf("usage: show wifi <status|diagnostics|mlo|scan|capabilities>")
 	}
 	switch args[0] {
-	case "status", "diagnostics", "capabilities":
+	case "status", "diagnostics", "mlo", "capabilities":
 		if len(args) != 1 {
 			return command.Operation{}, fmt.Errorf("usage: show wifi %s", args[0])
 		}
@@ -204,6 +204,8 @@ func parseLinuxShowWifi(args []string) (command.Operation, error) {
 			return command.WifiStatusOperation(), nil
 		case "diagnostics":
 			return command.WifiDiagnosticsOperation(), nil
+		case "mlo":
+			return command.WifiMLOOperation(), nil
 		default:
 			return command.WifiCapabilitiesOperation(), nil
 		}

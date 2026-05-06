@@ -501,9 +501,9 @@ func parseShellShowStandalone(args []string) (Command, error) {
 
 func parseShellShowWifi(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: show wifi <status|diagnostics|scan|capabilities>")
+		return Command{}, fmt.Errorf("usage: show wifi <status|diagnostics|mlo|scan|capabilities>")
 	}
-	name, err := resolveShellKeyword("show wifi command", args[0], []string{"status", "diagnostics", "scan", "capabilities"})
+	name, err := resolveShellKeyword("show wifi command", args[0], []string{"status", "diagnostics", "mlo", "scan", "capabilities"})
 	if err != nil {
 		return Command{}, err
 	}
@@ -518,6 +518,11 @@ func parseShellShowWifi(args []string) (Command, error) {
 			return Command{}, fmt.Errorf("usage: show wifi diagnostics")
 		}
 		return agentShellCommand(command.WifiDiagnosticsOperation()), nil
+	case "mlo":
+		if len(args) != 1 {
+			return Command{}, fmt.Errorf("usage: show wifi mlo")
+		}
+		return agentShellCommand(command.WifiMLOOperation()), nil
 	case "capabilities":
 		if len(args) != 1 {
 			return Command{}, fmt.Errorf("usage: show wifi capabilities")

@@ -118,6 +118,14 @@ func WifiDiagnosticsOperation() Operation {
 	}, Options{})
 }
 
+// WifiMLOOperation builds an MLO-focused Wi-Fi diagnostics inspection operation.
+func WifiMLOOperation() Operation {
+	return NewOperation("wifi.mlo", &controlpb.RunCommand{
+		Label:   "wifi mlo",
+		Command: &controlpb.RunCommand_GetWifiDiagnostics{GetWifiDiagnostics: &controlpb.GetWifiDiagnostics{}},
+	}, Options{WifiRenderMode: WifiRenderModeMLO})
+}
+
 // WifiCapabilitiesOperation builds a Wi-Fi capabilities inspection operation.
 func WifiCapabilitiesOperation() Operation {
 	return NewOperation("wifi.capabilities", &controlpb.RunCommand{

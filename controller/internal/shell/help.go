@@ -18,6 +18,7 @@ func writeShellHelp(w io.Writer) {
   show config [standalone]
   show wifi status
   show wifi diagnostics
+  show wifi mlo
   show wifi scan [all|2.4ghz|5ghz|6ghz|60ghz]
   show wifi scan fresh [timeout <ms>] [all|2.4ghz|5ghz|6ghz|60ghz]
   show wifi scan detail [all|2.4ghz|5ghz|6ghz|60ghz] <ssid|bssid>
@@ -280,7 +281,7 @@ func resolveContextKeywordInMode(index int, previous []string, value string, mod
 			return resolveShellKeyword("show config command", value, []string{"standalone"})
 		}
 		if previous[0] == "show" && previous[1] == "wifi" {
-			return resolveShellKeyword("show wifi command", value, []string{"status", "diagnostics", "scan", "capabilities"})
+			return resolveShellKeyword("show wifi command", value, []string{"status", "diagnostics", "mlo", "scan", "capabilities"})
 		}
 		if previous[0] == "show" && previous[1] == "ip" {
 			return resolveShellKeyword("show ip command", value, []string{"status"})
@@ -376,7 +377,7 @@ func helpEntriesForArgsInMode(args []string, mode Mode) []HelpEntry {
 			return []HelpEntry{{"standalone", "Standalone configuration subtree"}}
 		}
 		if len(args) == 2 && args[1] == "wifi" {
-			return []HelpEntry{{"status", "Current Wi-Fi connection and IP state"}, {"diagnostics", "Wi-Fi status, capabilities, networks, and scan"}, {"scan", "Cached or fresh scan results"}, {"capabilities", "Device Wi-Fi capabilities"}}
+			return []HelpEntry{{"status", "Current Wi-Fi connection and IP state"}, {"diagnostics", "Wi-Fi status, capabilities, networks, and scan"}, {"mlo", "Connected and nearby MLO state"}, {"scan", "Cached or fresh scan results"}, {"capabilities", "Device Wi-Fi capabilities"}}
 		}
 		if len(args) == 2 && args[1] == "ip" {
 			return []HelpEntry{{"status", "IP addresses, routes, DNS, and validation state"}}
@@ -1063,15 +1064,15 @@ func completionCandidatesForArgsInMode(args []string, mode Mode) []string {
 		if resolved[0] == "show" && resolved[1] == "config" {
 			return []string{"standalone"}
 		}
-			if resolved[0] == "show" && resolved[1] == "wifi" {
-				return []string{"status", "diagnostics", "scan", "capabilities"}
-			}
-			if resolved[0] == "show" && resolved[1] == "ip" {
-				return []string{"status"}
-			}
-			if resolved[0] == "show" && resolved[1] == "standalone" {
-				return []string{"status", "runs", "run"}
-			}
+		if resolved[0] == "show" && resolved[1] == "wifi" {
+			return []string{"status", "diagnostics", "mlo", "scan", "capabilities"}
+		}
+		if resolved[0] == "show" && resolved[1] == "ip" {
+			return []string{"status"}
+		}
+		if resolved[0] == "show" && resolved[1] == "standalone" {
+			return []string{"status", "runs", "run"}
+		}
 		if resolved[0] == "show" && resolved[1] == "adb" {
 			return []string{"cmd", "dumpsys", "diagnostics", "wifi", "connectivity"}
 		}

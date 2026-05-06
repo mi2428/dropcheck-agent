@@ -100,6 +100,22 @@ func TestParseAgentCommandSurface(t *testing.T) {
 			},
 		},
 		{
+			name: "wifi mlo",
+			args: []string{"show", "wifi", "mlo"},
+			check: func(t *testing.T, run *controlpb.RunCommand) {
+				t.Helper()
+				if run.GetGetWifiDiagnostics() == nil {
+					t.Fatalf("command = %T, want GetWifiDiagnostics", run.GetCommand())
+				}
+			},
+			checkOptions: func(t *testing.T, options cmdop.Options) {
+				t.Helper()
+				if options.WifiRenderMode != cmdop.WifiRenderModeMLO {
+					t.Fatalf("wifi render mode = %q, want %q", options.WifiRenderMode, cmdop.WifiRenderModeMLO)
+				}
+			},
+		},
+		{
 			name: "fresh wifi scan",
 			args: []string{"show", "wifi", "scan", "fresh", "5ghz", "--timeout", "8000"},
 			check: func(t *testing.T, run *controlpb.RunCommand) {
