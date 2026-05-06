@@ -14,6 +14,8 @@ import android.graphics.drawable.ColorDrawable
 import android.graphics.text.LineBreakConfig
 import android.graphics.text.LineBreaker
 import android.net.Uri
+import android.net.wifi.ScanResult
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -45,8 +47,11 @@ import android.widget.ScrollView
 import android.widget.TextView
 import io.dropcheck.agent.grpc.CommandLog
 import io.dropcheck.agent.grpc.CommandResult
+import io.dropcheck.agent.grpc.GetFreshWifiScan
+import io.dropcheck.agent.grpc.GetWifiScan
 import io.dropcheck.agent.grpc.GetWifiStatus
 import io.dropcheck.agent.grpc.RunCommand
+import io.dropcheck.agent.grpc.WifiBand
 import java.util.concurrent.Executors
 
 private const val TERMINAL_BREAK_OPPORTUNITY = "\u200B"
@@ -67,7 +72,7 @@ private const val SHELL_BLANK_LINE = "\u00A0"
 private const val SHELL_ERROR_COLOR = -44976
 private const val SHELL_CURSOR_COLOR = -1
 private const val TERMINAL_TEXT_SIZE_SP = 8f
-private const val SHELL_TEXT_SIZE_SP = TERMINAL_TEXT_SIZE_SP
+private const val SHELL_TEXT_SIZE_SP = TERMINAL_TEXT_SIZE_SP + 2f
 private const val SHELL_CURSOR_BLINK_MS = 530L
 private const val SHELL_CURSOR_WIDTH_SCALE = 0.5f
 private const val SHELL_CURSOR_MIN_WIDTH_DP = 4f
@@ -721,6 +726,9 @@ class MainActivity : Activity() {
                     ShellCommandResult(ok = false, lines = listOf("show wifi status failed: $message"))
                 }
             }
+            is AgentShellCommand.ShowWifiMlo -> runShellLinesCommand {
+                runWifiMloCommand(command)
+            }
             AgentShellCommand.ClearUse -> runShellCommand {
                 StandaloneWifiUseController(applicationContext).clearUse()
             }
@@ -736,6 +744,59 @@ class MainActivity : Activity() {
             val result = action()
             ShellCommandResult(result.ok, listOf(result.message))
         }
+    }
+
+    private fun runWifiMloCommand(command: AgentShellCommand.ShowWifiMlo): ShellCommandResult {
+        val executor = CommandExecutor(applicationContext, agentShellLogger())
+        val statusResult = executor.execute(
+            RunCommand.newBuilder()
+                .setGetWifiStatus(GetWifiStatus.getDefaultInstance())
+                .build(),
+        )
+        if (!statusResult.hasWifiStatus()) {
+            val message = statusResult.message.ifBlank { statusResult.status.name }
+            return ShellCommandResult(ok = false, lines = listOf("show wifi mlo failed: status unavailable: $message"))
+        }
+
+        val scanCommand = if (command.fresh) {
+            val scan = GetFreshWifiScan.newBuilder()
+                .setBand(WifiBand.WIFI_BAND_ALL)
+            if (command.timeoutMs > 0) scan.timeoutMs = command.timeoutMs
+            RunCommand.newBuilder()
+                .setGetFreshWifiScan(scan.build())
+                .build()
+        } else {
+            RunCommand.newBuilder()
+                .setGetWifiScan(GetWifiScan.newBuilder()
+                    .setBand(WifiBand.WIFI_BAND_ALL)
+                    .build())
+                .build()
+        }
+        val scanResult = executor.execute(scanCommand)
+        if (!scanResult.hasWifiScan()) {
+            val message = scanResult.message.ifBlank { scanResult.status.name }
+            return ShellCommandResult(ok = false, lines = listOf("show wifi mlo failed: scan unavailable: $message"))
+        }
+
+        val context = AgentWifiMloContext(
+            scanSource = if (command.fresh) "fresh" else "cached",
+            sdkInt = Build.VERSION.SDK_INT,
+            wifi7Supported = wifi7StandardSupported(),
+            scanCommandStatus = scanResult.status.name,
+            scanCommandMessage = scanResult.message,
+        )
+        return ShellCommandResult(
+            ok = statusResult.status == CommandResult.Status.STATUS_OK,
+            lines = AgentWifiMloRenderer.render(statusResult.wifiStatus, scanResult.wifiScan, context),
+        )
+    }
+
+    private fun wifi7StandardSupported(): Boolean? {
+        if (Build.VERSION.SDK_INT < 33) return null
+        return runCatching {
+            getSystemService(WifiManager::class.java)
+                ?.isWifiStandardSupported(ScanResult.WIFI_STANDARD_11BE)
+        }.getOrNull()
     }
 
     private fun runShellLinesCommand(action: () -> ShellCommandResult) {
@@ -869,6 +930,8 @@ class MainActivity : Activity() {
                 "  clear use",
                 "  help [NAME]",
                 "  show use",
+                "  show wifi mlo",
+                "  show wifi mlo fresh [timeout MS]",
                 "  show wifi status",
                 "  use NAME",
                 "",
@@ -883,9 +946,11 @@ class MainActivity : Activity() {
                 "    Display information about shell builtins.",
             )
             "show" -> listOf(
-                "show: show (use|wifi status)",
+                "show: show (use|wifi status|wifi mlo)",
                 "    show use displays the Wi-Fi use override state and live targets.",
                 "    show wifi status displays local Wi-Fi, IP, and MLO state.",
+                "    show wifi mlo displays connected and nearby MLO state.",
+                "    show wifi mlo fresh requests a scan before rendering MLO state.",
             )
             "use" -> listOf(
                 "use: use NAME",
