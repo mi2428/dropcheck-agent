@@ -113,11 +113,11 @@ func statusName(status controlpb.CommandResult_Status) string {
 }
 
 func annotations(readOnly bool, destructive *bool, idempotent bool) *mcp.ToolAnnotations {
-	closedWorld := false
+	openWorld := true
 	return &mcp.ToolAnnotations{
 		ReadOnlyHint:    readOnly,
 		DestructiveHint: destructive,
 		IdempotentHint:  idempotent,
-		OpenWorldHint:   &closedWorld,
+		OpenWorldHint:   &openWorld,
 	}
 }

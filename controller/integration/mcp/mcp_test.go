@@ -206,6 +206,48 @@ func TestToolsListIncludesDropcheckOperations(t *testing.T) {
 	}
 }
 
+func TestToolAnnotationsReflectExternalAndDestructiveBehavior(t *testing.T) {
+	session, cleanup := connectMCP(t, newFakeBackend())
+	defer cleanup()
+
+	list, err := session.ListTools(context.Background(), &mcp.ListToolsParams{})
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	tools := map[string]*mcp.Tool{}
+	for _, tool := range list.Tools {
+		tools[tool.Name] = tool
+	}
+	for _, name := range []string{"dropcheck_ping", "dropcheck_wifi_forget", "dropcheck_wifi_cycle", "dropcheck_command", "dropcheck_run"} {
+		tool := tools[name]
+		if tool == nil {
+			t.Fatalf("tool %s not listed", name)
+		}
+		if tool.Annotations == nil || tool.Annotations.OpenWorldHint == nil || !*tool.Annotations.OpenWorldHint {
+			t.Fatalf("%s OpenWorldHint=%v, want true", name, tool.Annotations)
+		}
+	}
+	if !tools["dropcheck_ping"].Annotations.ReadOnlyHint {
+		t.Fatalf("dropcheck_ping ReadOnlyHint=false")
+	}
+	for _, name := range []string{"dropcheck_wifi_forget", "dropcheck_wifi_cycle", "dropcheck_command", "dropcheck_run"} {
+		hint := tools[name].Annotations.DestructiveHint
+		if hint == nil || !*hint {
+			t.Fatalf("%s DestructiveHint=%v, want true", name, hint)
+		}
+	}
+	standaloneRun := tools["dropcheck_standalone_run"]
+	if standaloneRun == nil {
+		t.Fatalf("dropcheck_standalone_run not listed")
+	}
+	if standaloneRun.Annotations.ReadOnlyHint {
+		t.Fatalf("dropcheck_standalone_run ReadOnlyHint=true, want false because mark_synced can update state")
+	}
+	if hint := standaloneRun.Annotations.DestructiveHint; hint == nil || *hint {
+		t.Fatalf("dropcheck_standalone_run DestructiveHint=%v, want false", hint)
+	}
+}
+
 func TestFirstClassWifiToolsCoverShellOperations(t *testing.T) {
 	backend := newFakeBackend()
 	session, cleanup := connectMCP(t, backend)
