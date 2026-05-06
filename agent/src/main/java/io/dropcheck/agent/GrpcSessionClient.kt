@@ -344,7 +344,7 @@ class GrpcSessionClient(
         val hello = AgentHello.newBuilder()
             .setToken(token)
             .setPackageName(service.packageName)
-            .setAppVersion("0.1.0")
+            .setAppVersion(BuildConfig.VERSION_NAME)
             .setControllerAgentId(agentId)
             .setAdbSerial(adbSerial)
             .setDevice(DeviceInfo.newBuilder()

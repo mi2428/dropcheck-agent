@@ -9,6 +9,7 @@ import (
 
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/session"
+	"dropcheck/controller/internal/version"
 )
 
 // Run executes the dropcheck controller application for args.
@@ -17,6 +18,10 @@ import (
 // one-shot CLI mode, starts the required control session, and returns any
 // user-facing error to the executable wrapper.
 func Run(args []string) error {
+	if len(args) == 1 && (args[0] == "--version" || args[0] == "-version") {
+		fmt.Println(version.Version)
+		return nil
+	}
 	opts, rest, err := parseTopLevelArgs(args)
 	if err != nil {
 		return usage()
@@ -34,7 +39,7 @@ func Run(args []string) error {
 }
 
 func usage() error {
-	return errors.New("usage: dropcheck [--adb adb] [--serial SERIAL] [--package PACKAGE] [--listen ADDR] shell [--target TARGET] | <command>")
+	return errors.New("usage: dropcheck [--version] [--adb adb] [--serial SERIAL] [--package PACKAGE] [--listen ADDR] shell [--target TARGET] | <command>")
 }
 
 type shellOptions = session.Options

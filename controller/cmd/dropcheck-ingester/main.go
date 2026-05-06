@@ -9,10 +9,12 @@ import (
 	"syscall"
 
 	"dropcheck/controller/internal/ingester"
+	"dropcheck/controller/internal/version"
 )
 
 func main() {
 	logger := log.New(os.Stdout, "", log.LstdFlags|log.Lmicroseconds)
+	logger.Printf("dropcheck-ingester version=%s", version.Version)
 	cfg, err := ingester.ConfigFromEnv()
 	if err != nil {
 		logger.Fatalf("config: %v", err)

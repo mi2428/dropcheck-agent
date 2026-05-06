@@ -15,6 +15,9 @@ E2E_TIMEOUT             ?= 3h
 E2E_AGENT_PACKAGE       ?= io.dropcheck.agent
 INTEGRATION_PACKAGE     ?= ./integration/ingester
 INTEGRATION_TIMEOUT     ?= 10m
+GIT_DESCRIBE            := $(shell git describe --tags --dirty --always 2>/dev/null)
+VERSION                 ?= $(or $(GIT_DESCRIBE),0.0.0-dev)
+GO_LDFLAGS              ?= -X dropcheck/controller/internal/version.Version=$(VERSION)
 
 SSID                    ?= $(DROPCHECK_E2E_WIFI_SSID)
 PSK                     ?= $(DROPCHECK_E2E_WIFI_PSK)
@@ -41,8 +44,8 @@ build: ## Build targets; use TARGET=agent,controller or TARGET=all
 	[[ " $$targets " == *" all "* ]] && targets="agent controller"; \
 	for target in $$targets; do \
 		case "$$target" in \
-			agent) run "$(GRADLE)" "$(AGENT_BUILD_TASK)" ;; \
-			controller) (cd controller; bin="$(CONTROLLER_BIN)"; [[ "$$bin" != */* ]] || run mkdir -p "$${bin%/*}"; run "$(GO)" build -o "$$bin" ./cmd/dropcheck; bin="$(CONTROLLER_MCP_BIN)"; [[ "$$bin" != */* ]] || run mkdir -p "$${bin%/*}"; run "$(GO)" build -o "$$bin" ./cmd/dropcheck-mcp; bin="$(CONTROLLER_INGESTER_BIN)"; [[ "$$bin" != */* ]] || run mkdir -p "$${bin%/*}"; run "$(GO)" build -o "$$bin" ./cmd/dropcheck-ingester) ;; \
+			agent) run "$(GRADLE)" "$(AGENT_BUILD_TASK)" "-PdropcheckVersion=$(VERSION)" ;; \
+			controller) (cd controller; bin="$(CONTROLLER_BIN)"; [[ "$$bin" != */* ]] || run mkdir -p "$${bin%/*}"; run "$(GO)" build -ldflags "$(GO_LDFLAGS)" -o "$$bin" ./cmd/dropcheck; bin="$(CONTROLLER_MCP_BIN)"; [[ "$$bin" != */* ]] || run mkdir -p "$${bin%/*}"; run "$(GO)" build -ldflags "$(GO_LDFLAGS)" -o "$$bin" ./cmd/dropcheck-mcp; bin="$(CONTROLLER_INGESTER_BIN)"; [[ "$$bin" != */* ]] || run mkdir -p "$${bin%/*}"; run "$(GO)" build -ldflags "$(GO_LDFLAGS)" -o "$$bin" ./cmd/dropcheck-ingester) ;; \
 			*) die "unknown TARGET=$$target" ;; \
 		esac; \
 	done
@@ -55,7 +58,7 @@ test: ## Test targets; use TARGET=agent,controller or TAGS=... for Go tags
 	[[ " $$targets " == *" all "* ]] && targets="agent controller"; \
 	for target in $$targets; do \
 		case "$$target" in \
-			agent) run "$(GRADLE)" "$(AGENT_TEST_TASK)" ;; \
+			agent) run "$(GRADLE)" "$(AGENT_TEST_TASK)" "-PdropcheckVersion=$(VERSION)" ;; \
 			controller) go_test=("$(GO)" test); [[ -z "$(TAGS)" ]] || go_test+=(-tags "$(TAGS)"); go_test+=(./...); (cd controller && run "$${go_test[@]}") ;; \
 			*) die "unknown TARGET=$$target" ;; \
 		esac; \
@@ -83,7 +86,7 @@ lint: ## Lint targets; controller runs go vet and staticcheck
 	[[ " $$targets " == *" all "* ]] && targets="agent controller"; \
 	for target in $$targets; do \
 		case "$$target" in \
-			agent) run "$(GRADLE)" "$(AGENT_LINT_TASK)" ;; \
+			agent) run "$(GRADLE)" "$(AGENT_LINT_TASK)" "-PdropcheckVersion=$(VERSION)" ;; \
 			controller) vet=("$(GO)" vet); static=("$(STATICCHECK)"); [[ -z "$(TAGS)" ]] || { vet+=(-tags "$(TAGS)"); static+=(-tags "$(TAGS)"); }; vet+=(./...); static+=(./...); (cd controller && run "$${vet[@]}" && run "$${static[@]}") ;; \
 			*) die "unknown TARGET=$$target" ;; \
 		esac; \
@@ -97,7 +100,7 @@ install: ## Build and install the debug APK; use SERIAL=<adb serial> when needed
 	[[ " $$targets " == *" all "* ]] && targets="agent"; \
 	for target in $$targets; do \
 		case "$$target" in \
-			agent) run "$(GRADLE)" "$(AGENT_BUILD_TASK)"; apk="$(APK)"; [[ -f "$$apk" ]] || die "missing APK $$apk"; adb=("$(ADB)"); [[ -z "$(SERIAL)" ]] || adb+=(-s "$(SERIAL)"); run "$${adb[@]}" install $(ADB_INSTALL_FLAGS) "$$apk" ;; \
+			agent) run "$(GRADLE)" "$(AGENT_BUILD_TASK)" "-PdropcheckVersion=$(VERSION)"; apk="$(APK)"; [[ -f "$$apk" ]] || die "missing APK $$apk"; adb=("$(ADB)"); [[ -z "$(SERIAL)" ]] || adb+=(-s "$(SERIAL)"); run "$${adb[@]}" install $(ADB_INSTALL_FLAGS) "$$apk" ;; \
 			controller) die "install supports TARGET=agent only" ;; \
 			*) die "unknown TARGET=$$target" ;; \
 		esac; \
@@ -119,6 +122,10 @@ e2e: ## Run real-device shell/CLI e2e matrix; use SERIAL=... SSID=... PSK=...
 integration: ## Run Docker-backed integration tests
 	@run(){ printf '+'; printf ' %q' "$$@"; printf '\n'; "$$@"; }; \
 	(cd controller && run "$(GO)" test -v -count=1 -tags integration -timeout "$(INTEGRATION_TIMEOUT)" "$(INTEGRATION_PACKAGE)")
+
+.PHONY: version
+version: ## Print the version resolved from git describe
+	@printf '%s\n' "$(VERSION)"
 
 .PHONY: quality
 quality: fmt lint test ## Format, lint, and test selected targets
@@ -160,6 +167,7 @@ help: ## Show this help message
 		}' $(MAKEFILE_LIST)
 	@printf "\n\033[1mVariables:\033[0m\n"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "TARGET" "agent, controller, or all; comma and space lists are accepted"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "VERSION" "Version from git describe; override with VERSION=x.y.z"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "TAGS" "Go build/test tags for controller targets"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "SSID" "Test Wi-Fi SSID for make e2e"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "PSK" "Test Wi-Fi PSK for make e2e; PSK_ENV can be used instead"
