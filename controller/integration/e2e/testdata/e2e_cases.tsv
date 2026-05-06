@@ -348,3 +348,5 @@ E2E-346	CLI standalone run config ping	cli	dropcheck configure set standalone fe
 E2E-347	CLI standalone run config enable	cli	dropcheck configure set standalone festa cli-table enabled	ok	CLI enables the standalone run festa.
 E2E-348	CLI standalone run once save	cli	dropcheck request standalone run once --festa cli-table --save	ok	CLI standalone run once saves an archive and prints its run id.
 E2E-349	CLI standalone run detail	cli	dropcheck show standalone run <run-id>	ok	CLI standalone run detail fetches the saved archive by run id.
+E2E-350	Shell Wi-Fi MLO	shell	show wifi mlo	ok_or_clear	MLO-focused Wi-Fi diagnostics render without dispatch error.
+E2E-351	CLI Wi-Fi MLO	cli	dropcheck show wifi mlo	ok_or_clear	MLO-focused Wi-Fi diagnostics render from the CLI.
