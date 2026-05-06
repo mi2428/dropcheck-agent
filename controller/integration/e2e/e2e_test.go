@@ -2004,6 +2004,7 @@ func caseNeedsWiFiSetup(tc matrixCase) bool {
 		"request> download",
 		"dropcheck request ping",
 		"dropcheck show ip",
+		"dropcheck show wifi",
 		"dropcheck request traceroute",
 		"dropcheck request path-mtu",
 		"dropcheck request global-ip",
@@ -2077,7 +2078,7 @@ func oneLine(value string) string {
 	return value
 }
 
-const e2eCaseCount = 349
+const e2eCaseCount = 351
 
 var e2eCaseID = regexp.MustCompile(`^E2E-[0-9]{3}$`)
 
@@ -2219,6 +2220,7 @@ func TestE2ECaseTableCoversControllerCommandSurface(t *testing.T) {
 		{name: "shell wifi status", runner: "shell", text: "show wifi status"},
 		{name: "shell ip status", runner: "shell", text: "show ip status"},
 		{name: "shell wifi diagnostics", runner: "shell", text: "show wifi diagnostics"},
+		{name: "shell wifi mlo", runner: "shell", text: "show wifi mlo"},
 		{name: "shell wifi capabilities", runner: "shell", text: "show wifi capabilities"},
 		{name: "shell wifi scan", runner: "shell", text: "show wifi scan"},
 		{name: "shell wifi fresh scan", runner: "shell", text: "show wifi scan fresh"},
@@ -2240,6 +2242,7 @@ func TestE2ECaseTableCoversControllerCommandSurface(t *testing.T) {
 		{name: "shell download", runner: "shell", text: "request> download"},
 		{name: "cli show devices", runner: "cli", text: "dropcheck --serial"},
 		{name: "cli ip status", runner: "cli", text: "dropcheck show ip status"},
+		{name: "cli wifi mlo", runner: "cli", text: "dropcheck show wifi mlo"},
 		{name: "cli wifi scan", runner: "cli", text: "dropcheck show wifi scan"},
 		{name: "cli wifi connect", runner: "cli", text: "dropcheck request wifi connect"},
 		{name: "cli wifi wait", runner: "cli", text: "dropcheck request wifi wait"},
