@@ -424,9 +424,9 @@ func renderWifiConnectionMLO(b *strings.Builder, conn *controlpb.WifiConnection)
 
 func wifiConnectionHasMLO(conn *controlpb.WifiConnection) bool {
 	return conn.GetApMldMacAddress() != "" ||
-		conn.GetApMloLinkId() != 0 ||
 		len(conn.GetAffiliatedMloLinks()) > 0 ||
-		len(conn.GetAssociatedMloLinks()) > 0
+		len(conn.GetAssociatedMloLinks()) > 0 ||
+		(strings.EqualFold(conn.GetWifiStandard(), "802.11be") && conn.GetApMloLinkId() >= 0)
 }
 
 func renderMLOLinks(b *strings.Builder, title string, links []*controlpb.MloLinkInfo) {

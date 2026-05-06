@@ -13,7 +13,6 @@ type wifiMLOGroup struct {
 	results    []*controlpb.WifiScanResult
 	displayMLD string
 	bestRSSI   int32
-	linkIDs    []int32
 	bands      []string
 	security   []string
 	standards  []string
@@ -182,13 +181,11 @@ func renderWifiMLONearbyAPs(b *strings.Builder, groups []wifiMLOGroup, current *
 		return
 	}
 	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "MARK\tSSID\tAP_MLD\tLINKS\tBANDS\tBEST_RSSI\tSECURITY\tSTANDARD")
+	_, _ = fmt.Fprintln(tw, "MARK\tSSID\tBANDS\tBEST_RSSI\tSECURITY\tSTANDARD")
 	for _, group := range groups {
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%s\n",
 			wifiMLOGroupMark(group, current),
 			wifiMLOJoinStrings(wifiMLOGroupSSIDs(group), "<hidden>"),
-			group.displayMLD,
-			wifiMLOJoinInts(group.linkIDs, "-"),
 			wifiMLOJoinStrings(group.bands, "unknown"),
 			group.bestRSSI,
 			wifiMLOJoinStrings(group.security, "-"),
@@ -364,18 +361,21 @@ func renderWifiMLODiagnostics(b *strings.Builder, status *controlpb.WifiStatus, 
 func wifiMLOScanCandidates(results []*controlpb.WifiScanResult) []*controlpb.WifiScanResult {
 	candidates := make([]*controlpb.WifiScanResult, 0, len(results))
 	for _, result := range results {
-		if wifiMLOScanCandidate(result) {
+		if wifiMLOCapableScanCandidate(result) {
 			candidates = append(candidates, result)
 		}
 	}
 	return candidates
 }
 
-func wifiMLOScanCandidate(result *controlpb.WifiScanResult) bool {
-	return result.GetApMldMacAddress() != "" ||
-		result.GetApMloLinkId() != 0 ||
-		len(result.GetAffiliatedMloLinks()) > 0 ||
+func wifiMLOCapableScanCandidate(result *controlpb.WifiScanResult) bool {
+	return wifiMLOScanHasMetadata(result) ||
 		strings.EqualFold(result.GetWifiStandard(), "802.11be")
+}
+
+func wifiMLOScanHasMetadata(result *controlpb.WifiScanResult) bool {
+	return result.GetApMldMacAddress() != "" ||
+		len(result.GetAffiliatedMloLinks()) > 0
 }
 
 func wifiMLOGroups(results []*controlpb.WifiScanResult) []wifiMLOGroup {
@@ -414,7 +414,6 @@ func wifiMLOGroupKey(result *controlpb.WifiScanResult) string {
 func newWifiMLOGroup(results []*controlpb.WifiScanResult) wifiMLOGroup {
 	group := wifiMLOGroup{results: results, displayMLD: "<unknown>"}
 	firstRSSI := true
-	linkIDs := map[int32]bool{}
 	for _, result := range results {
 		if group.displayMLD == "<unknown>" && result.GetApMldMacAddress() != "" {
 			group.displayMLD = result.GetApMldMacAddress()
@@ -422,9 +421,6 @@ func newWifiMLOGroup(results []*controlpb.WifiScanResult) wifiMLOGroup {
 		if firstRSSI || result.GetRssiDbm() > group.bestRSSI {
 			group.bestRSSI = result.GetRssiDbm()
 			firstRSSI = false
-		}
-		for _, id := range wifiMLOScanLinkIDs(result) {
-			linkIDs[id] = true
 		}
 		group.bands = append(group.bands, empty(result.GetBand(), wifiBandFromFrequency(result.GetFrequencyMhz())))
 		for _, link := range result.GetAffiliatedMloLinks() {
@@ -435,7 +431,6 @@ func newWifiMLOGroup(results []*controlpb.WifiScanResult) wifiMLOGroup {
 		group.security = append(group.security, wifiMLOScanSecurity(result))
 		group.standards = append(group.standards, result.GetWifiStandard())
 	}
-	group.linkIDs = wifiMLOSortedIntSet(linkIDs)
 	group.bands = wifiMLOUniqueStrings(group.bands)
 	group.security = wifiMLOUniqueStrings(group.security)
 	group.standards = wifiMLOUniqueStrings(group.standards)
@@ -516,9 +511,9 @@ func wifiMLOConnectionLinkID(conn *controlpb.WifiConnection) string {
 }
 
 func wifiMLOScanLinkID(result *controlpb.WifiScanResult) string {
-	explicitMLO := result.GetApMldMacAddress() != "" || result.GetApMloLinkId() != 0 || len(result.GetAffiliatedMloLinks()) > 0
+	explicitMLO := wifiMLOScanHasMetadata(result)
 	switch {
-	case explicitMLO && result.GetApMloLinkId() >= 0:
+	case (explicitMLO || strings.EqualFold(result.GetWifiStandard(), "802.11be")) && result.GetApMloLinkId() >= 0:
 		return fmt.Sprint(result.GetApMloLinkId())
 	case strings.EqualFold(result.GetWifiStandard(), "802.11be"):
 		return "<unknown>"
@@ -529,7 +524,7 @@ func wifiMLOScanLinkID(result *controlpb.WifiScanResult) string {
 
 func wifiMLOScanLinkIDs(result *controlpb.WifiScanResult) []int32 {
 	ids := map[int32]bool{}
-	if (result.GetApMldMacAddress() != "" || result.GetApMloLinkId() != 0 || len(result.GetAffiliatedMloLinks()) > 0) && result.GetApMloLinkId() >= 0 {
+	if wifiMLOCapableScanCandidate(result) && result.GetApMloLinkId() >= 0 {
 		ids[result.GetApMloLinkId()] = true
 	}
 	for _, link := range result.GetAffiliatedMloLinks() {

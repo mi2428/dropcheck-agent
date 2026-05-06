@@ -417,6 +417,14 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 							RssiDbm:      -55,
 							ApMacAddress: "aa:bb:cc:dd:ee:01",
 						}},
+					}, {
+						Ssid:         "Legacy",
+						Bssid:        "11:22:33:44:55:66",
+						RssiDbm:      -40,
+						Band:         "5ghz",
+						FrequencyMhz: 5200,
+						WifiStandard: "802.11ax",
+						ApMloLinkId:  -1,
 					}},
 				},
 			},
@@ -451,5 +459,8 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 	}
 	if strings.Contains(out, "scan Lab") {
 		t.Fatalf("rendered output = %q, unexpected scan label", out)
+	}
+	if strings.Contains(out, "Legacy") {
+		t.Fatalf("rendered output = %q, unexpected non-MLO AP", out)
 	}
 }

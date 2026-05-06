@@ -30,6 +30,8 @@ class AgentWifiMloRendererTest {
                 .setRssiDbm(-60)
                 .setBand("5ghz")
                 .setFrequencyMhz(5200)
+                .setWifiStandard("802.11ax")
+                .setApMloLinkId(-1)
                 .build())
             .build()
 
@@ -47,7 +49,6 @@ class AgentWifiMloRendererTest {
             "mlo_candidates",
             "Nearby MLO APs",
             "*",
-            "AP_MLD",
             "02:00:00:00:00:01",
             "MLO Scan Links",
             "[*] Lab",
@@ -64,7 +65,7 @@ class AgentWifiMloRendererTest {
         }
         assertTrue(out.indexOf("Current AP Relation") < out.indexOf("Connected MLO"))
         assertTrue(out.indexOf("Connected MLO") < out.indexOf("MLO Scan"))
-        assertFalse(out.contains("Legacy  11:22:33:44:55:66"))
+        assertFalse(out.contains("Legacy"))
         assertFalse(out.contains("scan Lab"))
         assertFalse(out.contains("connected_ap_mld_not_seen_in_scan"))
     }
