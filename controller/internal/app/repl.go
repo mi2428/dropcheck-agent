@@ -562,7 +562,7 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 	result, err := state.server.Run(runCtx, agent.ID, commandID, cmd)
 	cancel()
 	adbMLOText := ""
-	if err == nil && output.format == outputText && isWifiStatusResult(result) {
+	if err == nil && output.format == outputText && shouldAppendADBMLO(result, options) {
 		adbMLOText = wifiStatusADBMLORender(ctx, state, agent)
 	}
 
@@ -612,11 +612,12 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 	return nil
 }
 
-func isWifiStatusResult(result *controlpb.CommandResult) bool {
+func shouldAppendADBMLO(result *controlpb.CommandResult, options commandOptions) bool {
 	if result == nil {
 		return false
 	}
-	return result.GetWifiStatus() != nil
+	return result.GetWifiStatus() != nil ||
+		(options.WifiRenderMode == command.WifiRenderModeMLO && result.GetWifiDiagnostics() != nil)
 }
 
 func wifiStatusADBMLORender(ctx context.Context, state *shellState, agent control.AgentInfo) string {

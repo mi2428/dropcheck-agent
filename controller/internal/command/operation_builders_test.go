@@ -24,6 +24,13 @@ func TestInspectionOperationBuilders(t *testing.T) {
 			check:     func(cmd *controlpb.RunCommand) bool { return cmd.GetGetWifiDiagnostics() != nil },
 		},
 		{
+			name:      "wifi mlo",
+			op:        WifiMLOOperation(),
+			wantName:  "wifi.mlo",
+			wantLabel: "wifi mlo",
+			check:     func(cmd *controlpb.RunCommand) bool { return cmd.GetGetWifiDiagnostics() != nil },
+		},
+		{
 			name:      "wifi capabilities",
 			op:        WifiCapabilitiesOperation(),
 			wantName:  "wifi.capabilities",
@@ -62,7 +69,7 @@ func TestInspectionOperationBuilders(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cmd, _, err := BuildRunCommand(tt.op)
+			cmd, options, err := BuildRunCommand(tt.op)
 			if err != nil {
 				t.Fatalf("BuildRunCommand() error = %v", err)
 			}
@@ -74,6 +81,9 @@ func TestInspectionOperationBuilders(t *testing.T) {
 			}
 			if !tt.check(cmd) {
 				t.Fatalf("unexpected command payload = %#v", cmd.GetCommand())
+			}
+			if tt.wantName == "wifi.mlo" && options.WifiRenderMode != WifiRenderModeMLO {
+				t.Fatalf("wifi mlo render mode = %q, want %q", options.WifiRenderMode, WifiRenderModeMLO)
 			}
 		})
 	}

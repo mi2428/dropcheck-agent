@@ -354,3 +354,97 @@ func TestRenderWifiScanShowsMLOFields(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
+	result := &controlpb.CommandResult{
+		Status: controlpb.CommandResult_STATUS_OK,
+		Payload: &controlpb.CommandResult_WifiDiagnostics{
+			WifiDiagnostics: &controlpb.WifiDiagnostics{
+				Status: &controlpb.WifiStatus{
+					Enabled: true,
+					State:   "enabled",
+					Connection: &controlpb.WifiConnection{
+						Ssid:            "Lab",
+						Bssid:           "aa:bb:cc:dd:ee:ff",
+						FrequencyMhz:    5975,
+						WifiStandard:    "802.11be",
+						ApMldMacAddress: "02:00:00:00:00:01",
+						ApMloLinkId:     2,
+						AssociatedMloLinks: []*controlpb.MloLinkInfo{{
+							LinkId:       2,
+							State:        "active",
+							Band:         "6ghz",
+							Channel:      5,
+							RssiDbm:      -45,
+							ApMacAddress: "aa:bb:cc:dd:ee:ff",
+						}},
+					},
+				},
+				Capabilities: &controlpb.WifiCapabilities{
+					SupportedStandards: []string{"802.11ax", "802.11be"},
+					SupportedFeatures:  []string{"tid_to_link_mapping_negotiation"},
+				},
+				Networks: []*controlpb.NetworkDiagnostics{{
+					NetworkId: "100",
+					Active:    true,
+					IpStatus: &controlpb.IpStatus{
+						Wifi: &controlpb.WifiConnection{
+							Ssid:            "Lab",
+							Bssid:           "aa:bb:cc:dd:ee:ff",
+							WifiStandard:    "802.11be",
+							ApMldMacAddress: "02:00:00:00:00:01",
+							ApMloLinkId:     2,
+						},
+					},
+				}},
+				Scan: &controlpb.WifiScan{
+					Fields: []*controlpb.DiagnosticField{{Key: "scan_result_count", Value: "1"}},
+					Results: []*controlpb.WifiScanResult{{
+						Ssid:            "Lab",
+						Bssid:           "aa:bb:cc:dd:ee:ff",
+						RssiDbm:         -45,
+						Band:            "6ghz",
+						FrequencyMhz:    5975,
+						ChannelWidth:    "CHANNEL_WIDTH_80MHZ",
+						WifiStandard:    "802.11be",
+						ApMldMacAddress: "02:00:00:00:00:01",
+						ApMloLinkId:     2,
+						AffiliatedMloLinks: []*controlpb.MloLinkInfo{{
+							LinkId:       1,
+							State:        "idle",
+							Band:         "5ghz",
+							Channel:      44,
+							RssiDbm:      -55,
+							ApMacAddress: "aa:bb:cc:dd:ee:01",
+						}},
+					}},
+				},
+			},
+		},
+	}
+
+	out, err := CommandResult("agent", result, command.Options{WifiRenderMode: command.WifiRenderModeMLO}, pipeline.FormatText)
+	if err != nil {
+		t.Fatalf("CommandResult() error = %v", err)
+	}
+	for _, want := range []string{
+		"Current AP Relation",
+		"Connected MLO",
+		"MLO Scan",
+		"Nearby MLO APs",
+		"MLO Scan Links",
+		"Network MLO",
+		"MLO Capability Signals",
+		"[*] scan Lab",
+		"[+] affiliated Lab",
+		"tid_to_link_mapping_negotiation",
+		"Diagnostics / Warnings",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered output = %q, missing %q", out, want)
+		}
+	}
+	if strings.Contains(out, "connected_ap_mld_not_seen_in_scan") {
+		t.Fatalf("rendered output = %q, unexpected connected_ap_mld_not_seen_in_scan", out)
+	}
+}

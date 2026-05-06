@@ -73,6 +73,17 @@ func TestParseLineAgentCommandSurface(t *testing.T) {
 			},
 		},
 		{
+			name:      "show wifi mlo",
+			line:      "show wifi mlo",
+			operation: "wifi.mlo",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				if cmd.GetGetWifiDiagnostics() == nil {
+					t.Fatalf("GetWifiDiagnostics not set")
+				}
+			},
+		},
+		{
 			name:      "show ip status",
 			line:      "show ip status",
 			operation: "ip.status",

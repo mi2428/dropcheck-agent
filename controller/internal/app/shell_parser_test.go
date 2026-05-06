@@ -97,6 +97,12 @@ func TestParseShellCommands(t *testing.T) {
 			label: "wifi status",
 		},
 		{
+			name:  "show wifi mlo",
+			line:  "show wifi mlo",
+			kind:  shellAgentCommand,
+			label: "wifi mlo",
+		},
+		{
 			name:  "show ip status",
 			line:  "show ip status",
 			kind:  shellAgentCommand,
@@ -585,30 +591,30 @@ func TestShellHelpAndCompletion(t *testing.T) {
 	for _, entry := range help {
 		tokens = append(tokens, entry.token)
 	}
-	for _, want := range []string{"status", "diagnostics", "scan", "capabilities"} {
+	for _, want := range []string{"status", "diagnostics", "mlo", "scan", "capabilities"} {
 		if !slices.Contains(tokens, want) {
 			t.Fatalf("help tokens = %#v, missing %q", tokens, want)
 		}
 	}
 
 	completions := completeShellLineForTest("show wi", nil)
-		if !slices.Contains(completions, "show wifi") {
-			t.Fatalf("completions = %#v, missing show wifi", completions)
-		}
+	if !slices.Contains(completions, "show wifi") {
+		t.Fatalf("completions = %#v, missing show wifi", completions)
+	}
 
-		ipCompletions := completeShellLineForTest("show ip ", nil)
-		if !slices.Contains(ipCompletions, "show ip status") {
-			t.Fatalf("show ip completions = %#v, missing show ip status", ipCompletions)
-		}
-		ipFragments := shellCompletionFragmentsForTest("show ip ")
-		if !slices.Contains(ipFragments, "status") {
-			t.Fatalf("show ip completion fragments = %#v, missing status", ipFragments)
-		}
+	ipCompletions := completeShellLineForTest("show ip ", nil)
+	if !slices.Contains(ipCompletions, "show ip status") {
+		t.Fatalf("show ip completions = %#v, missing show ip status", ipCompletions)
+	}
+	ipFragments := shellCompletionFragmentsForTest("show ip ")
+	if !slices.Contains(ipFragments, "status") {
+		t.Fatalf("show ip completion fragments = %#v, missing status", ipFragments)
+	}
 
-		pipeCompletions := completeShellLineForTest("show wifi status | dis", nil)
-		if !slices.Contains(pipeCompletions, "show wifi status | display json") {
-			t.Fatalf("pipe completions = %#v, missing display json", pipeCompletions)
-		}
+	pipeCompletions := completeShellLineForTest("show wifi status | dis", nil)
+	if !slices.Contains(pipeCompletions, "show wifi status | display json") {
+		t.Fatalf("pipe completions = %#v, missing display json", pipeCompletions)
+	}
 
 	if !isHelpLine("show wifi？") {
 		t.Fatalf("full-width help suffix was not recognized")
@@ -833,7 +839,7 @@ func TestShellImmediateHelpKey(t *testing.T) {
 	if newPos != len([]rune("show wifi ")) {
 		t.Fatalf("new pos = %d, want %d", newPos, len([]rune("show wifi ")))
 	}
-	for _, want := range []string{"status", "diagnostics", "scan", "capabilities"} {
+	for _, want := range []string{"status", "diagnostics", "mlo", "scan", "capabilities"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("help output = %q, missing %q", out.String(), want)
 		}
