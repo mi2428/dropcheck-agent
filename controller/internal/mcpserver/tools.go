@@ -205,7 +205,7 @@ type dropcheckRunArgs struct {
 }
 
 func registerTools(server *mcp.Server, backend Backend) {
-	addTool[SessionStartOptions](server, "dropcheck_session_start", "Start or restart the dropcheck Android controller session over ADB.", annotations(false, new(false), true), func(ctx context.Context, in SessionStartOptions) (*mcp.CallToolResult, map[string]any, error) {
+	addToolWithOutputSchema[SessionStartOptions](server, "dropcheck_session_start", "Start or restart the dropcheck Android controller session over ADB.", sessionStartOutputSchema(), annotations(false, new(false), true), func(ctx context.Context, in SessionStartOptions) (*mcp.CallToolResult, map[string]any, error) {
 		info, err := backend.Start(ctx, in)
 		if err != nil {
 			return toolError(err.Error(), nil)
@@ -213,14 +213,14 @@ func registerTools(server *mcp.Server, backend Backend) {
 		return toolResult(fmt.Sprintf("session started with %d agent(s)", info.AgentCount), map[string]any{"success": true, "session": info}, false)
 	})
 
-	addTool[noArgs](server, "dropcheck_session_stop", "Stop the active dropcheck controller session and remove adb reverse rules.", annotations(false, new(false), true), func(ctx context.Context, _ noArgs) (*mcp.CallToolResult, map[string]any, error) {
+	addToolWithOutputSchema[noArgs](server, "dropcheck_session_stop", "Stop the active dropcheck controller session and remove adb reverse rules.", successOutputSchema(), annotations(false, new(false), true), func(ctx context.Context, _ noArgs) (*mcp.CallToolResult, map[string]any, error) {
 		if err := backend.Stop(ctx); err != nil {
 			return toolError(err.Error(), nil)
 		}
 		return toolResult("session stopped", map[string]any{"success": true}, false)
 	})
 
-	addTool[noArgs](server, "dropcheck_agents", "List connected Android dropcheck agents.", annotations(true, nil, true), func(ctx context.Context, _ noArgs) (*mcp.CallToolResult, map[string]any, error) {
+	addToolWithOutputSchema[noArgs](server, "dropcheck_agents", "List connected Android dropcheck agents.", agentsOutputSchema(), annotations(true, nil, true), func(ctx context.Context, _ noArgs) (*mcp.CallToolResult, map[string]any, error) {
 		agents, err := backend.Agents(ctx)
 		if err != nil {
 			return toolError(err.Error(), nil)
@@ -385,7 +385,7 @@ func registerStandaloneTools(server *mcp.Server, backend Backend) {
 }
 
 func registerCommandTools(server *mcp.Server, backend Backend) {
-	addTool[commandArgs](server, "dropcheck_command", "Execute a dropcheck CLI-shaped command through MCP. This parses dropcheck grammar, not OS shell commands.", annotations(false, new(true), false), func(ctx context.Context, in commandArgs) (*mcp.CallToolResult, map[string]any, error) {
+	addToolWithOutputSchema[commandArgs](server, "dropcheck_command", "Execute a dropcheck CLI-shaped command through MCP. This parses dropcheck grammar, not OS shell commands.", commandOutputSchema(), annotations(false, new(true), false), func(ctx context.Context, in commandArgs) (*mcp.CallToolResult, map[string]any, error) {
 		args, err := dropcmd.SplitArgs(in.Command)
 		if err != nil {
 			return toolError(err.Error(), map[string]any{"command": in.Command})
@@ -427,24 +427,25 @@ func registerCommandTools(server *mcp.Server, backend Backend) {
 		}
 	})
 
-	addTool[dropcheckRunArgs](server, "dropcheck_run", "Connect to an ESSID and run a complete connectivity check sequence from the Android device.", annotations(false, new(true), false), func(ctx context.Context, in dropcheckRunArgs) (*mcp.CallToolResult, map[string]any, error) {
+	addToolWithOutputSchema[dropcheckRunArgs](server, "dropcheck_run", "Connect to an ESSID and run a complete connectivity check sequence from the Android device.", dropcheckRunOutputSchema(), annotations(false, new(true), false), func(ctx context.Context, in dropcheckRunArgs) (*mcp.CallToolResult, map[string]any, error) {
 		return runDropcheck(ctx, backend, in)
 	})
 }
 
-func addTool[In any](server *mcp.Server, name string, description string, toolAnnotations *mcp.ToolAnnotations, handler func(context.Context, In) (*mcp.CallToolResult, map[string]any, error)) {
+func addToolWithOutputSchema[In any](server *mcp.Server, name string, description string, outputSchema any, toolAnnotations *mcp.ToolAnnotations, handler func(context.Context, In) (*mcp.CallToolResult, map[string]any, error)) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        name,
-		Title:       strings.TrimPrefix(name, "dropcheck_"),
-		Description: description,
-		Annotations: toolAnnotations,
+		Name:         name,
+		Title:        strings.TrimPrefix(name, "dropcheck_"),
+		Description:  description,
+		OutputSchema: outputSchema,
+		Annotations:  toolAnnotations,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, map[string]any, error) {
 		return handler(ctx, in)
 	})
 }
 
 func addOperationTool[In any](server *mcp.Server, backend Backend, name string, description string, toolAnnotations *mcp.ToolAnnotations, build func(In) (string, dropcmd.Operation, error)) {
-	addTool[In](server, name, description, toolAnnotations, func(ctx context.Context, in In) (*mcp.CallToolResult, map[string]any, error) {
+	addToolWithOutputSchema[In](server, name, description, operationOutputSchema(), toolAnnotations, func(ctx context.Context, in In) (*mcp.CallToolResult, map[string]any, error) {
 		target, op, err := build(in)
 		if err != nil {
 			return toolError(err.Error(), map[string]any{"tool": name})
