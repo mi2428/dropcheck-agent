@@ -214,6 +214,7 @@ class MainActivity : Activity() {
         }
         root = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
+            isFocusableInTouchMode = true
             excludeFromContentCapture()
             addView(scroll, matchParentLayout())
             addView(shellScroll, matchParentLayout())
@@ -775,6 +776,17 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun hideShellInputIme() {
+        val input = shellInput ?: return
+        getSystemService(InputMethodManager::class.java)
+            ?.hideSoftInputFromWindow(input.windowToken, 0)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.insetsController?.hide(WindowInsets.Type.ime())
+        }
+        input.clearFocus()
+        root.requestFocus()
+    }
+
     private fun shellHelpLines(topic: String): List<String> {
         return when (topic) {
             "" -> listOf(
@@ -870,6 +882,7 @@ class MainActivity : Activity() {
     private fun showViewer() {
         if (!shellVisible) return
         shellVisible = false
+        hideShellInputIme()
         shellScroll.visibility = View.GONE
         scroll.visibility = View.VISIBLE
         requestScrollToBottom()
