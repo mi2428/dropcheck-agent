@@ -18,6 +18,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.LocaleList
 import android.text.Layout
 import android.text.InputType
 import android.text.SpannableString
@@ -43,6 +44,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import java.util.Locale
 import java.util.concurrent.Executors
 
 private const val TERMINAL_BREAK_OPPORTUNITY = "\u200B"
@@ -67,6 +69,15 @@ private const val SHELL_CURSOR_BLINK_MS = 530L
 private const val SHELL_CURSOR_WIDTH_SCALE = 0.5f
 private const val SHELL_CURSOR_MIN_WIDTH_DP = 4f
 private const val SHELL_CURSOR_TEXT_GAP_DP = 1.5f
+private val SHELL_INPUT_LOCALES = LocaleList(Locale.US)
+private val SHELL_INPUT_TYPE =
+    InputType.TYPE_CLASS_TEXT or
+        InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+private val SHELL_IME_OPTIONS =
+    EditorInfo.IME_ACTION_GO or
+        EditorInfo.IME_FLAG_FORCE_ASCII or
+        EditorInfo.IME_FLAG_NO_EXTRACT_UI or
+        EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
 
 /** Adds invisible break opportunities so terminal logs can wrap at any code point. */
 internal fun terminalDisplayText(line: String): String {
@@ -637,8 +648,11 @@ class MainActivity : Activity() {
             setLineSpacing(0f, 1.05f)
             setPadding(0, dp(2), 0, dp(2))
             setSingleLine(true)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-            imeOptions = EditorInfo.IME_ACTION_GO
+            textLocale = Locale.US
+            imeHintLocales = SHELL_INPUT_LOCALES
+            inputType = SHELL_INPUT_TYPE
+            imeOptions = SHELL_IME_OPTIONS
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
             useBlockCursor()
             excludeFromContentCapture()
             setOnEditorActionListener { view, actionId, event ->
@@ -960,6 +974,9 @@ private class ShellInputEditText(context: Context) : EditText(context) {
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
         val connection = super.onCreateInputConnection(outAttrs) ?: return null
+        outAttrs.inputType = SHELL_INPUT_TYPE
+        outAttrs.imeOptions = SHELL_IME_OPTIONS
+        outAttrs.hintLocales = SHELL_INPUT_LOCALES
         return object : InputConnectionWrapper(connection, true) {
             override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
                 if (beforeLength == 1 && afterLength == 0) return deleteBackwards()
