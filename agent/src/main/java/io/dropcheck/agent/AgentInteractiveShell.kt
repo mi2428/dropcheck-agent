@@ -7,6 +7,7 @@ internal sealed class AgentShellCommand {
     data object ClearUse : AgentShellCommand()
     data object ShowUse : AgentShellCommand()
     data object ShowWifiStatus : AgentShellCommand()
+    data class ShowWifiMlo(val fresh: Boolean = false, val timeoutMs: Int = 0) : AgentShellCommand()
     data class Use(val name: String) : AgentShellCommand()
     data class Invalid(val message: String) : AgentShellCommand()
 }
@@ -44,29 +45,50 @@ internal object AgentShellParser {
     private fun parseShow(tokens: List<String>): AgentShellCommand {
         return when {
             tokens.size == 2 && "use".startsWith(tokens[1]) -> AgentShellCommand.ShowUse
-            tokens.size == 2 && "wifi".startsWith(tokens[1]) -> AgentShellCommand.Invalid("usage: show wifi status")
+            tokens.size == 2 && "wifi".startsWith(tokens[1]) -> AgentShellCommand.Invalid("usage: show wifi (status|mlo)")
             tokens.size >= 3 && "wifi".startsWith(tokens[1]) -> parseShowWifi(tokens.drop(2))
-            else -> AgentShellCommand.Invalid("usage: show (use|wifi status)")
+            else -> AgentShellCommand.Invalid("usage: show (use|wifi status|wifi mlo)")
         }
     }
 
     private fun parseShowWifi(tokens: List<String>): AgentShellCommand {
-        return when (resolveKeyword(tokens.first(), listOf("status"))) {
+        return when (resolveKeyword(tokens.first(), listOf("status", "mlo"))) {
             "status" -> {
                 if (tokens.size == 1) AgentShellCommand.ShowWifiStatus else AgentShellCommand.Invalid("usage: show wifi status")
             }
-            else -> AgentShellCommand.Invalid("usage: show wifi status")
+            "mlo" -> parseShowWifiMlo(tokens.drop(1))
+            else -> AgentShellCommand.Invalid("usage: show wifi (status|mlo)")
         }
     }
 
-    private fun resolveCommandName(value: String): String? {
-        if (value.isBlank()) return null
-        return commandNames.firstOrNull { it.startsWith(value) }
+    private fun parseShowWifiMlo(args: List<String>): AgentShellCommand {
+        if (args.isEmpty()) return AgentShellCommand.ShowWifiMlo()
+        if (resolveKeyword(args.first(), listOf("fresh")) != "fresh") {
+            return AgentShellCommand.Invalid("usage: show wifi mlo [fresh [timeout MS]]")
+        }
+        val rest = args.drop(1)
+        if (rest.isEmpty()) return AgentShellCommand.ShowWifiMlo(fresh = true)
+        if (rest.size == 1) {
+            val timeoutMs = rest[0].toIntOrNull()
+                ?: return AgentShellCommand.Invalid("usage: show wifi mlo [fresh [timeout MS]]")
+            return AgentShellCommand.ShowWifiMlo(fresh = true, timeoutMs = timeoutMs)
+        }
+        if (rest.size == 2 && "timeout".startsWith(rest[0])) {
+            val timeoutMs = rest[1].toIntOrNull()
+                ?: return AgentShellCommand.Invalid("usage: show wifi mlo [fresh [timeout MS]]")
+            return AgentShellCommand.ShowWifiMlo(fresh = true, timeoutMs = timeoutMs)
+        }
+        return AgentShellCommand.Invalid("usage: show wifi mlo [fresh [timeout MS]]")
     }
 
     private fun resolveKeyword(value: String, options: List<String>): String? {
         if (value.isBlank()) return null
         return options.firstOrNull { it.startsWith(value) }
+    }
+
+    private fun resolveCommandName(value: String): String? {
+        if (value.isBlank()) return null
+        return commandNames.firstOrNull { it.startsWith(value) }
     }
 
     private fun splitWords(line: String): Result<List<String>> {
