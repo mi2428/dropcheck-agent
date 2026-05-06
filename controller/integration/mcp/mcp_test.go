@@ -190,6 +190,23 @@ func assertContentIncludesStructuredJSON(t *testing.T, result *mcp.CallToolResul
 	t.Fatalf("content does not include structured JSON: content=%#v structured=%#v", result.Content, structured)
 }
 
+func outputSchemaProperties(t *testing.T, tool *mcp.Tool) map[string]any {
+	t.Helper()
+	data, err := json.Marshal(tool.OutputSchema)
+	if err != nil {
+		t.Fatalf("marshal output schema for %s: %v", tool.Name, err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatalf("unmarshal output schema for %s: %v", tool.Name, err)
+	}
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("%s output schema properties=%T %[1]v", tool.Name, schema["properties"])
+	}
+	return properties
+}
+
 func TestToolsListIncludesDropcheckOperations(t *testing.T) {
 	session, cleanup := connectMCP(t, newFakeBackend())
 	defer cleanup()
@@ -218,6 +235,38 @@ func TestToolsListIncludesDropcheckOperations(t *testing.T) {
 	} {
 		if !slices.Contains(names, name) {
 			t.Fatalf("tool %s not listed; got %v", name, names)
+		}
+	}
+}
+
+func TestToolOutputSchemasDescribeStructuredContent(t *testing.T) {
+	session, cleanup := connectMCP(t, newFakeBackend())
+	defer cleanup()
+
+	list, err := session.ListTools(context.Background(), &mcp.ListToolsParams{})
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	tools := map[string]*mcp.Tool{}
+	for _, tool := range list.Tools {
+		tools[tool.Name] = tool
+	}
+	for name, fields := range map[string][]string{
+		"dropcheck_session_start": {"success", "session", "error"},
+		"dropcheck_agents":        {"success", "agents", "error"},
+		"dropcheck_ping":          {"success", "operation", "status", "elapsed_ms", "result"},
+		"dropcheck_command":       {"success", "operation", "results", "agents", "error"},
+		"dropcheck_run":           {"success", "steps", "failed_step", "partial", "error"},
+	} {
+		tool := tools[name]
+		if tool == nil {
+			t.Fatalf("tool %s not listed", name)
+		}
+		properties := outputSchemaProperties(t, tool)
+		for _, field := range fields {
+			if _, ok := properties[field]; !ok {
+				t.Fatalf("%s output schema missing %s: %v", name, field, properties)
+			}
 		}
 	}
 }
