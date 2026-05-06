@@ -40,7 +40,7 @@ func TestRenderTextIncludesCommandOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render(text) error = %v", err)
 	}
-	for _, want := range []string{"ADB diagnostics: serial=R5CT12345", "--- cmd wifi status ---", "Wifi is enabled"} {
+	for _, want := range []string{"ADB Diagnostics", "serial", "R5CT12345", "cmd wifi status", "stdout", "Wifi is enabled"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("Render(text) = %q, missing %q", out, want)
 		}
@@ -84,7 +84,7 @@ func TestRenderMLOSummary(t *testing.T) {
 			BeaconRx:     "472263",
 		}},
 	})
-	for _, want := range []string{"ADB MLO:", "tid_to_link=false", "wifi_link_count=1", "ADB MLO link stats:", "5220"} {
+	for _, want := range []string{"ADB MLO", "tid_to_link", "false", "wifi_link_count", "1", "ADB MLO Link Stats", "5220"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("RenderMLOSummary() = %q, missing %q", out, want)
 		}

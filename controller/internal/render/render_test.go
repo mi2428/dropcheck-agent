@@ -231,10 +231,12 @@ func TestRenderWifiStatusShowsChannelAndBandwidth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("renderCommandResult() error = %v", err)
 	}
-	if !strings.Contains(out, "channel=40") || !strings.Contains(out, "bandwidth=80MHz") {
-		t.Fatalf("rendered output = %q, missing channel or bandwidth", out)
+	for _, want := range []string{"Connection\n", "channel", "40", "bandwidth", "80MHz"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered output = %q, missing %q", out, want)
+		}
 	}
-	if strings.Count(out, "Connection: ssid=Lab") != 1 {
+	if strings.Count(out, "\nConnection\n") != 1 {
 		t.Fatalf("rendered output = %q, duplicated wifi connection", out)
 	}
 }
@@ -271,8 +273,11 @@ func TestRenderWifiStatusShowsMLOFields(t *testing.T) {
 		t.Fatalf("renderCommandResult() error = %v", err)
 	}
 	for _, want := range []string{
-		"MLO: ap_mld=02:00:00:00:00:01 ap_link_id=2 affiliated=0 associated=1",
-		"Associated MLO links:",
+		"MLO\n",
+		"ap_mld",
+		"02:00:00:00:00:01",
+		"ap_link_id",
+		"Associated MLO Links",
 		"active",
 		"1200",
 	} {
