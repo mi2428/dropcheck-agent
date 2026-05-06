@@ -121,6 +121,13 @@ class MainActivity : Activity() {
     private var swipeStartX = 0f
     private var swipeStartY = 0f
     private val shellTapSlopPx: Int by lazy { ViewConfiguration.get(this).scaledTouchSlop }
+    private val shellDoubleTapSlopPx: Int by lazy { ViewConfiguration.get(this).scaledDoubleTapSlop }
+    private var shellLastTapUpTimeMs = 0L
+    private var shellLastTapX = 0f
+    private var shellLastTapY = 0f
+    private var shellTapStartRawX = 0f
+    private var shellTapStartRawY = 0f
+    private var lastShellCommandLine = ""
     private var backgroundLocationPromptShown = false
     private val statusRefreshHandler = Handler(Looper.getMainLooper())
     private val statusRefresh = object : Runnable {
@@ -262,6 +269,13 @@ class MainActivity : Activity() {
         updateStatusIcons()
         resetIdleDimTimer()
         requestScrollToBottom()
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (shellVisible && handleShellScreenDoubleTap(event)) {
+            return true
+        }
+        return super.dispatchTouchEvent(event)
     }
 
     override fun onStart() {
@@ -583,7 +597,7 @@ class MainActivity : Activity() {
                         return@setOnTouchListener true
                     }
                     if (isTapGesture(event)) {
-                        focusShellInput(forceIme = true)
+                        handleShellTap(event)
                         return@setOnTouchListener true
                     }
                 }
@@ -702,6 +716,7 @@ class MainActivity : Activity() {
             focusShellInput()
             return
         }
+        lastShellCommandLine = line
         shellInput?.setText("")
         appendShellLine(shellCommandLine(line))
         when (val command = AgentShellParser.parse(line)) {
@@ -1005,6 +1020,64 @@ class MainActivity : Activity() {
         val dx = event.x - swipeStartX
         val dy = event.y - swipeStartY
         return kotlin.math.abs(dx) <= shellTapSlopPx && kotlin.math.abs(dy) <= shellTapSlopPx
+    }
+
+    private fun handleShellTap(event: MotionEvent) {
+        if (isShellDoubleTap(event)) {
+            shellLastTapUpTimeMs = 0L
+            val line = lastShellCommandLine
+            if (line.isNotBlank() && !shellBusy) {
+                submitShellInput(line)
+                return
+            }
+        } else {
+            shellLastTapUpTimeMs = event.eventTime
+            shellLastTapX = event.rawX
+            shellLastTapY = event.rawY
+        }
+        focusShellInput(forceIme = true)
+    }
+
+    private fun handleShellScreenDoubleTap(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                shellTapStartRawX = event.rawX
+                shellTapStartRawY = event.rawY
+            }
+            MotionEvent.ACTION_UP -> {
+                val dx = event.rawX - shellTapStartRawX
+                val dy = event.rawY - shellTapStartRawY
+                if (kotlin.math.abs(dx) > shellTapSlopPx || kotlin.math.abs(dy) > shellTapSlopPx) {
+                    return false
+                }
+                if (isShellDoubleTap(event)) {
+                    shellLastTapUpTimeMs = 0L
+                    val line = lastShellCommandLine
+                    if (line.isNotBlank() && !shellBusy) {
+                        submitShellInput(line)
+                        return true
+                    }
+                    return false
+                }
+                shellLastTapUpTimeMs = event.eventTime
+                shellLastTapX = event.rawX
+                shellLastTapY = event.rawY
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                shellLastTapUpTimeMs = 0L
+            }
+        }
+        return false
+    }
+
+    private fun isShellDoubleTap(event: MotionEvent): Boolean {
+        if (shellLastTapUpTimeMs <= 0L) return false
+        val dt = event.eventTime - shellLastTapUpTimeMs
+        if (dt <= 0L || dt > ViewConfiguration.getDoubleTapTimeout().toLong()) return false
+        val dx = event.rawX - shellLastTapX
+        val dy = event.rawY - shellLastTapY
+        val maxDistance = shellDoubleTapSlopPx.toFloat()
+        return dx * dx + dy * dy <= maxDistance * maxDistance
     }
 
     private fun showShell() {
