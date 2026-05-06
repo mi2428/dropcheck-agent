@@ -18,6 +18,10 @@ import java.util.Collections
  *
  * The mapper should preserve Android-reported facts and avoid policy decisions
  * such as whether a scan or assertion succeeded.
+ *
+ * Protobuf `raw` fields emitted here are string snapshots of Android framework
+ * objects such as WifiInfo, ScanResult, or MloLink. They are not ADB command
+ * stdout/stderr captures.
  */
 class WifiProtoMapper(
     private val wifi: WifiManager,
@@ -28,8 +32,8 @@ class WifiProtoMapper(
     /**
      * Maps a connected WifiInfo snapshot.
      *
-     * The raw string is preserved because OEM builds often include extra fields
-     * that are useful during device lab debugging.
+     * The protobuf raw string is WifiInfo.toString() so OEM-specific framework
+     * fields remain visible during device lab debugging.
      */
     @SuppressLint("HardwareIds")
     fun wifiConnection(info: WifiInfo): WifiConnection {
@@ -114,7 +118,12 @@ class WifiProtoMapper(
         return matched?.let { channelWidthName(it.channelWidth) }.orEmpty()
     }
 
-    /** Maps one cached scan result, including newer MLO and ranging fields when API level allows. */
+    /**
+     * Maps one cached scan result, including newer MLO and ranging fields when API level allows.
+     *
+     * The protobuf raw string is ScanResult.toString(); ADB command output is
+     * collected separately by the controller diagnostics path.
+     */
     fun scanResult(result: ScanResult): WifiScanResult {
         val builder = WifiScanResult.newBuilder()
             .setSsid(result.SSID.orEmpty())
@@ -161,7 +170,12 @@ class WifiProtoMapper(
         return builder.build()
     }
 
-    /** Maps one Multi-Link Operation link while respecting API-level field availability. */
+    /**
+     * Maps one Multi-Link Operation link while respecting API-level field availability.
+     *
+     * The protobuf raw string is MloLink.toString(), preserving framework
+     * detail without implying an ADB stdout/stderr payload.
+     */
     private fun mloLinkInfo(link: MloLink): MloLinkInfo {
         val builder = MloLinkInfo.newBuilder()
             .setRaw(link.toString())

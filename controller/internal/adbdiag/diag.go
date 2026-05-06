@@ -1,4 +1,8 @@
-// Package adbdiag collects raw Android diagnostics through adb.
+// Package adbdiag collects Android diagnostics through adb.
+//
+// Values named stdout or stderr in this package are raw ADB command streams.
+// They are separate from protobuf raw fields emitted by the Android agent,
+// which preserve framework object string snapshots such as WifiInfo.toString().
 package adbdiag
 
 import (
@@ -35,15 +39,18 @@ type CommandResult struct {
 	Name      string   `json:"name"`
 	Args      []string `json:"args"`
 	Command   string   `json:"command"`
-	Stdout    string   `json:"stdout"`
-	Stderr    string   `json:"stderr,omitempty"`
+	Stdout    string   `json:"stdout"`           // Stdout is the raw adb command stdout stream.
+	Stderr    string   `json:"stderr,omitempty"` // Stderr is the raw adb command stderr stream.
 	ExitCode  int      `json:"exit_code"`
 	TimedOut  bool     `json:"timed_out,omitempty"`
 	Error     string   `json:"error,omitempty"`
 	ElapsedMs int64    `json:"elapsed_ms"`
 }
 
-// Bundle is the raw ADB diagnostics result for one Android agent/device.
+// Bundle is an ADB diagnostics result for one Android agent/device.
+//
+// Bundle command streams are adb stdout/stderr captures; they are not the
+// framework-object raw fields carried in agent protobuf responses.
 type Bundle struct {
 	Agent     string          `json:"agent,omitempty"`
 	Serial    string          `json:"serial"`
