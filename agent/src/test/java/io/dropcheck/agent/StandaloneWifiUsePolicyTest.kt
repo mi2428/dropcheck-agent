@@ -24,8 +24,42 @@ class StandaloneWifiUsePolicyTest {
             .build()
 
         assertEquals(listOf("ap1", "ap2"), StandaloneWifiUsePolicy.liveWifiNames(config))
+        assertEquals(
+            listOf("ap1 match essid \"cs1\"", "ap2 match essid \"cs2\""),
+            StandaloneWifiUsePolicy.liveWifiListLines(config),
+        )
         assertEquals("cs1", StandaloneWifiUsePolicy.selectLiveWifi(config, "ap1")?.essid)
+        assertEquals("cs1", StandaloneWifiUsePolicy.selectLiveWifi(config, "AP1")?.essid)
+        assertNull(StandaloneWifiUsePolicy.selectLiveWifi(config, "ap"))
         assertNull(StandaloneWifiUsePolicy.selectLiveWifi(config, "missing"))
+    }
+
+    @Test
+    fun listsLiveWifiTargetsWithoutSecrets() {
+        val config = StandaloneConfig.newBuilder()
+            .addFestas(StandaloneFesta.newBuilder()
+                .setName("live")
+                .addWifiGroups(StandaloneWifiGroup.newBuilder()
+                    .setName("quoted")
+                    .setEssid("cs \"main\"")
+                    .setPassphrase("secret"))
+                .addWifiGroups(StandaloneWifiGroup.newBuilder()
+                    .setName("by-bssid")
+                    .setBssid("aa:bb:cc:dd:ee:ff")
+                    .setPassphrase("secret"))
+                .addWifiGroups(StandaloneWifiGroup.newBuilder()
+                    .setName("unset")
+                    .setPassphrase("secret")))
+            .build()
+
+        assertEquals(
+            listOf(
+                "quoted match essid \"cs \\\"main\\\"\"",
+                "by-bssid match bssid aa:bb:cc:dd:ee:ff",
+                "unset match <unset>",
+            ),
+            StandaloneWifiUsePolicy.liveWifiListLines(config),
+        )
     }
 
     @Test

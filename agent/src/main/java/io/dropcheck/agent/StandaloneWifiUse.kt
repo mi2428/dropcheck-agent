@@ -21,8 +21,17 @@ internal object StandaloneWifiUsePolicy {
             .mapNotNull { it.name.takeIf(String::isNotBlank) }
     }
 
+    fun liveWifiListLines(config: StandaloneConfig): List<String> {
+        return liveFesta(config)?.wifiGroupsList
+            .orEmpty()
+            .mapNotNull { group ->
+                val name = group.name.takeIf(String::isNotBlank) ?: return@mapNotNull null
+                "$name ${wifiMatchText(group)}"
+            }
+    }
+
     fun selectLiveWifi(config: StandaloneConfig, name: String): StandaloneWifiGroup? {
-        return liveFesta(config)?.wifiGroupsList?.firstOrNull { it.name == name }
+        return liveFesta(config)?.wifiGroupsList?.firstOrNull { it.name.equals(name, ignoreCase = true) }
     }
 
     fun connectCommand(group: StandaloneWifiGroup, essid: String): RunCommand {
@@ -37,6 +46,28 @@ internal object StandaloneWifiUsePolicy {
                 .setMacRandomization(group.macRandomization)
                 .setTimeoutMs(group.timeoutMs.takeIf { it > 0 } ?: DEFAULT_USE_TIMEOUT_MS))
             .build()
+    }
+
+    private fun wifiMatchText(group: StandaloneWifiGroup): String {
+        return when {
+            group.essid.isNotBlank() -> "match essid ${quote(group.essid)}"
+            group.bssid.isNotBlank() -> "match bssid ${group.bssid}"
+            else -> "match <unset>"
+        }
+    }
+
+    private fun quote(value: String): String {
+        return buildString {
+            append('"')
+            for (ch in value) {
+                when (ch) {
+                    '\\' -> append("\\\\")
+                    '"' -> append("\\\"")
+                    else -> append(ch)
+                }
+            }
+            append('"')
+        }
     }
 
     private fun liveFesta(config: StandaloneConfig) = config.festasList.firstOrNull { it.name == LIVE_FESTA_NAME }
@@ -103,6 +134,12 @@ internal class StandaloneWifiUseController(context: Context) {
 
     fun liveWifiNames(): List<String> = StandaloneWifiUsePolicy.liveWifiNames(configStore.load())
 
+    fun liveWifiListText(): List<String> {
+        val targets = StandaloneWifiUsePolicy.liveWifiListLines(configStore.load())
+        if (targets.isEmpty()) return listOf("no standalone festa live wifi entries")
+        return targets
+    }
+
     fun statusText(): String {
         val config = configStore.load()
         val state = useStore.load()
@@ -124,7 +161,7 @@ internal class StandaloneWifiUseController(context: Context) {
         }
 
         val useState = StandaloneUseStatePolicy.beginUse(
-            wifiName = name,
+            wifiName = group.name,
             currentStandaloneEnabled = config.enabled,
             active = useStore.load(),
         )

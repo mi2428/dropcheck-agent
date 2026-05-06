@@ -3,10 +3,14 @@ package io.dropcheck.agent
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.graphics.text.LineBreakConfig
 import android.graphics.text.LineBreaker
 import android.net.Uri
@@ -29,6 +33,8 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputConnectionWrapper
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -51,6 +57,15 @@ private const val SHELL_SWIPE_MIN_DISTANCE_DP = 96
 private const val SHELL_SWIPE_MAX_OFF_AXIS_DP = 72
 private const val SHELL_PANEL_PADDING_DP = 12
 private const val SHELL_PANEL_TOP_PADDING_DP = 48
+private const val SHELL_PROMPT = "dropcheck# "
+private const val SHELL_BLANK_LINE = "\u00A0"
+private const val SHELL_ERROR_COLOR = -44976
+private const val SHELL_CURSOR_COLOR = -1
+private const val SHELL_TEXT_SIZE_SP = 11f
+private const val SHELL_CURSOR_BLINK_MS = 530L
+private const val SHELL_CURSOR_WIDTH_SCALE = 0.5f
+private const val SHELL_CURSOR_MIN_WIDTH_DP = 4f
+private const val SHELL_CURSOR_TEXT_GAP_DP = 1.5f
 
 /** Adds invisible break opportunities so terminal logs can wrap at any code point. */
 internal fun terminalDisplayText(line: String): String {
@@ -80,6 +95,8 @@ class MainActivity : Activity() {
     private lateinit var shellScroll: ScrollView
     private lateinit var shellContent: LinearLayout
     private var shellInput: EditText? = null
+    private var shellInputRowView: LinearLayout? = null
+    private var shellImeBottomInset = 0
     private var statusIconViews: List<ImageView> = emptyList()
     private var controllerHeartbeatConnected = false
     private var standaloneActive = false
@@ -117,6 +134,7 @@ class MainActivity : Activity() {
     }
     private val shellExecutor = Executors.newSingleThreadExecutor()
     private val shellTranscript = ArrayDeque<ShellTranscriptLine>()
+    private var shellTranscriptSeeded = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -198,6 +216,15 @@ class MainActivity : Activity() {
             addView(scroll, matchParentLayout())
             addView(shellScroll, matchParentLayout())
             addView(statusIconRow(), statusIconLayout())
+        }
+        root.setOnApplyWindowInsetsListener { _, insets ->
+            val imeBottom = insets.getInsets(WindowInsets.Type.ime()).bottom
+            if (shellImeBottomInset != imeBottom) {
+                shellImeBottomInset = imeBottom
+                updateShellContentPadding()
+                if (shellVisible) scrollShellToInput()
+            }
+            insets
         }
         setContentView(root)
         controllerHeartbeatConnected = ControllerSessionRuntimeState.heartbeatConnected()
@@ -508,15 +535,10 @@ class MainActivity : Activity() {
     private fun shellScreen(): ScrollView {
         shellContent = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(
-                dp(SHELL_PANEL_PADDING_DP),
-                dp(SHELL_PANEL_TOP_PADDING_DP),
-                dp(SHELL_PANEL_PADDING_DP),
-                dp(SHELL_PANEL_PADDING_DP),
-            )
             setBackgroundColor(Color.BLACK)
             excludeFromContentCapture()
         }
+        updateShellContentPadding()
         renderShell()
         return ScrollView(this).apply {
             setBackgroundColor(Color.BLACK)
@@ -534,25 +556,35 @@ class MainActivity : Activity() {
 
     private fun renderShell() {
         if (!::shellContent.isInitialized) return
+        seedShellTranscript()
         val useController = StandaloneWifiUseController(applicationContext)
-        shellContent.removeAllViews()
-        shellContent.addView(shellText("dropcheck shell", 16f, AgentLogStyle.TEXT_COLOR))
-        shellContent.addView(shellText("mode=idle standalone=${standaloneRunningLabel()} ${useController.statusText()}", 10f, AgentLogStyle.TEXT_COLOR))
+        val inputRow = ensureShellInputRow()
+        if (shellContent.indexOfChild(inputRow) < 0) {
+            shellContent.removeAllViews()
+            shellContent.addView(inputRow)
+        } else {
+            while (shellContent.indexOfChild(inputRow) > 0) {
+                shellContent.removeViewAt(0)
+            }
+            while (shellContent.indexOfChild(inputRow) < shellContent.childCount - 1) {
+                shellContent.removeViewAt(shellContent.childCount - 1)
+            }
+        }
+        var insertAt = 0
+        fun addShellView(view: View) {
+            shellContent.addView(view, insertAt)
+            insertAt += 1
+        }
+        addShellView(shellText("dropcheck shell", AgentLogStyle.TEXT_COLOR))
+        addShellView(shellText("mode=idle runtime=${standaloneRunningLabel()} ${useController.statusText()}", AgentLogStyle.TEXT_COLOR))
         val liveNames = useController.liveWifiNames()
         if (liveNames.isNotEmpty()) {
-            shellContent.addView(shellText("live wifi: ${liveNames.joinToString(" ")}", 10f, AgentLogStyle.TEXT_COLOR))
+            addShellView(shellText("live_wifi=${liveNames.joinToString(" ")}", AgentLogStyle.TEXT_COLOR))
         }
-        shellContent.addView(shellSpacer(8))
-        if (shellTranscript.isEmpty()) {
-            shellHelpLines(liveNames).forEach { shellContent.addView(shellText(it, 11f, AgentLogStyle.TEXT_COLOR)) }
-            shellContent.addView(shellSpacer(4))
-        } else {
-            shellTranscript.takeLast(SHELL_TRANSCRIPT_MAX_LINES).forEach {
-                shellContent.addView(shellText(it.text, 11f, it.color))
-            }
-            shellContent.addView(shellSpacer(4))
+        addShellView(shellSpacer(8))
+        shellTranscript.takeLast(SHELL_TRANSCRIPT_MAX_LINES).forEach {
+            addShellView(shellText(it.text, it.color))
         }
-        shellContent.addView(shellInputRow())
     }
 
     private fun standaloneRunningLabel(): String {
@@ -563,37 +595,46 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun shellText(text: String, sizeSp: Float, color: Int): TextView {
+    private fun shellText(text: CharSequence, color: Int): TextView {
         return TextView(this).apply {
-            this.text = text
+            this.text = if (text.isEmpty()) SHELL_BLANK_LINE else text
             setTextColor(color)
             setBackgroundColor(Color.BLACK)
             typeface = Typeface.MONOSPACE
-            textSize = sizeSp
+            textSize = SHELL_TEXT_SIZE_SP
             includeFontPadding = false
+            minHeight = 0
+            minimumHeight = 0
             setLineSpacing(0f, 1.05f)
             setPadding(0, dp(2), 0, dp(2))
             excludeFromContentCapture()
         }
     }
 
+    private fun ensureShellInputRow(): LinearLayout {
+        return shellInputRowView ?: shellInputRow().also { shellInputRowView = it }
+    }
+
     private fun shellInputRow(): LinearLayout {
-        val input = EditText(this).apply {
+        val input = ShellInputEditText(this).apply {
             setTextColor(AgentLogStyle.TEXT_COLOR)
             setHintTextColor(Color.DKGRAY)
             setBackgroundColor(Color.BLACK)
             typeface = Typeface.MONOSPACE
-            textSize = 12f
+            textSize = SHELL_TEXT_SIZE_SP
             includeFontPadding = false
+            minHeight = 0
+            minimumHeight = 0
+            setLineSpacing(0f, 1.05f)
+            setPadding(0, dp(2), 0, dp(2))
             setSingleLine(true)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-            imeOptions = EditorInfo.IME_ACTION_DONE
-            hint = if (shellBusy) "running..." else "use <name>"
-            isEnabled = !shellBusy
+            imeOptions = EditorInfo.IME_ACTION_GO
+            useBlockCursor()
             excludeFromContentCapture()
             setOnEditorActionListener { view, actionId, event ->
                 val enterKey = event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_UP
-                if (actionId == EditorInfo.IME_ACTION_DONE || enterKey) {
+                if (actionId == EditorInfo.IME_ACTION_GO || actionId == EditorInfo.IME_ACTION_DONE || enterKey) {
                     submitShellInput(view.text.toString())
                     true
                 } else {
@@ -604,24 +645,33 @@ class MainActivity : Activity() {
         shellInput = input
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(shellText("dropcheck# ", 12f, Color.YELLOW))
-            addView(input, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(input, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         }
     }
 
     private fun submitShellInput(raw: String) {
         val line = raw.trim()
+        if (line.isBlank()) {
+            shellInput?.setText("")
+            focusShellInput()
+            return
+        }
+        if (shellBusy) {
+            focusShellInput()
+            return
+        }
         shellInput?.setText("")
-        if (line.isBlank() || shellBusy) return
-        appendShellLine("dropcheck# $line", Color.YELLOW)
+        appendShellLine(shellCommandLine(line))
         when (val command = AgentShellParser.parse(line)) {
             AgentShellCommand.Noop -> Unit
-            AgentShellCommand.Help -> {
-                shellHelpLines(StandaloneWifiUseController(applicationContext).liveWifiNames()).forEach { appendShellLine(it) }
+            is AgentShellCommand.Help -> {
+                appendShellLines(shellHelpLines(command.topic))
             }
-            AgentShellCommand.ShowUse -> {
+            AgentShellCommand.Show -> {
                 appendShellLine(StandaloneWifiUseController(applicationContext).statusText())
+            }
+            AgentShellCommand.List -> {
+                appendShellLines(StandaloneWifiUseController(applicationContext).liveWifiListText())
             }
             AgentShellCommand.ClearUse -> runShellCommand {
                 StandaloneWifiUseController(applicationContext).clearUse()
@@ -629,7 +679,7 @@ class MainActivity : Activity() {
             is AgentShellCommand.Use -> runShellCommand {
                 StandaloneWifiUseController(applicationContext).use(command.name)
             }
-            is AgentShellCommand.Invalid -> appendShellLine(command.message, Color.rgb(255, 180, 80))
+            is AgentShellCommand.Invalid -> appendShellLine(command.message, SHELL_ERROR_COLOR)
         }
     }
 
@@ -642,27 +692,112 @@ class MainActivity : Activity() {
             }
             runOnUiThread {
                 shellBusy = false
-                appendShellLine(result.message, if (result.ok) AgentLogStyle.TEXT_COLOR else Color.rgb(255, 180, 80))
+                appendShellLine(result.message, if (result.ok) AgentLogStyle.TEXT_COLOR else SHELL_ERROR_COLOR)
                 syncStatusIcons()
             }
         }
     }
 
-    private fun appendShellLine(text: String, color: Int = AgentLogStyle.TEXT_COLOR) {
-        shellTranscript.addLast(ShellTranscriptLine(text, color))
-        while (shellTranscript.size > SHELL_TRANSCRIPT_MAX_LINES) shellTranscript.removeFirst()
-        renderShell()
-        shellScroll.post { shellScroll.fullScroll(View.FOCUS_DOWN) }
-        shellInput?.requestFocus()
+    private fun shellCommandLine(command: String): CharSequence {
+        val text = "$SHELL_PROMPT$command"
+        return SpannableString(text).apply {
+            setSpan(
+                ForegroundColorSpan(Color.YELLOW),
+                0,
+                SHELL_PROMPT.length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+        }
     }
 
-    private fun shellHelpLines(liveNames: List<String>): List<String> = buildList {
-        add("commands:")
-        add("  use <name>    connect to standalone festa live wifi <name>")
-        add("  clear use     restore standalone enabled state")
-        add("  show use      show current use override")
-        add("  help          show this help")
-        if (liveNames.isNotEmpty()) add("names: ${liveNames.joinToString(" ")}")
+    private fun appendShellLine(text: CharSequence, color: Int = AgentLogStyle.TEXT_COLOR) {
+        appendShellLines(listOf(text), color)
+    }
+
+    private fun appendShellLines(lines: Iterable<CharSequence>, color: Int = AgentLogStyle.TEXT_COLOR) {
+        lines.forEach { shellTranscript.addLast(ShellTranscriptLine(it, color)) }
+        trimShellTranscript()
+        renderShell()
+        scrollShellToInput()
+        focusShellInput()
+    }
+
+    private fun seedShellTranscript() {
+        if (shellTranscriptSeeded) return
+        shellTranscriptSeeded = true
+        shellHelpLines("").forEach {
+            shellTranscript.addLast(ShellTranscriptLine(it, AgentLogStyle.TEXT_COLOR))
+        }
+        trimShellTranscript()
+    }
+
+    private fun trimShellTranscript() {
+        while (shellTranscript.size > SHELL_TRANSCRIPT_MAX_LINES) shellTranscript.removeFirst()
+    }
+
+    private fun scrollShellToInput() {
+        shellScroll.post {
+            val inputRow = shellInputRowView ?: return@post
+            shellScroll.requestChildFocus(inputRow, shellInput ?: inputRow)
+            shellScroll.smoothScrollTo(0, inputRow.bottom)
+        }
+    }
+
+    private fun updateShellContentPadding() {
+        if (!::shellContent.isInitialized) return
+        shellContent.setPadding(
+            dp(SHELL_PANEL_PADDING_DP),
+            dp(SHELL_PANEL_TOP_PADDING_DP),
+            dp(SHELL_PANEL_PADDING_DP),
+            dp(SHELL_PANEL_PADDING_DP) + shellImeBottomInset,
+        )
+    }
+
+    private fun focusShellInput() {
+        val input = shellInput ?: return
+        input.requestFocus()
+        input.post {
+            if (!shellVisible || shellInput !== input) return@post
+            input.requestFocus()
+            getSystemService(InputMethodManager::class.java)
+                ?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    private fun shellHelpLines(topic: String): List<String> {
+        return when (topic) {
+            "" -> listOf(
+                "Shell builtins:",
+                "  clear use",
+                "  help [NAME]",
+                "  list",
+                "  show",
+                "  use NAME",
+                "",
+                "Type 'help NAME' for more information.",
+            )
+            "clear", "clear use" -> listOf(
+                "clear use: clear use",
+                "    Clear the active Wi-Fi use override and restore standalone mode.",
+            )
+            "help" -> listOf(
+                "help: help [NAME]",
+                "    Display information about shell builtins.",
+            )
+            "list" -> listOf(
+                "list: list",
+                "    List live Wi-Fi targets available to use.",
+            )
+            "show" -> listOf(
+                "show: show",
+                "    Display the current Wi-Fi use override state.",
+            )
+            "use" -> listOf(
+                "use: use NAME",
+                "    Connect to the live Wi-Fi target NAME.",
+            )
+            else -> listOf("dropcheck: help: no help topics match '$topic'")
+        }
     }
 
     private fun shellSpacer(heightDp: Int): View {
@@ -710,10 +845,8 @@ class MainActivity : Activity() {
         renderShell()
         shellScroll.visibility = View.VISIBLE
         scroll.visibility = View.GONE
-        shellInput?.requestFocus()
-        shellInput?.post {
-            getSystemService(InputMethodManager::class.java)?.showSoftInput(shellInput, InputMethodManager.SHOW_IMPLICIT)
-        }
+        scrollShellToInput()
+        focusShellInput()
         resetIdleDimTimer()
     }
 
@@ -747,11 +880,173 @@ class MainActivity : Activity() {
     }
 
     private data class ShellTranscriptLine(
-        val text: String,
+        val text: CharSequence,
         val color: Int,
     )
 
     private companion object {
         const val SHELL_TRANSCRIPT_MAX_LINES = 80
+    }
+}
+
+private class ShellInputEditText(context: Context) : EditText(context) {
+    private val cursorBlinkHandler = Handler(Looper.getMainLooper())
+    private var cursorBlinkReady = false
+    private var blockCursorVisible = true
+    private val cursorBlink = object : Runnable {
+        override fun run() {
+            blockCursorVisible = !blockCursorVisible
+            invalidate()
+            cursorBlinkHandler.postDelayed(this, SHELL_CURSOR_BLINK_MS)
+        }
+    }
+    private val cursorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = SHELL_CURSOR_COLOR
+        style = Paint.Style.FILL
+    }
+    private val terminalTextPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val promptTextPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    init {
+        highlightColor = Color.TRANSPARENT
+        useBlockCursor()
+        cursorBlinkReady = true
+    }
+
+    fun useBlockCursor() {
+        textCursorDrawable = ColorDrawable(Color.TRANSPARENT)
+        isCursorVisible = false
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        restartCursorBlink()
+    }
+
+    override fun onDetachedFromWindow() {
+        cursorBlinkHandler.removeCallbacks(cursorBlink)
+        super.onDetachedFromWindow()
+    }
+
+    override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
+        val connection = super.onCreateInputConnection(outAttrs) ?: return null
+        return object : InputConnectionWrapper(connection, true) {
+            override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+                if (beforeLength == 1 && afterLength == 0) return deleteBackwards()
+                return super.deleteSurroundingText(beforeLength, afterLength)
+            }
+
+            override fun deleteSurroundingTextInCodePoints(beforeLength: Int, afterLength: Int): Boolean {
+                if (beforeLength == 1 && afterLength == 0) return deleteBackwards()
+                return super.deleteSurroundingTextInCodePoints(beforeLength, afterLength)
+            }
+
+            override fun sendKeyEvent(event: KeyEvent): Boolean {
+                if (event.keyCode == KeyEvent.KEYCODE_DEL) {
+                    if (event.action == KeyEvent.ACTION_DOWN) deleteBackwards()
+                    return true
+                }
+                return super.sendKeyEvent(event)
+            }
+        }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_DEL) return deleteBackwards()
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_DEL) return true
+        return super.onKeyUp(keyCode, event)
+    }
+
+    override fun onFocusChanged(focused: Boolean, direction: Int, previouslyFocusedRect: android.graphics.Rect?) {
+        super.onFocusChanged(focused, direction, previouslyFocusedRect)
+        restartCursorBlink()
+    }
+
+    override fun onSelectionChanged(selStart: Int, selEnd: Int) {
+        super.onSelectionChanged(selStart, selEnd)
+        restartCursorBlink()
+    }
+
+    override fun onTextChanged(text: CharSequence?, start: Int, lengthBefore: Int, lengthAfter: Int) {
+        super.onTextChanged(text, start, lengthBefore, lengthAfter)
+        restartCursorBlink()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        terminalTextPaint.set(paint)
+        terminalTextPaint.color = currentTextColor
+        promptTextPaint.set(paint)
+        promptTextPaint.color = Color.YELLOW
+
+        val content = text?.toString().orEmpty()
+        val cursor = selectionStart.coerceIn(0, content.length)
+        val before = content.substring(0, cursor)
+        val startX = compoundPaddingLeft.toFloat() - scrollX
+        val baselineY = baseline.toFloat()
+        val inputStartX = startX + promptTextPaint.measureText(SHELL_PROMPT)
+
+        canvas.drawText(SHELL_PROMPT, startX, baselineY, promptTextPaint)
+        if (content.isNotEmpty()) {
+            canvas.drawText(content, inputStartX, baselineY, terminalTextPaint)
+        }
+
+        if (!blockCursorVisible) return
+        val cursorX = inputStartX + terminalTextPaint.measureText(before) + resources.displayMetrics.density * SHELL_CURSOR_TEXT_GAP_DP
+        val charEnd = if (cursor < content.length) {
+            cursor + Character.charCount(Character.codePointAt(content, cursor))
+        } else {
+            cursor
+        }
+        val cursorText = content.substring(cursor, charEnd)
+        val cursorWidth = maxOf(
+            terminalTextPaint.measureText(cursorText.ifEmpty { "M" }) * SHELL_CURSOR_WIDTH_SCALE,
+            resources.displayMetrics.density * SHELL_CURSOR_MIN_WIDTH_DP,
+        )
+        val metrics = terminalTextPaint.fontMetrics
+        val cursorCenter = baselineY + (metrics.ascent + metrics.descent) / 2f
+        val cursorHeight = terminalTextPaint.textSize
+        val cursorTop = cursorCenter - cursorHeight / 2f
+        val cursorBottom = cursorCenter + cursorHeight / 2f
+        canvas.drawRect(cursorX, cursorTop, cursorX + cursorWidth, cursorBottom, cursorPaint)
+    }
+
+    private fun restartCursorBlink() {
+        if (!cursorBlinkReady) return
+        cursorBlinkHandler.removeCallbacks(cursorBlink)
+        blockCursorVisible = true
+        invalidate()
+        if (isAttachedToWindow) {
+            cursorBlinkHandler.postDelayed(cursorBlink, SHELL_CURSOR_BLINK_MS)
+        }
+    }
+
+    private fun deleteBackwards(): Boolean {
+        val editable = text ?: return true
+        val start = selectionStart.coerceIn(0, editable.length)
+        val end = selectionEnd.coerceIn(0, editable.length)
+        if (start != end) {
+            val from = minOf(start, end)
+            val to = maxOf(start, end)
+            editable.delete(from, to)
+            setSelection(from)
+            return true
+        }
+        if (start == 0) return true
+        val deleteFrom = if (
+            start >= 2 &&
+            Character.isHighSurrogate(editable[start - 2]) &&
+            Character.isLowSurrogate(editable[start - 1])
+        ) {
+            start - 2
+        } else {
+            start - 1
+        }
+        editable.delete(deleteFrom, start)
+        setSelection(deleteFrom)
+        return true
     }
 }
