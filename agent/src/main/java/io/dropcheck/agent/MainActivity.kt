@@ -43,6 +43,10 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import io.dropcheck.agent.grpc.CommandLog
+import io.dropcheck.agent.grpc.CommandResult
+import io.dropcheck.agent.grpc.GetWifiStatus
+import io.dropcheck.agent.grpc.RunCommand
 import java.util.concurrent.Executors
 
 private const val TERMINAL_BREAK_OPPORTUNITY = "\u200B"
@@ -676,8 +680,21 @@ class MainActivity : Activity() {
             is AgentShellCommand.Help -> {
                 appendShellLines(shellHelpLines(command.topic))
             }
-            AgentShellCommand.Show -> {
+            AgentShellCommand.ShowUse -> {
                 appendShellLine(StandaloneWifiUseController(applicationContext).statusText())
+            }
+            AgentShellCommand.ShowWifiStatus -> runShellLinesCommand {
+                val result = CommandExecutor(applicationContext, agentShellLogger()).execute(
+                    RunCommand.newBuilder()
+                        .setGetWifiStatus(GetWifiStatus.getDefaultInstance())
+                        .build(),
+                )
+                if (result.status == CommandResult.Status.STATUS_OK && result.hasWifiStatus()) {
+                    ShellCommandResult(ok = true, lines = AgentWifiStatusRenderer.render(result.wifiStatus))
+                } else {
+                    val message = result.message.ifBlank { result.status.name }
+                    ShellCommandResult(ok = false, lines = listOf("show wifi status failed: $message"))
+                }
             }
             AgentShellCommand.List -> {
                 appendShellLines(StandaloneWifiUseController(applicationContext).liveWifiListText())
@@ -693,18 +710,41 @@ class MainActivity : Activity() {
     }
 
     private fun runShellCommand(action: () -> StandaloneUseResult) {
+        runShellLinesCommand {
+            val result = action()
+            ShellCommandResult(result.ok, listOf(result.message))
+        }
+    }
+
+    private fun runShellLinesCommand(action: () -> ShellCommandResult) {
         shellBusy = true
         renderShell()
         shellExecutor.submit {
             val result = runCatching { action() }.getOrElse {
-                StandaloneUseResult(false, it.message ?: it.toString())
+                ShellCommandResult(false, listOf(it.message ?: it.toString()))
             }
             runOnUiThread {
                 shellBusy = false
-                appendShellLine(result.message, if (result.ok) AgentLogStyle.TEXT_COLOR else SHELL_ERROR_COLOR)
+                appendShellLines(result.lines, if (result.ok) AgentLogStyle.TEXT_COLOR else SHELL_ERROR_COLOR)
                 syncStatusIcons()
             }
         }
+    }
+
+    private fun agentShellLogger(): CommandLogger {
+        return object : CommandLogger {
+            override fun log(level: CommandLog.Level, message: String, scope: CommandLogScope) {
+                TerminalLog.log(applicationContext, terminalLevelName(level), CommandTerminalLog.agentShell(scope, message))
+            }
+        }
+    }
+
+    private fun terminalLevelName(level: CommandLog.Level): String = when (level) {
+        CommandLog.Level.LEVEL_DEBUG -> "DEBUG"
+        CommandLog.Level.LEVEL_INFO -> "INFO"
+        CommandLog.Level.LEVEL_WARN -> "WARN"
+        CommandLog.Level.LEVEL_ERROR -> "ERROR"
+        else -> "INFO"
     }
 
     private fun shellCommandLine(command: String): CharSequence {
@@ -794,7 +834,8 @@ class MainActivity : Activity() {
                 "  clear use",
                 "  help [NAME]",
                 "  list",
-                "  show",
+                "  show use",
+                "  show wifi status",
                 "  use NAME",
                 "",
                 "Type 'help NAME' for more information.",
@@ -812,8 +853,9 @@ class MainActivity : Activity() {
                 "    List live Wi-Fi targets available to use.",
             )
             "show" -> listOf(
-                "show: show",
-                "    Display the current Wi-Fi use override state.",
+                "show: show (use|wifi status)",
+                "    show use displays the current Wi-Fi use override state.",
+                "    show wifi status displays local Wi-Fi, IP, and MLO state.",
             )
             "use" -> listOf(
                 "use: use NAME",
@@ -912,6 +954,11 @@ class MainActivity : Activity() {
     private data class ShellTranscriptLine(
         val text: CharSequence,
         val color: Int,
+    )
+
+    private data class ShellCommandResult(
+        val ok: Boolean,
+        val lines: List<CharSequence>,
     )
 
     private companion object {

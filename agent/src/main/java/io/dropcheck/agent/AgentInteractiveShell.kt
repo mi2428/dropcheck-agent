@@ -5,7 +5,8 @@ internal sealed class AgentShellCommand {
     data object Noop : AgentShellCommand()
     data class Help(val topic: String = "") : AgentShellCommand()
     data object ClearUse : AgentShellCommand()
-    data object Show : AgentShellCommand()
+    data object ShowUse : AgentShellCommand()
+    data object ShowWifiStatus : AgentShellCommand()
     data object List : AgentShellCommand()
     data class Use(val name: String) : AgentShellCommand()
     data class Invalid(val message: String) : AgentShellCommand()
@@ -35,10 +36,20 @@ internal object AgentShellParser {
                     AgentShellCommand.Invalid("usage: clear use")
                 }
             }
-            "show" -> if (tokens.size == 1) AgentShellCommand.Show else AgentShellCommand.Invalid("usage: show")
+            "show" -> parseShow(tokens)
             "list" -> if (tokens.size == 1) AgentShellCommand.List else AgentShellCommand.Invalid("usage: list")
             "use" -> if (tokens.size == 2) AgentShellCommand.Use(tokens[1]) else AgentShellCommand.Invalid("usage: use NAME")
             else -> AgentShellCommand.Invalid("${tokens.first()}: command not found")
+        }
+    }
+
+    private fun parseShow(tokens: List<String>): AgentShellCommand {
+        return when {
+            tokens.size == 2 && "use".startsWith(tokens[1]) -> AgentShellCommand.ShowUse
+            tokens.size == 3 && "wifi".startsWith(tokens[1]) && "status".startsWith(tokens[2]) -> {
+                AgentShellCommand.ShowWifiStatus
+            }
+            else -> AgentShellCommand.Invalid("usage: show (use|wifi status)")
         }
     }
 
