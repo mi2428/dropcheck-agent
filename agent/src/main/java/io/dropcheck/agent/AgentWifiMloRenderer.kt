@@ -19,7 +19,7 @@ internal data class AgentWifiMloContext(
 internal object AgentWifiMloRenderer {
     fun render(status: WifiStatus, scan: WifiScan, context: AgentWifiMloContext = AgentWifiMloContext()): List<String> {
         val out = mutableListOf<String>()
-        val candidates = scan.resultsList.filter { isMloCandidate(it) }
+        val candidates = scan.resultsList.filter { isMloCapableCandidate(it) }
         val groups = mloGroups(candidates)
         val current = status.connection.takeIf { status.hasConnection() && it.ssid.isNotBlank() }
 
@@ -91,13 +91,11 @@ internal object AgentWifiMloRenderer {
             return
         }
         table(out,
-            listOf("MARK", "SSID", "AP_MLD", "LINKS", "BANDS", "BEST_RSSI", "SECURITY", "STANDARD"),
+            listOf("MARK", "SSID", "BANDS", "BEST_RSSI", "SECURITY", "STANDARD"),
             groups.map { group ->
                 listOf(
                     groupMark(group, current),
                     joined(group.results.map { empty(it.ssid, "<hidden>") }),
-                    group.displayMld,
-                    joined(group.linkIds.map { it.toString() }, "-"),
                     joined(group.bands, "unknown"),
                     group.bestRssi.toString(),
                     joined(group.security, "-"),
@@ -284,18 +282,21 @@ internal object AgentWifiMloRenderer {
         return "unknown:${result.ssid}:${result.frequencyMhz}"
     }
 
-    private fun isMloCandidate(result: WifiScanResult): Boolean {
-        return result.apMldMacAddress.isNotBlank() ||
-            result.apMloLinkId != 0 ||
-            result.affiliatedMloLinksCount > 0 ||
+    private fun isMloCapableCandidate(result: WifiScanResult): Boolean {
+        return result.hasMloScanMetadata() ||
             result.wifiStandard.equals("802.11be", ignoreCase = true)
+    }
+
+    private fun WifiScanResult.hasMloScanMetadata(): Boolean {
+        return apMldMacAddress.isNotBlank() ||
+            affiliatedMloLinksCount > 0
     }
 
     private fun connectionHasMlo(conn: WifiConnection): Boolean {
         return conn.apMldMacAddress.isNotBlank() ||
-            conn.apMloLinkId != 0 ||
             conn.affiliatedMloLinksCount > 0 ||
-            conn.associatedMloLinksCount > 0
+            conn.associatedMloLinksCount > 0 ||
+            (conn.wifiStandard.equals("802.11be", ignoreCase = true) && conn.apMloLinkId >= 0)
     }
 
     private fun sameMld(conn: WifiConnection, result: WifiScanResult): Boolean {
@@ -335,15 +336,9 @@ internal object AgentWifiMloRenderer {
         }
     }
 
-    private fun scanLinkIDsForDisplay(result: WifiScanResult): Set<Int> {
-        return scanLinkIds(result).takeIf { it.isNotEmpty() } ?: emptySet()
-    }
-
     private fun scanLinkIds(result: WifiScanResult): Set<Int> {
         val ids = mutableSetOf<Int>()
-        if ((result.apMldMacAddress.isNotBlank() || result.apMloLinkId != 0 || result.affiliatedMloLinksCount > 0) &&
-            result.apMloLinkId >= 0
-        ) {
+        if (isMloCapableCandidate(result) && result.apMloLinkId >= 0) {
             ids += result.apMloLinkId
         }
         result.affiliatedMloLinksList.filter { it.linkId >= 0 }.forEach { ids += it.linkId }
@@ -362,11 +357,9 @@ internal object AgentWifiMloRenderer {
     }
 
     private fun scanLinkID(result: WifiScanResult): String {
-        val explicitMlo = result.apMldMacAddress.isNotBlank() ||
-            result.apMloLinkId != 0 ||
-            result.affiliatedMloLinksCount > 0
+        val explicitMlo = result.hasMloScanMetadata()
         return when {
-            explicitMlo && result.apMloLinkId >= 0 -> result.apMloLinkId.toString()
+            (explicitMlo || result.wifiStandard.equals("802.11be", ignoreCase = true)) && result.apMloLinkId >= 0 -> result.apMloLinkId.toString()
             result.wifiStandard.equals("802.11be", ignoreCase = true) -> "<unknown>"
             else -> "<none>"
         }
@@ -445,7 +438,6 @@ internal object AgentWifiMloRenderer {
     private class MloGroup(val results: List<WifiScanResult>) {
         val displayMld: String = results.firstNotNullOfOrNull { it.apMldMacAddress.takeIf(String::isNotBlank) } ?: "<unknown>"
         val bestRssi: Int = results.maxOfOrNull { it.rssiDbm } ?: 0
-        val linkIds: List<Int> = results.flatMap { scanLinkIDsForDisplay(it) }.distinct().sorted()
         val bands: List<String> = results.flatMap { result ->
             listOf(result.band.ifBlank { wifiBandFromFrequency(result.frequencyMhz) }) +
                 result.affiliatedMloLinksList.map { it.band }
