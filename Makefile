@@ -1,34 +1,35 @@
-SHELL              := /bin/bash
-.SHELLFLAGS        := -eu -o pipefail -c
-.DEFAULT_GOAL      := help
+SHELL                   := /bin/bash
+.SHELLFLAGS             := -eu -o pipefail -c
+.DEFAULT_GOAL           := help
 
-TARGET             ?= all
-GO                 ?= go
-GRADLE             ?= ./gradlew
-ADB                ?= adb
-SERIAL             ?= $(ADB_SERIAL)
-STATICCHECK        ?= staticcheck
-TAGS               ?=
-ADB_INSTALL_FLAGS  ?= -r -t
-HELP_NAME_WIDTH    := 22
-HELP_EXAMPLE_WIDTH := 60
-E2E_PACKAGE        ?= ./integration/e2e
-E2E_TIMEOUT        ?= 3h
-E2E_AGENT_PACKAGE  ?= io.dropcheck.agent
-INTEGRATION_PACKAGE ?= ./integration/ingester
-INTEGRATION_TIMEOUT ?= 10m
+TARGET                  ?= all
+GO                      ?= go
+GRADLE                  ?= ./gradlew
+ADB                     ?= adb
+SERIAL                  ?= $(ADB_SERIAL)
+STATICCHECK             ?= staticcheck
+TAGS                    ?=
+ADB_INSTALL_FLAGS       ?= -r -t
+E2E_PACKAGE             ?= ./integration/e2e
+E2E_TIMEOUT             ?= 3h
+E2E_AGENT_PACKAGE       ?= io.dropcheck.agent
+INTEGRATION_PACKAGE     ?= ./integration/ingester
+INTEGRATION_TIMEOUT     ?= 10m
 
-SSID               ?= $(DROPCHECK_E2E_WIFI_SSID)
-PSK                ?= $(DROPCHECK_E2E_WIFI_PSK)
-PSK_ENV            ?= DROPCHECK_E2E_WIFI_PSK
+SSID                    ?= $(DROPCHECK_E2E_WIFI_SSID)
+PSK                     ?= $(DROPCHECK_E2E_WIFI_PSK)
+PSK_ENV                 ?= DROPCHECK_E2E_WIFI_PSK
 
-AGENT_BUILD_TASK   ?= :agent:assembleDebug
-AGENT_TEST_TASK    ?= :agent:testDebugUnitTest
-AGENT_LINT_TASK    ?= :agent:lintDebug
-APK                ?= agent/build/outputs/apk/debug/agent-debug.apk
-CONTROLLER_BIN     ?= dist/dropcheck
-CONTROLLER_MCP_BIN ?= dist/dropcheck-mcp
+AGENT_BUILD_TASK        ?= :agent:assembleDebug
+AGENT_TEST_TASK         ?= :agent:testDebugUnitTest
+AGENT_LINT_TASK         ?= :agent:lintDebug
+APK                     ?= agent/build/outputs/apk/debug/agent-debug.apk
+CONTROLLER_BIN          ?= dist/dropcheck
+CONTROLLER_MCP_BIN      ?= dist/dropcheck-mcp
 CONTROLLER_INGESTER_BIN ?= dist/dropcheck-ingester
+
+HELP_NAME_WIDTH    := 25
+HELP_EXAMPLE_WIDTH := 41
 
 ##@ Development
 
