@@ -392,7 +392,7 @@ func TestStandaloneCLIParityLive(t *testing.T) {
 	runOutput := cfg.runCLILiveCommand(t, 90*time.Second, "request", "standalone", "run", "once", "--festa", standaloneCLIFesta, "--save")
 	runID := requireStandaloneRunID(t, runOutput)
 	status := cfg.runCLILiveCommand(t, 35*time.Second, "show", "standalone", "status")
-	if !strings.Contains(status, "Standalone:") {
+	if !standaloneStatusRendered(status) {
 		t.Fatalf("CLI standalone status did not render standalone status: %s", oneLine(redact(status, cfg.psk)))
 	}
 	detail := cfg.runCLILiveCommand(t, 35*time.Second, "show", "standalone", "run", runID)
@@ -662,11 +662,22 @@ func (cfg *e2eConfig) startStandaloneUploadHTTPServer(t *testing.T, status int, 
 func standaloneStatusCounts(t *testing.T, status string) (stored int, unsynced int) {
 	t.Helper()
 	match := standaloneStatusLine.FindStringSubmatch(status)
-	if match == nil {
-		t.Fatalf("standalone status line not found: %s", oneLine(status))
+	if match != nil {
+		stored = parsePositiveInt(t, match[1], "stored")
+		unsynced = parsePositiveInt(t, match[2], "unsynced")
+		return stored, unsynced
 	}
-	stored = parsePositiveInt(t, match[1], "stored")
-	unsynced = parsePositiveInt(t, match[2], "unsynced")
+
+	storedValue, ok := standaloneSectionKVValue(status, "Standalone", "stored")
+	if !ok {
+		t.Fatalf("standalone stored count not found: %s", oneLine(status))
+	}
+	unsyncedValue, ok := standaloneSectionKVValue(status, "Standalone", "unsynced")
+	if !ok {
+		t.Fatalf("standalone unsynced count not found: %s", oneLine(status))
+	}
+	stored = parsePositiveInt(t, storedValue, "stored")
+	unsynced = parsePositiveInt(t, unsyncedValue, "unsynced")
 	return stored, unsynced
 }
 
@@ -681,25 +692,91 @@ func parsePositiveInt(t *testing.T, value string, name string) int {
 
 func requireStandaloneRunID(t *testing.T, output string) string {
 	t.Helper()
-	match := standaloneRunID.FindStringSubmatch(output)
-	if match == nil {
+	runID, ok := standaloneRunIDFromOutput(output)
+	if !ok {
 		t.Fatalf("standalone run id not found in output: %s", oneLine(output))
 	}
-	return match[1]
+	return runID
 }
 
 func assertStandaloneRunDetail(t *testing.T, output string, runID string, festa string, synced bool) {
 	t.Helper()
-	for _, want := range []string{
-		"Standalone run: id=" + runID,
-		"synced=" + strconv.FormatBool(synced),
-		"festa=" + festa,
-		"ping",
+	if strings.Contains(output, "Standalone run: id="+runID) {
+		for _, want := range []string{
+			"synced=" + strconv.FormatBool(synced),
+			"festa=" + festa,
+			"ping",
+		} {
+			if !strings.Contains(output, want) {
+				t.Fatalf("standalone run detail missing %q: %s", want, oneLine(output))
+			}
+		}
+		return
+	}
+
+	for _, want := range []struct {
+		key   string
+		value string
+	}{
+		{key: "id", value: runID},
+		{key: "synced", value: strconv.FormatBool(synced)},
+		{key: "festa", value: festa},
 	} {
-		if !strings.Contains(output, want) {
-			t.Fatalf("standalone run detail missing %q: %s", want, oneLine(output))
+		got, ok := standaloneSectionKVValue(output, "Standalone Run", want.key)
+		if !ok || got != want.value {
+			t.Fatalf("standalone run detail %s=%q, want %q: %s", want.key, got, want.value, oneLine(output))
 		}
 	}
+	if !strings.Contains(output, "Steps") || !strings.Contains(output, "cloudflare") {
+		t.Fatalf("standalone run detail missing cloudflare step: %s", oneLine(output))
+	}
+}
+
+func standaloneRunIDFromOutput(output string) (string, bool) {
+	if match := standaloneRunIDLegacy.FindStringSubmatch(output); match != nil {
+		return match[1], true
+	}
+	return standaloneSectionKVValue(output, "Standalone Run", "id")
+}
+
+func standaloneSectionKVValue(output string, section string, key string) (string, bool) {
+	inSection := false
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !inSection {
+			if trimmed == section {
+				inSection = true
+			}
+			continue
+		}
+		if trimmed == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
+			return "", false
+		}
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] == key {
+			return fields[1], true
+		}
+	}
+	return "", false
+}
+
+func standaloneStatusRendered(output string) bool {
+	if standaloneStatusLine.MatchString(output) {
+		return true
+	}
+	if !regexp.MustCompile(`(?m)^Standalone\s*$`).MatchString(output) {
+		return false
+	}
+	if _, ok := standaloneSectionKVValue(output, "Standalone", "enabled"); !ok {
+		return false
+	}
+	if _, ok := standaloneSectionKVValue(output, "Standalone", "stored"); !ok {
+		return false
+	}
+	return true
 }
 
 func assertSyncedArchiveFile(t *testing.T, outputDir string, runID string, syncOutput string) {
@@ -1710,13 +1787,13 @@ func (cfg *e2eConfig) captureVars(output string) {
 	if cfg.vars == nil {
 		cfg.vars = map[string]string{}
 	}
-	if match := standaloneRunID.FindStringSubmatch(output); match != nil {
-		cfg.vars["run-id"] = match[1]
+	if runID, ok := standaloneRunIDFromOutput(output); ok {
+		cfg.vars["run-id"] = runID
 	}
 }
 
 var (
-	standaloneRunID         = regexp.MustCompile(`Standalone run: id=([A-Za-z0-9._:-]+)`)
+	standaloneRunIDLegacy   = regexp.MustCompile(`Standalone run:\s*id=([A-Za-z0-9._:-]+)`)
 	standaloneUploadSuccess = regexp.MustCompile(`standalone upload completed: uploaded=[1-9][0-9]* last_http_status=2[0-9][0-9]`)
 	standaloneUploadStopped = regexp.MustCompile(`standalone upload stopped: .*status=500`)
 	standaloneStatusLine    = regexp.MustCompile(`Standalone: enabled=\S+ running=\S+ stored=([0-9]+) unsynced=([0-9]+)`)
@@ -2195,6 +2272,45 @@ func TestE2EFailureClassifiers(t *testing.T) {
 	if !isShellErrorOutput("retention_ms is outside uint32 millisecond range") {
 		t.Fatalf("retention range validation must count as a shell error")
 	}
+}
+
+func TestStandaloneTextParsersHandleKVRenderer(t *testing.T) {
+	status := `Standalone
+  enabled   true
+  running   false
+  stored    2
+  unsynced  1
+
+Message
+  text  standalone upload stopped: run_id=run-1 status=500
+`
+	stored, unsynced := standaloneStatusCounts(t, status)
+	if stored != 2 || unsynced != 1 {
+		t.Fatalf("standaloneStatusCounts() = %d, %d; want 2, 1", stored, unsynced)
+	}
+	if !standaloneStatusRendered(status) {
+		t.Fatalf("standaloneStatusRendered() = false")
+	}
+
+	run := `Standalone Run
+  id      1778057585851-78844897-37d9-407e-bdca-dba4fd737d9c
+  status  ok
+  synced  false
+  festa   archive-e2e
+  steps   3
+  failed  0
+
+Steps
+WIFI-GROUP  STEP            ATTEMPT  STATUS  ELAPSED  ERROR
+mgmt        connect         1        ok      37ms
+mgmt        wait_connected  1        ok      20ms
+mgmt        cloudflare      1        ok      107ms
+`
+	runID := requireStandaloneRunID(t, run)
+	if runID != "1778057585851-78844897-37d9-407e-bdca-dba4fd737d9c" {
+		t.Fatalf("requireStandaloneRunID() = %q", runID)
+	}
+	assertStandaloneRunDetail(t, run, runID, "archive-e2e", false)
 }
 
 func TestE2ECaseTableCoversControllerCommandSurface(t *testing.T) {
