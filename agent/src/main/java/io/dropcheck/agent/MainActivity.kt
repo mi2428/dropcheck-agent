@@ -70,7 +70,8 @@ private const val SHELL_PROMPT = "dropcheck# "
 private const val SHELL_BLANK_LINE = "\u00A0"
 private const val SHELL_ERROR_COLOR = -44976
 private const val SHELL_CURSOR_COLOR = -1
-private const val SHELL_TEXT_SIZE_SP = 11f
+private const val TERMINAL_TEXT_SIZE_SP = 8f
+private const val SHELL_TEXT_SIZE_SP = TERMINAL_TEXT_SIZE_SP
 private const val SHELL_CURSOR_BLINK_MS = 530L
 private const val SHELL_CURSOR_WIDTH_SCALE = 0.5f
 private const val SHELL_CURSOR_MIN_WIDTH_DP = 4f
@@ -106,6 +107,9 @@ class MainActivity : Activity() {
     private var shellInput: EditText? = null
     private var shellInputRowView: LinearLayout? = null
     private var shellImeBottomInset = 0
+    private var shellSafeLeftInset = 0
+    private var shellSafeTopInset = 0
+    private var shellSafeRightInset = 0
     private var statusIconViews: List<ImageView> = emptyList()
     private var controllerHeartbeatConnected = false
     private var standaloneActive = false
@@ -171,7 +175,7 @@ class MainActivity : Activity() {
             setTextColor(AgentLogStyle.TEXT_COLOR)
             setBackgroundColor(Color.BLACK)
             typeface = Typeface.MONOSPACE
-            textSize = 8f
+            textSize = TERMINAL_TEXT_SIZE_SP
             includeFontPadding = false
             setLineSpacing(0f, 1.05f)
             setPadding(0, 0, 0, 0)
@@ -230,8 +234,21 @@ class MainActivity : Activity() {
         }
         root.setOnApplyWindowInsetsListener { _, insets ->
             val imeBottom = insets.getInsets(WindowInsets.Type.ime()).bottom
-            if (shellImeBottomInset != imeBottom) {
+            val cutoutInsets = insets.getInsets(WindowInsets.Type.displayCutout())
+            val systemBarInsets = insets.getInsets(WindowInsets.Type.systemBars())
+            val safeLeft = maxOf(cutoutInsets.left, systemBarInsets.left)
+            val safeTop = cutoutInsets.top
+            val safeRight = maxOf(cutoutInsets.right, systemBarInsets.right)
+            if (
+                shellImeBottomInset != imeBottom ||
+                shellSafeLeftInset != safeLeft ||
+                shellSafeTopInset != safeTop ||
+                shellSafeRightInset != safeRight
+            ) {
                 shellImeBottomInset = imeBottom
+                shellSafeLeftInset = safeLeft
+                shellSafeTopInset = safeTop
+                shellSafeRightInset = safeRight
                 updateShellContentPadding()
                 if (shellVisible) scrollShellToInput()
             }
@@ -554,7 +571,10 @@ class MainActivity : Activity() {
         return ScrollView(this).apply {
             setBackgroundColor(Color.BLACK)
             isFillViewport = true
-            addView(shellContent)
+            addView(shellContent, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+            ))
             setOnTouchListener { _, event ->
                 captureSwipeStart(event)
                 if (event.actionMasked == MotionEvent.ACTION_UP) {
@@ -646,7 +666,7 @@ class MainActivity : Activity() {
             setPadding(0, dp(2), 0, dp(2))
             setSingleLine(true)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-            imeOptions = EditorInfo.IME_ACTION_GO
+            imeOptions = EditorInfo.IME_ACTION_GO or EditorInfo.IME_FLAG_NO_EXTRACT_UI
             useBlockCursor()
             excludeFromContentCapture()
             setOnEditorActionListener { view, actionId, event ->
@@ -662,6 +682,10 @@ class MainActivity : Activity() {
         shellInput = input
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
             addView(input, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         }
     }
@@ -853,18 +877,31 @@ class MainActivity : Activity() {
     private fun scrollShellToInput() {
         shellScroll.post {
             val inputRow = shellInputRowView ?: return@post
-            shellScroll.requestChildFocus(inputRow, shellInput ?: inputRow)
-            shellScroll.smoothScrollTo(0, inputRow.bottom)
+            val viewportHeight = shellScroll.height - shellScroll.paddingTop - shellScroll.paddingBottom
+            if (viewportHeight <= 0) return@post
+            val viewportTop = shellScroll.scrollY
+            val viewportBottom = viewportTop + viewportHeight
+            val targetScrollY = when {
+                inputRow.bottom > viewportBottom -> inputRow.bottom - viewportHeight
+                inputRow.top < viewportTop -> inputRow.top
+                else -> viewportTop
+            }
+            val maxScrollY = (shellContent.height - viewportHeight).coerceAtLeast(0)
+            val clampedScrollY = targetScrollY.coerceIn(0, maxScrollY)
+            if (clampedScrollY != viewportTop) {
+                shellScroll.smoothScrollTo(0, clampedScrollY)
+            }
         }
     }
 
     private fun updateShellContentPadding() {
         if (!::shellContent.isInitialized) return
+        val sidePadding = dp(SHELL_PANEL_PADDING_DP)
         shellContent.setPadding(
-            dp(SHELL_PANEL_PADDING_DP),
-            dp(SHELL_PANEL_TOP_PADDING_DP),
-            dp(SHELL_PANEL_PADDING_DP),
-            dp(SHELL_PANEL_PADDING_DP) + shellImeBottomInset,
+            sidePadding + shellSafeLeftInset,
+            dp(SHELL_PANEL_TOP_PADDING_DP) + shellSafeTopInset,
+            sidePadding + shellSafeRightInset,
+            sidePadding + shellImeBottomInset,
         )
     }
 
