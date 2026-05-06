@@ -28,6 +28,7 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewTreeObserver
 import android.view.WindowInsets
 import android.view.WindowInsetsController
@@ -106,6 +107,7 @@ class MainActivity : Activity() {
     private var shellBusy = false
     private var swipeStartX = 0f
     private var swipeStartY = 0f
+    private val shellTapSlopPx: Int by lazy { ViewConfiguration.get(this).scaledTouchSlop }
     private var backgroundLocationPromptShown = false
     private val statusRefreshHandler = Handler(Looper.getMainLooper())
     private val statusRefresh = object : Runnable {
@@ -546,8 +548,14 @@ class MainActivity : Activity() {
             addView(shellContent)
             setOnTouchListener { _, event ->
                 captureSwipeStart(event)
-                if (event.actionMasked == MotionEvent.ACTION_UP && maybeHandleSwipe(event, SwipeDirection.LEFT)) {
-                    return@setOnTouchListener true
+                if (event.actionMasked == MotionEvent.ACTION_UP) {
+                    if (maybeHandleSwipe(event, SwipeDirection.LEFT)) {
+                        return@setOnTouchListener true
+                    }
+                    if (isTapGesture(event)) {
+                        focusShellInput(forceIme = true)
+                        return@setOnTouchListener true
+                    }
                 }
                 false
             }
@@ -753,12 +761,15 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun focusShellInput() {
+    private fun focusShellInput(forceIme: Boolean = false) {
         val input = shellInput ?: return
         input.requestFocus()
         input.post {
             if (!shellVisible || shellInput !== input) return@post
             input.requestFocus()
+            if (forceIme && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                window.insetsController?.show(WindowInsets.Type.ime())
+            }
             getSystemService(InputMethodManager::class.java)
                 ?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
         }
@@ -837,6 +848,12 @@ class MainActivity : Activity() {
             }
             else -> false
         }
+    }
+
+    private fun isTapGesture(event: MotionEvent): Boolean {
+        val dx = event.x - swipeStartX
+        val dy = event.y - swipeStartY
+        return kotlin.math.abs(dx) <= shellTapSlopPx && kotlin.math.abs(dy) <= shellTapSlopPx
     }
 
     private fun showShell() {
