@@ -45,12 +45,8 @@ import android.widget.ScrollView
 import android.widget.TextView
 import io.dropcheck.agent.grpc.CommandLog
 import io.dropcheck.agent.grpc.CommandResult
-import io.dropcheck.agent.grpc.GetFreshWifiScan
-import io.dropcheck.agent.grpc.GetWifiScan
-import io.dropcheck.agent.grpc.GetWifiScanDetail
 import io.dropcheck.agent.grpc.GetWifiStatus
 import io.dropcheck.agent.grpc.RunCommand
-import io.dropcheck.agent.grpc.WifiBand
 import java.util.concurrent.Executors
 
 private const val TERMINAL_BREAK_OPPORTUNITY = "\u200B"
@@ -725,62 +721,6 @@ class MainActivity : Activity() {
                     ShellCommandResult(ok = false, lines = listOf("show wifi status failed: $message"))
                 }
             }
-            is AgentShellCommand.ShowWifiScan -> runShellLinesCommand {
-                val result = CommandExecutor(applicationContext, agentShellLogger()).execute(
-                    RunCommand.newBuilder()
-                        .setGetWifiScan(GetWifiScan.newBuilder()
-                            .setBand(wifiBand(command.band))
-                            .build())
-                        .build(),
-                )
-                if (result.hasWifiScan()) {
-                    ShellCommandResult(
-                        ok = result.status == CommandResult.Status.STATUS_OK,
-                        lines = AgentWifiScanRenderer.render(result.wifiScan),
-                    )
-                } else {
-                    val message = result.message.ifBlank { result.status.name }
-                    ShellCommandResult(ok = false, lines = listOf("show wifi scan failed: $message"))
-                }
-            }
-            is AgentShellCommand.ShowWifiScanFresh -> runShellLinesCommand {
-                val scan = GetFreshWifiScan.newBuilder()
-                    .setBand(wifiBand(command.band))
-                if (command.timeoutMs > 0) scan.timeoutMs = command.timeoutMs
-                val result = CommandExecutor(applicationContext, agentShellLogger()).execute(
-                    RunCommand.newBuilder()
-                        .setGetFreshWifiScan(scan.build())
-                        .build(),
-                )
-                if (result.hasWifiScan()) {
-                    ShellCommandResult(
-                        ok = result.status == CommandResult.Status.STATUS_OK,
-                        lines = AgentWifiScanRenderer.render(result.wifiScan),
-                    )
-                } else {
-                    val message = result.message.ifBlank { result.status.name }
-                    ShellCommandResult(ok = false, lines = listOf("show wifi scan fresh failed: $message"))
-                }
-            }
-            is AgentShellCommand.ShowWifiScanDetail -> runShellLinesCommand {
-                val result = CommandExecutor(applicationContext, agentShellLogger()).execute(
-                    RunCommand.newBuilder()
-                        .setGetWifiScanDetail(GetWifiScanDetail.newBuilder()
-                            .setTarget(command.target)
-                            .setBand(wifiBand(command.band))
-                            .build())
-                        .build(),
-                )
-                if (result.hasWifiScanDetail()) {
-                    ShellCommandResult(
-                        ok = result.status == CommandResult.Status.STATUS_OK,
-                        lines = AgentWifiScanRenderer.renderDetail(result.wifiScanDetail),
-                    )
-                } else {
-                    val message = result.message.ifBlank { result.status.name }
-                    ShellCommandResult(ok = false, lines = listOf("show wifi scan detail failed: $message"))
-                }
-            }
             AgentShellCommand.ClearUse -> runShellCommand {
                 StandaloneWifiUseController(applicationContext).clearUse()
             }
@@ -827,14 +767,6 @@ class MainActivity : Activity() {
         CommandLog.Level.LEVEL_WARN -> "WARN"
         CommandLog.Level.LEVEL_ERROR -> "ERROR"
         else -> "INFO"
-    }
-
-    private fun wifiBand(value: String): WifiBand = when (value) {
-        "2.4ghz" -> WifiBand.WIFI_BAND_2_4_GHZ
-        "5ghz" -> WifiBand.WIFI_BAND_5_GHZ
-        "6ghz" -> WifiBand.WIFI_BAND_6_GHZ
-        "60ghz" -> WifiBand.WIFI_BAND_60_GHZ
-        else -> WifiBand.WIFI_BAND_ALL
     }
 
     private fun shellCommandLine(command: String): CharSequence {
@@ -938,9 +870,6 @@ class MainActivity : Activity() {
                 "  help [NAME]",
                 "  show use",
                 "  show wifi status",
-                "  show wifi scan [all|2.4ghz|5ghz|6ghz|60ghz]",
-                "  show wifi scan fresh [timeout MS] [all|2.4ghz|5ghz|6ghz|60ghz]",
-                "  show wifi scan detail [all|2.4ghz|5ghz|6ghz|60ghz] <ssid|bssid>",
                 "  use NAME",
                 "",
                 "Type 'help NAME' for more information.",
@@ -954,10 +883,9 @@ class MainActivity : Activity() {
                 "    Display information about shell builtins.",
             )
             "show" -> listOf(
-                "show: show (use|wifi status|wifi scan)",
+                "show: show (use|wifi status)",
                 "    show use displays the Wi-Fi use override state and live targets.",
                 "    show wifi status displays local Wi-Fi, IP, and MLO state.",
-                "    show wifi scan displays cached or fresh scan results.",
             )
             "use" -> listOf(
                 "use: use NAME",
