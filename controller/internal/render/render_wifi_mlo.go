@@ -221,23 +221,22 @@ func renderWifiMLOScanLinks(b *strings.Builder, groups []wifiMLOGroup, current *
 }
 
 func renderWifiMLOScanLinkBlock(b *strings.Builder, group wifiMLOGroup, result *controlpb.WifiScanResult, current *controlpb.WifiConnection) {
-	fmt.Fprintf(b, "[%s] scan %s\n", wifiMLOBlockMark(wifiMLOResultMark(group, result, current)), empty(result.GetSsid(), "<hidden>"))
-	fmt.Fprintf(b, "  ap_mld=%s\n", group.displayMLD)
-	fmt.Fprintf(b, "  link=%s bssid=%s\n", wifiMLOScanLinkID(result), empty(result.GetBssid(), "unknown"))
-	fmt.Fprintf(b, "  band=%s ch=%s freq=%dMHz\n",
+	fmt.Fprintf(b, "[%s] %s\n", wifiMLOBlockMark(wifiMLOResultMark(group, result, current)), empty(result.GetSsid(), "<hidden>"))
+	fmt.Fprintf(b, "  ap_mld=%s link=%s bssid=%s\n", group.displayMLD, wifiMLOScanLinkID(result), empty(result.GetBssid(), "unknown"))
+	fmt.Fprintf(b, "  band=%s ch=%s freq=%dMHz width=%s rssi=%ddBm\n",
 		empty(result.GetBand(), wifiBandFromFrequency(result.GetFrequencyMhz())),
 		wifiChannelFromFrequency(result.GetFrequencyMhz()),
 		result.GetFrequencyMhz(),
+		empty(wifiMLOScanChannelWidth(result.GetChannelWidth()), "unknown"),
+		result.GetRssiDbm(),
 	)
-	fmt.Fprintf(b, "  width=%s rssi=%ddBm\n", empty(wifiMLOScanChannelWidth(result.GetChannelWidth()), "unknown"), result.GetRssiDbm())
 }
 
 func renderWifiMLOAffiliatedLinkBlock(b *strings.Builder, group wifiMLOGroup, result *controlpb.WifiScanResult, link *controlpb.MloLinkInfo, current *controlpb.WifiConnection) {
 	fmt.Fprintf(b, "[%s] affiliated %s\n", wifiMLOBlockMark(wifiMLOLinkMark(group, link, current)), empty(result.GetSsid(), "<hidden>"))
 	fmt.Fprintf(b, "  ap_mld=%s\n", group.displayMLD)
 	fmt.Fprintf(b, "  link=%d parent_bssid=%s\n", link.GetLinkId(), empty(result.GetBssid(), "unknown"))
-	fmt.Fprintf(b, "  band=%s ch=%d state=%s\n", empty(link.GetBand(), "unknown"), link.GetChannel(), empty(link.GetState(), "unknown"))
-	fmt.Fprintf(b, "  rssi=%ddBm ap_mac=%s\n", link.GetRssiDbm(), empty(link.GetApMacAddress(), "unknown"))
+	fmt.Fprintf(b, "  band=%s ch=%d state=%s rssi=%ddBm ap_mac=%s\n", empty(link.GetBand(), "unknown"), link.GetChannel(), empty(link.GetState(), "unknown"), link.GetRssiDbm(), empty(link.GetApMacAddress(), "unknown"))
 }
 
 func renderWifiMLOCapabilities(b *strings.Builder, capabilities *controlpb.WifiCapabilities) {
