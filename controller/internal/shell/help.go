@@ -1063,12 +1063,15 @@ func completionCandidatesForArgsInMode(args []string, mode Mode) []string {
 		if resolved[0] == "show" && resolved[1] == "config" {
 			return []string{"standalone"}
 		}
-		if resolved[0] == "show" && resolved[1] == "wifi" {
-			return []string{"status", "diagnostics", "scan", "capabilities"}
-		}
-		if resolved[0] == "show" && resolved[1] == "standalone" {
-			return []string{"status", "runs", "run"}
-		}
+			if resolved[0] == "show" && resolved[1] == "wifi" {
+				return []string{"status", "diagnostics", "scan", "capabilities"}
+			}
+			if resolved[0] == "show" && resolved[1] == "ip" {
+				return []string{"status"}
+			}
+			if resolved[0] == "show" && resolved[1] == "standalone" {
+				return []string{"status", "runs", "run"}
+			}
 		if resolved[0] == "show" && resolved[1] == "adb" {
 			return []string{"cmd", "dumpsys", "diagnostics", "wifi", "connectivity"}
 		}

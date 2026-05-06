@@ -223,6 +223,55 @@ type AgentListView struct {
 	TargetAll bool
 }
 
+type kvRow struct {
+	label string
+	value string
+}
+
+func kv(label string, value any) kvRow {
+	return kvRow{label: label, value: fmt.Sprint(value)}
+}
+
+func writeSection(b *strings.Builder, title string) {
+	if b.Len() > 0 {
+		current := b.String()
+		if !strings.HasSuffix(current, "\n") {
+			b.WriteByte('\n')
+		}
+		if !strings.HasSuffix(current, "\n\n") {
+			b.WriteByte('\n')
+		}
+	}
+	b.WriteString(title)
+	b.WriteByte('\n')
+}
+
+func writeKVSection(b *strings.Builder, title string, rows ...kvRow) {
+	writeSection(b, title)
+	writeKVRows(b, rows...)
+}
+
+func writeKVRows(b *strings.Builder, rows ...kvRow) {
+	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
+	for _, row := range rows {
+		if row.label == "" || row.value == "" {
+			continue
+		}
+		_, _ = fmt.Fprintf(tw, "  %s\t%s\n", row.label, row.value)
+	}
+	_ = tw.Flush()
+}
+
+func writeListSection(b *strings.Builder, title string, values []string) {
+	if len(values) == 0 {
+		return
+	}
+	writeSection(b, title)
+	for _, value := range values {
+		fmt.Fprintf(b, "  %s\n", value)
+	}
+}
+
 // Agents renders the connected-agent list.
 func Agents(view AgentListView, format pipeline.Format) (string, error) {
 	if format == pipeline.FormatJSON {
@@ -286,14 +335,14 @@ func renderWifiStatus(b *strings.Builder, status *controlpb.WifiStatus) {
 	if status == nil {
 		return
 	}
-	fmt.Fprintf(b, "Wi-Fi: enabled=%t state=%s active=%s networks=%d\n",
-		status.GetEnabled(),
-		empty(status.GetState(), "unknown"),
-		empty(status.GetActiveNetwork(), "none"),
-		status.GetWifiNetworkCount(),
+	writeKVSection(b, "Wi-Fi",
+		kv("enabled", status.GetEnabled()),
+		kv("state", empty(status.GetState(), "unknown")),
+		kv("active", empty(status.GetActiveNetwork(), "none")),
+		kv("networks", status.GetWifiNetworkCount()),
 	)
 	if len(status.GetPermissions()) > 0 {
-		fmt.Fprintf(b, "Permissions: %s\n", strings.Join(status.GetPermissions(), ", "))
+		renderPermissions(b, status.GetPermissions())
 	}
 	if conn := status.GetConnection(); conn != nil && conn.GetSsid() != "" {
 		renderWifiConnection(b, conn)
@@ -303,26 +352,39 @@ func renderWifiStatus(b *strings.Builder, status *controlpb.WifiStatus) {
 	}
 }
 
+func renderPermissions(b *strings.Builder, permissions []string) {
+	writeSection(b, "Permissions")
+	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
+	for _, permission := range permissions {
+		name, state, ok := strings.Cut(permission, "=")
+		if !ok {
+			_, _ = fmt.Fprintf(tw, "  %s\t-\n", permission)
+			continue
+		}
+		_, _ = fmt.Fprintf(tw, "  %s\t%s\n", name, state)
+	}
+	_ = tw.Flush()
+}
+
 func renderWifiConnection(b *strings.Builder, conn *controlpb.WifiConnection) {
-	fmt.Fprintf(b, "Connection: ssid=%s bssid=%s rssi=%ddBm security=%s band=%s channel=%s freq=%dMHz bandwidth=%s link=%dMbps ip=%s\n",
-		conn.GetSsid(),
-		empty(conn.GetBssid(), "unknown"),
-		conn.GetRssiDbm(),
-		empty(conn.GetSecurityType(), "unknown"),
-		wifiBandFromFrequency(conn.GetFrequencyMhz()),
-		wifiChannelFromFrequency(conn.GetFrequencyMhz()),
-		conn.GetFrequencyMhz(),
-		empty(wifiChannelWidth(conn), "unknown"),
-		conn.GetLinkSpeedMbps(),
-		empty(conn.GetIpv4Address(), "none"),
+	writeKVSection(b, "Connection",
+		kv("ssid", conn.GetSsid()),
+		kv("bssid", empty(conn.GetBssid(), "unknown")),
+		kv("rssi", fmt.Sprintf("%ddBm", conn.GetRssiDbm())),
+		kv("security", empty(conn.GetSecurityType(), "unknown")),
+		kv("band", wifiBandFromFrequency(conn.GetFrequencyMhz())),
+		kv("channel", wifiChannelFromFrequency(conn.GetFrequencyMhz())),
+		kv("frequency", fmt.Sprintf("%dMHz", conn.GetFrequencyMhz())),
+		kv("bandwidth", empty(wifiChannelWidth(conn), "unknown")),
+		kv("link", fmt.Sprintf("%dMbps", conn.GetLinkSpeedMbps())),
+		kv("ip", empty(conn.GetIpv4Address(), "none")),
 	)
 	if conn.GetWifiStandard() != "" || conn.GetSupplicantState() != "" || conn.GetDetailedState() != "" {
-		fmt.Fprintf(b, "State: supplicant=%s detailed=%s standard=%s signal=%d/%d\n",
-			empty(conn.GetSupplicantState(), "unknown"),
-			empty(conn.GetDetailedState(), "unknown"),
-			empty(conn.GetWifiStandard(), "unknown"),
-			conn.GetSignalLevel(),
-			conn.GetMaxSignalLevel(),
+		writeKVSection(b, "Connection State",
+			kv("supplicant", empty(conn.GetSupplicantState(), "unknown")),
+			kv("detailed", empty(conn.GetDetailedState(), "unknown")),
+			kv("standard", empty(conn.GetWifiStandard(), "unknown")),
+			kv("signal", fmt.Sprintf("%d/%d", conn.GetSignalLevel(), conn.GetMaxSignalLevel())),
 		)
 	}
 	renderWifiConnectionMLO(b, conn)
@@ -332,14 +394,14 @@ func renderWifiConnectionMLO(b *strings.Builder, conn *controlpb.WifiConnection)
 	if !wifiConnectionHasMLO(conn) {
 		return
 	}
-	fmt.Fprintf(b, "MLO: ap_mld=%s ap_link_id=%s affiliated=%d associated=%d\n",
-		empty(conn.GetApMldMacAddress(), "<none>"),
-		mloLinkID(conn.GetApMloLinkId()),
-		len(conn.GetAffiliatedMloLinks()),
-		len(conn.GetAssociatedMloLinks()),
+	writeKVSection(b, "MLO",
+		kv("ap_mld", empty(conn.GetApMldMacAddress(), "<none>")),
+		kv("ap_link_id", mloLinkID(conn.GetApMloLinkId())),
+		kv("affiliated", len(conn.GetAffiliatedMloLinks())),
+		kv("associated", len(conn.GetAssociatedMloLinks())),
 	)
-	renderMLOLinks(b, "Affiliated MLO links", conn.GetAffiliatedMloLinks())
-	renderMLOLinks(b, "Associated MLO links", conn.GetAssociatedMloLinks())
+	renderMLOLinks(b, "Affiliated MLO Links", conn.GetAffiliatedMloLinks())
+	renderMLOLinks(b, "Associated MLO Links", conn.GetAssociatedMloLinks())
 }
 
 func wifiConnectionHasMLO(conn *controlpb.WifiConnection) bool {
@@ -353,7 +415,7 @@ func renderMLOLinks(b *strings.Builder, title string, links []*controlpb.MloLink
 	if len(links) == 0 {
 		return
 	}
-	fmt.Fprintf(b, "%s:\n", title)
+	writeSection(b, title)
 	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(tw, "ID\tSTATE\tBAND\tCHANNEL\tRSSI\tTX\tRX\tAP_MAC\tSTA_MAC")
 	for _, link := range links {
@@ -393,25 +455,24 @@ func renderIPStatus(b *strings.Builder, status *controlpb.IpStatus) {
 	if status == nil {
 		return
 	}
-	fmt.Fprintf(b, "Network: id=%s transports=%s validated=%t internet=%t interface=%s mtu=%d\n",
-		empty(status.GetNetworkId(), "unknown"),
-		strings.Join(status.GetTransports(), ","),
-		status.GetValidated(),
-		status.GetInternet(),
-		empty(status.GetInterfaceName(), "none"),
-		status.GetMtu(),
+	writeKVSection(b, "Network",
+		kv("id", empty(status.GetNetworkId(), "unknown")),
+		kv("transports", strings.Join(status.GetTransports(), ",")),
+		kv("validated", status.GetValidated()),
+		kv("internet", status.GetInternet()),
+		kv("interface", empty(status.GetInterfaceName(), "none")),
+		kv("mtu", status.GetMtu()),
 	)
-	if len(status.GetAddresses()) > 0 {
-		fmt.Fprintf(b, "Addresses: %s\n", strings.Join(status.GetAddresses(), ", "))
-	}
-	if len(status.GetDnsServers()) > 0 {
-		fmt.Fprintf(b, "DNS: %s\n", strings.Join(status.GetDnsServers(), ", "))
-	}
+	writeListSection(b, "Addresses", status.GetAddresses())
+	writeListSection(b, "DNS", status.GetDnsServers())
 	if status.GetDhcpServer() != "" {
-		fmt.Fprintf(b, "DHCP server: %s\n", status.GetDhcpServer())
+		writeKVSection(b, "DHCP", kv("server", status.GetDhcpServer()))
 	}
 	if status.GetPrivateDnsActive() || status.GetPrivateDnsServerName() != "" {
-		fmt.Fprintf(b, "Private DNS: active=%t server=%s\n", status.GetPrivateDnsActive(), empty(status.GetPrivateDnsServerName(), "none"))
+		writeKVSection(b, "Private DNS",
+			kv("active", status.GetPrivateDnsActive()),
+			kv("server", empty(status.GetPrivateDnsServerName(), "none")),
+		)
 	}
 }
 
@@ -595,11 +656,10 @@ func renderWifiDiagnostics(b *strings.Builder, diagnostics *controlpb.WifiDiagno
 	}
 	renderWifiStatus(b, diagnostics.GetStatus())
 	if diagnostics.GetCapabilities() != nil {
-		b.WriteByte('\n')
 		renderWifiCapabilities(b, diagnostics.GetCapabilities())
 	}
 	if len(diagnostics.GetNetworks()) > 0 {
-		b.WriteString("\nNetworks:\n")
+		writeSection(b, "Networks")
 		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
 		_, _ = fmt.Fprintln(tw, "ID\tACTIVE\tINTERFACE\tVALIDATED\tTRANSPORTS")
 		for _, network := range diagnostics.GetNetworks() {
@@ -615,7 +675,6 @@ func renderWifiDiagnostics(b *strings.Builder, diagnostics *controlpb.WifiDiagno
 		_ = tw.Flush()
 	}
 	if diagnostics.GetScan() != nil {
-		b.WriteByte('\n')
 		renderWifiScan(b, diagnostics.GetScan())
 	}
 }
@@ -624,6 +683,7 @@ func renderWifiScan(b *strings.Builder, scan *controlpb.WifiScan) {
 	if scan == nil {
 		return
 	}
+	writeKVSection(b, "Wi-Fi Scan", kv("results", len(scan.GetResults())), kv("errors", len(scan.GetErrors())))
 	renderDiagnosticFields(b, scan.GetFields())
 	renderScanResults(b, scan.GetResults())
 	renderErrors(b, scan.GetErrors())
@@ -633,15 +693,19 @@ func renderWifiScanDetail(b *strings.Builder, detail *controlpb.WifiScanDetail) 
 	if detail == nil {
 		return
 	}
-	fmt.Fprintf(b, "Scan detail: target=%s results=%d\n", detail.GetTarget(), len(detail.GetResults()))
+	writeKVSection(b, "Wi-Fi Scan Detail",
+		kv("target", detail.GetTarget()),
+		kv("results", len(detail.GetResults())),
+	)
 	renderDiagnosticFields(b, detail.GetFields())
 	renderScanResults(b, detail.GetResults())
 	renderErrors(b, detail.GetErrors())
 }
 
 func renderScanResults(b *strings.Builder, results []*controlpb.WifiScanResult) {
+	writeSection(b, "Scan Results")
 	if len(results) == 0 {
-		b.WriteString("Scan: no results\n")
+		b.WriteString("  no results\n")
 		return
 	}
 	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
@@ -664,6 +728,7 @@ func renderWifiCapabilities(b *strings.Builder, capabilities *controlpb.WifiCapa
 	if capabilities == nil {
 		return
 	}
+	writeSection(b, "Wi-Fi Capabilities")
 	renderDiagnosticFields(b, capabilities.GetFields())
 	writeList(b, "Supported bands", capabilities.GetSupportedBands())
 	writeList(b, "Unsupported bands", capabilities.GetUnsupportedBands())
@@ -677,7 +742,11 @@ func renderWifiOperation(b *strings.Builder, result *controlpb.WifiOperationResu
 	if result == nil {
 		return
 	}
-	fmt.Fprintf(b, "Wi-Fi operation: operation=%s ok=%t message=%s\n", empty(result.GetOperation(), "unknown"), result.GetOk(), empty(result.GetMessage(), "-"))
+	writeKVSection(b, "Wi-Fi Operation",
+		kv("operation", empty(result.GetOperation(), "unknown")),
+		kv("ok", result.GetOk()),
+		kv("message", empty(result.GetMessage(), "-")),
+	)
 	renderDiagnosticFields(b, result.GetFields())
 	renderErrors(b, result.GetErrors())
 	if result.GetStatus() != nil {
@@ -689,8 +758,13 @@ func renderWifiAssert(b *strings.Builder, result *controlpb.WifiAssertResult) {
 	if result == nil {
 		return
 	}
-	fmt.Fprintf(b, "Wi-Fi assert: passed=%t checks=%d elapsed=%dms\n", result.GetPassed(), len(result.GetChecks()), result.GetElapsedMs())
+	writeKVSection(b, "Wi-Fi Assert",
+		kv("passed", result.GetPassed()),
+		kv("checks", len(result.GetChecks())),
+		kv("elapsed", fmt.Sprintf("%dms", result.GetElapsedMs())),
+	)
 	if len(result.GetChecks()) > 0 {
+		writeSection(b, "Checks")
 		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
 		_, _ = fmt.Fprintln(tw, "CHECK\tPASSED\tEXPECTED\tACTUAL\tMESSAGE")
 		for _, check := range result.GetChecks() {
@@ -714,9 +788,15 @@ func renderWifiMonitor(b *strings.Builder, result *controlpb.WifiMonitorResult) 
 	if result == nil {
 		return
 	}
-	fmt.Fprintf(b, "Wi-Fi monitor: events=%d errors=%d\n", len(result.GetEvents()), len(result.GetErrors()))
-	for _, event := range result.GetEvents() {
-		fmt.Fprintf(b, "%s %-12s %s\n", unixMillis(event.GetUnixTimeMs()), empty(event.GetType(), "event"), event.GetMessage())
+	writeKVSection(b, "Wi-Fi Monitor", kv("events", len(result.GetEvents())), kv("errors", len(result.GetErrors())))
+	if len(result.GetEvents()) > 0 {
+		writeSection(b, "Events")
+		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
+		_, _ = fmt.Fprintln(tw, "TIME\tTYPE\tMESSAGE")
+		for _, event := range result.GetEvents() {
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", unixMillis(event.GetUnixTimeMs()), empty(event.GetType(), "event"), event.GetMessage())
+		}
+		_ = tw.Flush()
 	}
 	renderErrors(b, result.GetErrors())
 }
@@ -725,13 +805,14 @@ func renderWifiCycle(b *strings.Builder, result *controlpb.WifiCycleResult) {
 	if result == nil {
 		return
 	}
-	fmt.Fprintf(b, "Wi-Fi cycle: requested=%d completed=%d passed=%d errors=%d\n",
-		result.GetRequestedCount(),
-		result.GetCompletedCount(),
-		result.GetPassedCount(),
-		len(result.GetErrors()),
+	writeKVSection(b, "Wi-Fi Cycle",
+		kv("requested", result.GetRequestedCount()),
+		kv("completed", result.GetCompletedCount()),
+		kv("passed", result.GetPassedCount()),
+		kv("errors", len(result.GetErrors())),
 	)
 	if len(result.GetSteps()) > 0 {
+		writeSection(b, "Steps")
 		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
 		_, _ = fmt.Fprintln(tw, "STEP\tCONNECTED\tPING\tHTTP\tELAPSED\tSSID\tERRORS")
 		for _, step := range result.GetSteps() {
@@ -945,25 +1026,25 @@ func renderStandaloneStatus(b *strings.Builder, status *controlpb.StandaloneStat
 	if status == nil {
 		return
 	}
-	fmt.Fprintf(b, "Standalone: enabled=%t running=%t stored=%d unsynced=%d bytes=%s\n",
-		status.GetEnabled(),
-		status.GetRunning(),
-		status.GetStoredRuns(),
-		status.GetUnsyncedRuns(),
-		formatBytes(status.GetStoredBytes()),
+	writeKVSection(b, "Standalone",
+		kv("enabled", status.GetEnabled()),
+		kv("running", status.GetRunning()),
+		kv("stored", status.GetStoredRuns()),
+		kv("unsynced", status.GetUnsyncedRuns()),
+		kv("bytes", formatBytes(status.GetStoredBytes())),
 	)
 	if status.GetCurrentRunId() != "" {
-		fmt.Fprintf(b, "Current run: %s\n", status.GetCurrentRunId())
+		writeKVSection(b, "Current Run", kv("id", status.GetCurrentRunId()))
 	}
 	if status.GetLastRunId() != "" {
-		fmt.Fprintf(b, "Last run: %s started=%s finished=%s\n",
-			status.GetLastRunId(),
-			unixMillis(status.GetLastStartedUnixMs()),
-			unixMillis(status.GetLastFinishedUnixMs()),
+		writeKVSection(b, "Last Run",
+			kv("id", status.GetLastRunId()),
+			kv("started", unixMillis(status.GetLastStartedUnixMs())),
+			kv("finished", unixMillis(status.GetLastFinishedUnixMs())),
 		)
 	}
 	if status.GetMessage() != "" {
-		fmt.Fprintf(b, "Message: %s\n", status.GetMessage())
+		writeKVSection(b, "Message", kv("text", status.GetMessage()))
 	}
 }
 
@@ -971,14 +1052,15 @@ func renderStandaloneRuns(b *strings.Builder, runs *controlpb.StandaloneRuns) {
 	if runs == nil {
 		return
 	}
-	fmt.Fprintf(b, "Standalone runs: returned=%d total=%d unsynced=%d\n",
-		len(runs.GetRuns()),
-		runs.GetTotalRuns(),
-		runs.GetUnsyncedRuns(),
+	writeKVSection(b, "Standalone Runs",
+		kv("returned", len(runs.GetRuns())),
+		kv("total", runs.GetTotalRuns()),
+		kv("unsynced", runs.GetUnsyncedRuns()),
 	)
 	if len(runs.GetRuns()) == 0 {
 		return
 	}
+	writeSection(b, "Runs")
 	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(tw, "RUN\tSTATUS\tSYNCED\tSTARTED\tFINISHED\tSTEPS\tFAILED\tFESTA")
 	for _, run := range runs.GetRuns() {
@@ -1001,17 +1083,18 @@ func renderStandaloneRun(b *strings.Builder, run *controlpb.StandaloneRunArchive
 		return
 	}
 	summary := run.GetSummary()
-	fmt.Fprintf(b, "Standalone run: id=%s status=%s synced=%t festa=%s steps=%d failed=%d\n",
-		summary.GetRunId(),
-		empty(summary.GetStatus(), "-"),
-		summary.GetSynced(),
-		empty(summary.GetFestaName(), "-"),
-		summary.GetStepCount(),
-		summary.GetFailedStepCount(),
+	writeKVSection(b, "Standalone Run",
+		kv("id", summary.GetRunId()),
+		kv("status", empty(summary.GetStatus(), "-")),
+		kv("synced", summary.GetSynced()),
+		kv("festa", empty(summary.GetFestaName(), "-")),
+		kv("steps", summary.GetStepCount()),
+		kv("failed", summary.GetFailedStepCount()),
 	)
 	if len(run.GetSteps()) == 0 {
 		return
 	}
+	writeSection(b, "Steps")
 	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(tw, "WIFI-GROUP\tSTEP\tATTEMPT\tSTATUS\tELAPSED\tERROR")
 	for _, step := range run.GetSteps() {
@@ -1037,13 +1120,17 @@ func renderStandaloneClear(b *strings.Builder, result *controlpb.StandaloneClear
 	if result == nil {
 		return
 	}
-	fmt.Fprintf(b, "Standalone cleared: runs=%d bytes=%s\n", result.GetRemovedRuns(), formatBytes(result.GetRemovedBytes()))
+	writeKVSection(b, "Standalone Cleared",
+		kv("runs", result.GetRemovedRuns()),
+		kv("bytes", formatBytes(result.GetRemovedBytes())),
+	)
 }
 
 func renderDiagnosticFields(b *strings.Builder, fields []*controlpb.DiagnosticField) {
 	if len(fields) == 0 {
 		return
 	}
+	writeSection(b, "Fields")
 	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
 	for _, field := range fields {
@@ -1053,16 +1140,17 @@ func renderDiagnosticFields(b *strings.Builder, fields []*controlpb.DiagnosticFi
 }
 
 func renderErrors(b *strings.Builder, errors []string) {
+	if len(errors) == 0 {
+		return
+	}
+	writeSection(b, "Errors")
 	for _, err := range errors {
-		fmt.Fprintf(b, "Error: %s\n", err)
+		fmt.Fprintf(b, "  %s\n", err)
 	}
 }
 
 func writeList(b *strings.Builder, label string, values []string) {
-	if len(values) == 0 {
-		return
-	}
-	fmt.Fprintf(b, "%s: %s\n", label, strings.Join(values, ", "))
+	writeListSection(b, label, values)
 }
 
 func wifiBandFromFrequency(freq int32) string {

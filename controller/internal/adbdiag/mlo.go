@@ -41,6 +41,41 @@ type MLOLinkStat struct {
 	BeaconRx     string
 }
 
+type kvRow struct {
+	label string
+	value string
+}
+
+func kv(label string, value any) kvRow {
+	return kvRow{label: label, value: fmt.Sprint(value)}
+}
+
+func writeSection(b *strings.Builder, title string) {
+	if b.Len() > 0 {
+		current := b.String()
+		if !strings.HasSuffix(current, "\n") {
+			b.WriteByte('\n')
+		}
+		if !strings.HasSuffix(current, "\n\n") {
+			b.WriteByte('\n')
+		}
+	}
+	b.WriteString(title)
+	b.WriteByte('\n')
+}
+
+func writeKVSection(b *strings.Builder, title string, rows ...kvRow) {
+	writeSection(b, title)
+	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
+	for _, row := range rows {
+		if row.label == "" || row.value == "" {
+			continue
+		}
+		_, _ = fmt.Fprintf(tw, "  %s\t%s\n", row.label, row.value)
+	}
+	_ = tw.Flush()
+}
+
 // CollectMLO runs a short adb-only MLO supplement for show wifi status.
 //
 // It intentionally returns an empty summary instead of an error; adb support is
@@ -83,34 +118,34 @@ func RenderMLOSummary(summary MLOSummary) string {
 		return ""
 	}
 	var b strings.Builder
-	fields := []string{}
+	rows := []kvRow{}
 	if summary.TIDToLinkSupported != "" {
-		fields = append(fields, "tid_to_link="+summary.TIDToLinkSupported)
+		rows = append(rows, kv("tid_to_link", summary.TIDToLinkSupported))
 	}
 	if summary.APMLDAddress != "" {
-		fields = append(fields, "ap_mld="+summary.APMLDAddress)
+		rows = append(rows, kv("ap_mld", summary.APMLDAddress))
 	}
 	if summary.APMLOLinkID != "" {
-		fields = append(fields, "ap_link_id="+summary.APMLOLinkID)
+		rows = append(rows, kv("ap_link_id", summary.APMLOLinkID))
 	}
 	if summary.MLOMode != "" {
-		fields = append(fields, "mlo_mode="+summary.MLOMode)
+		rows = append(rows, kv("mlo_mode", summary.MLOMode))
 	}
 	if summary.WifiLinkCount != "" {
-		fields = append(fields, "wifi_link_count="+summary.WifiLinkCount)
+		rows = append(rows, kv("wifi_link_count", summary.WifiLinkCount))
 	}
-	if len(fields) == 0 {
-		fields = append(fields, "available=true")
+	if len(rows) == 0 {
+		rows = append(rows, kv("available", "true"))
 	}
-	fmt.Fprintf(&b, "ADB MLO: %s\n", strings.Join(fields, " "))
+	writeKVSection(&b, "ADB MLO", rows...)
 	if summary.APMLOAffiliatedLinks != "" {
-		fmt.Fprintf(&b, "ADB MLO affiliated: %s\n", summary.APMLOAffiliatedLinks)
+		writeKVSection(&b, "ADB MLO Affiliated", kv("links", summary.APMLOAffiliatedLinks))
 	}
 	if summary.VendorData != "" && summary.VendorData != "<none>" {
-		fmt.Fprintf(&b, "ADB MLO vendor_data: %s\n", summary.VendorData)
+		writeKVSection(&b, "ADB MLO Vendor Data", kv("value", summary.VendorData))
 	}
 	if len(summary.LinkStats) > 0 {
-		b.WriteString("ADB MLO link stats:\n")
+		writeSection(&b, "ADB MLO Link Stats")
 		tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 		_, _ = fmt.Fprintln(tw, "ID\tSTATE\tRADIO\tFREQ\tRSSI\tMGMT\tWIDTH\tBEACON")
 		for _, link := range summary.LinkStats {

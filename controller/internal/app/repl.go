@@ -592,6 +592,9 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 			if !strings.HasSuffix(out, "\n") {
 				out += "\n"
 			}
+			if !strings.HasSuffix(out, "\n\n") {
+				out += "\n"
+			}
 			out += adbMLOText
 		}
 		if err == nil && output.includeAgentHeader && output.format == outputText {

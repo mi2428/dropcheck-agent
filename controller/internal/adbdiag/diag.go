@@ -131,30 +131,36 @@ func Render(bundle Bundle, format pipeline.Format) (string, error) {
 		return string(data) + "\n", nil
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "ADB diagnostics: serial=%s", empty(bundle.Serial, "unknown"))
-	if bundle.Agent != "" {
-		fmt.Fprintf(&b, " agent=%s", bundle.Agent)
+	rows := []kvRow{
+		kv("serial", empty(bundle.Serial, "unknown")),
+		kv("kind", bundle.Kind),
+		kv("commands", len(bundle.Commands)),
 	}
-	fmt.Fprintf(&b, " kind=%s commands=%d\n", bundle.Kind, len(bundle.Commands))
+	if bundle.Agent != "" {
+		rows = append(rows, kv("agent", bundle.Agent))
+	}
+	writeKVSection(&b, "ADB Diagnostics", rows...)
 	for _, result := range bundle.Commands {
-		fmt.Fprintf(&b, "\n--- %s ---\n", result.Name)
-		fmt.Fprintf(&b, "Command: %s\n", result.Command)
-		fmt.Fprintf(&b, "Exit: %d elapsed=%dms", result.ExitCode, result.ElapsedMs)
+		writeKVSection(&b, result.Name,
+			kv("command", result.Command),
+			kv("exit", result.ExitCode),
+			kv("elapsed", fmt.Sprintf("%dms", result.ElapsedMs)),
+		)
 		if result.TimedOut {
-			b.WriteString(" timed_out=true")
+			writeKVSection(&b, "ADB Warning", kv("timed_out", "true"))
 		}
 		if result.Error != "" {
-			fmt.Fprintf(&b, " error=%s", result.Error)
+			writeKVSection(&b, "ADB Error", kv("message", result.Error))
 		}
-		b.WriteByte('\n')
 		if result.Stdout != "" {
+			writeSection(&b, "stdout")
 			b.WriteString(result.Stdout)
 			if !strings.HasSuffix(result.Stdout, "\n") {
 				b.WriteByte('\n')
 			}
 		}
 		if result.Stderr != "" {
-			b.WriteString("[stderr]\n")
+			writeSection(&b, "stderr")
 			b.WriteString(result.Stderr)
 			if !strings.HasSuffix(result.Stderr, "\n") {
 				b.WriteByte('\n')
