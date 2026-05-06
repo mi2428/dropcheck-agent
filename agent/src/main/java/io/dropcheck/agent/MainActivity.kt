@@ -643,8 +643,8 @@ class MainActivity : Activity() {
             includeFontPadding = false
             minHeight = 0
             minimumHeight = 0
-            setLineSpacing(0f, 1.05f)
-            setPadding(0, dp(2), 0, dp(2))
+            setLineSpacing(0f, 1.0f)
+            setPadding(0, 0, 0, 0)
             excludeFromContentCapture()
         }
     }
@@ -663,8 +663,8 @@ class MainActivity : Activity() {
             includeFontPadding = false
             minHeight = 0
             minimumHeight = 0
-            setLineSpacing(0f, 1.05f)
-            setPadding(0, dp(2), 0, dp(2))
+            setLineSpacing(0f, 1.0f)
+            setPadding(0, 0, 0, 0)
             setSingleLine(true)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
             imeOptions = EditorInfo.IME_ACTION_GO or EditorInfo.IME_FLAG_NO_EXTRACT_UI
@@ -870,16 +870,18 @@ class MainActivity : Activity() {
     private fun scrollShellToInput() {
         shellScroll.post {
             val inputRow = shellInputRowView ?: return@post
-            val viewportHeight = shellScroll.height - shellScroll.paddingTop - shellScroll.paddingBottom
-            if (viewportHeight <= 0) return@post
+            val fullViewportHeight = shellScroll.height - shellScroll.paddingTop - shellScroll.paddingBottom
+            if (fullViewportHeight <= 0) return@post
+            val visibleViewportHeight = (fullViewportHeight - shellImeBottomInset).coerceAtLeast(dp(48))
             val viewportTop = shellScroll.scrollY
-            val viewportBottom = viewportTop + viewportHeight
+            val viewportBottom = viewportTop + visibleViewportHeight
+            val inputBottom = inputRow.bottom + dp(SHELL_PANEL_PADDING_DP)
             val targetScrollY = when {
-                inputRow.bottom > viewportBottom -> inputRow.bottom - viewportHeight
+                inputBottom > viewportBottom -> inputBottom - visibleViewportHeight
                 inputRow.top < viewportTop -> inputRow.top
                 else -> viewportTop
             }
-            val maxScrollY = (shellContent.height - viewportHeight).coerceAtLeast(0)
+            val maxScrollY = (shellContent.height - fullViewportHeight).coerceAtLeast(0)
             val clampedScrollY = targetScrollY.coerceIn(0, maxScrollY)
             if (clampedScrollY != viewportTop) {
                 shellScroll.smoothScrollTo(0, clampedScrollY)

@@ -46,10 +46,12 @@ class AgentWifiMloRendererTest {
             "MLO Scan",
             "mlo_candidates",
             "Nearby MLO APs",
-            "CUR",
+            "*",
             "AP_MLD",
             "02:00:00:00:00:01",
             "MLO Scan Links",
+            "[*] scan Lab",
+            "[+] affiliated Lab",
             "Current AP Relation",
             "same_mld_results",
             "visible_links",
@@ -58,6 +60,8 @@ class AgentWifiMloRendererTest {
         ).forEach { want ->
             assertTrue("rendered output missing $want:\n$out", out.contains(want))
         }
+        assertTrue(out.indexOf("Current AP Relation") < out.indexOf("Connected MLO"))
+        assertTrue(out.indexOf("Connected MLO") < out.indexOf("MLO Scan"))
         assertFalse(out.contains("Legacy  11:22:33:44:55:66"))
         assertFalse(out.contains("connected_ap_mld_not_seen_in_scan"))
     }

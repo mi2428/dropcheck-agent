@@ -23,10 +23,10 @@ internal object AgentWifiMloRenderer {
         val groups = mloGroups(candidates)
         val current = status.connection.takeIf { status.hasConnection() && it.ssid.isNotBlank() }
 
+        renderCurrentRelation(out, current, candidates)
         renderConnectedMlo(out, current)
         renderScanSummary(out, scan, candidates, context)
         renderNearbyMlo(out, groups, current)
-        renderCurrentRelation(out, current, candidates)
         renderDiagnostics(out, status, scan, current, candidates, context)
         return out
     }
@@ -109,52 +109,56 @@ internal object AgentWifiMloRenderer {
     }
 
     private fun renderScanLinks(out: MutableList<String>, groups: List<MloGroup>, current: WifiConnection?) {
-        val rows = groups.flatMap { group ->
-            group.results.flatMap { result ->
-                scanLinkRows(group, result, current)
+        if (groups.isEmpty()) return
+        section(out, "MLO Scan Links")
+        groups.forEach { group ->
+            group.results.forEach { result ->
+                renderScanLinkBlock(out, group, result, current)
+                result.affiliatedMloLinksList.forEach { link ->
+                    renderAffiliatedLinkBlock(out, group, result, link, current)
+                }
             }
         }
-        if (rows.isEmpty()) return
-        section(out, "MLO Scan Links")
-        table(out,
-            listOf("MARK", "AP_MLD", "LINK", "SSID", "BSSID", "BAND", "CH", "FREQ", "WIDTH", "RSSI", "STATE", "AP_MAC"),
-            rows,
-        )
     }
 
-    private fun scanLinkRows(group: MloGroup, result: WifiScanResult, current: WifiConnection?): List<List<String>> {
-        val rows = mutableListOf<List<String>>()
-        rows += listOf(
-            resultMark(group, result, current),
-            group.displayMld,
-            scanLinkID(result),
-            empty(result.ssid, "<hidden>"),
-            empty(result.bssid, "unknown"),
-            empty(result.band, wifiBandFromFrequency(result.frequencyMhz)),
-            wifiChannelFromFrequency(result.frequencyMhz),
-            result.frequencyMhz.toString(),
-            empty(formatWifiChannelWidth(result.channelWidth), "unknown"),
-            result.rssiDbm.toString(),
-            "scan",
-            empty(result.bssid, "unknown"),
-        )
-        result.affiliatedMloLinksList.forEach { link ->
-            rows += listOf(
-                linkMark(group, link, current),
-                group.displayMld,
-                link.linkId.toString(),
-                empty(result.ssid, "<hidden>"),
-                empty(result.bssid, "unknown"),
-                empty(link.band, "unknown"),
-                link.channel.toString(),
-                "-",
-                "-",
-                link.rssiDbm.toString(),
-                empty(link.state, "unknown"),
-                empty(link.apMacAddress, "unknown"),
-            )
+    private fun renderScanLinkBlock(
+        out: MutableList<String>,
+        group: MloGroup,
+        result: WifiScanResult,
+        current: WifiConnection?,
+    ) {
+        blockGap(out)
+        blockTitle(out, resultMark(group, result, current), "scan", result.ssid)
+        out += "  ap_mld=${group.displayMld}"
+        out += "  link=${scanLinkID(result)} bssid=${empty(result.bssid, "unknown")}"
+        out += "  band=${empty(result.band, wifiBandFromFrequency(result.frequencyMhz))} ch=${wifiChannelFromFrequency(result.frequencyMhz)} freq=${result.frequencyMhz}MHz"
+        out += "  width=${empty(formatWifiChannelWidth(result.channelWidth), "unknown")} rssi=${result.rssiDbm}dBm"
+    }
+
+    private fun renderAffiliatedLinkBlock(
+        out: MutableList<String>,
+        group: MloGroup,
+        result: WifiScanResult,
+        link: MloLinkInfo,
+        current: WifiConnection?,
+    ) {
+        blockGap(out)
+        blockTitle(out, linkMark(group, link, current), "affiliated", result.ssid)
+        out += "  ap_mld=${group.displayMld}"
+        out += "  link=${link.linkId} parent_bssid=${empty(result.bssid, "unknown")}"
+        out += "  band=${empty(link.band, "unknown")} ch=${link.channel} state=${empty(link.state, "unknown")}"
+        out += "  rssi=${link.rssiDbm}dBm ap_mac=${empty(link.apMacAddress, "unknown")}"
+    }
+
+    private fun blockTitle(out: MutableList<String>, mark: String, type: String, ssid: String) {
+        val prefix = mark.ifBlank { "-" }
+        out += "[$prefix] $type ${empty(ssid, "<hidden>")}"
+    }
+
+    private fun blockGap(out: MutableList<String>) {
+        if (out.isNotEmpty() && out.last().isNotBlank() && out.last() != "MLO Scan Links") {
+            out += ""
         }
-        return rows
     }
 
     private fun renderCurrentRelation(out: MutableList<String>, current: WifiConnection?, candidates: List<WifiScanResult>) {
@@ -309,14 +313,18 @@ internal object AgentWifiMloRenderer {
 
     private fun groupMark(group: MloGroup, current: WifiConnection?): String {
         if (current == null) return ""
-        return if (group.results.any { sameMld(current, it) }) "CUR" else ""
+        return when {
+            group.results.any { bssidEquals(it.bssid, current.bssid) } -> "*"
+            group.results.any { sameMld(current, it) } -> "+"
+            else -> ""
+        }
     }
 
     private fun resultMark(group: MloGroup, result: WifiScanResult, current: WifiConnection?): String {
         if (current == null) return ""
         return when {
-            bssidEquals(result.bssid, current.bssid) -> "CUR"
-            group.results.any { sameMld(current, it) } -> "MLD"
+            bssidEquals(result.bssid, current.bssid) -> "*"
+            group.results.any { sameMld(current, it) } -> "+"
             else -> ""
         }
     }
@@ -324,8 +332,8 @@ internal object AgentWifiMloRenderer {
     private fun linkMark(group: MloGroup, link: MloLinkInfo, current: WifiConnection?): String {
         if (current == null) return ""
         return when {
-            bssidEquals(link.apMacAddress, current.bssid) -> "CUR"
-            group.results.any { sameMld(current, it) } -> "MLD"
+            bssidEquals(link.apMacAddress, current.bssid) -> "*"
+            group.results.any { sameMld(current, it) } -> "+"
             else -> ""
         }
     }
@@ -336,17 +344,19 @@ internal object AgentWifiMloRenderer {
 
     private fun scanLinkIds(result: WifiScanResult): Set<Int> {
         val ids = mutableSetOf<Int>()
-        if (result.apMldMacAddress.isNotBlank() || result.apMloLinkId != 0 || result.affiliatedMloLinksCount > 0) {
+        if ((result.apMldMacAddress.isNotBlank() || result.apMloLinkId != 0 || result.affiliatedMloLinksCount > 0) &&
+            result.apMloLinkId >= 0
+        ) {
             ids += result.apMloLinkId
         }
-        result.affiliatedMloLinksList.forEach { ids += it.linkId }
+        result.affiliatedMloLinksList.filter { it.linkId >= 0 }.forEach { ids += it.linkId }
         return ids
     }
 
     private fun associatedLinkIds(conn: WifiConnection): Set<Int> {
         val ids = mutableSetOf<Int>()
-        if (connectionHasMlo(conn)) ids += conn.apMloLinkId
-        conn.associatedMloLinksList.forEach { ids += it.linkId }
+        if (connectionHasMlo(conn) && conn.apMloLinkId >= 0) ids += conn.apMloLinkId
+        conn.associatedMloLinksList.filter { it.linkId >= 0 }.forEach { ids += it.linkId }
         return ids
     }
 
