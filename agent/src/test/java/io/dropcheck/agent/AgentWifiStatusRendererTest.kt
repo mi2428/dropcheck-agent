@@ -21,10 +21,14 @@ class AgentWifiStatusRendererTest {
                 .setSsid("Lab")
                 .setBssid("aa:bb:cc:dd:ee:ff")
                 .setRssiDbm(-48)
+                .setNetworkId(102)
                 .setFrequencyMhz(5975)
                 .setLinkSpeedMbps(1200)
+                .setTxLinkSpeedMbps(900)
+                .setRxLinkSpeedMbps(1200)
                 .setSecurityType("wpa3")
                 .setWifiStandard("11be")
+                .setMacAddress("02:00:00:00:00:09")
                 .setSupplicantState("COMPLETED")
                 .setDetailedState("CONNECTED")
                 .setChannelWidth("WIDTH_160MHZ")
@@ -69,6 +73,7 @@ class AgentWifiStatusRendererTest {
                 .setInternet(true)
                 .addCapabilities("internet")
                 .addCapabilities("validated")
+                .addCapabilities("not_roaming")
                 .addCapabilities("not_metered")
                 .setDownstreamKbps(1200000)
                 .setUpstreamKbps(600000)
@@ -77,7 +82,14 @@ class AgentWifiStatusRendererTest {
                 .setInterfaceName("wlan0")
                 .setMtu(1500)
                 .addAddresses("192.0.2.10/24")
+                .addAddresses("2001:db8::10/64")
+                .addAddresses("2001:db8::11/64")
                 .addDnsServers("192.0.2.1")
+                .addDnsServers("1.1.1.1")
+                .setDhcpServer("192.0.2.254")
+                .addRoutes("0.0.0.0/0 -> 192.0.2.1 wlan0")
+                .addRoutes("192.0.2.0/24 -> 0.0.0.0 wlan0")
+                .setPrivateDnsActive(true)
                 .build())
             .build()
 
@@ -85,32 +97,58 @@ class AgentWifiStatusRendererTest {
 
         listOf(
             "Wi-Fi",
+            "permissions\n    all_granted\n    fine_location",
             "Connection",
-            "bandwidth  160MHz",
-            "Connection Capabilities",
-            "CAPABILITY",
+            "bandwidth   160MHz",
+            "link        1200Mbps tx=900Mbps rx=1200Mbps",
+            "sta_mac     02:00:00:00:00:09",
+            "AP Capabilities",
+            "roaming",
             "11r",
             "11k",
             "11v_bss_transition",
-            "eht_capabilities",
-            "id=255 ext=108 bytes=2",
+            "roaming\n    11k\n    11r\n    11v_bss_transition",
+            "phy      eht",
             "MLO",
+            "source      android",
             "present     true",
             "ap_mld      02:00:00:00:00:01",
-            "Associated MLO Links",
+            "MLO Links",
+            "associated",
             "active",
             "1200",
             "Network",
-            "Network Capabilities",
             "not_metered",
+            "capabilities\n    not_metered\n    not_roaming",
+            "bandwidth     down=1200000kbps up=600000kbps",
+            "ipv4          192.0.2.10/24",
+            "ipv6\n    2001:db8::10/64\n    2001:db8::11/64",
+            "dns\n    192.0.2.1\n    1.1.1.1",
+            "dhcp_server   192.0.2.254",
+            "private_dns   active=true server=none",
+            "routes\n    0.0.0.0/0 -> 192.0.2.1 wlan0\n    192.0.2.0/24 -> 0.0.0.0 wlan0",
             "wlan0",
         ).forEach { want ->
             assertTrue("rendered output missing $want:\n$out", out.contains(want))
         }
         listOf(
+            "Connection Capabilities",
+            "Connection State",
             "Connection Information Elements",
+            "CAPABILITY",
+            "id=255 ext=108 bytes=2",
+            "Network Capabilities",
+            "\nAddresses\n",
+            "\nDNS\n",
+            "\nDHCP\n",
+            "\nPrivate DNS\n",
             "raw_caps",
             "internet,validated,not_metered",
+            "all_granted fine_location",
+            "not_metered,not_roaming",
+            "192.0.2.1,1.1.1.1",
+            "0.0.0.0/0 -> 192.0.2.1 wlan0 | 192.0.2.0/24 -> 0.0.0.0 wlan0",
+            "11k,11r,11v_bss_transition",
             "security=wpa3",
             "signal_strength",
             "802.11k",
@@ -124,6 +162,28 @@ class AgentWifiStatusRendererTest {
             out.indexOf("11k") < out.indexOf("11r") &&
                 out.indexOf("11r") < out.indexOf("11v_bss_transition"),
         )
+    }
+
+    @Test
+    fun preservesConnectionNetworkFallbackWhenIpStatusIsMissing() {
+        val status = WifiStatus.newBuilder()
+            .setConnection(WifiConnection.newBuilder()
+                .setSsid("Lab")
+                .setNetworkId(119)
+                .setIpv4Address("192.0.2.10")
+                .build())
+            .build()
+
+        val out = AgentWifiStatusRenderer.render(status).joinToString("\n")
+
+        listOf(
+            "Network",
+            "id    119",
+            "ipv4  192.0.2.10",
+        ).forEach { want ->
+            assertTrue("rendered output missing $want:\n$out", out.contains(want))
+        }
+        assertTrue("rendered output included stale connection ip row:\n$out", !out.contains("\n  ip "))
     }
 
     @Test

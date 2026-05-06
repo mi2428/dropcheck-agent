@@ -209,6 +209,10 @@ func TestRenderWifiStatusShowsChannelAndBandwidth(t *testing.T) {
 		Payload: &controlpb.CommandResult_WifiStatus{
 			WifiStatus: &controlpb.WifiStatus{
 				Enabled: true,
+				Permissions: []string{
+					"ACCESS_FINE_LOCATION=granted",
+					"NEARBY_WIFI_DEVICES=granted",
+				},
 				Connection: &controlpb.WifiConnection{
 					Ssid:          "Lab",
 					Bssid:         "aa:bb:cc:dd:ee:ff",
@@ -247,12 +251,20 @@ func TestRenderWifiStatusShowsCapabilities(t *testing.T) {
 		Payload: &controlpb.CommandResult_WifiStatus{
 			WifiStatus: &controlpb.WifiStatus{
 				Enabled: true,
+				Permissions: []string{
+					"ACCESS_FINE_LOCATION=granted",
+					"NEARBY_WIFI_DEVICES=granted",
+				},
 				Connection: &controlpb.WifiConnection{
-					Ssid:         "Lab",
-					Bssid:        "aa:bb:cc:dd:ee:ff",
-					FrequencyMhz: 5975,
-					WifiStandard: "802.11be",
-					SecurityType: "wpa3_sae",
+					Ssid:            "Lab",
+					Bssid:           "aa:bb:cc:dd:ee:ff",
+					FrequencyMhz:    5975,
+					LinkSpeedMbps:   1200,
+					TxLinkSpeedMbps: 900,
+					RxLinkSpeedMbps: 1200,
+					MacAddress:      "02:00:00:00:00:09",
+					WifiStandard:    "802.11be",
+					SecurityType:    "wpa3_sae",
 					InformationElements: []*controlpb.WifiInformationElement{{
 						Id:        54,
 						ByteCount: 3,
@@ -273,13 +285,18 @@ func TestRenderWifiStatusShowsCapabilities(t *testing.T) {
 					}},
 				},
 				IpStatus: &controlpb.IpStatus{
-					NetworkId:       "102",
-					Transports:      []string{"wifi"},
-					Capabilities:    []string{"internet", "validated", "not_metered"},
-					DownstreamKbps:  1200000,
-					UpstreamKbps:    600000,
-					SignalStrength:  -52,
-					RawCapabilities: "raw_caps",
+					NetworkId:        "102",
+					Transports:       []string{"wifi"},
+					Capabilities:     []string{"internet", "validated", "not_roaming", "not_metered"},
+					DownstreamKbps:   1200000,
+					UpstreamKbps:     600000,
+					SignalStrength:   -52,
+					RawCapabilities:  "raw_caps",
+					Addresses:        []string{"192.0.2.10/24", "2001:db8::10/64", "2001:db8::11/64"},
+					DnsServers:       []string{"192.0.2.1", "1.1.1.1"},
+					DhcpServer:       "192.0.2.254",
+					Routes:           []string{"0.0.0.0/0 -> 192.0.2.1 wlan0", "192.0.2.0/24 -> 0.0.0.0 wlan0"},
+					PrivateDnsActive: true,
 				},
 			},
 		},
@@ -290,26 +307,61 @@ func TestRenderWifiStatusShowsCapabilities(t *testing.T) {
 		t.Fatalf("renderCommandResult() error = %v", err)
 	}
 	for _, want := range []string{
-		"Connection Capabilities",
-		"CAPABILITY",
+		"AP Capabilities",
+		"permissions\n    all_granted\n    ACCESS_FINE_LOCATION\n    NEARBY_WIFI_DEVICES",
+		"roaming",
 		"11r",
 		"11k",
 		"11v_bss_transition",
-		"eht_capabilities",
-		"id=255 ext=108 bytes=2",
-		"Network Capabilities",
+		"phy",
+		"eht",
+		"roaming\n    11k\n    11r\n    11v_bss_transition",
+		"link",
+		"tx=900Mbps rx=1200Mbps",
+		"sta_mac",
+		"02:00:00:00:00:09",
+		"Network",
 		"not_metered",
+		"capabilities\n    not_metered\n    not_roaming",
+		"bandwidth",
+		"down=1200000kbps up=600000kbps",
 		"signal_strength",
 		"-52",
+		"ipv4",
+		"192.0.2.10/24",
+		"ipv6\n    2001:db8::10/64\n    2001:db8::11/64",
+		"dns",
+		"192.0.2.1",
+		"dns\n    192.0.2.1\n    1.1.1.1",
+		"dhcp_server",
+		"192.0.2.254",
+		"private_dns",
+		"active=true server=none",
+		"routes",
+		"0.0.0.0/0 -> 192.0.2.1 wlan0",
+		"routes\n    0.0.0.0/0 -> 192.0.2.1 wlan0\n    192.0.2.0/24 -> 0.0.0.0 wlan0",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("rendered output = %q, missing %q", out, want)
 		}
 	}
 	for _, unwanted := range []string{
+		"Connection Capabilities",
+		"CAPABILITY",
 		"Connection Information Elements",
+		"id=255 ext=108 bytes=2",
+		"Network Capabilities",
+		"\nAddresses\n",
+		"\nDNS\n",
+		"\nDHCP\n",
+		"\nPrivate DNS\n",
 		"raw_caps",
 		"internet,validated,not_metered",
+		"all_granted ACCESS_FINE_LOCATION,NEARBY_WIFI_DEVICES",
+		"not_metered,not_roaming",
+		"192.0.2.1,1.1.1.1",
+		"0.0.0.0/0 -> 192.0.2.1 wlan0 | 192.0.2.0/24 -> 0.0.0.0 wlan0",
+		"11k,11r,11v_bss_transition",
 		"security=wpa3_sae",
 	} {
 		if strings.Contains(out, unwanted) {
@@ -319,6 +371,34 @@ func TestRenderWifiStatusShowsCapabilities(t *testing.T) {
 	if !(strings.Index(out, "11k") < strings.Index(out, "11r") &&
 		strings.Index(out, "11r") < strings.Index(out, "11v_bss_transition")) {
 		t.Fatalf("rendered output = %q, capability rows are not sorted", out)
+	}
+}
+
+func TestRenderWifiStatusPreservesConnectionNetworkFallback(t *testing.T) {
+	result := &controlpb.CommandResult{
+		Status: controlpb.CommandResult_STATUS_OK,
+		Payload: &controlpb.CommandResult_WifiStatus{
+			WifiStatus: &controlpb.WifiStatus{
+				Connection: &controlpb.WifiConnection{
+					Ssid:        "Lab",
+					NetworkId:   119,
+					Ipv4Address: "192.0.2.10",
+				},
+			},
+		},
+	}
+
+	out, err := CommandResult("agent", result, command.Options{}, pipeline.FormatText)
+	if err != nil {
+		t.Fatalf("renderCommandResult() error = %v", err)
+	}
+	for _, want := range []string{"Network\n", "id", "119", "ipv4", "192.0.2.10"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered output = %q, missing %q", out, want)
+		}
+	}
+	if strings.Contains(out, "\n  ip ") {
+		t.Fatalf("rendered output = %q, included stale connection ip row", out)
 	}
 }
 
@@ -387,7 +467,8 @@ func TestRenderWifiStatusShowsMLOFields(t *testing.T) {
 		"ap_mld",
 		"02:00:00:00:00:01",
 		"ap_link_id",
-		"Associated MLO Links",
+		"MLO Links",
+		"associated",
 		"active",
 		"1200",
 	} {
@@ -462,6 +543,9 @@ func TestRenderWifiScanShowsMLOFields(t *testing.T) {
 		t.Fatalf("renderCommandResult() error = %v", err)
 	}
 	for _, want := range []string{
+		"requested_band",
+		"results",
+		"total",
 		"AP_MLD",
 		"AP_LINK",
 		"AFFILIATED",
@@ -493,6 +577,10 @@ func TestRenderWifiScanShowsMLOFields(t *testing.T) {
 		}
 	}
 	for _, unwanted := range []string{
+		"FIELD",
+		"VALUE",
+		"scan_result_count",
+		"scan_result_total_count",
 		"\nFields\n",
 		"\nScan Results\n",
 	} {
