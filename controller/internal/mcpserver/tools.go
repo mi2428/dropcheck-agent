@@ -54,6 +54,29 @@ type wifiReconnectArgs struct {
 	TimeoutMS uint32 `json:"timeout_ms,omitempty" jsonschema:"reconnect timeout in milliseconds"`
 }
 
+type wifiCycleArgs struct {
+	Target           string `json:"target,omitempty" jsonschema:"agent target; omit when one agent is connected"`
+	ESSID            string `json:"essid" jsonschema:"Wi-Fi ESSID/SSID to connect to during each cycle"`
+	Passphrase       string `json:"passphrase,omitempty" jsonschema:"Wi-Fi passphrase; prefer passphrase_env so secrets stay out of transcripts"`
+	PassphraseEnv    string `json:"passphrase_env,omitempty" jsonschema:"environment variable containing the Wi-Fi passphrase"`
+	Security         string `json:"security,omitempty" jsonschema:"auto, wpa2, wpa3, or transition"`
+	BSSID            string `json:"bssid,omitempty" jsonschema:"optional AP BSSID to pin the connection"`
+	Band             string `json:"band,omitempty" jsonschema:"all, 2.4ghz, 5ghz, 6ghz, or 60ghz"`
+	MacRandomization string `json:"mac_randomization,omitempty" jsonschema:"auto, none, persistent, or non-persistent"`
+	TimeoutMS        uint32 `json:"timeout_ms,omitempty" jsonschema:"connect timeout in milliseconds"`
+	Count            uint32 `json:"count,omitempty" jsonschema:"number of connect/probe/disconnect cycles; defaults to 3"`
+	PingHost         string `json:"ping_host,omitempty" jsonschema:"host or IP address to ping after each connect"`
+	HTTPURL          string `json:"http_url,omitempty" jsonschema:"URL to request after each connect"`
+	ForgetAfterEach  bool   `json:"forget_after_each,omitempty" jsonschema:"forget the network after each cycle"`
+	PauseMS          uint32 `json:"pause_ms,omitempty" jsonschema:"pause between cycles in milliseconds"`
+}
+
+type wifiMonitorArgs struct {
+	Target     string `json:"target,omitempty" jsonschema:"agent target; omit when one agent is connected"`
+	DurationMS uint32 `json:"duration_ms,omitempty" jsonschema:"monitor duration in milliseconds; defaults to 10000"`
+	IntervalMS uint32 `json:"interval_ms,omitempty" jsonschema:"sampling interval in milliseconds; defaults to 1000"`
+}
+
 type wifiExpectationArgs struct {
 	Target           string `json:"target,omitempty" jsonschema:"agent target; omit when one agent is connected"`
 	ESSID            string `json:"essid,omitempty" jsonschema:"expected ESSID/SSID"`
@@ -214,6 +237,9 @@ func registerTools(server *mcp.Server, backend Backend) {
 	addOperationTool[targetArgs](server, backend, "dropcheck_wifi_diagnostics", "Read Wi-Fi diagnostics, configured network diagnostics, and scan data.", annotations(true, nil, true), func(in targetArgs) (string, dropcmd.Operation, error) {
 		return in.Target, dropcmd.WifiDiagnosticsOperation(), nil
 	})
+	addOperationTool[targetArgs](server, backend, "dropcheck_wifi_mlo", "Read MLO-focused Wi-Fi diagnostics.", annotations(true, nil, true), func(in targetArgs) (string, dropcmd.Operation, error) {
+		return in.Target, dropcmd.WifiMLOOperation(), nil
+	})
 	addOperationTool[targetArgs](server, backend, "dropcheck_wifi_capabilities", "Read device Wi-Fi capability diagnostics.", annotations(true, nil, true), func(in targetArgs) (string, dropcmd.Operation, error) {
 		return in.Target, dropcmd.WifiCapabilitiesOperation(), nil
 	})
@@ -254,6 +280,33 @@ func registerTools(server *mcp.Server, backend Backend) {
 	})
 	addOperationTool[wifiReconnectArgs](server, backend, "dropcheck_wifi_reconnect", "Request Android Wi-Fi reconnect and wait for connected state.", annotations(false, new(false), false), func(in wifiReconnectArgs) (string, dropcmd.Operation, error) {
 		op, err := dropcmd.WifiReconnectOperation(millis(in.TimeoutMS))
+		return in.Target, op, err
+	})
+	addOperationTool[wifiCycleArgs](server, backend, "dropcheck_wifi_cycle", "Run repeated Wi-Fi connect, probe, and disconnect cycles.", annotations(false, new(false), false), func(in wifiCycleArgs) (string, dropcmd.Operation, error) {
+		passphrase, err := passphraseValue(in.Passphrase, in.PassphraseEnv)
+		if err != nil {
+			return in.Target, dropcmd.Operation{}, err
+		}
+		op, err := dropcmd.WifiCycleOperation(dropcmd.WifiCycleOptions{
+			WifiConnectOptions: dropcmd.WifiConnectOptions{
+				SSID:             in.ESSID,
+				Passphrase:       passphrase,
+				Security:         in.Security,
+				BSSID:            in.BSSID,
+				Band:             in.Band,
+				MacRandomization: in.MacRandomization,
+				Timeout:          millis(in.TimeoutMS),
+			},
+			Count:           number(in.Count),
+			PingHost:        in.PingHost,
+			HTTPURL:         in.HTTPURL,
+			ForgetAfterEach: in.ForgetAfterEach,
+			Pause:           millis(in.PauseMS),
+		})
+		return in.Target, op, err
+	})
+	addOperationTool[wifiMonitorArgs](server, backend, "dropcheck_wifi_monitor", "Monitor Wi-Fi events for a bounded duration.", annotations(true, nil, true), func(in wifiMonitorArgs) (string, dropcmd.Operation, error) {
+		op, err := dropcmd.WifiMonitorOperation(millis(in.DurationMS), millis(in.IntervalMS))
 		return in.Target, op, err
 	})
 	addOperationTool[wifiExpectationArgs](server, backend, "dropcheck_wifi_wait_connected", "Wait until Wi-Fi matches the requested connection state.", annotations(true, nil, true), func(in wifiExpectationArgs) (string, dropcmd.Operation, error) {

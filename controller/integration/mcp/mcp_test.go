@@ -190,8 +190,11 @@ func TestToolsListIncludesDropcheckOperations(t *testing.T) {
 		"dropcheck_session_start",
 		"dropcheck_agents",
 		"dropcheck_wifi_connect",
+		"dropcheck_wifi_cycle",
 		"dropcheck_wifi_disconnect",
 		"dropcheck_wifi_forget",
+		"dropcheck_wifi_mlo",
+		"dropcheck_wifi_monitor",
 		"dropcheck_ping",
 		"dropcheck_standalone_run_once",
 		"dropcheck_command",
@@ -200,6 +203,60 @@ func TestToolsListIncludesDropcheckOperations(t *testing.T) {
 		if !slices.Contains(names, name) {
 			t.Fatalf("tool %s not listed; got %v", name, names)
 		}
+	}
+}
+
+func TestFirstClassWifiToolsCoverShellOperations(t *testing.T) {
+	backend := newFakeBackend()
+	session, cleanup := connectMCP(t, backend)
+	defer cleanup()
+
+	if result, structured := callTool(t, session, "dropcheck_wifi_mlo", map[string]any{"target": "serial-1"}); result.IsError {
+		t.Fatalf("wifi mlo IsError=true structured=%v", structured)
+	}
+	if result, structured := callTool(t, session, "dropcheck_wifi_monitor", map[string]any{
+		"target":      "serial-1",
+		"duration_ms": float64(15000),
+		"interval_ms": float64(500),
+	}); result.IsError {
+		t.Fatalf("wifi monitor IsError=true structured=%v", structured)
+	}
+	if result, structured := callTool(t, session, "dropcheck_wifi_cycle", map[string]any{
+		"target":            "serial-1",
+		"essid":             "Lab",
+		"passphrase":        "secret",
+		"security":          "wpa3",
+		"band":              "6ghz",
+		"count":             float64(2),
+		"ping_host":         "1.1.1.1",
+		"http_url":          "https://example.test/health",
+		"forget_after_each": true,
+		"pause_ms":          float64(250),
+	}); result.IsError {
+		t.Fatalf("wifi cycle IsError=true structured=%v", structured)
+	}
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	if len(backend.runs) != 3 {
+		t.Fatalf("runs=%d, want 3", len(backend.runs))
+	}
+	if backend.runs[0].op.Name != "wifi.mlo" {
+		t.Fatalf("mlo operation=%s", backend.runs[0].op.Name)
+	}
+	monitor := backend.runs[1].op.Command.GetMonitorWifi()
+	if monitor == nil || monitor.GetDurationMs() != 15000 || monitor.GetIntervalMs() != 500 {
+		t.Fatalf("MonitorWifi=%#v", monitor)
+	}
+	cycle := backend.runs[2].op.Command.GetCycleWifi()
+	if cycle == nil {
+		t.Fatalf("CycleWifi command missing")
+	}
+	if cycle.GetConnect().GetSsid() != "Lab" || cycle.GetConnect().GetPassphrase() != "secret" || cycle.GetConnect().GetBand() != controlpb.WifiBand_WIFI_BAND_6_GHZ {
+		t.Fatalf("CycleWifi.Connect=%#v", cycle.GetConnect())
+	}
+	if cycle.GetCount() != 2 || cycle.GetPingHost() != "1.1.1.1" || cycle.GetHttpUrl() != "https://example.test/health" || !cycle.GetForgetAfterEach() || cycle.GetPauseMs() != 250 {
+		t.Fatalf("CycleWifi=%#v", cycle)
 	}
 }
 
