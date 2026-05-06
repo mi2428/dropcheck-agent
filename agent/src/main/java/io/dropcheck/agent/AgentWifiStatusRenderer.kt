@@ -16,23 +16,46 @@ internal object AgentWifiStatusRenderer {
             "state" to empty(status.state, "unknown"),
             "active" to empty(status.activeNetwork, "none"),
             "networks" to status.wifiNetworkCount.toString(),
+            "permissions" to permissionSummary(status.permissionsList),
         )
-        if (status.permissionsList.isNotEmpty()) renderPermissions(out, status.permissionsList)
         val connection = status.connection.takeIf { status.hasConnection() && it.ssid.isNotBlank() }
         if (connection != null) renderConnection(out, connection)
-        if (status.hasIpStatus()) renderIPStatus(out, status.ipStatus, connection)
+        if (status.hasIpStatus()) {
+            renderIPStatus(out, status.ipStatus, connection)
+        } else if (connection != null) {
+            val rows = connectionNetworkRows(connection)
+            if (rows.isNotEmpty()) {
+                section(out, "Network")
+                kv(out, *rows.toTypedArray())
+            }
+        }
         return out
     }
 
-    private fun renderPermissions(out: MutableList<String>, permissions: List<String>) {
-        section(out, "Permissions")
-        permissions.forEach { permission ->
+    private fun permissionSummary(permissions: List<String>): String {
+        if (permissions.isEmpty()) return ""
+        val granted = mutableListOf<String>()
+        val missing = permissions.mapNotNull { permission ->
             val parts = permission.split("=", limit = 2)
-            if (parts.size == 2) {
-                out += "  ${parts[0]} ${parts[1]}"
+            if (parts.size != 2) return@mapNotNull permission
+            if (parts[1].equals("granted", ignoreCase = true)) {
+                granted += parts[0]
+                null
             } else {
-                out += "  $permission -"
+                "${parts[0]}=${parts[1]}"
             }
+        }
+        return if (missing.isEmpty()) {
+            multiLineValue(listOf("all_granted") + granted.sorted())
+        } else {
+            multiLineValue(buildList {
+                add("missing")
+                addAll(missing.sorted())
+                if (granted.isNotEmpty()) {
+                    add("granted")
+                    addAll(granted.sorted())
+                }
+            })
         }
     }
 
@@ -41,100 +64,133 @@ internal object AgentWifiStatusRenderer {
         kv(out,
             "ssid" to conn.ssid,
             "bssid" to empty(conn.bssid, "unknown"),
-            "rssi" to "${conn.rssiDbm}dBm",
             "security" to empty(conn.securityType, "unknown"),
+            "standard" to empty(conn.wifiStandard, "unknown"),
+            "rssi" to "${conn.rssiDbm}dBm",
+            "signal" to wifiSignalLevel(conn),
             "band" to wifiBandFromFrequency(conn.frequencyMhz),
             "channel" to wifiChannelFromFrequency(conn.frequencyMhz),
             "frequency" to "${conn.frequencyMhz}MHz",
             "bandwidth" to empty(formatWifiChannelWidth(conn.channelWidth), "unknown"),
-            "link" to "${conn.linkSpeedMbps}Mbps",
-            "ip" to empty(conn.ipv4Address, "none"),
+            "link" to wifiLinkSpeed(conn),
+            "sta_mac" to conn.macAddress,
+            "supplicant" to empty(conn.supplicantState, "unknown"),
+            "detailed" to empty(conn.detailedState, "unknown"),
         )
-        if (conn.wifiStandard.isNotBlank() || conn.supplicantState.isNotBlank() || conn.detailedState.isNotBlank()) {
-            section(out, "Connection State")
-            kv(out,
-                "supplicant" to empty(conn.supplicantState, "unknown"),
-                "detailed" to empty(conn.detailedState, "unknown"),
-                "standard" to empty(conn.wifiStandard, "unknown"),
-                "signal" to "${conn.signalLevel}/${conn.maxSignalLevel}",
-            )
-        }
-        renderConnectionCapabilities(out, conn)
+        renderAPCapabilities(out, conn)
         renderMLO(out, conn)
     }
 
-    private fun renderConnectionCapabilities(out: MutableList<String>, conn: WifiConnection) {
-        val rows = connectionCapabilityRows(conn)
-        if (rows.isEmpty()) return
-        section(out, "Connection Capabilities")
-        table(out,
-            listOf("CAPABILITY", "SOURCE", "DETAIL"),
-            rows.map { row -> listOf(row.capability, row.source, empty(row.detail, "-")) },
-        )
+    private fun wifiSignalLevel(conn: WifiConnection): String {
+        if (conn.maxSignalLevel <= 0 && conn.signalLevel == 0) return ""
+        return "${conn.signalLevel}/${conn.maxSignalLevel}"
     }
 
-    private data class CapabilityRow(val capability: String, val source: String, val detail: String)
-
-    private fun connectionCapabilityRows(conn: WifiConnection): List<CapabilityRow> {
-        val rows = mutableListOf<CapabilityRow>()
-        if (conn.hiddenSsid) rows += CapabilityRow("hidden_ssid", "android", "true")
-        if (conn.restricted) rows += CapabilityRow("restricted", "android", "true")
-        if (conn.passpointFqdn.isNotBlank()) rows += CapabilityRow("passpoint_fqdn", "android", conn.passpointFqdn)
-        if (conn.passpointProviderFriendlyName.isNotBlank()) {
-            rows += CapabilityRow("passpoint_provider", "android", conn.passpointProviderFriendlyName)
-        }
-        if (conn.passpointUniqueId.isNotBlank()) rows += CapabilityRow("passpoint_unique_id", "android", conn.passpointUniqueId)
-        if (conn.maxSupportedTxLinkSpeedMbps > 0) {
-            rows += CapabilityRow("max_supported_tx", "android", "${conn.maxSupportedTxLinkSpeedMbps}Mbps")
-        }
-        if (conn.maxSupportedRxLinkSpeedMbps > 0) {
-            rows += CapabilityRow("max_supported_rx", "android", "${conn.maxSupportedRxLinkSpeedMbps}Mbps")
-        }
-        rows += informationElementCapabilityRows(conn.informationElementsList, CapabilityMode.ALL)
-        return rows.sortedWith(compareBy<CapabilityRow> { it.capability }.thenBy { it.source }.thenBy { it.detail })
-    }
-
-    private enum class CapabilityMode { ALL, CONNECTION }
-
-    private fun informationElementCapabilityRows(elements: List<WifiInformationElement>, mode: CapabilityMode): List<CapabilityRow> {
-        return elements.mapNotNull { element ->
-            val name = informationElementCapabilityName(element, mode) ?: return@mapNotNull null
-            CapabilityRow(name, "ie", informationElementDetail(element))
-        }
-    }
-
-    private fun informationElementCapabilityName(element: WifiInformationElement, mode: CapabilityMode): String? {
-        return when (element.id) {
-            54 -> "11r"
-            55 -> "fast_bss_transition"
-            70 -> "11k"
-            107 -> "interworking"
-            111 -> "roaming_consortium"
-            127 -> when {
-                informationElementBit(element, 19) -> "11v_bss_transition"
-                mode == CapabilityMode.ALL -> informationElementName(element)
-                else -> null
-            }
-            201 -> "reduced_neighbor_report"
-            255 -> when (element.idExt) {
-                107 -> "eht_multi_link"
-                else -> if (mode == CapabilityMode.ALL) informationElementExtensionName(element.idExt) else null
-            }
-            else -> if (mode == CapabilityMode.ALL) informationElementName(element) else null
-        }
-    }
-
-    private fun informationElementDetail(element: WifiInformationElement): String {
-        val parts = mutableListOf("id=${element.id}")
-        val ext = informationElementExt(element)
-        if (ext != "-") parts += "ext=$ext"
-        parts += "bytes=${element.byteCount}"
-        if (element.id == 127 && informationElementBit(element, 19)) parts += "bss_transition=true"
+    private fun wifiLinkSpeed(conn: WifiConnection): String {
+        val parts = mutableListOf("${conn.linkSpeedMbps}Mbps")
+        if (conn.txLinkSpeedMbps > 0) parts += "tx=${conn.txLinkSpeedMbps}Mbps"
+        if (conn.rxLinkSpeedMbps > 0) parts += "rx=${conn.rxLinkSpeedMbps}Mbps"
         return parts.joinToString(" ")
     }
 
-    private fun informationElementExt(element: WifiInformationElement): String {
-        return if (element.id == 255 || element.idExt > 0) element.idExt.toString() else "-"
+    private fun renderAPCapabilities(out: MutableList<String>, conn: WifiConnection) {
+        val rows = apCapabilityRows(conn)
+        if (rows.isEmpty()) return
+        section(out, "AP Capabilities")
+        kv(out, *rows.toTypedArray())
+    }
+
+    private fun apCapabilityRows(conn: WifiConnection): List<Pair<String, String>> {
+        val summary = newApCapabilitySummary(conn.informationElementsList)
+        val rows = mutableListOf<Pair<String, String>>()
+        fun add(name: String, values: Set<String>) {
+            if (values.isNotEmpty()) rows += name to multiLineValue(values.toList())
+        }
+        add("roaming", summary.roaming)
+        add("security", summary.security)
+        add("phy", summary.phy)
+        add("operation", summary.operation)
+        add("radio", summary.radio)
+        add("qos", summary.qos)
+        add("network", summary.network)
+        add("rates", summary.rates)
+        if (conn.hiddenSsid) rows += "hidden" to "true"
+        if (conn.restricted) rows += "restricted" to "true"
+        if (conn.passpointFqdn.isNotBlank()) rows += "passpoint_fqdn" to conn.passpointFqdn
+        if (conn.passpointProviderFriendlyName.isNotBlank()) rows += "passpoint_provider" to conn.passpointProviderFriendlyName
+        if (conn.passpointUniqueId.isNotBlank()) rows += "passpoint_unique_id" to conn.passpointUniqueId
+        wifiMaxLink(conn)?.let { rows += "max_link" to it }
+        if (summary.vendorIe > 0) rows += "vendor_ie" to summary.vendorIe.toString()
+        add("other_ie", summary.other)
+        return rows
+    }
+
+    private class ApCapabilitySummary {
+        val roaming = sortedSetOf<String>()
+        val security = sortedSetOf<String>()
+        val phy = sortedSetOf<String>()
+        val operation = sortedSetOf<String>()
+        val radio = sortedSetOf<String>()
+        val qos = sortedSetOf<String>()
+        val network = sortedSetOf<String>()
+        val rates = sortedSetOf<String>()
+        val other = sortedSetOf<String>()
+        var vendorIe = 0
+    }
+
+    private fun newApCapabilitySummary(elements: List<WifiInformationElement>): ApCapabilitySummary {
+        val summary = ApCapabilitySummary()
+        elements.forEach { element ->
+            when (element.id) {
+                0 -> Unit
+                1 -> summary.rates += "supported_rates"
+                7 -> summary.radio += "country"
+                11 -> summary.radio += "bss_load"
+                32 -> summary.radio += "power_constraint"
+                35 -> summary.radio += "tpc_report"
+                45 -> summary.phy += "ht"
+                48 -> summary.security += "rsn"
+                50 -> summary.rates += "extended_supported_rates"
+                54 -> summary.roaming += "11r"
+                55 -> summary.roaming += "fast_bss_transition"
+                59 -> summary.radio += "supported_operating_classes"
+                61 -> summary.operation += "ht_operation"
+                70 -> summary.roaming += "11k"
+                107 -> summary.network += "interworking"
+                111 -> summary.network += "roaming_consortium"
+                127 -> if (informationElementBit(element, 19)) {
+                    summary.roaming += "11v_bss_transition"
+                } else {
+                    summary.other += informationElementName(element)
+                }
+                191 -> summary.phy += "vht"
+                192 -> summary.operation += "vht_operation"
+                195 -> summary.radio += "tx_power_envelope"
+                201 -> summary.roaming += "reduced_neighbor_report"
+                221 -> summary.vendorIe++
+                255 -> when (element.idExt) {
+                    35 -> summary.phy += "he"
+                    36 -> summary.operation += "he_operation"
+                    37 -> summary.qos += "uora"
+                    38 -> summary.qos += "mu_edca"
+                    39 -> summary.qos += "spatial_reuse"
+                    45 -> summary.radio += "he_bss_load"
+                    106 -> summary.operation += "eht_operation"
+                    107 -> summary.operation += "eht_multi_link"
+                    108 -> summary.phy += "eht"
+                    else -> summary.other += informationElementExtensionName(element.idExt)
+                }
+                else -> summary.other += informationElementName(element)
+            }
+        }
+        return summary
+    }
+
+    private fun wifiMaxLink(conn: WifiConnection): String? {
+        val tx = conn.maxSupportedTxLinkSpeedMbps
+        val rx = conn.maxSupportedRxLinkSpeedMbps
+        if (tx <= 0 && rx <= 0) return null
+        return "tx=${tx}Mbps rx=${rx}Mbps"
     }
 
     private fun informationElementName(element: WifiInformationElement): String {
@@ -199,30 +255,32 @@ internal object AgentWifiStatusRenderer {
         val present = wifiConnectionHasMLO(conn)
         section(out, "MLO")
         kv(out,
+            "source" to "android",
             "present" to present.toString(),
             "ap_mld" to empty(conn.apMldMacAddress, "<none>"),
             "ap_link_id" to mloLinkID(conn.apMloLinkId, present),
             "affiliated" to conn.affiliatedMloLinksCount.toString(),
             "associated" to conn.associatedMloLinksCount.toString(),
         )
-        renderMLOLinks(out, "Affiliated MLO Links", conn.affiliatedMloLinksList)
-        renderMLOLinks(out, "Associated MLO Links", conn.associatedMloLinksList)
+        renderMLOLinks(out, conn.affiliatedMloLinksList, conn.associatedMloLinksList)
     }
 
     private fun wifiConnectionHasMLO(conn: WifiConnection): Boolean {
         return conn.apMldMacAddress.isNotBlank() ||
             conn.affiliatedMloLinksCount > 0 ||
             conn.associatedMloLinksCount > 0 ||
-            (conn.wifiStandard.equals("802.11be", ignoreCase = true) && conn.apMloLinkId >= 0)
+            conn.apMloLinkId > 0
     }
 
-    private fun renderMLOLinks(out: MutableList<String>, title: String, links: List<MloLinkInfo>) {
-        if (links.isEmpty()) return
-        section(out, title)
+    private fun renderMLOLinks(out: MutableList<String>, affiliated: List<MloLinkInfo>, associated: List<MloLinkInfo>) {
+        if (affiliated.isEmpty() && associated.isEmpty()) return
+        section(out, "MLO Links")
+        val rows = affiliated.map { "affiliated" to it } + associated.map { "associated" to it }
         table(out,
-            listOf("ID", "STATE", "BAND", "CHANNEL", "RSSI", "TX", "RX", "AP_MAC", "STA_MAC"),
-            links.map { link ->
+            listOf("TYPE", "ID", "STATE", "BAND", "CHANNEL", "RSSI", "TX", "RX", "AP_MAC", "STA_MAC"),
+            rows.map { (type, link) ->
                 listOf(
+                    type,
                     link.linkId.toString(),
                     empty(link.state, "unknown"),
                     empty(link.band, "unknown"),
@@ -239,55 +297,99 @@ internal object AgentWifiStatusRenderer {
 
     private fun renderIPStatus(out: MutableList<String>, status: IpStatus, connection: WifiConnection?) {
         section(out, "Network")
-        kv(out,
-            "id" to empty(status.networkId, "unknown"),
-            "transports" to status.transportsList.joinToString(","),
-            "validated" to status.validated.toString(),
-            "internet" to status.internet.toString(),
-            "interface" to empty(status.interfaceName, "none"),
-            "mtu" to status.mtu.toString(),
-        )
-        renderNetworkCapabilities(out, status, connection)
-        listSection(out, "Addresses", status.addressesList)
-        listSection(out, "DNS", status.dnsServersList)
-        if (status.dhcpServer.isNotBlank()) {
-            section(out, "DHCP")
-            kv(out, "server" to status.dhcpServer)
-        }
-        if (status.privateDnsActive || status.privateDnsServerName.isNotBlank()) {
-            section(out, "Private DNS")
-            kv(out,
-                "active" to status.privateDnsActive.toString(),
-                "server" to empty(status.privateDnsServerName, "none"),
-            )
-        }
+        kv(out, *networkRows(status, connection).toTypedArray())
     }
 
-    private fun renderNetworkCapabilities(out: MutableList<String>, status: IpStatus, connection: WifiConnection?) {
+    private fun connectionNetworkRows(conn: WifiConnection): List<Pair<String, String>> {
+        return listOf(
+            "id" to connectionNetworkID(conn),
+            "ipv4" to conn.ipv4Address,
+        ).filter { it.second.isNotBlank() }
+    }
+
+    private fun networkRows(status: IpStatus, connection: WifiConnection?): List<Pair<String, String>> {
+        val split = splitIPAddresses(status.addressesList)
+        val ipv4 = split.ipv4.toMutableList()
+        val ipv6 = split.ipv6
+        val addresses = split.other
+        val connectionIPv4 = connection?.ipv4Address.orEmpty()
+        if (connectionIPv4.isNotBlank() && !addressListContainsIP(ipv4, connectionIPv4)) {
+            ipv4 += connectionIPv4
+        }
         val capabilities = networkCapabilitiesForDetail(status.capabilitiesList)
         val signalStrength = networkSignalStrengthForDetail(status, connection)
-        if (capabilities.isEmpty() &&
-            status.enterpriseIdsList.isEmpty() &&
-            status.subscriptionIdsList.isEmpty() &&
-            status.downstreamKbps == 0 &&
-            status.upstreamKbps == 0 &&
-            signalStrength == null &&
-            status.networkSpecifier.isBlank() &&
-            status.ownerUid <= 0
-        ) {
-            return
-        }
-        section(out, "Network Capabilities")
         val rows = mutableListOf<Pair<String, String>>()
-        if (capabilities.isNotEmpty()) rows += "capabilities" to capabilities.joinToString(",")
-        if (status.downstreamKbps > 0) rows += "downstream_kbps" to status.downstreamKbps.toString()
-        if (status.upstreamKbps > 0) rows += "upstream_kbps" to status.upstreamKbps.toString()
+        rows += "id" to empty(firstNonBlank(status.networkId, connectionNetworkID(connection)), "unknown")
+        rows += "transports" to multiLineValue(status.transportsList)
+        rows += "interface" to empty(status.interfaceName, "none")
+        rows += "mtu" to status.mtu.toString()
+        rows += "validated" to status.validated.toString()
+        rows += "internet" to status.internet.toString()
+        if (capabilities.isNotEmpty()) rows += "capabilities" to multiLineValue(capabilities)
+        networkBandwidth(status)?.let { rows += "bandwidth" to it }
         if (signalStrength != null) rows += "signal_strength" to signalStrength.toString()
         if (status.networkSpecifier.isNotBlank()) rows += "network_specifier" to status.networkSpecifier
         if (status.ownerUid > 0) rows += "owner_uid" to status.ownerUid.toString()
-        if (status.enterpriseIdsList.isNotEmpty()) rows += "enterprise_ids" to status.enterpriseIdsList.joinToString(",")
-        if (status.subscriptionIdsList.isNotEmpty()) rows += "subscription_ids" to status.subscriptionIdsList.joinToString(",")
-        kv(out, *rows.toTypedArray())
+        if (status.enterpriseIdsList.isNotEmpty()) rows += "enterprise_ids" to multiLineValue(status.enterpriseIdsList)
+        if (status.subscriptionIdsList.isNotEmpty()) {
+            rows += "subscription_ids" to multiLineValue(status.subscriptionIdsList.map { it.toString() })
+        }
+        if (status.dhcpServer.isNotBlank()) rows += "dhcp_server" to status.dhcpServer
+        if (status.privateDnsActive || status.privateDnsServerName.isNotBlank()) {
+            rows += "private_dns" to "active=${status.privateDnsActive} server=${empty(status.privateDnsServerName, "none")}"
+        }
+        if (ipv4.isNotEmpty()) rows += "ipv4" to multiLineValue(ipv4)
+        if (ipv6.isNotEmpty()) rows += "ipv6" to multiLineValue(ipv6)
+        if (addresses.isNotEmpty()) rows += "addresses" to multiLineValue(addresses)
+        if (status.dnsServersList.isNotEmpty()) rows += "dns" to multiLineValue(status.dnsServersList)
+        if (status.routesList.isNotEmpty()) rows += "routes" to multiLineValue(status.routesList)
+        if (status.domains.isNotBlank()) rows += "domains" to status.domains
+        if (status.httpProxy.isNotBlank()) rows += "http_proxy" to status.httpProxy
+        if (status.nat64Prefix.isNotBlank()) rows += "nat64_prefix" to status.nat64Prefix
+        if (status.wakeOnLanSupported) rows += "wake_on_lan" to "true"
+        return rows
+    }
+
+    private fun multiLineValue(values: List<String>): String {
+        return values.filter { it.isNotBlank() }.joinToString("\n")
+    }
+
+    private fun connectionNetworkID(conn: WifiConnection?): String {
+        val id = conn?.networkId ?: 0
+        return if (id == 0) "" else id.toString()
+    }
+
+    private fun addressListContainsIP(values: List<String>, ip: String): Boolean {
+        return values.any { value ->
+            value.substringBefore('/').substringBefore('%').trim() == ip
+        }
+    }
+
+    private data class SplitAddresses(
+        val ipv4: List<String>,
+        val ipv6: List<String>,
+        val other: List<String>,
+    )
+
+    private fun splitIPAddresses(values: List<String>): SplitAddresses {
+        val ipv4 = mutableListOf<String>()
+        val ipv6 = mutableListOf<String>()
+        val other = mutableListOf<String>()
+        values.forEach { value ->
+            when {
+                value.contains(":") -> ipv6 += value
+                value.contains(".") -> ipv4 += value
+                value.isNotBlank() -> other += value
+            }
+        }
+        return SplitAddresses(ipv4, ipv6, other)
+    }
+
+    private fun networkBandwidth(status: IpStatus): String? {
+        val parts = mutableListOf<String>()
+        if (status.downstreamKbps > 0) parts += "down=${status.downstreamKbps}kbps"
+        if (status.upstreamKbps > 0) parts += "up=${status.upstreamKbps}kbps"
+        return parts.takeIf { it.isNotEmpty() }?.joinToString(" ")
     }
 
     private fun networkSignalStrengthForDetail(status: IpStatus, connection: WifiConnection?): Int? {
@@ -302,7 +404,7 @@ internal object AgentWifiStatusRenderer {
             value.isBlank() ||
                 value.equals("internet", ignoreCase = true) ||
                 value.equals("validated", ignoreCase = true)
-        }
+        }.sorted()
     }
 
     private fun section(out: MutableList<String>, title: String) {
@@ -314,14 +416,15 @@ internal object AgentWifiStatusRenderer {
         val filtered = rows.filter { it.first.isNotBlank() && it.second.isNotBlank() }
         val width = filtered.maxOfOrNull { it.first.length } ?: 0
         filtered.forEach { (key, value) ->
-            out += "  ${key.padEnd(width)}  $value"
+            if (value.contains("\n")) {
+                out += "  $key"
+                value.lineSequence()
+                    .filter { it.isNotBlank() }
+                    .forEach { line -> out += "    $line" }
+            } else {
+                out += "  ${key.padEnd(width)}  $value"
+            }
         }
-    }
-
-    private fun listSection(out: MutableList<String>, title: String, values: List<String>) {
-        if (values.isEmpty()) return
-        section(out, title)
-        values.forEach { out += "  $it" }
     }
 
     private fun table(out: MutableList<String>, headers: List<String>, rows: List<List<String>>) {
@@ -338,6 +441,8 @@ internal object AgentWifiStatusRenderer {
     }
 
     private fun empty(value: String, fallback: String): String = value.ifBlank { fallback }
+
+    private fun firstNonBlank(vararg values: String): String = values.firstOrNull { it.isNotBlank() }.orEmpty()
 
     private fun mloLinkID(id: Int, present: Boolean): String {
         return if (id < 0 || (!present && id == 0)) "<none>" else id.toString()

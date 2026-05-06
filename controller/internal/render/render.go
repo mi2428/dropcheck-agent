@@ -277,6 +277,16 @@ func writeKVRows(b *strings.Builder, rows ...kvRow) {
 		if row.label == "" || row.value == "" {
 			continue
 		}
+		if strings.Contains(row.value, "\n") {
+			_, _ = fmt.Fprintf(tw, "  %s\n", row.label)
+			for _, line := range strings.Split(row.value, "\n") {
+				if line == "" {
+					continue
+				}
+				_, _ = fmt.Fprintf(tw, "    %s\n", line)
+			}
+			continue
+		}
 		_, _ = fmt.Fprintf(tw, "  %s\t%s\n", row.label, row.value)
 	}
 	_ = tw.Flush()
@@ -360,10 +370,8 @@ func renderWifiStatus(b *strings.Builder, status *controlpb.WifiStatus) {
 		kv("state", empty(status.GetState(), "unknown")),
 		kv("active", empty(status.GetActiveNetwork(), "none")),
 		kv("networks", status.GetWifiNetworkCount()),
+		kv("permissions", wifiPermissionSummary(status.GetPermissions())),
 	)
-	if len(status.GetPermissions()) > 0 {
-		renderPermissions(b, status.GetPermissions())
-	}
 	var conn *controlpb.WifiConnection
 	if status.GetConnection() != nil && status.GetConnection().GetSsid() != "" {
 		conn = status.GetConnection()
@@ -371,106 +379,288 @@ func renderWifiStatus(b *strings.Builder, status *controlpb.WifiStatus) {
 	}
 	if status.GetIpStatus() != nil {
 		renderIPStatusWithOptions(b, status.GetIpStatus(), ipRenderOptions{connection: conn})
+	} else if rows := wifiConnectionNetworkRows(conn); len(rows) > 0 {
+		writeKVSection(b, "Network", rows...)
 	}
 }
 
-func renderPermissions(b *strings.Builder, permissions []string) {
-	writeSection(b, "Permissions")
-	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
+func wifiPermissionSummary(permissions []string) string {
+	if len(permissions) == 0 {
+		return ""
+	}
+	granted := make([]string, 0, len(permissions))
+	missing := make([]string, 0)
 	for _, permission := range permissions {
 		name, state, ok := strings.Cut(permission, "=")
 		if !ok {
-			_, _ = fmt.Fprintf(tw, "  %s\t-\n", permission)
+			missing = append(missing, permission)
 			continue
 		}
-		_, _ = fmt.Fprintf(tw, "  %s\t%s\n", name, state)
+		if strings.EqualFold(state, "granted") {
+			granted = append(granted, name)
+		} else {
+			missing = append(missing, name+"="+state)
+		}
 	}
-	_ = tw.Flush()
+	sort.Strings(granted)
+	sort.Strings(missing)
+	lines := make([]string, 0, 1+len(granted)+len(missing))
+	if len(missing) == 0 {
+		lines = append(lines, "all_granted")
+		lines = append(lines, granted...)
+		return multiLineValue(lines)
+	}
+	lines = append(lines, "missing")
+	lines = append(lines, missing...)
+	if len(granted) > 0 {
+		lines = append(lines, "granted")
+		lines = append(lines, granted...)
+	}
+	return multiLineValue(lines)
 }
 
 func renderWifiConnection(b *strings.Builder, conn *controlpb.WifiConnection) {
 	writeKVSection(b, "Connection",
 		kv("ssid", conn.GetSsid()),
 		kv("bssid", empty(conn.GetBssid(), "unknown")),
-		kv("rssi", fmt.Sprintf("%ddBm", conn.GetRssiDbm())),
 		kv("security", empty(conn.GetSecurityType(), "unknown")),
+		kv("standard", empty(conn.GetWifiStandard(), "unknown")),
+		kv("rssi", fmt.Sprintf("%ddBm", conn.GetRssiDbm())),
+		kv("signal", wifiSignalLevel(conn)),
 		kv("band", wifiBandFromFrequency(conn.GetFrequencyMhz())),
 		kv("channel", wifiChannelFromFrequency(conn.GetFrequencyMhz())),
 		kv("frequency", fmt.Sprintf("%dMHz", conn.GetFrequencyMhz())),
 		kv("bandwidth", empty(wifiChannelWidth(conn), "unknown")),
-		kv("link", fmt.Sprintf("%dMbps", conn.GetLinkSpeedMbps())),
-		kv("ip", empty(conn.GetIpv4Address(), "none")),
+		kv("link", wifiLinkSpeed(conn)),
+		kv("sta_mac", conn.GetMacAddress()),
+		kv("supplicant", empty(conn.GetSupplicantState(), "unknown")),
+		kv("detailed", empty(conn.GetDetailedState(), "unknown")),
 	)
-	if conn.GetWifiStandard() != "" || conn.GetSupplicantState() != "" || conn.GetDetailedState() != "" {
-		writeKVSection(b, "Connection State",
-			kv("supplicant", empty(conn.GetSupplicantState(), "unknown")),
-			kv("detailed", empty(conn.GetDetailedState(), "unknown")),
-			kv("standard", empty(conn.GetWifiStandard(), "unknown")),
-			kv("signal", fmt.Sprintf("%d/%d", conn.GetSignalLevel(), conn.GetMaxSignalLevel())),
-		)
-	}
 	renderWifiConnectionCapabilities(b, conn)
 	renderWifiConnectionMLO(b, conn)
 }
 
+func wifiLinkSpeed(conn *controlpb.WifiConnection) string {
+	parts := []string{fmt.Sprintf("%dMbps", conn.GetLinkSpeedMbps())}
+	if conn.GetTxLinkSpeedMbps() > 0 {
+		parts = append(parts, fmt.Sprintf("tx=%dMbps", conn.GetTxLinkSpeedMbps()))
+	}
+	if conn.GetRxLinkSpeedMbps() > 0 {
+		parts = append(parts, fmt.Sprintf("rx=%dMbps", conn.GetRxLinkSpeedMbps()))
+	}
+	return strings.Join(parts, " ")
+}
+
+func wifiSignalLevel(conn *controlpb.WifiConnection) string {
+	if conn.GetMaxSignalLevel() <= 0 && conn.GetSignalLevel() == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d/%d", conn.GetSignalLevel(), conn.GetMaxSignalLevel())
+}
+
 func renderWifiConnectionCapabilities(b *strings.Builder, conn *controlpb.WifiConnection) {
-	rows := wifiConnectionCapabilityRows(conn)
+	rows := wifiAPCapabilityRows(conn)
 	if len(rows) == 0 {
 		return
 	}
-	writeSection(b, "Connection Capabilities")
-	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "CAPABILITY\tSOURCE\tDETAIL")
-	for _, row := range rows {
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", row.capability, row.source, empty(row.detail, "-"))
+	writeKVSection(b, "AP Capabilities", rows...)
+}
+
+func wifiAPCapabilityRows(conn *controlpb.WifiConnection) []kvRow {
+	summary := newWifiAPCapabilitySummary(conn.GetInformationElements())
+	rows := []kvRow{
+		kv("roaming", multiLineValue(summary.roaming)),
+		kv("security", multiLineValue(summary.security)),
+		kv("phy", multiLineValue(summary.phy)),
+		kv("operation", multiLineValue(summary.operation)),
+		kv("radio", multiLineValue(summary.radio)),
+		kv("qos", multiLineValue(summary.qos)),
+		kv("network", multiLineValue(summary.network)),
+		kv("rates", multiLineValue(summary.rates)),
 	}
-	_ = tw.Flush()
-}
-
-type wifiCapabilityRow struct {
-	capability string
-	source     string
-	detail     string
-}
-
-func wifiConnectionCapabilityRows(conn *controlpb.WifiConnection) []wifiCapabilityRow {
-	rows := []wifiCapabilityRow{}
 	if conn.GetHiddenSsid() {
-		rows = append(rows, wifiCapabilityRow{"hidden_ssid", "android", "true"})
+		rows = append(rows, kv("hidden", true))
 	}
 	if conn.GetRestricted() {
-		rows = append(rows, wifiCapabilityRow{"restricted", "android", "true"})
+		rows = append(rows, kv("restricted", true))
 	}
 	if conn.GetPasspointFqdn() != "" {
-		rows = append(rows, wifiCapabilityRow{"passpoint_fqdn", "android", conn.GetPasspointFqdn()})
+		rows = append(rows, kv("passpoint_fqdn", conn.GetPasspointFqdn()))
 	}
 	if conn.GetPasspointProviderFriendlyName() != "" {
-		rows = append(rows, wifiCapabilityRow{"passpoint_provider", "android", conn.GetPasspointProviderFriendlyName()})
+		rows = append(rows, kv("passpoint_provider", conn.GetPasspointProviderFriendlyName()))
 	}
 	if conn.GetPasspointUniqueId() != "" {
-		rows = append(rows, wifiCapabilityRow{"passpoint_unique_id", "android", conn.GetPasspointUniqueId()})
+		rows = append(rows, kv("passpoint_unique_id", conn.GetPasspointUniqueId()))
 	}
-	if conn.GetMaxSupportedTxLinkSpeedMbps() > 0 {
-		rows = append(rows, wifiCapabilityRow{"max_supported_tx", "android", fmt.Sprintf("%dMbps", conn.GetMaxSupportedTxLinkSpeedMbps())})
+	if maxLink := wifiMaxLink(conn); maxLink != "" {
+		rows = append(rows, kv("max_link", maxLink))
 	}
-	if conn.GetMaxSupportedRxLinkSpeedMbps() > 0 {
-		rows = append(rows, wifiCapabilityRow{"max_supported_rx", "android", fmt.Sprintf("%dMbps", conn.GetMaxSupportedRxLinkSpeedMbps())})
+	if summary.vendorIE > 0 {
+		rows = append(rows, kv("vendor_ie", summary.vendorIE))
 	}
-	rows = append(rows, informationElementCapabilityRows(conn.GetInformationElements(), informationElementCapabilityModeAll)...)
-	sortWifiCapabilityRows(rows)
-	return rows
+	if len(summary.other) > 0 {
+		rows = append(rows, kv("other_ie", multiLineValue(summary.other)))
+	}
+	return nonEmptyKVRows(rows)
 }
 
-func sortWifiCapabilityRows(rows []wifiCapabilityRow) {
-	sort.SliceStable(rows, func(i, j int) bool {
-		if rows[i].capability != rows[j].capability {
-			return rows[i].capability < rows[j].capability
+type wifiAPCapabilitySummary struct {
+	roaming   []string
+	security  []string
+	phy       []string
+	operation []string
+	radio     []string
+	qos       []string
+	network   []string
+	rates     []string
+	other     []string
+	vendorIE  int
+}
+
+func newWifiAPCapabilitySummary(elements []*controlpb.WifiInformationElement) wifiAPCapabilitySummary {
+	type bucket int
+	const (
+		bucketRoaming bucket = iota
+		bucketSecurity
+		bucketPHY
+		bucketOperation
+		bucketRadio
+		bucketQoS
+		bucketNetwork
+		bucketRates
+		bucketOther
+	)
+	values := map[bucket]map[string]struct{}{}
+	add := func(target bucket, name string) {
+		if name == "" {
+			return
 		}
-		if rows[i].source != rows[j].source {
-			return rows[i].source < rows[j].source
+		if values[target] == nil {
+			values[target] = map[string]struct{}{}
 		}
-		return rows[i].detail < rows[j].detail
-	})
+		values[target][name] = struct{}{}
+	}
+	summary := wifiAPCapabilitySummary{}
+	for _, element := range elements {
+		switch element.GetId() {
+		case 0:
+			continue
+		case 1:
+			add(bucketRates, "supported_rates")
+		case 7:
+			add(bucketRadio, "country")
+		case 11:
+			add(bucketRadio, "bss_load")
+		case 32:
+			add(bucketRadio, "power_constraint")
+		case 35:
+			add(bucketRadio, "tpc_report")
+		case 45:
+			add(bucketPHY, "ht")
+		case 48:
+			add(bucketSecurity, "rsn")
+		case 50:
+			add(bucketRates, "extended_supported_rates")
+		case 54:
+			add(bucketRoaming, "11r")
+		case 55:
+			add(bucketRoaming, "fast_bss_transition")
+		case 59:
+			add(bucketRadio, "supported_operating_classes")
+		case 61:
+			add(bucketOperation, "ht_operation")
+		case 70:
+			add(bucketRoaming, "11k")
+		case 107:
+			add(bucketNetwork, "interworking")
+		case 111:
+			add(bucketNetwork, "roaming_consortium")
+		case 127:
+			if informationElementBit(element, 19) {
+				add(bucketRoaming, "11v_bss_transition")
+			} else {
+				add(bucketOther, informationElementName(element))
+			}
+		case 191:
+			add(bucketPHY, "vht")
+		case 192:
+			add(bucketOperation, "vht_operation")
+		case 195:
+			add(bucketRadio, "tx_power_envelope")
+		case 201:
+			add(bucketRoaming, "reduced_neighbor_report")
+		case 221:
+			summary.vendorIE++
+		case 255:
+			switch element.GetIdExt() {
+			case 35:
+				add(bucketPHY, "he")
+			case 36:
+				add(bucketOperation, "he_operation")
+			case 37:
+				add(bucketQoS, "uora")
+			case 38:
+				add(bucketQoS, "mu_edca")
+			case 39:
+				add(bucketQoS, "spatial_reuse")
+			case 45:
+				add(bucketRadio, "he_bss_load")
+			case 106:
+				add(bucketOperation, "eht_operation")
+			case 107:
+				add(bucketOperation, "eht_multi_link")
+			case 108:
+				add(bucketPHY, "eht")
+			default:
+				add(bucketOther, informationElementExtensionName(element.GetIdExt()))
+			}
+		default:
+			add(bucketOther, informationElementName(element))
+		}
+	}
+	summary.roaming = sortedMapKeys(values[bucketRoaming])
+	summary.security = sortedMapKeys(values[bucketSecurity])
+	summary.phy = sortedMapKeys(values[bucketPHY])
+	summary.operation = sortedMapKeys(values[bucketOperation])
+	summary.radio = sortedMapKeys(values[bucketRadio])
+	summary.qos = sortedMapKeys(values[bucketQoS])
+	summary.network = sortedMapKeys(values[bucketNetwork])
+	summary.rates = sortedMapKeys(values[bucketRates])
+	summary.other = sortedMapKeys(values[bucketOther])
+	return summary
+}
+
+func sortedMapKeys(values map[string]struct{}) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for value := range values {
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func nonEmptyKVRows(rows []kvRow) []kvRow {
+	out := rows[:0]
+	for _, row := range rows {
+		if row.label == "" || row.value == "" {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+func wifiMaxLink(conn *controlpb.WifiConnection) string {
+	tx := conn.GetMaxSupportedTxLinkSpeedMbps()
+	rx := conn.GetMaxSupportedRxLinkSpeedMbps()
+	if tx <= 0 && rx <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("tx=%dMbps rx=%dMbps", tx, rx)
 }
 
 func renderWifiConnectionMLO(b *strings.Builder, conn *controlpb.WifiConnection) {
@@ -478,20 +668,48 @@ func renderWifiConnectionMLO(b *strings.Builder, conn *controlpb.WifiConnection)
 		return
 	}
 	writeKVSection(b, "MLO",
+		kv("source", "android"),
 		kv("ap_mld", empty(conn.GetApMldMacAddress(), "<none>")),
 		kv("ap_link_id", mloLinkID(conn.GetApMloLinkId())),
 		kv("affiliated", len(conn.GetAffiliatedMloLinks())),
 		kv("associated", len(conn.GetAssociatedMloLinks())),
 	)
-	renderMLOLinks(b, "Affiliated MLO Links", conn.GetAffiliatedMloLinks())
-	renderMLOLinks(b, "Associated MLO Links", conn.GetAssociatedMloLinks())
+	renderMLOLinkGroups(b, conn.GetAffiliatedMloLinks(), conn.GetAssociatedMloLinks())
 }
 
 func wifiConnectionHasMLO(conn *controlpb.WifiConnection) bool {
 	return conn.GetApMldMacAddress() != "" ||
 		len(conn.GetAffiliatedMloLinks()) > 0 ||
 		len(conn.GetAssociatedMloLinks()) > 0 ||
-		(strings.EqualFold(conn.GetWifiStandard(), "802.11be") && conn.GetApMloLinkId() >= 0)
+		conn.GetApMloLinkId() > 0
+}
+
+func renderMLOLinkGroups(b *strings.Builder, affiliated []*controlpb.MloLinkInfo, associated []*controlpb.MloLinkInfo) {
+	if len(affiliated) == 0 && len(associated) == 0 {
+		return
+	}
+	writeSection(b, "MLO Links")
+	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "TYPE\tID\tSTATE\tBAND\tCHANNEL\tRSSI\tTX\tRX\tAP_MAC\tSTA_MAC")
+	writeLinks := func(kind string, links []*controlpb.MloLinkInfo) {
+		for _, link := range links {
+			_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%d\t%d\t%d\t%d\t%s\t%s\n",
+				kind,
+				link.GetLinkId(),
+				empty(link.GetState(), "unknown"),
+				empty(link.GetBand(), "unknown"),
+				link.GetChannel(),
+				link.GetRssiDbm(),
+				link.GetTxLinkSpeedMbps(),
+				link.GetRxLinkSpeedMbps(),
+				empty(link.GetApMacAddress(), "unknown"),
+				empty(link.GetStaMacAddress(), "unknown"),
+			)
+		}
+	}
+	writeLinks("affiliated", affiliated)
+	writeLinks("associated", associated)
+	_ = tw.Flush()
 }
 
 func renderMLOLinks(b *strings.Builder, title string, links []*controlpb.MloLinkInfo) {
@@ -546,50 +764,40 @@ func renderIPStatusWithOptions(b *strings.Builder, status *controlpb.IpStatus, o
 	if status == nil {
 		return
 	}
-	writeKVSection(b, "Network",
-		kv("id", empty(status.GetNetworkId(), "unknown")),
-		kv("transports", strings.Join(status.GetTransports(), ",")),
-		kv("validated", status.GetValidated()),
-		kv("internet", status.GetInternet()),
-		kv("interface", empty(status.GetInterfaceName(), "none")),
-		kv("mtu", status.GetMtu()),
-	)
-	writeListSection(b, "Addresses", status.GetAddresses())
-	writeListSection(b, "DNS", status.GetDnsServers())
-	renderNetworkCapabilities(b, status, options)
-	if status.GetDhcpServer() != "" {
-		writeKVSection(b, "DHCP", kv("server", status.GetDhcpServer()))
-	}
-	if status.GetPrivateDnsActive() || status.GetPrivateDnsServerName() != "" {
-		writeKVSection(b, "Private DNS",
-			kv("active", status.GetPrivateDnsActive()),
-			kv("server", empty(status.GetPrivateDnsServerName(), "none")),
-		)
-	}
+	writeKVSection(b, "Network", networkRows(status, options)...)
 }
 
-func renderNetworkCapabilities(b *strings.Builder, status *controlpb.IpStatus, options ipRenderOptions) {
+func wifiConnectionNetworkRows(conn *controlpb.WifiConnection) []kvRow {
+	if conn == nil {
+		return nil
+	}
+	rows := []kvRow{
+		kv("id", connectionNetworkID(conn)),
+		kv("ipv4", conn.GetIpv4Address()),
+	}
+	return nonEmptyKVRows(rows)
+}
+
+func networkRows(status *controlpb.IpStatus, options ipRenderOptions) []kvRow {
+	ipv4, ipv6, addresses := splitIPAddresses(status.GetAddresses())
+	if ip := options.connection.GetIpv4Address(); ip != "" && !addressListContainsIP(ipv4, ip) {
+		ipv4 = append(ipv4, ip)
+	}
 	capabilities := networkCapabilitiesForDetail(status.GetCapabilities())
 	signalStrength, showSignalStrength := networkSignalStrengthForDetail(status, options.connection)
-	if len(capabilities) == 0 &&
-		len(status.GetEnterpriseIds()) == 0 &&
-		len(status.GetSubscriptionIds()) == 0 &&
-		status.GetDownstreamKbps() == 0 &&
-		status.GetUpstreamKbps() == 0 &&
-		!showSignalStrength &&
-		status.GetNetworkSpecifier() == "" &&
-		status.GetOwnerUid() <= 0 {
-		return
+	rows := []kvRow{
+		kv("id", empty(firstNonBlank(status.GetNetworkId(), connectionNetworkID(options.connection)), "unknown")),
+		kv("transports", multiLineValue(status.GetTransports())),
+		kv("interface", empty(status.GetInterfaceName(), "none")),
+		kv("mtu", status.GetMtu()),
+		kv("validated", status.GetValidated()),
+		kv("internet", status.GetInternet()),
 	}
-	rows := []kvRow{}
 	if len(capabilities) > 0 {
-		rows = append(rows, kv("capabilities", strings.Join(capabilities, ",")))
+		rows = append(rows, kv("capabilities", multiLineValue(capabilities)))
 	}
-	if status.GetDownstreamKbps() > 0 {
-		rows = append(rows, kv("downstream_kbps", status.GetDownstreamKbps()))
-	}
-	if status.GetUpstreamKbps() > 0 {
-		rows = append(rows, kv("upstream_kbps", status.GetUpstreamKbps()))
+	if bandwidth := networkBandwidth(status); bandwidth != "" {
+		rows = append(rows, kv("bandwidth", bandwidth))
 	}
 	if showSignalStrength {
 		rows = append(rows, kv("signal_strength", signalStrength))
@@ -601,16 +809,103 @@ func renderNetworkCapabilities(b *strings.Builder, status *controlpb.IpStatus, o
 		rows = append(rows, kv("owner_uid", status.GetOwnerUid()))
 	}
 	if len(status.GetEnterpriseIds()) > 0 {
-		rows = append(rows, kv("enterprise_ids", strings.Join(status.GetEnterpriseIds(), ",")))
+		rows = append(rows, kv("enterprise_ids", multiLineValue(status.GetEnterpriseIds())))
 	}
 	if len(status.GetSubscriptionIds()) > 0 {
 		values := make([]string, 0, len(status.GetSubscriptionIds()))
 		for _, id := range status.GetSubscriptionIds() {
 			values = append(values, strconv.Itoa(int(id)))
 		}
-		rows = append(rows, kv("subscription_ids", strings.Join(values, ",")))
+		rows = append(rows, kv("subscription_ids", multiLineValue(values)))
 	}
-	writeKVSection(b, "Network Capabilities", rows...)
+	if status.GetDhcpServer() != "" {
+		rows = append(rows, kv("dhcp_server", status.GetDhcpServer()))
+	}
+	if status.GetPrivateDnsActive() || status.GetPrivateDnsServerName() != "" {
+		rows = append(rows, kv("private_dns", fmt.Sprintf("active=%t server=%s", status.GetPrivateDnsActive(), empty(status.GetPrivateDnsServerName(), "none"))))
+	}
+	if len(ipv4) > 0 {
+		rows = append(rows, kv("ipv4", multiLineValue(ipv4)))
+	}
+	if len(ipv6) > 0 {
+		rows = append(rows, kv("ipv6", multiLineValue(ipv6)))
+	}
+	if len(addresses) > 0 {
+		rows = append(rows, kv("addresses", multiLineValue(addresses)))
+	}
+	if len(status.GetDnsServers()) > 0 {
+		rows = append(rows, kv("dns", multiLineValue(status.GetDnsServers())))
+	}
+	if len(status.GetRoutes()) > 0 {
+		rows = append(rows, kv("routes", multiLineValue(status.GetRoutes())))
+	}
+	if status.GetDomains() != "" {
+		rows = append(rows, kv("domains", status.GetDomains()))
+	}
+	if status.GetHttpProxy() != "" {
+		rows = append(rows, kv("http_proxy", status.GetHttpProxy()))
+	}
+	if status.GetNat64Prefix() != "" {
+		rows = append(rows, kv("nat64_prefix", status.GetNat64Prefix()))
+	}
+	if status.GetWakeOnLanSupported() {
+		rows = append(rows, kv("wake_on_lan", true))
+	}
+	return rows
+}
+
+func multiLineValue(values []string) string {
+	nonEmpty := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		nonEmpty = append(nonEmpty, value)
+	}
+	return strings.Join(nonEmpty, "\n")
+}
+
+func connectionNetworkID(conn *controlpb.WifiConnection) string {
+	if conn == nil || conn.GetNetworkId() == 0 {
+		return ""
+	}
+	return strconv.Itoa(int(conn.GetNetworkId()))
+}
+
+func addressListContainsIP(values []string, ip string) bool {
+	for _, value := range values {
+		address := strings.TrimSpace(strings.SplitN(value, "/", 2)[0])
+		address = strings.SplitN(address, "%", 2)[0]
+		if address == ip {
+			return true
+		}
+	}
+	return false
+}
+
+func splitIPAddresses(values []string) (ipv4 []string, ipv6 []string, other []string) {
+	for _, value := range values {
+		switch {
+		case strings.Contains(value, ":"):
+			ipv6 = append(ipv6, value)
+		case strings.Contains(value, "."):
+			ipv4 = append(ipv4, value)
+		case value != "":
+			other = append(other, value)
+		}
+	}
+	return ipv4, ipv6, other
+}
+
+func networkBandwidth(status *controlpb.IpStatus) string {
+	parts := make([]string, 0, 2)
+	if status.GetDownstreamKbps() > 0 {
+		parts = append(parts, fmt.Sprintf("down=%dkbps", status.GetDownstreamKbps()))
+	}
+	if status.GetUpstreamKbps() > 0 {
+		parts = append(parts, fmt.Sprintf("up=%dkbps", status.GetUpstreamKbps()))
+	}
+	return strings.Join(parts, " ")
 }
 
 func networkSignalStrengthForDetail(status *controlpb.IpStatus, connection *controlpb.WifiConnection) (int32, bool) {
@@ -635,6 +930,7 @@ func networkCapabilitiesForDetail(values []string) []string {
 			out = append(out, value)
 		}
 	}
+	sort.Strings(out)
 	return out
 }
 
@@ -845,12 +1141,37 @@ func renderWifiScan(b *strings.Builder, scan *controlpb.WifiScan) {
 	if scan == nil {
 		return
 	}
-	writeKVSection(b, "Wi-Fi Scan", kv("results", len(scan.GetResults())), kv("errors", len(scan.GetErrors())))
-	writeBlankLine(b)
-	renderDiagnosticFieldRows(b, scan.GetFields())
+	writeKVSection(b, "Wi-Fi Scan", wifiScanSummaryRows(scan)...)
 	writeBlankLine(b)
 	renderScanResults(b, scan.GetResults())
 	renderErrors(b, scan.GetErrors())
+}
+
+func wifiScanSummaryRows(scan *controlpb.WifiScan) []kvRow {
+	fields := diagnosticFieldMap(scan.GetFields())
+	rows := []kvRow{
+		kv("requested_band", fields["requested_band"]),
+		kv("results", firstNonBlank(fields["scan_result_count"], strconv.Itoa(len(scan.GetResults())))),
+		kv("total", firstNonBlank(fields["scan_result_total_count"], strconv.Itoa(len(scan.GetResults())))),
+		kv("errors", len(scan.GetErrors())),
+	}
+	for _, key := range []string{
+		"wifi_enabled",
+		"wifi_state",
+		"scan_always_available",
+		"scan_throttle_enabled",
+		"fresh_scan_receiver_registered",
+		"fresh_scan_start_scan",
+		"fresh_scan_broadcast_received",
+		"fresh_scan_results_updated",
+		"fresh_scan_wait_completed",
+		"fresh_scan_elapsed_ms",
+	} {
+		if value := fields[key]; value != "" {
+			rows = append(rows, kv(key, value))
+		}
+	}
+	return rows
 }
 
 func renderWifiScanDetail(b *strings.Builder, detail *controlpb.WifiScanDetail) {
@@ -859,13 +1180,33 @@ func renderWifiScanDetail(b *strings.Builder, detail *controlpb.WifiScanDetail) 
 	}
 	writeKVSection(b, "Wi-Fi Scan Detail",
 		kv("target", detail.GetTarget()),
-		kv("results", len(detail.GetResults())),
+		kv("results", firstNonBlank(diagnosticFieldMap(detail.GetFields())["scan_result_match_count"], strconv.Itoa(len(detail.GetResults())))),
+		kv("total", diagnosticFieldMap(detail.GetFields())["scan_result_total_count"]),
+		kv("requested_band", diagnosticFieldMap(detail.GetFields())["requested_band"]),
 	)
-	writeBlankLine(b)
-	renderDiagnosticFieldRows(b, detail.GetFields())
 	writeBlankLine(b)
 	renderScanResults(b, detail.GetResults())
 	renderErrors(b, detail.GetErrors())
+}
+
+func diagnosticFieldMap(fields []*controlpb.DiagnosticField) map[string]string {
+	values := make(map[string]string, len(fields))
+	for _, field := range fields {
+		if field.GetKey() == "" {
+			continue
+		}
+		values[field.GetKey()] = field.GetValue()
+	}
+	return values
+}
+
+func firstNonBlank(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func renderScanResults(b *strings.Builder, results []*controlpb.WifiScanResult) {
@@ -895,7 +1236,7 @@ func renderScanResults(b *strings.Builder, results []*controlpb.WifiScanResult) 
 }
 
 func scanConnectionCapabilityFlags(result *controlpb.WifiScanResult) []string {
-	return informationElementCapabilityNames(result.GetInformationElements(), informationElementCapabilityModeConnection)
+	return connectionInformationElementCapabilityNames(result.GetInformationElements())
 }
 
 func renderScanMLOLinks(b *strings.Builder, results []*controlpb.WifiScanResult) {
@@ -934,47 +1275,21 @@ func renderScanMLOLinks(b *strings.Builder, results []*controlpb.WifiScanResult)
 	_ = tw.Flush()
 }
 
-func informationElementExt(element *controlpb.WifiInformationElement) string {
-	if element.GetId() == 255 || element.GetIdExt() > 0 {
-		return strconv.Itoa(int(element.GetIdExt()))
-	}
-	return "-"
-}
-
-type informationElementCapabilityMode int
-
-const (
-	informationElementCapabilityModeAll informationElementCapabilityMode = iota
-	informationElementCapabilityModeConnection
-)
-
-func informationElementCapabilityRows(elements []*controlpb.WifiInformationElement, mode informationElementCapabilityMode) []wifiCapabilityRow {
-	rows := make([]wifiCapabilityRow, 0, len(elements))
+func connectionInformationElementCapabilityNames(elements []*controlpb.WifiInformationElement) []string {
+	seen := make(map[string]struct{}, len(elements))
 	for _, element := range elements {
-		name, ok := informationElementCapabilityName(element, mode)
+		name, ok := connectionInformationElementCapabilityName(element)
 		if !ok {
 			continue
 		}
-		rows = append(rows, wifiCapabilityRow{
-			capability: name,
-			source:     "ie",
-			detail:     informationElementDetail(element),
-		})
+		seen[name] = struct{}{}
 	}
-	return rows
-}
-
-func informationElementCapabilityNames(elements []*controlpb.WifiInformationElement, mode informationElementCapabilityMode) []string {
-	rows := informationElementCapabilityRows(elements, mode)
-	names := make([]string, 0, len(rows))
-	for _, row := range rows {
-		names = append(names, row.capability)
-	}
+	names := sortedMapKeys(seen)
 	sort.Strings(names)
 	return names
 }
 
-func informationElementCapabilityName(element *controlpb.WifiInformationElement, mode informationElementCapabilityMode) (string, bool) {
+func connectionInformationElementCapabilityName(element *controlpb.WifiInformationElement) (string, bool) {
 	switch element.GetId() {
 	case 54:
 		return "11r", true
@@ -990,7 +1305,7 @@ func informationElementCapabilityName(element *controlpb.WifiInformationElement,
 		if informationElementBit(element, 19) {
 			return "11v_bss_transition", true
 		}
-		return informationElementName(element), mode == informationElementCapabilityModeAll
+		return "", false
 	case 201:
 		return "reduced_neighbor_report", true
 	case 255:
@@ -998,22 +1313,10 @@ func informationElementCapabilityName(element *controlpb.WifiInformationElement,
 		case 107:
 			return "eht_multi_link", true
 		}
-		return informationElementExtensionName(element.GetIdExt()), mode == informationElementCapabilityModeAll
+		return "", false
 	default:
-		return informationElementName(element), mode == informationElementCapabilityModeAll
+		return "", false
 	}
-}
-
-func informationElementDetail(element *controlpb.WifiInformationElement) string {
-	parts := []string{fmt.Sprintf("id=%d", element.GetId())}
-	if ext := informationElementExt(element); ext != "-" {
-		parts = append(parts, "ext="+ext)
-	}
-	parts = append(parts, fmt.Sprintf("bytes=%d", element.GetByteCount()))
-	if element.GetId() == 127 && informationElementBit(element, 19) {
-		parts = append(parts, "bss_transition=true")
-	}
-	return strings.Join(parts, " ")
 }
 
 func informationElementName(element *controlpb.WifiInformationElement) string {

@@ -118,34 +118,42 @@ func RenderMLOSummary(summary MLOSummary) string {
 		return ""
 	}
 	var b strings.Builder
-	rows := []kvRow{}
+	rows := []kvRow{kv("source", "adb")}
+	hasData := false
 	if summary.TIDToLinkSupported != "" {
 		rows = append(rows, kv("tid_to_link", summary.TIDToLinkSupported))
+		hasData = true
 	}
 	if summary.APMLDAddress != "" {
 		rows = append(rows, kv("ap_mld", summary.APMLDAddress))
+		hasData = true
 	}
 	if summary.APMLOLinkID != "" {
 		rows = append(rows, kv("ap_link_id", summary.APMLOLinkID))
+		hasData = true
 	}
 	if summary.MLOMode != "" {
 		rows = append(rows, kv("mlo_mode", summary.MLOMode))
+		hasData = true
 	}
 	if summary.WifiLinkCount != "" {
 		rows = append(rows, kv("wifi_link_count", summary.WifiLinkCount))
+		hasData = true
 	}
-	if len(rows) == 0 {
-		rows = append(rows, kv("available", "true"))
-	}
-	writeKVSection(&b, "ADB MLO", rows...)
 	if summary.APMLOAffiliatedLinks != "" {
-		writeKVSection(&b, "ADB MLO Affiliated", kv("links", summary.APMLOAffiliatedLinks))
+		rows = append(rows, kv("affiliated", summary.APMLOAffiliatedLinks))
+		hasData = true
 	}
 	if summary.VendorData != "" && summary.VendorData != "<none>" {
-		writeKVSection(&b, "ADB MLO Vendor Data", kv("value", summary.VendorData))
+		rows = append(rows, kv("vendor_data", summary.VendorData))
+		hasData = true
 	}
+	if !hasData && len(summary.LinkStats) == 0 {
+		rows = append(rows, kv("available", "true"))
+	}
+	writeKVSection(&b, "MLO", rows...)
 	if len(summary.LinkStats) > 0 {
-		writeSection(&b, "ADB MLO Link Stats")
+		writeSection(&b, "MLO Links")
 		tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 		_, _ = fmt.Fprintln(tw, "ID\tSTATE\tRADIO\tFREQ\tRSSI\tMGMT\tWIDTH\tBEACON")
 		for _, link := range summary.LinkStats {
