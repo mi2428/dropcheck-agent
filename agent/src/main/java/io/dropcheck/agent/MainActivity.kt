@@ -11,6 +11,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.graphics.text.LineBreakConfig
 import android.graphics.text.LineBreaker
 import android.net.Uri
@@ -19,6 +20,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.LocaleList
+import android.text.InputFilter
 import android.text.Layout
 import android.text.InputType
 import android.text.SpannableString
@@ -69,6 +71,16 @@ private const val SHELL_CURSOR_BLINK_MS = 530L
 private const val SHELL_CURSOR_WIDTH_SCALE = 0.5f
 private const val SHELL_CURSOR_MIN_WIDTH_DP = 4f
 private const val SHELL_CURSOR_TEXT_GAP_DP = 1.5f
+private const val SHELL_KEYBOARD_ESTIMATED_HEIGHT_DP = 300
+private const val SHELL_KEYBOARD_PADDING_DP = 6
+private const val SHELL_KEYBOARD_KEY_HEIGHT_DP = 48
+private const val SHELL_KEYBOARD_KEY_MARGIN_DP = 3
+private const val SHELL_KEYBOARD_CORNER_DP = 8
+private const val SHELL_KEYBOARD_TEXT_SIZE_SP = 18f
+private const val SHELL_KEYBOARD_BACKGROUND = -15263977
+private const val SHELL_KEY_BACKGROUND = -13619152
+private const val SHELL_KEY_BACKGROUND_ACTIVE = -10658467
+private const val SHELL_KEY_TEXT_COLOR = -1
 private val SHELL_INPUT_LOCALES = LocaleList(Locale.US)
 private val SHELL_INPUT_TYPE =
     InputType.TYPE_CLASS_TEXT or
@@ -106,9 +118,11 @@ class MainActivity : Activity() {
     private lateinit var root: FrameLayout
     private lateinit var shellScroll: ScrollView
     private lateinit var shellContent: LinearLayout
+    private lateinit var shellKeyboard: LinearLayout
     private var shellInput: EditText? = null
     private var shellInputRowView: LinearLayout? = null
     private var shellImeBottomInset = 0
+    private var shellKeyboardHeightPx = 0
     private var statusIconViews: List<ImageView> = emptyList()
     private var controllerHeartbeatConnected = false
     private var standaloneActive = false
@@ -116,6 +130,8 @@ class MainActivity : Activity() {
     private var screenDimmed = false
     private var shellVisible = false
     private var shellBusy = false
+    private var shellShift = false
+    private var shellSymbols = false
     private var swipeStartX = 0f
     private var swipeStartY = 0f
     private val shellTapSlopPx: Int by lazy { ViewConfiguration.get(this).scaledTouchSlop }
@@ -223,12 +239,16 @@ class MainActivity : Activity() {
         shellScroll = shellScreen().apply {
             visibility = View.GONE
         }
+        shellKeyboard = shellKeyboardView().apply {
+            visibility = View.GONE
+        }
         root = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
             isFocusableInTouchMode = true
             excludeFromContentCapture()
             addView(scroll, matchParentLayout())
             addView(shellScroll, matchParentLayout())
+            addView(shellKeyboard, shellKeyboardLayout())
             addView(statusIconRow(), statusIconLayout())
         }
         root.setOnApplyWindowInsetsListener { _, insets ->
@@ -546,6 +566,174 @@ class MainActivity : Activity() {
         )
     }
 
+    private fun shellKeyboardLayout(): FrameLayout.LayoutParams {
+        return FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.BOTTOM,
+        )
+    }
+
+    private fun shellKeyboardView(): LinearLayout {
+        val keyboard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(SHELL_KEYBOARD_BACKGROUND)
+            setPadding(
+                dp(SHELL_KEYBOARD_PADDING_DP),
+                dp(SHELL_KEYBOARD_PADDING_DP),
+                dp(SHELL_KEYBOARD_PADDING_DP),
+                dp(SHELL_KEYBOARD_PADDING_DP),
+            )
+            excludeFromContentCapture()
+        }
+        renderShellKeyboard(keyboard)
+        keyboard.viewTreeObserver.addOnGlobalLayoutListener {
+            if (keyboard.height > 0 && keyboard.height != shellKeyboardHeightPx) {
+                shellKeyboardHeightPx = keyboard.height
+                updateShellContentPadding()
+                if (shellVisible) scrollShellToInput()
+            }
+        }
+        return keyboard
+    }
+
+    private fun renderShellKeyboard(keyboard: LinearLayout = shellKeyboard) {
+        keyboard.removeAllViews()
+        if (shellSymbols) {
+            addShellKeyboardTextRow(keyboard, "1234567890")
+            addShellKeyboardTextRow(keyboard, "-_/.:;()")
+            addShellKeyboardTextRow(keyboard, "\"'@#&+=")
+            addShellKeyboardActionRow(keyboard)
+            return
+        }
+        addShellKeyboardTextRow(keyboard, "1234567890")
+        addShellKeyboardTextRow(keyboard, "qwertyuiop")
+        addShellKeyboardTextRow(keyboard, "asdfghjkl")
+        addShellKeyboardTextRow(keyboard, "zxcvbnm", leading = {
+            addShellKeyboardKey(it, "^", weight = 1.5f, active = shellShift) {
+                shellShift = !shellShift
+                renderShellKeyboard()
+            }
+        }, trailing = {
+            addShellKeyboardKey(it, "DEL", weight = 1.5f) {
+                deleteShellInput()
+            }
+        })
+        addShellKeyboardActionRow(keyboard)
+    }
+
+    private fun addShellKeyboardTextRow(
+        keyboard: LinearLayout,
+        keys: String,
+        leading: ((LinearLayout) -> Unit)? = null,
+        trailing: ((LinearLayout) -> Unit)? = null,
+    ) {
+        val row = shellKeyboardRow()
+        leading?.invoke(row)
+        keys.forEach { key ->
+            val text = if (shellShift && key in 'a'..'z') key.uppercaseChar().toString() else key.toString()
+            addShellKeyboardKey(row, text) {
+                insertShellInput(text)
+            }
+        }
+        trailing?.invoke(row)
+        keyboard.addView(row)
+    }
+
+    private fun addShellKeyboardActionRow(keyboard: LinearLayout) {
+        val row = shellKeyboardRow()
+        addShellKeyboardKey(row, if (shellSymbols) "ABC" else "?123", weight = 1.5f, active = shellSymbols) {
+            shellSymbols = !shellSymbols
+            shellShift = false
+            renderShellKeyboard()
+        }
+        addShellKeyboardKey(row, "SPACE", weight = 5f) {
+            insertShellInput(" ")
+        }
+        addShellKeyboardKey(row, "DEL", weight = 1.5f) {
+            deleteShellInput()
+        }
+        addShellKeyboardKey(row, "GO", weight = 1.5f) {
+            submitShellInput(shellInput?.text?.toString().orEmpty())
+        }
+        keyboard.addView(row)
+    }
+
+    private fun shellKeyboardRow(): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+    }
+
+    private fun addShellKeyboardKey(
+        row: LinearLayout,
+        label: String,
+        weight: Float = 1f,
+        active: Boolean = false,
+        onClick: () -> Unit,
+    ) {
+        val margin = dp(SHELL_KEYBOARD_KEY_MARGIN_DP)
+        row.addView(
+            TextView(this).apply {
+                text = label
+                gravity = Gravity.CENTER
+                setTextColor(SHELL_KEY_TEXT_COLOR)
+                textSize = SHELL_KEYBOARD_TEXT_SIZE_SP
+                typeface = Typeface.DEFAULT_BOLD
+                background = shellKeyboardKeyBackground(active)
+                isClickable = true
+                isFocusable = false
+                includeFontPadding = false
+                setOnClickListener {
+                    onClick()
+                    focusShellInput()
+                }
+                excludeFromContentCapture()
+            },
+            LinearLayout.LayoutParams(0, dp(SHELL_KEYBOARD_KEY_HEIGHT_DP), weight).apply {
+                setMargins(margin, margin, margin, margin)
+            },
+        )
+    }
+
+    private fun shellKeyboardKeyBackground(active: Boolean): GradientDrawable {
+        return GradientDrawable().apply {
+            setColor(if (active) SHELL_KEY_BACKGROUND_ACTIVE else SHELL_KEY_BACKGROUND)
+            cornerRadius = dp(SHELL_KEYBOARD_CORNER_DP).toFloat()
+        }
+    }
+
+    private fun insertShellInput(value: String) {
+        val input = shellInput ?: return
+        val editable = input.text ?: return
+        val start = input.selectionStart.coerceIn(0, editable.length)
+        val end = input.selectionEnd.coerceIn(0, editable.length)
+        val from = minOf(start, end)
+        val to = maxOf(start, end)
+        editable.replace(from, to, value)
+        input.setSelection(from + value.length)
+    }
+
+    private fun deleteShellInput() {
+        (shellInput as? ShellInputEditText)?.deletePreviousChar()
+    }
+
+    private fun shellASCIIInputFilter(): InputFilter {
+        return InputFilter { source, start, end, _, _, _ ->
+            var changed = false
+            val filtered = StringBuilder(end - start)
+            for (index in start until end) {
+                val char = source[index]
+                if (char.code in 0x20..0x7E) {
+                    filtered.append(char)
+                } else {
+                    changed = true
+                }
+            }
+            if (changed) filtered.toString() else null
+        }
+    }
+
     private fun shellScreen(): ScrollView {
         shellContent = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -565,7 +753,7 @@ class MainActivity : Activity() {
                         return@setOnTouchListener true
                     }
                     if (isTapGesture(event)) {
-                        focusShellInput(forceIme = true)
+                        focusShellInput(forceKeyboard = true)
                         return@setOnTouchListener true
                     }
                 }
@@ -653,6 +841,8 @@ class MainActivity : Activity() {
             inputType = SHELL_INPUT_TYPE
             imeOptions = SHELL_IME_OPTIONS
             importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
+            showSoftInputOnFocus = false
+            filters = arrayOf(shellASCIIInputFilter())
             useBlockCursor()
             excludeFromContentCapture()
             setOnEditorActionListener { view, actionId, event ->
@@ -768,30 +958,34 @@ class MainActivity : Activity() {
 
     private fun updateShellContentPadding() {
         if (!::shellContent.isInitialized) return
+        val keyboardInset = if (shellVisible && ::shellKeyboard.isInitialized && shellKeyboard.visibility == View.VISIBLE) {
+            shellKeyboardHeightPx.takeIf { it > 0 } ?: dp(SHELL_KEYBOARD_ESTIMATED_HEIGHT_DP)
+        } else {
+            0
+        }
         shellContent.setPadding(
             dp(SHELL_PANEL_PADDING_DP),
             dp(SHELL_PANEL_TOP_PADDING_DP),
             dp(SHELL_PANEL_PADDING_DP),
-            dp(SHELL_PANEL_PADDING_DP) + shellImeBottomInset,
+            dp(SHELL_PANEL_PADDING_DP) + maxOf(shellImeBottomInset, keyboardInset),
         )
     }
 
-    private fun focusShellInput(forceIme: Boolean = false) {
+    private fun focusShellInput(forceKeyboard: Boolean = false) {
         val input = shellInput ?: return
         input.requestFocus()
         input.post {
             if (!shellVisible || shellInput !== input) return@post
             input.requestFocus()
-            if (forceIme && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                window.insetsController?.show(WindowInsets.Type.ime())
-            }
+            if (forceKeyboard || shellKeyboard.visibility != View.VISIBLE) showShellKeyboard()
             getSystemService(InputMethodManager::class.java)
-                ?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+                ?.hideSoftInputFromWindow(input.windowToken, 0)
         }
     }
 
     private fun hideShellInputIme() {
         val input = shellInput ?: return
+        hideShellKeyboard()
         getSystemService(InputMethodManager::class.java)
             ?.hideSoftInputFromWindow(input.windowToken, 0)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -799,6 +993,20 @@ class MainActivity : Activity() {
         }
         input.clearFocus()
         root.requestFocus()
+    }
+
+    private fun showShellKeyboard() {
+        if (!::shellKeyboard.isInitialized) return
+        shellKeyboard.visibility = View.VISIBLE
+        shellKeyboard.bringToFront()
+        updateShellContentPadding()
+        scrollShellToInput()
+    }
+
+    private fun hideShellKeyboard() {
+        if (!::shellKeyboard.isInitialized) return
+        shellKeyboard.visibility = View.GONE
+        updateShellContentPadding()
     }
 
     private fun shellHelpLines(topic: String): List<String> {
@@ -960,6 +1168,10 @@ private class ShellInputEditText(context: Context) : EditText(context) {
     fun useBlockCursor() {
         textCursorDrawable = ColorDrawable(Color.TRANSPARENT)
         isCursorVisible = false
+    }
+
+    fun deletePreviousChar(): Boolean {
+        return deleteBackwards()
     }
 
     override fun onAttachedToWindow() {
