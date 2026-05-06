@@ -286,3 +286,71 @@ func TestRenderWifiStatusShowsMLOFields(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderWifiScanShowsMLOFields(t *testing.T) {
+	result := &controlpb.CommandResult{
+		Status: controlpb.CommandResult_STATUS_OK,
+		Payload: &controlpb.CommandResult_WifiScan{
+			WifiScan: &controlpb.WifiScan{
+				Fields: []*controlpb.DiagnosticField{{
+					Key:   "requested_band",
+					Value: "all",
+				}},
+				Results: []*controlpb.WifiScanResult{{
+					Ssid:            "Lab",
+					Bssid:           "aa:bb:cc:dd:ee:ff",
+					RssiDbm:         -48,
+					Band:            "6ghz",
+					FrequencyMhz:    5975,
+					WifiStandard:    "802.11be",
+					ApMldMacAddress: "02:00:00:00:00:01",
+					ApMloLinkId:     2,
+					AffiliatedMloLinks: []*controlpb.MloLinkInfo{{
+						LinkId:          2,
+						State:           "active",
+						Band:            "6ghz",
+						Channel:         5,
+						RssiDbm:         -48,
+						TxLinkSpeedMbps: 1200,
+						RxLinkSpeedMbps: 1200,
+						ApMacAddress:    "02:00:00:00:00:02",
+						StaMacAddress:   "02:00:00:00:00:03",
+					}},
+				}, {
+					Ssid:         "Legacy",
+					Bssid:        "11:22:33:44:55:66",
+					RssiDbm:      -60,
+					Band:         "5ghz",
+					FrequencyMhz: 5200,
+				}},
+			},
+		},
+	}
+
+	out, err := CommandResult("agent", result, command.Options{}, pipeline.FormatText)
+	if err != nil {
+		t.Fatalf("renderCommandResult() error = %v", err)
+	}
+	for _, want := range []string{
+		"AP_MLD",
+		"AP_LINK",
+		"AFFILIATED",
+		"02:00:00:00:00:01",
+		"Scan Affiliated MLO Links",
+		"active",
+		"1200",
+		"<none>",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered output = %q, missing %q", out, want)
+		}
+	}
+	for _, unwanted := range []string{
+		"\nFields\n",
+		"\nScan Results\n",
+	} {
+		if strings.Contains(out, unwanted) {
+			t.Fatalf("rendered output = %q, included unwanted heading %q", out, unwanted)
+		}
+	}
+}

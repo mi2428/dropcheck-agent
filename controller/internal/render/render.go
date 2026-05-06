@@ -246,6 +246,20 @@ func writeSection(b *strings.Builder, title string) {
 	b.WriteByte('\n')
 }
 
+func writeBlankLine(b *strings.Builder) {
+	if b.Len() == 0 {
+		return
+	}
+	current := b.String()
+	if strings.HasSuffix(current, "\n\n") {
+		return
+	}
+	if !strings.HasSuffix(current, "\n") {
+		b.WriteByte('\n')
+	}
+	b.WriteByte('\n')
+}
+
 func writeKVSection(b *strings.Builder, title string, rows ...kvRow) {
 	writeSection(b, title)
 	writeKVRows(b, rows...)
@@ -684,7 +698,9 @@ func renderWifiScan(b *strings.Builder, scan *controlpb.WifiScan) {
 		return
 	}
 	writeKVSection(b, "Wi-Fi Scan", kv("results", len(scan.GetResults())), kv("errors", len(scan.GetErrors())))
-	renderDiagnosticFields(b, scan.GetFields())
+	writeBlankLine(b)
+	renderDiagnosticFieldRows(b, scan.GetFields())
+	writeBlankLine(b)
 	renderScanResults(b, scan.GetResults())
 	renderErrors(b, scan.GetErrors())
 }
@@ -697,21 +713,22 @@ func renderWifiScanDetail(b *strings.Builder, detail *controlpb.WifiScanDetail) 
 		kv("target", detail.GetTarget()),
 		kv("results", len(detail.GetResults())),
 	)
-	renderDiagnosticFields(b, detail.GetFields())
+	writeBlankLine(b)
+	renderDiagnosticFieldRows(b, detail.GetFields())
+	writeBlankLine(b)
 	renderScanResults(b, detail.GetResults())
 	renderErrors(b, detail.GetErrors())
 }
 
 func renderScanResults(b *strings.Builder, results []*controlpb.WifiScanResult) {
-	writeSection(b, "Scan Results")
 	if len(results) == 0 {
 		b.WriteString("  no results\n")
 		return
 	}
 	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "SSID\tBSSID\tRSSI\tBAND\tFREQ\tSTANDARD\tSECURITY")
+	_, _ = fmt.Fprintln(tw, "SSID\tBSSID\tRSSI\tBAND\tFREQ\tSTANDARD\tSECURITY\tAP_MLD\tAP_LINK\tAFFILIATED")
 	for _, result := range results {
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%d\t%s\t%s\n",
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%d\t%s\t%s\t%s\t%s\t%d\n",
 			empty(result.GetSsid(), "<hidden>"),
 			empty(result.GetBssid(), "unknown"),
 			result.GetRssiDbm(),
@@ -719,9 +736,59 @@ func renderScanResults(b *strings.Builder, results []*controlpb.WifiScanResult) 
 			result.GetFrequencyMhz(),
 			empty(result.GetWifiStandard(), "-"),
 			empty(strings.Join(result.GetSecurityTypes(), ","), empty(result.GetCapabilities(), "-")),
+			empty(result.GetApMldMacAddress(), "<none>"),
+			scanMLOLinkID(result),
+			len(result.GetAffiliatedMloLinks()),
 		)
 	}
 	_ = tw.Flush()
+	renderScanMLOLinks(b, results)
+}
+
+func renderScanMLOLinks(b *strings.Builder, results []*controlpb.WifiScanResult) {
+	hasLinks := false
+	for _, result := range results {
+		if len(result.GetAffiliatedMloLinks()) > 0 {
+			hasLinks = true
+			break
+		}
+	}
+	if !hasLinks {
+		return
+	}
+	writeSection(b, "Scan Affiliated MLO Links")
+	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "SSID\tBSSID\tAP_MLD\tAP_LINK\tID\tSTATE\tBAND\tCHANNEL\tRSSI\tTX\tRX\tAP_MAC\tSTA_MAC")
+	for _, result := range results {
+		for _, link := range result.GetAffiliatedMloLinks() {
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%s\t%s\t%d\t%d\t%d\t%d\t%s\t%s\n",
+				empty(result.GetSsid(), "<hidden>"),
+				empty(result.GetBssid(), "unknown"),
+				empty(result.GetApMldMacAddress(), "<none>"),
+				scanMLOLinkID(result),
+				link.GetLinkId(),
+				empty(link.GetState(), "unknown"),
+				empty(link.GetBand(), "unknown"),
+				link.GetChannel(),
+				link.GetRssiDbm(),
+				link.GetTxLinkSpeedMbps(),
+				link.GetRxLinkSpeedMbps(),
+				empty(link.GetApMacAddress(), "unknown"),
+				empty(link.GetStaMacAddress(), "unknown"),
+			)
+		}
+	}
+	_ = tw.Flush()
+}
+
+func scanMLOLinkID(result *controlpb.WifiScanResult) string {
+	if result == nil {
+		return "<none>"
+	}
+	if result.GetApMloLinkId() == 0 && result.GetApMldMacAddress() == "" && len(result.GetAffiliatedMloLinks()) == 0 {
+		return "<none>"
+	}
+	return mloLinkID(result.GetApMloLinkId())
 }
 
 func renderWifiCapabilities(b *strings.Builder, capabilities *controlpb.WifiCapabilities) {
@@ -1131,6 +1198,13 @@ func renderDiagnosticFields(b *strings.Builder, fields []*controlpb.DiagnosticFi
 		return
 	}
 	writeSection(b, "Fields")
+	renderDiagnosticFieldRows(b, fields)
+}
+
+func renderDiagnosticFieldRows(b *strings.Builder, fields []*controlpb.DiagnosticField) {
+	if len(fields) == 0 {
+		return
+	}
 	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
 	for _, field := range fields {
