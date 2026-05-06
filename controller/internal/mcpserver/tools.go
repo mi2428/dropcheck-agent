@@ -282,7 +282,7 @@ func registerTools(server *mcp.Server, backend Backend) {
 		op, err := dropcmd.WifiReconnectOperation(millis(in.TimeoutMS))
 		return in.Target, op, err
 	})
-	addOperationTool[wifiCycleArgs](server, backend, "dropcheck_wifi_cycle", "Run repeated Wi-Fi connect, probe, and disconnect cycles.", annotations(false, new(false), false), func(in wifiCycleArgs) (string, dropcmd.Operation, error) {
+	addOperationTool[wifiCycleArgs](server, backend, "dropcheck_wifi_cycle", "Run repeated Wi-Fi connect, probe, and disconnect cycles.", annotations(false, new(true), false), func(in wifiCycleArgs) (string, dropcmd.Operation, error) {
 		passphrase, err := passphraseValue(in.Passphrase, in.PassphraseEnv)
 		if err != nil {
 			return in.Target, dropcmd.Operation{}, err
@@ -362,7 +362,7 @@ func registerStandaloneTools(server *mcp.Server, backend Backend) {
 		op, err := dropcmd.StandaloneListRunsOperation(dropcmd.StandaloneListOptions{Limit: number(in.Limit), IncludeSynced: in.IncludeSynced})
 		return in.Target, op, err
 	})
-	addOperationTool[standaloneRunArgs](server, backend, "dropcheck_standalone_run", "Fetch one stored standalone dropcheck run archive.", annotations(true, nil, true), func(in standaloneRunArgs) (string, dropcmd.Operation, error) {
+	addOperationTool[standaloneRunArgs](server, backend, "dropcheck_standalone_run", "Fetch one stored standalone dropcheck run archive.", annotations(false, new(false), true), func(in standaloneRunArgs) (string, dropcmd.Operation, error) {
 		op, err := dropcmd.StandaloneRunOperation(in.RunID, in.MarkSynced)
 		return in.Target, op, err
 	})
@@ -385,7 +385,7 @@ func registerStandaloneTools(server *mcp.Server, backend Backend) {
 }
 
 func registerCommandTools(server *mcp.Server, backend Backend) {
-	addTool[commandArgs](server, "dropcheck_command", "Execute a dropcheck CLI-shaped command through MCP. This parses dropcheck grammar, not OS shell commands.", annotations(false, new(false), false), func(ctx context.Context, in commandArgs) (*mcp.CallToolResult, map[string]any, error) {
+	addTool[commandArgs](server, "dropcheck_command", "Execute a dropcheck CLI-shaped command through MCP. This parses dropcheck grammar, not OS shell commands.", annotations(false, new(true), false), func(ctx context.Context, in commandArgs) (*mcp.CallToolResult, map[string]any, error) {
 		args, err := dropcmd.SplitArgs(in.Command)
 		if err != nil {
 			return toolError(err.Error(), map[string]any{"command": in.Command})
@@ -427,7 +427,7 @@ func registerCommandTools(server *mcp.Server, backend Backend) {
 		}
 	})
 
-	addTool[dropcheckRunArgs](server, "dropcheck_run", "Connect to an ESSID and run a complete connectivity check sequence from the Android device.", annotations(false, new(false), false), func(ctx context.Context, in dropcheckRunArgs) (*mcp.CallToolResult, map[string]any, error) {
+	addTool[dropcheckRunArgs](server, "dropcheck_run", "Connect to an ESSID and run a complete connectivity check sequence from the Android device.", annotations(false, new(true), false), func(ctx context.Context, in dropcheckRunArgs) (*mcp.CallToolResult, map[string]any, error) {
 		return runDropcheck(ctx, backend, in)
 	})
 }
