@@ -28,9 +28,21 @@ import io.dropcheck.agent.grpc.WifiMonitorResult
 import io.dropcheck.agent.grpc.WifiScan
 import io.dropcheck.agent.grpc.WifiScanDetail
 import io.dropcheck.agent.grpc.WifiStatus
+import java.net.NetworkInterface
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+
+internal fun effectiveLinkMtu(
+    linkMtu: Int,
+    interfaceName: String?,
+    interfaceMtu: (String) -> Int?,
+): Int {
+    // Android reports 0 from LinkProperties.getMtu() when the default MTU is in use.
+    if (linkMtu > 0) return linkMtu
+    val name = interfaceName?.takeIf { it.isNotBlank() } ?: return 0
+    return runCatching { interfaceMtu(name) }.getOrNull()?.takeIf { it > 0 } ?: 0
+}
 
 @Suppress("DEPRECATION")
 /**
@@ -600,7 +612,7 @@ class NetworkRepository(
         }
         if (link != null) {
             builder.interfaceName = link.interfaceName.orEmpty()
-            builder.mtu = link.mtu
+            builder.mtu = effectiveLinkMtu(link.mtu, link.interfaceName, ::interfaceMtu)
             builder.addAllAddresses(link.linkAddresses.map { it.toString() })
             builder.addAllDnsServers(link.dnsServers.mapNotNull { it.hostAddress })
             builder.dhcpServer = link.dhcpServerAddress?.hostAddress.orEmpty()
@@ -673,7 +685,12 @@ class NetworkRepository(
         val addresses = link?.linkAddresses?.joinToString(",") { it.toString() }.orEmpty()
         val dns = link?.dnsServers?.joinToString(",") { it.hostAddress.orEmpty() }.orEmpty()
         val routes = link?.routes?.joinToString(" | ") { it.toString() }.orEmpty()
-        return "transports=$transports validated=${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)} internet=${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)} captive=${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)} metered=${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)?.not()} iface=${link?.interfaceName.orEmpty()} mtu=${link?.mtu ?: 0} ssid=${ssid.ifBlank { "none" }} addresses=${addresses.ifBlank { "none" }} dns=${dns.ifBlank { "none" }} routes=${routes.ifBlank { "none" }}"
+        val mtu = link?.let { effectiveLinkMtu(it.mtu, it.interfaceName, ::interfaceMtu) } ?: 0
+        return "transports=$transports validated=${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)} internet=${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)} captive=${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)} metered=${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)?.not()} iface=${link?.interfaceName.orEmpty()} mtu=$mtu ssid=${ssid.ifBlank { "none" }} addresses=${addresses.ifBlank { "none" }} dns=${dns.ifBlank { "none" }} routes=${routes.ifBlank { "none" }}"
+    }
+
+    private fun interfaceMtu(interfaceName: String): Int? {
+        return NetworkInterface.getByName(interfaceName)?.mtu
     }
 
     private fun statusSignature(status: WifiStatus): String {
