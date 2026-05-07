@@ -919,6 +919,14 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 			t.Fatalf("rendered output = %q, missing %q", out, want)
 		}
 	}
+	for _, line := range scanEHTDetailLines(out) {
+		if len(line) > 92 {
+			t.Fatalf("Scan EHT detail line too long (%d): %s\n%s", len(line), line, out)
+		}
+	}
+	if strings.Contains(out, "MARK") {
+		t.Fatalf("rendered output = %q, unexpected MARK column", out)
+	}
 	if strings.Contains(out, "connected_ap_mld_not_seen_in_scan") {
 		t.Fatalf("rendered output = %q, unexpected connected_ap_mld_not_seen_in_scan", out)
 	}
@@ -1229,4 +1237,23 @@ func ehtOperationTestValue() *controlpb.WifiEhtOperation {
 			Standard: "eht", Bandwidth: "20mhz_only", Direction: "tx", McsRange: "0-7", MaxNss: 1,
 		}},
 	}
+}
+
+func scanEHTDetailLines(rendered string) []string {
+	lines := strings.Split(rendered, "\n")
+	out := []string{}
+	inSection := false
+	for _, line := range lines {
+		switch line {
+		case "Scan EHT Details":
+			inSection = true
+			continue
+		case "Diagnostics / Warnings", "MLO Capability Signals":
+			inSection = false
+		}
+		if inSection && strings.TrimSpace(line) != "" {
+			out = append(out, line)
+		}
+	}
+	return out
 }

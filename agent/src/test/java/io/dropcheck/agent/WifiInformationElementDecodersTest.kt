@@ -173,6 +173,9 @@ class WifiInformationElementDecodersTest {
         assertTrue(mloRendered.contains("width_mhz=320"))
         assertTrue(mloRendered.contains("disabled=0x000a"))
         assertTrue(mloRendered.contains("punctured=1,3"))
+        scanEhtDetailLines(mloRendered).forEach { line ->
+            assertTrue("Scan EHT detail line too long (${line.length}): $line\n$mloRendered", line.length <= 92)
+        }
     }
 
     @Test
@@ -226,5 +229,13 @@ class WifiInformationElementDecodersTest {
             .setByteCount(bytesHex.length / 2)
             .setBytesHex(bytesHex)
             .build()
+    }
+
+    private fun scanEhtDetailLines(rendered: String): List<String> {
+        return rendered.lines()
+            .dropWhile { it != "Scan EHT Details" }
+            .drop(1)
+            .takeWhile { it != "Diagnostics / Warnings" && it != "MLO Capability Signals" }
+            .filter { it.isNotBlank() }
     }
 }
