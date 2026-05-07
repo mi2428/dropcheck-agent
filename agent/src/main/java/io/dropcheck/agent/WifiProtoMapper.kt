@@ -196,7 +196,16 @@ class WifiProtoMapper(
                 .setTxLinkSpeedMbps(link.txLinkSpeedMbps)
                 .setRxLinkSpeedMbps(link.rxLinkSpeedMbps)
         }
+        builder
+            .setMaxSupportedTxLinkSpeedMbps(intGetterOrDefault(link, "getMaxSupportedTxLinkSpeedMbps", 0))
+            .setMaxSupportedRxLinkSpeedMbps(intGetterOrDefault(link, "getMaxSupportedRxLinkSpeedMbps", 0))
         return builder.build()
+    }
+
+    private fun intGetterOrDefault(target: Any, methodName: String, defaultValue: Int): Int {
+        return runCatching {
+            target.javaClass.getMethod(methodName).invoke(target) as? Int ?: defaultValue
+        }.getOrDefault(defaultValue)
     }
 
     private fun warnMloUnavailable(reason: String, vararg fields: Pair<String, Any?>) {

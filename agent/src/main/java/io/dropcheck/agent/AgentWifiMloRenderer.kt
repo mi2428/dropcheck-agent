@@ -149,7 +149,7 @@ internal object AgentWifiMloRenderer {
         blockTitle(out, linkMark(group, link, current), "affiliated ${empty(result.ssid, "<hidden>")}")
         out += "  ap_mld=${group.displayMld}"
         out += "  link=${link.linkId} parent_bssid=${empty(result.bssid, "<unknown>")}"
-        out += "  band=${empty(link.band, "<unknown>")} ch=${link.channel} state=${empty(link.state, "<unknown>")} rssi=${link.rssiDbm}dBm ap_mac=${empty(link.apMacAddress, "<unknown>")}"
+        out += "  band=${empty(link.band, "<unknown>")} ch=${link.channel} state=${empty(link.state, "<unknown>")} rssi=${link.rssiDbm}dBm tx=${link.txLinkSpeedMbps} rx=${link.rxLinkSpeedMbps} max_tx=${link.maxSupportedTxLinkSpeedMbps} max_rx=${link.maxSupportedRxLinkSpeedMbps} ap_mac=${empty(link.apMacAddress, "<unknown>")}"
     }
 
     private fun blockTitle(out: MutableList<String>, mark: String, label: String) {
@@ -274,7 +274,7 @@ internal object AgentWifiMloRenderer {
         if (links.isEmpty()) return
         section(out, title)
         table(out,
-            listOf("ID", "STATE", "BAND", "CHANNEL", "RSSI", "TX", "RX", "AP_MAC", "STA_MAC"),
+            listOf("ID", "STATE", "BAND", "CHANNEL", "RSSI", "TX", "RX", "MAX_TX", "MAX_RX", "AP_MAC", "STA_MAC"),
             links.map { link ->
                 listOf(
                     link.linkId.toString(),
@@ -284,6 +284,8 @@ internal object AgentWifiMloRenderer {
                     link.rssiDbm.toString(),
                     link.txLinkSpeedMbps.toString(),
                     link.rxLinkSpeedMbps.toString(),
+                    link.maxSupportedTxLinkSpeedMbps.toString(),
+                    link.maxSupportedRxLinkSpeedMbps.toString(),
                     empty(link.apMacAddress, "<unknown>"),
                     empty(link.staMacAddress, "<unknown>"),
                 )

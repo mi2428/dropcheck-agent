@@ -656,6 +656,8 @@ message MloLinkInfo {
   string ap_mac_address = 8;
   string sta_mac_address = 9;
   string raw = 10;
+  int32 max_supported_tx_link_speed_mbps = 11;
+  int32 max_supported_rx_link_speed_mbps = 12;
 }
 
 message WifiInformationElement {

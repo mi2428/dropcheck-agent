@@ -277,7 +277,7 @@ internal object AgentWifiStatusRenderer {
         section(out, "MLO Links")
         val rows = affiliated.map { "affiliated" to it } + associated.map { "associated" to it }
         table(out,
-            listOf("TYPE", "ID", "STATE", "BAND", "CHANNEL", "RSSI", "TX", "RX", "AP_MAC", "STA_MAC"),
+            listOf("TYPE", "ID", "STATE", "BAND", "CHANNEL", "RSSI", "TX", "RX", "MAX_TX", "MAX_RX", "AP_MAC", "STA_MAC"),
             rows.map { (type, link) ->
                 listOf(
                     type,
@@ -288,6 +288,8 @@ internal object AgentWifiStatusRenderer {
                     link.rssiDbm.toString(),
                     link.txLinkSpeedMbps.toString(),
                     link.rxLinkSpeedMbps.toString(),
+                    link.maxSupportedTxLinkSpeedMbps.toString(),
+                    link.maxSupportedRxLinkSpeedMbps.toString(),
                     empty(link.apMacAddress, "unknown"),
                     empty(link.staMacAddress, "unknown"),
                 )
