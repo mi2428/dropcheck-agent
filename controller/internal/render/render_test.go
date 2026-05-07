@@ -404,6 +404,7 @@ func TestRenderWifiStatusShowsStructuredHEAndEHTDetails(t *testing.T) {
 						PrimaryChannel:     5,
 						CenterFreqSegment0: 31,
 					},
+					He_6GhzCapabilities: he6GhzCapabilitiesTestValue(),
 					EhtCapabilities: &controlpb.WifiEhtCapabilities{
 						MacCapabilitiesHex: "774e",
 						PhyCapabilitiesHex: "1680d1e33f08077e03",
@@ -465,6 +466,9 @@ func TestRenderWifiStatusShowsStructuredHEAndEHTDetails(t *testing.T) {
 		"mcs_nss eht/le_80mhz/0-9 rx=nss1 tx=nss2",
 		"he_oper",
 		"width=80MHz primary=5 ccfs0=31 ccfs1=0",
+		"he_6ghz_cap",
+		"max_mpdu=11454",
+		"max_ampdu=262143",
 		"eht_oper",
 		"width=320MHz ccfs0=31 ccfs1=63",
 		"disabled_subchannel_bitmap=0xa",
@@ -803,6 +807,9 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 						InformationElements: []*controlpb.WifiInformationElement{
 							ehtMultiLinkTestIE(),
 						},
+						He_6GhzCapabilities: he6GhzCapabilitiesTestValue(),
+						EhtCapabilities:     ehtCapabilitiesTestValue(),
+						EhtOperation:        ehtOperationTestValue(),
 						AssociatedMloLinks: []*controlpb.MloLinkInfo{{
 							LinkId:       2,
 							State:        "active",
@@ -845,6 +852,9 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 						InformationElements: []*controlpb.WifiInformationElement{
 							ehtMultiLinkTestIE(),
 						},
+						He_6GhzCapabilities: he6GhzCapabilitiesTestValue(),
+						EhtCapabilities:     ehtCapabilitiesTestValue(),
+						EhtOperation:        ehtOperationTestValue(),
 						AffiliatedMloLinks: []*controlpb.MloLinkInfo{{
 							LinkId:       1,
 							State:        "idle",
@@ -876,12 +886,14 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 		"Connected MLO",
 		"MLO Scan",
 		"Nearby MLO APs",
+		"EHT_W",
+		"PUNCT",
 		"MLO Scan Links",
 		"Network MLO",
 		"MLO Capability Signals",
 		"[*] Lab",
 		"ap_mld=02:00:00:00:00:01 link=2 bssid=aa:bb:cc:dd:ee:ff",
-		"band=6ghz ch=5 freq=5975MHz width=80MHz rssi=-45dBm",
+		"band=6ghz ch=5 freq=5975MHz width=80MHz eht_width=320MHz puncture=1,3 rssi=-45dBm",
 		"[+] affiliated Lab",
 		"Connected EHT Multi-Link Elements",
 		"ml_control raw=0x0030 type=basic(0) presence=link_id_info,bss_parameters_change_count bytes=28",
@@ -890,6 +902,16 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 		"sta_info_len=12 sta_mac=02:00:00:00:00:02 beacon_interval_tu=100",
 		"dtim=1/3",
 		"Scan EHT Multi-Link Elements",
+		"Connected HE 6GHz Details",
+		"Scan HE 6GHz Details",
+		"Connected EHT Details",
+		"max_mpdu=7991",
+		"max_ampdu=262143",
+		"320mhz=true",
+		"width_mhz=320",
+		"disabled=0x000a",
+		"punctured=1,3",
+		"Scan EHT Details",
 		"tid_to_link_mapping_negotiation",
 		"Diagnostics / Warnings",
 	} {
@@ -1119,5 +1141,92 @@ func detailedEHTMultiLinkTestIE() *controlpb.WifiInformationElement {
 		IdExt:     107,
 		ByteCount: 53,
 		BytesHex:  "3000090200000000010207001672090c020000000002640001030500034c6162ff036afe080102ff046c010203dd060011220799aa",
+	}
+}
+
+func he6GhzCapabilitiesTestValue() *controlpb.WifiHe6GhzCapabilities {
+	return &controlpb.WifiHe6GhzCapabilities{
+		RawHex:                      "ad3e",
+		Capabilities:                0x3ead,
+		MinimumMpduStartSpacing:     "4us",
+		MaxAmpduLengthExponent:      5,
+		MaxAmpduLengthBytes:         262143,
+		MaxMpduLengthBytes:          11454,
+		SmPowerSave:                 "disabled",
+		RdResponder:                 true,
+		RxAntennaPatternConsistency: true,
+		TxAntennaPatternConsistency: true,
+		Features:                    []string{"max_mpdu_length_bytes=11454", "max_ampdu_length_bytes=262143"},
+	}
+}
+
+func ehtCapabilitiesTestValue() *controlpb.WifiEhtCapabilities {
+	return &controlpb.WifiEhtCapabilities{
+		MacCapabilitiesHex: "774e",
+		PhyCapabilitiesHex: "f61fffffff7ff8ff03",
+		Mac: &controlpb.WifiEhtMacCapabilities{
+			EpcsPriorityAccess:            true,
+			OmControl:                     true,
+			RestrictedTwt:                 true,
+			MaxMpduLengthBytes:            7991,
+			LinkAdaptation:                "no_feedback",
+			EhtTrs:                        true,
+			TxopReturn:                    true,
+			TwoBqrs:                       true,
+			UnsolicitedEpcsPriorityAccess: true,
+		},
+		Phy: &controlpb.WifiEhtPhyCapabilities{
+			Supports_320MhzIn_6Ghz:     true,
+			Supports_242ToneRuGt_20Mhz: true,
+			BeamformeeSs_80Mhz:         3,
+			BeamformeeSs_160Mhz:        7,
+			BeamformeeSs_320Mhz:        0,
+			SoundingDimensions_80Mhz:   7,
+			SoundingDimensions_160Mhz:  7,
+			SoundingDimensions_320Mhz:  7,
+			CommonNominalPacketPadding: "20us",
+			MaxSupportedEhtLtf:         3,
+			ExtraEhtLtfSupported:       true,
+			Mcs15Supported_80Mhz:       true,
+			Mcs15Supported_160Mhz:      true,
+			Mcs15Supported_320Mhz:      true,
+			NonOfdmaUlMuMimo_320Mhz:    true,
+			MuBeamformer_320Mhz:        true,
+			Rx_4096QamWiderBwDlOfdma:   true,
+		},
+		McsNss: []*controlpb.WifiMcsNssSupport{{
+			Standard: "eht", Bandwidth: "le_80mhz", Direction: "rx", McsRange: "0-9", MaxNss: 1,
+		}, {
+			Standard: "eht", Bandwidth: "le_80mhz", Direction: "tx", McsRange: "0-9", MaxNss: 2,
+		}},
+		PpeThresholdsPresent: true,
+		PpeNssCount:          2,
+		PpeRuIndices:         []string{"242-tone", "4x996-tone"},
+		PpeThresholdsHex:     "f10102030405060708",
+	}
+}
+
+func ehtOperationTestValue() *controlpb.WifiEhtOperation {
+	return &controlpb.WifiEhtOperation{
+		Parameters:                         0x43,
+		Flags:                              []string{"disabled_subchannel_bitmap_present", "mcs15_disabled"},
+		BasicMcsNssSetHex:                  "11223344",
+		ChannelWidth:                       "320MHz",
+		CenterFreqSegment0:                 31,
+		CenterFreqSegment1:                 63,
+		DisabledSubchannelBitmap:           0x0a,
+		OperationInformationPresent:        true,
+		DisabledSubchannelBitmapPresent:    true,
+		ChannelWidthCode:                   4,
+		ChannelWidthMhz:                    320,
+		DisabledSubchannelBitmapHex:        "000a",
+		DisabledSubchannelIndices:          []uint32{1, 3},
+		Mcs15Disabled:                      true,
+		GroupAddressedBuIndicationExponent: 0,
+		BasicMcsNss: []*controlpb.WifiMcsNssSupport{{
+			Standard: "eht", Bandwidth: "20mhz_only", Direction: "rx", McsRange: "0-7", MaxNss: 1,
+		}, {
+			Standard: "eht", Bandwidth: "20mhz_only", Direction: "tx", McsRange: "0-7", MaxNss: 1,
+		}},
 	}
 }

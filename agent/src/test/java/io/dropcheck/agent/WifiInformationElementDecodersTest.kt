@@ -2,6 +2,8 @@ package io.dropcheck.agent
 
 import io.dropcheck.agent.grpc.WifiInformationElement
 import io.dropcheck.agent.grpc.WifiConnection
+import io.dropcheck.agent.grpc.WifiScan
+import io.dropcheck.agent.grpc.WifiScanResult
 import io.dropcheck.agent.grpc.WifiStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -17,12 +19,25 @@ class WifiInformationElementDecodersTest {
             extension(37, "2d"),
             extension(38, "01039f20042730056f40069f50"),
             extension(39, "1c0a141e01020304050607081112131415161718"),
+            extension(59, "ad3e"),
             extension(106, "4311223344041f3f0a00"),
             extension(108, "774ef61fffffff7ff8ff03214365214365214365010102"),
         ))
 
         val he = requireNotNull(decodes.heCapabilities)
         assertFalse(he.truncated)
+        assertTrue(he.hasMac())
+        assertTrue(he.hasPhy())
+        assertTrue(he.mac.htcHe)
+        assertEquals("no_feedback", he.mac.linkAdaptation)
+        assertEquals(1, he.mac.multiTidAggregationRxQos)
+        assertEquals(1, he.mac.multiTidAggregationTxQos)
+        assertTrue(he.mac.ul2X996ToneRu)
+        assertTrue(he.phy.channelWidthSetList.contains("160mhz_in_5ghz"))
+        assertTrue(he.phy.channelWidthSetList.contains("80plus80mhz_in_5ghz"))
+        assertEquals("0us", he.phy.nominalPacketPadding)
+        assertTrue(he.phy.fullBwUlMuMimo)
+        assertTrue(he.phy.partialBwUlMuMimo)
         assertTrue(he.featuresList.contains("ofdma_random_access"))
         assertTrue(he.featuresList.contains("partial_bw_ul_mu_mimo"))
         assertTrue(he.featuresList.contains("ul_2x996_tone_ru"))
@@ -40,6 +55,16 @@ class WifiInformationElementDecodersTest {
 
         val eht = requireNotNull(decodes.ehtCapabilities)
         assertFalse(eht.truncated)
+        assertTrue(eht.hasMac())
+        assertTrue(eht.hasPhy())
+        assertEquals(7991, eht.mac.maxMpduLengthBytes)
+        assertEquals("no_feedback", eht.mac.linkAdaptation)
+        assertTrue(eht.phy.supports320MhzIn6Ghz)
+        assertEquals("20us", eht.phy.commonNominalPacketPadding)
+        assertTrue(eht.phy.mcs15Supported80Mhz)
+        assertTrue(eht.phy.mcs15Supported160Mhz)
+        assertTrue(eht.phy.mcs15Supported320Mhz)
+        assertTrue(eht.phy.rx4096QamWiderBwDlOfdma)
         assertTrue(eht.featuresList.contains("242_tone_ru_gt_20mhz"))
         assertTrue(eht.featuresList.contains("su_beamformer"))
         assertTrue(eht.featuresList.contains("su_beamformee"))
@@ -51,9 +76,14 @@ class WifiInformationElementDecodersTest {
 
         val ehtOperation = requireNotNull(decodes.ehtOperation)
         assertEquals("320MHz", ehtOperation.channelWidth)
+        assertEquals(4, ehtOperation.channelWidthCode)
+        assertEquals(320, ehtOperation.channelWidthMhz)
         assertEquals(31, ehtOperation.centerFreqSegment0)
         assertEquals(63, ehtOperation.centerFreqSegment1)
         assertEquals(0x0a, ehtOperation.disabledSubchannelBitmap)
+        assertEquals("000a", ehtOperation.disabledSubchannelBitmapHex)
+        assertEquals(listOf(1, 3), ehtOperation.disabledSubchannelIndicesList)
+        assertEquals(8, ehtOperation.basicMcsNssCount)
         assertTrue(ehtOperation.flagsList.contains("disabled_subchannel_bitmap_present"))
         assertTrue(ehtOperation.flagsList.contains("mcs15_disabled"))
 
@@ -72,12 +102,25 @@ class WifiInformationElementDecodersTest {
         assertEquals("0102030405060708", spatialReuse.srgBssColorBitmapHex)
         assertTrue(spatialReuse.flagsList.contains("srg_information_present"))
 
+        val he6Ghz = requireNotNull(decodes.he6GhzCapabilities)
+        assertFalse(he6Ghz.truncated)
+        assertEquals("4us", he6Ghz.minimumMpduStartSpacing)
+        assertEquals(5, he6Ghz.maxAmpduLengthExponent)
+        assertEquals(262143, he6Ghz.maxAmpduLengthBytes)
+        assertEquals(11454, he6Ghz.maxMpduLengthBytes)
+        assertEquals("disabled", he6Ghz.smPowerSave)
+        assertTrue(he6Ghz.rdResponder)
+        assertTrue(he6Ghz.rxAntennaPatternConsistency)
+        assertTrue(he6Ghz.txAntennaPatternConsistency)
+        assertTrue(he6Ghz.featuresList.contains("max_mpdu_length_bytes=11454"))
+
         val rendered = AgentWifiStatusRenderer.render(
             WifiStatus.newBuilder()
                 .setConnection(WifiConnection.newBuilder()
                     .setSsid("Lab")
                     .setHeCapabilities(he)
                     .setHeOperation(heOperation)
+                    .setHe6GhzCapabilities(he6Ghz)
                     .setEhtCapabilities(eht)
                     .setEhtOperation(ehtOperation)
                     .setHeUoraParameterSet(uora)
@@ -90,8 +133,46 @@ class WifiInformationElementDecodersTest {
         assertTrue(rendered.contains("242_tone_ru_gt_20mhz"))
         assertTrue(rendered.contains("mcs_nss eht/le_80mhz/0-9"))
         assertTrue(rendered.contains("disabled_subchannel_bitmap=0xa"))
+        assertTrue(rendered.contains("he_6ghz_cap"))
+        assertTrue(rendered.contains("max_mpdu=11454"))
         assertTrue(rendered.contains("uora"))
         assertTrue(rendered.contains("spatial_reuse"))
+
+        val mloRendered = AgentWifiMloRenderer.render(
+            WifiStatus.newBuilder()
+                .setConnection(WifiConnection.newBuilder()
+                    .setSsid("Lab")
+                    .setBssid("aa:bb:cc:dd:ee:ff")
+                    .setWifiStandard("802.11be")
+                    .setHe6GhzCapabilities(he6Ghz)
+                    .setEhtCapabilities(eht)
+                    .setEhtOperation(ehtOperation)
+                    .build())
+                .build(),
+            WifiScan.newBuilder()
+                .addResults(WifiScanResult.newBuilder()
+                    .setSsid("Lab")
+                    .setBssid("aa:bb:cc:dd:ee:ff")
+                    .setWifiStandard("802.11be")
+                    .setApMloLinkId(-1)
+                    .setHe6GhzCapabilities(he6Ghz)
+                    .setEhtCapabilities(eht)
+                    .setEhtOperation(ehtOperation)
+                    .build())
+                .build(),
+        ).joinToString("\n")
+        assertTrue(mloRendered.contains("Connected EHT Details"))
+        assertTrue(mloRendered.contains("Connected HE 6GHz Details"))
+        assertTrue(mloRendered.contains("Scan HE 6GHz Details"))
+        assertTrue(mloRendered.contains("EHT_W"))
+        assertTrue(mloRendered.contains("eht_width=320MHz"))
+        assertTrue(mloRendered.contains("Scan EHT Details"))
+        assertTrue(mloRendered.contains("max_mpdu=7991"))
+        assertTrue(mloRendered.contains("max_ampdu=262143"))
+        assertTrue(mloRendered.contains("320mhz=true"))
+        assertTrue(mloRendered.contains("width_mhz=320"))
+        assertTrue(mloRendered.contains("disabled=0x000a"))
+        assertTrue(mloRendered.contains("punctured=1,3"))
     }
 
     @Test
@@ -120,6 +201,22 @@ class WifiInformationElementDecodersTest {
         assertFalse(eht.featuresList.contains("partial_bw_ul_mu_mimo"))
         assertTrue(eht.featuresList.contains("beamformee_ss_80mhz=3"))
         assertTrue(eht.featuresList.contains("sounding_dimensions_80mhz=1"))
+    }
+
+    @Test
+    fun usesCorrectEhtMcs15CapabilityBits() {
+        val decodes = decodeWifiInformationElements(listOf(
+            extension(108, "0000000000000000700000000000"),
+        ))
+
+        val eht = requireNotNull(decodes.ehtCapabilities)
+        assertTrue(eht.featuresList.contains("mcs15_80mhz"))
+        assertTrue(eht.featuresList.contains("mcs15_160mhz"))
+        assertTrue(eht.featuresList.contains("mcs15_320mhz"))
+        assertFalse(eht.featuresList.any { it.startsWith("mcs15_160mhz=") })
+        assertTrue(eht.phy.mcs15Supported80Mhz)
+        assertTrue(eht.phy.mcs15Supported160Mhz)
+        assertTrue(eht.phy.mcs15Supported320Mhz)
     }
 
     private fun extension(idExt: Int, bytesHex: String): WifiInformationElement {

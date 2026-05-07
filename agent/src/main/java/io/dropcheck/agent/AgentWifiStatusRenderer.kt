@@ -5,6 +5,7 @@ import io.dropcheck.agent.grpc.MloLinkInfo
 import io.dropcheck.agent.grpc.WifiConnection
 import io.dropcheck.agent.grpc.WifiEhtCapabilities
 import io.dropcheck.agent.grpc.WifiEhtOperation
+import io.dropcheck.agent.grpc.WifiHe6GhzCapabilities
 import io.dropcheck.agent.grpc.WifiHeCapabilities
 import io.dropcheck.agent.grpc.WifiHeMuEdcaParameterSet
 import io.dropcheck.agent.grpc.WifiHeOperation
@@ -184,6 +185,7 @@ internal object AgentWifiStatusRenderer {
                     38 -> summary.qos += "mu_edca"
                     39 -> summary.qos += "spatial_reuse"
                     45 -> summary.radio += "he_bss_load"
+                    59 -> summary.phy += "he_6ghz"
                     106 -> summary.operation += "eht_operation"
                     107 -> summary.operation += "eht_multi_link"
                     108 -> summary.phy += "eht"
@@ -244,6 +246,7 @@ internal object AgentWifiStatusRenderer {
         38 -> "mu_edca_parameter_set"
         39 -> "spatial_reuse_parameter_set"
         45 -> "he_bss_load"
+        59 -> "he_6ghz_capabilities"
         106 -> "eht_operation"
         107 -> "eht_multi_link"
         108 -> "eht_capabilities"
@@ -290,6 +293,9 @@ internal object AgentWifiStatusRenderer {
         if (conn.hasHeSpatialReuseParameterSet()) {
             rows += "spatial_reuse" to heSpatialReuseSummary(conn.heSpatialReuseParameterSet)
         }
+        if (conn.hasHe6GhzCapabilities()) {
+            rows += "he_6ghz_cap" to he6GhzCapabilitiesSummary(conn.he6GhzCapabilities)
+        }
         return rows
     }
 
@@ -301,6 +307,16 @@ internal object AgentWifiStatusRenderer {
             if (value.ppeThresholdsPresent) {
                 add("ppe nss=${value.ppeNssCount} ru=${joined(value.ppeRuIndicesList)} hex=0x${value.ppeThresholdsHex}")
             }
+            if (value.truncated) add("truncated=true")
+            addAll(value.warningsList.map { "warning=$it" })
+        })
+    }
+
+    private fun he6GhzCapabilitiesSummary(value: WifiHe6GhzCapabilities): String {
+        return multiLineValue(buildList {
+            add("cap=0x${value.capabilities.toString(16)} max_mpdu=${value.maxMpduLengthBytes} max_ampdu_exp=${value.maxAmpduLengthExponent} max_ampdu=${value.maxAmpduLengthBytes}")
+            add("min_mpdu_start=${value.minimumMpduStartSpacing} smps=${value.smPowerSave}")
+            addAll(value.featuresList)
             if (value.truncated) add("truncated=true")
             addAll(value.warningsList.map { "warning=$it" })
         })
