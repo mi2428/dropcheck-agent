@@ -16,6 +16,7 @@ import (
 	"dropcheck/controller/internal/festival/dns"
 	"dropcheck/controller/internal/festival/globalip"
 	"dropcheck/controller/internal/festival/ip"
+	"dropcheck/controller/internal/festival/mlo"
 	"dropcheck/controller/internal/festival/ping"
 	"dropcheck/controller/internal/festival/pmtu"
 	"dropcheck/controller/internal/festival/scan"
@@ -105,6 +106,12 @@ func TestRunBuildsSupportedCheckOperations(t *testing.T) {
 					wifi.Channel().Eq(37),
 					wifi.Band().Eq("6ghz"),
 					wifi.TxLinkSpeedMbps().Ge(1000),
+					wifi.MLOPresent().IsTrue(),
+					wifi.APMLDMAC().Eq("02:00:00:00:00:01"),
+					wifi.APMLOLinkID().Eq(1),
+					wifi.AssociatedMLOLinkCount().Ge(1),
+					wifi.AffiliatedMLOLinkCount().Ge(1),
+					wifi.AssociatedMLOLink().ID(1).Band("6ghz").State("active").Exists(),
 				),
 			festival.WiFiScan().
 				Fresh().
@@ -119,7 +126,26 @@ func TestRunBuildsSupportedCheckOperations(t *testing.T) {
 						ChannelWidth("320mhz").
 						Channel(37).
 						Security("wpa3_sae").
+						MLOCapable().
+						APMLDMAC("02:00:00:00:00:01").
+						MLOLinkID(1).
+						AffiliatedMLOLinkID(2).
 						Exists(),
+				),
+			festival.WiFiMLO().
+				Expect(
+					mlo.Connected().Present(),
+					mlo.Connected().APMLD().Known(),
+					mlo.Connected().APMLOLinkID().Eq(1),
+					mlo.Connected().AssociatedLinkCount().Ge(1),
+					mlo.Scan().CandidateCount().Ge(1),
+					mlo.Scan().Group().
+						SSID("Lab").
+						APMLD("02:00:00:00:00:01").
+						LinkCount().Ge(2),
+					mlo.CurrentRelation().ConnectedMLDSeenInScan().IsTrue(),
+					mlo.CurrentRelation().AssociatedLinksCoveredByScan().IsTrue(),
+					mlo.Metadata().Complete().IsTrue(),
 				),
 			festival.WiFiCapabilities().
 				Expect(
@@ -152,7 +178,7 @@ func TestRunBuildsSupportedCheckOperations(t *testing.T) {
 		},
 	}, festival.WithRunner(fake, control.AgentInfo{ID: "agent-1"}))
 
-	want := []string{"wifi.connect", "ip.status", "wifi.status", "wifi.scan.fresh", "wifi.capabilities", "path-mtu", "traceroute", "http", "download"}
+	want := []string{"wifi.connect", "ip.status", "wifi.status", "wifi.scan.fresh", "wifi.mlo", "wifi.capabilities", "path-mtu", "traceroute", "http", "download"}
 	if !reflect.DeepEqual(fake.operations, want) {
 		t.Fatalf("operations = %#v, want %#v", fake.operations, want)
 	}
@@ -597,23 +623,39 @@ func fakeResult(name string) *controlpb.CommandResult {
 				WifiStandard:       "802.11be",
 				ChannelWidth:       "160MHz",
 				SecurityType:       "wpa3_sae",
-				AssociatedMloLinks: []*controlpb.MloLinkInfo{{LinkId: 1, Band: "6ghz", Channel: 37}},
+				ApMldMacAddress:    "02:00:00:00:00:01",
+				ApMloLinkId:        1,
+				AssociatedMloLinks: []*controlpb.MloLinkInfo{{LinkId: 1, State: "active", Band: "6ghz", Channel: 37}},
+				AffiliatedMloLinks: []*controlpb.MloLinkInfo{{LinkId: 2, State: "idle", Band: "5ghz", Channel: 149}},
 				Raw:                "ssid=Lab channelWidth=160MHz",
 			},
 		}}
 	case "wifi.scan.fresh", "wifi.scan":
 		result.Payload = &controlpb.CommandResult_WifiScan{WifiScan: &controlpb.WifiScan{
 			Results: []*controlpb.WifiScanResult{{
-				Ssid:          "Lab",
-				Bssid:         "aa:bb:cc:dd:ee:ff",
-				Capabilities:  "[RSN-SAE-CCMP][EHT][ESS]",
-				RssiDbm:       -41,
-				FrequencyMhz:  6135,
-				Band:          "6GHz",
-				ChannelWidth:  "320MHz",
-				WifiStandard:  "802.11be",
-				SecurityTypes: []string{"wpa3_sae"},
+				Ssid:            "Lab",
+				Bssid:           "aa:bb:cc:dd:ee:ff",
+				Capabilities:    "[RSN-SAE-CCMP][EHT][ESS]",
+				RssiDbm:         -41,
+				FrequencyMhz:    6135,
+				Band:            "6GHz",
+				ChannelWidth:    "320MHz",
+				WifiStandard:    "802.11be",
+				SecurityTypes:   []string{"wpa3_sae"},
+				ApMldMacAddress: "02:00:00:00:00:01",
+				ApMloLinkId:     1,
+				AffiliatedMloLinks: []*controlpb.MloLinkInfo{{
+					LinkId:  2,
+					Band:    "5ghz",
+					Channel: 149,
+				}},
 			}},
+		}}
+	case "wifi.mlo":
+		result.Payload = &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{
+			Status:       fakeResult("wifi.status").GetWifiStatus(),
+			Scan:         fakeResult("wifi.scan").GetWifiScan(),
+			Capabilities: fakeResult("wifi.capabilities").GetWifiCapabilities(),
 		}}
 	case "wifi.capabilities":
 		result.Payload = &controlpb.CommandResult_WifiCapabilities{WifiCapabilities: &controlpb.WifiCapabilities{

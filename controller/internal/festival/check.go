@@ -165,6 +165,54 @@ func (c WiFiStatusCheck) build() (step, error) {
 	return c.step(command.WifiStatusOperation()), nil
 }
 
+// WiFiMLOCheck configures an MLO-focused Wi-Fi diagnostics check.
+type WiFiMLOCheck struct {
+	checkBase
+}
+
+// WiFiMLO starts an MLO-focused Wi-Fi diagnostics check.
+//
+// WiFiMLO evaluates the same diagnostic bundle as `show wifi mlo`: connected
+// MLO state, cached scan MLO candidates, device capability signals, and the
+// relation between the connected AP MLD and visible scan results.
+func WiFiMLO() WiFiMLOCheck {
+	return WiFiMLOCheck{checkBase: checkBase{name: "wifi mlo"}}
+}
+
+// Expect attaches expectations to the Wi-Fi MLO check.
+func (c WiFiMLOCheck) Expect(expectations ...Expectation) WiFiMLOCheck {
+	c.checkBase = c.withExpectations(expectations)
+	return c
+}
+
+// Repeat runs the Wi-Fi MLO check count times.
+func (c WiFiMLOCheck) Repeat(count uint32) WiFiMLOCheck {
+	c.checkBase = c.withRepeat(count)
+	return c
+}
+
+// Retry reruns a failed Wi-Fi MLO check up to attempts times.
+func (c WiFiMLOCheck) Retry(attempts uint32, delay time.Duration) WiFiMLOCheck {
+	c.checkBase = c.withRetry(attempts, delay)
+	return c
+}
+
+// StableFor requires the Wi-Fi MLO check to keep passing for duration.
+func (c WiFiMLOCheck) StableFor(duration time.Duration) WiFiMLOCheck {
+	c.checkBase = c.withStableFor(duration)
+	return c
+}
+
+// StableInterval sets the sampling interval used by StableFor.
+func (c WiFiMLOCheck) StableInterval(interval time.Duration) WiFiMLOCheck {
+	c.checkBase = c.withStableInterval(interval)
+	return c
+}
+
+func (c WiFiMLOCheck) build() (step, error) {
+	return c.step(command.WifiMLOOperation()), nil
+}
+
 // WiFiScanCheck configures a Wi-Fi scan check.
 type WiFiScanCheck struct {
 	checkBase

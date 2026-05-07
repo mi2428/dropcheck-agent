@@ -129,16 +129,21 @@ func (a assertion) Evaluate(result festival.Result) []festival.Finding {
 
 // APSelector filters scan results by AP-advertised fields.
 type APSelector struct {
-	metric              string
-	ssid                string
-	bssid               string
-	standard            string
-	channelWidth        string
-	band                string
-	channel             *int32
-	security            string
-	minRSSI             *int32
-	capabilityFragments []string
+	metric                string
+	ssid                  string
+	bssid                 string
+	standard              string
+	channelWidth          string
+	band                  string
+	channel               *int32
+	security              string
+	minRSSI               *int32
+	mloCapable            *bool
+	apMLDMac              string
+	mloLinkID             *int32
+	affiliatedMLOLinkID   *int32
+	minAffiliatedMLOLinks *int
+	capabilityFragments   []string
 }
 
 // SSID restricts matches to one SSID.
@@ -186,6 +191,44 @@ func (s APSelector) Security(value string) APSelector {
 // MinRSSI requires matched APs to have at least value dBm RSSI.
 func (s APSelector) MinRSSI(value int32) APSelector {
 	s.minRSSI = &value
+	return s
+}
+
+// MLOCapable restricts matches to APs that report Wi-Fi 7 MLO capability or metadata.
+func (s APSelector) MLOCapable() APSelector {
+	value := true
+	s.mloCapable = &value
+	return s
+}
+
+// NotMLOCapable restricts matches to APs that do not report MLO capability or metadata.
+func (s APSelector) NotMLOCapable() APSelector {
+	value := false
+	s.mloCapable = &value
+	return s
+}
+
+// APMLDMAC restricts matches to one advertised AP MLD MAC address.
+func (s APSelector) APMLDMAC(value string) APSelector {
+	s.apMLDMac = strings.ToLower(strings.TrimSpace(value))
+	return s
+}
+
+// MLOLinkID restricts matches to one advertised AP MLO link ID.
+func (s APSelector) MLOLinkID(value int32) APSelector {
+	s.mloLinkID = &value
+	return s
+}
+
+// AffiliatedMLOLinkID restricts matches to an advertised affiliated MLO link ID.
+func (s APSelector) AffiliatedMLOLinkID(value int32) APSelector {
+	s.affiliatedMLOLinkID = &value
+	return s
+}
+
+// MinAffiliatedMLOLinkCount requires matched APs to advertise at least value affiliated MLO links.
+func (s APSelector) MinAffiliatedMLOLinkCount(value int) APSelector {
+	s.minAffiliatedMLOLinks = &value
 	return s
 }
 
@@ -264,6 +307,21 @@ func (s APSelector) matchesOne(result AP) bool {
 	if s.minRSSI != nil && result.RSSIDbm < *s.minRSSI {
 		return false
 	}
+	if s.mloCapable != nil && apMLOCapable(result) != *s.mloCapable {
+		return false
+	}
+	if s.apMLDMac != "" && strings.ToLower(strings.TrimSpace(result.APMLDMacAddress)) != s.apMLDMac {
+		return false
+	}
+	if s.mloLinkID != nil && !slices.Contains(apMLOLinkIDs(result), *s.mloLinkID) {
+		return false
+	}
+	if s.affiliatedMLOLinkID != nil && !slices.Contains(affiliatedMLOLinkIDs(result.AffiliatedMLOLinks), *s.affiliatedMLOLinkID) {
+		return false
+	}
+	if s.minAffiliatedMLOLinks != nil && len(result.AffiliatedMLOLinks) < *s.minAffiliatedMLOLinks {
+		return false
+	}
 	for _, fragment := range s.capabilityFragments {
 		if !strings.Contains(result.Capabilities, fragment) {
 			return false
@@ -338,7 +396,7 @@ func normalizeResults(values []*controlpb.WifiScanResult) []AP {
 }
 
 func describeAP(value AP) string {
-	return fmt.Sprintf("ssid=%s bssid=%s standard=%s channel=%d width=%s rssi=%ddBm", value.SSID, value.BSSID, value.Standard, value.Channel, value.ChannelWidth, value.RSSIDbm)
+	return fmt.Sprintf("ssid=%s bssid=%s standard=%s channel=%d width=%s rssi=%ddBm ap_mld=%s link_ids=%v", value.SSID, value.BSSID, value.Standard, value.Channel, value.ChannelWidth, value.RSSIDbm, value.APMLDMacAddress, apMLOLinkIDs(value))
 }
 
 func describeAPs(values []AP) string {
@@ -428,4 +486,37 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func apMLOCapable(value AP) bool {
+	return value.Standard == "be" ||
+		value.APMLDMacAddress != "" ||
+		len(value.AffiliatedMLOLinks) > 0
+}
+
+func apMLOLinkIDs(value AP) []int32 {
+	seen := map[int32]bool{}
+	if apMLOCapable(value) && value.APMLOLinkID >= 0 {
+		seen[value.APMLOLinkID] = true
+	}
+	for _, id := range affiliatedMLOLinkIDs(value.AffiliatedMLOLinks) {
+		seen[id] = true
+	}
+	out := make([]int32, 0, len(seen))
+	for id := range seen {
+		out = append(out, id)
+	}
+	slices.Sort(out)
+	return out
+}
+
+func affiliatedMLOLinkIDs(links []*controlpb.MloLinkInfo) []int32 {
+	ids := make([]int32, 0, len(links))
+	for _, link := range links {
+		if link.GetLinkId() >= 0 {
+			ids = append(ids, link.GetLinkId())
+		}
+	}
+	slices.Sort(ids)
+	return ids
 }

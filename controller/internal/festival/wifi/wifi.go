@@ -47,6 +47,10 @@ type Result struct {
 	RxLinkSpeedMbps int32
 	// RSSIDbm is the current RSSI.
 	RSSIDbm int32
+	// APMLDMacAddress is the connected AP MLD MAC address for Wi-Fi 7 MLO.
+	APMLDMacAddress string
+	// APMLOLinkID is the connected AP MLO link ID for Wi-Fi 7 MLO.
+	APMLOLinkID int32
 	// AssociatedMLOLinks are associated Wi-Fi 7 MLO links.
 	AssociatedMLOLinks []*controlpb.MloLinkInfo
 	// AffiliatedMLOLinks are affiliated Wi-Fi 7 MLO links.
@@ -167,12 +171,67 @@ func RSSIDbm() festival.OrderedMetric[int32] {
 	})
 }
 
+// MLOPresent matches whether the connected Wi-Fi link reports MLO identity.
+func MLOPresent() festival.BoolMetric {
+	return festival.Bool("wifi.mlo_present", func(result festival.Result) (bool, bool, string) {
+		wifi, ok, reason := from(result)
+		return connectionMLOPresent(wifi), ok, reason
+	})
+}
+
+// APMLDMAC matches the connected AP MLD MAC address.
+func APMLDMAC() festival.OrderedMetric[string] {
+	return stringMetric("wifi.ap_mld_mac", func(result Result) (string, bool, string) {
+		if result.APMLDMacAddress == "" {
+			return "", false, "ap mld mac address is empty"
+		}
+		return result.APMLDMacAddress, true, ""
+	})
+}
+
+// APMLOLinkID matches the connected AP MLO link ID.
+func APMLOLinkID() festival.OrderedMetric[int32] {
+	return intMetric("wifi.ap_mlo_link_id", func(result Result) (int32, bool, string) {
+		if !connectionMLOPresent(result) {
+			return 0, false, "mlo is not present"
+		}
+		if result.APMLOLinkID < 0 {
+			return 0, false, "ap mlo link id is unknown"
+		}
+		return result.APMLOLinkID, true, ""
+	})
+}
+
 // AssociatedMLOLinkCount matches the number of associated MLO links.
 func AssociatedMLOLinkCount() festival.OrderedMetric[int] {
 	return festival.Ordered[int]("wifi.associated_mlo_link_count", func(result festival.Result) (int, bool, string) {
 		wifi, ok, reason := from(result)
 		return len(wifi.AssociatedMLOLinks), ok, reason
 	})
+}
+
+// AffiliatedMLOLinkCount matches the number of affiliated MLO links.
+func AffiliatedMLOLinkCount() festival.OrderedMetric[int] {
+	return festival.Ordered[int]("wifi.affiliated_mlo_link_count", func(result festival.Result) (int, bool, string) {
+		wifi, ok, reason := from(result)
+		return len(wifi.AffiliatedMLOLinks), ok, reason
+	})
+}
+
+// AssociatedMLOLink starts a selector for associated MLO links.
+func AssociatedMLOLink() MLOLinkSelector {
+	return MLOLinkSelector{
+		metric: "wifi.associated_mlo_link",
+		links:  func(r Result) []*controlpb.MloLinkInfo { return r.AssociatedMLOLinks },
+	}
+}
+
+// AffiliatedMLOLink starts a selector for affiliated MLO links.
+func AffiliatedMLOLink() MLOLinkSelector {
+	return MLOLinkSelector{
+		metric: "wifi.affiliated_mlo_link",
+		links:  func(r Result) []*controlpb.MloLinkInfo { return r.AffiliatedMLOLinks },
+	}
 }
 
 // RawContains requires the raw Wi-Fi connection text to contain value.
@@ -215,6 +274,123 @@ func (e rawContains) Evaluate(result festival.Result) []festival.Finding {
 		return []festival.Finding{festival.Pass("wifi.raw", e.value, "contains "+e.value)}
 	}
 	return []festival.Finding{festival.Fail("wifi.raw", wifi.RawText, "contains "+e.value, "value not found")}
+}
+
+// MLOLinkSelector filters one set of MLO links by advertised fields.
+type MLOLinkSelector struct {
+	metric string
+	links  func(Result) []*controlpb.MloLinkInfo
+
+	linkID  *int32
+	state   string
+	band    string
+	channel *int32
+	apMAC   string
+	staMAC  string
+}
+
+// ID restricts matches to one MLO link ID.
+func (s MLOLinkSelector) ID(value int32) MLOLinkSelector {
+	s.linkID = &value
+	return s
+}
+
+// State restricts matches to one MLO link state, such as "active".
+func (s MLOLinkSelector) State(value string) MLOLinkSelector {
+	s.state = normalizeToken(value)
+	return s
+}
+
+// Band restricts matches to one Wi-Fi band, such as "6ghz".
+func (s MLOLinkSelector) Band(value string) MLOLinkSelector {
+	s.band = normalizeBandToken(value)
+	return s
+}
+
+// Channel restricts matches to one Wi-Fi channel.
+func (s MLOLinkSelector) Channel(value int32) MLOLinkSelector {
+	s.channel = &value
+	return s
+}
+
+// APMAC restricts matches to one AP MAC address.
+func (s MLOLinkSelector) APMAC(value string) MLOLinkSelector {
+	s.apMAC = strings.ToLower(strings.TrimSpace(value))
+	return s
+}
+
+// STAMAC restricts matches to one STA MAC address.
+func (s MLOLinkSelector) STAMAC(value string) MLOLinkSelector {
+	s.staMAC = strings.ToLower(strings.TrimSpace(value))
+	return s
+}
+
+// Exists requires at least one MLO link to match the selector.
+func (s MLOLinkSelector) Exists() festival.Expectation {
+	return mloLinkExists{selector: s}
+}
+
+// Count matches the number of MLO links selected by the selector.
+func (s MLOLinkSelector) Count() festival.OrderedMetric[int] {
+	return festival.Ordered[int](s.metric+"_count", func(result festival.Result) (int, bool, string) {
+		wifi, ok, reason := from(result)
+		if !ok {
+			return 0, false, reason
+		}
+		return len(s.matches(s.links(wifi))), true, ""
+	})
+}
+
+type mloLinkExists struct {
+	selector MLOLinkSelector
+}
+
+func (e mloLinkExists) Evaluate(result festival.Result) []festival.Finding {
+	wifi, ok, reason := from(result)
+	if !ok {
+		return []festival.Finding{festival.Fail(e.selector.metric, "<missing>", "exists", reason)}
+	}
+	links := e.selector.links(wifi)
+	matches := e.selector.matches(links)
+	if len(matches) > 0 {
+		return []festival.Finding{festival.Pass(e.selector.metric, describeMLOLink(matches[0]), "exists")}
+	}
+	return []festival.Finding{festival.Fail(e.selector.metric, describeMLOLinks(links), "exists", "no mlo link matched selector")}
+}
+
+func (s MLOLinkSelector) matches(links []*controlpb.MloLinkInfo) []*controlpb.MloLinkInfo {
+	matches := make([]*controlpb.MloLinkInfo, 0, len(links))
+	for _, link := range links {
+		if s.matchesOne(link) {
+			matches = append(matches, link)
+		}
+	}
+	return matches
+}
+
+func (s MLOLinkSelector) matchesOne(link *controlpb.MloLinkInfo) bool {
+	if link == nil {
+		return false
+	}
+	if s.linkID != nil && link.GetLinkId() != *s.linkID {
+		return false
+	}
+	if s.state != "" && normalizeToken(link.GetState()) != s.state {
+		return false
+	}
+	if s.band != "" && normalizeBandToken(link.GetBand()) != s.band {
+		return false
+	}
+	if s.channel != nil && link.GetChannel() != *s.channel {
+		return false
+	}
+	if s.apMAC != "" && strings.ToLower(strings.TrimSpace(link.GetApMacAddress())) != s.apMAC {
+		return false
+	}
+	if s.staMAC != "" && strings.ToLower(strings.TrimSpace(link.GetStaMacAddress())) != s.staMAC {
+		return false
+	}
+	return true
 }
 
 func stringMetric(name string, observe func(Result) (string, bool, string)) festival.OrderedMetric[string] {
@@ -270,10 +446,37 @@ func from(result festival.Result) (Result, bool, string) {
 		TxLinkSpeedMbps:    conn.GetTxLinkSpeedMbps(),
 		RxLinkSpeedMbps:    conn.GetRxLinkSpeedMbps(),
 		RSSIDbm:            conn.GetRssiDbm(),
+		APMLDMacAddress:    conn.GetApMldMacAddress(),
+		APMLOLinkID:        conn.GetApMloLinkId(),
 		AssociatedMLOLinks: conn.GetAssociatedMloLinks(),
 		AffiliatedMLOLinks: conn.GetAffiliatedMloLinks(),
 		RawText:            conn.GetRaw(),
 	}, true, ""
+}
+
+func connectionMLOPresent(result Result) bool {
+	return result.APMLDMacAddress != "" ||
+		len(result.AssociatedMLOLinks) > 0 ||
+		len(result.AffiliatedMLOLinks) > 0 ||
+		(result.Standard == "be" && result.APMLOLinkID >= 0)
+}
+
+func describeMLOLink(link *controlpb.MloLinkInfo) string {
+	if link == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("id=%d state=%s band=%s channel=%d rssi=%ddBm ap=%s", link.GetLinkId(), link.GetState(), link.GetBand(), link.GetChannel(), link.GetRssiDbm(), link.GetApMacAddress())
+}
+
+func describeMLOLinks(links []*controlpb.MloLinkInfo) string {
+	if len(links) == 0 {
+		return "<none>"
+	}
+	parts := make([]string, 0, len(links))
+	for _, link := range links {
+		parts = append(parts, describeMLOLink(link))
+	}
+	return strings.Join(parts, "; ")
 }
 
 func normalizeStandard(value string) string {
@@ -295,6 +498,32 @@ func normalizeStandard(value string) string {
 	default:
 		return normalized
 	}
+}
+
+func normalizeBandToken(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	normalized = strings.ReplaceAll(normalized, " ", "")
+	normalized = strings.ReplaceAll(normalized, "_", "")
+	normalized = strings.ReplaceAll(normalized, "-", "")
+	switch normalized {
+	case "2.4", "24", "2.4g", "24g", "2.4ghz", "24ghz":
+		return "2.4ghz"
+	case "5", "5g", "5ghz":
+		return "5ghz"
+	case "6", "6g", "6ghz":
+		return "6ghz"
+	case "60", "60g", "60ghz":
+		return "60ghz"
+	default:
+		return normalized
+	}
+}
+
+func normalizeToken(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	normalized = strings.ReplaceAll(normalized, "-", "_")
+	normalized = strings.ReplaceAll(normalized, " ", "_")
+	return normalized
 }
 
 func channelFromFrequency(frequency int32) int32 {
