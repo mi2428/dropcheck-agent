@@ -699,3 +699,86 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 		t.Fatalf("rendered output = %q, unexpected non-MLO AP", out)
 	}
 }
+
+func TestRenderWifiMLOHidesPlaceholderConnectionAndCapsNearbyTable(t *testing.T) {
+	result := &controlpb.CommandResult{
+		Status: controlpb.CommandResult_STATUS_OK,
+		Payload: &controlpb.CommandResult_WifiDiagnostics{
+			WifiDiagnostics: &controlpb.WifiDiagnostics{
+				Status: &controlpb.WifiStatus{
+					Enabled: true,
+					State:   "enabled",
+					Connection: &controlpb.WifiConnection{
+						Ssid:         "<unknown ssid>",
+						Bssid:        "02:00:00:00:00:00",
+						NetworkId:    -1,
+						WifiStandard: "802.11ax",
+					},
+				},
+				Scan: &controlpb.WifiScan{
+					Results: []*controlpb.WifiScanResult{{
+						Ssid:         "very-long-laboratory-network-name-that-would-wrap-the-table",
+						Bssid:        "aa:bb:cc:dd:ee:ff",
+						RssiDbm:      -55,
+						Band:         "6GHz",
+						FrequencyMhz: 6295,
+						WifiStandard: "802.11be",
+						ApMloLinkId:  -1,
+						SecurityTypes: []string{
+							"sae",
+						},
+					}, {
+						Ssid:         "獅子丸新百合ヶ丘店",
+						Bssid:        "aa:bb:cc:dd:ee:01",
+						RssiDbm:      -62,
+						Band:         "2.4GHz",
+						FrequencyMhz: 2457,
+						WifiStandard: "802.11be",
+						ApMloLinkId:  -1,
+						SecurityTypes: []string{
+							"psk",
+						},
+					}},
+				},
+			},
+		},
+	}
+
+	out, err := CommandResult("agent", result, command.Options{WifiRenderMode: command.WifiRenderModeMLO}, pipeline.FormatText)
+	if err != nil {
+		t.Fatalf("CommandResult() error = %v", err)
+	}
+	for _, want := range []string{
+		"Current AP Relation\n  no active Wi-Fi connection",
+		"Connected MLO\n  no active Wi-Fi connection",
+		"scan_mlo_metadata_absent 11be_results=2 ap_mld=0 link_id=0",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered output = %q, missing %q", out, want)
+		}
+	}
+	for _, unwanted := range []string{"<unknown ssid>", "802.11ax"} {
+		if strings.Contains(out, unwanted) {
+			t.Fatalf("rendered output = %q, unexpected %q", out, unwanted)
+		}
+	}
+
+	lines := strings.Split(out, "\n")
+	for i, line := range lines {
+		if line != "Nearby MLO APs" {
+			continue
+		}
+		for _, tableLine := range lines[i+1:] {
+			if tableLine == "" {
+				break
+			}
+			if wifiMLODisplayWidth(tableLine) > 80 {
+				t.Fatalf("table line display width=%d exceeds 80: %q\n%s", wifiMLODisplayWidth(tableLine), tableLine, out)
+			}
+		}
+		break
+	}
+	if !strings.Contains(out, "...") {
+		t.Fatalf("rendered output = %q, missing truncated table cell", out)
+	}
+}
