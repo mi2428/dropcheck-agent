@@ -552,6 +552,13 @@ message WifiConnection {
   repeated WifiInformationElement information_elements = 30;
   string raw = 31;
   string channel_width = 32;
+  WifiHeCapabilities he_capabilities = 33;
+  WifiHeOperation he_operation = 34;
+  WifiEhtCapabilities eht_capabilities = 35;
+  WifiEhtOperation eht_operation = 36;
+  WifiHeUoraParameterSet he_uora_parameter_set = 37;
+  WifiHeMuEdcaParameterSet he_mu_edca_parameter_set = 38;
+  WifiHeSpatialReuseParameterSet he_spatial_reuse_parameter_set = 39;
 }
 
 message IpStatus {
@@ -643,6 +650,13 @@ message WifiScanResult {
   repeated MloLinkInfo affiliated_mlo_links = 24;
   repeated WifiInformationElement information_elements = 25;
   string raw = 26;
+  WifiHeCapabilities he_capabilities = 27;
+  WifiHeOperation he_operation = 28;
+  WifiEhtCapabilities eht_capabilities = 29;
+  WifiEhtOperation eht_operation = 30;
+  WifiHeUoraParameterSet he_uora_parameter_set = 31;
+  WifiHeMuEdcaParameterSet he_mu_edca_parameter_set = 32;
+  WifiHeSpatialReuseParameterSet he_spatial_reuse_parameter_set = 33;
 }
 
 message MloLinkInfo {
@@ -665,6 +679,112 @@ message WifiInformationElement {
   int32 id_ext = 2;
   uint32 byte_count = 3;
   string bytes_hex = 4;
+}
+
+message WifiMcsNssSupport {
+  string standard = 1;
+  string bandwidth = 2;
+  string direction = 3;
+  string mcs_range = 4;
+  uint32 nss = 5;
+  uint32 max_nss = 6;
+  uint32 raw = 7;
+}
+
+message WifiHeCapabilities {
+  string mac_capabilities_hex = 1;
+  string phy_capabilities_hex = 2;
+  repeated string features = 3;
+  repeated WifiMcsNssSupport mcs_nss = 4;
+  bool ppe_thresholds_present = 5;
+  uint32 ppe_nss_count = 6;
+  repeated string ppe_ru_indices = 7;
+  string ppe_thresholds_hex = 8;
+  string raw_hex = 9;
+  bool truncated = 10;
+  repeated string warnings = 11;
+}
+
+message WifiHeOperation {
+  uint32 parameters = 1;
+  repeated string flags = 2;
+  uint32 bss_color = 3;
+  bool bss_color_disabled = 4;
+  string basic_mcs_nss_set_hex = 5;
+  string channel_width = 6;
+  uint32 primary_channel = 7;
+  uint32 center_freq_segment0 = 8;
+  uint32 center_freq_segment1 = 9;
+  string raw_hex = 10;
+  bool truncated = 11;
+  repeated string warnings = 12;
+}
+
+message WifiEhtCapabilities {
+  string mac_capabilities_hex = 1;
+  string phy_capabilities_hex = 2;
+  repeated string features = 3;
+  repeated WifiMcsNssSupport mcs_nss = 4;
+  bool ppe_thresholds_present = 5;
+  uint32 ppe_nss_count = 6;
+  repeated string ppe_ru_indices = 7;
+  string ppe_thresholds_hex = 8;
+  string raw_hex = 9;
+  bool truncated = 10;
+  repeated string warnings = 11;
+}
+
+message WifiEhtOperation {
+  uint32 parameters = 1;
+  repeated string flags = 2;
+  string basic_mcs_nss_set_hex = 3;
+  string channel_width = 4;
+  uint32 center_freq_segment0 = 5;
+  uint32 center_freq_segment1 = 6;
+  uint32 disabled_subchannel_bitmap = 7;
+  string raw_hex = 8;
+  bool truncated = 9;
+  repeated string warnings = 10;
+}
+
+message WifiHeUoraParameterSet {
+  uint32 eocw_min = 1;
+  uint32 eocw_max = 2;
+  string raw_hex = 3;
+  bool truncated = 4;
+  repeated string warnings = 5;
+}
+
+message WifiHeMuEdcaAcRecord {
+  string ac = 1;
+  uint32 aci = 2;
+  uint32 aifsn = 3;
+  bool acm = 4;
+  uint32 ecw_min = 5;
+  uint32 ecw_max = 6;
+  uint32 timer = 7;
+  string raw_hex = 8;
+}
+
+message WifiHeMuEdcaParameterSet {
+  uint32 qos_info = 1;
+  repeated WifiHeMuEdcaAcRecord ac = 2;
+  string raw_hex = 3;
+  bool truncated = 4;
+  repeated string warnings = 5;
+}
+
+message WifiHeSpatialReuseParameterSet {
+  uint32 sr_control = 1;
+  repeated string flags = 2;
+  uint32 non_srg_obss_pd_max_offset = 3;
+  uint32 srg_obss_pd_min_offset = 4;
+  uint32 srg_obss_pd_max_offset = 5;
+  string srg_bss_color_bitmap_hex = 6;
+  string srg_partial_bssid_bitmap_hex = 7;
+  string raw_hex = 8;
+  bool truncated = 9;
+  repeated string warnings = 10;
 }
 
 message DiagnosticField {
