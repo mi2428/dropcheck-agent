@@ -25,6 +25,7 @@ internal object AgentWifiMloRenderer {
 
         renderCurrentRelation(out, current, candidates)
         renderConnectedMlo(out, current)
+        renderConnectedEhtMultiLink(out, current)
         renderScanSummary(out, scan, candidates, context)
         renderNearbyMlo(out, groups, current)
         renderDiagnostics(out, status, scan, current, candidates, context)
@@ -50,6 +51,14 @@ internal object AgentWifiMloRenderer {
         )
         renderMloLinks(out, "Associated MLO Links", conn.associatedMloLinksList)
         renderMloLinks(out, "Affiliated MLO Links", conn.affiliatedMloLinksList)
+    }
+
+    private fun renderConnectedEhtMultiLink(out: MutableList<String>, conn: WifiConnection?) {
+        if (conn == null) return
+        val lines = formatEhtMultiLinkElements("connection", parseEhtMultiLinkElements(conn.informationElementsList))
+        if (lines.isEmpty()) return
+        section(out, "Connected EHT Multi-Link Elements")
+        out += lines.map { "  $it" }
     }
 
     private fun renderScanSummary(
@@ -111,6 +120,19 @@ internal object AgentWifiMloRenderer {
             },
         )
         renderScanLinks(out, groups, current)
+        renderScanEhtMultiLink(out, groups.flatMap { it.results })
+    }
+
+    private fun renderScanEhtMultiLink(out: MutableList<String>, results: List<WifiScanResult>) {
+        val lines = results.flatMap { result ->
+            formatEhtMultiLinkElements(
+                "ap ssid=${empty(result.ssid, "<hidden>")} bssid=${empty(result.bssid, "<unknown>")}",
+                parseEhtMultiLinkElements(result.informationElementsList),
+            )
+        }
+        if (lines.isEmpty()) return
+        section(out, "Scan EHT Multi-Link Elements")
+        out += lines.map { "  $it" }
     }
 
     private fun renderScanLinks(out: MutableList<String>, groups: List<MloGroup>, current: WifiConnection?) {

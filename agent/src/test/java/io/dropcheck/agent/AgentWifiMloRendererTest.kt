@@ -55,6 +55,13 @@ class AgentWifiMloRendererTest {
             "ap_mld=02:00:00:00:00:01 link=2 bssid=aa:bb:cc:dd:ee:ff",
             "band=6ghz ch=5 freq=5975MHz width=80MHz rssi=-45dBm",
             "[+] affiliated Lab",
+            "Connected EHT Multi-Link Elements",
+            "ml_control raw=0x0030 type=basic(0) presence=link_id_info,bss_parameters_change_count bytes=28",
+            "common_info len=9 mld_mac=02:00:00:00:00:01 link_id=2 bss_param_change_count=7",
+            "per_link link_id=2 control=0x0972 complete=true",
+            "sta_info_len=12 sta_mac=02:00:00:00:00:02 beacon_interval_tu=100",
+            "dtim=1/3",
+            "Scan EHT Multi-Link Elements",
             "Current AP Relation",
             "same_mld_results",
             "visible_links",
@@ -189,6 +196,7 @@ class AgentWifiMloRendererTest {
             .setApMloLinkId(2)
             .addAssociatedMloLinks(mloLink(2, "active", "6ghz", 5, -45))
             .addAffiliatedMloLinks(mloLink(1, "idle", "5ghz", 44, -55))
+            .addInformationElements(ehtMultiLinkIe())
             .build()
     }
 
@@ -206,6 +214,7 @@ class AgentWifiMloRendererTest {
             .addSecurityTypes("wpa3_sae")
             .addAffiliatedMloLinks(mloLink(1, "idle", "5ghz", 44, -55))
             .addAffiliatedMloLinks(mloLink(2, "active", "6ghz", 5, rssi))
+            .addInformationElements(ehtMultiLinkIe())
             .build()
     }
 
@@ -220,6 +229,17 @@ class AgentWifiMloRendererTest {
             .setRxLinkSpeedMbps(1200)
             .setApMacAddress("02:00:00:00:00:0$id")
             .setStaMacAddress("02:00:00:00:00:1$id")
+            .setMaxSupportedTxLinkSpeedMbps(2400)
+            .setMaxSupportedRxLinkSpeedMbps(2400)
+            .build()
+    }
+
+    private fun ehtMultiLinkIe(): io.dropcheck.agent.grpc.WifiInformationElement {
+        return io.dropcheck.agent.grpc.WifiInformationElement.newBuilder()
+            .setId(255)
+            .setIdExt(107)
+            .setByteCount(28)
+            .setBytesHex("3000090200000000010207000f72090c0200000000026400010305dd")
             .build()
     }
 
