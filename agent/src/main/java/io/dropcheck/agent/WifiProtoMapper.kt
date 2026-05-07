@@ -91,7 +91,9 @@ class WifiProtoMapper(
         } else {
             warnMloUnavailable("android_api_unavailable", "scope" to "connection", "field" to "associated_mlo_links", "required_sdk" to 34)
         }
-        builder.addAllInformationElements(info.informationElements.orEmpty().map { informationElement(it) })
+        val informationElements = info.informationElements.orEmpty().map { informationElement(it) }
+        builder.addAllInformationElements(informationElements)
+        applyDecodedInformationElements(builder, decodeWifiInformationElements(informationElements))
         return builder.build()
     }
 
@@ -168,7 +170,9 @@ class WifiProtoMapper(
             builder.rangingFrameProtectionRequired = result.isRangingFrameProtectionRequired
             builder.secureHeLtfSupported = result.isSecureHeLtfSupported
         }
-        builder.addAllInformationElements(result.informationElements.orEmpty().map { informationElement(it) })
+        val informationElements = result.informationElements.orEmpty().map { informationElement(it) }
+        builder.addAllInformationElements(informationElements)
+        applyDecodedInformationElements(builder, decodeWifiInformationElements(informationElements))
         return builder.build()
     }
 
@@ -206,6 +210,32 @@ class WifiProtoMapper(
         return runCatching {
             target.javaClass.getMethod(methodName).invoke(target) as? Int ?: defaultValue
         }.getOrDefault(defaultValue)
+    }
+
+    private fun applyDecodedInformationElements(
+        builder: WifiConnection.Builder,
+        decodes: WifiInformationElementDecodes,
+    ) {
+        decodes.heCapabilities?.let { builder.setHeCapabilities(it) }
+        decodes.heOperation?.let { builder.setHeOperation(it) }
+        decodes.ehtCapabilities?.let { builder.setEhtCapabilities(it) }
+        decodes.ehtOperation?.let { builder.setEhtOperation(it) }
+        decodes.heUoraParameterSet?.let { builder.setHeUoraParameterSet(it) }
+        decodes.heMuEdcaParameterSet?.let { builder.setHeMuEdcaParameterSet(it) }
+        decodes.heSpatialReuseParameterSet?.let { builder.setHeSpatialReuseParameterSet(it) }
+    }
+
+    private fun applyDecodedInformationElements(
+        builder: WifiScanResult.Builder,
+        decodes: WifiInformationElementDecodes,
+    ) {
+        decodes.heCapabilities?.let { builder.setHeCapabilities(it) }
+        decodes.heOperation?.let { builder.setHeOperation(it) }
+        decodes.ehtCapabilities?.let { builder.setEhtCapabilities(it) }
+        decodes.ehtOperation?.let { builder.setEhtOperation(it) }
+        decodes.heUoraParameterSet?.let { builder.setHeUoraParameterSet(it) }
+        decodes.heMuEdcaParameterSet?.let { builder.setHeMuEdcaParameterSet(it) }
+        decodes.heSpatialReuseParameterSet?.let { builder.setHeSpatialReuseParameterSet(it) }
     }
 
     private fun warnMloUnavailable(reason: String, vararg fields: Pair<String, Any?>) {

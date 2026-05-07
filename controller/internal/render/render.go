@@ -437,6 +437,7 @@ func renderWifiConnection(b *strings.Builder, conn *controlpb.WifiConnection) {
 		kv("detailed", empty(conn.GetDetailedState(), "unknown")),
 	)
 	renderWifiConnectionCapabilities(b, conn)
+	renderWifiConnectionDetailedCapabilities(b, conn)
 	renderWifiConnectionMLO(b, conn)
 }
 
@@ -1428,6 +1429,165 @@ func informationElementBit(element *controlpb.WifiInformationElement, bit int) b
 		return false
 	}
 	return bytes[byteIndex]&(1<<uint(bit%8)) != 0
+}
+
+func renderWifiConnectionDetailedCapabilities(b *strings.Builder, conn *controlpb.WifiConnection) {
+	rows := wifiDetailedCapabilityRows(conn)
+	if len(rows) == 0 {
+		return
+	}
+	writeKVSection(b, "HE/EHT Details", rows...)
+}
+
+func wifiDetailedCapabilityRows(conn *controlpb.WifiConnection) []kvRow {
+	rows := []kvRow{}
+	if value := conn.GetHeCapabilities(); value != nil {
+		rows = append(rows, kv("he_cap", wifiHECapabilitiesSummary(value)))
+	}
+	if value := conn.GetHeOperation(); value != nil {
+		rows = append(rows, kv("he_oper", wifiHEOperationSummary(value)))
+	}
+	if value := conn.GetEhtCapabilities(); value != nil {
+		rows = append(rows, kv("eht_cap", wifiEHTCapabilitiesSummary(value)))
+	}
+	if value := conn.GetEhtOperation(); value != nil {
+		rows = append(rows, kv("eht_oper", wifiEHTOperationSummary(value)))
+	}
+	if value := conn.GetHeUoraParameterSet(); value != nil {
+		rows = append(rows, kv("uora", fmt.Sprintf("eocw_min=%d eocw_max=%d%s", value.GetEocwMin(), value.GetEocwMax(), wifiTruncatedSuffix(value.GetTruncated()))))
+	}
+	if value := conn.GetHeMuEdcaParameterSet(); value != nil {
+		rows = append(rows, kv("mu_edca", wifiHEMUEdcaSummary(value)))
+	}
+	if value := conn.GetHeSpatialReuseParameterSet(); value != nil {
+		rows = append(rows, kv("spatial_reuse", wifiHESpatialReuseSummary(value)))
+	}
+	return rows
+}
+
+func wifiHECapabilitiesSummary(value *controlpb.WifiHeCapabilities) string {
+	lines := []string{fmt.Sprintf("mac=0x%s phy=0x%s", value.GetMacCapabilitiesHex(), value.GetPhyCapabilitiesHex())}
+	lines = append(lines, value.GetFeatures()...)
+	lines = append(lines, wifiMCSNSSSummary(value.GetMcsNss())...)
+	if value.GetPpeThresholdsPresent() {
+		lines = append(lines, fmt.Sprintf("ppe nss=%d ru=%s hex=0x%s", value.GetPpeNssCount(), strings.Join(value.GetPpeRuIndices(), ","), value.GetPpeThresholdsHex()))
+	}
+	lines = appendWifiDecodeWarnings(lines, value.GetTruncated(), value.GetWarnings())
+	return multiLineValue(lines)
+}
+
+func wifiEHTCapabilitiesSummary(value *controlpb.WifiEhtCapabilities) string {
+	lines := []string{fmt.Sprintf("mac=0x%s phy=0x%s", value.GetMacCapabilitiesHex(), value.GetPhyCapabilitiesHex())}
+	lines = append(lines, value.GetFeatures()...)
+	lines = append(lines, wifiMCSNSSSummary(value.GetMcsNss())...)
+	if value.GetPpeThresholdsPresent() {
+		lines = append(lines, fmt.Sprintf("ppe nss=%d ru=%s hex=0x%s", value.GetPpeNssCount(), strings.Join(value.GetPpeRuIndices(), ","), value.GetPpeThresholdsHex()))
+	}
+	lines = appendWifiDecodeWarnings(lines, value.GetTruncated(), value.GetWarnings())
+	return multiLineValue(lines)
+}
+
+func wifiHEOperationSummary(value *controlpb.WifiHeOperation) string {
+	lines := []string{
+		fmt.Sprintf("params=0x%x basic_mcs_nss=0x%s", value.GetParameters(), value.GetBasicMcsNssSetHex()),
+		fmt.Sprintf("bss_color=%d disabled=%t", value.GetBssColor(), value.GetBssColorDisabled()),
+	}
+	if value.GetChannelWidth() != "" {
+		lines = append(lines, fmt.Sprintf("width=%s primary=%d ccfs0=%d ccfs1=%d", value.GetChannelWidth(), value.GetPrimaryChannel(), value.GetCenterFreqSegment0(), value.GetCenterFreqSegment1()))
+	}
+	lines = append(lines, value.GetFlags()...)
+	lines = appendWifiDecodeWarnings(lines, value.GetTruncated(), value.GetWarnings())
+	return multiLineValue(lines)
+}
+
+func wifiEHTOperationSummary(value *controlpb.WifiEhtOperation) string {
+	lines := []string{fmt.Sprintf("params=0x%x basic_mcs_nss=0x%s", value.GetParameters(), value.GetBasicMcsNssSetHex())}
+	if value.GetChannelWidth() != "" {
+		lines = append(lines, fmt.Sprintf("width=%s ccfs0=%d ccfs1=%d", value.GetChannelWidth(), value.GetCenterFreqSegment0(), value.GetCenterFreqSegment1()))
+	}
+	if value.GetDisabledSubchannelBitmap() != 0 {
+		lines = append(lines, fmt.Sprintf("disabled_subchannel_bitmap=0x%x", value.GetDisabledSubchannelBitmap()))
+	}
+	lines = append(lines, value.GetFlags()...)
+	lines = appendWifiDecodeWarnings(lines, value.GetTruncated(), value.GetWarnings())
+	return multiLineValue(lines)
+}
+
+func wifiHEMUEdcaSummary(value *controlpb.WifiHeMuEdcaParameterSet) string {
+	lines := []string{fmt.Sprintf("qos_info=0x%x", value.GetQosInfo())}
+	for _, ac := range value.GetAc() {
+		lines = append(lines, fmt.Sprintf("%s aci=%d aifsn=%d acm=%t ecw=%d/%d timer=%d", ac.GetAc(), ac.GetAci(), ac.GetAifsn(), ac.GetAcm(), ac.GetEcwMin(), ac.GetEcwMax(), ac.GetTimer()))
+	}
+	lines = appendWifiDecodeWarnings(lines, value.GetTruncated(), value.GetWarnings())
+	return multiLineValue(lines)
+}
+
+func wifiHESpatialReuseSummary(value *controlpb.WifiHeSpatialReuseParameterSet) string {
+	lines := []string{fmt.Sprintf("control=0x%x flags=%s", value.GetSrControl(), strings.Join(value.GetFlags(), ","))}
+	if value.GetNonSrgObssPdMaxOffset() != 0 {
+		lines = append(lines, fmt.Sprintf("non_srg_obss_pd_max_offset=%d", value.GetNonSrgObssPdMaxOffset()))
+	}
+	if value.GetSrgObssPdMinOffset() != 0 || value.GetSrgObssPdMaxOffset() != 0 {
+		lines = append(lines, fmt.Sprintf("srg_obss_pd=%d/%d", value.GetSrgObssPdMinOffset(), value.GetSrgObssPdMaxOffset()))
+	}
+	if value.GetSrgBssColorBitmapHex() != "" {
+		lines = append(lines, "srg_bss_color_bitmap=0x"+value.GetSrgBssColorBitmapHex())
+	}
+	if value.GetSrgPartialBssidBitmapHex() != "" {
+		lines = append(lines, "srg_partial_bssid_bitmap=0x"+value.GetSrgPartialBssidBitmapHex())
+	}
+	lines = appendWifiDecodeWarnings(lines, value.GetTruncated(), value.GetWarnings())
+	return multiLineValue(lines)
+}
+
+func wifiMCSNSSSummary(values []*controlpb.WifiMcsNssSupport) []string {
+	type group struct {
+		standard string
+		width    string
+		mcs      string
+		items    []*controlpb.WifiMcsNssSupport
+	}
+	groupsByKey := map[string]*group{}
+	order := []string{}
+	for _, value := range values {
+		key := strings.Join([]string{value.GetStandard(), value.GetBandwidth(), value.GetMcsRange()}, "/")
+		if _, ok := groupsByKey[key]; !ok {
+			groupsByKey[key] = &group{standard: value.GetStandard(), width: value.GetBandwidth(), mcs: value.GetMcsRange()}
+			order = append(order, key)
+		}
+		groupsByKey[key].items = append(groupsByKey[key].items, value)
+	}
+	lines := []string{}
+	for _, key := range order {
+		group := groupsByKey[key]
+		parts := make([]string, 0, len(group.items))
+		for _, item := range group.items {
+			nss := item.GetMaxNss()
+			if nss == 0 {
+				nss = item.GetNss()
+			}
+			parts = append(parts, fmt.Sprintf("%s=nss%d", item.GetDirection(), nss))
+		}
+		lines = append(lines, fmt.Sprintf("mcs_nss %s/%s/%s %s", group.standard, group.width, group.mcs, strings.Join(parts, " ")))
+	}
+	return lines
+}
+
+func appendWifiDecodeWarnings(lines []string, truncated bool, warnings []string) []string {
+	if truncated {
+		lines = append(lines, "truncated=true")
+	}
+	for _, warning := range warnings {
+		lines = append(lines, "warning="+warning)
+	}
+	return lines
+}
+
+func wifiTruncatedSuffix(truncated bool) string {
+	if truncated {
+		return " truncated=true"
+	}
+	return ""
 }
 
 func scanMLOLinkID(result *controlpb.WifiScanResult) string {

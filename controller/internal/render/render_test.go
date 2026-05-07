@@ -374,6 +374,112 @@ func TestRenderWifiStatusShowsCapabilities(t *testing.T) {
 	}
 }
 
+func TestRenderWifiStatusShowsStructuredHEAndEHTDetails(t *testing.T) {
+	result := &controlpb.CommandResult{
+		Status: controlpb.CommandResult_STATUS_OK,
+		Payload: &controlpb.CommandResult_WifiStatus{
+			WifiStatus: &controlpb.WifiStatus{
+				Connection: &controlpb.WifiConnection{
+					Ssid: "Lab",
+					HeCapabilities: &controlpb.WifiHeCapabilities{
+						MacCapabilitiesHex: "060084010090",
+						PhyCapabilitiesHex: "1c0200980301c000c00c00",
+						Features:           []string{"ofdma_random_access", "partial_bw_ul_mu_mimo", "ul_2x996_tone_ru"},
+						McsNss: []*controlpb.WifiMcsNssSupport{{
+							Standard: "he", Bandwidth: "le_80mhz", Direction: "rx", McsRange: "0-11", Nss: 2,
+						}, {
+							Standard: "he", Bandwidth: "le_80mhz", Direction: "tx", McsRange: "0-11", Nss: 2,
+						}},
+						PpeThresholdsPresent: true,
+						PpeNssCount:          2,
+						PpeRuIndices:         []string{"242-tone", "2x996-tone"},
+						PpeThresholdsHex:     "79010203040506",
+					},
+					HeOperation: &controlpb.WifiHeOperation{
+						Parameters:         0x11020008,
+						Flags:              []string{"twt_required", "6ghz_operation_info_present"},
+						BssColor:           17,
+						BasicMcsNssSetHex:  "ffff",
+						ChannelWidth:       "80MHz",
+						PrimaryChannel:     5,
+						CenterFreqSegment0: 31,
+					},
+					EhtCapabilities: &controlpb.WifiEhtCapabilities{
+						MacCapabilitiesHex: "774e",
+						PhyCapabilitiesHex: "1680d1e33f08077e03",
+						Features:           []string{"242_tone_ru_gt_20mhz", "non_ofdma_ul_mu_mimo_320mhz", "mu_beamformer_320mhz"},
+						McsNss: []*controlpb.WifiMcsNssSupport{{
+							Standard: "eht", Bandwidth: "le_80mhz", Direction: "rx", McsRange: "0-9", MaxNss: 1,
+						}, {
+							Standard: "eht", Bandwidth: "le_80mhz", Direction: "tx", McsRange: "0-9", MaxNss: 2,
+						}},
+						PpeThresholdsPresent: true,
+						PpeNssCount:          2,
+						PpeRuIndices:         []string{"242-tone", "4x996-tone"},
+						PpeThresholdsHex:     "f10102030405060708",
+					},
+					EhtOperation: &controlpb.WifiEhtOperation{
+						Parameters:               0x43,
+						Flags:                    []string{"disabled_subchannel_bitmap_present", "mcs15_disabled"},
+						BasicMcsNssSetHex:        "11223344",
+						ChannelWidth:             "320MHz",
+						CenterFreqSegment0:       31,
+						CenterFreqSegment1:       63,
+						DisabledSubchannelBitmap: 0x0a,
+					},
+					HeUoraParameterSet: &controlpb.WifiHeUoraParameterSet{
+						EocwMin: 5,
+						EocwMax: 5,
+					},
+					HeMuEdcaParameterSet: &controlpb.WifiHeMuEdcaParameterSet{
+						QosInfo: 1,
+						Ac: []*controlpb.WifiHeMuEdcaAcRecord{{
+							Ac: "be", Aci: 0, Aifsn: 3, EcwMin: 15, EcwMax: 9, Timer: 32,
+						}},
+					},
+					HeSpatialReuseParameterSet: &controlpb.WifiHeSpatialReuseParameterSet{
+						SrControl:                0x1c,
+						Flags:                    []string{"srg_information_present"},
+						NonSrgObssPdMaxOffset:    10,
+						SrgObssPdMinOffset:       20,
+						SrgObssPdMaxOffset:       30,
+						SrgBssColorBitmapHex:     "0102030405060708",
+						SrgPartialBssidBitmapHex: "1112131415161718",
+					},
+				},
+			},
+		},
+	}
+
+	out, err := CommandResult("agent", result, command.Options{}, pipeline.FormatText)
+	if err != nil {
+		t.Fatalf("renderCommandResult() error = %v", err)
+	}
+	for _, want := range []string{
+		"HE/EHT Details",
+		"he_cap",
+		"ofdma_random_access",
+		"mcs_nss he/le_80mhz/0-11 rx=nss2 tx=nss2",
+		"eht_cap",
+		"242_tone_ru_gt_20mhz",
+		"mcs_nss eht/le_80mhz/0-9 rx=nss1 tx=nss2",
+		"he_oper",
+		"width=80MHz primary=5 ccfs0=31 ccfs1=0",
+		"eht_oper",
+		"width=320MHz ccfs0=31 ccfs1=63",
+		"disabled_subchannel_bitmap=0xa",
+		"uora",
+		"eocw_min=5 eocw_max=5",
+		"mu_edca",
+		"spatial_reuse",
+		"srg_bss_color_bitmap=0x0102030405060708",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered output = %q, missing %q", out, want)
+		}
+	}
+}
+
 func TestRenderWifiStatusPreservesConnectionNetworkFallback(t *testing.T) {
 	result := &controlpb.CommandResult{
 		Status: controlpb.CommandResult_STATUS_OK,

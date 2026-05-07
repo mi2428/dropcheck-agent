@@ -3,7 +3,15 @@ package io.dropcheck.agent
 import io.dropcheck.agent.grpc.IpStatus
 import io.dropcheck.agent.grpc.MloLinkInfo
 import io.dropcheck.agent.grpc.WifiConnection
+import io.dropcheck.agent.grpc.WifiEhtCapabilities
+import io.dropcheck.agent.grpc.WifiEhtOperation
+import io.dropcheck.agent.grpc.WifiHeCapabilities
+import io.dropcheck.agent.grpc.WifiHeMuEdcaParameterSet
+import io.dropcheck.agent.grpc.WifiHeOperation
+import io.dropcheck.agent.grpc.WifiHeSpatialReuseParameterSet
+import io.dropcheck.agent.grpc.WifiHeUoraParameterSet
 import io.dropcheck.agent.grpc.WifiInformationElement
+import io.dropcheck.agent.grpc.WifiMcsNssSupport
 import io.dropcheck.agent.grpc.WifiStatus
 
 /** Text renderer used by the on-device shell for `show wifi status`. */
@@ -78,6 +86,7 @@ internal object AgentWifiStatusRenderer {
             "detailed" to empty(conn.detailedState, "unknown"),
         )
         renderAPCapabilities(out, conn)
+        renderDetailedWifiCapabilities(out, conn)
         renderMLO(out, conn)
     }
 
@@ -249,6 +258,139 @@ internal object AgentWifiStatusRenderer {
         if (hexIndex + 2 > hex.length) return false
         val byteValue = hex.substring(hexIndex, hexIndex + 2).toIntOrNull(16) ?: return false
         return byteValue and (1 shl (bit % 8)) != 0
+    }
+
+    private fun renderDetailedWifiCapabilities(out: MutableList<String>, conn: WifiConnection) {
+        val rows = detailedWifiCapabilityRows(conn)
+        if (rows.isEmpty()) return
+        section(out, "HE/EHT Details")
+        kv(out, *rows.toTypedArray())
+    }
+
+    private fun detailedWifiCapabilityRows(conn: WifiConnection): List<Pair<String, String>> {
+        val rows = mutableListOf<Pair<String, String>>()
+        if (conn.hasHeCapabilities()) {
+            rows += "he_cap" to heCapabilitiesSummary(conn.heCapabilities)
+        }
+        if (conn.hasHeOperation()) {
+            rows += "he_oper" to heOperationSummary(conn.heOperation)
+        }
+        if (conn.hasEhtCapabilities()) {
+            rows += "eht_cap" to ehtCapabilitiesSummary(conn.ehtCapabilities)
+        }
+        if (conn.hasEhtOperation()) {
+            rows += "eht_oper" to ehtOperationSummary(conn.ehtOperation)
+        }
+        if (conn.hasHeUoraParameterSet()) {
+            rows += "uora" to heUoraSummary(conn.heUoraParameterSet)
+        }
+        if (conn.hasHeMuEdcaParameterSet()) {
+            rows += "mu_edca" to heMuEdcaSummary(conn.heMuEdcaParameterSet)
+        }
+        if (conn.hasHeSpatialReuseParameterSet()) {
+            rows += "spatial_reuse" to heSpatialReuseSummary(conn.heSpatialReuseParameterSet)
+        }
+        return rows
+    }
+
+    private fun heCapabilitiesSummary(value: WifiHeCapabilities): String {
+        return multiLineValue(buildList {
+            add("mac=0x${value.macCapabilitiesHex} phy=0x${value.phyCapabilitiesHex}")
+            addAll(value.featuresList)
+            addAll(mcsNssSummary(value.mcsNssList))
+            if (value.ppeThresholdsPresent) {
+                add("ppe nss=${value.ppeNssCount} ru=${joined(value.ppeRuIndicesList)} hex=0x${value.ppeThresholdsHex}")
+            }
+            if (value.truncated) add("truncated=true")
+            addAll(value.warningsList.map { "warning=$it" })
+        })
+    }
+
+    private fun ehtCapabilitiesSummary(value: WifiEhtCapabilities): String {
+        return multiLineValue(buildList {
+            add("mac=0x${value.macCapabilitiesHex} phy=0x${value.phyCapabilitiesHex}")
+            addAll(value.featuresList)
+            addAll(mcsNssSummary(value.mcsNssList))
+            if (value.ppeThresholdsPresent) {
+                add("ppe nss=${value.ppeNssCount} ru=${joined(value.ppeRuIndicesList)} hex=0x${value.ppeThresholdsHex}")
+            }
+            if (value.truncated) add("truncated=true")
+            addAll(value.warningsList.map { "warning=$it" })
+        })
+    }
+
+    private fun heOperationSummary(value: WifiHeOperation): String {
+        return multiLineValue(buildList {
+            add("params=0x${value.parameters.toString(16)} basic_mcs_nss=0x${value.basicMcsNssSetHex}")
+            if (value.channelWidth.isNotBlank()) {
+                add("width=${value.channelWidth} primary=${value.primaryChannel} ccfs0=${value.centerFreqSegment0} ccfs1=${value.centerFreqSegment1}")
+            }
+            add("bss_color=${value.bssColor} disabled=${value.bssColorDisabled}")
+            addAll(value.flagsList)
+            if (value.truncated) add("truncated=true")
+            addAll(value.warningsList.map { "warning=$it" })
+        })
+    }
+
+    private fun ehtOperationSummary(value: WifiEhtOperation): String {
+        return multiLineValue(buildList {
+            add("params=0x${value.parameters.toString(16)} basic_mcs_nss=0x${value.basicMcsNssSetHex}")
+            if (value.channelWidth.isNotBlank()) {
+                add("width=${value.channelWidth} ccfs0=${value.centerFreqSegment0} ccfs1=${value.centerFreqSegment1}")
+            }
+            if (value.disabledSubchannelBitmap != 0) {
+                add("disabled_subchannel_bitmap=0x${value.disabledSubchannelBitmap.toString(16)}")
+            }
+            addAll(value.flagsList)
+            if (value.truncated) add("truncated=true")
+            addAll(value.warningsList.map { "warning=$it" })
+        })
+    }
+
+    private fun heUoraSummary(value: WifiHeUoraParameterSet): String {
+        return "eocw_min=${value.eocwMin} eocw_max=${value.eocwMax}${if (value.truncated) " truncated=true" else ""}"
+    }
+
+    private fun heMuEdcaSummary(value: WifiHeMuEdcaParameterSet): String {
+        return multiLineValue(buildList {
+            add("qos_info=0x${value.qosInfo.toString(16)}")
+            value.acList.forEach { ac ->
+                add("${ac.ac} aci=${ac.aci} aifsn=${ac.aifsn} acm=${ac.acm} ecw=${ac.ecwMin}/${ac.ecwMax} timer=${ac.timer}")
+            }
+            if (value.truncated) add("truncated=true")
+            addAll(value.warningsList.map { "warning=$it" })
+        })
+    }
+
+    private fun heSpatialReuseSummary(value: WifiHeSpatialReuseParameterSet): String {
+        return multiLineValue(buildList {
+            add("control=0x${value.srControl.toString(16)} flags=${joined(value.flagsList)}")
+            if (value.nonSrgObssPdMaxOffset != 0) add("non_srg_obss_pd_max_offset=${value.nonSrgObssPdMaxOffset}")
+            if (value.srgObssPdMinOffset != 0 || value.srgObssPdMaxOffset != 0) {
+                add("srg_obss_pd=${value.srgObssPdMinOffset}/${value.srgObssPdMaxOffset}")
+            }
+            if (value.srgBssColorBitmapHex.isNotBlank()) add("srg_bss_color_bitmap=0x${value.srgBssColorBitmapHex}")
+            if (value.srgPartialBssidBitmapHex.isNotBlank()) add("srg_partial_bssid_bitmap=0x${value.srgPartialBssidBitmapHex}")
+            if (value.truncated) add("truncated=true")
+            addAll(value.warningsList.map { "warning=$it" })
+        })
+    }
+
+    private fun mcsNssSummary(values: List<WifiMcsNssSupport>): List<String> {
+        if (values.isEmpty()) return emptyList()
+        return values
+            .groupBy { listOf(it.standard, it.bandwidth, it.mcsRange).joinToString("/") }
+            .map { (key, group) ->
+                val parts = group.joinToString(" ") { item ->
+                    val nss = if (item.maxNss > 0) item.maxNss else item.nss
+                    "${item.direction}=nss$nss"
+                }
+                "mcs_nss $key $parts"
+            }
+    }
+
+    private fun joined(values: List<String>, fallback: String = "<none>"): String {
+        return if (values.isEmpty()) fallback else values.joinToString(",")
     }
 
     private fun renderMLO(out: MutableList<String>, conn: WifiConnection) {
