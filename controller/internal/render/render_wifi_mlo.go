@@ -270,7 +270,7 @@ func renderWifiMLOAffiliatedLinkBlock(b *strings.Builder, group wifiMLOGroup, re
 	fmt.Fprintf(b, "[%s] affiliated %s\n", wifiMLOBlockMark(wifiMLOLinkMark(group, link, current)), empty(result.GetSsid(), "<hidden>"))
 	fmt.Fprintf(b, "  ap_mld=%s\n", group.displayMLD)
 	fmt.Fprintf(b, "  link=%d parent_bssid=%s\n", link.GetLinkId(), empty(result.GetBssid(), "<unknown>"))
-	fmt.Fprintf(b, "  band=%s ch=%d state=%s rssi=%ddBm ap_mac=%s\n", empty(link.GetBand(), "<unknown>"), link.GetChannel(), empty(link.GetState(), "<unknown>"), link.GetRssiDbm(), empty(link.GetApMacAddress(), "<unknown>"))
+	fmt.Fprintf(b, "  band=%s ch=%d state=%s rssi=%ddBm tx=%d rx=%d max_tx=%d max_rx=%d ap_mac=%s\n", empty(link.GetBand(), "<unknown>"), link.GetChannel(), empty(link.GetState(), "<unknown>"), link.GetRssiDbm(), link.GetTxLinkSpeedMbps(), link.GetRxLinkSpeedMbps(), link.GetMaxSupportedTxLinkSpeedMbps(), link.GetMaxSupportedRxLinkSpeedMbps(), empty(link.GetApMacAddress(), "<unknown>"))
 }
 
 func renderWifiMLOCapabilities(b *strings.Builder, capabilities *controlpb.WifiCapabilities) {

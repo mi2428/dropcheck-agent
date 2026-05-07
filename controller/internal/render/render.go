@@ -690,10 +690,10 @@ func renderMLOLinkGroups(b *strings.Builder, affiliated []*controlpb.MloLinkInfo
 	}
 	writeSection(b, "MLO Links")
 	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "TYPE\tID\tSTATE\tBAND\tCHANNEL\tRSSI\tTX\tRX\tAP_MAC\tSTA_MAC")
+	_, _ = fmt.Fprintln(tw, "TYPE\tID\tSTATE\tBAND\tCHANNEL\tRSSI\tTX\tRX\tMAX_TX\tMAX_RX\tAP_MAC\tSTA_MAC")
 	writeLinks := func(kind string, links []*controlpb.MloLinkInfo) {
 		for _, link := range links {
-			_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%d\t%d\t%d\t%d\t%s\t%s\n",
+			_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t%s\n",
 				kind,
 				link.GetLinkId(),
 				empty(link.GetState(), "unknown"),
@@ -702,6 +702,8 @@ func renderMLOLinkGroups(b *strings.Builder, affiliated []*controlpb.MloLinkInfo
 				link.GetRssiDbm(),
 				link.GetTxLinkSpeedMbps(),
 				link.GetRxLinkSpeedMbps(),
+				link.GetMaxSupportedTxLinkSpeedMbps(),
+				link.GetMaxSupportedRxLinkSpeedMbps(),
 				empty(link.GetApMacAddress(), "unknown"),
 				empty(link.GetStaMacAddress(), "unknown"),
 			)
@@ -718,9 +720,9 @@ func renderMLOLinks(b *strings.Builder, title string, links []*controlpb.MloLink
 	}
 	writeSection(b, title)
 	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "ID\tSTATE\tBAND\tCHANNEL\tRSSI\tTX\tRX\tAP_MAC\tSTA_MAC")
+	_, _ = fmt.Fprintln(tw, "ID\tSTATE\tBAND\tCHANNEL\tRSSI\tTX\tRX\tMAX_TX\tMAX_RX\tAP_MAC\tSTA_MAC")
 	for _, link := range links {
-		_, _ = fmt.Fprintf(tw, "%d\t%s\t%s\t%d\t%d\t%d\t%d\t%s\t%s\n",
+		_, _ = fmt.Fprintf(tw, "%d\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t%s\n",
 			link.GetLinkId(),
 			empty(link.GetState(), "unknown"),
 			empty(link.GetBand(), "unknown"),
@@ -728,6 +730,8 @@ func renderMLOLinks(b *strings.Builder, title string, links []*controlpb.MloLink
 			link.GetRssiDbm(),
 			link.GetTxLinkSpeedMbps(),
 			link.GetRxLinkSpeedMbps(),
+			link.GetMaxSupportedTxLinkSpeedMbps(),
+			link.GetMaxSupportedRxLinkSpeedMbps(),
 			empty(link.GetApMacAddress(), "unknown"),
 			empty(link.GetStaMacAddress(), "unknown"),
 		)
