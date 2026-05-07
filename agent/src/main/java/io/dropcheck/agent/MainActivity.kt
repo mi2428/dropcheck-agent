@@ -55,6 +55,7 @@ import io.dropcheck.agent.grpc.WifiBand
 import java.util.concurrent.Executors
 
 private const val TERMINAL_BREAK_OPPORTUNITY = "\u200B"
+internal const val ACTION_OPEN_LOG_VIEWER = "io.dropcheck.agent.action.OPEN_LOG_VIEWER"
 private const val STATUS_ICON_WIDTH_DP = 31
 private const val STATUS_ICON_HEIGHT_DP = 26
 private const val STATUS_ICON_GAP_DP = 4
@@ -268,7 +269,13 @@ class MainActivity : Activity() {
         standaloneRunning = StandaloneRuntimeState.running.get()
         updateStatusIcons()
         resetIdleDimTimer()
-        requestScrollToBottom()
+        showInitialScreen(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        showInitialScreen(intent)
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
@@ -1091,8 +1098,20 @@ class MainActivity : Activity() {
         resetIdleDimTimer()
     }
 
+    private fun showInitialScreen(intent: Intent?) {
+        if (intent?.action == ACTION_OPEN_LOG_VIEWER) {
+            showViewer()
+        } else {
+            showShell()
+        }
+    }
+
     private fun showViewer() {
-        if (!shellVisible) return
+        if (!shellVisible) {
+            requestScrollToBottom()
+            resetIdleDimTimer()
+            return
+        }
         shellVisible = false
         hideShellInputIme()
         shellScroll.visibility = View.GONE

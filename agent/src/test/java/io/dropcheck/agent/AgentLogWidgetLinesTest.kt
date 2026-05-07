@@ -6,15 +6,15 @@ import org.junit.Test
 
 class AgentLogWidgetLinesTest {
     @Test
-    fun fromTailReturnsBoundedRecentLines() {
-        val tail = (0 until TerminalDisplayPolicy.MAX_DISPLAY_LINES + 5)
+    fun fromTailReturnsGenerousRecentTailForWidgetClipping() {
+        val tail = (0 until 300)
             .joinToString("\n") { index -> "line-$index" }
 
         val lines = AgentLogWidgetLines.fromTail(tail)
 
-        assertEquals(TerminalDisplayPolicy.MAX_DISPLAY_LINES, lines.size)
-        assertEquals("line-5", lines.first().text)
-        assertEquals("line-${TerminalDisplayPolicy.MAX_DISPLAY_LINES + 4}", lines.last().text)
+        assertEquals(240, lines.size)
+        assertEquals("line-60", lines.first().text)
+        assertEquals("line-299", lines.last().text)
     }
 
     @Test

@@ -1,13 +1,17 @@
 package io.dropcheck.agent
 
+import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
+import android.text.SpannableString
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.widget.RemoteViews
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -17,9 +21,6 @@ import java.util.concurrent.atomic.AtomicLong
 @Suppress("DEPRECATION")
 /**
  * App widget provider for the bounded terminal log tail.
- *
- * Widget rows are backed by [AgentLogWidgetService] so large logs can be
- * refreshed without rebuilding every RemoteViews item in this provider.
  */
 class AgentLogWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
@@ -73,22 +74,49 @@ class AgentLogWidgetProvider : AppWidgetProvider() {
         }
 
         private fun updateWidgets(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-            val lineCount = AgentLogWidgetLines.count(context)
             appWidgetIds.forEach { appWidgetId ->
-                val serviceIntent = Intent(context, AgentLogWidgetService::class.java).apply {
-                    putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-                    data = Uri.parse(toUri(Intent.URI_INTENT_SCHEME))
-                }
+                val lines = AgentLogWidgetLines.load(context)
                 val views = RemoteViews(context.packageName, R.layout.agent_log_widget).apply {
-                    setRemoteAdapter(R.id.agentLogWidgetList, serviceIntent)
-                    setEmptyView(R.id.agentLogWidgetList, R.id.agentLogWidgetEmpty)
-                    if (lineCount > 0) {
-                        setScrollPosition(R.id.agentLogWidgetList, lineCount - 1)
-                    }
+                    setTextViewText(R.id.agentLogWidgetText, widgetText(context, lines))
+                    setOnClickPendingIntent(R.id.agentLogWidgetRoot, logViewerPendingIntent(context, appWidgetId))
                 }
                 appWidgetManager.updateAppWidget(appWidgetId, views)
-                appWidgetManager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.agentLogWidgetList)
             }
+        }
+
+        private fun widgetText(context: Context, lines: List<WidgetLogLine>): CharSequence {
+            if (lines.isEmpty()) return context.getString(R.string.agent_log_widget_placeholder)
+            return SpannableStringBuilder().apply {
+                lines.forEachIndexed { index, line ->
+                    if (index > 0) append('\n')
+                    append(coloredLine(line.text))
+                }
+            }
+        }
+
+        private fun coloredLine(line: String): CharSequence {
+            val terminalLine = terminalDisplayText(line)
+            return SpannableString(terminalLine).apply {
+                setSpan(
+                    ForegroundColorSpan(AgentLogStyle.colorForLine(line)),
+                    0,
+                    terminalLine.length,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+            }
+        }
+
+        private fun logViewerPendingIntent(context: Context, appWidgetId: Int): PendingIntent {
+            val intent = Intent(context, MainActivity::class.java).apply {
+                action = ACTION_OPEN_LOG_VIEWER
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
+            return PendingIntent.getActivity(
+                context,
+                appWidgetId,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
         }
 
         private const val UPDATE_DEBOUNCE_MS = 500L

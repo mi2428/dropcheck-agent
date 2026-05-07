@@ -4,30 +4,19 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@android:color/transparent"
+    android:clickable="true"
+    android:focusable="true"
     android:padding="8dp">
 
-    <ListView
-        android:id="@+id/agentLogWidgetList"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="@android:color/transparent"
-        android:cacheColorHint="@android:color/transparent"
-        android:divider="@android:color/transparent"
-        android:dividerHeight="0dp"
-        android:fadingEdge="none"
-        android:fastScrollEnabled="false"
-        android:listSelector="@android:color/transparent"
-        android:scrollbarStyle="insideOverlay"
-        android:stackFromBottom="true"
-        android:transcriptMode="alwaysScroll" />
-
     <TextView
-        android:id="@+id/agentLogWidgetEmpty"
+        android:id="@+id/agentLogWidgetText"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:fontFamily="monospace"
         android:gravity="bottom|start"
         android:includeFontPadding="false"
+        android:lineSpacingExtra="0dp"
+        android:lineSpacingMultiplier="1.0"
         android:shadowColor="#CC000000"
         android:shadowDx="1"
         android:shadowDy="1"

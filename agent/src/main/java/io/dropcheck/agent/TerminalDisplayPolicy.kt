@@ -1,10 +1,10 @@
 package io.dropcheck.agent
 
-/** Shared bounds for activity and widget terminal rendering. */
+/** Shared bounds for terminal rendering. */
 internal object TerminalDisplayPolicy {
-    const val STARTUP_TAIL_LINES = 600
-    const val MAX_DISPLAY_LINES = 1000
-    const val MAX_DISPLAY_CHARS = 300_000
+    const val STARTUP_TAIL_LINES = 1_800
+    const val MAX_DISPLAY_LINES = 3_000
+    const val MAX_DISPLAY_CHARS = 900_000
     const val MAX_LINE_CHARS = 8_000
     const val AUTO_SCROLL_SLOP_DP = 2
 
