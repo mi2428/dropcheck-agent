@@ -559,6 +559,7 @@ message WifiConnection {
   WifiHeUoraParameterSet he_uora_parameter_set = 37;
   WifiHeMuEdcaParameterSet he_mu_edca_parameter_set = 38;
   WifiHeSpatialReuseParameterSet he_spatial_reuse_parameter_set = 39;
+  WifiHe6GhzCapabilities he_6ghz_capabilities = 40;
 }
 
 message IpStatus {
@@ -657,6 +658,7 @@ message WifiScanResult {
   WifiHeUoraParameterSet he_uora_parameter_set = 31;
   WifiHeMuEdcaParameterSet he_mu_edca_parameter_set = 32;
   WifiHeSpatialReuseParameterSet he_spatial_reuse_parameter_set = 33;
+  WifiHe6GhzCapabilities he_6ghz_capabilities = 34;
 }
 
 message MloLinkInfo {
@@ -691,6 +693,182 @@ message WifiMcsNssSupport {
   uint32 raw = 7;
 }
 
+message WifiHeMacCapabilities {
+  bool htc_he = 1;
+  bool twt_requester = 2;
+  bool twt_responder = 3;
+  string dynamic_fragmentation = 4;
+  string max_fragmented_msdus = 5;
+  string min_fragment_size = 6;
+  uint32 trigger_frame_mac_padding_us = 7;
+  uint32 multi_tid_aggregation_rx_qos = 8;
+  string link_adaptation = 9;
+  uint32 max_ampdu_length_exponent_extension = 10;
+  uint32 multi_tid_aggregation_tx_qos = 11;
+  bool all_ack = 12;
+  bool trs = 13;
+  bool bsr = 14;
+  bool broadcast_twt = 15;
+  bool thirty_two_bit_ba_bitmap = 16;
+  bool mu_cascading = 17;
+  bool ack_enabled = 18;
+  bool om_control = 19;
+  bool ofdma_random_access = 20;
+  bool amsdu_fragmentation = 21;
+  bool flexible_twt_schedule = 22;
+  bool rx_control_frame_to_multibss = 23;
+  bool bsrp_bqrp_ampdu_aggregation = 24;
+  bool qtp = 25;
+  bool bqr = 26;
+  bool srp_responder = 27;
+  bool ndp_feedback_report = 28;
+  bool ops = 29;
+  bool amsdu_in_ampdu = 30;
+  bool subchannel_selective_transmission = 31;
+  bool ul_2x996_tone_ru = 32;
+  bool om_control_ul_mu_data_disable_rx = 33;
+  bool dynamic_sm_power_save = 34;
+  bool punctured_sounding = 35;
+  bool ht_vht_trigger_frame_rx = 36;
+}
+
+message WifiHePhyCapabilities {
+  repeated string channel_width_set = 1;
+  repeated string preamble_puncturing_rx = 2;
+  bool device_class_a = 3;
+  bool ldpc_coding_in_payload = 4;
+  bool he_ltf_and_gi_for_he_ppdus_0_8us = 5;
+  uint32 midamble_rx_tx_max_nsts = 6;
+  bool ndp_4x_ltf_and_3_2us = 7;
+  bool stbc_tx_under_80mhz = 8;
+  bool stbc_rx_under_80mhz = 9;
+  bool doppler_tx = 10;
+  bool doppler_rx = 11;
+  bool full_bw_ul_mu_mimo = 12;
+  bool partial_bw_ul_mu_mimo = 13;
+  string dcm_max_constellation_tx = 14;
+  uint32 dcm_max_nss_tx = 15;
+  string dcm_max_constellation_rx = 16;
+  uint32 dcm_max_nss_rx = 17;
+  bool rx_partial_bw_su_in_20mhz_mu = 18;
+  bool su_beamformer = 19;
+  bool su_beamformee = 20;
+  bool mu_beamformer = 21;
+  uint32 beamformee_sts_under_80mhz = 22;
+  uint32 beamformee_sts_above_80mhz = 23;
+  uint32 sounding_dimensions_under_80mhz = 24;
+  uint32 sounding_dimensions_above_80mhz = 25;
+  bool ng16_su_feedback = 26;
+  bool ng16_mu_feedback = 27;
+  bool codebook_4_2_su_feedback = 28;
+  bool codebook_7_5_mu_feedback = 29;
+  bool triggered_su_beamforming_feedback = 30;
+  bool triggered_mu_beamforming_partial_bw_feedback = 31;
+  bool triggered_cqi_feedback = 32;
+  bool partial_bw_extended_range = 33;
+  bool partial_bw_dl_mu_mimo = 34;
+  bool srp_based_spatial_reuse = 35;
+  bool power_boost_factor_supported = 36;
+  bool he_su_mu_ppdu_4x_ltf_0_8us_gi = 37;
+  uint32 max_nc = 38;
+  bool stbc_tx_above_80mhz = 39;
+  bool stbc_rx_above_80mhz = 40;
+  bool he_er_su_ppdu_4x_ltf_0_8us_gi = 41;
+  bool twenty_mhz_in_40mhz_he_ppdu_2ghz = 42;
+  bool twenty_mhz_in_160mhz_he_ppdu = 43;
+  bool eighty_mhz_in_160mhz_he_ppdu = 44;
+  bool he_er_su_ppdu_1x_ltf_0_8us_gi = 45;
+  bool midamble_rx_tx_2x_and_1x_ltf = 46;
+  string dcm_max_ru = 47;
+  bool longer_than_16_sigb_ofdm_symbols = 48;
+  bool non_triggered_cqi_feedback = 49;
+  bool tx_1024qam_less_than_242_tone_ru = 50;
+  bool rx_1024qam_less_than_242_tone_ru = 51;
+  bool rx_full_bw_su_using_mu_with_compressed_sigb = 52;
+  bool rx_full_bw_su_using_mu_with_non_compressed_sigb = 53;
+  string nominal_packet_padding = 54;
+  bool he_mu_m1ru_max_ltf = 55;
+}
+
+message WifiHe6GhzCapabilities {
+  string raw_hex = 1;
+  bool truncated = 2;
+  repeated string warnings = 3;
+  uint32 capabilities = 4;
+  string minimum_mpdu_start_spacing = 5;
+  uint32 max_ampdu_length_exponent = 6;
+  uint32 max_ampdu_length_bytes = 7;
+  uint32 max_mpdu_length_bytes = 8;
+  string sm_power_save = 9;
+  bool rd_responder = 10;
+  bool rx_antenna_pattern_consistency = 11;
+  bool tx_antenna_pattern_consistency = 12;
+  repeated string features = 13;
+}
+
+message WifiEhtMacCapabilities {
+  bool epcs_priority_access = 1;
+  bool om_control = 2;
+  bool triggered_txop_sharing_mode1 = 3;
+  bool triggered_txop_sharing_mode2 = 4;
+  bool restricted_twt = 5;
+  bool scs_traffic_description = 6;
+  uint32 max_mpdu_length_bytes = 7;
+  uint32 max_ampdu_length_exponent_extension = 8;
+  bool eht_trs = 9;
+  bool txop_return = 10;
+  bool two_bqrs = 11;
+  string link_adaptation = 12;
+  bool unsolicited_epcs_priority_access = 13;
+}
+
+message WifiEhtPhyCapabilities {
+  bool supports_320mhz_in_6ghz = 1;
+  bool supports_242_tone_ru_gt_20mhz = 2;
+  bool ndp_4_eht_ltf_3_2us_gi = 3;
+  bool partial_bw_ul_mu_mimo = 4;
+  bool su_beamformer = 5;
+  bool su_beamformee = 6;
+  uint32 beamformee_ss_80mhz = 7;
+  uint32 beamformee_ss_160mhz = 8;
+  uint32 beamformee_ss_320mhz = 9;
+  uint32 sounding_dimensions_80mhz = 10;
+  uint32 sounding_dimensions_160mhz = 11;
+  uint32 sounding_dimensions_320mhz = 12;
+  bool ng16_su_feedback = 13;
+  bool ng16_mu_feedback = 14;
+  bool codebook_4_2_su_feedback = 15;
+  bool codebook_7_5_mu_feedback = 16;
+  bool triggered_su_beamforming_feedback = 17;
+  bool triggered_mu_beamforming_partial_bw_feedback = 18;
+  bool triggered_cqi_feedback = 19;
+  bool partial_bw_dl_mu_mimo = 20;
+  bool psr_spatial_reuse = 21;
+  bool power_boost_factor_supported = 22;
+  bool eht_mu_ppdu_4_eht_ltf_0_8us_gi = 23;
+  uint32 max_nc = 24;
+  bool non_triggered_cqi_feedback = 25;
+  bool tx_less_than_242_tone_ru = 26;
+  bool rx_less_than_242_tone_ru = 27;
+  string common_nominal_packet_padding = 28;
+  uint32 max_supported_eht_ltf = 29;
+  bool extra_eht_ltf_supported = 30;
+  bool mcs15_supported_80mhz = 31;
+  bool mcs15_supported_160mhz = 32;
+  bool mcs15_supported_320mhz = 33;
+  bool eht_duplicate_6ghz = 34;
+  bool twenty_mhz_sta_rx_ndp_wider_bw = 35;
+  bool non_ofdma_ul_mu_mimo_80mhz = 36;
+  bool non_ofdma_ul_mu_mimo_160mhz = 37;
+  bool non_ofdma_ul_mu_mimo_320mhz = 38;
+  bool mu_beamformer_80mhz = 39;
+  bool mu_beamformer_160mhz = 40;
+  bool mu_beamformer_320mhz = 41;
+  bool tb_sounding_feedback_rate_limit = 42;
+  bool rx_1024qam_wider_bw_dl_ofdma = 43;
+  bool rx_4096qam_wider_bw_dl_ofdma = 44;
+}
+
 message WifiHeCapabilities {
   string mac_capabilities_hex = 1;
   string phy_capabilities_hex = 2;
@@ -703,6 +881,8 @@ message WifiHeCapabilities {
   string raw_hex = 9;
   bool truncated = 10;
   repeated string warnings = 11;
+  WifiHeMacCapabilities mac = 12;
+  WifiHePhyCapabilities phy = 13;
 }
 
 message WifiHeOperation {
@@ -732,6 +912,8 @@ message WifiEhtCapabilities {
   string raw_hex = 9;
   bool truncated = 10;
   repeated string warnings = 11;
+  WifiEhtMacCapabilities mac = 12;
+  WifiEhtPhyCapabilities phy = 13;
 }
 
 message WifiEhtOperation {
@@ -745,6 +927,17 @@ message WifiEhtOperation {
   string raw_hex = 8;
   bool truncated = 9;
   repeated string warnings = 10;
+  bool operation_information_present = 11;
+  bool disabled_subchannel_bitmap_present = 12;
+  uint32 channel_width_code = 13;
+  uint32 channel_width_mhz = 14;
+  string disabled_subchannel_bitmap_hex = 15;
+  repeated uint32 disabled_subchannel_indices = 16;
+  repeated WifiMcsNssSupport basic_mcs_nss = 17;
+  bool eht_default_pe_duration = 18;
+  bool group_addressed_bu_indication_limit = 19;
+  uint32 group_addressed_bu_indication_exponent = 20;
+  bool mcs15_disabled = 21;
 }
 
 message WifiHeUoraParameterSet {

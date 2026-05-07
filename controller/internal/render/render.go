@@ -607,6 +607,8 @@ func newWifiAPCapabilitySummary(elements []*controlpb.WifiInformationElement) wi
 				add(bucketQoS, "spatial_reuse")
 			case 45:
 				add(bucketRadio, "he_bss_load")
+			case 59:
+				add(bucketPHY, "he_6ghz")
 			case 106:
 				add(bucketOperation, "eht_operation")
 			case 107:
@@ -1405,6 +1407,8 @@ func informationElementExtensionName(idExt int32) string {
 		return "spatial_reuse_parameter_set"
 	case 45:
 		return "he_bss_load"
+	case 59:
+		return "he_6ghz_capabilities"
 	case 106:
 		return "eht_operation"
 	case 107:
@@ -1462,6 +1466,9 @@ func wifiDetailedCapabilityRows(conn *controlpb.WifiConnection) []kvRow {
 	if value := conn.GetHeSpatialReuseParameterSet(); value != nil {
 		rows = append(rows, kv("spatial_reuse", wifiHESpatialReuseSummary(value)))
 	}
+	if value := conn.GetHe_6GhzCapabilities(); value != nil {
+		rows = append(rows, kv("he_6ghz_cap", wifiHE6GHzCapabilitiesSummary(value)))
+	}
 	return rows
 }
 
@@ -1472,6 +1479,16 @@ func wifiHECapabilitiesSummary(value *controlpb.WifiHeCapabilities) string {
 	if value.GetPpeThresholdsPresent() {
 		lines = append(lines, fmt.Sprintf("ppe nss=%d ru=%s hex=0x%s", value.GetPpeNssCount(), strings.Join(value.GetPpeRuIndices(), ","), value.GetPpeThresholdsHex()))
 	}
+	lines = appendWifiDecodeWarnings(lines, value.GetTruncated(), value.GetWarnings())
+	return multiLineValue(lines)
+}
+
+func wifiHE6GHzCapabilitiesSummary(value *controlpb.WifiHe6GhzCapabilities) string {
+	lines := []string{
+		fmt.Sprintf("cap=0x%x max_mpdu=%d max_ampdu_exp=%d max_ampdu=%d", value.GetCapabilities(), value.GetMaxMpduLengthBytes(), value.GetMaxAmpduLengthExponent(), value.GetMaxAmpduLengthBytes()),
+		fmt.Sprintf("min_mpdu_start=%s smps=%s", value.GetMinimumMpduStartSpacing(), value.GetSmPowerSave()),
+	}
+	lines = append(lines, value.GetFeatures()...)
 	lines = appendWifiDecodeWarnings(lines, value.GetTruncated(), value.GetWarnings())
 	return multiLineValue(lines)
 }

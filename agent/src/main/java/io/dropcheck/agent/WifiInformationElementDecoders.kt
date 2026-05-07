@@ -1,11 +1,16 @@
 package io.dropcheck.agent
 
 import io.dropcheck.agent.grpc.WifiEhtCapabilities
+import io.dropcheck.agent.grpc.WifiEhtMacCapabilities
 import io.dropcheck.agent.grpc.WifiEhtOperation
+import io.dropcheck.agent.grpc.WifiEhtPhyCapabilities
 import io.dropcheck.agent.grpc.WifiHeCapabilities
+import io.dropcheck.agent.grpc.WifiHe6GhzCapabilities
+import io.dropcheck.agent.grpc.WifiHeMacCapabilities
 import io.dropcheck.agent.grpc.WifiHeMuEdcaAcRecord
 import io.dropcheck.agent.grpc.WifiHeMuEdcaParameterSet
 import io.dropcheck.agent.grpc.WifiHeOperation
+import io.dropcheck.agent.grpc.WifiHePhyCapabilities
 import io.dropcheck.agent.grpc.WifiHeSpatialReuseParameterSet
 import io.dropcheck.agent.grpc.WifiHeUoraParameterSet
 import io.dropcheck.agent.grpc.WifiInformationElement
@@ -17,6 +22,7 @@ private const val HE_OPERATION_ID_EXT = 36
 private const val HE_UORA_ID_EXT = 37
 private const val HE_MU_EDCA_ID_EXT = 38
 private const val HE_SPATIAL_REUSE_ID_EXT = 39
+private const val HE_6GHZ_CAPABILITIES_ID_EXT = 59
 private const val EHT_OPERATION_ID_EXT = 106
 private const val EHT_CAPABILITIES_ID_EXT = 108
 
@@ -28,6 +34,7 @@ internal data class WifiInformationElementDecodes(
     val heUoraParameterSet: WifiHeUoraParameterSet? = null,
     val heMuEdcaParameterSet: WifiHeMuEdcaParameterSet? = null,
     val heSpatialReuseParameterSet: WifiHeSpatialReuseParameterSet? = null,
+    val he6GhzCapabilities: WifiHe6GhzCapabilities? = null,
 )
 
 internal fun decodeWifiInformationElements(elements: List<WifiInformationElement>): WifiInformationElementDecodes {
@@ -44,6 +51,9 @@ internal fun decodeWifiInformationElements(elements: List<WifiInformationElement
         heMuEdcaParameterSet = elements.firstExtension(HE_MU_EDCA_ID_EXT)?.let { parseHeMuEdcaParameterSet(it.bytes()) },
         heSpatialReuseParameterSet = elements.firstExtension(HE_SPATIAL_REUSE_ID_EXT)?.let {
             parseHeSpatialReuseParameterSet(it.bytes())
+        },
+        he6GhzCapabilities = elements.firstExtension(HE_6GHZ_CAPABILITIES_ID_EXT)?.let {
+            parseHe6GhzCapabilities(it.bytes())
         },
     )
 }
@@ -69,6 +79,8 @@ private fun parseHeCapabilities(bytes: ByteArray): WifiHeCapabilities {
     builder
         .setMacCapabilitiesHex(mac.toHex())
         .setPhyCapabilitiesHex(phy.toHex())
+        .setMac(parseHeMacCapabilities(mac))
+        .setPhy(parseHePhyCapabilities(phy))
         .addAllFeatures(heCapabilityFeatures(mac, phy))
 
     val mcsSize = heMcsNssSize(phy)
@@ -119,6 +131,8 @@ private fun parseEhtCapabilities(bytes: ByteArray, heCapabilities: WifiHeCapabil
     builder
         .setMacCapabilitiesHex(mac.toHex())
         .setPhyCapabilitiesHex(phy.toHex())
+        .setMac(parseEhtMacCapabilities(mac))
+        .setPhy(parseEhtPhyCapabilities(phy))
         .addAllFeatures(ehtCapabilityFeatures(mac, phy))
 
     val mcsSize = ehtMcsNssSize(phy, heCapabilities)
@@ -152,6 +166,32 @@ private fun parseEhtCapabilities(bytes: ByteArray, heCapabilities: WifiHeCapabil
         }
     }
     return builder.build()
+}
+
+private fun parseHe6GhzCapabilities(bytes: ByteArray): WifiHe6GhzCapabilities {
+    val builder = WifiHe6GhzCapabilities.newBuilder()
+        .setRawHex(bytes.toHex())
+    if (bytes.size < 2) {
+        return builder
+            .setTruncated(true)
+            .addWarnings("he_6ghz_capabilities_too_short bytes=${bytes.size} required=2")
+            .build()
+    }
+
+    val capabilities = bytes.u16le(0)
+    val maxAmpduExponent = (capabilities ushr 3) and 0x07
+    return builder
+        .setCapabilities(capabilities)
+        .setMinimumMpduStartSpacing(heMinimumMpduStartSpacing(capabilities and 0x07))
+        .setMaxAmpduLengthExponent(maxAmpduExponent)
+        .setMaxAmpduLengthBytes(maxAmpduLengthBytes(maxAmpduExponent))
+        .setMaxMpduLengthBytes(maxMpduLengthBytes((capabilities ushr 6) and 0x03))
+        .setSmPowerSave(heSmPowerSave((capabilities ushr 9) and 0x03))
+        .setRdResponder(capabilities and 0x0800 != 0)
+        .setRxAntennaPatternConsistency(capabilities and 0x1000 != 0)
+        .setTxAntennaPatternConsistency(capabilities and 0x2000 != 0)
+        .addAllFeatures(he6GhzCapabilityFeatures(capabilities))
+        .build()
 }
 
 private fun parseHeOperation(bytes: ByteArray): WifiHeOperation {
@@ -211,6 +251,13 @@ private fun parseEhtOperation(bytes: ByteArray): WifiEhtOperation {
     builder
         .setParameters(parameters)
         .setBasicMcsNssSetHex(bytes.copyOfRange(1, 5).toHex())
+        .addAllBasicMcsNss(parseEhtMcsNss(bytes.copyOfRange(1, 5), 4))
+        .setOperationInformationPresent(parameters and 0x01 != 0)
+        .setDisabledSubchannelBitmapPresent(parameters and 0x02 != 0)
+        .setEhtDefaultPeDuration(parameters and 0x04 != 0)
+        .setGroupAddressedBuIndicationLimit(parameters and 0x08 != 0)
+        .setGroupAddressedBuIndicationExponent((parameters ushr 4) and 0x03)
+        .setMcs15Disabled(parameters and 0x40 != 0)
         .addAllFlags(ehtOperationFlags(parameters))
 
     var offset = 5
@@ -222,8 +269,11 @@ private fun parseEhtOperation(bytes: ByteArray): WifiEhtOperation {
             return builder.build()
         }
         val control = bytes[offset].u8()
+        val channelWidthCode = control and 0x07
         builder
-            .setChannelWidth(ehtChannelWidth(control and 0x07))
+            .setChannelWidth(ehtChannelWidth(channelWidthCode))
+            .setChannelWidthCode(channelWidthCode)
+            .setChannelWidthMhz(ehtChannelWidthMhz(channelWidthCode))
             .setCenterFreqSegment0(bytes[offset + 1].u8())
             .setCenterFreqSegment1(bytes[offset + 2].u8())
         offset += 3
@@ -233,13 +283,192 @@ private fun parseEhtOperation(bytes: ByteArray): WifiEhtOperation {
                     .setTruncated(true)
                     .addWarnings("eht_disabled_subchannel_bitmap_too_short bytes=${(bytes.size - offset).coerceAtLeast(0)} required=2")
             } else {
-                builder.disabledSubchannelBitmap = bytes.u16le(offset)
+                val bitmap = bytes.u16le(offset)
+                builder
+                    .setDisabledSubchannelBitmap(bitmap)
+                    .setDisabledSubchannelBitmapHex(bitmap.toU16Hex())
+                    .addAllDisabledSubchannelIndices(disabledSubchannelIndices(bitmap, channelWidthCode))
             }
         }
     } else if (parameters and 0x02 != 0) {
         builder.addWarnings("eht_disabled_subchannel_bitmap_without_operation_information")
     }
     return builder.build()
+}
+
+private fun parseHeMacCapabilities(mac: ByteArray): WifiHeMacCapabilities {
+    val linkAdaptationCode = ((mac[1].u8() ushr 7) and 0x01) or ((mac[2].u8() and 0x01) shl 1)
+    val multiTidTx = ((mac[4].u8() ushr 7) and 0x01) or ((mac[5].u8() and 0x03) shl 1)
+    return WifiHeMacCapabilities.newBuilder()
+        .setHtcHe(mac[0].u8() and 0x01 != 0)
+        .setTwtRequester(mac[0].u8() and 0x02 != 0)
+        .setTwtResponder(mac[0].u8() and 0x04 != 0)
+        .setDynamicFragmentation(heDynamicFragmentation((mac[0].u8() ushr 3) and 0x03))
+        .setMaxFragmentedMsdus(heMaxFragmentedMsdus((mac[0].u8() ushr 5) and 0x07))
+        .setMinFragmentSize(heMinFragmentSize(mac[1].u8() and 0x03))
+        .setTriggerFrameMacPaddingUs(heTriggerFrameMacPaddingUs((mac[1].u8() ushr 2) and 0x03))
+        .setMultiTidAggregationRxQos(((mac[1].u8() ushr 4) and 0x07) + 1)
+        .setLinkAdaptation(linkAdaptation(linkAdaptationCode))
+        .setAllAck(mac[2].u8() and 0x02 != 0)
+        .setTrs(mac[2].u8() and 0x04 != 0)
+        .setBsr(mac[2].u8() and 0x08 != 0)
+        .setBroadcastTwt(mac[2].u8() and 0x10 != 0)
+        .setThirtyTwoBitBaBitmap(mac[2].u8() and 0x20 != 0)
+        .setMuCascading(mac[2].u8() and 0x40 != 0)
+        .setAckEnabled(mac[2].u8() and 0x80 != 0)
+        .setOmControl(mac[3].u8() and 0x02 != 0)
+        .setOfdmaRandomAccess(mac[3].u8() and 0x04 != 0)
+        .setMaxAmpduLengthExponentExtension((mac[3].u8() ushr 3) and 0x03)
+        .setAmsduFragmentation(mac[3].u8() and 0x20 != 0)
+        .setFlexibleTwtSchedule(mac[3].u8() and 0x40 != 0)
+        .setRxControlFrameToMultibss(mac[3].u8() and 0x80 != 0)
+        .setBsrpBqrpAmpduAggregation(mac[4].u8() and 0x01 != 0)
+        .setQtp(mac[4].u8() and 0x02 != 0)
+        .setBqr(mac[4].u8() and 0x04 != 0)
+        .setSrpResponder(mac[4].u8() and 0x08 != 0)
+        .setNdpFeedbackReport(mac[4].u8() and 0x10 != 0)
+        .setOps(mac[4].u8() and 0x20 != 0)
+        .setAmsduInAmpdu(mac[4].u8() and 0x40 != 0)
+        .setMultiTidAggregationTxQos(multiTidTx + 1)
+        .setSubchannelSelectiveTransmission(mac[5].u8() and 0x04 != 0)
+        .setUl2X996ToneRu(mac[5].u8() and 0x08 != 0)
+        .setOmControlUlMuDataDisableRx(mac[5].u8() and 0x10 != 0)
+        .setDynamicSmPowerSave(mac[5].u8() and 0x20 != 0)
+        .setPuncturedSounding(mac[5].u8() and 0x40 != 0)
+        .setHtVhtTriggerFrameRx(mac[5].u8() and 0x80 != 0)
+        .build()
+}
+
+private fun parseHePhyCapabilities(phy: ByteArray): WifiHePhyCapabilities {
+    val phy0 = phy[0].u8()
+    val phy3 = phy[3].u8()
+    return WifiHePhyCapabilities.newBuilder()
+        .addAllChannelWidthSet(heChannelWidthSet(phy0))
+        .addAllPreamblePuncturingRx(hePreamblePuncturingRx(phy[1].u8()))
+        .setDeviceClassA(phy[1].u8() and 0x10 != 0)
+        .setLdpcCodingInPayload(phy[1].u8() and 0x20 != 0)
+        .setHeLtfAndGiForHePpdus08Us(phy[1].u8() and 0x40 != 0)
+        .setMidambleRxTxMaxNsts(((phy[1].u8() ushr 7) and 0x01) or ((phy[2].u8() and 0x01) shl 1))
+        .setNdp4XLtfAnd32Us(phy[2].u8() and 0x02 != 0)
+        .setStbcTxUnder80Mhz(phy[2].u8() and 0x04 != 0)
+        .setStbcRxUnder80Mhz(phy[2].u8() and 0x08 != 0)
+        .setDopplerTx(phy[2].u8() and 0x10 != 0)
+        .setDopplerRx(phy[2].u8() and 0x20 != 0)
+        .setFullBwUlMuMimo(phy[2].u8() and 0x40 != 0)
+        .setPartialBwUlMuMimo(phy[2].u8() and 0x80 != 0)
+        .setDcmMaxConstellationTx(dcmConstellation(phy3 and 0x03))
+        .setDcmMaxNssTx(if (phy3 and 0x04 != 0) 2 else 1)
+        .setDcmMaxConstellationRx(dcmConstellation((phy3 ushr 3) and 0x03))
+        .setDcmMaxNssRx(if (phy3 and 0x20 != 0) 2 else 1)
+        .setRxPartialBwSuIn20MhzMu(phy3 and 0x40 != 0)
+        .setSuBeamformer(phy3 and 0x80 != 0)
+        .setSuBeamformee(phy[4].u8() and 0x01 != 0)
+        .setMuBeamformer(phy[4].u8() and 0x02 != 0)
+        .setBeamformeeStsUnder80Mhz(((phy[4].u8() ushr 2) and 0x07) + 1)
+        .setBeamformeeStsAbove80Mhz(((phy[4].u8() ushr 5) and 0x07) + 1)
+        .setSoundingDimensionsUnder80Mhz((phy[5].u8() and 0x07) + 1)
+        .setSoundingDimensionsAbove80Mhz(((phy[5].u8() ushr 3) and 0x07) + 1)
+        .setNg16SuFeedback(phy[5].u8() and 0x40 != 0)
+        .setNg16MuFeedback(phy[5].u8() and 0x80 != 0)
+        .setCodebook42SuFeedback(phy[6].u8() and 0x01 != 0)
+        .setCodebook75MuFeedback(phy[6].u8() and 0x02 != 0)
+        .setTriggeredSuBeamformingFeedback(phy[6].u8() and 0x04 != 0)
+        .setTriggeredMuBeamformingPartialBwFeedback(phy[6].u8() and 0x08 != 0)
+        .setTriggeredCqiFeedback(phy[6].u8() and 0x10 != 0)
+        .setPartialBwExtendedRange(phy[6].u8() and 0x20 != 0)
+        .setPartialBwDlMuMimo(phy[6].u8() and 0x40 != 0)
+        .setSrpBasedSpatialReuse(phy[7].u8() and 0x01 != 0)
+        .setPowerBoostFactorSupported(phy[7].u8() and 0x02 != 0)
+        .setHeSuMuPpdu4XLtf08UsGi(phy[7].u8() and 0x04 != 0)
+        .setMaxNc((phy[7].u8() ushr 3) and 0x07)
+        .setStbcTxAbove80Mhz(phy[7].u8() and 0x40 != 0)
+        .setStbcRxAbove80Mhz(phy[7].u8() and 0x80 != 0)
+        .setHeErSuPpdu4XLtf08UsGi(phy[8].u8() and 0x01 != 0)
+        .setTwentyMhzIn40MhzHePpdu2Ghz(phy[8].u8() and 0x02 != 0)
+        .setTwentyMhzIn160MhzHePpdu(phy[8].u8() and 0x04 != 0)
+        .setEightyMhzIn160MhzHePpdu(phy[8].u8() and 0x08 != 0)
+        .setHeErSuPpdu1XLtf08UsGi(phy[8].u8() and 0x10 != 0)
+        .setMidambleRxTx2XAnd1XLtf(phy[8].u8() and 0x20 != 0)
+        .setDcmMaxRu(heDcmMaxRu((phy[8].u8() ushr 6) and 0x03))
+        .setLongerThan16SigbOfdmSymbols(phy[9].u8() and 0x01 != 0)
+        .setNonTriggeredCqiFeedback(phy[9].u8() and 0x02 != 0)
+        .setTx1024QamLessThan242ToneRu(phy[9].u8() and 0x04 != 0)
+        .setRx1024QamLessThan242ToneRu(phy[9].u8() and 0x08 != 0)
+        .setRxFullBwSuUsingMuWithCompressedSigb(phy[9].u8() and 0x10 != 0)
+        .setRxFullBwSuUsingMuWithNonCompressedSigb(phy[9].u8() and 0x20 != 0)
+        .setNominalPacketPadding(nominalPacketPadding((phy[9].u8() ushr 6) and 0x03))
+        .setHeMuM1RuMaxLtf(phy[10].u8() and 0x01 != 0)
+        .build()
+}
+
+private fun parseEhtMacCapabilities(mac: ByteArray): WifiEhtMacCapabilities {
+    return WifiEhtMacCapabilities.newBuilder()
+        .setEpcsPriorityAccess(mac[0].u8() and 0x01 != 0)
+        .setOmControl(mac[0].u8() and 0x02 != 0)
+        .setTriggeredTxopSharingMode1(mac[0].u8() and 0x04 != 0)
+        .setTriggeredTxopSharingMode2(mac[0].u8() and 0x08 != 0)
+        .setRestrictedTwt(mac[0].u8() and 0x10 != 0)
+        .setScsTrafficDescription(mac[0].u8() and 0x20 != 0)
+        .setMaxMpduLengthBytes(maxMpduLengthBytes((mac[0].u8() ushr 6) and 0x03))
+        .setMaxAmpduLengthExponentExtension(mac[1].u8() and 0x01)
+        .setEhtTrs(mac[1].u8() and 0x02 != 0)
+        .setTxopReturn(mac[1].u8() and 0x04 != 0)
+        .setTwoBqrs(mac[1].u8() and 0x08 != 0)
+        .setLinkAdaptation(linkAdaptation((mac[1].u8() ushr 4) and 0x03))
+        .setUnsolicitedEpcsPriorityAccess(mac[1].u8() and 0x40 != 0)
+        .build()
+}
+
+private fun parseEhtPhyCapabilities(phy: ByteArray): WifiEhtPhyCapabilities {
+    val beamformeeSs80 = ((phy[0].u8() ushr 7) and 0x01) or ((phy[1].u8() and 0x03) shl 1)
+    val soundingDimensions320 = ((phy[2].u8() ushr 6) and 0x03) or ((phy[3].u8() and 0x01) shl 2)
+    val maxSupportedEhtLtf = ((phy[5].u8() ushr 6) and 0x03) or ((phy[6].u8() and 0x07) shl 2)
+    return WifiEhtPhyCapabilities.newBuilder()
+        .setSupports320MhzIn6Ghz(phy[0].u8() and 0x02 != 0)
+        .setSupports242ToneRuGt20Mhz(phy[0].u8() and 0x04 != 0)
+        .setNdp4EhtLtf32UsGi(phy[0].u8() and 0x08 != 0)
+        .setPartialBwUlMuMimo(phy[0].u8() and 0x10 != 0)
+        .setSuBeamformer(phy[0].u8() and 0x20 != 0)
+        .setSuBeamformee(phy[0].u8() and 0x40 != 0)
+        .setBeamformeeSs80Mhz(beamformeeSs80)
+        .setBeamformeeSs160Mhz((phy[1].u8() ushr 2) and 0x07)
+        .setBeamformeeSs320Mhz((phy[1].u8() ushr 5) and 0x07)
+        .setSoundingDimensions80Mhz(phy[2].u8() and 0x07)
+        .setSoundingDimensions160Mhz((phy[2].u8() ushr 3) and 0x07)
+        .setSoundingDimensions320Mhz(soundingDimensions320)
+        .setNg16SuFeedback(phy[3].u8() and 0x02 != 0)
+        .setNg16MuFeedback(phy[3].u8() and 0x04 != 0)
+        .setCodebook42SuFeedback(phy[3].u8() and 0x08 != 0)
+        .setCodebook75MuFeedback(phy[3].u8() and 0x10 != 0)
+        .setTriggeredSuBeamformingFeedback(phy[3].u8() and 0x20 != 0)
+        .setTriggeredMuBeamformingPartialBwFeedback(phy[3].u8() and 0x40 != 0)
+        .setTriggeredCqiFeedback(phy[3].u8() and 0x80 != 0)
+        .setPartialBwDlMuMimo(phy[4].u8() and 0x01 != 0)
+        .setPsrSpatialReuse(phy[4].u8() and 0x02 != 0)
+        .setPowerBoostFactorSupported(phy[4].u8() and 0x04 != 0)
+        .setEhtMuPpdu4EhtLtf08UsGi(phy[4].u8() and 0x08 != 0)
+        .setMaxNc((phy[4].u8() ushr 4) and 0x0f)
+        .setNonTriggeredCqiFeedback(phy[5].u8() and 0x01 != 0)
+        .setTxLessThan242ToneRu(phy[5].u8() and 0x02 != 0)
+        .setRxLessThan242ToneRu(phy[5].u8() and 0x04 != 0)
+        .setCommonNominalPacketPadding(ehtNominalPacketPadding((phy[5].u8() ushr 4) and 0x03))
+        .setMaxSupportedEhtLtf(maxSupportedEhtLtf)
+        .setExtraEhtLtfSupported(phy[5].u8() and 0x40 != 0)
+        .setMcs15Supported80Mhz(phy[6].u8() and 0x10 != 0)
+        .setMcs15Supported160Mhz(phy[6].u8() and 0x20 != 0)
+        .setMcs15Supported320Mhz(phy[6].u8() and 0x40 != 0)
+        .setEhtDuplicate6Ghz(phy[6].u8() and 0x80 != 0)
+        .setTwentyMhzStaRxNdpWiderBw(phy[7].u8() and 0x01 != 0)
+        .setNonOfdmaUlMuMimo80Mhz(phy[7].u8() and 0x02 != 0)
+        .setNonOfdmaUlMuMimo160Mhz(phy[7].u8() and 0x04 != 0)
+        .setNonOfdmaUlMuMimo320Mhz(phy[7].u8() and 0x08 != 0)
+        .setMuBeamformer80Mhz(phy[7].u8() and 0x10 != 0)
+        .setMuBeamformer160Mhz(phy[7].u8() and 0x20 != 0)
+        .setMuBeamformer320Mhz(phy[7].u8() and 0x40 != 0)
+        .setTbSoundingFeedbackRateLimit(phy[7].u8() and 0x80 != 0)
+        .setRx1024QamWiderBwDlOfdma(phy[8].u8() and 0x01 != 0)
+        .setRx4096QamWiderBwDlOfdma(phy[8].u8() and 0x02 != 0)
+        .build()
 }
 
 private fun parseHeUoraParameterSet(bytes: ByteArray): WifiHeUoraParameterSet {
@@ -420,6 +649,18 @@ private fun heCapabilityFeatures(mac: ByteArray, phy: ByteArray): List<String> =
     add("dcm_max_ru=${heDcmMaxRu((phy[8].u8() ushr 6) and 0x03)}")
 }
 
+private fun he6GhzCapabilityFeatures(capabilities: Int): List<String> = buildList {
+    add("minimum_mpdu_start=${heMinimumMpduStartSpacing(capabilities and 0x07)}")
+    val maxAmpduExponent = (capabilities ushr 3) and 0x07
+    add("max_ampdu_exponent=$maxAmpduExponent")
+    add("max_ampdu_length_bytes=${maxAmpduLengthBytes(maxAmpduExponent)}")
+    add("max_mpdu_length_bytes=${maxMpduLengthBytes((capabilities ushr 6) and 0x03)}")
+    add("sm_power_save=${heSmPowerSave((capabilities ushr 9) and 0x03)}")
+    if (capabilities and 0x0800 != 0) add("rd_responder")
+    if (capabilities and 0x1000 != 0) add("rx_antenna_pattern_consistency")
+    if (capabilities and 0x2000 != 0) add("tx_antenna_pattern_consistency")
+}
+
 private fun ehtCapabilityFeatures(mac: ByteArray, phy: ByteArray): List<String> = buildList {
     if (mac[0].u8() and 0x01 != 0) add("epcs_priority_access")
     if (mac[0].u8() and 0x02 != 0) add("om_control")
@@ -453,9 +694,8 @@ private fun ehtCapabilityFeatures(mac: ByteArray, phy: ByteArray): List<String> 
     if (phy[5].u8() and 0x02 != 0) add("tx_less_than_242_tone_ru")
     if (phy[5].u8() and 0x04 != 0) add("rx_less_than_242_tone_ru")
     if (phy[5].u8() and 0x08 != 0) add("ppe_thresholds_present")
-    if (phy[6].u8() and 0x08 != 0) add("mcs15_80mhz")
-    val mcs15_160 = (phy[6].u8() ushr 4) and 0x03
-    if (mcs15_160 != 0) add("mcs15_160mhz=$mcs15_160")
+    if (phy[6].u8() and 0x10 != 0) add("mcs15_80mhz")
+    if (phy[6].u8() and 0x20 != 0) add("mcs15_160mhz")
     if (phy[6].u8() and 0x40 != 0) add("mcs15_320mhz")
     if (phy[6].u8() and 0x80 != 0) add("eht_duplicate_6ghz")
     if (phy[7].u8() and 0x01 != 0) add("20mhz_sta_rx_ndp_wider_bw")
@@ -677,6 +917,139 @@ private fun heDcmMaxRu(value: Int): String = when (value) {
     else -> "unknown($value)"
 }
 
+private fun heChannelWidthSet(value: Int): List<String> = buildList {
+    if (value and 0x02 != 0) add("40mhz_in_2ghz")
+    if (value and 0x04 != 0) add("40_80mhz_in_5ghz")
+    if (value and 0x08 != 0) add("160mhz_in_5ghz")
+    if (value and 0x10 != 0) add("80plus80mhz_in_5ghz")
+    if (value and 0x20 != 0) add("ru_mapping_in_2ghz")
+    if (value and 0x40 != 0) add("ru_mapping_in_5ghz")
+}
+
+private fun hePreamblePuncturingRx(value: Int): List<String> = buildList {
+    if (value and 0x01 != 0) add("80mhz_only_second_20mhz")
+    if (value and 0x02 != 0) add("80mhz_only_second_40mhz")
+    if (value and 0x04 != 0) add("160mhz_only_second_20mhz")
+    if (value and 0x08 != 0) add("160mhz_only_second_40mhz")
+}
+
+private fun heDynamicFragmentation(value: Int): String = when (value) {
+    0 -> "not_supported"
+    1 -> "level_1"
+    2 -> "level_2"
+    3 -> "level_3"
+    else -> "unknown($value)"
+}
+
+private fun heMaxFragmentedMsdus(value: Int): String = when (value) {
+    0 -> "1"
+    1 -> "2"
+    2 -> "4"
+    3 -> "8"
+    4 -> "16"
+    5 -> "32"
+    6 -> "64"
+    7 -> "unlimited"
+    else -> "unknown($value)"
+}
+
+private fun heMinFragmentSize(value: Int): String = when (value) {
+    0 -> "unlimited"
+    1 -> "128"
+    2 -> "256"
+    3 -> "512"
+    else -> "unknown($value)"
+}
+
+private fun heTriggerFrameMacPaddingUs(value: Int): Int = when (value) {
+    0 -> 0
+    1 -> 8
+    2 -> 16
+    else -> 0
+}
+
+private fun heMinimumMpduStartSpacing(value: Int): String = when (value) {
+    0 -> "no_restriction"
+    1 -> "0.25us"
+    2 -> "0.5us"
+    3 -> "1us"
+    4 -> "2us"
+    5 -> "4us"
+    6 -> "8us"
+    7 -> "16us"
+    else -> "unknown($value)"
+}
+
+private fun heSmPowerSave(value: Int): String = when (value) {
+    0 -> "static"
+    1 -> "dynamic"
+    2 -> "reserved"
+    3 -> "disabled"
+    else -> "unknown($value)"
+}
+
+private fun linkAdaptation(value: Int): String = when (value) {
+    0 -> "no_feedback"
+    1 -> "reserved"
+    2 -> "unsolicited"
+    3 -> "both"
+    else -> "unknown($value)"
+}
+
+private fun dcmConstellation(value: Int): String = when (value) {
+    0 -> "no_dcm"
+    1 -> "bpsk"
+    2 -> "qpsk"
+    3 -> "16qam"
+    else -> "unknown($value)"
+}
+
+private fun nominalPacketPadding(value: Int): String = when (value) {
+    0 -> "0us"
+    1 -> "8us"
+    2 -> "16us"
+    3 -> "reserved"
+    else -> "unknown($value)"
+}
+
+private fun ehtNominalPacketPadding(value: Int): String = when (value) {
+    0 -> "0us"
+    1 -> "8us"
+    2 -> "16us"
+    3 -> "20us"
+    else -> "unknown($value)"
+}
+
+private fun maxMpduLengthBytes(value: Int): Int = when (value) {
+    0 -> 3895
+    1 -> 7991
+    2 -> 11454
+    else -> 0
+}
+
+private fun maxAmpduLengthBytes(exponent: Int): Int = (1 shl (13 + exponent)) - 1
+
+private fun ehtChannelWidthMhz(value: Int): Int = when (value) {
+    0 -> 20
+    1 -> 40
+    2 -> 80
+    3 -> 160
+    4 -> 320
+    else -> 0
+}
+
+private fun disabledSubchannelIndices(bitmap: Int, channelWidthCode: Int): List<Int> {
+    val subchannelCount = when (channelWidthCode) {
+        0 -> 1
+        1 -> 2
+        2 -> 4
+        3 -> 8
+        4 -> 16
+        else -> 16
+    }
+    return (0 until subchannelCount).filter { index -> bitmap and (1 shl index) != 0 }
+}
+
 private fun hexToBytes(value: String): ByteArray {
     val hex = value.trim()
     if (hex.length % 2 != 0) return ByteArray(0)
@@ -697,6 +1070,8 @@ private fun ByteArray.u32le(offset: Int): Int {
         (this[offset + 2].u8() shl 16) or
         (this[offset + 3].u8() shl 24)
 }
+
+private fun Int.toU16Hex(): String = "%04x".format(this and 0xffff)
 
 private fun Byte.u8(): Int = toInt() and 0xff
 

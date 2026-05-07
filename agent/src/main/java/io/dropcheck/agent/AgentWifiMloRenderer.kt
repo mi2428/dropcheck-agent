@@ -2,6 +2,10 @@ package io.dropcheck.agent
 
 import android.os.Build
 import io.dropcheck.agent.grpc.MloLinkInfo
+import io.dropcheck.agent.grpc.WifiEhtCapabilities
+import io.dropcheck.agent.grpc.WifiEhtOperation
+import io.dropcheck.agent.grpc.WifiHe6GhzCapabilities
+import io.dropcheck.agent.grpc.WifiMcsNssSupport
 import io.dropcheck.agent.grpc.WifiConnection
 import io.dropcheck.agent.grpc.WifiInformationElement
 import io.dropcheck.agent.grpc.WifiScan
@@ -26,7 +30,9 @@ internal object AgentWifiMloRenderer {
 
         renderCurrentRelation(out, current, candidates)
         renderConnectedMlo(out, current)
+        renderConnectedHe6GhzDetails(out, current)
         renderConnectedEhtMultiLink(out, current)
+        renderConnectedEhtDetails(out, current)
         renderScanSummary(out, scan, candidates, context)
         renderNearbyMlo(out, groups, current)
         renderDiagnostics(out, status, scan, current, candidates, context)
@@ -60,6 +66,12 @@ internal object AgentWifiMloRenderer {
         if (lines.isEmpty()) return
         section(out, "Connected EHT Multi-Link Elements")
         out += lines.map { "  $it" }
+    }
+
+    private fun renderConnectedEhtDetails(out: MutableList<String>, conn: WifiConnection?) {
+        if (conn == null || !conn.hasEhtDetails()) return
+        section(out, "Connected EHT Details")
+        renderEhtDetails(out, "connection", conn.ehtCapabilities.takeIf { conn.hasEhtCapabilities() }, conn.ehtOperation.takeIf { conn.hasEhtOperation() })
     }
 
     private fun renderScanSummary(
@@ -103,11 +115,13 @@ internal object AgentWifiMloRenderer {
         tableWithColumns(out,
             listOf(
                 TableColumn("MARK", 4),
-                TableColumn("SSID", 24),
-                TableColumn("BANDS", 18),
+                TableColumn("SSID", 14),
+                TableColumn("BANDS", 8),
                 TableColumn("RSSI", 4),
-                TableColumn("SECURITY", 12),
+                TableColumn("SEC", 7),
                 TableColumn("STANDARD", 8),
+                TableColumn("EHT_W", 9),
+                TableColumn("PUNCT", 7),
             ),
             groups.map { group ->
                 listOf(
@@ -117,11 +131,31 @@ internal object AgentWifiMloRenderer {
                     group.bestRssi.toString(),
                     joined(group.security, "-"),
                     joined(group.standards, "-"),
+                    groupEhtOperationWidths(group),
+                    groupEhtOperationPuncturing(group),
                 )
             },
         )
         renderScanLinks(out, groups, current)
+        renderScanHe6GhzDetails(out, groups.flatMap { it.results })
         renderScanEhtMultiLink(out, groups.flatMap { it.results })
+        renderScanEhtDetails(out, groups.flatMap { it.results })
+    }
+
+    private fun renderConnectedHe6GhzDetails(out: MutableList<String>, conn: WifiConnection?) {
+        if (conn == null || !conn.hasHe6GhzCapabilities()) return
+        section(out, "Connected HE 6GHz Details")
+        out += "  connection ${he6GhzSummary(conn.he6GhzCapabilities)}"
+    }
+
+    private fun renderScanHe6GhzDetails(out: MutableList<String>, results: List<WifiScanResult>) {
+        val he6Results = results.filter { it.hasHe6GhzCapabilities() }
+        if (he6Results.isEmpty()) return
+        section(out, "Scan HE 6GHz Details")
+        he6Results.forEach { result ->
+            val label = "ap ssid=${empty(result.ssid, "<hidden>")} bssid=${empty(result.bssid, "<unknown>")}"
+            out += "  $label ${he6GhzSummary(result.he6GhzCapabilities)}"
+        }
     }
 
     private fun renderScanEhtMultiLink(out: MutableList<String>, results: List<WifiScanResult>) {
@@ -134,6 +168,130 @@ internal object AgentWifiMloRenderer {
         if (lines.isEmpty()) return
         section(out, "Scan EHT Multi-Link Elements")
         out += lines.map { "  $it" }
+    }
+
+    private fun renderScanEhtDetails(out: MutableList<String>, results: List<WifiScanResult>) {
+        val ehtResults = results.filter { it.hasEhtDetails() }
+        if (ehtResults.isEmpty()) return
+        section(out, "Scan EHT Details")
+        ehtResults.forEachIndexed { index, result ->
+            if (index > 0) out += ""
+            val label = "ap ssid=${empty(result.ssid, "<hidden>")} bssid=${empty(result.bssid, "<unknown>")}"
+            renderEhtDetails(out, label, result.ehtCapabilities.takeIf { result.hasEhtCapabilities() }, result.ehtOperation.takeIf { result.hasEhtOperation() })
+        }
+    }
+
+    private fun renderEhtDetails(
+        out: MutableList<String>,
+        label: String,
+        capabilities: WifiEhtCapabilities?,
+        operation: WifiEhtOperation?,
+    ) {
+        out += "  $label"
+        capabilities?.let { cap ->
+            if (cap.hasMac()) out += "    mac ${ehtMacSummary(cap)}"
+            if (cap.hasPhy()) out += "    phy ${ehtPhySummary(cap)}"
+            if (cap.mcsNssCount > 0) out += "    mcs_nss ${mcsNssCompact(cap.mcsNssList)}"
+            if (cap.ppeThresholdsPresent) {
+                out += "    ppe nss=${cap.ppeNssCount} ru=${joined(cap.ppeRuIndicesList)} hex=0x${cap.ppeThresholdsHex}"
+            }
+            if (cap.warningsCount > 0) out += "    cap_warnings ${cap.warningsList.joinToString(",")}"
+        }
+        operation?.let { oper ->
+            out += "    oper ${ehtOperationSummary(oper)}"
+            if (oper.basicMcsNssCount > 0) out += "    basic_mcs_nss ${mcsNssCompact(oper.basicMcsNssList)}"
+            if (oper.warningsCount > 0) out += "    oper_warnings ${oper.warningsList.joinToString(",")}"
+        }
+    }
+
+    private fun ehtMacSummary(value: WifiEhtCapabilities): String {
+        val mac = value.mac
+        val flags = listOfNotNull(
+            "epcs".takeIf { mac.epcsPriorityAccess },
+            "om_control".takeIf { mac.omControl },
+            "restricted_twt".takeIf { mac.restrictedTwt },
+            "trs".takeIf { mac.ehtTrs },
+            "txop_return".takeIf { mac.txopReturn },
+            "two_bqrs".takeIf { mac.twoBqrs },
+            "unsol_epcs".takeIf { mac.unsolicitedEpcsPriorityAccess },
+        )
+        return "max_mpdu=${mac.maxMpduLengthBytes} max_ampdu_ext=${mac.maxAmpduLengthExponentExtension} link_adapt=${empty(mac.linkAdaptation, "<unknown>")} flags=${joined(flags)}"
+    }
+
+    private fun he6GhzSummary(value: WifiHe6GhzCapabilities): String {
+        val flags = listOfNotNull(
+            "rd_responder".takeIf { value.rdResponder },
+            "rx_antpat".takeIf { value.rxAntennaPatternConsistency },
+            "tx_antpat".takeIf { value.txAntennaPatternConsistency },
+        )
+        val warningSuffix = if (value.warningsCount > 0) " warnings=${value.warningsList.joinToString(",")}" else ""
+        return "max_mpdu=${value.maxMpduLengthBytes} max_ampdu_exp=${value.maxAmpduLengthExponent} max_ampdu=${value.maxAmpduLengthBytes} min_mpdu_start=${empty(value.minimumMpduStartSpacing, "<unknown>")} smps=${empty(value.smPowerSave, "<unknown>")} flags=${joined(flags)}${warningSuffix}"
+    }
+
+    private fun ehtPhySummary(value: WifiEhtCapabilities): String {
+        val phy = value.phy
+        val muMimo = listOfNotNull(
+            "80".takeIf { phy.nonOfdmaUlMuMimo80Mhz },
+            "160".takeIf { phy.nonOfdmaUlMuMimo160Mhz },
+            "320".takeIf { phy.nonOfdmaUlMuMimo320Mhz },
+        )
+        val muBeamformer = listOfNotNull(
+            "80".takeIf { phy.muBeamformer80Mhz },
+            "160".takeIf { phy.muBeamformer160Mhz },
+            "320".takeIf { phy.muBeamformer320Mhz },
+        )
+        val mcs15 = listOfNotNull(
+            "80".takeIf { phy.mcs15Supported80Mhz },
+            "160".takeIf { phy.mcs15Supported160Mhz },
+            "320".takeIf { phy.mcs15Supported320Mhz },
+        )
+        val qam = listOfNotNull(
+            "1024qam_wider_dl_ofdma".takeIf { phy.rx1024QamWiderBwDlOfdma },
+            "4096qam_wider_dl_ofdma".takeIf { phy.rx4096QamWiderBwDlOfdma },
+        )
+        return listOf(
+            "320mhz=${phy.supports320MhzIn6Ghz}",
+            "ru_gt20=${phy.supports242ToneRuGt20Mhz}",
+            "ltf=max${phy.maxSupportedEhtLtf}/extra=${phy.extraEhtLtfSupported}",
+            "padding=${empty(phy.commonNominalPacketPadding, "<unknown>")}",
+            "beamformee_ss=80:${phy.beamformeeSs80Mhz},160:${phy.beamformeeSs160Mhz},320:${phy.beamformeeSs320Mhz}",
+            "sounding=80:${phy.soundingDimensions80Mhz},160:${phy.soundingDimensions160Mhz},320:${phy.soundingDimensions320Mhz}",
+            "mu_mimo=${joined(muMimo)}",
+            "mu_bf=${joined(muBeamformer)}",
+            "mcs15=${joined(mcs15)}",
+            "qam=${joined(qam)}",
+        ).joinToString(" ")
+    }
+
+    private fun ehtOperationSummary(value: WifiEhtOperation): String {
+        val parts = mutableListOf(
+            "op_info=${value.operationInformationPresent}",
+            "width=${empty(value.channelWidth, "<unknown>")}",
+            "width_mhz=${value.channelWidthMhz}",
+            "code=${value.channelWidthCode}",
+            "ccfs0=${value.centerFreqSegment0}",
+            "ccfs1=${value.centerFreqSegment1}",
+        )
+        if (value.disabledSubchannelBitmapPresent || value.disabledSubchannelBitmap != 0) {
+            parts += "disabled=0x${empty(value.disabledSubchannelBitmapHex, value.disabledSubchannelBitmap.toString(16))}"
+            parts += "punctured=${joined(value.disabledSubchannelIndicesList.map { it.toString() })}"
+        }
+        parts += "mcs15_disabled=${value.mcs15Disabled}"
+        parts += "group_bu_exp=${value.groupAddressedBuIndicationExponent}"
+        return parts.joinToString(" ")
+    }
+
+    private fun mcsNssCompact(values: List<WifiMcsNssSupport>): String {
+        return values
+            .groupBy { Triple(it.bandwidth, it.mcsRange, it.standard) }
+            .map { (key, rows) ->
+                val rx = rows.firstOrNull { it.direction == "rx" }
+                val tx = rows.firstOrNull { it.direction == "tx" }
+                val rxValue = rx?.maxNss?.takeIf { it > 0 } ?: rx?.nss ?: 0
+                val txValue = tx?.maxNss?.takeIf { it > 0 } ?: tx?.nss ?: 0
+                "${key.third}/${key.first}/${key.second}:rx=nss$rxValue,tx=nss$txValue"
+            }
+            .joinToString(";")
     }
 
     private fun renderScanLinks(out: MutableList<String>, groups: List<MloGroup>, current: WifiConnection?) {
@@ -158,7 +316,7 @@ internal object AgentWifiMloRenderer {
         blockGap(out)
         blockTitle(out, resultMark(group, result, current), empty(result.ssid, "<hidden>"))
         out += "  ap_mld=${group.displayMld} link=${scanLinkID(result)} bssid=${empty(result.bssid, "<unknown>")}"
-        out += "  band=${empty(result.band, wifiBandFromFrequency(result.frequencyMhz))} ch=${wifiChannelFromFrequency(result.frequencyMhz)} freq=${result.frequencyMhz}MHz width=${empty(formatWifiChannelWidth(result.channelWidth), "<unknown>")} rssi=${result.rssiDbm}dBm"
+        out += "  band=${empty(result.band, wifiBandFromFrequency(result.frequencyMhz))} ch=${wifiChannelFromFrequency(result.frequencyMhz)} freq=${result.frequencyMhz}MHz width=${empty(formatWifiChannelWidth(result.channelWidth), "<unknown>")}${scanEhtOperationSuffix(result)} rssi=${result.rssiDbm}dBm"
     }
 
     private fun renderAffiliatedLinkBlock(
@@ -342,6 +500,10 @@ internal object AgentWifiMloRenderer {
             hasMloElement(informationElementsList)
     }
 
+    private fun WifiConnection.hasEhtDetails(): Boolean = hasEhtCapabilities() || hasEhtOperation()
+
+    private fun WifiScanResult.hasEhtDetails(): Boolean = hasEhtCapabilities() || hasEhtOperation()
+
     private fun connectionHasMlo(conn: WifiConnection): Boolean {
         return conn.apMldMacAddress.isNotBlank() ||
             conn.affiliatedMloLinksCount > 0 ||
@@ -453,6 +615,37 @@ internal object AgentWifiMloRenderer {
 
     private fun security(result: WifiScanResult): String {
         return result.securityTypesList.joinToString(",").ifBlank { result.capabilities }
+    }
+
+    private fun groupEhtOperationWidths(group: MloGroup): String {
+        return joined(group.results.map { scanEhtOperationWidth(it) }, "-")
+    }
+
+    private fun groupEhtOperationPuncturing(group: MloGroup): String {
+        return joined(group.results.map { scanEhtOperationPuncturing(it) }, "-")
+    }
+
+    private fun scanEhtOperationSuffix(result: WifiScanResult): String {
+        val width = scanEhtOperationWidth(result)
+        val puncturing = scanEhtOperationPuncturing(result)
+        if (width.isBlank() && puncturing.isBlank()) return ""
+        return " eht_width=${empty(width, "<unknown>")} puncture=${empty(puncturing, "-")}"
+    }
+
+    private fun scanEhtOperationWidth(result: WifiScanResult): String {
+        if (!result.hasEhtOperation()) return ""
+        val operation = result.ehtOperation
+        if (!operation.operationInformationPresent) return "<unknown>"
+        if (operation.channelWidthMhz > 0) return "${operation.channelWidthMhz}MHz"
+        return operation.channelWidth
+    }
+
+    private fun scanEhtOperationPuncturing(result: WifiScanResult): String {
+        if (!result.hasEhtOperation()) return ""
+        val operation = result.ehtOperation
+        if (!operation.disabledSubchannelBitmapPresent && operation.disabledSubchannelBitmap == 0) return ""
+        if (operation.disabledSubchannelIndicesCount == 0) return "none"
+        return operation.disabledSubchannelIndicesList.joinToString(",")
     }
 
     private fun section(out: MutableList<String>, title: String) {
