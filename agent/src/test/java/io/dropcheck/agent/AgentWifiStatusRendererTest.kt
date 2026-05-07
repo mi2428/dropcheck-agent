@@ -205,6 +205,23 @@ class AgentWifiStatusRendererTest {
     }
 
     @Test
+    fun treatsMloLinkZeroAsPresentWhenStandardIs11be() {
+        val status = WifiStatus.newBuilder()
+            .setConnection(WifiConnection.newBuilder()
+                .setSsid("Lab")
+                .setWifiStandard("802.11be")
+                .setApMloLinkId(0)
+                .build())
+            .build()
+
+        val out = AgentWifiStatusRenderer.render(status).joinToString("\n")
+
+        assertTrue(out.contains("MLO"))
+        assertTrue(out.contains("present     true"))
+        assertTrue(out.contains("ap_link_id  0"))
+    }
+
+    @Test
     fun hidesAndroidPlaceholderConnectionWhenWifiIsNotAssociated() {
         val status = WifiStatus.newBuilder()
             .setEnabled(true)

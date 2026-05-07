@@ -42,5 +42,6 @@ internal fun isKnownWifiBssid(value: String): Boolean {
 private fun hasMloIdentity(conn: WifiConnection): Boolean {
     return conn.apMldMacAddress.isNotBlank() ||
         conn.affiliatedMloLinksCount > 0 ||
-        conn.associatedMloLinksCount > 0
+        conn.associatedMloLinksCount > 0 ||
+        (conn.wifiStandard.equals("802.11be", ignoreCase = true) && conn.apMloLinkId >= 0)
 }

@@ -269,7 +269,7 @@ internal object AgentWifiStatusRenderer {
         return conn.apMldMacAddress.isNotBlank() ||
             conn.affiliatedMloLinksCount > 0 ||
             conn.associatedMloLinksCount > 0 ||
-            conn.apMloLinkId > 0
+            (conn.wifiStandard.equals("802.11be", ignoreCase = true) && conn.apMloLinkId >= 0)
     }
 
     private fun renderMLOLinks(out: MutableList<String>, affiliated: List<MloLinkInfo>, associated: List<MloLinkInfo>) {
