@@ -605,6 +605,9 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 						WifiStandard:    "802.11be",
 						ApMldMacAddress: "02:00:00:00:00:01",
 						ApMloLinkId:     2,
+						InformationElements: []*controlpb.WifiInformationElement{
+							ehtMultiLinkTestIE(),
+						},
 						AssociatedMloLinks: []*controlpb.MloLinkInfo{{
 							LinkId:       2,
 							State:        "active",
@@ -644,6 +647,9 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 						WifiStandard:    "802.11be",
 						ApMldMacAddress: "02:00:00:00:00:01",
 						ApMloLinkId:     2,
+						InformationElements: []*controlpb.WifiInformationElement{
+							ehtMultiLinkTestIE(),
+						},
 						AffiliatedMloLinks: []*controlpb.MloLinkInfo{{
 							LinkId:       1,
 							State:        "idle",
@@ -682,6 +688,13 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 		"ap_mld=02:00:00:00:00:01 link=2 bssid=aa:bb:cc:dd:ee:ff",
 		"band=6ghz ch=5 freq=5975MHz width=80MHz rssi=-45dBm",
 		"[+] affiliated Lab",
+		"Connected EHT Multi-Link Elements",
+		"ml_control raw=0x0030 type=basic(0) presence=link_id_info,bss_parameters_change_count bytes=28",
+		"common_info len=9 mld_mac=02:00:00:00:00:01 link_id=2 bss_param_change_count=7",
+		"per_link link_id=2 control=0x0972 complete=true",
+		"sta_info_len=12 sta_mac=02:00:00:00:00:02 beacon_interval_tu=100",
+		"dtim=1/3",
+		"Scan EHT Multi-Link Elements",
 		"tid_to_link_mapping_negotiation",
 		"Diagnostics / Warnings",
 	} {
@@ -780,5 +793,14 @@ func TestRenderWifiMLOHidesPlaceholderConnectionAndCapsNearbyTable(t *testing.T)
 	}
 	if !strings.Contains(out, "...") {
 		t.Fatalf("rendered output = %q, missing truncated table cell", out)
+	}
+}
+
+func ehtMultiLinkTestIE() *controlpb.WifiInformationElement {
+	return &controlpb.WifiInformationElement{
+		Id:        255,
+		IdExt:     107,
+		ByteCount: 28,
+		BytesHex:  "3000090200000000010207000f72090c0200000000026400010305dd",
 	}
 }

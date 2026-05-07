@@ -36,6 +36,7 @@ func renderWifiMLO(b *strings.Builder, diagnostics *controlpb.WifiDiagnostics) {
 
 	renderWifiMLOCurrentRelation(b, current, candidates)
 	renderWifiMLOConnected(b, current)
+	renderWifiMLOConnectedEHT(b, current)
 	renderWifiMLONetworks(b, diagnostics.GetNetworks())
 	renderWifiMLOScanSummary(b, scan, candidates)
 	renderWifiMLONearbyAPs(b, groups, current)
@@ -140,6 +141,20 @@ func renderWifiMLOConnected(b *strings.Builder, current *controlpb.WifiConnectio
 	renderMLOLinks(b, "Affiliated MLO Links", current.GetAffiliatedMloLinks())
 }
 
+func renderWifiMLOConnectedEHT(b *strings.Builder, current *controlpb.WifiConnection) {
+	if current == nil {
+		return
+	}
+	lines := formatEHTMultiLinkElements("connection", parseEHTMultiLinkElements(current.GetInformationElements()))
+	if len(lines) == 0 {
+		return
+	}
+	writeSection(b, "Connected EHT Multi-Link Elements")
+	for _, line := range lines {
+		fmt.Fprintf(b, "  %s\n", line)
+	}
+}
+
 func renderWifiMLONetworks(b *strings.Builder, networks []*controlpb.NetworkDiagnostics) {
 	rows := make([]*controlpb.NetworkDiagnostics, 0)
 	for _, network := range networks {
@@ -231,6 +246,24 @@ func renderWifiMLONearbyAPs(b *strings.Builder, groups []wifiMLOGroup, current *
 	}
 	wifiMLOWriteTable(b, columns, rows)
 	renderWifiMLOScanLinks(b, groups, current)
+	renderWifiMLOScanEHT(b, groups)
+}
+
+func renderWifiMLOScanEHT(b *strings.Builder, groups []wifiMLOGroup) {
+	lines := []string{}
+	for _, group := range groups {
+		for _, result := range group.results {
+			label := fmt.Sprintf("ap ssid=%s bssid=%s", empty(result.GetSsid(), "<hidden>"), empty(result.GetBssid(), "<unknown>"))
+			lines = append(lines, formatEHTMultiLinkElements(label, parseEHTMultiLinkElements(result.GetInformationElements()))...)
+		}
+	}
+	if len(lines) == 0 {
+		return
+	}
+	writeSection(b, "Scan EHT Multi-Link Elements")
+	for _, line := range lines {
+		fmt.Fprintf(b, "  %s\n", line)
+	}
 }
 
 func renderWifiMLOScanLinks(b *strings.Builder, groups []wifiMLOGroup, current *controlpb.WifiConnection) {
