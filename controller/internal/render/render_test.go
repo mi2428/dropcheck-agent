@@ -478,6 +478,41 @@ func TestRenderWifiStatusShowsMLOFields(t *testing.T) {
 	}
 }
 
+func TestRenderWifiStatusUsesEHTMultiLinkElementFallback(t *testing.T) {
+	result := &controlpb.CommandResult{
+		Status: controlpb.CommandResult_STATUS_OK,
+		Payload: &controlpb.CommandResult_WifiStatus{
+			WifiStatus: &controlpb.WifiStatus{
+				Enabled: true,
+				Connection: &controlpb.WifiConnection{
+					Ssid:         "Lab",
+					WifiStandard: "802.11ax",
+					ApMloLinkId:  -1,
+					InformationElements: []*controlpb.WifiInformationElement{
+						ehtMultiLinkTestIE(),
+					},
+				},
+			},
+		},
+	}
+
+	out, err := CommandResult("agent", result, command.Options{}, pipeline.FormatText)
+	if err != nil {
+		t.Fatalf("renderCommandResult() error = %v", err)
+	}
+	for _, want := range []string{
+		"MLO\n",
+		"ap_mld",
+		"02:00:00:00:00:01",
+		"ap_link_id",
+		"2",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered output = %q, missing %q", out, want)
+		}
+	}
+}
+
 func TestRenderWifiStatusTreatsMLOLinkZeroAsPresent(t *testing.T) {
 	result := &controlpb.CommandResult{
 		Status: controlpb.CommandResult_STATUS_OK,
@@ -519,6 +554,16 @@ func TestScanMLOLinkIDTreatsZeroAsPresentFor11be(t *testing.T) {
 	})
 	if got != "<none>" {
 		t.Fatalf("scanMLOLinkID() without 11be = %q, want <none>", got)
+	}
+	got = scanMLOLinkID(&controlpb.WifiScanResult{
+		WifiStandard: "802.11ax",
+		ApMloLinkId:  -1,
+		InformationElements: []*controlpb.WifiInformationElement{
+			ehtMultiLinkTestIE(),
+		},
+	})
+	if got != "2" {
+		t.Fatalf("scanMLOLinkID() from EHT Multi-Link IE = %q, want 2", got)
 	}
 }
 
@@ -757,6 +802,119 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 	}
 }
 
+func TestRenderWifiMLODetailedEHTMultiLinkSubelements(t *testing.T) {
+	result := &controlpb.CommandResult{
+		Status: controlpb.CommandResult_STATUS_OK,
+		Payload: &controlpb.CommandResult_WifiDiagnostics{
+			WifiDiagnostics: &controlpb.WifiDiagnostics{
+				Status: &controlpb.WifiStatus{
+					Enabled: true,
+					State:   "enabled",
+				},
+				Scan: &controlpb.WifiScan{
+					Results: []*controlpb.WifiScanResult{{
+						Ssid:         "Lab",
+						Bssid:        "aa:bb:cc:dd:ee:ff",
+						RssiDbm:      -50,
+						Band:         "6ghz",
+						FrequencyMhz: 5975,
+						WifiStandard: "802.11be",
+						ApMloLinkId:  -1,
+						InformationElements: []*controlpb.WifiInformationElement{
+							detailedEHTMultiLinkTestIE(),
+						},
+					}},
+				},
+			},
+		},
+	}
+
+	out, err := CommandResult("agent", result, command.Options{WifiRenderMode: command.WifiRenderModeMLO}, pipeline.FormatText)
+	if err != nil {
+		t.Fatalf("CommandResult() error = %v", err)
+	}
+	for _, want := range []string{
+		"subelement id=0 name=per_sta_profile len=22 actual=22 fragments=1 reassembled=30",
+		"fragment target_id=0 target=per_sta_profile bytes=8 payload=0x0102ff046c010203",
+		"profile_ie link_id=2 id=0 name=ssid len=3 actual=3 body=0x4c6162",
+		"profile_ie link_id=2 id=255 ext=106 name=eht_operation len=3 actual=3 body=0x6a0102",
+		"profile_ie link_id=2 id=255 ext=108 name=eht_capabilities len=4 actual=4 body=0x6c010203",
+		"subelement id=221 name=vendor_specific len=6 actual=6",
+		"vendor oui=00:11:22 type=7 payload_bytes=2 payload=0x99aa",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered output = %q, missing %q", out, want)
+		}
+	}
+}
+
+func TestRenderWifiMLOUsesEHTMultiLinkElementFallback(t *testing.T) {
+	result := &controlpb.CommandResult{
+		Status: controlpb.CommandResult_STATUS_OK,
+		Payload: &controlpb.CommandResult_WifiDiagnostics{
+			WifiDiagnostics: &controlpb.WifiDiagnostics{
+				Status: &controlpb.WifiStatus{
+					Enabled: true,
+					State:   "enabled",
+					Connection: &controlpb.WifiConnection{
+						Ssid:         "Lab",
+						Bssid:        "aa:bb:cc:dd:ee:ff",
+						WifiStandard: "802.11ax",
+						ApMloLinkId:  -1,
+						InformationElements: []*controlpb.WifiInformationElement{
+							detailedEHTMultiLinkTestIE(),
+						},
+					},
+				},
+				Scan: &controlpb.WifiScan{
+					Results: []*controlpb.WifiScanResult{{
+						Ssid:         "Lab",
+						Bssid:        "aa:bb:cc:dd:ee:ff",
+						RssiDbm:      -50,
+						Band:         "6ghz",
+						FrequencyMhz: 5975,
+						WifiStandard: "802.11ax",
+						ApMloLinkId:  -1,
+						InformationElements: []*controlpb.WifiInformationElement{
+							detailedEHTMultiLinkTestIE(),
+						},
+					}},
+				},
+			},
+		},
+	}
+
+	out, err := CommandResult("agent", result, command.Options{WifiRenderMode: command.WifiRenderModeMLO}, pipeline.FormatText)
+	if err != nil {
+		t.Fatalf("CommandResult() error = %v", err)
+	}
+	for _, want := range []string{
+		"Connected MLO",
+		"connected_ap_mld",
+		"same_mld_results",
+		"visible_links",
+		"ap_mld",
+		"02:00:00:00:00:01",
+		"ap_link_id",
+		"mlo_candidates",
+		"[*] Lab",
+		"ap_mld=02:00:00:00:00:01 link=2 bssid=aa:bb:cc:dd:ee:ff",
+		"Diagnostics / Warnings\n  none",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered output = %q, missing %q", out, want)
+		}
+	}
+	for _, unwanted := range []string{
+		"no MLO-capable scan results",
+		"scan_mlo_metadata_absent",
+	} {
+		if strings.Contains(out, unwanted) {
+			t.Fatalf("rendered output = %q, unexpected %q", out, unwanted)
+		}
+	}
+}
+
 func TestRenderWifiMLOHidesPlaceholderConnectionAndCapsNearbyTable(t *testing.T) {
 	result := &controlpb.CommandResult{
 		Status: controlpb.CommandResult_STATUS_OK,
@@ -846,5 +1004,14 @@ func ehtMultiLinkTestIE() *controlpb.WifiInformationElement {
 		IdExt:     107,
 		ByteCount: 28,
 		BytesHex:  "3000090200000000010207000f72090c0200000000026400010305dd",
+	}
+}
+
+func detailedEHTMultiLinkTestIE() *controlpb.WifiInformationElement {
+	return &controlpb.WifiInformationElement{
+		Id:        255,
+		IdExt:     107,
+		ByteCount: 53,
+		BytesHex:  "3000090200000000010207001672090c020000000002640001030500034c6162ff036afe080102ff046c010203dd060011220799aa",
 	}
 }

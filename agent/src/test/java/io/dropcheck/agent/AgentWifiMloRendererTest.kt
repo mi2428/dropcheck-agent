@@ -125,6 +125,94 @@ class AgentWifiMloRendererTest {
     }
 
     @Test
+    fun rendersDetailedEhtMultiLinkSubelements() {
+        val status = WifiStatus.newBuilder()
+            .setEnabled(true)
+            .setState("enabled")
+            .build()
+        val scan = WifiScan.newBuilder()
+            .addResults(WifiScanResult.newBuilder()
+                .setSsid("Lab")
+                .setBssid("aa:bb:cc:dd:ee:ff")
+                .setRssiDbm(-50)
+                .setBand("6ghz")
+                .setFrequencyMhz(5975)
+                .setWifiStandard("802.11be")
+                .setApMloLinkId(-1)
+                .addInformationElements(detailedEhtMultiLinkIe())
+                .build())
+            .build()
+
+        val out = AgentWifiMloRenderer.render(
+            status,
+            scan,
+            AgentWifiMloContext(sdkInt = 36),
+        ).joinToString("\n")
+
+        listOf(
+            "subelement id=0 name=per_sta_profile len=22 actual=22 fragments=1 reassembled=30",
+            "fragment target_id=0 target=per_sta_profile bytes=8 payload=0x0102ff046c010203",
+            "profile_ie link_id=2 id=0 name=ssid len=3 actual=3 body=0x4c6162",
+            "profile_ie link_id=2 id=255 ext=106 name=eht_operation len=3 actual=3 body=0x6a0102",
+            "profile_ie link_id=2 id=255 ext=108 name=eht_capabilities len=4 actual=4 body=0x6c010203",
+            "subelement id=221 name=vendor_specific len=6 actual=6",
+            "vendor oui=00:11:22 type=7 payload_bytes=2 payload=0x99aa",
+        ).forEach { want ->
+            assertTrue("rendered output missing $want:\n$out", out.contains(want))
+        }
+    }
+
+    @Test
+    fun usesEhtMultiLinkElementAsMloMetadataFallback() {
+        val status = WifiStatus.newBuilder()
+            .setEnabled(true)
+            .setState("enabled")
+            .setConnection(WifiConnection.newBuilder()
+                .setSsid("Lab")
+                .setBssid("aa:bb:cc:dd:ee:ff")
+                .setWifiStandard("802.11ax")
+                .setApMloLinkId(-1)
+                .addInformationElements(detailedEhtMultiLinkIe())
+                .build())
+            .build()
+        val scan = WifiScan.newBuilder()
+            .addResults(WifiScanResult.newBuilder()
+                .setSsid("Lab")
+                .setBssid("aa:bb:cc:dd:ee:ff")
+                .setRssiDbm(-50)
+                .setBand("6ghz")
+                .setFrequencyMhz(5975)
+                .setWifiStandard("802.11ax")
+                .setApMloLinkId(-1)
+                .addInformationElements(detailedEhtMultiLinkIe())
+                .build())
+            .build()
+
+        val out = AgentWifiMloRenderer.render(
+            status,
+            scan,
+            AgentWifiMloContext(sdkInt = 36),
+        ).joinToString("\n")
+
+        listOf(
+            "connected_ap_mld",
+            "connected_link",
+            "same_mld_results",
+            "visible_links",
+            "ap_mld      02:00:00:00:00:01",
+            "ap_link_id  2",
+            "mlo_candidates  1",
+            "[*] Lab",
+            "ap_mld=02:00:00:00:00:01 link=2 bssid=aa:bb:cc:dd:ee:ff",
+            "Diagnostics / Warnings\n  none",
+        ).forEach { want ->
+            assertTrue("rendered output missing $want:\n$out", out.contains(want))
+        }
+        assertFalse(out.contains("no MLO-capable scan results"))
+        assertFalse(out.contains("scan_mlo_metadata_absent"))
+    }
+
+    @Test
     fun treatsAndroidPlaceholderWifiInfoAsNoActiveConnection() {
         val status = WifiStatus.newBuilder()
             .setEnabled(true)
@@ -262,6 +350,15 @@ class AgentWifiMloRendererTest {
             .setIdExt(107)
             .setByteCount(28)
             .setBytesHex("3000090200000000010207000f72090c0200000000026400010305dd")
+            .build()
+    }
+
+    private fun detailedEhtMultiLinkIe(): io.dropcheck.agent.grpc.WifiInformationElement {
+        return io.dropcheck.agent.grpc.WifiInformationElement.newBuilder()
+            .setId(255)
+            .setIdExt(107)
+            .setByteCount(53)
+            .setBytesHex("3000090200000000010207001672090c020000000002640001030500034c6162ff036afe080102ff046c010203dd060011220799aa")
             .build()
     }
 
