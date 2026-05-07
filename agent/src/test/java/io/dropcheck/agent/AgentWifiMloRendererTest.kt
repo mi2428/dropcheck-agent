@@ -117,6 +117,67 @@ class AgentWifiMloRendererTest {
         }
     }
 
+    @Test
+    fun treatsAndroidPlaceholderWifiInfoAsNoActiveConnection() {
+        val status = WifiStatus.newBuilder()
+            .setEnabled(true)
+            .setState("enabled")
+            .setConnection(WifiConnection.newBuilder()
+                .setSsid("<unknown ssid>")
+                .setBssid("02:00:00:00:00:00")
+                .setNetworkId(-1)
+                .setWifiStandard("802.11ax")
+                .build())
+            .build()
+
+        val out = AgentWifiMloRenderer.render(status, WifiScan.getDefaultInstance()).joinToString("\n")
+
+        assertTrue(out.contains("Current AP Relation\n  no active Wi-Fi connection"))
+        assertTrue(out.contains("Connected MLO\n  no active Wi-Fi connection"))
+        assertFalse("rendered output included placeholder SSID:\n$out", out.contains("<unknown ssid>"))
+        assertFalse("rendered output included stale standard:\n$out", out.contains("802.11ax"))
+    }
+
+    @Test
+    fun capsNearbyTableColumnsForLongSsids() {
+        val status = WifiStatus.newBuilder()
+            .setEnabled(true)
+            .setState("enabled")
+            .build()
+        val scan = WifiScan.newBuilder()
+            .addResults(WifiScanResult.newBuilder()
+                .setSsid("very-long-laboratory-network-name-that-would-wrap-the-table")
+                .setBssid("aa:bb:cc:dd:ee:ff")
+                .setRssiDbm(-55)
+                .setBand("6GHz")
+                .setFrequencyMhz(6295)
+                .setWifiStandard("802.11be")
+                .setApMloLinkId(-1)
+                .addSecurityTypes("sae")
+                .build())
+            .addResults(WifiScanResult.newBuilder()
+                .setSsid("shishimaru-shinyurigaoka-shop")
+                .setBssid("aa:bb:cc:dd:ee:01")
+                .setRssiDbm(-62)
+                .setBand("2.4GHz")
+                .setFrequencyMhz(2457)
+                .setWifiStandard("802.11be")
+                .setApMloLinkId(-1)
+                .addSecurityTypes("psk")
+                .build())
+            .build()
+
+        val lines = AgentWifiMloRenderer.render(status, scan)
+        val tableLines = lines.dropWhile { it != "Nearby MLO APs" }.drop(1).take(3)
+        val out = lines.joinToString("\n")
+
+        assertTrue("rendered output missing capped SSID:\n$out", tableLines.any { it.contains("...") })
+        tableLines.forEach { line ->
+            assertTrue("table line too wide (${line.length}): $line\n$out", line.length <= 80)
+        }
+        assertTrue(out.contains("scan_mlo_metadata_absent 11be_results=2 ap_mld=0 link_id=0"))
+    }
+
     private fun mloConnection(): WifiConnection {
         return WifiConnection.newBuilder()
             .setSsid("Lab")

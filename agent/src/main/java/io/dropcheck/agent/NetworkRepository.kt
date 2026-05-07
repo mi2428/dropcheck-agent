@@ -701,10 +701,18 @@ class NetworkRepository(
      */
     @SuppressLint("MissingPermission")
     private fun bestWifiInfo(primary: WifiInfo?): WifiInfo? {
-        if (primary != null && primary.ssid != WifiManager.UNKNOWN_SSID && primary.bssid != "02:00:00:00:00:00") {
+        if (isUsableWifiInfo(primary)) {
             return primary
         }
-        return wifi.connectionInfo ?: primary
+        val fallback = wifi.connectionInfo
+        return if (isUsableWifiInfo(fallback)) fallback else null
+    }
+
+    private fun isUsableWifiInfo(info: WifiInfo?): Boolean {
+        if (info == null) return false
+        if (isKnownWifiSsid(info.ssid.orEmpty()) || isKnownWifiBssid(info.bssid.orEmpty())) return true
+        val connectedState = info.supplicantState?.toString().equals("COMPLETED", ignoreCase = true)
+        return info.networkId >= 0 && connectedState
     }
 
     private fun permissionSummary(): List<String> {

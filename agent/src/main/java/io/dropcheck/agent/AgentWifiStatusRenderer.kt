@@ -18,7 +18,7 @@ internal object AgentWifiStatusRenderer {
             "networks" to status.wifiNetworkCount.toString(),
             "permissions" to permissionSummary(status.permissionsList),
         )
-        val connection = status.connection.takeIf { status.hasConnection() && it.ssid.isNotBlank() }
+        val connection = activeWifiConnection(status)
         if (connection != null) renderConnection(out, connection)
         if (status.hasIpStatus()) {
             renderIPStatus(out, status.ipStatus, connection)
