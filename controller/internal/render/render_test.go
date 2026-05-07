@@ -478,6 +478,50 @@ func TestRenderWifiStatusShowsMLOFields(t *testing.T) {
 	}
 }
 
+func TestRenderWifiStatusTreatsMLOLinkZeroAsPresent(t *testing.T) {
+	result := &controlpb.CommandResult{
+		Status: controlpb.CommandResult_STATUS_OK,
+		Payload: &controlpb.CommandResult_WifiStatus{
+			WifiStatus: &controlpb.WifiStatus{
+				Connection: &controlpb.WifiConnection{
+					Ssid:         "Lab",
+					WifiStandard: "802.11be",
+					ApMloLinkId:  0,
+				},
+			},
+		},
+	}
+
+	out, err := CommandResult("agent", result, command.Options{}, pipeline.FormatText)
+	if err != nil {
+		t.Fatalf("renderCommandResult() error = %v", err)
+	}
+	for _, want := range []string{
+		"MLO\n",
+		"ap_link_id  0",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered output = %q, missing %q", out, want)
+		}
+	}
+}
+
+func TestScanMLOLinkIDTreatsZeroAsPresentFor11be(t *testing.T) {
+	got := scanMLOLinkID(&controlpb.WifiScanResult{
+		WifiStandard: "802.11be",
+		ApMloLinkId:  0,
+	})
+	if got != "0" {
+		t.Fatalf("scanMLOLinkID() = %q, want 0", got)
+	}
+	got = scanMLOLinkID(&controlpb.WifiScanResult{
+		ApMloLinkId: 0,
+	})
+	if got != "<none>" {
+		t.Fatalf("scanMLOLinkID() without 11be = %q, want <none>", got)
+	}
+}
+
 func TestRenderWifiScanShowsMLOFields(t *testing.T) {
 	result := &controlpb.CommandResult{
 		Status: controlpb.CommandResult_STATUS_OK,

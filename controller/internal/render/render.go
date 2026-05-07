@@ -681,7 +681,7 @@ func wifiConnectionHasMLO(conn *controlpb.WifiConnection) bool {
 	return conn.GetApMldMacAddress() != "" ||
 		len(conn.GetAffiliatedMloLinks()) > 0 ||
 		len(conn.GetAssociatedMloLinks()) > 0 ||
-		conn.GetApMloLinkId() > 0
+		(strings.EqualFold(conn.GetWifiStandard(), "802.11be") && conn.GetApMloLinkId() >= 0)
 }
 
 func renderMLOLinkGroups(b *strings.Builder, affiliated []*controlpb.MloLinkInfo, associated []*controlpb.MloLinkInfo) {
@@ -1433,7 +1433,10 @@ func scanMLOLinkID(result *controlpb.WifiScanResult) string {
 	if result == nil {
 		return "<none>"
 	}
-	if result.GetApMloLinkId() == 0 && result.GetApMldMacAddress() == "" && len(result.GetAffiliatedMloLinks()) == 0 {
+	if result.GetApMloLinkId() < 0 {
+		return "<none>"
+	}
+	if result.GetApMldMacAddress() == "" && len(result.GetAffiliatedMloLinks()) == 0 && !strings.EqualFold(result.GetWifiStandard(), "802.11be") {
 		return "<none>"
 	}
 	return mloLinkID(result.GetApMloLinkId())

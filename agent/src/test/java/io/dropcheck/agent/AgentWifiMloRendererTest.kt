@@ -146,6 +146,28 @@ class AgentWifiMloRendererTest {
     }
 
     @Test
+    fun treatsMloLinkZeroAsActiveMloIdentity() {
+        val status = WifiStatus.newBuilder()
+            .setEnabled(true)
+            .setState("enabled")
+            .setConnection(WifiConnection.newBuilder()
+                .setSsid("<unknown ssid>")
+                .setBssid("02:00:00:00:00:00")
+                .setNetworkId(-1)
+                .setWifiStandard("802.11be")
+                .setApMloLinkId(0)
+                .build())
+            .build()
+
+        val out = AgentWifiMloRenderer.render(status, WifiScan.getDefaultInstance()).joinToString("\n")
+
+        assertTrue(out.contains("Connected MLO"))
+        assertTrue(out.contains("present     true"))
+        assertTrue(out.contains("ap_link_id  0"))
+        assertFalse("rendered output treated link-id 0 as inactive:\n$out", out.contains("no active Wi-Fi connection"))
+    }
+
+    @Test
     fun capsNearbyTableColumnsForLongSsids() {
         val status = WifiStatus.newBuilder()
             .setEnabled(true)
