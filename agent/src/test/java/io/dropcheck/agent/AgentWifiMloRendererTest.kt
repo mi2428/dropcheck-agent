@@ -72,6 +72,7 @@ class AgentWifiMloRendererTest {
         }
         assertTrue(out.indexOf("Current AP Relation") < out.indexOf("Connected MLO"))
         assertTrue(out.indexOf("Connected MLO") < out.indexOf("MLO Scan"))
+        assertFalse(out.contains("MARK"))
         assertFalse(out.contains("Legacy"))
         assertFalse(out.contains("scan Lab"))
         assertFalse(out.contains("connected_ap_mld_not_seen_in_scan"))
