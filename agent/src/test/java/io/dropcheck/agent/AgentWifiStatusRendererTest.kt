@@ -5,6 +5,7 @@ import io.dropcheck.agent.grpc.MloLinkInfo
 import io.dropcheck.agent.grpc.WifiConnection
 import io.dropcheck.agent.grpc.WifiInformationElement
 import io.dropcheck.agent.grpc.WifiStatus
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -201,5 +202,24 @@ class AgentWifiStatusRendererTest {
         assertTrue(out.contains("present     false"))
         assertTrue(out.contains("ap_mld      <none>"))
         assertTrue(out.contains("ap_link_id  <none>"))
+    }
+
+    @Test
+    fun hidesAndroidPlaceholderConnectionWhenWifiIsNotAssociated() {
+        val status = WifiStatus.newBuilder()
+            .setEnabled(true)
+            .setState("enabled")
+            .setConnection(WifiConnection.newBuilder()
+                .setSsid("<unknown ssid>")
+                .setBssid("02:00:00:00:00:00")
+                .setNetworkId(-1)
+                .setWifiStandard("802.11ax")
+                .build())
+            .build()
+
+        val out = AgentWifiStatusRenderer.render(status).joinToString("\n")
+
+        assertFalse("rendered output included inactive connection:\n$out", out.contains("Connection"))
+        assertFalse("rendered output included stale standard:\n$out", out.contains("802.11ax"))
     }
 }

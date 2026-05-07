@@ -62,6 +62,7 @@ class WifiProtoMapper(
             .setPasspointProviderFriendlyName(info.passpointProviderFriendlyName.orEmpty())
             .setSubscriptionId(info.subscriptionId)
             .setApplicableRedactions(info.applicableRedactions.toString())
+            .setApMloLinkId(-1)
             .setRaw(info.toString())
 
         if (Build.VERSION.SDK_INT >= 33) {
@@ -141,6 +142,7 @@ class WifiProtoMapper(
             .setVenueName(result.venueName?.toString().orEmpty())
             .setPasspoint(result.isPasspointNetwork)
             .setResponder80211Mc(result.is80211mcResponder)
+            .setApMloLinkId(-1)
             .setRaw(result.toString())
 
         if (Build.VERSION.SDK_INT >= 33) {
