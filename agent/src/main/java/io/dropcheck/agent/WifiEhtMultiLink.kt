@@ -6,6 +6,10 @@ private const val EHT_MULTI_LINK_ELEMENT_ID = 255
 private const val EHT_MULTI_LINK_ID_EXT = 107
 private const val MULTI_LINK_TYPE_BASIC = 0
 private const val PER_STA_PROFILE_SUBELEMENT_ID = 0
+private const val LEGACY_FRAGMENT_SUBELEMENT_ID = 1
+private const val LEGACY_VENDOR_SPECIFIC_SUBELEMENT_ID = 2
+private const val VENDOR_SPECIFIC_SUBELEMENT_ID = 221
+private const val FRAGMENT_SUBELEMENT_ID = 254
 
 internal data class EhtMultiLinkElement(
     val control: Int,
@@ -35,8 +39,26 @@ internal data class EhtMultiLinkSubelement(
     val declaredLength: Int,
     val actualLength: Int,
     val perStaProfile: EhtPerStaProfile?,
+    val vendorSpecific: EhtVendorSpecificSubelement?,
+    val fragment: EhtFragmentSubelement?,
+    val fragmentCount: Int,
+    val reassembledLength: Int?,
     val rawHex: String,
     val truncated: Boolean,
+)
+
+internal data class EhtVendorSpecificSubelement(
+    val oui: String,
+    val vendorType: Int?,
+    val payloadByteCount: Int,
+    val payloadHex: String,
+)
+
+internal data class EhtFragmentSubelement(
+    val targetSubelementId: Int?,
+    val targetSubelementName: String,
+    val byteCount: Int,
+    val rawHex: String,
 )
 
 internal data class EhtPerStaProfile(
@@ -54,6 +76,18 @@ internal data class EhtPerStaProfile(
     val bssParametersChangeCount: Int?,
     val profileByteCount: Int,
     val profileHex: String,
+    val profileElements: List<EhtProfileInformationElement>,
+    val profileElementsTruncated: Boolean,
+    val truncated: Boolean,
+)
+
+internal data class EhtProfileInformationElement(
+    val id: Int,
+    val idExt: Int?,
+    val name: String,
+    val declaredLength: Int,
+    val actualLength: Int,
+    val bodyHex: String,
     val truncated: Boolean,
 )
 
@@ -86,7 +120,29 @@ internal fun formatEhtMultiLinkElements(
             }
         }
         element.subelements.forEach { subelement ->
-            lines += "  subelement id=${subelement.id} name=${subelement.name} len=${subelement.declaredLength} actual=${subelement.actualLength}${if (subelement.truncated) " truncated=true" else ""}"
+            lines += buildString {
+                append("  subelement id=${subelement.id} name=${subelement.name} len=${subelement.declaredLength} actual=${subelement.actualLength}")
+                if (subelement.fragmentCount > 0) {
+                    append(" fragments=${subelement.fragmentCount}")
+                    subelement.reassembledLength?.let { append(" reassembled=$it") }
+                }
+                if (subelement.truncated) append(" truncated=true")
+            }
+            subelement.fragment?.let { fragment ->
+                lines += buildString {
+                    append("  fragment target_id=${fragment.targetSubelementId ?: "?"} target=${fragment.targetSubelementName}")
+                    append(" bytes=${fragment.byteCount}")
+                    if (fragment.rawHex.isNotBlank()) append(" payload=0x${fragment.rawHex.hexPreview()}")
+                }
+            }
+            subelement.vendorSpecific?.let { vendor ->
+                lines += buildString {
+                    append("  vendor oui=${vendor.oui.ifBlank { "<unknown>" }}")
+                    vendor.vendorType?.let { append(" type=$it") }
+                    append(" payload_bytes=${vendor.payloadByteCount}")
+                    if (vendor.payloadHex.isNotBlank()) append(" payload=0x${vendor.payloadHex.hexPreview()}")
+                }
+            }
             val perSta = subelement.perStaProfile ?: return@forEach
             lines += buildString {
                 append("  per_link link_id=${perSta.linkId} control=0x${perSta.control.toHex16()}")
@@ -103,6 +159,19 @@ internal fun formatEhtMultiLinkElements(
                 perSta.bssParametersChangeCount?.let { append(" bss_param_change_count=$it") }
                 append(" profile_bytes=${perSta.profileByteCount}")
                 if (perSta.truncated) append(" truncated=true")
+            }
+            perSta.profileElements.forEach { profile ->
+                lines += buildString {
+                    append("  profile_ie link_id=${perSta.linkId} id=${profile.id}")
+                    profile.idExt?.let { append(" ext=$it") }
+                    append(" name=${profile.name}")
+                    append(" len=${profile.declaredLength} actual=${profile.actualLength}")
+                    if (profile.truncated) append(" truncated=true")
+                    if (profile.bodyHex.isNotBlank()) append(" body=0x${profile.bodyHex.hexPreview()}")
+                }
+            }
+            if (perSta.profileElementsTruncated && perSta.profileElements.isEmpty() && perSta.profileHex.isNotBlank()) {
+                lines += "  profile_unparsed link_id=${perSta.linkId} bytes=${perSta.profileByteCount} body=0x${perSta.profileHex.hexPreview()}"
             }
         }
     }
@@ -131,7 +200,7 @@ private fun parseEhtMultiLinkElement(bytes: ByteArray, fallbackByteCount: Int): 
         }
         offset = commonEnd
     }
-    val subelements = mutableListOf<EhtMultiLinkSubelement>()
+    val rawSubelements = mutableListOf<RawEhtMultiLinkSubelement>()
     while (offset < bytes.size) {
         if (offset + 2 > bytes.size) {
             truncated = true
@@ -144,13 +213,10 @@ private fun parseEhtMultiLinkElement(bytes: ByteArray, fallbackByteCount: Int): 
         val data = bytes.copyOfRange(dataStart, dataEnd)
         val subelementTruncated = data.size != declaredLength
         truncated = truncated || subelementTruncated
-        subelements += EhtMultiLinkSubelement(
+        rawSubelements += RawEhtMultiLinkSubelement(
             id = id,
-            name = multiLinkSubelementName(id),
             declaredLength = declaredLength,
-            actualLength = data.size,
-            perStaProfile = if (id == PER_STA_PROFILE_SUBELEMENT_ID) parsePerStaProfile(data, subelementTruncated) else null,
-            rawHex = data.toHex(),
+            data = data,
             truncated = subelementTruncated,
         )
         if (subelementTruncated) break
@@ -162,10 +228,61 @@ private fun parseEhtMultiLinkElement(bytes: ByteArray, fallbackByteCount: Int): 
         typeName = multiLinkTypeName(type),
         presence = basicMultiLinkPresence(control),
         commonInfo = commonInfo,
-        subelements = subelements,
+        subelements = parseSubelements(rawSubelements),
         rawByteCount = fallbackByteCount.takeIf { it > 0 } ?: bytes.size,
         truncated = truncated,
     )
+}
+
+private data class RawEhtMultiLinkSubelement(
+    val id: Int,
+    val declaredLength: Int,
+    val data: ByteArray,
+    val truncated: Boolean,
+)
+
+private fun parseSubelements(rawSubelements: List<RawEhtMultiLinkSubelement>): List<EhtMultiLinkSubelement> {
+    val fragmentsByAnchor = mutableMapOf<Int, MutableList<ByteArray>>()
+    val fragmentTargets = mutableMapOf<Int, Int?>()
+    var anchorIndex: Int? = null
+    rawSubelements.forEachIndexed { index, raw ->
+        if (isFragmentSubelement(raw.id)) {
+            fragmentTargets[index] = anchorIndex
+            anchorIndex?.let {
+                fragmentsByAnchor.getOrPut(it) { mutableListOf() }.add(raw.data)
+            }
+        } else {
+            anchorIndex = index
+        }
+    }
+    return rawSubelements.mapIndexed { index, raw ->
+        val fragments = fragmentsByAnchor[index].orEmpty()
+        val reassembledData = if (fragments.isEmpty()) raw.data else concatByteArrays(listOf(raw.data) + fragments)
+        val fragmentTarget = fragmentTargets[index]
+        val vendorData = if (isVendorSpecificSubelement(raw.id)) parseVendorSpecificSubelement(raw.data) else null
+        EhtMultiLinkSubelement(
+            id = raw.id,
+            name = multiLinkSubelementName(raw.id),
+            declaredLength = raw.declaredLength,
+            actualLength = raw.data.size,
+            perStaProfile = if (raw.id == PER_STA_PROFILE_SUBELEMENT_ID) parsePerStaProfile(reassembledData, raw.truncated) else null,
+            vendorSpecific = vendorData,
+            fragment = if (isFragmentSubelement(raw.id)) {
+                EhtFragmentSubelement(
+                    targetSubelementId = fragmentTarget?.let { rawSubelements[it].id },
+                    targetSubelementName = fragmentTarget?.let { multiLinkSubelementName(rawSubelements[it].id) } ?: "<none>",
+                    byteCount = raw.data.size,
+                    rawHex = raw.data.toHex(),
+                )
+            } else {
+                null
+            },
+            fragmentCount = fragments.size,
+            reassembledLength = if (fragments.isEmpty()) null else reassembledData.size,
+            rawHex = raw.data.toHex(),
+            truncated = raw.truncated,
+        )
+    }
 }
 
 private fun parseBasicCommonInfo(
@@ -232,6 +349,7 @@ private fun parsePerStaProfile(data: ByteArray, alreadyTruncated: Boolean): EhtP
     val bssChangeCount = if (control.hasFlag(11)) readU8(data, offset++, staInfoEnd).also { if (it == null) truncated = true } else null
     val profileStart = staInfoEnd.coerceAtMost(data.size)
     val profile = data.copyOfRange(profileStart, data.size)
+    val parsedProfile = parseProfileInformationElements(profile)
     return EhtPerStaProfile(
         control = control,
         linkId = control and 0x0f,
@@ -247,8 +365,60 @@ private fun parsePerStaProfile(data: ByteArray, alreadyTruncated: Boolean): EhtP
         bssParametersChangeCount = bssChangeCount,
         profileByteCount = profile.size,
         profileHex = profile.toHex(),
+        profileElements = parsedProfile.first,
+        profileElementsTruncated = parsedProfile.second,
         truncated = truncated,
     )
+}
+
+private fun parseVendorSpecificSubelement(data: ByteArray): EhtVendorSpecificSubelement {
+    val oui = if (data.size >= 3) {
+        data.copyOfRange(0, 3).joinToString(":") { "%02x".format(it.u8()) }
+    } else {
+        ""
+    }
+    val vendorType = if (data.size >= 4) data[3].u8() else null
+    val payloadStart = if (data.size >= 4) 4 else data.size
+    val payload = data.copyOfRange(payloadStart, data.size)
+    return EhtVendorSpecificSubelement(
+        oui = oui,
+        vendorType = vendorType,
+        payloadByteCount = payload.size,
+        payloadHex = payload.toHex(),
+    )
+}
+
+private fun parseProfileInformationElements(data: ByteArray): Pair<List<EhtProfileInformationElement>, Boolean> {
+    if (data.isEmpty()) return emptyList<EhtProfileInformationElement>() to false
+    val elements = mutableListOf<EhtProfileInformationElement>()
+    var offset = 0
+    var truncated = false
+    while (offset < data.size) {
+        if (offset + 2 > data.size) {
+            truncated = true
+            break
+        }
+        val id = data[offset].u8()
+        val declaredLength = data[offset + 1].u8()
+        val bodyStart = offset + 2
+        val bodyEnd = (bodyStart + declaredLength).coerceAtMost(data.size)
+        val body = data.copyOfRange(bodyStart, bodyEnd)
+        val elementTruncated = body.size != declaredLength
+        truncated = truncated || elementTruncated
+        val idExt = if (id == EHT_MULTI_LINK_ELEMENT_ID && body.isNotEmpty()) body[0].u8() else null
+        elements += EhtProfileInformationElement(
+            id = id,
+            idExt = idExt,
+            name = profileInformationElementName(id, idExt),
+            declaredLength = declaredLength,
+            actualLength = body.size,
+            bodyHex = body.toHex(),
+            truncated = elementTruncated,
+        )
+        if (elementTruncated) break
+        offset = bodyEnd
+    }
+    return elements to truncated
 }
 
 private fun basicMultiLinkPresence(control: Int): List<String> = buildList {
@@ -282,9 +452,51 @@ private fun multiLinkTypeName(type: Int): String = when (type) {
 
 private fun multiLinkSubelementName(id: Int): String = when (id) {
     0 -> "per_sta_profile"
-    1 -> "fragment"
-    2 -> "vendor_specific"
+    LEGACY_FRAGMENT_SUBELEMENT_ID -> "fragment_legacy"
+    LEGACY_VENDOR_SPECIFIC_SUBELEMENT_ID -> "vendor_specific_legacy"
+    VENDOR_SPECIFIC_SUBELEMENT_ID -> "vendor_specific"
+    FRAGMENT_SUBELEMENT_ID -> "fragment"
     else -> "subelement_$id"
+}
+
+private fun isFragmentSubelement(id: Int): Boolean =
+    id == FRAGMENT_SUBELEMENT_ID || id == LEGACY_FRAGMENT_SUBELEMENT_ID
+
+private fun isVendorSpecificSubelement(id: Int): Boolean =
+    id == VENDOR_SPECIFIC_SUBELEMENT_ID || id == LEGACY_VENDOR_SPECIFIC_SUBELEMENT_ID
+
+private fun profileInformationElementName(id: Int, idExt: Int?): String {
+    if (id == EHT_MULTI_LINK_ELEMENT_ID) {
+        return when (idExt) {
+            106 -> "eht_operation"
+            107 -> "eht_multi_link"
+            108 -> "eht_capabilities"
+            null -> "extension"
+            else -> "extension_$idExt"
+        }
+    }
+    return when (id) {
+        0 -> "ssid"
+        1 -> "supported_rates"
+        3 -> "dsss_parameter_set"
+        5 -> "tim"
+        7 -> "country"
+        11 -> "bss_load"
+        32 -> "power_constraint"
+        35 -> "tpc_report"
+        45 -> "ht_capabilities"
+        48 -> "rsn"
+        50 -> "extended_supported_rates"
+        61 -> "ht_operation"
+        70 -> "radio_measurement_11k"
+        74 -> "overlapping_bss_scan_parameters"
+        127 -> "extended_capabilities"
+        191 -> "vht_capabilities"
+        192 -> "vht_operation"
+        201 -> "reduced_neighbor_report"
+        221 -> "vendor_specific"
+        else -> "element_$id"
+    }
 }
 
 private fun readMac(bytes: ByteArray, offset: Int, limit: Int): String {
@@ -305,6 +517,17 @@ private fun readU8(bytes: ByteArray, offset: Int, limit: Int): Int? {
 private fun readU16(bytes: ByteArray, offset: Int, limit: Int): Int? {
     if (offset + 2 > limit || offset + 2 > bytes.size) return null
     return bytes.u16le(offset)
+}
+
+private fun concatByteArrays(chunks: List<ByteArray>): ByteArray {
+    val total = chunks.sumOf { it.size }
+    val out = ByteArray(total)
+    var offset = 0
+    chunks.forEach { chunk ->
+        chunk.copyInto(out, offset)
+        offset += chunk.size
+    }
+    return out
 }
 
 private fun hexToBytes(value: String): ByteArray {
@@ -328,3 +551,10 @@ private fun Int.hasFlag(bit: Int): Boolean = this and (1 shl bit) != 0
 private fun Int.toHex16(): String = "%04x".format(this and 0xffff)
 
 private fun List<String>.joinedOrNone(): String = if (isEmpty()) "<none>" else joinToString(",")
+
+private fun String.hexPreview(maxBytes: Int = 32): String {
+    val maxChars = maxBytes * 2
+    if (length <= maxChars) return this
+    val remainingBytes = ((length - maxChars) / 2).coerceAtLeast(0)
+    return take(maxChars) + "...(+${remainingBytes}B)"
+}

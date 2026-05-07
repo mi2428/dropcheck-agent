@@ -257,8 +257,8 @@ internal object AgentWifiStatusRenderer {
         kv(out,
             "source" to "android",
             "present" to present.toString(),
-            "ap_mld" to empty(conn.apMldMacAddress, "<none>"),
-            "ap_link_id" to mloLinkID(conn.apMloLinkId, present),
+            "ap_mld" to empty(connectionMldMac(conn), "<none>"),
+            "ap_link_id" to connectionMloLinkID(conn, present),
             "affiliated" to conn.affiliatedMloLinksCount.toString(),
             "associated" to conn.associatedMloLinksCount.toString(),
         )
@@ -269,7 +269,32 @@ internal object AgentWifiStatusRenderer {
         return conn.apMldMacAddress.isNotBlank() ||
             conn.affiliatedMloLinksCount > 0 ||
             conn.associatedMloLinksCount > 0 ||
+            hasMloElement(conn.informationElementsList) ||
             (conn.wifiStandard.equals("802.11be", ignoreCase = true) && conn.apMloLinkId >= 0)
+    }
+
+    private fun connectionMldMac(conn: WifiConnection): String {
+        return firstNonBlank(conn.apMldMacAddress, mloMldMacFromElements(conn.informationElementsList))
+    }
+
+    private fun connectionMloLinkID(conn: WifiConnection, present: Boolean): String {
+        if (!present) return "<none>"
+        if (conn.apMloLinkId >= 0) return conn.apMloLinkId.toString()
+        return mloCurrentLinkIdFromElements(conn.informationElementsList)?.toString() ?: "<none>"
+    }
+
+    private fun hasMloElement(elements: List<WifiInformationElement>): Boolean {
+        return parseEhtMultiLinkElements(elements).isNotEmpty()
+    }
+
+    private fun mloMldMacFromElements(elements: List<WifiInformationElement>): String {
+        return parseEhtMultiLinkElements(elements)
+            .firstNotNullOfOrNull { it.commonInfo?.mldMacAddress?.takeIf(String::isNotBlank) }
+            .orEmpty()
+    }
+
+    private fun mloCurrentLinkIdFromElements(elements: List<WifiInformationElement>): Int? {
+        return parseEhtMultiLinkElements(elements).firstNotNullOfOrNull { it.commonInfo?.linkId }
     }
 
     private fun renderMLOLinks(out: MutableList<String>, affiliated: List<MloLinkInfo>, associated: List<MloLinkInfo>) {
@@ -445,10 +470,6 @@ internal object AgentWifiStatusRenderer {
     private fun empty(value: String, fallback: String): String = value.ifBlank { fallback }
 
     private fun firstNonBlank(vararg values: String): String = values.firstOrNull { it.isNotBlank() }.orEmpty()
-
-    private fun mloLinkID(id: Int, present: Boolean): String {
-        return if (id < 0 || (!present && id == 0)) "<none>" else id.toString()
-    }
 
     private fun wifiBandFromFrequency(freq: Int): String = when (freq) {
         in 2400 until 2500 -> "2.4ghz"

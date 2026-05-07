@@ -9,10 +9,14 @@ import (
 )
 
 const (
-	ehtMultiLinkElementID     = 255
-	ehtMultiLinkIDExt         = 107
-	multiLinkTypeBasic        = 0
-	perSTAProfileSubelementID = 0
+	ehtMultiLinkElementID            = 255
+	ehtMultiLinkIDExt                = 107
+	multiLinkTypeBasic               = 0
+	perSTAProfileSubelementID        = 0
+	legacyFragmentSubelementID       = 1
+	legacyVendorSpecificSubelementID = 2
+	vendorSpecificSubelementID       = 221
+	fragmentSubelementID             = 254
 )
 
 type ehtMultiLinkElement struct {
@@ -43,8 +47,26 @@ type ehtMultiLinkSubelement struct {
 	declaredLength int
 	actualLength   int
 	perSTAProfile  *ehtPerSTAProfile
+	vendorSpecific *ehtVendorSpecificSubelement
+	fragment       *ehtFragmentSubelement
+	fragmentCount  int
+	reassembledLen *int
 	rawHex         string
 	truncated      bool
+}
+
+type ehtVendorSpecificSubelement struct {
+	oui              string
+	vendorType       *int
+	payloadByteCount int
+	payloadHex       string
+}
+
+type ehtFragmentSubelement struct {
+	targetSubelementID   *int
+	targetSubelementName string
+	byteCount            int
+	rawHex               string
 }
 
 type ehtPerSTAProfile struct {
@@ -62,7 +84,19 @@ type ehtPerSTAProfile struct {
 	bssParametersChangeCount *int
 	profileByteCount         int
 	profileHex               string
+	profileElements          []ehtProfileInformationElement
+	profileElementsTruncated bool
 	truncated                bool
+}
+
+type ehtProfileInformationElement struct {
+	id             int
+	idExt          *int
+	name           string
+	declaredLength int
+	actualLength   int
+	bodyHex        string
+	truncated      bool
 }
 
 func parseEHTMultiLinkElements(elements []*controlpb.WifiInformationElement) []ehtMultiLinkElement {
@@ -130,7 +164,41 @@ func formatEHTMultiLinkElements(label string, elements []ehtMultiLinkElement) []
 			if subelement.truncated {
 				truncated = " truncated=true"
 			}
-			lines = append(lines, fmt.Sprintf("  subelement id=%d name=%s len=%d actual=%d%s", subelement.id, subelement.name, subelement.declaredLength, subelement.actualLength, truncated))
+			assembly := ""
+			if subelement.fragmentCount > 0 {
+				assembly = fmt.Sprintf(" fragments=%d", subelement.fragmentCount)
+				if subelement.reassembledLen != nil {
+					assembly += fmt.Sprintf(" reassembled=%d", *subelement.reassembledLen)
+				}
+			}
+			lines = append(lines, fmt.Sprintf("  subelement id=%d name=%s len=%d actual=%d%s%s", subelement.id, subelement.name, subelement.declaredLength, subelement.actualLength, assembly, truncated))
+			if fragment := subelement.fragment; fragment != nil {
+				targetID := "?"
+				if fragment.targetSubelementID != nil {
+					targetID = fmt.Sprint(*fragment.targetSubelementID)
+				}
+				parts := []string{
+					"fragment",
+					"target_id=" + targetID,
+					"target=" + fragment.targetSubelementName,
+					fmt.Sprintf("bytes=%d", fragment.byteCount),
+				}
+				if fragment.rawHex != "" {
+					parts = append(parts, "payload=0x"+hexPreview(fragment.rawHex, 32))
+				}
+				lines = append(lines, "  "+strings.Join(parts, " "))
+			}
+			if vendor := subelement.vendorSpecific; vendor != nil {
+				parts := []string{"vendor", "oui=" + empty(vendor.oui, "<unknown>")}
+				if vendor.vendorType != nil {
+					parts = append(parts, fmt.Sprintf("type=%d", *vendor.vendorType))
+				}
+				parts = append(parts, fmt.Sprintf("payload_bytes=%d", vendor.payloadByteCount))
+				if vendor.payloadHex != "" {
+					parts = append(parts, "payload=0x"+hexPreview(vendor.payloadHex, 32))
+				}
+				lines = append(lines, "  "+strings.Join(parts, " "))
+			}
 			perSTA := subelement.perSTAProfile
 			if perSTA == nil {
 				continue
@@ -167,6 +235,30 @@ func formatEHTMultiLinkElements(label string, elements []ehtMultiLinkElement) []
 				parts = append(parts, "truncated=true")
 			}
 			lines = append(lines, "  "+strings.Join(parts, " "))
+			for _, profile := range perSTA.profileElements {
+				profileParts := []string{
+					fmt.Sprintf("profile_ie link_id=%d", perSTA.linkID),
+					fmt.Sprintf("id=%d", profile.id),
+				}
+				if profile.idExt != nil {
+					profileParts = append(profileParts, fmt.Sprintf("ext=%d", *profile.idExt))
+				}
+				profileParts = append(profileParts,
+					"name="+profile.name,
+					fmt.Sprintf("len=%d", profile.declaredLength),
+					fmt.Sprintf("actual=%d", profile.actualLength),
+				)
+				if profile.truncated {
+					profileParts = append(profileParts, "truncated=true")
+				}
+				if profile.bodyHex != "" {
+					profileParts = append(profileParts, "body=0x"+hexPreview(profile.bodyHex, 32))
+				}
+				lines = append(lines, "  "+strings.Join(profileParts, " "))
+			}
+			if perSTA.profileElementsTruncated && len(perSTA.profileElements) == 0 && perSTA.profileHex != "" {
+				lines = append(lines, fmt.Sprintf("  profile_unparsed link_id=%d bytes=%d body=0x%s", perSTA.linkID, perSTA.profileByteCount, hexPreview(perSTA.profileHex, 32)))
+			}
 		}
 	}
 	return lines
@@ -199,7 +291,7 @@ func parseEHTMultiLinkElement(bytes []byte, fallbackByteCount int) (ehtMultiLink
 		offset = commonEnd
 	}
 
-	subelements := []ehtMultiLinkSubelement{}
+	rawSubelements := []rawEHTMultiLinkSubelement{}
 	for offset < len(bytes) {
 		if offset+2 > len(bytes) {
 			truncated = true
@@ -212,17 +304,10 @@ func parseEHTMultiLinkElement(bytes []byte, fallbackByteCount int) (ehtMultiLink
 		data := bytes[dataStart:dataEnd]
 		subelementTruncated := len(data) != declaredLength
 		truncated = truncated || subelementTruncated
-		var perSTA *ehtPerSTAProfile
-		if id == perSTAProfileSubelementID {
-			perSTA = parsePerSTAProfile(data, subelementTruncated)
-		}
-		subelements = append(subelements, ehtMultiLinkSubelement{
+		rawSubelements = append(rawSubelements, rawEHTMultiLinkSubelement{
 			id:             id,
-			name:           multiLinkSubelementName(id),
 			declaredLength: declaredLength,
-			actualLength:   len(data),
-			perSTAProfile:  perSTA,
-			rawHex:         hex.EncodeToString(data),
+			data:           append([]byte(nil), data...),
 			truncated:      subelementTruncated,
 		})
 		if subelementTruncated {
@@ -241,10 +326,86 @@ func parseEHTMultiLinkElement(bytes []byte, fallbackByteCount int) (ehtMultiLink
 		typeName:     multiLinkTypeName(typ),
 		presence:     basicMultiLinkPresence(control),
 		commonInfo:   commonInfo,
-		subelements:  subelements,
+		subelements:  parseEHTMultiLinkSubelements(rawSubelements),
 		rawByteCount: rawByteCount,
 		truncated:    truncated,
 	}, true
+}
+
+type rawEHTMultiLinkSubelement struct {
+	id             int
+	declaredLength int
+	data           []byte
+	truncated      bool
+}
+
+func parseEHTMultiLinkSubelements(rawSubelements []rawEHTMultiLinkSubelement) []ehtMultiLinkSubelement {
+	fragmentsByAnchor := map[int][][]byte{}
+	fragmentTargets := map[int]*int{}
+	var anchorIndex *int
+	for index, raw := range rawSubelements {
+		if isFragmentSubelement(raw.id) {
+			fragmentTargets[index] = anchorIndex
+			if anchorIndex != nil {
+				fragmentsByAnchor[*anchorIndex] = append(fragmentsByAnchor[*anchorIndex], raw.data)
+			}
+			continue
+		}
+		value := index
+		anchorIndex = &value
+	}
+
+	subelements := make([]ehtMultiLinkSubelement, 0, len(rawSubelements))
+	for index, raw := range rawSubelements {
+		fragments := fragmentsByAnchor[index]
+		reassembled := append([]byte(nil), raw.data...)
+		for _, fragment := range fragments {
+			reassembled = append(reassembled, fragment...)
+		}
+		var reassembledLen *int
+		if len(fragments) > 0 {
+			value := len(reassembled)
+			reassembledLen = &value
+		}
+		var perSTA *ehtPerSTAProfile
+		if raw.id == perSTAProfileSubelementID {
+			perSTA = parsePerSTAProfile(reassembled, raw.truncated)
+		}
+		var vendor *ehtVendorSpecificSubelement
+		if isVendorSpecificSubelement(raw.id) {
+			vendor = parseVendorSpecificSubelement(raw.data)
+		}
+		var fragment *ehtFragmentSubelement
+		if isFragmentSubelement(raw.id) {
+			var targetID *int
+			targetName := "<none>"
+			if targetIndex := fragmentTargets[index]; targetIndex != nil {
+				id := rawSubelements[*targetIndex].id
+				targetID = &id
+				targetName = multiLinkSubelementName(id)
+			}
+			fragment = &ehtFragmentSubelement{
+				targetSubelementID:   targetID,
+				targetSubelementName: targetName,
+				byteCount:            len(raw.data),
+				rawHex:               hex.EncodeToString(raw.data),
+			}
+		}
+		subelements = append(subelements, ehtMultiLinkSubelement{
+			id:             raw.id,
+			name:           multiLinkSubelementName(raw.id),
+			declaredLength: raw.declaredLength,
+			actualLength:   len(raw.data),
+			perSTAProfile:  perSTA,
+			vendorSpecific: vendor,
+			fragment:       fragment,
+			fragmentCount:  len(fragments),
+			reassembledLen: reassembledLen,
+			rawHex:         hex.EncodeToString(raw.data),
+			truncated:      raw.truncated,
+		})
+	}
+	return subelements
 }
 
 func parseBasicCommonInfo(bytes []byte, commonStart int, commonEnd int, control int, commonLength int) (ehtMultiLinkCommonInfo, bool) {
@@ -351,6 +512,7 @@ func parsePerSTAProfile(data []byte, alreadyTruncated bool) *ehtPerSTAProfile {
 	}
 	profileStart := min(staInfoEnd, len(data))
 	profile := data[profileStart:]
+	profileElements, profileTruncated := parseProfileInformationElements(profile)
 	return &ehtPerSTAProfile{
 		control:                  control,
 		linkID:                   control & 0x0f,
@@ -366,8 +528,74 @@ func parsePerSTAProfile(data []byte, alreadyTruncated bool) *ehtPerSTAProfile {
 		bssParametersChangeCount: bssChangeCount,
 		profileByteCount:         len(profile),
 		profileHex:               hex.EncodeToString(profile),
+		profileElements:          profileElements,
+		profileElementsTruncated: profileTruncated,
 		truncated:                truncated,
 	}
+}
+
+func parseVendorSpecificSubelement(data []byte) *ehtVendorSpecificSubelement {
+	oui := ""
+	if len(data) >= 3 {
+		oui = fmt.Sprintf("%02x:%02x:%02x", data[0], data[1], data[2])
+	}
+	var vendorType *int
+	if len(data) >= 4 {
+		value := int(data[3])
+		vendorType = &value
+	}
+	payloadStart := len(data)
+	if len(data) >= 4 {
+		payloadStart = 4
+	}
+	payload := data[payloadStart:]
+	return &ehtVendorSpecificSubelement{
+		oui:              oui,
+		vendorType:       vendorType,
+		payloadByteCount: len(payload),
+		payloadHex:       hex.EncodeToString(payload),
+	}
+}
+
+func parseProfileInformationElements(data []byte) ([]ehtProfileInformationElement, bool) {
+	if len(data) == 0 {
+		return nil, false
+	}
+	elements := []ehtProfileInformationElement{}
+	truncated := false
+	offset := 0
+	for offset < len(data) {
+		if offset+2 > len(data) {
+			truncated = true
+			break
+		}
+		id := int(data[offset])
+		declaredLength := int(data[offset+1])
+		bodyStart := offset + 2
+		bodyEnd := min(bodyStart+declaredLength, len(data))
+		body := data[bodyStart:bodyEnd]
+		elementTruncated := len(body) != declaredLength
+		truncated = truncated || elementTruncated
+		var idExt *int
+		if id == ehtMultiLinkElementID && len(body) > 0 {
+			value := int(body[0])
+			idExt = &value
+		}
+		elements = append(elements, ehtProfileInformationElement{
+			id:             id,
+			idExt:          idExt,
+			name:           profileInformationElementName(id, idExt),
+			declaredLength: declaredLength,
+			actualLength:   len(body),
+			bodyHex:        hex.EncodeToString(body),
+			truncated:      elementTruncated,
+		})
+		if elementTruncated {
+			break
+		}
+		offset = bodyEnd
+	}
+	return elements, truncated
 }
 
 func basicMultiLinkPresence(control int) []string {
@@ -443,12 +671,84 @@ func multiLinkSubelementName(id int) string {
 	switch id {
 	case 0:
 		return "per_sta_profile"
-	case 1:
-		return "fragment"
-	case 2:
+	case legacyFragmentSubelementID:
+		return "fragment_legacy"
+	case legacyVendorSpecificSubelementID:
+		return "vendor_specific_legacy"
+	case vendorSpecificSubelementID:
 		return "vendor_specific"
+	case fragmentSubelementID:
+		return "fragment"
 	default:
 		return fmt.Sprintf("subelement_%d", id)
+	}
+}
+
+func isFragmentSubelement(id int) bool {
+	return id == fragmentSubelementID || id == legacyFragmentSubelementID
+}
+
+func isVendorSpecificSubelement(id int) bool {
+	return id == vendorSpecificSubelementID || id == legacyVendorSpecificSubelementID
+}
+
+func profileInformationElementName(id int, idExt *int) string {
+	if id == ehtMultiLinkElementID {
+		if idExt == nil {
+			return "extension"
+		}
+		switch *idExt {
+		case 106:
+			return "eht_operation"
+		case 107:
+			return "eht_multi_link"
+		case 108:
+			return "eht_capabilities"
+		default:
+			return fmt.Sprintf("extension_%d", *idExt)
+		}
+	}
+	switch id {
+	case 0:
+		return "ssid"
+	case 1:
+		return "supported_rates"
+	case 3:
+		return "dsss_parameter_set"
+	case 5:
+		return "tim"
+	case 7:
+		return "country"
+	case 11:
+		return "bss_load"
+	case 32:
+		return "power_constraint"
+	case 35:
+		return "tpc_report"
+	case 45:
+		return "ht_capabilities"
+	case 48:
+		return "rsn"
+	case 50:
+		return "extended_supported_rates"
+	case 61:
+		return "ht_operation"
+	case 70:
+		return "radio_measurement_11k"
+	case 74:
+		return "overlapping_bss_scan_parameters"
+	case 127:
+		return "extended_capabilities"
+	case 191:
+		return "vht_capabilities"
+	case 192:
+		return "vht_operation"
+	case 201:
+		return "reduced_neighbor_report"
+	case 221:
+		return "vendor_specific"
+	default:
+		return fmt.Sprintf("element_%d", id)
 	}
 }
 
@@ -509,4 +809,13 @@ func optionalInt(value *int) string {
 		return "?"
 	}
 	return fmt.Sprint(*value)
+}
+
+func hexPreview(value string, maxBytes int) string {
+	maxChars := maxBytes * 2
+	if len(value) <= maxChars {
+		return value
+	}
+	remainingBytes := (len(value) - maxChars) / 2
+	return fmt.Sprintf("%s...(+%dB)", value[:maxChars], remainingBytes)
 }

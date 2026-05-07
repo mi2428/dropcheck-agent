@@ -110,7 +110,7 @@ func renderWifiMLOCurrentRelation(b *strings.Builder, current *controlpb.WifiCon
 	}
 	writeKVSection(b, "Current AP Relation",
 		kv("connected_bssid", empty(current.GetBssid(), "<unknown>")),
-		kv("connected_ap_mld", empty(current.GetApMldMacAddress(), "<none>")),
+		kv("connected_ap_mld", empty(wifiMLOConnectionMLDMAC(current), "<none>")),
 		kv("connected_link", wifiMLOConnectionLinkID(current)),
 		kv("current_bssid_seen", currentBSSIDSeen),
 		kv("same_mld_results", len(sameMLDResults)),
@@ -132,7 +132,7 @@ func renderWifiMLOConnected(b *strings.Builder, current *controlpb.WifiConnectio
 		kv("bssid", empty(current.GetBssid(), "<unknown>")),
 		kv("standard", empty(current.GetWifiStandard(), "<unknown>")),
 		kv("present", present),
-		kv("ap_mld", empty(current.GetApMldMacAddress(), "<none>")),
+		kv("ap_mld", empty(wifiMLOConnectionMLDMAC(current), "<none>")),
 		kv("ap_link_id", wifiMLOConnectionLinkID(current)),
 		kv("affiliated", len(current.GetAffiliatedMloLinks())),
 		kv("associated", len(current.GetAssociatedMloLinks())),
@@ -175,7 +175,7 @@ func renderWifiMLONetworks(b *strings.Builder, networks []*controlpb.NetworkDiag
 			network.GetActive(),
 			empty(conn.GetSsid(), "<hidden>"),
 			empty(conn.GetBssid(), "<unknown>"),
-			empty(conn.GetApMldMacAddress(), "<none>"),
+			empty(wifiMLOConnectionMLDMAC(conn), "<none>"),
 			wifiMLOConnectionLinkID(conn),
 			len(conn.GetAssociatedMloLinks()),
 			len(conn.GetAffiliatedMloLinks()),
@@ -444,10 +444,10 @@ func wifiMLOMetadataWarnings(candidates []*controlpb.WifiScanResult) []string {
 	linkIDSeen := 0
 	withoutMetadata := 0
 	for _, result := range beResults {
-		if result.GetApMldMacAddress() != "" {
+		if result.GetApMldMacAddress() != "" || wifiMLOMLDMACFromElements(result.GetInformationElements()) != "" {
 			apMLDSeen++
 		}
-		if result.GetApMloLinkId() >= 0 {
+		if result.GetApMloLinkId() >= 0 || wifiMLOCurrentLinkIDFromElements(result.GetInformationElements()) != nil {
 			linkIDSeen++
 		}
 		if !wifiMLOScanHasMetadata(result) && result.GetApMloLinkId() < 0 {
@@ -481,7 +481,8 @@ func wifiMLOCapableScanCandidate(result *controlpb.WifiScanResult) bool {
 
 func wifiMLOScanHasMetadata(result *controlpb.WifiScanResult) bool {
 	return result.GetApMldMacAddress() != "" ||
-		len(result.GetAffiliatedMloLinks()) > 0
+		len(result.GetAffiliatedMloLinks()) > 0 ||
+		wifiMLOHasElement(result.GetInformationElements())
 }
 
 func wifiMLOGroups(results []*controlpb.WifiScanResult) []wifiMLOGroup {
@@ -508,7 +509,7 @@ func wifiMLOGroups(results []*controlpb.WifiScanResult) []wifiMLOGroup {
 }
 
 func wifiMLOGroupKey(result *controlpb.WifiScanResult) string {
-	if mld := strings.ToLower(strings.TrimSpace(result.GetApMldMacAddress())); mld != "" {
+	if mld := strings.ToLower(strings.TrimSpace(wifiMLOScanMLDMAC(result))); mld != "" {
 		return "mld:" + mld
 	}
 	if bssid := strings.ToLower(strings.TrimSpace(result.GetBssid())); bssid != "" {
@@ -521,8 +522,8 @@ func newWifiMLOGroup(results []*controlpb.WifiScanResult) wifiMLOGroup {
 	group := wifiMLOGroup{results: results, displayMLD: "<unknown>"}
 	firstRSSI := true
 	for _, result := range results {
-		if group.displayMLD == "<unknown>" && result.GetApMldMacAddress() != "" {
-			group.displayMLD = result.GetApMldMacAddress()
+		if group.displayMLD == "<unknown>" && wifiMLOScanMLDMAC(result) != "" {
+			group.displayMLD = wifiMLOScanMLDMAC(result)
 		}
 		if firstRSSI || result.GetRssiDbm() > group.bestRSSI {
 			group.bestRSSI = result.GetRssiDbm()
@@ -544,8 +545,8 @@ func newWifiMLOGroup(results []*controlpb.WifiScanResult) wifiMLOGroup {
 }
 
 func wifiMLOSameMLD(conn *controlpb.WifiConnection, result *controlpb.WifiScanResult) bool {
-	currentMLD := strings.TrimSpace(conn.GetApMldMacAddress())
-	if currentMLD != "" && strings.EqualFold(currentMLD, strings.TrimSpace(result.GetApMldMacAddress())) {
+	currentMLD := strings.TrimSpace(wifiMLOConnectionMLDMAC(conn))
+	if currentMLD != "" && strings.EqualFold(currentMLD, strings.TrimSpace(wifiMLOScanMLDMAC(result))) {
 		return true
 	}
 	return bssidEqual(conn.GetBssid(), result.GetBssid())
@@ -610,18 +611,27 @@ func wifiMLOBlockMark(mark string) string {
 }
 
 func wifiMLOConnectionLinkID(conn *controlpb.WifiConnection) string {
-	if wifiConnectionHasMLO(conn) && conn.GetApMloLinkId() >= 0 {
+	if !wifiConnectionHasMLO(conn) {
+		return "<none>"
+	}
+	if conn.GetApMloLinkId() >= 0 {
 		return fmt.Sprint(conn.GetApMloLinkId())
+	}
+	if id := wifiMLOCurrentLinkIDFromElements(conn.GetInformationElements()); id != nil {
+		return fmt.Sprint(*id)
 	}
 	return "<none>"
 }
 
 func wifiMLOScanLinkID(result *controlpb.WifiScanResult) string {
 	explicitMLO := wifiMLOScanHasMetadata(result)
+	elementLinkID := wifiMLOCurrentLinkIDFromElements(result.GetInformationElements())
 	switch {
 	case (explicitMLO || strings.EqualFold(result.GetWifiStandard(), "802.11be")) && result.GetApMloLinkId() >= 0:
 		return fmt.Sprint(result.GetApMloLinkId())
-	case strings.EqualFold(result.GetWifiStandard(), "802.11be"):
+	case elementLinkID != nil:
+		return fmt.Sprint(*elementLinkID)
+	case explicitMLO || strings.EqualFold(result.GetWifiStandard(), "802.11be"):
 		return "<unknown>"
 	default:
 		return "<none>"
@@ -638,6 +648,9 @@ func wifiMLOScanLinkIDs(result *controlpb.WifiScanResult) []int32 {
 			ids[link.GetLinkId()] = true
 		}
 	}
+	for _, id := range wifiMLOLinkIDsFromElements(result.GetInformationElements()) {
+		ids[id] = true
+	}
 	return wifiMLOSortedIntSet(ids)
 }
 
@@ -651,7 +664,65 @@ func wifiMLOAssociatedLinkIDSet(conn *controlpb.WifiConnection) map[int32]bool {
 			ids[link.GetLinkId()] = true
 		}
 	}
+	for _, id := range wifiMLOLinkIDsFromElements(conn.GetInformationElements()) {
+		ids[id] = true
+	}
 	return ids
+}
+
+func wifiMLOScanMLDMAC(result *controlpb.WifiScanResult) string {
+	return firstNonEmpty(result.GetApMldMacAddress(), wifiMLOMLDMACFromElements(result.GetInformationElements()))
+}
+
+func wifiMLOConnectionMLDMAC(conn *controlpb.WifiConnection) string {
+	return firstNonEmpty(conn.GetApMldMacAddress(), wifiMLOMLDMACFromElements(conn.GetInformationElements()))
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func wifiMLOHasElement(elements []*controlpb.WifiInformationElement) bool {
+	return len(parseEHTMultiLinkElements(elements)) > 0
+}
+
+func wifiMLOMLDMACFromElements(elements []*controlpb.WifiInformationElement) string {
+	for _, element := range parseEHTMultiLinkElements(elements) {
+		if element.commonInfo != nil && element.commonInfo.mldMACAddress != "" {
+			return element.commonInfo.mldMACAddress
+		}
+	}
+	return ""
+}
+
+func wifiMLOCurrentLinkIDFromElements(elements []*controlpb.WifiInformationElement) *int32 {
+	for _, element := range parseEHTMultiLinkElements(elements) {
+		if element.commonInfo != nil && element.commonInfo.linkID != nil {
+			value := int32(*element.commonInfo.linkID)
+			return &value
+		}
+	}
+	return nil
+}
+
+func wifiMLOLinkIDsFromElements(elements []*controlpb.WifiInformationElement) []int32 {
+	ids := map[int32]bool{}
+	for _, element := range parseEHTMultiLinkElements(elements) {
+		if element.commonInfo != nil && element.commonInfo.linkID != nil {
+			ids[int32(*element.commonInfo.linkID)] = true
+		}
+		for _, subelement := range element.subelements {
+			if subelement.perSTAProfile != nil {
+				ids[int32(subelement.perSTAProfile.linkID)] = true
+			}
+		}
+	}
+	return wifiMLOSortedIntSet(ids)
 }
 
 func wifiMLOScanSecurity(result *controlpb.WifiScanResult) string {

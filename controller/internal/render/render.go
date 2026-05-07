@@ -669,8 +669,8 @@ func renderWifiConnectionMLO(b *strings.Builder, conn *controlpb.WifiConnection)
 	}
 	writeKVSection(b, "MLO",
 		kv("source", "android"),
-		kv("ap_mld", empty(conn.GetApMldMacAddress(), "<none>")),
-		kv("ap_link_id", mloLinkID(conn.GetApMloLinkId())),
+		kv("ap_mld", empty(wifiMLOConnectionMLDMAC(conn), "<none>")),
+		kv("ap_link_id", wifiMLOConnectionLinkID(conn)),
 		kv("affiliated", len(conn.GetAffiliatedMloLinks())),
 		kv("associated", len(conn.GetAssociatedMloLinks())),
 	)
@@ -681,6 +681,7 @@ func wifiConnectionHasMLO(conn *controlpb.WifiConnection) bool {
 	return conn.GetApMldMacAddress() != "" ||
 		len(conn.GetAffiliatedMloLinks()) > 0 ||
 		len(conn.GetAssociatedMloLinks()) > 0 ||
+		wifiMLOHasElement(conn.GetInformationElements()) ||
 		(strings.EqualFold(conn.GetWifiStandard(), "802.11be") && conn.GetApMloLinkId() >= 0)
 }
 
@@ -1230,7 +1231,7 @@ func renderScanResults(b *strings.Builder, results []*controlpb.WifiScanResult) 
 			empty(result.GetWifiStandard(), "-"),
 			empty(strings.Join(result.GetSecurityTypes(), ","), empty(result.GetCapabilities(), "-")),
 			empty(strings.Join(scanConnectionCapabilityFlags(result), ","), "-"),
-			empty(result.GetApMldMacAddress(), "<none>"),
+			empty(wifiMLOScanMLDMAC(result), "<none>"),
 			scanMLOLinkID(result),
 			len(result.GetAffiliatedMloLinks()),
 		)
@@ -1262,7 +1263,7 @@ func renderScanMLOLinks(b *strings.Builder, results []*controlpb.WifiScanResult)
 			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%s\t%s\t%d\t%d\t%d\t%d\t%s\t%s\n",
 				empty(result.GetSsid(), "<hidden>"),
 				empty(result.GetBssid(), "unknown"),
-				empty(result.GetApMldMacAddress(), "<none>"),
+				empty(wifiMLOScanMLDMAC(result), "<none>"),
 				scanMLOLinkID(result),
 				link.GetLinkId(),
 				empty(link.GetState(), "unknown"),
@@ -1433,13 +1434,22 @@ func scanMLOLinkID(result *controlpb.WifiScanResult) string {
 	if result == nil {
 		return "<none>"
 	}
-	if result.GetApMloLinkId() < 0 {
+	if result.GetApMloLinkId() >= 0 {
+		if result.GetApMldMacAddress() == "" &&
+			len(result.GetAffiliatedMloLinks()) == 0 &&
+			!wifiMLOHasElement(result.GetInformationElements()) &&
+			!strings.EqualFold(result.GetWifiStandard(), "802.11be") {
+			return "<none>"
+		}
+		return mloLinkID(result.GetApMloLinkId())
+	}
+	if id := wifiMLOCurrentLinkIDFromElements(result.GetInformationElements()); id != nil {
+		return fmt.Sprint(*id)
+	}
+	if result.GetApMldMacAddress() == "" && len(result.GetAffiliatedMloLinks()) == 0 {
 		return "<none>"
 	}
-	if result.GetApMldMacAddress() == "" && len(result.GetAffiliatedMloLinks()) == 0 && !strings.EqualFold(result.GetWifiStandard(), "802.11be") {
-		return "<none>"
-	}
-	return mloLinkID(result.GetApMloLinkId())
+	return "<none>"
 }
 
 func renderWifiCapabilities(b *strings.Builder, capabilities *controlpb.WifiCapabilities) {

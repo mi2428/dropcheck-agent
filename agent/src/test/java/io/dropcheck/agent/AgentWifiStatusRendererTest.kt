@@ -205,6 +205,25 @@ class AgentWifiStatusRendererTest {
     }
 
     @Test
+    fun usesEhtMultiLinkElementAsMloStatusFallback() {
+        val status = WifiStatus.newBuilder()
+            .setConnection(WifiConnection.newBuilder()
+                .setSsid("Lab")
+                .setWifiStandard("802.11ax")
+                .setApMloLinkId(-1)
+                .addInformationElements(ehtMultiLinkIe())
+                .build())
+            .build()
+
+        val out = AgentWifiStatusRenderer.render(status).joinToString("\n")
+
+        assertTrue(out.contains("MLO"))
+        assertTrue(out.contains("present     true"))
+        assertTrue(out.contains("ap_mld      02:00:00:00:00:01"))
+        assertTrue(out.contains("ap_link_id  2"))
+    }
+
+    @Test
     fun treatsMloLinkZeroAsPresentWhenStandardIs11be() {
         val status = WifiStatus.newBuilder()
             .setConnection(WifiConnection.newBuilder()
@@ -238,5 +257,14 @@ class AgentWifiStatusRendererTest {
 
         assertFalse("rendered output included inactive connection:\n$out", out.contains("Connection"))
         assertFalse("rendered output included stale standard:\n$out", out.contains("802.11ax"))
+    }
+
+    private fun ehtMultiLinkIe(): WifiInformationElement {
+        return WifiInformationElement.newBuilder()
+            .setId(255)
+            .setIdExt(107)
+            .setByteCount(28)
+            .setBytesHex("3000090200000000010207000f72090c0200000000026400010305dd")
+            .build()
     }
 }
