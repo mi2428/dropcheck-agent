@@ -1,6 +1,6 @@
 # dropcheck-agent
 
-ADB-controlled Android probes for automated Wi-Fi and access-network checks in event NOCs, built at ShowNet, Interop Tokyo.
+ADB-controlled Android probes for automated Wi-Fi and access-network end-to-end tests. Born at ShowNet, built for every event NOC.
 
 ## Overview
 
