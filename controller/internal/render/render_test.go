@@ -402,6 +402,7 @@ func TestRenderWifiStatusShowsCapabilities(t *testing.T) {
 					DnsServers:       []string{"192.0.2.1", "1.1.1.1"},
 					DhcpServer:       "192.0.2.254",
 					Routes:           []string{"0.0.0.0/0 -> 192.0.2.1 wlan0", "192.0.2.0/24 -> 0.0.0.0 wlan0"},
+					Domains:          "local",
 					PrivateDnsActive: true,
 				},
 			},
@@ -439,6 +440,8 @@ func TestRenderWifiStatusShowsCapabilities(t *testing.T) {
 		"dns",
 		"192.0.2.1",
 		"dns\n    192.0.2.1\n    1.1.1.1",
+		"domains",
+		"local",
 		"dhcp_server",
 		"192.0.2.254",
 		"private_dns",
@@ -450,6 +453,10 @@ func TestRenderWifiStatusShowsCapabilities(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("rendered output = %q, missing %q", out, want)
 		}
+	}
+	if !(strings.Index(out, "\n  routes") < strings.Index(out, "\n  dns") &&
+		strings.Index(out, "\n  dns") < strings.Index(out, "\n  domains")) {
+		t.Fatalf("network rows are not ordered routes -> dns -> domains:\n%s", out)
 	}
 	for _, unwanted := range []string{
 		"Connection Capabilities",
@@ -647,7 +654,7 @@ func TestRenderWifiStatusSuppressesDuplicateNetworkSignal(t *testing.T) {
 	}
 }
 
-func TestRenderWifiStatusShowsMLOFields(t *testing.T) {
+func TestRenderWifiStatusOmitsMLOFields(t *testing.T) {
 	result := &controlpb.CommandResult{
 		Status: controlpb.CommandResult_STATUS_OK,
 		Payload: &controlpb.CommandResult_WifiStatus{
@@ -678,81 +685,15 @@ func TestRenderWifiStatusShowsMLOFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("renderCommandResult() error = %v", err)
 	}
-	for _, want := range []string{
-		"MLO\n",
+	for _, unwanted := range []string{
+		"\nMLO\n",
+		"\nMLO Links\n",
 		"ap_mld",
-		"02:00:00:00:00:01",
 		"ap_link_id",
-		"MLO Links",
-		"associated",
-		"active",
-		"1200",
-	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("rendered output = %q, missing %q", out, want)
-		}
-	}
-}
-
-func TestRenderWifiStatusUsesEHTMultiLinkElementFallback(t *testing.T) {
-	result := &controlpb.CommandResult{
-		Status: controlpb.CommandResult_STATUS_OK,
-		Payload: &controlpb.CommandResult_WifiStatus{
-			WifiStatus: &controlpb.WifiStatus{
-				Enabled: true,
-				Connection: &controlpb.WifiConnection{
-					Ssid:         "Lab",
-					WifiStandard: "802.11ax",
-					ApMloLinkId:  -1,
-					InformationElements: []*controlpb.WifiInformationElement{
-						ehtMultiLinkTestIE(),
-					},
-				},
-			},
-		},
-	}
-
-	out, err := CommandResult("agent", result, command.Options{}, pipeline.FormatText)
-	if err != nil {
-		t.Fatalf("renderCommandResult() error = %v", err)
-	}
-	for _, want := range []string{
-		"MLO\n",
-		"ap_mld",
 		"02:00:00:00:00:01",
-		"ap_link_id",
-		"2",
 	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("rendered output = %q, missing %q", out, want)
-		}
-	}
-}
-
-func TestRenderWifiStatusTreatsMLOLinkZeroAsPresent(t *testing.T) {
-	result := &controlpb.CommandResult{
-		Status: controlpb.CommandResult_STATUS_OK,
-		Payload: &controlpb.CommandResult_WifiStatus{
-			WifiStatus: &controlpb.WifiStatus{
-				Connection: &controlpb.WifiConnection{
-					Ssid:         "Lab",
-					WifiStandard: "802.11be",
-					ApMloLinkId:  0,
-				},
-			},
-		},
-	}
-
-	out, err := CommandResult("agent", result, command.Options{}, pipeline.FormatText)
-	if err != nil {
-		t.Fatalf("renderCommandResult() error = %v", err)
-	}
-	for _, want := range []string{
-		"MLO\n",
-		"ap_link_id  0",
-	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("rendered output = %q, missing %q", out, want)
+		if strings.Contains(out, unwanted) {
+			t.Fatalf("rendered output = %q, included %q", out, unwanted)
 		}
 	}
 }

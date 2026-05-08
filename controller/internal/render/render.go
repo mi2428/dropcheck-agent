@@ -441,7 +441,6 @@ func renderWifiConnection(b *strings.Builder, conn *controlpb.WifiConnection) {
 	)
 	renderWifiConnectionCapabilities(b, conn)
 	renderWifiConnectionDetailedCapabilities(b, conn)
-	renderWifiConnectionMLO(b, conn)
 }
 
 func wifiLinkSpeed(conn *controlpb.WifiConnection) string {
@@ -669,56 +668,12 @@ func wifiMaxLink(conn *controlpb.WifiConnection) string {
 	return fmt.Sprintf("tx=%dMbps rx=%dMbps", tx, rx)
 }
 
-func renderWifiConnectionMLO(b *strings.Builder, conn *controlpb.WifiConnection) {
-	if !wifiConnectionHasMLO(conn) {
-		return
-	}
-	writeKVSection(b, "MLO",
-		kv("source", "android"),
-		kv("ap_mld", empty(wifiMLOConnectionMLDMAC(conn), "<none>")),
-		kv("ap_link_id", wifiMLOConnectionLinkID(conn)),
-		kv("affiliated", len(conn.GetAffiliatedMloLinks())),
-		kv("associated", len(conn.GetAssociatedMloLinks())),
-	)
-	renderMLOLinkGroups(b, conn.GetAffiliatedMloLinks(), conn.GetAssociatedMloLinks())
-}
-
 func wifiConnectionHasMLO(conn *controlpb.WifiConnection) bool {
 	return conn.GetApMldMacAddress() != "" ||
 		len(conn.GetAffiliatedMloLinks()) > 0 ||
 		len(conn.GetAssociatedMloLinks()) > 0 ||
 		wifiMLOHasElement(conn.GetInformationElements()) ||
 		(strings.EqualFold(conn.GetWifiStandard(), "802.11be") && conn.GetApMloLinkId() >= 0)
-}
-
-func renderMLOLinkGroups(b *strings.Builder, affiliated []*controlpb.MloLinkInfo, associated []*controlpb.MloLinkInfo) {
-	if len(affiliated) == 0 && len(associated) == 0 {
-		return
-	}
-	writeSection(b, "MLO Links")
-	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "TYPE\tID\tSTATE\tBAND\tCHANNEL\tRSSI\tTX\tRX\tMAX_TX\tMAX_RX\tAP_MAC\tSTA_MAC")
-	writeLinks := func(kind string, links []*controlpb.MloLinkInfo) {
-		for _, link := range links {
-			_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t%s\n",
-				kind,
-				link.GetLinkId(),
-				empty(link.GetState(), "unknown"),
-				empty(link.GetBand(), "unknown"),
-				link.GetChannel(),
-				link.GetRssiDbm(),
-				link.GetTxLinkSpeedMbps(),
-				link.GetRxLinkSpeedMbps(),
-				link.GetMaxSupportedTxLinkSpeedMbps(),
-				link.GetMaxSupportedRxLinkSpeedMbps(),
-				empty(link.GetApMacAddress(), "unknown"),
-				empty(link.GetStaMacAddress(), "unknown"),
-			)
-		}
-	}
-	writeLinks("affiliated", affiliated)
-	writeLinks("associated", associated)
-	_ = tw.Flush()
 }
 
 func renderMLOLinks(b *strings.Builder, title string, links []*controlpb.MloLinkInfo) {
@@ -844,11 +799,11 @@ func networkRows(status *controlpb.IpStatus, options ipRenderOptions) []kvRow {
 	if len(addresses) > 0 {
 		rows = append(rows, kv("addresses", multiLineValue(addresses)))
 	}
-	if len(status.GetDnsServers()) > 0 {
-		rows = append(rows, kv("dns", multiLineValue(status.GetDnsServers())))
-	}
 	if len(status.GetRoutes()) > 0 {
 		rows = append(rows, kv("routes", multiLineValue(status.GetRoutes())))
+	}
+	if len(status.GetDnsServers()) > 0 {
+		rows = append(rows, kv("dns", multiLineValue(status.GetDnsServers())))
 	}
 	if status.GetDomains() != "" {
 		rows = append(rows, kv("domains", status.GetDomains()))

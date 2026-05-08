@@ -11,7 +11,7 @@ import org.junit.Test
 
 class AgentWifiStatusRendererTest {
     @Test
-    fun rendersWifiStatusWithMloLinks() {
+    fun rendersWifiStatusWithoutMloDetails() {
         val status = WifiStatus.newBuilder()
             .setEnabled(true)
             .setState("enabled")
@@ -90,6 +90,7 @@ class AgentWifiStatusRendererTest {
                 .setDhcpServer("192.0.2.254")
                 .addRoutes("0.0.0.0/0 -> 192.0.2.1 wlan0")
                 .addRoutes("192.0.2.0/24 -> 0.0.0.0 wlan0")
+                .setDomains("local")
                 .setPrivateDnsActive(true)
                 .build())
             .build()
@@ -110,14 +111,6 @@ class AgentWifiStatusRendererTest {
             "11v_bss_transition",
             "roaming\n    11k\n    11r\n    11v_bss_transition",
             "phy      eht",
-            "MLO",
-            "source      android",
-            "present     true",
-            "ap_mld      02:00:00:00:00:01",
-            "MLO Links",
-            "associated",
-            "active",
-            "1200",
             "Network",
             "not_metered",
             "capabilities\n    not_metered\n    not_roaming",
@@ -128,10 +121,17 @@ class AgentWifiStatusRendererTest {
             "dhcp_server   192.0.2.254",
             "private_dns   active=true server=none",
             "routes\n    0.0.0.0/0 -> 192.0.2.1 wlan0\n    192.0.2.0/24 -> 0.0.0.0 wlan0",
+            "domains",
+            "local",
             "wlan0",
         ).forEach { want ->
             assertTrue("rendered output missing $want:\n$out", out.contains(want))
         }
+        assertTrue(
+            "network rows are not ordered routes -> dns -> domains:\n$out",
+            out.indexOf("\n  routes") < out.indexOf("\n  dns") &&
+                out.indexOf("\n  dns") < out.indexOf("\n  domains"),
+        )
         listOf(
             "Connection Capabilities",
             "Connection State",
@@ -155,6 +155,12 @@ class AgentWifiStatusRendererTest {
             "802.11k",
             "802.11r",
             "802.11v_bss_transition",
+            "\nMLO\n",
+            "\nMLO Links\n",
+            "source      android",
+            "present     true",
+            "ap_mld      02:00:00:00:00:01",
+            "ap_link_id",
         ).forEach { unwanted ->
             assertTrue("rendered output included $unwanted:\n$out", !out.contains(unwanted))
         }
@@ -188,59 +194,6 @@ class AgentWifiStatusRendererTest {
     }
 
     @Test
-    fun rendersEmptyMloStateWhenConnectionHasNoMloFields() {
-        val status = WifiStatus.newBuilder()
-            .setConnection(WifiConnection.newBuilder()
-                .setSsid("Lab")
-                .setFrequencyMhz(2412)
-                .build())
-            .build()
-
-        val out = AgentWifiStatusRenderer.render(status).joinToString("\n")
-
-        assertTrue(out.contains("MLO"))
-        assertTrue(out.contains("present     false"))
-        assertTrue(out.contains("ap_mld      <none>"))
-        assertTrue(out.contains("ap_link_id  <none>"))
-    }
-
-    @Test
-    fun usesEhtMultiLinkElementAsMloStatusFallback() {
-        val status = WifiStatus.newBuilder()
-            .setConnection(WifiConnection.newBuilder()
-                .setSsid("Lab")
-                .setWifiStandard("802.11ax")
-                .setApMloLinkId(-1)
-                .addInformationElements(ehtMultiLinkIe())
-                .build())
-            .build()
-
-        val out = AgentWifiStatusRenderer.render(status).joinToString("\n")
-
-        assertTrue(out.contains("MLO"))
-        assertTrue(out.contains("present     true"))
-        assertTrue(out.contains("ap_mld      02:00:00:00:00:01"))
-        assertTrue(out.contains("ap_link_id  2"))
-    }
-
-    @Test
-    fun treatsMloLinkZeroAsPresentWhenStandardIs11be() {
-        val status = WifiStatus.newBuilder()
-            .setConnection(WifiConnection.newBuilder()
-                .setSsid("Lab")
-                .setWifiStandard("802.11be")
-                .setApMloLinkId(0)
-                .build())
-            .build()
-
-        val out = AgentWifiStatusRenderer.render(status).joinToString("\n")
-
-        assertTrue(out.contains("MLO"))
-        assertTrue(out.contains("present     true"))
-        assertTrue(out.contains("ap_link_id  0"))
-    }
-
-    @Test
     fun hidesAndroidPlaceholderConnectionWhenWifiIsNotAssociated() {
         val status = WifiStatus.newBuilder()
             .setEnabled(true)
@@ -259,12 +212,4 @@ class AgentWifiStatusRendererTest {
         assertFalse("rendered output included stale standard:\n$out", out.contains("802.11ax"))
     }
 
-    private fun ehtMultiLinkIe(): WifiInformationElement {
-        return WifiInformationElement.newBuilder()
-            .setId(255)
-            .setIdExt(107)
-            .setByteCount(28)
-            .setBytesHex("3000090200000000010207000f72090c0200000000026400010305dd")
-            .build()
-    }
 }

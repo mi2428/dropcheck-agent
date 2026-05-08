@@ -31,8 +31,7 @@ func shouldCollectADBMLOSupplement(result *controlpb.CommandResult, options comm
 	if result == nil {
 		return false
 	}
-	return result.GetWifiStatus() != nil ||
-		(options.WifiRenderMode == command.WifiRenderModeMLO && result.GetWifiDiagnostics() != nil)
+	return options.WifiRenderMode == command.WifiRenderModeMLO && result.GetWifiDiagnostics() != nil
 }
 
 func collectADBMLOSupplement(ctx context.Context, state *shellState, agent control.AgentInfo) string {

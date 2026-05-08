@@ -972,7 +972,7 @@ class MainActivity : Activity() {
             "show" -> listOf(
                 "show: show (use|wifi status|wifi mlo)",
                 "    show use displays the Wi-Fi use override state and live targets.",
-                "    show wifi status displays local Wi-Fi, IP, and MLO state.",
+                "    show wifi status displays local Wi-Fi and IP state.",
                 "    show wifi mlo displays connected and nearby MLO state.",
                 "    show wifi mlo fresh requests a scan before rendering MLO state.",
             )
