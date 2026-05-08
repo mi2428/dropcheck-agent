@@ -64,6 +64,14 @@ type WifiExpectationOptions struct {
 	Timeout string
 }
 
+// WifiMLOOptions is the typed input for the MLO-focused Wi-Fi diagnostics view.
+type WifiMLOOptions struct {
+	// Fresh triggers an immediate Wi-Fi scan before rendering the MLO view.
+	Fresh bool
+	// Timeout is the fresh-scan wait timeout in milliseconds; empty uses the default.
+	Timeout string
+}
+
 // PingOptions is the typed input for an ICMP ping operation.
 type PingOptions struct {
 	// Host is the hostname or IP address to probe.
@@ -120,10 +128,33 @@ func WifiDiagnosticsOperation() Operation {
 
 // WifiMLOOperation builds an MLO-focused Wi-Fi diagnostics inspection operation.
 func WifiMLOOperation() Operation {
+	op, _ := WifiMLOOperationWithOptions(WifiMLOOptions{})
+	return op
+}
+
+// WifiMLOOperationWithOptions builds an MLO-focused Wi-Fi diagnostics operation.
+//
+// When Fresh is set, the controller runs a fresh scan before the diagnostics
+// command and renders the MLO view with that scan payload.
+func WifiMLOOperationWithOptions(opts WifiMLOOptions) (Operation, error) {
+	options := Options{WifiRenderMode: WifiRenderModeMLO}
+	parts := []string{"wifi", "mlo"}
+	if opts.Fresh {
+		timeoutMs, err := parseOptionalUint32(opts.Timeout, "timeout", 10000)
+		if err != nil {
+			return Operation{}, err
+		}
+		options.WifiMLOFreshScan = true
+		options.WifiMLOFreshScanTimeoutMs = timeoutMs
+		parts = append(parts, "fresh")
+		appendValueOption(&parts, "--timeout", opts.Timeout)
+	} else if opts.Timeout != "" {
+		return Operation{}, errors.New("timeout is supported only with wifi mlo fresh")
+	}
 	return NewOperation("wifi.mlo", &controlpb.RunCommand{
-		Label:   "wifi mlo",
+		Label:   strings.Join(parts, " "),
 		Command: &controlpb.RunCommand_GetWifiDiagnostics{GetWifiDiagnostics: &controlpb.GetWifiDiagnostics{}},
-	}, Options{WifiRenderMode: WifiRenderModeMLO})
+	}, options), nil
 }
 
 // WifiCapabilitiesOperation builds a Wi-Fi capabilities inspection operation.

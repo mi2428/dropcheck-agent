@@ -90,6 +90,25 @@ func TestInspectionOperationBuilders(t *testing.T) {
 }
 
 func TestWifiOperationBuildersCarryControllerContract(t *testing.T) {
+	mloFresh, err := WifiMLOOperationWithOptions(WifiMLOOptions{Fresh: true, Timeout: "9000"})
+	if err != nil {
+		t.Fatalf("WifiMLOOperationWithOptions() error = %v", err)
+	}
+	mloFreshCmd, mloFreshOptions, err := BuildRunCommand(mloFresh)
+	if err != nil {
+		t.Fatalf("mlo fresh command: %v", err)
+	}
+	if mloFreshCmd.GetGetWifiDiagnostics() == nil ||
+		mloFreshCmd.GetLabel() != "wifi mlo fresh --timeout 9000" ||
+		mloFreshOptions.WifiRenderMode != WifiRenderModeMLO ||
+		!mloFreshOptions.WifiMLOFreshScan ||
+		mloFreshOptions.WifiMLOFreshScanTimeoutMs != 9000 {
+		t.Fatalf("mlo fresh command=%#v options=%#v", mloFreshCmd, mloFreshOptions)
+	}
+	if _, err := WifiMLOOperationWithOptions(WifiMLOOptions{Fresh: true, Timeout: "0"}); err == nil || !strings.Contains(err.Error(), "positive integer") {
+		t.Fatalf("WifiMLOOperationWithOptions(timeout=0) error = %v", err)
+	}
+
 	forget := WifiForgetOperation("Lab")
 	forgetCmd, _, err := BuildRunCommand(forget)
 	if err != nil {

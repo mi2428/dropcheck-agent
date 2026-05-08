@@ -16,4 +16,8 @@ type Options struct {
 	TracerouteRequiredHops []string
 	// WifiRenderMode selects a controller-only Wi-Fi diagnostics presentation.
 	WifiRenderMode string
+	// WifiMLOFreshScan requests a fresh Wi-Fi scan before rendering MLO output.
+	WifiMLOFreshScan bool
+	// WifiMLOFreshScanTimeoutMs is the fresh-scan wait timeout in milliseconds.
+	WifiMLOFreshScanTimeoutMs uint32
 }

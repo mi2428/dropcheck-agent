@@ -204,7 +204,7 @@ func renderWifiMLOScanSummary(b *strings.Builder, scan *controlpb.WifiScan, cand
 		errors = len(scan.GetErrors())
 	}
 	rows := []kvRow{
-		kv("source", "diagnostics"),
+		kv("source", wifiMLOScanSource(fields)),
 		kv("results", wifiMLOFieldOrCount(fields, "scan_result_count", results)),
 		kv("total", wifiMLOFieldOrCount(fields, "scan_result_total_count", results)),
 		kv("mlo_candidates", len(candidates)),
@@ -227,6 +227,15 @@ func renderWifiMLOScanSummary(b *strings.Builder, scan *controlpb.WifiScan, cand
 		}
 	}
 	writeKVSection(b, "MLO Scan", rows...)
+}
+
+func wifiMLOScanSource(fields map[string]string) string {
+	for key := range fields {
+		if strings.HasPrefix(key, "fresh_scan_") {
+			return "fresh"
+		}
+	}
+	return "diagnostics"
 }
 
 func renderWifiMLONearbyAPs(b *strings.Builder, groups []wifiMLOGroup, current *controlpb.WifiConnection) {

@@ -138,6 +138,91 @@ func TestRunOperationForAgentsDispatchesAndRendersResult(t *testing.T) {
 	}
 }
 
+func TestRunOperationForAgentsWifiMLOFreshScansBeforeDiagnostics(t *testing.T) {
+	state, stream, cleanup := connectedShellStateWithStream(t)
+	defer cleanup()
+
+	agent, err := state.server.ResolveAgent("agent-a")
+	if err != nil {
+		t.Fatalf("ResolveAgent() error = %v", err)
+	}
+
+	frameCh := make(chan *controlpb.ControllerFrame, 2)
+	go func() {
+		for frame := range stream.sent {
+			cmd := frame.GetRunCommand()
+			if cmd == nil {
+				continue
+			}
+			frameCh <- frame
+			switch {
+			case cmd.GetGetFreshWifiScan() != nil:
+				stream.recv <- &controlpb.AgentFrame{
+					CommandId: frame.GetCommandId(),
+					Body: &controlpb.AgentFrame_Result{Result: &controlpb.CommandResult{
+						Status:  controlpb.CommandResult_STATUS_FAILED,
+						Message: "fresh scan incomplete",
+						Payload: &controlpb.CommandResult_WifiScan{WifiScan: &controlpb.WifiScan{
+							Fields: []*controlpb.DiagnosticField{
+								{Key: "scan_result_count", Value: "1"},
+								{Key: "fresh_scan_elapsed_ms", Value: "123"},
+							},
+							Results: []*controlpb.WifiScanResult{{Ssid: "Lab", Bssid: "aa:bb:cc:dd:ee:ff", FrequencyMhz: 5975, RssiDbm: -45}},
+						}},
+					}},
+				}
+			case cmd.GetGetWifiDiagnostics() != nil:
+				stream.recv <- &controlpb.AgentFrame{
+					CommandId: frame.GetCommandId(),
+					Body: &controlpb.AgentFrame_Result{Result: &controlpb.CommandResult{
+						Status: controlpb.CommandResult_STATUS_OK,
+						Payload: &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{
+							Scan: &controlpb.WifiScan{Fields: []*controlpb.DiagnosticField{{Key: "scan_result_count", Value: "99"}}},
+						}},
+					}},
+				}
+				return
+			}
+		}
+	}()
+
+	op, err := command.WifiMLOOperationWithOptions(command.WifiMLOOptions{Fresh: true, Timeout: "9000"})
+	if err != nil {
+		t.Fatalf("WifiMLOOperationWithOptions() error = %v", err)
+	}
+	out, err := captureStdout(t, func() error {
+		return runOperationForAgents(
+			context.Background(),
+			state,
+			[]control.AgentInfo{agent},
+			op,
+			commandOutputOptions{},
+		)
+	})
+	if err != nil {
+		t.Fatalf("runOperationForAgents() error = %v", err)
+	}
+
+	first := receiveTestControllerFrame(t, frameCh)
+	if scan := first.GetRunCommand().GetGetFreshWifiScan(); scan == nil ||
+		scan.GetBand() != controlpb.WifiBand_WIFI_BAND_ALL ||
+		scan.GetTimeoutMs() != 9000 {
+		t.Fatalf("first command fresh scan = %#v", first.GetRunCommand())
+	}
+	second := receiveTestControllerFrame(t, frameCh)
+	if second.GetRunCommand().GetGetWifiDiagnostics() == nil {
+		t.Fatalf("second command = %#v, want wifi diagnostics", second.GetRunCommand())
+	}
+	for _, want := range []string{"MLO Scan", "source", "fresh", "fresh_scan_elapsed_ms", "123"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("runOperationForAgents output = %q, missing %q", out, want)
+		}
+	}
+	if strings.Contains(out, "99") {
+		t.Fatalf("runOperationForAgents output used stale diagnostics scan: %q", out)
+	}
+}
+
 func connectedShellState(t *testing.T) (*shellState, func()) {
 	state, _, cleanup := connectedShellStateWithStream(t)
 	return state, cleanup
@@ -236,6 +321,17 @@ func (s *testControlSessionStream) SetTrailer(metadata.MD)       {}
 func (s *testControlSessionStream) Context() context.Context     { return s.ctx }
 func (s *testControlSessionStream) SendMsg(any) error            { return nil }
 func (s *testControlSessionStream) RecvMsg(any) error            { return nil }
+
+func receiveTestControllerFrame(t *testing.T, ch <-chan *controlpb.ControllerFrame) *controlpb.ControllerFrame {
+	t.Helper()
+	select {
+	case frame := <-ch:
+		return frame
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for controller frame")
+		return nil
+	}
+}
 
 func captureStdout(t *testing.T, run func() error) (string, error) {
 	t.Helper()
