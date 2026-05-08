@@ -76,7 +76,7 @@ func writeKVSection(b *strings.Builder, title string, rows ...kvRow) {
 	_ = tw.Flush()
 }
 
-// CollectMLO runs a short adb-only MLO supplement for show wifi status.
+// CollectMLO runs a short adb-only MLO supplement for MLO-focused Wi-Fi diagnostics.
 //
 // It intentionally returns an empty summary instead of an error; adb support is
 // diagnostic-only and must not make the normal agent Wi-Fi status fail.
@@ -112,59 +112,37 @@ func ParseMLOSummary(text string) MLOSummary {
 	return summary
 }
 
-// RenderMLOSummary renders adb MLO data for inclusion in show wifi status text.
+// RenderMLOSummary renders adb MLO data for inclusion in MLO-focused Wi-Fi diagnostics text.
 func RenderMLOSummary(summary MLOSummary) string {
 	if summary.Empty() {
 		return ""
 	}
 	var b strings.Builder
-	rows := []kvRow{kv("source", "adb")}
-	hasData := false
+	rows := []kvRow{}
 	if summary.TIDToLinkSupported != "" {
 		rows = append(rows, kv("tid_to_link", summary.TIDToLinkSupported))
-		hasData = true
-	}
-	if summary.APMLDAddress != "" {
-		rows = append(rows, kv("ap_mld", summary.APMLDAddress))
-		hasData = true
-	}
-	if summary.APMLOLinkID != "" {
-		rows = append(rows, kv("ap_link_id", summary.APMLOLinkID))
-		hasData = true
 	}
 	if summary.MLOMode != "" {
 		rows = append(rows, kv("mlo_mode", summary.MLOMode))
-		hasData = true
 	}
 	if summary.WifiLinkCount != "" {
 		rows = append(rows, kv("wifi_link_count", summary.WifiLinkCount))
-		hasData = true
 	}
-	if summary.APMLOAffiliatedLinks != "" {
-		rows = append(rows, kv("affiliated", summary.APMLOAffiliatedLinks))
-		hasData = true
+	if len(rows) == 0 && len(summary.LinkStats) == 0 {
+		return ""
 	}
-	if summary.VendorData != "" && summary.VendorData != "<none>" {
-		rows = append(rows, kv("vendor_data", summary.VendorData))
-		hasData = true
+	if len(rows) > 0 {
+		writeKVSection(&b, "ADB MLO Snapshot", rows...)
 	}
-	if !hasData && len(summary.LinkStats) == 0 {
-		rows = append(rows, kv("available", "true"))
-	}
-	writeKVSection(&b, "MLO", rows...)
 	if len(summary.LinkStats) > 0 {
-		writeSection(&b, "MLO Links")
+		writeSection(&b, "ADB MLO Link Stats")
 		tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(tw, "ID\tSTATE\tRADIO\tFREQ\tRSSI\tMGMT\tWIDTH\tBEACON")
+		_, _ = fmt.Fprintln(tw, "link_id\tradio_id\trssi_mgmt\tbeacon_rx")
 		for _, link := range summary.LinkStats {
-			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
 				empty(link.LinkID, "-"),
-				empty(link.State, "-"),
 				empty(link.RadioID, "-"),
-				empty(link.FrequencyMHz, "-"),
-				empty(link.RSSI, "-"),
 				empty(link.RSSIMgmt, "-"),
-				empty(link.ChannelWidth, "-"),
 				empty(link.BeaconRx, "-"),
 			)
 		}

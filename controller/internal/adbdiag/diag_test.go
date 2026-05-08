@@ -84,9 +84,27 @@ func TestRenderMLOSummary(t *testing.T) {
 			BeaconRx:     "472263",
 		}},
 	})
-	for _, want := range []string{"MLO", "source", "adb", "tid_to_link", "false", "wifi_link_count", "1", "MLO Links", "5220"} {
+	for _, want := range []string{
+		"ADB MLO Snapshot",
+		"tid_to_link",
+		"false",
+		"mlo_mode",
+		"0",
+		"wifi_link_count",
+		"1",
+		"ADB MLO Link Stats",
+		"radio_id",
+		"rssi_mgmt",
+		"beacon_rx",
+		"472263",
+	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("RenderMLOSummary() = %q, missing %q", out, want)
+		}
+	}
+	for _, unwanted := range []string{"source", "ap_mld", "ap_link_id", "MLO Links", "5220"} {
+		if strings.Contains(out, unwanted) {
+			t.Fatalf("RenderMLOSummary() = %q, included %q", out, unwanted)
 		}
 	}
 }

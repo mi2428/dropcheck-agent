@@ -1,7 +1,6 @@
 package io.dropcheck.agent
 
 import io.dropcheck.agent.grpc.IpStatus
-import io.dropcheck.agent.grpc.MloLinkInfo
 import io.dropcheck.agent.grpc.WifiConnection
 import io.dropcheck.agent.grpc.WifiEhtCapabilities
 import io.dropcheck.agent.grpc.WifiEhtOperation
@@ -88,7 +87,6 @@ internal object AgentWifiStatusRenderer {
         )
         renderAPCapabilities(out, conn)
         renderDetailedWifiCapabilities(out, conn)
-        renderMLO(out, conn)
     }
 
     private fun wifiSignalLevel(conn: WifiConnection): String {
@@ -409,77 +407,6 @@ internal object AgentWifiStatusRenderer {
         return if (values.isEmpty()) fallback else values.joinToString(",")
     }
 
-    private fun renderMLO(out: MutableList<String>, conn: WifiConnection) {
-        val present = wifiConnectionHasMLO(conn)
-        section(out, "MLO")
-        kv(out,
-            "source" to "android",
-            "present" to present.toString(),
-            "ap_mld" to empty(connectionMldMac(conn), "<none>"),
-            "ap_link_id" to connectionMloLinkID(conn, present),
-            "affiliated" to conn.affiliatedMloLinksCount.toString(),
-            "associated" to conn.associatedMloLinksCount.toString(),
-        )
-        renderMLOLinks(out, conn.affiliatedMloLinksList, conn.associatedMloLinksList)
-    }
-
-    private fun wifiConnectionHasMLO(conn: WifiConnection): Boolean {
-        return conn.apMldMacAddress.isNotBlank() ||
-            conn.affiliatedMloLinksCount > 0 ||
-            conn.associatedMloLinksCount > 0 ||
-            hasMloElement(conn.informationElementsList) ||
-            (conn.wifiStandard.equals("802.11be", ignoreCase = true) && conn.apMloLinkId >= 0)
-    }
-
-    private fun connectionMldMac(conn: WifiConnection): String {
-        return firstNonBlank(conn.apMldMacAddress, mloMldMacFromElements(conn.informationElementsList))
-    }
-
-    private fun connectionMloLinkID(conn: WifiConnection, present: Boolean): String {
-        if (!present) return "<none>"
-        if (conn.apMloLinkId >= 0) return conn.apMloLinkId.toString()
-        return mloCurrentLinkIdFromElements(conn.informationElementsList)?.toString() ?: "<none>"
-    }
-
-    private fun hasMloElement(elements: List<WifiInformationElement>): Boolean {
-        return parseEhtMultiLinkElements(elements).isNotEmpty()
-    }
-
-    private fun mloMldMacFromElements(elements: List<WifiInformationElement>): String {
-        return parseEhtMultiLinkElements(elements)
-            .firstNotNullOfOrNull { it.commonInfo?.mldMacAddress?.takeIf(String::isNotBlank) }
-            .orEmpty()
-    }
-
-    private fun mloCurrentLinkIdFromElements(elements: List<WifiInformationElement>): Int? {
-        return parseEhtMultiLinkElements(elements).firstNotNullOfOrNull { it.commonInfo?.linkId }
-    }
-
-    private fun renderMLOLinks(out: MutableList<String>, affiliated: List<MloLinkInfo>, associated: List<MloLinkInfo>) {
-        if (affiliated.isEmpty() && associated.isEmpty()) return
-        section(out, "MLO Links")
-        val rows = affiliated.map { "affiliated" to it } + associated.map { "associated" to it }
-        table(out,
-            listOf("TYPE", "ID", "STATE", "BAND", "CHANNEL", "RSSI", "TX", "RX", "MAX_TX", "MAX_RX", "AP_MAC", "STA_MAC"),
-            rows.map { (type, link) ->
-                listOf(
-                    type,
-                    link.linkId.toString(),
-                    empty(link.state, "unknown"),
-                    empty(link.band, "unknown"),
-                    link.channel.toString(),
-                    link.rssiDbm.toString(),
-                    link.txLinkSpeedMbps.toString(),
-                    link.rxLinkSpeedMbps.toString(),
-                    link.maxSupportedTxLinkSpeedMbps.toString(),
-                    link.maxSupportedRxLinkSpeedMbps.toString(),
-                    empty(link.apMacAddress, "unknown"),
-                    empty(link.staMacAddress, "unknown"),
-                )
-            },
-        )
-    }
-
     private fun renderIPStatus(out: MutableList<String>, status: IpStatus, connection: WifiConnection?) {
         section(out, "Network")
         kv(out, *networkRows(status, connection).toTypedArray())
@@ -526,8 +453,8 @@ internal object AgentWifiStatusRenderer {
         if (ipv4.isNotEmpty()) rows += "ipv4" to multiLineValue(ipv4)
         if (ipv6.isNotEmpty()) rows += "ipv6" to multiLineValue(ipv6)
         if (addresses.isNotEmpty()) rows += "addresses" to multiLineValue(addresses)
-        if (status.dnsServersList.isNotEmpty()) rows += "dns" to multiLineValue(status.dnsServersList)
         if (status.routesList.isNotEmpty()) rows += "routes" to multiLineValue(status.routesList)
+        if (status.dnsServersList.isNotEmpty()) rows += "dns" to multiLineValue(status.dnsServersList)
         if (status.domains.isNotBlank()) rows += "domains" to status.domains
         if (status.httpProxy.isNotBlank()) rows += "http_proxy" to status.httpProxy
         if (status.nat64Prefix.isNotBlank()) rows += "nat64_prefix" to status.nat64Prefix

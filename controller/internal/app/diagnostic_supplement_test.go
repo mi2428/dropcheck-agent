@@ -21,13 +21,13 @@ func TestShouldCollectADBMLOSupplement(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "wifi status",
+			name: "wifi status skips adb mlo supplement",
 			result: &controlpb.CommandResult{
 				Payload: &controlpb.CommandResult_WifiStatus{
 					WifiStatus: &controlpb.WifiStatus{},
 				},
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name: "wifi diagnostics in default render mode",
@@ -90,7 +90,7 @@ func TestCollectCommandResultSupplementsSkipsMissingADBSerial(t *testing.T) {
 
 func TestCommandResultSupplementsAppendToText(t *testing.T) {
 	supplements := commandResultSupplements{}
-	supplements.addText("MLO\n  source  adb\n")
+	supplements.addText("ADB MLO Snapshot\n  tid_to_link  false\n")
 	supplements.addText("")
 
 	tests := []struct {
@@ -101,17 +101,17 @@ func TestCommandResultSupplementsAppendToText(t *testing.T) {
 		{
 			name: "adds separator after trailing newline",
 			out:  "Wi-Fi\n",
-			want: "Wi-Fi\n\nMLO\n  source  adb\n",
+			want: "Wi-Fi\n\nADB MLO Snapshot\n  tid_to_link  false\n",
 		},
 		{
 			name: "adds separator after unterminated output",
 			out:  "Wi-Fi",
-			want: "Wi-Fi\n\nMLO\n  source  adb\n",
+			want: "Wi-Fi\n\nADB MLO Snapshot\n  tid_to_link  false\n",
 		},
 		{
 			name: "keeps existing paragraph separator",
 			out:  "Wi-Fi\n\n",
-			want: "Wi-Fi\n\nMLO\n  source  adb\n",
+			want: "Wi-Fi\n\nADB MLO Snapshot\n  tid_to_link  false\n",
 		},
 	}
 
