@@ -76,11 +76,13 @@ Keep Location enabled on the device; Android hides SSID, BSSID, scan, and MLO de
 
 ## Features
 
-Dropcheck has several entry points that share the same typed agent operations. Use the controller for ad-hoc checks, the shell for field work, MCP for model/tool orchestration, standalone mode for unattended handset-side runs, and Festival when the check should be a repeatable Go test.
+Dropcheck has several entry points that share the same typed agent operations.
+Use the controller for ad-hoc checks, the shell for field work, MCP for model/tool orchestration, standalone mode for unattended handset-side runs, and Festival when the check should be a repeatable Go test.
 
 ### Controller CLI and shell
 
-The controller starts an ADB-backed gRPC session to one or more Android agents. One-shot CLI commands are scriptable and can emit text or JSON; the interactive shell adds prompts, completion, context help, output filters, and configure/request submodes.
+The controller starts an ADB-backed gRPC session to one or more Android agents.
+One-shot CLI commands are scriptable and can emit text or JSON; the interactive shell adds prompts, completion, context help, output filters, and configure/request submodes.
 
 The controller builds three binaries:
 
@@ -96,11 +98,9 @@ $ make build TARGET=controller
 
 `dist/dropcheck` supports:
 
-- Discovery and targeting: `show devices`, `--target TARGET`, and `--all`.
-- Wi-Fi and IP inspection: `show wifi status`, `show wifi diagnostics`, `show wifi mlo`, `show wifi scan`, `show wifi capabilities`, and `show ip status`.
-- Wi-Fi control: `request wifi connect`, `disconnect`, `forget`, `wait connected`, `assert`, `reconnect`, and `cycle`.
-- Network probes from the handset: `request ping`, `traceroute`, `path-mtu`, `global-ip`, `dns`, `http`, and `download`.
-- Standalone operations: `show config standalone`, `configure set|delete standalone ...`, `request standalone run once`, `show standalone runs`, `sync standalone runs`, and `clear standalone runs`.
+- **Wi-Fi and IP inspection:** `wifi status`, `wifi diagnostics`, `wifi mlo`, `wifi scan`, `wifi capabilities`, and `ip status`.
+- **Wi-Fi control:** `connect`, `disconnect`, `forget`, `wait connected`, `assert`, `reconnect`, and `cycle`.
+- **Network probes from the handset:** `ping`, `traceroute`, `path-mtu`, `global-ip`, `dns`, `http`, and `download`.
 
 Common examples:
 
@@ -109,6 +109,30 @@ $ controller/dist/dropcheck --serial R5CT12345 shell
 $ controller/dist/dropcheck --serial R5CT12345 --format json show wifi status
 $ controller/dist/dropcheck --serial R5CT12345 show wifi scan fresh all --timeout 9000
 $ controller/dist/dropcheck --serial R5CT12345 request ping 1.1.1.1 --count 5
+```
+
+A short interactive session, with verbose startup lines omitted and network values shown as examples:
+
+```console
+$ controller/dist/dropcheck --serial R5CT12345 shell
+dropcheck: selected agent=R5CT12345
+press '?' for context help, or type 'help' for commands
+R5CT12345# show wifi ?
+  status                   Current Wi-Fi connection and IP state
+  diagnostics              Wi-Fi status, capabilities, networks, and scan
+  mlo                      Connected and nearby MLO state
+  scan                     Cached or fresh scan results
+  capabilities             Device Wi-Fi capabilities
+R5CT12345# show wifi status | match "^  (ssid|bssid|band|validated)[[:space:]]"
+  ssid                           ShowNet
+  bssid                          aa:bb:cc:dd:ee:ff
+  band                           6ghz
+  validated                      true
+R5CT12345# request
+R5CT12345(request)# ping 1.1.1.1 count 3 | match "^Ping:"
+Ping: host=1.1.1.1 status=ok transmitted=3 received=3 loss=0.0% min/avg/max=10.20/12.40/16.30ms interface=wlan0 elapsed=428ms
+R5CT12345(request)# exit
+R5CT12345# exit
 ```
 
 ### Android agent
@@ -121,14 +145,15 @@ $ make install SERIAL=R5CT12345
 + adb -s R5CT12345 install -r -t agent/build/outputs/apk/debug/agent-debug.apk
 ```
 
-The agent executes controller requests, records structured local logs, renders widgets, and can run a small on-device shell. Its `use NAME` command connects to Wi-Fi targets configured under the standalone `live` festa, which is useful when a handset is in the field without the controller attached.
+The agent executes controller requests, records structured local logs, renders widgets, and can run a small on-device shell.
+Its `use NAME` command connects to Wi-Fi targets configured under the standalone `live` festa, which is useful when a handset is in the field without the controller attached.
 
 Drive the agent from the controller for live measurements:
 
 ```console
 $ controller/dist/dropcheck --serial R5CT12345 show devices
 SEL  #  AGENT    ADB SERIAL  DEVICE              SDK  APP    CONNECTED
-*    1  agent-1  R5CT12345   Google Pixel 8 Pro  35   0.9.0-dirty  2026-05-06T09:00:00Z
+*    1  agent-1  R5CT12345   Google Pixel 9      35   0.9.0-dirty  2026-05-06T09:00:00Z
 
 $ controller/dist/dropcheck --serial R5CT12345 show wifi scan fresh all --timeout 9000
 Latency: 1420ms
@@ -154,13 +179,36 @@ rtt min/avg/max/mdev = 10.200/12.400/16.300/1.900 ms
 
 ### MCP server
 
-`dist/dropcheck-mcp` runs an MCP stdio server backed by the same controller session machinery. It exposes tools for session start/stop, agent discovery, Wi-Fi status/scan/connect/wait/assert/cycle, IP status, ping, traceroute, path MTU, global IP, DNS, HTTP, download, standalone config/runs, and a higher-level `dropcheck_run` sequence.
+`dist/dropcheck-mcp` runs an MCP stdio server backed by the same controller session machinery.
+It exposes tools for session start/stop, agent discovery, Wi-Fi status/scan/connect/wait/assert/cycle, IP status, ping, traceroute, path MTU, global IP, DNS, HTTP, download, standalone config/runs, and a higher-level `dropcheck_run` sequence.
 
-Use MCP when another tool should drive Dropcheck without shelling out to the CLI grammar for every operation. For host-file writes, use the CLI directly: `sync standalone runs` is intentionally not exposed through MCP.
+A smoke check can initialize the stdio server and list registered tools without starting an Android session:
+
+```text
+$ (
+  printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"readme-smoke","version":"0.1.0"}}}'
+  sleep 0.5
+  printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}'
+  printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+  sleep 0.5
+) | controller/dist/dropcheck-mcp 2>/dev/null \
+  | jq -r 'select(.id==1).result.serverInfo.name, (select(.id==2).result.tools[].name | select(. == "dropcheck_session_start" or . == "dropcheck_wifi_status" or . == "dropcheck_ping" or . == "dropcheck_run"))'
+
+dropcheck-mcp
+dropcheck_ping
+dropcheck_run
+dropcheck_session_start
+dropcheck_wifi_status
+```
+
+Use MCP when another tool should drive Dropcheck without shelling out to the CLI grammar for every operation.
+For host-file writes, use the CLI directly: `sync standalone runs` is intentionally not exposed through MCP.
 
 ### Standalone measurement and observability
 
-Standalone mode stores "festa" configurations on the handset. A festa contains Wi-Fi groups to connect to, wait policies, and DNS/ping/HTTP checks. The agent can run them on a schedule or once on demand, then save a protobuf archive locally.
+Standalone mode stores "festa" configurations on the handset.
+A festa contains Wi-Fi groups to connect to, wait policies, and DNS/ping/HTTP checks.
+The agent can run them on a schedule or once on demand, then save a protobuf archive locally.
 
 The controller can inspect and export those archives:
 
@@ -170,11 +218,13 @@ $ controller/dist/dropcheck --serial R5CT12345 show standalone runs --limit 5
 $ controller/dist/dropcheck --serial R5CT12345 sync standalone runs --output out/standalone --mark-synced
 ```
 
-For unattended observability, the Android agent uploads standalone archives to MinIO-compatible storage. `dist/dropcheck-ingester` consumes MinIO notifications or batch backfills, converts archives into metrics, and pushes them to Pushgateway for Prometheus and Grafana.
+For unattended observability, the Android agent uploads standalone archives to MinIO-compatible storage.
+`dist/dropcheck-ingester` consumes MinIO notifications or batch backfills, converts archives into metrics, and pushes them to Pushgateway for Prometheus and Grafana.
 
 ### Festival DSL
 
-Festival tests are Go tests that connect to a requested Wi-Fi target, wait for the expected link state, run typed checks, and fail with normal Go test output. The DSL supports retries and stable checks, and it can also evaluate saved standalone archives without a connected Android agent.
+Festival tests are Go tests that connect to a requested Wi-Fi target, wait for the expected link state, run typed checks, and fail with normal Go test output.
+The DSL supports retries and stable checks, and it can also evaluate saved standalone archives without a connected Android agent.
 
 Available check builders include Wi-Fi status, MLO diagnostics, scan and scan-detail, Wi-Fi capabilities, IP status, ping, DNS, HTTP, download, traceroute, path MTU, and global IP.
 
