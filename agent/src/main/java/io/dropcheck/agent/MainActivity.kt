@@ -617,22 +617,9 @@ class MainActivity : Activity() {
         if (!::shellContent.isInitialized) return
         seedShellTranscript()
         val useController = StandaloneWifiUseController(applicationContext)
-        val inputRow = ensureShellInputRow()
-        if (shellContent.indexOfChild(inputRow) < 0) {
-            shellContent.removeAllViews()
-            shellContent.addView(inputRow)
-        } else {
-            while (shellContent.indexOfChild(inputRow) > 0) {
-                shellContent.removeViewAt(0)
-            }
-            while (shellContent.indexOfChild(inputRow) < shellContent.childCount - 1) {
-                shellContent.removeViewAt(shellContent.childCount - 1)
-            }
-        }
-        var insertAt = 0
+        shellContent.removeAllViews()
         fun addShellView(view: View) {
-            shellContent.addView(view, insertAt)
-            insertAt += 1
+            shellContent.addView(view)
         }
         addShellView(shellText("dropcheck shell", AgentLogStyle.TEXT_COLOR))
         addShellView(shellText("mode=idle runtime=${standaloneRunningLabel()} ${useController.statusText()}", AgentLogStyle.TEXT_COLOR))
@@ -643,6 +630,9 @@ class MainActivity : Activity() {
         addShellView(shellSpacer(8))
         shellTranscript.takeLast(SHELL_TRANSCRIPT_MAX_LINES).forEach {
             addShellView(shellText(it.text, it.color))
+        }
+        if (!shellBusy) {
+            addShellView(ensureShellInputRow())
         }
     }
 
@@ -712,30 +702,30 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun submitShellInput(raw: String) {
+    private fun submitShellInput(raw: String, focusAfterSubmit: Boolean = true) {
         val line = raw.trim()
         if (line.isBlank()) {
             shellInput?.setText("")
-            focusShellInput()
+            if (focusAfterSubmit) focusShellInput()
             return
         }
         if (shellBusy) {
-            focusShellInput()
+            if (focusAfterSubmit) focusShellInput()
             return
         }
         lastShellCommandLine = line
         shellInput?.setText("")
-        appendShellLine(shellCommandLine(line))
+        appendShellLine(shellCommandLine(line), focusInput = focusAfterSubmit)
         when (val command = AgentShellParser.parse(line)) {
             AgentShellCommand.Noop -> Unit
             is AgentShellCommand.Help -> {
-                appendShellLines(shellHelpLines(command.topic))
+                appendShellLines(shellHelpLines(command.topic), focusInput = focusAfterSubmit)
             }
             AgentShellCommand.ShowUse -> {
                 val useController = StandaloneWifiUseController(applicationContext)
-                appendShellLines(listOf(useController.statusText()) + useController.liveWifiListText())
+                appendShellLines(listOf(useController.statusText()) + useController.liveWifiListText(), focusInput = focusAfterSubmit)
             }
-            AgentShellCommand.ShowWifiStatus -> runShellLinesCommand {
+            AgentShellCommand.ShowWifiStatus -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
                 val result = CommandExecutor(applicationContext, agentShellLogger()).execute(
                     RunCommand.newBuilder()
                         .setGetWifiStatus(GetWifiStatus.getDefaultInstance())
@@ -748,21 +738,21 @@ class MainActivity : Activity() {
                     ShellCommandResult(ok = false, lines = listOf("show wifi status failed: $message"))
                 }
             }
-            is AgentShellCommand.ShowWifiMlo -> runShellLinesCommand {
+            is AgentShellCommand.ShowWifiMlo -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
                 runWifiMloCommand(command)
             }
-            AgentShellCommand.ClearUse -> runShellCommand {
+            AgentShellCommand.ClearUse -> runShellCommand(focusAfterComplete = focusAfterSubmit) {
                 StandaloneWifiUseController(applicationContext).clearUse()
             }
-            is AgentShellCommand.Use -> runShellCommand {
+            is AgentShellCommand.Use -> runShellCommand(focusAfterComplete = focusAfterSubmit) {
                 StandaloneWifiUseController(applicationContext).use(command.name)
             }
-            is AgentShellCommand.Invalid -> appendShellLine(command.message, SHELL_ERROR_COLOR)
+            is AgentShellCommand.Invalid -> appendShellLine(command.message, SHELL_ERROR_COLOR, focusInput = focusAfterSubmit)
         }
     }
 
-    private fun runShellCommand(action: () -> StandaloneUseResult) {
-        runShellLinesCommand {
+    private fun runShellCommand(focusAfterComplete: Boolean = true, action: () -> StandaloneUseResult) {
+        runShellLinesCommand(focusAfterComplete = focusAfterComplete) {
             val result = action()
             ShellCommandResult(result.ok, listOf(result.message))
         }
@@ -821,7 +811,7 @@ class MainActivity : Activity() {
         }.getOrNull()
     }
 
-    private fun runShellLinesCommand(action: () -> ShellCommandResult) {
+    private fun runShellLinesCommand(focusAfterComplete: Boolean = true, action: () -> ShellCommandResult) {
         shellBusy = true
         renderShell()
         shellExecutor.submit {
@@ -830,7 +820,11 @@ class MainActivity : Activity() {
             }
             runOnUiThread {
                 shellBusy = false
-                appendShellLines(result.lines, if (result.ok) AgentLogStyle.TEXT_COLOR else SHELL_ERROR_COLOR)
+                appendShellLines(
+                    result.lines,
+                    if (result.ok) AgentLogStyle.TEXT_COLOR else SHELL_ERROR_COLOR,
+                    focusInput = focusAfterComplete,
+                )
                 syncStatusIcons()
             }
         }
@@ -864,16 +858,20 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun appendShellLine(text: CharSequence, color: Int = AgentLogStyle.TEXT_COLOR) {
-        appendShellLines(listOf(text), color)
+    private fun appendShellLine(text: CharSequence, color: Int = AgentLogStyle.TEXT_COLOR, focusInput: Boolean = true) {
+        appendShellLines(listOf(text), color, focusInput)
     }
 
-    private fun appendShellLines(lines: Iterable<CharSequence>, color: Int = AgentLogStyle.TEXT_COLOR) {
+    private fun appendShellLines(
+        lines: Iterable<CharSequence>,
+        color: Int = AgentLogStyle.TEXT_COLOR,
+        focusInput: Boolean = true,
+    ) {
         lines.forEach { shellTranscript.addLast(ShellTranscriptLine(it, color)) }
         trimShellTranscript()
         renderShell()
         scrollShellToInput()
-        focusShellInput()
+        if (focusInput) focusShellInput()
     }
 
     private fun seedShellTranscript() {
@@ -1030,28 +1028,26 @@ class MainActivity : Activity() {
     }
 
     private fun handleShellTap(event: MotionEvent) {
-        if (isShellDoubleTap(event)) {
-            shellLastTapUpTimeMs = 0L
-            val line = lastShellCommandLine
-            if (line.isNotBlank() && !shellBusy) {
-                submitShellInput(line)
-                return
-            }
-        } else {
-            shellLastTapUpTimeMs = event.eventTime
-            shellLastTapX = event.rawX
-            shellLastTapY = event.rawY
+        if (!shellBusy && isShellKeyboardTapArea(event)) {
+            focusShellInput(forceIme = true)
         }
-        focusShellInput(forceIme = true)
     }
 
     private fun handleShellScreenDoubleTap(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                if (!isShellCommandRepeatTapArea(event)) {
+                    shellLastTapUpTimeMs = 0L
+                    return false
+                }
                 shellTapStartRawX = event.rawX
                 shellTapStartRawY = event.rawY
             }
             MotionEvent.ACTION_UP -> {
+                if (!isShellCommandRepeatTapArea(event)) {
+                    shellLastTapUpTimeMs = 0L
+                    return false
+                }
                 val dx = event.rawX - shellTapStartRawX
                 val dy = event.rawY - shellTapStartRawY
                 if (kotlin.math.abs(dx) > shellTapSlopPx || kotlin.math.abs(dy) > shellTapSlopPx) {
@@ -1061,7 +1057,7 @@ class MainActivity : Activity() {
                     shellLastTapUpTimeMs = 0L
                     val line = lastShellCommandLine
                     if (line.isNotBlank() && !shellBusy) {
-                        submitShellInput(line)
+                        submitShellInput(line, focusAfterSubmit = false)
                         return true
                     }
                     return false
@@ -1075,6 +1071,16 @@ class MainActivity : Activity() {
             }
         }
         return false
+    }
+
+    private fun isShellCommandRepeatTapArea(event: MotionEvent): Boolean {
+        val height = root.height.takeIf { it > 0 } ?: shellScroll.height
+        return height <= 0 || event.y < height * 2f / 3f
+    }
+
+    private fun isShellKeyboardTapArea(event: MotionEvent): Boolean {
+        val height = shellScroll.height.takeIf { it > 0 } ?: root.height
+        return height <= 0 || event.y >= height * 2f / 3f
     }
 
     private fun isShellDoubleTap(event: MotionEvent): Boolean {
