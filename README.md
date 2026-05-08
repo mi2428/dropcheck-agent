@@ -4,49 +4,52 @@ ADB-controlled Android probes for automated Wi-Fi and access-network checks in e
 
 ## Overview
 
-This repository implements the Android field-probe side of Dropcheck for ShowNet-style event operations. It installs an agent app on Android handsets, controls it from a Go controller, and runs E2E checks from the user-facing access network.
+Dropcheck turns Android handsets into field probes for event NOCs.
+Instead of checking connectivity from the infrastructure side, it measures from the same user-facing access network that attendees and staff devices use.
 
-For Wi-Fi drops, the agent verifies association, BSSID pinning, scans, MLO status, IP provisioning, DNS, ping, HTTP, traceroute, path MTU, and global IP through the same client stack used at the venue.
-
-The system has five main pieces:
-
-- Android Agent: installed on test handsets; runs Wi-Fi commands, standalone schedules, local logs, widgets, and the on-device `use NAME` shell for quick field checks.
-- Controller: a Go CLI and interactive shell that talks to the agent over ADB-started gRPC sessions and prints text or JSON results.
-- MCP server: exposes the same controller operations as MCP tools over stdio.
-- Festival DSL: Go test helpers for repeatable venue checks, including SSID/BSSID selection and typed expectations.
-- Observability stack: standalone archives are uploaded to MinIO, ingested, and exposed through Pushgateway, Prometheus, and Grafana.
+The controller is the operator-facing entry point for live checks and automation.
+The agent is the on-device probe, and it can also keep collecting standalone measurements when the controller is absent.
+Saved measurements can be exported into the event observability stack for after-the-fact review.
 
 ```mermaid
 sequenceDiagram
   autonumber
-  actor NOC as NOC engineer
-  participant Controller as Controller (Go)
-  participant Agent as Agent (Android)
+  actor NOC as NOC
+  participant Controller as Controller
+  participant App as Android App
   participant WiFi as Wi-Fi under test
-  participant O11y as MinIO / O11y Stack
-  actor MCP as MCP Server
+  participant O11y as O11y Stack
+  participant MCP as MCP Server
+  actor AI as AI Agent
 
-  par Controller one-shot measurement
-    NOC->>Controller: dropcheck show / request / shell / Festival DSL
-    Controller->>Agent: gRPC command: connect SSID+BSSID, scan, IP, ping
-    Agent->>WiFi: Connect and measure
-    Agent-->>Controller: typed command result
-    Controller-->>NOC: CLI output / JSON / Go test PASS or FAIL
-  and MCP-driven measurement
-    MCP->>Controller: dropcheck-mcp tool call
-    Controller->>Agent: gRPC command: status / scan / ping / DNS
-    Agent->>WiFi: Observe link, scan, and send probes
-    Agent-->>Controller: typed command result
-    Controller-->>MCP: MCP tool result
-  and Agent standalone measurement
-    NOC->>Agent: Configure standalone festa and upload target
-    Agent->>WiFi: Scheduled or run-once checks
-    Agent->>O11y: Upload protobuf archive to MinIO
-    O11y-->>NOC: Ingester metrics in Prometheus and Grafana
-  and Agent-only use command
-    NOC->>Agent: On-device shell: use NAME
-    Agent->>WiFi: Connect live Wi-Fi target from standalone config
-    Agent-->>NOC: App terminal, widgets, local logs
+  par NOC interactive control through Controller shell
+    NOC->>Controller: shell command
+    Controller->>App: ADB-started gRPC operation
+    App->>WiFi: connect, inspect, or probe
+    WiFi-->>App: link and probe result
+    App-->>Controller: typed result
+    Controller-->>NOC: shell output
+  and AI interactive control through MCP Server
+    AI->>MCP: MCP tool call
+    MCP->>Controller: controller operation
+    Controller->>App: ADB-started gRPC operation
+    App->>WiFi: inspect or probe
+    WiFi-->>App: link and probe result
+    App-->>Controller: typed result
+    Controller-->>MCP: tool result
+    MCP-->>AI: structured response
+  and Standalone Festa results collected into O11y
+    NOC->>Controller: configure and run Standalone Festa
+    Controller->>App: persist config or run once
+    App->>WiFi: scheduled checks
+    WiFi-->>App: measurement result
+    App->>O11y: upload standalone archive
+    O11y-->>NOC: metrics and dashboards
+  and NOC direct Android live mode
+    NOC->>App: on-device live mode command
+    App->>WiFi: connect using stored target
+    WiFi-->>App: connection result
+    App-->>NOC: terminal, widget, local log
   end
 ```
 
