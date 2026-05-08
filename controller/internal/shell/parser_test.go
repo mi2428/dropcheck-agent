@@ -92,6 +92,17 @@ func TestParseLineAgentCommandSurface(t *testing.T) {
 			},
 		},
 		{
+			name:      "show wifi mlo fresh",
+			line:      "show wifi mlo fresh timeout 9000",
+			operation: "wifi.mlo",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				if cmd.GetGetWifiDiagnostics() == nil || cmd.GetLabel() != "wifi mlo fresh --timeout 9000" {
+					t.Fatalf("wifi mlo fresh command = %#v", cmd)
+				}
+			},
+		},
+		{
 			name:      "show ip status",
 			line:      "show ip status",
 			operation: "ip.status",

@@ -18,7 +18,7 @@ func writeShellHelp(w io.Writer) {
   show config [standalone]
   show wifi status
   show wifi diagnostics
-  show wifi mlo
+  show wifi mlo [fresh [timeout <ms>]]
   show wifi scan [all|2.4ghz|5ghz|6ghz|60ghz]
   show wifi scan fresh [timeout <ms>] [all|2.4ghz|5ghz|6ghz|60ghz]
   show wifi scan detail [all|2.4ghz|5ghz|6ghz|60ghz] <ssid|bssid>
@@ -402,6 +402,12 @@ func helpEntriesForArgsInMode(args []string, mode Mode) []HelpEntry {
 		}
 		if len(args) == 3 && args[1] == "wifi" && args[2] == "scan" {
 			return []HelpEntry{{"fresh", "Trigger a fresh scan"}, {"detail", "Show detail for an SSID or BSSID"}, {"all", "All bands"}, {"2.4ghz", "2.4 GHz band"}, {"5ghz", "5 GHz band"}, {"6ghz", "6 GHz band"}, {"60ghz", "60 GHz band"}}
+		}
+		if len(args) == 3 && args[1] == "wifi" && args[2] == "mlo" {
+			return []HelpEntry{{"fresh", "Trigger a fresh scan before rendering MLO"}}
+		}
+		if len(args) == 4 && args[1] == "wifi" && args[2] == "mlo" && args[3] == "fresh" {
+			return []HelpEntry{{"timeout", "Fresh-scan timeout in milliseconds"}}
 		}
 		if len(args) == 2 && args[1] == "standalone" {
 			return []HelpEntry{{"status", "Live standalone runner state"}, {"runs", "Stored run summaries"}, {"run", "Stored run archive"}}
@@ -1209,6 +1215,9 @@ func completionCandidatesForArgsInMode(args []string, mode Mode) []string {
 		if resolved[0] == "show" && resolved[1] == "wifi" && resolved[2] == "scan" {
 			return []string{"fresh", "detail", "all", "2.4ghz", "5ghz", "6ghz", "60ghz"}
 		}
+		if resolved[0] == "show" && resolved[1] == "wifi" && resolved[2] == "mlo" {
+			return []string{"fresh"}
+		}
 		if resolved[0] == "show" && resolved[1] == "adb" && resolved[2] == "cmd" {
 			return []string{"wifi"}
 		}
@@ -1235,6 +1244,8 @@ func completionCandidatesForArgsInMode(args []string, mode Mode) []string {
 		switch {
 		case len(resolved) >= 3 && resolved[0] == "show" && resolved[1] == "wifi" && resolved[2] == "scan":
 			return showWifiScanCompletionCandidates(resolved[3:])
+		case len(resolved) >= 3 && resolved[0] == "show" && resolved[1] == "wifi" && resolved[2] == "mlo":
+			return showWifiMLOCompletionCandidates(resolved[3:])
 		case len(resolved) == 4 && resolved[0] == "show" && resolved[1] == "adb" && resolved[2] == "cmd" && resolved[3] == "wifi":
 			return []string{"status"}
 		case len(resolved) == 4 && resolved[0] == "show" && resolved[1] == "adb" && resolved[2] == "dumpsys" && resolved[3] == "connectivity":
@@ -1489,6 +1500,11 @@ func valueCompletionCandidatesForArgs(args []string) ([]string, bool) {
 			return []string{"<ms>"}, true
 		}
 		return nil, false
+	case len(args) >= 4 && args[0] == "show" && args[1] == "wifi" && args[2] == "mlo":
+		if args[3] == "fresh" && isResolvedKeyword("show wifi mlo fresh option", last, []string{"timeout"}) {
+			return []string{"<ms>"}, true
+		}
+		return nil, false
 	case len(args) >= 4 && args[0] == "sync" && args[1] == "standalone" && args[2] == "runs":
 		return syncStandaloneValueCompletionCandidates(last)
 	case len(args) >= 3 && args[0] == "set" && args[1] == "standalone":
@@ -1640,6 +1656,31 @@ func showWifiScanCompletionCandidates(args []string) []string {
 	default:
 		return nil
 	}
+}
+
+func showWifiMLOCompletionCandidates(args []string) []string {
+	if len(args) == 0 {
+		return []string{"fresh"}
+	}
+	first, err := resolveShellKeyword("show wifi mlo argument", args[0], []string{"fresh"})
+	if err != nil || first != "fresh" {
+		return nil
+	}
+	timeoutUsed := false
+	for i := 1; i < len(args); i++ {
+		if key, err := resolveShellKeyword("show wifi mlo fresh option", args[i], []string{"timeout"}); err == nil {
+			timeoutUsed = key == "timeout"
+			if i+1 < len(args) {
+				i++
+			}
+			continue
+		}
+		timeoutUsed = true
+	}
+	if timeoutUsed {
+		return nil
+	}
+	return []string{"timeout"}
 }
 
 func showWifiScanFreshCompletionCandidates(args []string) []string {

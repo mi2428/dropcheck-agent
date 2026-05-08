@@ -557,9 +557,19 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 		return err
 	}
 
-	runCtx, cancel := context.WithTimeout(ctx, timeoutFor(cmd))
-	result, err := state.server.Run(runCtx, agent.ID, commandID, cmd)
-	cancel()
+	var freshScan *controlpb.WifiScan
+	if options.WifiMLOFreshScan {
+		freshScan, err = runWifiMLOFreshScan(ctx, state, agent, options)
+	}
+	var result *controlpb.CommandResult
+	if err == nil {
+		runCtx, cancel := context.WithTimeout(ctx, timeoutFor(cmd))
+		result, err = state.server.Run(runCtx, agent.ID, commandID, cmd)
+		cancel()
+		if err == nil {
+			applyWifiMLOFreshScan(result, freshScan)
+		}
+	}
 	supplements := commandResultSupplements{}
 	if err == nil {
 		supplements = collectCommandResultSupplements(ctx, state, agent, result, options, output.format)
@@ -603,6 +613,52 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 	}
 	fmt.Print(out)
 	return nil
+}
+
+func runWifiMLOFreshScan(ctx context.Context, state *shellState, agent control.AgentInfo, options commandOptions) (*controlpb.WifiScan, error) {
+	commandID, err := control.RandomHex(8)
+	if err != nil {
+		return nil, err
+	}
+	cmd := &controlpb.RunCommand{
+		Label: "wifi mlo fresh scan",
+		Command: &controlpb.RunCommand_GetFreshWifiScan{GetFreshWifiScan: &controlpb.GetFreshWifiScan{
+			Band:      controlpb.WifiBand_WIFI_BAND_ALL,
+			TimeoutMs: options.WifiMLOFreshScanTimeoutMs,
+		}},
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeoutFor(cmd))
+	result, err := state.server.Run(runCtx, agent.ID, commandID, cmd)
+	cancel()
+	if err != nil {
+		return nil, fmt.Errorf("wifi mlo fresh scan: %w", err)
+	}
+	scan := result.GetWifiScan()
+	if scan == nil {
+		return nil, fmt.Errorf("wifi mlo fresh scan: agent returned %s without wifi scan", resultPayloadLabel(result))
+	}
+	return scan, nil
+}
+
+func applyWifiMLOFreshScan(result *controlpb.CommandResult, freshScan *controlpb.WifiScan) {
+	if freshScan == nil {
+		return
+	}
+	diagnostics := result.GetWifiDiagnostics()
+	if diagnostics == nil {
+		return
+	}
+	diagnostics.Scan = proto.Clone(freshScan).(*controlpb.WifiScan)
+}
+
+func resultPayloadLabel(result *controlpb.CommandResult) string {
+	if result == nil {
+		return "empty result"
+	}
+	if result.GetPayload() == nil {
+		return "empty payload"
+	}
+	return fmt.Sprintf("%T", result.GetPayload())
 }
 
 func useLineEditor() bool {

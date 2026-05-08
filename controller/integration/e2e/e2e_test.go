@@ -2155,7 +2155,7 @@ func oneLine(value string) string {
 	return value
 }
 
-const e2eCaseCount = 355
+const e2eCaseCount = 358
 
 var e2eCaseID = regexp.MustCompile(`^E2E-[0-9]{3}$`)
 
@@ -2337,6 +2337,7 @@ func TestE2ECaseTableCoversControllerCommandSurface(t *testing.T) {
 		{name: "shell ip status", runner: "shell", text: "show ip status"},
 		{name: "shell wifi diagnostics", runner: "shell", text: "show wifi diagnostics"},
 		{name: "shell wifi mlo", runner: "shell", text: "show wifi mlo"},
+		{name: "shell wifi mlo fresh", runner: "shell", text: "show wifi mlo fresh"},
 		{name: "shell wifi capabilities", runner: "shell", text: "show wifi capabilities"},
 		{name: "shell wifi scan", runner: "shell", text: "show wifi scan"},
 		{name: "shell wifi fresh scan", runner: "shell", text: "show wifi scan fresh"},

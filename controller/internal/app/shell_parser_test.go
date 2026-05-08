@@ -103,6 +103,24 @@ func TestParseShellCommands(t *testing.T) {
 			label: "wifi mlo",
 		},
 		{
+			name:  "show wifi mlo fresh",
+			line:  "show wifi mlo fresh",
+			kind:  shellAgentCommand,
+			label: "wifi mlo fresh",
+		},
+		{
+			name:  "show wifi mlo fresh timeout",
+			line:  "show wifi mlo fresh timeout 9000",
+			kind:  shellAgentCommand,
+			label: "wifi mlo fresh --timeout 9000",
+		},
+		{
+			name:  "show wifi mlo fresh shorthand",
+			line:  "show wifi mlo fresh 9000",
+			kind:  shellAgentCommand,
+			label: "wifi mlo fresh --timeout 9000",
+		},
+		{
 			name:  "show ip status",
 			line:  "show ip status",
 			kind:  shellAgentCommand,
@@ -520,6 +538,7 @@ func TestParseShellRejectsDuplicateOptions(t *testing.T) {
 		{line: "show standalone runs synced synced", want: "synced specified twice"},
 		{line: "show standalone runs limit 1 limit 2", want: "limit specified twice"},
 		{line: "show wifi scan fresh timeout 100 timeout 200", want: "timeout specified twice"},
+		{line: "show wifi mlo fresh timeout 100 timeout 200", want: "timeout specified twice"},
 		{line: "request> wifi connect passphrase secret security auto security wpa3 Lab", want: "security specified twice"},
 		{line: "request> wifi assert ip ip", want: "ip specified twice"},
 		{line: "request> wifi cycle passphrase secret count 1 count 2 Lab", want: "count specified twice"},
@@ -604,6 +623,14 @@ func TestShellHelpAndCompletion(t *testing.T) {
 			t.Fatalf("help tokens = %#v, missing %q", tokens, want)
 		}
 	}
+	help = shellHelpEntriesForTest("show wifi mlo ?")
+	tokens = tokens[:0]
+	for _, entry := range help {
+		tokens = append(tokens, entry.token)
+	}
+	if !slices.Equal(tokens, []string{"fresh"}) {
+		t.Fatalf("show wifi mlo help tokens = %#v, want fresh", tokens)
+	}
 
 	completions := completeShellLineForTest("show wi", nil)
 	if !slices.Contains(completions, "show wifi") {
@@ -666,6 +693,14 @@ func TestShellHelpAndCompletion(t *testing.T) {
 	}
 	if !slices.Equal(tokens, []string{"<ms>"}) {
 		t.Fatalf("show wifi scan fresh timeout help tokens = %#v, want <ms>", tokens)
+	}
+	help = shellHelpEntriesForTest("show wifi mlo fresh timeout ?")
+	tokens = tokens[:0]
+	for _, entry := range help {
+		tokens = append(tokens, entry.token)
+	}
+	if !slices.Equal(tokens, []string{"<ms>"}) {
+		t.Fatalf("show wifi mlo fresh timeout help tokens = %#v, want <ms>", tokens)
 	}
 
 	help = shellHelpEntriesForTest("?")
@@ -1007,6 +1042,7 @@ func TestShellReadlineCompletionsAreSingleTokens(t *testing.T) {
 		"show c",
 		"show config ",
 		"show wifi ",
+		"show wifi mlo ",
 		"show wifi scan ",
 		"show adb ",
 		"show adb dumpsys ",
@@ -1095,6 +1131,14 @@ func TestShellOptionCompletion(t *testing.T) {
 		{
 			line: "show wifi scan fresh ",
 			want: []string{"all", "2.4ghz", "5ghz", "6ghz", "60ghz", "timeout"},
+		},
+		{
+			line: "show wifi mlo ",
+			want: []string{"fresh"},
+		},
+		{
+			line: "show wifi mlo fresh ",
+			want: []string{"timeout"},
 		},
 		{
 			line: "show wifi scan detail Lab ",
@@ -1343,6 +1387,7 @@ func TestShellPlaceholderCompletionHints(t *testing.T) {
 		{line: "request> ping count ", want: "<n>"},
 		{line: "request ping count ", want: "<n>"},
 		{line: "show wifi scan fresh timeout ", want: "<ms>"},
+		{line: "show wifi mlo fresh timeout ", want: "<ms>"},
 		{line: "request> ping count 5 size 64 timeout 7000 ", want: "<host>"},
 		{line: "request ping count 5 size 64 timeout 7000 ", want: "<host>"},
 		{line: "request> traceroute via ", want: "<host_or_ip>"},

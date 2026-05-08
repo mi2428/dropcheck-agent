@@ -519,10 +519,7 @@ func parseShellShowWifi(args []string) (Command, error) {
 		}
 		return agentShellCommand(command.WifiDiagnosticsOperation()), nil
 	case "mlo":
-		if len(args) != 1 {
-			return Command{}, fmt.Errorf("usage: show wifi mlo")
-		}
-		return agentShellCommand(command.WifiMLOOperation()), nil
+		return parseShellShowWifiMLO(args[1:])
 	case "capabilities":
 		if len(args) != 1 {
 			return Command{}, fmt.Errorf("usage: show wifi capabilities")
@@ -533,6 +530,41 @@ func parseShellShowWifi(args []string) (Command, error) {
 	default:
 		return Command{}, fmt.Errorf("unknown show wifi command %q", args[0])
 	}
+}
+
+func parseShellShowWifiMLO(args []string) (Command, error) {
+	if len(args) == 0 {
+		return agentShellCommand(command.WifiMLOOperation()), nil
+	}
+	first, err := resolveShellKeyword("show wifi mlo argument", args[0], []string{"fresh"})
+	if err != nil {
+		return Command{}, err
+	}
+	if first != "fresh" {
+		return Command{}, fmt.Errorf("usage: show wifi mlo [fresh [timeout <ms>]]")
+	}
+	values := map[string]string{}
+	for i := 1; i < len(args); i++ {
+		if key, err := resolveShellKeyword("show wifi mlo fresh option", args[i], []string{"timeout"}); err == nil {
+			value, next, err := shellValue(args, i, key)
+			if err != nil {
+				return Command{}, err
+			}
+			if err := setShellValue(values, key, value); err != nil {
+				return Command{}, err
+			}
+			i = next
+			continue
+		}
+		if len(args)-i != 1 {
+			return Command{}, fmt.Errorf("usage: show wifi mlo [fresh [timeout <ms>]]")
+		}
+		if err := setShellValue(values, "timeout", args[i]); err != nil {
+			return Command{}, err
+		}
+	}
+	op, err := command.WifiMLOOperationWithOptions(command.WifiMLOOptions{Fresh: true, Timeout: values["timeout"]})
+	return agentShellCommand(op), err
 }
 
 func parseShellShowWifiScan(args []string) (Command, error) {
