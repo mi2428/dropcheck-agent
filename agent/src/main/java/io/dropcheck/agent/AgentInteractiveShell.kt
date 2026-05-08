@@ -8,13 +8,15 @@ internal sealed class AgentShellCommand {
     data object ShowUse : AgentShellCommand()
     data object ShowWifiStatus : AgentShellCommand()
     data class ShowWifiMlo(val fresh: Boolean = false, val timeoutMs: Int = 0) : AgentShellCommand()
+    data class Ping(val host: String, val count: Int = 0, val sizeBytes: Int = 0, val timeoutMs: Int = 0) : AgentShellCommand()
+    data class Traceroute(val host: String, val maxHops: Int = 0, val sizeBytes: Int = 0, val timeoutMs: Int = 0) : AgentShellCommand()
     data class Use(val name: String) : AgentShellCommand()
     data class Invalid(val message: String) : AgentShellCommand()
 }
 
 /** Parser for the small on-device shell command surface. */
 internal object AgentShellParser {
-    private val commandNames = listOf("clear", "help", "show", "use")
+    private val commandNames = listOf("clear", "help", "ping", "show", "traceroute", "use")
 
     fun parse(line: String): AgentShellCommand {
         val tokens = splitWords(line).getOrElse { return AgentShellCommand.Invalid(it.message ?: "invalid command") }
@@ -36,7 +38,9 @@ internal object AgentShellParser {
                     AgentShellCommand.Invalid("usage: clear use")
                 }
             }
+            "ping" -> parsePing(tokens.drop(1))
             "show" -> parseShow(tokens)
+            "traceroute" -> parseTraceroute(tokens.drop(1))
             "use" -> if (tokens.size == 2) AgentShellCommand.Use(tokens[1]) else AgentShellCommand.Invalid("usage: use NAME")
             else -> AgentShellCommand.Invalid("${tokens.first()}: command not found")
         }
@@ -79,6 +83,60 @@ internal object AgentShellParser {
             return AgentShellCommand.ShowWifiMlo(fresh = true, timeoutMs = timeoutMs)
         }
         return AgentShellCommand.Invalid("usage: show wifi mlo [fresh [timeout MS]]")
+    }
+
+    private fun parsePing(args: List<String>): AgentShellCommand {
+        val parsed = parseOptionsAndHost(
+            args = args,
+            options = listOf("count", "size", "timeout"),
+            usage = "usage: ping HOST [count N] [size BYTES] [timeout MS]",
+        )
+        if (parsed.error != null) return AgentShellCommand.Invalid(parsed.error)
+        return AgentShellCommand.Ping(
+            host = parsed.host,
+            count = parsed.values["count"] ?: 0,
+            sizeBytes = parsed.values["size"] ?: 0,
+            timeoutMs = parsed.values["timeout"] ?: 0,
+        )
+    }
+
+    private fun parseTraceroute(args: List<String>): AgentShellCommand {
+        val parsed = parseOptionsAndHost(
+            args = args,
+            options = listOf("max-hops", "size", "timeout"),
+            usage = "usage: traceroute HOST [max-hops N] [size BYTES] [timeout MS]",
+        )
+        if (parsed.error != null) return AgentShellCommand.Invalid(parsed.error)
+        return AgentShellCommand.Traceroute(
+            host = parsed.host,
+            maxHops = parsed.values["max-hops"] ?: 0,
+            sizeBytes = parsed.values["size"] ?: 0,
+            timeoutMs = parsed.values["timeout"] ?: 0,
+        )
+    }
+
+    private fun parseOptionsAndHost(args: List<String>, options: List<String>, usage: String): ParsedProbe {
+        if (args.isEmpty()) return ParsedProbe(error = usage)
+        var host = ""
+        val values = mutableMapOf<String, Int>()
+        var index = 0
+        while (index < args.size) {
+            val key = resolveKeyword(args[index], options)
+            if (key != null) {
+                if (index + 1 >= args.size) return ParsedProbe(error = "$key requires a value")
+                if (values.containsKey(key)) return ParsedProbe(error = "$key specified twice")
+                val value = args[index + 1].toIntOrNull()
+                if (value == null || value <= 0) return ParsedProbe(error = "$key must be a positive integer")
+                values[key] = value
+                index += 2
+                continue
+            }
+            if (host.isNotBlank()) return ParsedProbe(error = usage)
+            host = args[index]
+            index += 1
+        }
+        if (host.isBlank()) return ParsedProbe(error = usage)
+        return ParsedProbe(host = host, values = values)
     }
 
     private fun resolveKeyword(value: String, options: List<String>): String? {
@@ -138,4 +196,10 @@ internal object AgentShellParser {
         if (inToken) words += current.toString()
         return Result.success(words)
     }
+
+    private data class ParsedProbe(
+        val host: String = "",
+        val values: Map<String, Int> = emptyMap(),
+        val error: String? = null,
+    )
 }

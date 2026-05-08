@@ -50,7 +50,9 @@ import io.dropcheck.agent.grpc.CommandResult
 import io.dropcheck.agent.grpc.GetFreshWifiScan
 import io.dropcheck.agent.grpc.GetWifiScan
 import io.dropcheck.agent.grpc.GetWifiStatus
+import io.dropcheck.agent.grpc.Ping
 import io.dropcheck.agent.grpc.RunCommand
+import io.dropcheck.agent.grpc.Traceroute
 import io.dropcheck.agent.grpc.WifiBand
 import java.util.concurrent.Executors
 
@@ -741,6 +743,12 @@ class MainActivity : Activity() {
             is AgentShellCommand.ShowWifiMlo -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
                 runWifiMloCommand(command)
             }
+            is AgentShellCommand.Ping -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
+                runPingCommand(command)
+            }
+            is AgentShellCommand.Traceroute -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
+                runTracerouteCommand(command)
+            }
             AgentShellCommand.ClearUse -> runShellCommand(focusAfterComplete = focusAfterSubmit) {
                 StandaloneWifiUseController(applicationContext).clearUse()
             }
@@ -756,6 +764,48 @@ class MainActivity : Activity() {
             val result = action()
             ShellCommandResult(result.ok, listOf(result.message))
         }
+    }
+
+    private fun runPingCommand(command: AgentShellCommand.Ping): ShellCommandResult {
+        val ping = Ping.newBuilder()
+            .setHost(command.host)
+        if (command.count > 0) ping.count = command.count
+        if (command.sizeBytes > 0) ping.sizeBytes = command.sizeBytes
+        if (command.timeoutMs > 0) ping.timeoutMs = command.timeoutMs
+        val result = CommandExecutor(applicationContext, agentShellLogger()).execute(
+            RunCommand.newBuilder()
+                .setPing(ping.build())
+                .build(),
+        )
+        if (!result.hasPing()) {
+            val message = result.message.ifBlank { result.status.name }
+            return ShellCommandResult(ok = false, lines = listOf("ping failed: $message"))
+        }
+        return ShellCommandResult(
+            ok = result.status == CommandResult.Status.STATUS_OK,
+            lines = AgentProbeRenderer.renderPing(result.ping, result.status, result.message),
+        )
+    }
+
+    private fun runTracerouteCommand(command: AgentShellCommand.Traceroute): ShellCommandResult {
+        val traceroute = Traceroute.newBuilder()
+            .setHost(command.host)
+        if (command.maxHops > 0) traceroute.maxHops = command.maxHops
+        if (command.sizeBytes > 0) traceroute.sizeBytes = command.sizeBytes
+        if (command.timeoutMs > 0) traceroute.timeoutMs = command.timeoutMs
+        val result = CommandExecutor(applicationContext, agentShellLogger()).execute(
+            RunCommand.newBuilder()
+                .setTraceroute(traceroute.build())
+                .build(),
+        )
+        if (!result.hasTraceroute()) {
+            val message = result.message.ifBlank { result.status.name }
+            return ShellCommandResult(ok = false, lines = listOf("traceroute failed: $message"))
+        }
+        return ShellCommandResult(
+            ok = result.status == CommandResult.Status.STATUS_OK,
+            lines = AgentProbeRenderer.renderTraceroute(result.traceroute, result.status, result.message),
+        )
     }
 
     private fun runWifiMloCommand(command: AgentShellCommand.ShowWifiMlo): ShellCommandResult {
@@ -951,10 +1001,12 @@ class MainActivity : Activity() {
                 "Shell builtins:",
                 "  clear use",
                 "  help [NAME]",
+                "  ping HOST [count N] [size BYTES] [timeout MS]",
                 "  show use",
                 "  show wifi mlo",
                 "  show wifi mlo fresh [timeout MS]",
                 "  show wifi status",
+                "  traceroute HOST [max-hops N] [size BYTES] [timeout MS]",
                 "  use NAME",
                 "",
                 "Type 'help NAME' for more information.",
@@ -967,12 +1019,22 @@ class MainActivity : Activity() {
                 "help: help [NAME]",
                 "    Display information about shell builtins.",
             )
+            "ping" -> listOf(
+                "ping: ping HOST [count N] [size BYTES] [timeout MS]",
+                "    Run ICMP ping over the active Wi-Fi network.",
+                "    size is the ICMP payload size in bytes.",
+            )
             "show" -> listOf(
                 "show: show (use|wifi status|wifi mlo)",
                 "    show use displays the Wi-Fi use override state and live targets.",
                 "    show wifi status displays local Wi-Fi and IP state.",
                 "    show wifi mlo displays connected and nearby MLO state.",
                 "    show wifi mlo fresh requests a scan before rendering MLO state.",
+            )
+            "traceroute" -> listOf(
+                "traceroute: traceroute HOST [max-hops N] [size BYTES] [timeout MS]",
+                "    Trace the path to HOST over the active Wi-Fi network.",
+                "    size is the probe payload size in bytes.",
             )
             "use" -> listOf(
                 "use: use NAME",
