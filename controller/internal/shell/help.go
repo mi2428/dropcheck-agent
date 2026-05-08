@@ -81,6 +81,7 @@ request mode:
 
 pipes:
   | display json
+  | display set
   | match <regex>
   | except <regex>
   | count
@@ -177,6 +178,11 @@ func writeShellContextHelpInMode(w io.Writer, line string, mode Mode) {
 }
 
 func shellHelpEntriesInMode(line string, mode Mode) []HelpEntry {
+	if pipeLine, ok := trimShellHelpSuffixPreserveSpace(line); ok {
+		if segment, inPipe, err := currentPipelineSegment(pipeLine); err == nil && inPipe {
+			return pipeHelpEntriesForSegment(segment)
+		}
+	}
 	commandLine := trimShellHelpSuffix(line)
 	parts, err := splitPipeline(commandLine)
 	if err != nil || len(parts) == 0 {
@@ -210,6 +216,18 @@ func trimShellHelpSuffix(line string) string {
 	trimmed = strings.TrimSuffix(trimmed, "?")
 	trimmed = strings.TrimSuffix(trimmed, "？")
 	return strings.TrimSpace(trimmed)
+}
+
+func trimShellHelpSuffixPreserveSpace(line string) (string, bool) {
+	trimmedRight := strings.TrimRight(line, " \t\r\n")
+	if trimmedRight == "" {
+		return "", false
+	}
+	last := []rune(trimmedRight)
+	if !isShellHelpRune(last[len(last)-1]) {
+		return "", false
+	}
+	return strings.TrimRightFunc(trimmedRight, isShellHelpRune), true
 }
 
 func valueHelpEntriesForArgsInMode(args []string, mode Mode) []HelpEntry {
@@ -799,6 +817,7 @@ func adbHelpEntries(args []string) []HelpEntry {
 func pipeHelpEntries() []HelpEntry {
 	return []HelpEntry{
 		{"| display json", "Render JSON output"},
+		{"| display set", "Render configuration set commands"},
 		{"| match <regex>", "Include matching lines"},
 		{"| except <regex>", "Exclude matching lines"},
 		{"| count", "Count non-empty output lines"},
@@ -909,14 +928,14 @@ func completeShellLine(line string) []string {
 }
 
 func completeShellLineInMode(line string, mode Mode) []string {
+	if segment, inPipe, err := currentPipelineSegment(line); err != nil {
+		return nil
+	} else if inPipe {
+		return completePipeSegment(line, segment)
+	}
 	parts, err := splitPipeline(line)
 	if err != nil || len(parts) == 0 {
 		return nil
-	}
-	if strings.Contains(line, "|") && strings.HasSuffix(line, parts[len(parts)-1]) {
-		// Once the cursor is in the current pipeline segment, completions switch
-		// from command grammar to pipe grammar.
-		return completePipeSegment(line, parts[len(parts)-1])
 	}
 	trailingSpace := strings.HasSuffix(line, " ") || line == ""
 	args, err := splitArgs(parts[0])
@@ -1005,18 +1024,122 @@ func hasRunePrefix(value []rune, prefix []rune) bool {
 
 func completePipeSegment(line string, segment string) []string {
 	trimmed := strings.TrimLeft(segment, " ")
-	prefix := trimmed
-	if strings.Contains(trimmed, " ") {
+	trailingSpace := strings.HasSuffix(trimmed, " ") || trimmed == ""
+	args, err := splitArgs(trimmed)
+	if err != nil {
 		return nil
+	}
+	prefix := ""
+	baseArgs := args
+	if !trailingSpace && len(args) > 0 {
+		prefix = args[len(args)-1]
+		baseArgs = args[:len(args)-1]
 	}
 	head := line[:len(line)-len(prefix)]
 	var out []string
-	for _, candidate := range []string{"display json", "match", "except", "count", "no-more"} {
+	for _, candidate := range pipeCompletionCandidates(baseArgs) {
 		if strings.HasPrefix(candidate, prefix) {
-			out = append(out, head+candidate)
+			completed := head + candidate
+			if !trailingSpace && candidate == prefix && shouldAppendPipeCompletionSpace(baseArgs, candidate) {
+				completed += " "
+			}
+			out = append(out, completed)
 		}
 	}
 	return out
+}
+
+func currentPipelineSegment(line string) (string, bool, error) {
+	quote := rune(0)
+	escaped := false
+	lastPipe := -1
+	for i, r := range line {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch r {
+		case '\'', '"':
+			quote = r
+		case '|':
+			lastPipe = i
+		}
+	}
+	if escaped {
+		return "", false, fmt.Errorf("trailing escape")
+	}
+	if quote != 0 {
+		return "", false, fmt.Errorf("unterminated quote")
+	}
+	if lastPipe < 0 {
+		return "", false, nil
+	}
+	return line[lastPipe+1:], true, nil
+}
+
+func pipeCompletionCandidates(args []string) []string {
+	if len(args) == 0 {
+		return []string{"display", "match", "except", "count", "no-more"}
+	}
+	if len(args) > 1 {
+		return nil
+	}
+	switch args[0] {
+	case "display":
+		return []string{"json", "set"}
+	case "match", "except":
+		return []string{"<regex>"}
+	default:
+		return nil
+	}
+}
+
+func shouldAppendPipeCompletionSpace(baseArgs []string, candidate string) bool {
+	if len(baseArgs) != 0 {
+		return false
+	}
+	switch candidate {
+	case "display", "match", "except":
+		return true
+	default:
+		return false
+	}
+}
+
+func pipeHelpEntriesForSegment(segment string) []HelpEntry {
+	trimmed := strings.TrimLeft(segment, " ")
+	trailingSpace := strings.HasSuffix(trimmed, " ") || trimmed == ""
+	args, err := splitArgs(trimmed)
+	if err != nil {
+		return nil
+	}
+	baseArgs := args
+	if !trailingSpace && len(args) > 0 {
+		baseArgs = args[:len(args)-1]
+	}
+	switch {
+	case len(baseArgs) == 0:
+		return pipeHelpEntries()
+	case len(baseArgs) == 1 && baseArgs[0] == "display":
+		return []HelpEntry{
+			{"json", "Render JSON output"},
+			{"set", "Render configuration set commands"},
+		}
+	case len(baseArgs) == 1 && (baseArgs[0] == "match" || baseArgs[0] == "except"):
+		return []HelpEntry{{"<regex>", "Regular expression"}}
+	default:
+		return nil
+	}
 }
 
 func completionCandidatesForArgsInMode(args []string, mode Mode) []string {

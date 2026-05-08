@@ -30,6 +30,14 @@ func TestParseLineLocalCommandSurface(t *testing.T) {
 		t.Fatalf("show config = kind %v scope %q", showConfig.Kind, showConfig.ConfigScope)
 	}
 
+	showConfigSet, err := ParseLine("show config | display set | match standalone")
+	if err != nil {
+		t.Fatalf("ParseLine(show config display set) error = %v", err)
+	}
+	if showConfigSet.Kind != ShowConfig || !showConfigSet.Pipeline.DisplaySet() || showConfigSet.Pipeline.StageCount() != 1 {
+		t.Fatalf("show config display set = kind %v displaySet %t stages %d", showConfigSet.Kind, showConfigSet.Pipeline.DisplaySet(), showConfigSet.Pipeline.StageCount())
+	}
+
 	sync, err := ParseLine("sync standalone runs output /tmp/dropcheck-e2e limit 2 keep-unsynced")
 	if err != nil {
 		t.Fatalf("ParseLine(sync standalone runs) error = %v", err)

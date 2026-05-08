@@ -7,11 +7,13 @@ type outputFormat = pipeline.Format
 const (
 	outputText outputFormat = pipeline.FormatText
 	outputJSON outputFormat = pipeline.FormatJSON
+	outputSet  outputFormat = pipeline.FormatSet
 )
 
 type pipePipeline struct {
 	pipeline    pipeline.Pipeline
 	displayJSON bool
+	displaySet  bool
 	stages      []pipeStage
 }
 
@@ -21,6 +23,7 @@ func wrapPipePipeline(parsed pipeline.Pipeline) pipePipeline {
 	return pipePipeline{
 		pipeline:    parsed,
 		displayJSON: parsed.DisplayJSON(),
+		displaySet:  parsed.DisplaySet(),
 		stages:      make([]pipeStage, parsed.StageCount()),
 	}
 }

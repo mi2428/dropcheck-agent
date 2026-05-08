@@ -2155,7 +2155,7 @@ func oneLine(value string) string {
 	return value
 }
 
-const e2eCaseCount = 351
+const e2eCaseCount = 355
 
 var e2eCaseID = regexp.MustCompile(`^E2E-[0-9]{3}$`)
 

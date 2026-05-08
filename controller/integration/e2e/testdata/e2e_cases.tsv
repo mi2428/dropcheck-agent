@@ -350,3 +350,7 @@ E2E-348	CLI standalone run once save	cli	dropcheck request standalone run once -
 E2E-349	CLI standalone run detail	cli	dropcheck show standalone run <run-id>	ok	CLI standalone run detail fetches the saved archive by run id.
 E2E-350	Shell Wi-Fi MLO	shell	show wifi mlo	ok_or_clear	MLO-focused Wi-Fi diagnostics render without dispatch error.
 E2E-351	CLI Wi-Fi MLO	cli	dropcheck show wifi mlo	ok_or_clear	MLO-focused Wi-Fi diagnostics render from the CLI.
+E2E-352	Shell config display set	shell	show config | display set	ok_or_clear	Config display set renders standalone set commands for copy-paste.
+E2E-353	Shell config display set match standalone	shell	show config | display set | match standalone	ok_or_clear	Display set output can be filtered with match.
+E2E-354	Parser pipe display set	shell-parser	show config | display set	ok	Config display set pipeline parses.
+E2E-355	Parser rejects display set after count	shell-parser	show config | count | display set	error	Display set after count is rejected.
