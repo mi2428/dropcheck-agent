@@ -12,10 +12,12 @@ import android.location.Location
 import android.location.LocationManager
 import android.net.ConnectivityManager
 import android.net.LinkProperties
+import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
+import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
@@ -309,32 +311,47 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
         private fun currentWifiSnapshot(context: Context): WifiSnapshot {
             val appContext = context.applicationContext
             val connectivity = appContext.getSystemService(ConnectivityManager::class.java)
+                ?: return disconnectedWifiSnapshot(null)
             val wifi = appContext.getSystemService(WifiManager::class.java)
             if (wifi?.isWifiOffOrTurningOff() == true) return disconnectedWifiSnapshot(connectivity)
 
-            val activeNetwork = connectivity?.activeNetwork
+            val activeNetwork = connectivity.activeNetwork
             val activeCapabilities = activeNetwork
                 ?.let { connectivity.getNetworkCapabilities(it) }
             if (activeCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
-                return WifiSnapshot(
-                    connected = true,
-                    info = bestWifiInfo(appContext, activeCapabilities.transportInfo as? WifiInfo),
-                    addresses = networkAddresses(activeNetwork?.let { connectivity?.getLinkProperties(it) }),
-                )
+                wifiSnapshotForNetwork(appContext, connectivity, activeNetwork, activeCapabilities)?.let {
+                    return it
+                }
             }
 
-            connectivity?.allNetworks.orEmpty().forEach { network ->
-                val capabilities = connectivity?.getNetworkCapabilities(network) ?: return@forEach
+            connectivity.allNetworks.orEmpty().forEach { network ->
+                val capabilities = connectivity.getNetworkCapabilities(network) ?: return@forEach
                 if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
-                    return WifiSnapshot(
-                        connected = true,
-                        info = bestWifiInfo(appContext, capabilities.transportInfo as? WifiInfo),
-                        addresses = networkAddresses(connectivity?.getLinkProperties(network)),
-                    )
+                    wifiSnapshotForNetwork(appContext, connectivity, network, capabilities)?.let {
+                        return it
+                    }
                 }
             }
 
             return disconnectedWifiSnapshot(connectivity)
+        }
+
+        private fun wifiSnapshotForNetwork(
+            context: Context,
+            connectivity: ConnectivityManager,
+            network: Network,
+            capabilities: NetworkCapabilities,
+        ): WifiSnapshot? {
+            val info = bestWifiInfo(context, capabilities.transportInfo as? WifiInfo)
+            if (!clockWidgetWifiNetworkIsDisplayable(capabilities.isLocalWifiNetwork(), info != null)) {
+                return null
+            }
+            val usableInfo = info ?: return null
+            return WifiSnapshot(
+                connected = true,
+                info = usableInfo,
+                addresses = networkAddresses(connectivity.getLinkProperties(network)),
+            )
         }
 
         private fun disconnectedWifiSnapshot(connectivity: ConnectivityManager?): WifiSnapshot {
@@ -350,21 +367,18 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
             if (primary?.isUsableWifiInfo() == true) return primary
 
             val wifi = context.applicationContext.getSystemService(WifiManager::class.java)
-            return wifi?.connectionInfo ?: primary
+            val fallback = wifi?.connectionInfo
+            return if (fallback?.isUsableWifiInfo() == true) fallback else null
         }
 
         private fun cleanEssid(ssid: String?): String {
-            val value = ssid.orEmpty().trim()
-            if (value.isBlank() || value == WifiManager.UNKNOWN_SSID || value == "<unknown ssid>") {
-                return UNKNOWN_VALUE
-            }
-            return value.removeSurrounding("\"").ifBlank { UNKNOWN_VALUE }
+            val value = ssid.orEmpty().trim().removeSurrounding("\"")
+            return if (clockWidgetKnownSsid(value)) value else UNKNOWN_VALUE
         }
 
         private fun cleanBssid(bssid: String?): String {
             val value = bssid.orEmpty().trim()
-            if (value.isBlank() || value == PLACEHOLDER_BSSID) return UNKNOWN_VALUE
-            return value
+            return if (clockWidgetKnownBssid(value)) value else UNKNOWN_VALUE
         }
 
         private fun wifiGeneration(info: WifiInfo): String {
@@ -462,7 +476,6 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
 
         private const val UNKNOWN_VALUE = "unknown"
         private const val NONE_VALUE = "none"
-        private const val PLACEHOLDER_BSSID = "02:00:00:00:00:00"
         private const val PERIODIC_UPDATE_INTERVAL_MS = 60_000L
         private const val PERIODIC_UPDATE_REQUEST_CODE = 11_000
         private const val NETWORK_CALLBACK_REQUEST_CODE = 11_050
@@ -492,7 +505,17 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
         )
 
         private fun WifiInfo.isUsableWifiInfo(): Boolean {
-            return networkId != -1 || cleanEssid(ssid) != UNKNOWN_VALUE || cleanBssid(bssid) != UNKNOWN_VALUE
+            return clockWidgetWifiInfoIsUsable(
+                networkId = networkId,
+                ssid = ssid,
+                bssid = bssid,
+                supplicantState = supplicantState?.toString(),
+            )
+        }
+
+        private fun NetworkCapabilities.isLocalWifiNetwork(): Boolean {
+            return Build.VERSION.SDK_INT >= 35 &&
+                hasCapability(NetworkCapabilities.NET_CAPABILITY_LOCAL_NETWORK)
         }
 
         private fun WifiManager.isWifiOffOrTurningOff(): Boolean {
