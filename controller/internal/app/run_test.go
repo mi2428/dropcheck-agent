@@ -16,12 +16,17 @@ func TestTopLevelHelpIncludesFlagsCommandsAndExamples(t *testing.T) {
 		"--listen ADDR",
 		"CLI output and target flags:",
 		"--format text|json",
+		"Common commands:",
 		"show devices",
+		"show wifi scan fresh [options]",
 		"request ping 1.1.1.1 --count 5",
 	} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("topLevelHelp() missing %q:\n%s", want, help)
 		}
+	}
+	if strings.Contains(help, "request wifi scan") {
+		t.Fatalf("topLevelHelp() contains stale request wifi scan help:\n%s", help)
 	}
 	if strings.Contains(help, "\t") {
 		t.Fatalf("topLevelHelp() contains tab indentation:\n%s", help)

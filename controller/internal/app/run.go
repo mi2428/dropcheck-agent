@@ -101,9 +101,9 @@ func writeTopLevelHelp(w io.Writer) {
 		{"--all", "run agent commands on all connected agents"},
 	})
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "Common request commands:")
+	_, _ = fmt.Fprintln(w, "Common commands:")
 	writeHelpRows(w, []helpRow{
-		{"request wifi scan fresh [options]", "run a fresh Wi-Fi scan"},
+		{"show wifi scan fresh [options]", "run a fresh Wi-Fi scan"},
 		{"request wifi connect <ssid>", "connect to Wi-Fi"},
 		{"request ping <host> [options]", "run ICMP ping"},
 		{"request traceroute <host>", "run traceroute"},
@@ -119,7 +119,7 @@ Examples:
   dropcheck --serial R5CT12345 shell
   dropcheck --format json show devices
   dropcheck request ping 1.1.1.1 --count 5
-  dropcheck request wifi scan fresh --timeout 9000`)
+  dropcheck show wifi scan fresh --timeout 9000`)
 }
 
 func writeHelpRows(w io.Writer, rows []helpRow) {
