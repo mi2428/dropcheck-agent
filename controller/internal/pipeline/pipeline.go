@@ -17,6 +17,8 @@ const (
 	FormatText Format = "text"
 	// FormatJSON renders machine-readable JSON output.
 	FormatJSON Format = "json"
+	// FormatSet renders copy-pasteable configuration set commands.
+	FormatSet Format = "set"
 )
 
 // Pipeline is a compiled list of output transformations.
@@ -24,8 +26,8 @@ const (
 // A zero-value Pipeline leaves output unchanged and uses the caller's default
 // output format.
 type Pipeline struct {
-	displayJSON bool
-	stages      []stage
+	displayFormat Format
+	stages        []stage
 }
 
 type stage struct {
@@ -97,8 +99,9 @@ func Split(line string) ([]string, error) {
 
 // Parse compiles pipeline stage strings returned by Split.
 //
-// Supported stages are "display json", "match <regex>", "except <regex>",
-// "count", and "no-more". "display json" must be placed before "count".
+// Supported stages are "display json", "display set", "match <regex>",
+// "except <regex>", "count", and "no-more". "display ..." must be placed
+// before "count".
 func Parse(parts []string) (Pipeline, error) {
 	var pipeline Pipeline
 	countSeen := false
@@ -112,13 +115,16 @@ func Parse(parts []string) (Pipeline, error) {
 		}
 		switch args[0] {
 		case "display":
-			if len(args) != 2 || args[1] != "json" {
-				return Pipeline{}, fmt.Errorf("usage: | display json")
+			if len(args) != 2 || (args[1] != "json" && args[1] != "set") {
+				return Pipeline{}, fmt.Errorf("usage: | display <json|set>")
 			}
 			if countSeen {
-				return Pipeline{}, fmt.Errorf("display json must appear before count")
+				return Pipeline{}, fmt.Errorf("display %s must appear before count", args[1])
 			}
-			pipeline.displayJSON = true
+			if pipeline.displayFormat != "" {
+				return Pipeline{}, fmt.Errorf("display format specified twice")
+			}
+			pipeline.displayFormat = Format(args[1])
 		case "match", "except":
 			if len(args) < 2 {
 				return Pipeline{}, fmt.Errorf("usage: | %s <regex>", args[0])
@@ -148,15 +154,15 @@ func Parse(parts []string) (Pipeline, error) {
 
 // Format returns the effective output format after applying the pipeline.
 func (p Pipeline) Format(defaultFormat Format) Format {
-	if p.displayJSON {
-		return FormatJSON
+	if p.displayFormat != "" {
+		return p.displayFormat
 	}
 	return defaultFormat
 }
 
 // Apply applies text-filtering pipeline stages to rendered output.
 //
-// The "display json" and "no-more" stages do not change the text here; they are
+// The "display ..." and "no-more" stages do not change the text here; they are
 // consumed by callers when selecting format or pager behavior.
 func (p Pipeline) Apply(text string) (string, error) {
 	out := text
@@ -177,7 +183,12 @@ func (p Pipeline) Apply(text string) (string, error) {
 
 // DisplayJSON reports whether the pipeline requested JSON output.
 func (p Pipeline) DisplayJSON() bool {
-	return p.displayJSON
+	return p.displayFormat == FormatJSON
+}
+
+// DisplaySet reports whether the pipeline requested set-command output.
+func (p Pipeline) DisplaySet() bool {
+	return p.displayFormat == FormatSet
 }
 
 // StageCount returns the number of text-transforming stages in the pipeline.

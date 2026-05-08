@@ -185,6 +185,112 @@ func TestRenderConfigShowsStandaloneFestaChecks(t *testing.T) {
 	}
 }
 
+func TestRenderConfigDisplaySet(t *testing.T) {
+	view := ConfigView{
+		Standalone: &controlpb.StandaloneConfig{
+			Enabled:     true,
+			RetentionMs: 7 * 24 * 60 * 60 * 1000,
+			MaxBytes:    512 * 1024 * 1024,
+			Upload: &controlpb.StandaloneUploadConfig{
+				Url: "http://192.168.50.10:8080/dropcheck/incoming",
+				Wifi: &controlpb.ConnectWifi{
+					Ssid:             "NOC",
+					Passphrase:       "upload-secret",
+					Security:         controlpb.ConnectWifi_SECURITY_WPA3_SAE,
+					Bssid:            "aa:bb:cc:dd:ee:ff",
+					Band:             controlpb.WifiBand_WIFI_BAND_6_GHZ,
+					MacRandomization: controlpb.ConnectWifi_MAC_RANDOMIZATION_NON_PERSISTENT,
+					TimeoutMs:        5000,
+				},
+			},
+			Festas: []*controlpb.StandaloneFesta{{
+				Name:       "smoke",
+				Enabled:    true,
+				IntervalMs: 30000,
+				WifiGroups: []*controlpb.StandaloneWifiGroup{{
+					Name:             "mgmt",
+					Essid:            "Lab SSID",
+					Passphrase:       "wifi secret",
+					Security:         controlpb.ConnectWifi_SECURITY_WPA2_WPA3_TRANSITION,
+					Band:             controlpb.WifiBand_WIFI_BAND_5_GHZ,
+					RequireIp:        true,
+					RequireValidated: true,
+					TimeoutMs:        35000,
+					MacRandomization: controlpb.ConnectWifi_MAC_RANDOMIZATION_PERSISTENT,
+				}},
+				Checks: []*controlpb.StandaloneCheck{
+					{
+						Name: "cloudflare",
+						Test: &controlpb.StandaloneCheck_Ping{Ping: &controlpb.StandalonePingCheck{
+							Host:      "1.1.1.1",
+							Count:     1,
+							SizeBytes: 64,
+							TimeoutMs: 8000,
+						}},
+					},
+					{
+						Name: "dns-main",
+						Test: &controlpb.StandaloneCheck_Dns{Dns: &controlpb.StandaloneDnsCheck{
+							Name:      "example.test",
+							Qtypes:    []controlpb.DnsRecordType{controlpb.DnsRecordType_DNS_RECORD_TYPE_AAAA},
+							TimeoutMs: 3000,
+						}},
+					},
+					{
+						Name: "health",
+						Test: &controlpb.StandaloneCheck_Http{Http: &controlpb.StandaloneHttpCheck{
+							Url:            "https://example.test/health",
+							ExpectedStatus: 204,
+							TimeoutMs:      4000,
+						}},
+					},
+				},
+			}},
+		},
+	}
+	text, err := Config(view, pipeline.FormatSet)
+	if err != nil {
+		t.Fatalf("Config(display set) error = %v", err)
+	}
+	for _, want := range []string{
+		"set standalone enabled\n",
+		"set standalone retention 7d\n",
+		"set standalone max-size 536870912\n",
+		"set standalone upload to http://192.168.50.10:8080/dropcheck/incoming\n",
+		"set standalone upload via wifi essid NOC passphrase upload-secret security wpa3 bssid aa:bb:cc:dd:ee:ff band 6ghz mac-randomization non-persistent timeout 5s\n",
+		"set standalone festa smoke enabled\n",
+		"set standalone festa smoke interval 30s\n",
+		"set standalone festa smoke wifi mgmt match essid \"Lab SSID\" mac-randomization persistent\n",
+		"set standalone festa smoke wifi mgmt passphrase \"wifi secret\" security transition\n",
+		"set standalone festa smoke wifi mgmt band 5ghz\n",
+		"set standalone festa smoke wifi mgmt wait ip\n",
+		"set standalone festa smoke wifi mgmt wait validated\n",
+		"set standalone festa smoke wifi mgmt timeout 35s\n",
+		"set standalone festa smoke check cloudflare test ping host 1.1.1.1 count 1 size 64 timeout 8s\n",
+		"set standalone festa smoke check dns-main test dns name example.test type AAAA timeout 3s\n",
+		"set standalone festa smoke check health test http url https://example.test/health expected-status 204 timeout 4s\n",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("Config(display set) = %q, missing %q", text, want)
+		}
+	}
+	if strings.Contains(text, "<redacted>") {
+		t.Fatalf("Config(display set) should emit copyable commands, got %q", text)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(text), "\n") {
+		args, err := command.SplitArgs(line)
+		if err != nil {
+			t.Fatalf("SplitArgs(%q) error = %v", line, err)
+		}
+		if len(args) < 3 || args[0] != "set" || args[1] != "standalone" {
+			t.Fatalf("display set line is not a standalone set command: %q", line)
+		}
+		if _, err := command.StandaloneSetEdits(args[2:]); err != nil {
+			t.Fatalf("display set line does not parse: %q: %v", line, err)
+		}
+	}
+}
+
 func TestRenderCommandResultShowsCommandLatencyFallback(t *testing.T) {
 	result := &controlpb.CommandResult{
 		Status:    controlpb.CommandResult_STATUS_OK,

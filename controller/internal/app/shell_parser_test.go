@@ -579,6 +579,14 @@ func TestParseShellPipeline(t *testing.T) {
 		t.Fatalf("pipeline output = %q", text)
 	}
 
+	setConfig, err := parseShellLineForTest(`show config | display set | match standalone`)
+	if err != nil {
+		t.Fatalf("parseShellLineForTest(show config display set) error = %v", err)
+	}
+	if setConfig.kind != shellShowConfig || !setConfig.pipeline.displaySet || setConfig.pipeline.format(outputText) != outputSet || len(setConfig.pipeline.stages) != 1 {
+		t.Fatalf("display set pipeline = kind %v displaySet %t format %q stages %d", setConfig.kind, setConfig.pipeline.displaySet, setConfig.pipeline.format(outputText), len(setConfig.pipeline.stages))
+	}
+
 	_, err = parseShellLineForTest(`show devices | count | display json`)
 	if err == nil || !strings.Contains(err.Error(), "display json must appear before count") {
 		t.Fatalf("parseShellLineForTest(count then display) error = %v", err)
@@ -612,8 +620,39 @@ func TestShellHelpAndCompletion(t *testing.T) {
 	}
 
 	pipeCompletions := completeShellLineForTest("show wifi status | dis", nil)
-	if !slices.Contains(pipeCompletions, "show wifi status | display json") {
-		t.Fatalf("pipe completions = %#v, missing display json", pipeCompletions)
+	if !slices.Equal(pipeCompletions, []string{"show wifi status | display"}) {
+		t.Fatalf("pipe completions = %#v, want only display", pipeCompletions)
+	}
+	displayCommandFragments := shellCompletionFragmentsForTest("show config | di")
+	if !slices.Equal(displayCommandFragments, []string{"splay"}) {
+		t.Fatalf("display command fragments = %#v, want only splay", displayCommandFragments)
+	}
+	for _, unexpected := range []string{"splay json", "splay set"} {
+		if slices.Contains(displayCommandFragments, unexpected) {
+			t.Fatalf("display command fragments = %#v, unexpectedly included %q", displayCommandFragments, unexpected)
+		}
+	}
+	displayValueFragments := shellCompletionFragmentsForTest("show config | display ")
+	for _, want := range []string{"json", "set"} {
+		if !slices.Contains(displayValueFragments, want) {
+			t.Fatalf("display value completions = %#v, missing %q", displayValueFragments, want)
+		}
+	}
+	if slices.Contains(displayValueFragments, "standalone") {
+		t.Fatalf("display value completions = %#v, unexpectedly included standalone", displayValueFragments)
+	}
+	help = shellHelpEntriesForTest("show config | display ?")
+	tokens = tokens[:0]
+	for _, entry := range help {
+		tokens = append(tokens, entry.token)
+	}
+	for _, want := range []string{"json", "set"} {
+		if !slices.Contains(tokens, want) {
+			t.Fatalf("display value help tokens = %#v, missing %q", tokens, want)
+		}
+	}
+	if slices.Contains(tokens, "standalone") {
+		t.Fatalf("display value help tokens = %#v, unexpectedly included standalone", tokens)
 	}
 
 	if !isHelpLine("show wifi？") {
@@ -957,6 +996,94 @@ func TestShellReadlineCompleter(t *testing.T) {
 	}
 	if len(completions) != 1 || string(completions[0]) != "ost " {
 		t.Fatalf("configure completion = %#v, want ost plus a space", completions)
+	}
+}
+
+func TestShellReadlineCompletionsAreSingleTokens(t *testing.T) {
+	lines := []string{
+		"",
+		"s",
+		"show ",
+		"show c",
+		"show config ",
+		"show wifi ",
+		"show wifi scan ",
+		"show adb ",
+		"show adb dumpsys ",
+		"clear ",
+		"sync ",
+		"sync standalone runs ",
+		"request ",
+		"request wi",
+		"request wifi ",
+		"request wifi connect ",
+		"request wifi wait connected ",
+		"request ping ",
+		"request dns example.test ",
+		"show config | ",
+		"show config | di",
+		"show config | display ",
+		"show config | display j",
+		"show config | display s",
+		"show config | ma",
+		"show config | match ",
+		"show config | ex",
+		"show config | except ",
+		"config> ",
+		"config> s",
+		"config> show ",
+		"config> set ",
+		"config> set standalone ",
+		"config> set standalone u",
+		"config> set standalone upload ",
+		"config> set standalone upload v",
+		"config> set standalone upload via ",
+		"config> set standalone upload via wifi ",
+		"config> set standalone festa smoke ",
+		"config> set standalone festa smoke wifi ",
+		"config> set standalone festa smoke wifi mgmt ",
+		"config> set standalone festa smoke wifi mgmt match ",
+		"config> set standalone festa smoke check ",
+		"config> set standalone festa smoke check dns-main ",
+		"config> set standalone festa smoke check dns-main test ",
+		"config> set standalone festa smoke check dns-main test dns ",
+		"config> delete ",
+		"config> run ",
+		"config> run sh",
+		"config> run show ",
+		"config> run request ",
+		"config> run request wi",
+		"request> ",
+		"request> wi",
+		"request> wifi ",
+		"request> wifi connect ",
+		"request> wifi wait ",
+		"request> wifi wait connected ",
+		"request> standalone ",
+		"request> standalone run ",
+		"request> standalone run once ",
+		"request> monitor ",
+		"request> monitor wifi ",
+		"request> ping ",
+		"request> traceroute ",
+		"request> path-mtu ",
+		"request> global-ip ",
+		"request> dns ",
+		"request> http ",
+		"request> download ",
+	}
+	for _, line := range lines {
+		t.Run(line, func(t *testing.T) {
+			completions := shellCompletionFragmentsForTest(line)
+			for _, completion := range completions {
+				if completion == "" {
+					continue
+				}
+				if strings.ContainsAny(completion, " \t\r\n") {
+					t.Fatalf("completion fragment %q contains whitespace; completions = %#v", completion, completions)
+				}
+			}
+		})
 	}
 }
 

@@ -29,6 +29,9 @@ func Config(view ConfigView, format pipeline.Format) (string, error) {
 	if format == pipeline.FormatJSON {
 		return renderConfigJSON(view)
 	}
+	if format == pipeline.FormatSet {
+		return renderConfigSet(view), nil
+	}
 	var b strings.Builder
 	if view.Standalone != nil {
 		renderStandaloneConfigBlock(&b, view.Standalone, 0)
@@ -1747,6 +1750,14 @@ func renderStandaloneConfig(b *strings.Builder, config *controlpb.StandaloneConf
 	renderStandaloneConfigBlock(b, config, 0)
 }
 
+func renderConfigSet(view ConfigView) string {
+	var b strings.Builder
+	if view.Standalone != nil {
+		renderStandaloneConfigSet(&b, view.Standalone)
+	}
+	return b.String()
+}
+
 func renderConfigJSON(view ConfigView) (string, error) {
 	value, err := configJSONValue(view)
 	if err != nil {
@@ -1866,6 +1877,176 @@ func renderStandaloneConfigBlock(b *strings.Builder, config *controlpb.Standalon
 	writeConfigLine(b, depth, "}")
 }
 
+func renderStandaloneConfigSet(b *strings.Builder, config *controlpb.StandaloneConfig) {
+	if config == nil {
+		return
+	}
+	if config.GetEnabled() {
+		writeSetLine(b, "standalone enabled")
+	} else {
+		writeSetLine(b, "standalone disabled")
+	}
+	if config.GetRetentionMs() != 0 {
+		writeSetLine(b, "standalone retention %s", formatConfigDuration(config.GetRetentionMs()))
+	}
+	if config.GetMaxBytes() != 0 {
+		writeSetLine(b, "standalone max-size %s", strconv.FormatUint(config.GetMaxBytes(), 10))
+	}
+	if upload := config.GetUpload(); upload != nil {
+		if upload.GetUrl() != "" {
+			writeSetLine(b, "standalone upload to %s", shellQuote(upload.GetUrl()))
+		}
+		if wifi := upload.GetWifi(); wifi != nil && wifi.GetSsid() != "" {
+			renderStandaloneUploadWifiSet(b, wifi)
+		}
+	}
+	for _, festa := range config.GetFestas() {
+		renderStandaloneFestaSet(b, festa)
+	}
+}
+
+func renderStandaloneUploadWifiSet(b *strings.Builder, wifi *controlpb.ConnectWifi) {
+	if wifi == nil || wifi.GetSsid() == "" {
+		return
+	}
+	var parts []string
+	parts = append(parts, "essid", shellQuote(wifi.GetSsid()))
+	if wifi.GetPassphrase() != "" {
+		parts = append(parts, "passphrase", shellQuote(wifi.GetPassphrase()))
+	}
+	if wifi.GetSecurity() != controlpb.ConnectWifi_SECURITY_UNSPECIFIED {
+		parts = append(parts, "security", standaloneSecurityName(wifi.GetSecurity()))
+	}
+	if wifi.GetBssid() != "" {
+		parts = append(parts, "bssid", shellQuote(wifi.GetBssid()))
+	}
+	if wifi.GetBand() != controlpb.WifiBand_WIFI_BAND_UNSPECIFIED && wifi.GetBand() != controlpb.WifiBand_WIFI_BAND_ALL {
+		parts = append(parts, "band", standaloneBandName(wifi.GetBand()))
+	}
+	if wifi.GetMacRandomization() != controlpb.ConnectWifi_MAC_RANDOMIZATION_UNSPECIFIED {
+		parts = append(parts, "mac-randomization", standaloneMacRandomizationName(wifi.GetMacRandomization()))
+	}
+	if wifi.GetTimeoutMs() != 0 {
+		parts = append(parts, "timeout", formatConfigDuration(wifi.GetTimeoutMs()))
+	}
+	writeSetLine(b, "standalone upload via wifi %s", strings.Join(parts, " "))
+}
+
+func renderStandaloneFestaSet(b *strings.Builder, festa *controlpb.StandaloneFesta) {
+	if festa == nil {
+		return
+	}
+	name := shellQuote(festa.GetName())
+	if festa.GetEnabled() {
+		writeSetLine(b, "standalone festa %s enabled", name)
+	} else {
+		writeSetLine(b, "standalone festa %s disabled", name)
+	}
+	if festa.GetIntervalMs() != 0 {
+		writeSetLine(b, "standalone festa %s interval %s", name, formatConfigDuration(festa.GetIntervalMs()))
+	}
+	for _, group := range festa.GetWifiGroups() {
+		renderStandaloneWifiGroupSet(b, name, group)
+	}
+	for _, check := range festa.GetChecks() {
+		renderStandaloneCheckSet(b, name, check)
+	}
+}
+
+func renderStandaloneWifiGroupSet(b *strings.Builder, festaName string, group *controlpb.StandaloneWifiGroup) {
+	if group == nil {
+		return
+	}
+	groupName := shellQuote(group.GetName())
+	macRandomization := ""
+	if group.GetMacRandomization() != controlpb.ConnectWifi_MAC_RANDOMIZATION_UNSPECIFIED {
+		macRandomization = " mac-randomization " + standaloneMacRandomizationName(group.GetMacRandomization())
+	}
+	macRandomizationRendered := false
+	if group.GetEssid() != "" {
+		writeSetLine(b, "standalone festa %s wifi %s match essid %s%s", festaName, groupName, shellQuote(group.GetEssid()), macRandomization)
+		macRandomizationRendered = true
+	}
+	if group.GetBssid() != "" {
+		suffix := ""
+		if !macRandomizationRendered {
+			suffix = macRandomization
+			macRandomizationRendered = true
+		}
+		writeSetLine(b, "standalone festa %s wifi %s match bssid %s%s", festaName, groupName, shellQuote(group.GetBssid()), suffix)
+	}
+	if group.GetPassphrase() != "" {
+		if group.GetSecurity() != controlpb.ConnectWifi_SECURITY_UNSPECIFIED {
+			writeSetLine(b, "standalone festa %s wifi %s passphrase %s security %s", festaName, groupName, shellQuote(group.GetPassphrase()), standaloneSecurityName(group.GetSecurity()))
+		} else {
+			writeSetLine(b, "standalone festa %s wifi %s passphrase %s", festaName, groupName, shellQuote(group.GetPassphrase()))
+		}
+	}
+	if group.GetBand() != controlpb.WifiBand_WIFI_BAND_UNSPECIFIED && group.GetBand() != controlpb.WifiBand_WIFI_BAND_ALL {
+		writeSetLine(b, "standalone festa %s wifi %s band %s", festaName, groupName, standaloneBandName(group.GetBand()))
+	}
+	if group.GetRequireIp() {
+		writeSetLine(b, "standalone festa %s wifi %s wait ip", festaName, groupName)
+	}
+	if group.GetRequireValidated() {
+		writeSetLine(b, "standalone festa %s wifi %s wait validated", festaName, groupName)
+	}
+	if group.GetTimeoutMs() != 0 {
+		writeSetLine(b, "standalone festa %s wifi %s timeout %s", festaName, groupName, formatConfigDuration(group.GetTimeoutMs()))
+	}
+}
+
+func renderStandaloneCheckSet(b *strings.Builder, festaName string, check *controlpb.StandaloneCheck) {
+	if check == nil {
+		return
+	}
+	name := shellQuote(check.GetName())
+	switch test := check.GetTest().(type) {
+	case *controlpb.StandaloneCheck_Dns:
+		dns := test.Dns
+		if dns == nil {
+			return
+		}
+		line := fmt.Sprintf("standalone festa %s check %s test dns name %s", festaName, name, shellQuote(dns.GetName()))
+		if len(dns.GetQtypes()) > 0 {
+			line += " type " + standaloneQTypesName(dns.GetQtypes())
+		}
+		if dns.GetTimeoutMs() != 0 {
+			line += " timeout " + formatConfigDuration(dns.GetTimeoutMs())
+		}
+		writeSetLine(b, "%s", line)
+	case *controlpb.StandaloneCheck_Ping:
+		ping := test.Ping
+		if ping == nil {
+			return
+		}
+		line := fmt.Sprintf("standalone festa %s check %s test ping host %s", festaName, name, shellQuote(ping.GetHost()))
+		if ping.GetCount() != 0 {
+			line += fmt.Sprintf(" count %d", ping.GetCount())
+		}
+		if ping.GetSizeBytes() != 0 {
+			line += fmt.Sprintf(" size %d", ping.GetSizeBytes())
+		}
+		if ping.GetTimeoutMs() != 0 {
+			line += " timeout " + formatConfigDuration(ping.GetTimeoutMs())
+		}
+		writeSetLine(b, "%s", line)
+	case *controlpb.StandaloneCheck_Http:
+		http := test.Http
+		if http == nil {
+			return
+		}
+		line := fmt.Sprintf("standalone festa %s check %s test http url %s", festaName, name, shellQuote(http.GetUrl()))
+		if http.GetExpectedStatus() != 0 {
+			line += fmt.Sprintf(" expected-status %d", http.GetExpectedStatus())
+		}
+		if http.GetTimeoutMs() != 0 {
+			line += " timeout " + formatConfigDuration(http.GetTimeoutMs())
+		}
+		writeSetLine(b, "%s", line)
+	}
+}
+
 func renderStandaloneCheckBlock(b *strings.Builder, check *controlpb.StandaloneCheck, depth int) {
 	if check == nil {
 		return
@@ -1915,6 +2096,12 @@ func renderStandaloneCheckBlock(b *strings.Builder, check *controlpb.StandaloneC
 
 func writeConfigLine(b *strings.Builder, depth int, format string, args ...any) {
 	b.WriteString(strings.Repeat("  ", depth))
+	fmt.Fprintf(b, format, args...)
+	b.WriteByte('\n')
+}
+
+func writeSetLine(b *strings.Builder, format string, args ...any) {
+	b.WriteString("set ")
 	fmt.Fprintf(b, format, args...)
 	b.WriteByte('\n')
 }
