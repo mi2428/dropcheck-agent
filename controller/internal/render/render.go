@@ -713,9 +713,6 @@ func renderConnectWifi(b *strings.Builder, result *controlpb.ConnectWifiResult) 
 		return
 	}
 	fmt.Fprintf(b, "Connect: ssid=%s connected=%t message=%s\n", result.GetSsid(), result.GetConnected(), empty(result.GetMessage(), "-"))
-	if result.GetIpStatus() != nil {
-		renderIPStatus(b, result.GetIpStatus())
-	}
 }
 
 type ipRenderOptions struct {
@@ -1612,9 +1609,6 @@ func renderWifiOperation(b *strings.Builder, result *controlpb.WifiOperationResu
 	)
 	renderDiagnosticFields(b, result.GetFields())
 	renderErrors(b, result.GetErrors())
-	if result.GetStatus() != nil {
-		renderWifiStatus(b, result.GetStatus())
-	}
 }
 
 func renderWifiAssert(b *strings.Builder, result *controlpb.WifiAssertResult) {
@@ -1642,9 +1636,6 @@ func renderWifiAssert(b *strings.Builder, result *controlpb.WifiAssertResult) {
 		_ = tw.Flush()
 	}
 	renderErrors(b, result.GetErrors())
-	if result.GetStatus() != nil {
-		renderWifiStatus(b, result.GetStatus())
-	}
 }
 
 func renderWifiMonitor(b *strings.Builder, result *controlpb.WifiMonitorResult) {

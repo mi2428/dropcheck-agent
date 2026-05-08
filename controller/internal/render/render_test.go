@@ -35,6 +35,78 @@ func TestRenderCommandResultShowsPayloadLatency(t *testing.T) {
 	}
 }
 
+func TestRenderWifiRequestResultsDoNotAutoShowState(t *testing.T) {
+	status := &controlpb.WifiStatus{
+		Enabled: true,
+		State:   "enabled",
+		Connection: &controlpb.WifiConnection{
+			Ssid:        "AutoShowSSID",
+			Bssid:       "aa:bb:cc:dd:ee:ff",
+			Ipv4Address: "192.0.2.10",
+		},
+		IpStatus: &controlpb.IpStatus{
+			InterfaceName: "wlan0",
+			Addresses:     []string{"192.0.2.10/24"},
+		},
+	}
+	tests := []struct {
+		name string
+		want string
+		res  *controlpb.CommandResult
+	}{
+		{
+			name: "connect",
+			want: "Connect:",
+			res: &controlpb.CommandResult{Payload: &controlpb.CommandResult_ConnectWifi{ConnectWifi: &controlpb.ConnectWifiResult{
+				Ssid:      "Lab",
+				Connected: true,
+				Message:   "connected",
+				IpStatus:  status.GetIpStatus(),
+			}}},
+		},
+		{
+			name: "operation",
+			want: "Wi-Fi Operation",
+			res: &controlpb.CommandResult{Payload: &controlpb.CommandResult_WifiOperation{WifiOperation: &controlpb.WifiOperationResult{
+				Operation: "reconnect",
+				Ok:        true,
+				Message:   "reconnected",
+				Status:    status,
+			}}},
+		},
+		{
+			name: "assert",
+			want: "Wi-Fi Assert",
+			res: &controlpb.CommandResult{Payload: &controlpb.CommandResult_WifiAssert{WifiAssert: &controlpb.WifiAssertResult{
+				Passed: true,
+				Checks: []*controlpb.DiagnosticCheck{{
+					Key:      "connected",
+					Expected: "true",
+					Actual:   "true",
+					Passed:   true,
+				}},
+				Status: status,
+			}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := CommandResult("agent", tt.res, command.Options{}, pipeline.FormatText)
+			if err != nil {
+				t.Fatalf("CommandResult() error = %v", err)
+			}
+			if !strings.Contains(out, tt.want) {
+				t.Fatalf("rendered output = %q, missing %q", out, tt.want)
+			}
+			for _, unwanted := range []string{"Wi-Fi\n", "Network\n", "AutoShowSSID", "192.0.2.10"} {
+				if strings.Contains(out, unwanted) {
+					t.Fatalf("rendered output = %q, unexpectedly included %q", out, unwanted)
+				}
+			}
+		})
+	}
+}
+
 func TestRenderConfigShowsStandaloneOnly(t *testing.T) {
 	view := ConfigView{
 		Standalone: &controlpb.StandaloneConfig{Enabled: true},

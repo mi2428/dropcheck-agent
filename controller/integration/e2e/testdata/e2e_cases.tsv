@@ -21,7 +21,7 @@ E2E-019	Shell Wi-Fi scan cached	shell	show wifi scan	ok_or_clear	Cached scan out
 E2E-020	Shell Wi-Fi scan band	shell	show wifi scan all	ok_or_clear	Cached scan output renders for all bands.
 E2E-021	Shell Wi-Fi scan fresh	shell	show wifi scan fresh timeout 8000 all	ok_or_clear	Fresh scan completes or reports structured scan status.
 E2E-022	Shell Wi-Fi scan detail	shell	"show wifi scan detail all ""<ssid>"""	ok_or_clear	Scan detail for the test SSID renders.
-E2E-023	Shell Wi-Fi connect	shell	"request> wifi connect passphrase <psk> security auto timeout 25000 ""<ssid>"""	ok_or_clear	Device connects to the test SSID and reports IP status.
+E2E-023	Shell Wi-Fi connect	shell	"request> wifi connect passphrase <psk> security auto timeout 25000 ""<ssid>"""	ok_or_clear	Device connects to the test SSID and reports a connect result.
 E2E-024	Shell Wi-Fi wait	shell	"request> wifi wait connected ""<ssid>"" ip timeout 12000"	ok_or_clear	Wait condition reaches the test SSID with IP.
 E2E-025	Shell Wi-Fi assert	shell	"request> wifi assert ssid ""<ssid>"" ip timeout 5000"	ok_or_clear	Assertion passes for the test SSID with IP.
 E2E-026	Shell Wi-Fi reconnect	shell	request> wifi reconnect timeout 12000	ok_or_clear	Active Wi-Fi reconnect reaches connected state.
