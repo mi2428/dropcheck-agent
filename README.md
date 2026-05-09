@@ -38,8 +38,8 @@ sequenceDiagram
     App-->>Controller: typed result
     Controller-->>MCP: tool result
     MCP-->>AI: structured response
-  and Standalone Festa results collected into O11y
-    NOC->>Controller: configure and run Standalone Festa
+  and Standalone festa results collected into O11y
+    NOC->>Controller: configure and run standalone festa
     Controller->>App: persist config or run once
     App->>WiFi: scheduled checks
     WiFi-->>App: measurement result
@@ -183,7 +183,7 @@ rtt min/avg/max/mdev = 10.200/12.400/16.300/1.900 ms
 ### MCP server
 
 `dist/dropcheck-mcp` runs an MCP stdio server backed by the same controller session machinery.
-It exposes tools for session start/stop, agent discovery, Wi-Fi status/scan/connect/wait/assert/cycle, IP status, ping, traceroute, path MTU, global IP, DNS, HTTP, download, standalone config/runs, and a higher-level `dropcheck_run` sequence.
+It exposes session start/stop and agent discovery tools; Wi-Fi status, diagnostics, MLO, capabilities, scan, connect, disconnect, forget, reconnect, wait, assert, monitor, and cycle tools; IP status and probe tools for ping, traceroute, path MTU, global IP, DNS, HTTP, and download; standalone config, status, runs, run, edit, and clear tools; and a higher-level `dropcheck_run` sequence.
 
 A smoke check can initialize the stdio server and list registered tools without starting an Android session:
 
@@ -223,6 +223,13 @@ $ controller/dist/dropcheck --serial R5CT12345 sync standalone runs --output out
 
 For unattended observability, the Android agent uploads standalone archives to MinIO-compatible storage.
 `dist/dropcheck-ingester` consumes MinIO notifications or batch backfills, converts archives into metrics, and pushes them to Pushgateway for Prometheus and Grafana.
+
+Configure uploads by setting a path-style bucket/prefix URL and the management Wi-Fi used before upload:
+
+```console
+$ controller/dist/dropcheck --serial R5CT12345 configure set standalone upload to http://192.168.50.10:8080/dropcheck/incoming
+$ controller/dist/dropcheck --serial R5CT12345 configure set standalone upload via wifi essid NOC passphrase upload-secret security auto timeout 5s
+```
 
 ### Festival DSL
 

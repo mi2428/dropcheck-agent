@@ -1,2 +1,4 @@
-// Package main runs the Festival Results ingester.
+// Command dropcheck-ingester ingests standalone result archives from
+// MinIO-compatible object storage and publishes Prometheus metrics through
+// Pushgateway.
 package main
