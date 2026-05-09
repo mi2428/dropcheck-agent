@@ -1,5 +1,6 @@
 package io.dropcheck.agent
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Build
 import android.provider.Settings
@@ -109,7 +110,10 @@ internal class StandaloneUploader(
         return "$baseUrl/${safePathComponent(deviceKey())}/${safePathComponent(runId)}.pb"
     }
 
+    @SuppressLint("HardwareIds")
     private fun deviceKey(): String {
+        // Standalone uploads need a stable per-device object prefix inside the
+        // event bucket; it is not used for advertising or cross-app tracking.
         val androidId = runCatching {
             Settings.Secure.getString(appContext.contentResolver, Settings.Secure.ANDROID_ID)
         }.getOrNull().orEmpty()
