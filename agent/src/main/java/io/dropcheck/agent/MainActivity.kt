@@ -731,6 +731,9 @@ class MainActivity : Activity() {
                 val useController = StandaloneWifiUseController(applicationContext)
                 appendShellLines(listOf(useController.statusText()) + useController.liveWifiListText(), focusInput = focusAfterSubmit)
             }
+            AgentShellCommand.ShowVersion -> {
+                appendShellLine("version ${BuildConfig.VERSION_NAME}", focusInput = focusAfterSubmit)
+            }
             AgentShellCommand.ShowWifiStatus -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
                 val result = CommandExecutor(applicationContext, agentShellLogger()).execute(
                     RunCommand.newBuilder()
@@ -1005,6 +1008,7 @@ class MainActivity : Activity() {
                 "  help [NAME]",
                 "  ping HOST [count N] [size BYTES] [timeout MS]",
                 "  show use",
+                "  show version",
                 "  show wifi mlo",
                 "  show wifi mlo fresh [timeout MS]",
                 "  show wifi status",
@@ -1027,8 +1031,9 @@ class MainActivity : Activity() {
                 "    size is the ICMP payload size in bytes.",
             )
             "show" -> listOf(
-                "show: show (use|wifi status|wifi mlo)",
+                "show: show (version|use|wifi status|wifi mlo)",
                 "    show use displays the Wi-Fi use override state and live targets.",
+                "    show version displays the app version embedded at build time.",
                 "    show wifi status displays local Wi-Fi and IP state.",
                 "    show wifi mlo displays connected and nearby MLO state.",
                 "    show wifi mlo fresh requests a scan before rendering MLO state.",

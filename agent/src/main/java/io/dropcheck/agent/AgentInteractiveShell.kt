@@ -6,6 +6,7 @@ internal sealed class AgentShellCommand {
     data class Help(val topic: String = "") : AgentShellCommand()
     data object ClearUse : AgentShellCommand()
     data object ShowUse : AgentShellCommand()
+    data object ShowVersion : AgentShellCommand()
     data object ShowWifiStatus : AgentShellCommand()
     data class ShowWifiMlo(val fresh: Boolean = false, val timeoutMs: Int = 0) : AgentShellCommand()
     data class Ping(val host: String, val count: Int = 0, val sizeBytes: Int = 0, val timeoutMs: Int = 0) : AgentShellCommand()
@@ -48,10 +49,11 @@ internal object AgentShellParser {
 
     private fun parseShow(tokens: List<String>): AgentShellCommand {
         return when {
+            tokens.size == 2 && "version".startsWith(tokens[1]) -> AgentShellCommand.ShowVersion
             tokens.size == 2 && "use".startsWith(tokens[1]) -> AgentShellCommand.ShowUse
             tokens.size == 2 && "wifi".startsWith(tokens[1]) -> AgentShellCommand.Invalid("usage: show wifi (status|mlo)")
             tokens.size >= 3 && "wifi".startsWith(tokens[1]) -> parseShowWifi(tokens.drop(2))
-            else -> AgentShellCommand.Invalid("usage: show (use|wifi status|wifi mlo)")
+            else -> AgentShellCommand.Invalid("usage: show (version|use|wifi status|wifi mlo)")
         }
     }
 
