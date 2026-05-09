@@ -1917,7 +1917,6 @@ func renderStandaloneWifiGroupSet(b *strings.Builder, festaName string, group *c
 		suffix := ""
 		if !macRandomizationRendered {
 			suffix = macRandomization
-			macRandomizationRendered = true
 		}
 		writeSetLine(b, "standalone festa %s wifi %s match bssid %s%s", festaName, groupName, shellQuote(group.GetBssid()), suffix)
 	}
