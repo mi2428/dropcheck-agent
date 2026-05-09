@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"errors"
 	"slices"
 	"strings"
@@ -8,7 +9,7 @@ import (
 )
 
 func TestTopLevelHelpIncludesFlagsCommandsAndExamples(t *testing.T) {
-	help := topLevelHelp()
+	help := renderTopLevelHelp()
 	for _, want := range []string{
 		"Usage:",
 		"Global flags:",
@@ -40,6 +41,12 @@ func TestTopLevelHelpIncludesFlagsCommandsAndExamples(t *testing.T) {
 			t.Fatalf("topLevelHelp() missing aligned row %q:\n%s", want, help)
 		}
 	}
+}
+
+func renderTopLevelHelp() string {
+	var b bytes.Buffer
+	writeTopLevelHelp(&b)
+	return b.String()
 }
 
 func TestParseTopLevelArgsRecognizesFlagPackageHelpForms(t *testing.T) {

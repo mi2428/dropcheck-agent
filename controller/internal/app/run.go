@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -54,12 +53,6 @@ func Run(args []string) error {
 		return nil
 	}
 	return runCLI(context.Background(), opts, rest)
-}
-
-func topLevelHelp() string {
-	var b bytes.Buffer
-	writeTopLevelHelp(&b)
-	return b.String()
 }
 
 func writeTopLevelHelp(w io.Writer) {
