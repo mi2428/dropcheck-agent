@@ -342,11 +342,31 @@ func TestFirstClassWifiToolsCoverShellOperations(t *testing.T) {
 	}); result.IsError {
 		t.Fatalf("wifi cycle IsError=true structured=%v", structured)
 	}
+	if result, structured := callTool(t, session, "dropcheck_wifi_wait_connected", map[string]any{
+		"target":            "serial-1",
+		"essid":             "Lab",
+		"bssid":             "aa:bb:cc:dd:ee:ff",
+		"security":          "wpa3",
+		"band":              "6ghz",
+		"require_ip":        true,
+		"require_validated": true,
+		"timeout_ms":        float64(12000),
+	}); result.IsError {
+		t.Fatalf("wifi wait IsError=true structured=%v", structured)
+	}
+	if result, structured := callTool(t, session, "dropcheck_wifi_assert", map[string]any{
+		"target":     "serial-1",
+		"essid":      "Lab",
+		"require_ip": true,
+		"timeout_ms": float64(5000),
+	}); result.IsError {
+		t.Fatalf("wifi assert IsError=true structured=%v", structured)
+	}
 
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
-	if len(backend.runs) != 3 {
-		t.Fatalf("runs=%d, want 3", len(backend.runs))
+	if len(backend.runs) != 5 {
+		t.Fatalf("runs=%d, want 5", len(backend.runs))
 	}
 	if backend.runs[0].op.Name != "wifi.mlo" {
 		t.Fatalf("mlo operation=%s", backend.runs[0].op.Name)
@@ -364,6 +384,24 @@ func TestFirstClassWifiToolsCoverShellOperations(t *testing.T) {
 	}
 	if cycle.GetCount() != 2 || cycle.GetPingHost() != "1.1.1.1" || cycle.GetHttpUrl() != "https://example.test/health" || !cycle.GetForgetAfterEach() || cycle.GetPauseMs() != 250 {
 		t.Fatalf("CycleWifi=%#v", cycle)
+	}
+	wait := backend.runs[3].op.Command.GetWaitWifiConnected()
+	if wait == nil ||
+		wait.GetSsid() != "Lab" ||
+		wait.GetBssid() != "aa:bb:cc:dd:ee:ff" ||
+		wait.GetSecurity() != controlpb.ConnectWifi_SECURITY_WPA3_SAE ||
+		wait.GetBand() != controlpb.WifiBand_WIFI_BAND_6_GHZ ||
+		!wait.GetRequireIp() ||
+		!wait.GetRequireValidated() ||
+		wait.GetTimeoutMs() != 12000 {
+		t.Fatalf("WaitWifiConnected=%#v", wait)
+	}
+	assert := backend.runs[4].op.Command.GetAssertWifi()
+	if assert == nil ||
+		assert.GetSsid() != "Lab" ||
+		!assert.GetRequireIp() ||
+		assert.GetTimeoutMs() != 5000 {
+		t.Fatalf("AssertWifi=%#v", assert)
 	}
 }
 
