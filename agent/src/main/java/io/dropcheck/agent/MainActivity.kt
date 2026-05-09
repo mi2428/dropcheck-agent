@@ -976,7 +976,7 @@ class MainActivity : Activity() {
         input.post {
             if (!shellVisible || shellInput !== input) return@post
             input.requestFocus()
-            if (forceIme && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (forceIme) {
                 window.insetsController?.show(WindowInsets.Type.ime())
             }
             getSystemService(InputMethodManager::class.java)
@@ -988,9 +988,7 @@ class MainActivity : Activity() {
         val input = shellInput ?: return
         getSystemService(InputMethodManager::class.java)
             ?.hideSoftInputFromWindow(input.windowToken, 0)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.insetsController?.hide(WindowInsets.Type.ime())
-        }
+        window.insetsController?.hide(WindowInsets.Type.ime())
         input.clearFocus()
         root.requestFocus()
     }
