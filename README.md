@@ -4,8 +4,8 @@ ADB-controlled Android probes for automated Wi-Fi and access-network end-to-end 
 
 ## Overview
 
-Dropcheck turns Android handsets into field probes for event NOCs.
-Instead of checking connectivity from the infrastructure side, it measures from the same user-facing access network that attendees and staff devices use.
+Android handsets act as field probes for event NOCs.
+Instead of checking connectivity from the infrastructure side, each check measures from the same user-facing access network that attendees and staff devices use.
 
 The controller is the operator-facing entry point for live checks and automation.
 The agent is the on-device probe, and it can also keep collecting standalone measurements when the controller is absent.
@@ -79,7 +79,7 @@ Keep Location enabled on the device; Android hides SSID, BSSID, scan, and MLO de
 
 ## Features
 
-Dropcheck has several entry points that share the same typed agent operations.
+The controller/agent toolchain has several entry points that share the same typed agent operations.
 Use the controller for ad-hoc checks, the shell for field work, MCP for model/tool orchestration, standalone mode for unattended handset-side runs, and Festival when the check should be a repeatable Go test.
 
 ### Controller CLI and shell
@@ -204,7 +204,7 @@ dropcheck_session_start
 dropcheck_wifi_status
 ```
 
-Use MCP when another tool should drive Dropcheck without shelling out to the CLI grammar for every operation.
+Use MCP when another tool should run checks without shelling out to the CLI grammar for every operation.
 For host-file writes, use the CLI directly: `sync standalone runs` is intentionally not exposed through MCP.
 
 ### Standalone measurement and observability
