@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/agentLogWidgetRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@android:color/transparent"
     android:clickable="true"
     android:focusable="true"
-    android:padding="8dp">
+    android:padding="8dp"
+    tools:ignore="SmallSp">
 
     <TextView
         android:id="@+id/agentLogWidgetText"

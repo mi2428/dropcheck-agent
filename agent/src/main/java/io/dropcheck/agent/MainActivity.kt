@@ -206,7 +206,7 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.BLACK)
             isFillViewport = true
             addView(logView)
-            setOnTouchListener { _, event ->
+            setOnTouchListener { view, event ->
                 captureSwipeStart(event)
                 when (event.actionMasked) {
                     MotionEvent.ACTION_MOVE -> {
@@ -221,6 +221,9 @@ class MainActivity : Activity() {
                 }
                 if (event.actionMasked == MotionEvent.ACTION_UP && maybeHandleSwipe(event, SwipeDirection.RIGHT)) {
                     return@setOnTouchListener true
+                }
+                if (event.actionMasked == MotionEvent.ACTION_UP && isTapGesture(event)) {
+                    view.performClick()
                 }
                 false
             }
@@ -599,13 +602,14 @@ class MainActivity : Activity() {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
             ))
-            setOnTouchListener { _, event ->
+            setOnTouchListener { view, event ->
                 captureSwipeStart(event)
                 if (event.actionMasked == MotionEvent.ACTION_UP) {
                     if (maybeHandleSwipe(event, SwipeDirection.LEFT)) {
                         return@setOnTouchListener true
                     }
                     if (isTapGesture(event)) {
+                        view.performClick()
                         handleShellTap(event)
                         return@setOnTouchListener true
                     }
