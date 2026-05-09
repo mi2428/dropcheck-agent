@@ -41,8 +41,8 @@ func splitPipeline(line string) ([]string, error) {
 	return pipeline.Split(line)
 }
 
-func normalizeIpFamily(value string) (string, error) {
-	return command.NormalizeIpFamily(value)
+func normalizeIPFamily(value string) (string, error) {
+	return command.NormalizeIPFamily(value)
 }
 
 func normalizeDNSQType(value string) (string, error) {

@@ -83,7 +83,7 @@ func parseQTypes(value string) ([]controlpb.DnsRecordType, error) {
 	}
 }
 
-func parseIpFamily(value string) (controlpb.IpFamily, error) {
+func parseIPFamily(value string) (controlpb.IpFamily, error) {
 	switch strings.ToLower(value) {
 	case "", "all":
 		return controlpb.IpFamily_IP_FAMILY_ALL, nil
@@ -96,8 +96,8 @@ func parseIpFamily(value string) (controlpb.IpFamily, error) {
 	}
 }
 
-func normalizeIpFamily(value string) (string, error) {
-	switch family, err := parseIpFamily(value); {
+func normalizeIPFamily(value string) (string, error) {
+	switch family, err := parseIPFamily(value); {
 	case err != nil:
 		return "", err
 	case family == controlpb.IpFamily_IP_FAMILY_IPV4:
@@ -119,9 +119,9 @@ func normalizeDNSQType(value string) (string, error) {
 	}
 }
 
-// NormalizeIpFamily returns the canonical shell completion spelling for value.
-func NormalizeIpFamily(value string) (string, error) {
-	return normalizeIpFamily(value)
+// NormalizeIPFamily returns the canonical shell completion spelling for value.
+func NormalizeIPFamily(value string) (string, error) {
+	return normalizeIPFamily(value)
 }
 
 // NormalizeDNSQType returns the canonical DNS record-type spelling for value.

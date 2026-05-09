@@ -99,7 +99,7 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 	case *controlpb.CommandResult_PathMtu:
 		renderPathMtu(&b, payload.PathMtu)
 	case *controlpb.CommandResult_GlobalIp:
-		renderGlobalIp(&b, payload.GlobalIp)
+		renderGlobalIP(&b, payload.GlobalIp)
 	case *controlpb.CommandResult_ResolveDns:
 		renderResolveDNS(&b, payload.ResolveDns)
 	case *controlpb.CommandResult_HttpCheck:
@@ -989,7 +989,7 @@ func renderPathMtu(b *strings.Builder, result *controlpb.PathMtuResult) {
 	}
 }
 
-func renderGlobalIp(b *strings.Builder, result *controlpb.GlobalIpResult) {
+func renderGlobalIP(b *strings.Builder, result *controlpb.GlobalIpResult) {
 	if result == nil {
 		return
 	}
