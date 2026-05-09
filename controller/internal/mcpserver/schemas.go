@@ -33,14 +33,6 @@ func operationOutputSchema() map[string]any {
 	return objectSchema(operationOutputProperties(), "success")
 }
 
-func operationsOutputSchema() map[string]any {
-	return objectSchema(map[string]any{
-		"success": booleanSchema(),
-		"error":   stringSchema(),
-		"results": arraySchema(operationOutputSchema()),
-	}, "success")
-}
-
 func commandOutputSchema() map[string]any {
 	properties := operationOutputProperties()
 	properties["agents"] = arraySchema(agentSchema())
