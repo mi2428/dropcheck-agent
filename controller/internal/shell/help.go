@@ -747,7 +747,7 @@ func globalIPHelp(args []string) []HelpEntry {
 			}
 			continue
 		}
-		if _, err := normalizeIpFamily(args[i]); err == nil {
+		if _, err := normalizeIPFamily(args[i]); err == nil {
 			hasFamily = true
 		}
 	}
@@ -2202,7 +2202,7 @@ func globalIPCompletionCandidates(args []string) []string {
 			}
 			continue
 		}
-		if _, err := normalizeIpFamily(args[i]); err == nil {
+		if _, err := normalizeIPFamily(args[i]); err == nil {
 			hasFamily = true
 		}
 	}

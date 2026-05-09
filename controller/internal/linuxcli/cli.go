@@ -303,7 +303,7 @@ func parseRequest(args []string) (Command, error) {
 		return Command{Kind: AgentCommand, Operation: op}, err
 	}
 	if args[0] == "global-ip" {
-		op, err := parseLinuxGlobalIp(args[1:])
+		op, err := parseLinuxGlobalIP(args[1:])
 		return Command{Kind: AgentCommand, Operation: op}, err
 	}
 	if args[0] == "dns" {
@@ -761,7 +761,7 @@ func parseLinuxPathMtu(args []string) (command.Operation, error) {
 	})
 }
 
-func parseLinuxGlobalIp(args []string) (command.Operation, error) {
+func parseLinuxGlobalIP(args []string) (command.Operation, error) {
 	opts, err := parseDashOptions(args, map[string]dashOptionSpec{
 		"family":  {value: true},
 		"timeout": {value: true},

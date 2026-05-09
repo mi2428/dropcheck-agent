@@ -279,7 +279,7 @@ func parseShellRequestModeArgs(args []string) (Command, error) {
 	case "path-mtu":
 		return parseShellPathMtu(args[1:])
 	case "global-ip":
-		return parseShellGlobalIp(args[1:])
+		return parseShellGlobalIP(args[1:])
 	case "dns":
 		return parseShellDNS(args[1:])
 	case "http":
@@ -1165,13 +1165,13 @@ func parseShellPathMtu(args []string) (Command, error) {
 	return agentShellCommand(op), err
 }
 
-func parseShellGlobalIp(args []string) (Command, error) {
+func parseShellGlobalIP(args []string) (Command, error) {
 	var family string
 	values := map[string]string{}
 	for i := 0; i < len(args); i++ {
 		key, err := resolveShellKeyword("global-ip option", args[i], []string{"family", "timeout"})
 		if err != nil {
-			value, err := normalizeIpFamily(args[i])
+			value, err := normalizeIPFamily(args[i])
 			if err != nil {
 				return Command{}, err
 			}
@@ -1186,7 +1186,7 @@ func parseShellGlobalIp(args []string) (Command, error) {
 			return Command{}, err
 		}
 		if key == "family" {
-			value, err = normalizeIpFamily(value)
+			value, err = normalizeIPFamily(value)
 			if err != nil {
 				return Command{}, err
 			}

@@ -499,7 +499,7 @@ func PathMTUOperation(opts PathMTUOptions) (Operation, error) {
 //
 // familyValue accepts "ipv4", "ipv6", "all", or empty for all.
 func GlobalIPOperation(familyValue string, timeoutValue string) (Operation, error) {
-	family, err := parseIpFamily(familyValue)
+	family, err := parseIPFamily(familyValue)
 	if err != nil {
 		return Operation{}, err
 	}

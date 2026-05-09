@@ -16,7 +16,9 @@ import (
 	"dropcheck/controller/internal/pipeline"
 )
 
+// Diagnostic kind values select the adb command bundle collected by Specs.
 const (
+	// KindCmdWifiStatus captures Android's cmd wifi status output.
 	KindCmdWifiStatus                  = "cmd-wifi-status"
 	KindDumpsysWifi                    = "dumpsys-wifi"
 	KindDumpsysConnectivity            = "dumpsys-connectivity"
