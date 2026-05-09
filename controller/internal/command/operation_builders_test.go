@@ -455,3 +455,80 @@ func TestStandaloneSetAndDeleteParsersCoverChecks(t *testing.T) {
 		t.Fatalf("duplicate standalone check key error = nil")
 	}
 }
+
+func TestStandaloneUploadWifiParserNormalizesFullSelector(t *testing.T) {
+	edits, err := StandaloneSetEdits([]string{
+		"upload", "via", "wifi",
+		"essid", "Mgmt",
+		"passphrase", "secret",
+		"security", "WPA3",
+		"bssid", "aa:bb:cc:dd:ee:ff",
+		"band", "6GHZ",
+		"mac-randomization", "non-persistent",
+		"timeout", "5s",
+	})
+	if err != nil {
+		t.Fatalf("StandaloneSetEdits() error = %v", err)
+	}
+
+	want := map[string]string{
+		"upload/wifi/ssid":              "Mgmt",
+		"upload/wifi/passphrase":        "secret",
+		"upload/wifi/security":          "wpa3",
+		"upload/wifi/bssid":             "aa:bb:cc:dd:ee:ff",
+		"upload/wifi/band":              "6ghz",
+		"upload/wifi/mac_randomization": "non-persistent",
+		"upload/wifi/timeout_ms":        "5000",
+	}
+	if len(edits) != len(want)+1 || edits[0].Action != "delete" || strings.Join(edits[0].Path, "/") != "upload/wifi" {
+		t.Fatalf("upload reset edit missing: %#v", edits)
+	}
+	for _, edit := range edits[1:] {
+		path := strings.Join(edit.Path, "/")
+		if want[path] != edit.Value {
+			t.Fatalf("edit %s = %q, want %q (all edits %#v)", path, edit.Value, want[path], edits)
+		}
+		delete(want, path)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing upload edits: %#v", want)
+	}
+}
+
+func TestStandaloneUploadWifiParserRejectsUnsafeInput(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "missing passphrase",
+			args: []string{"upload", "via", "wifi", "essid", "Mgmt"},
+			want: "requires passphrase",
+		},
+		{
+			name: "duplicate passphrase",
+			args: []string{"upload", "via", "wifi", "essid", "Mgmt", "passphrase", "secret", "passphrase", "other"},
+			want: "passphrase specified twice",
+		},
+		{
+			name: "invalid band",
+			args: []string{"upload", "via", "wifi", "essid", "Mgmt", "passphrase", "secret", "band", "7ghz"},
+			want: "unsupported wifi band",
+		},
+		{
+			name: "overflow max size",
+			args: []string{"max-size", "18446744073709551615g"},
+			want: "outside uint64 byte range",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := StandaloneSetEdits(tt.args)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("StandaloneSetEdits() error = %v, want substring %q", err, tt.want)
+			}
+		})
+	}
+}

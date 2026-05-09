@@ -240,6 +240,9 @@ func parseByteToken(value string, fallback uint64) (uint64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("max-size must be bytes or use k/m/g suffix: %w", err)
 	}
+	if unit != 0 && n > ^uint64(0)/unit {
+		return 0, fmt.Errorf("max-size is outside uint64 byte range")
+	}
 	return n * unit, nil
 }
 
