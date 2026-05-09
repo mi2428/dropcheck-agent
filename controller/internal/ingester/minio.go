@@ -80,7 +80,7 @@ func (s *MinIOStore) GetObject(ctx context.Context, key string) ([]byte, error) 
 	if err != nil {
 		return nil, err
 	}
-	defer object.Close()
+	defer func() { _ = object.Close() }()
 	data, err := io.ReadAll(io.LimitReader(object, s.limit+1))
 	if err != nil {
 		return nil, fmt.Errorf("read object %q: %w", key, err)

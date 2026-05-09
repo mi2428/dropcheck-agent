@@ -526,8 +526,8 @@ func TestRenderWifiStatusShowsCapabilities(t *testing.T) {
 			t.Fatalf("rendered output = %q, missing %q", out, want)
 		}
 	}
-	if !(strings.Index(out, "\n  routes") < strings.Index(out, "\n  dns") &&
-		strings.Index(out, "\n  dns") < strings.Index(out, "\n  domains")) {
+	if strings.Index(out, "\n  routes") >= strings.Index(out, "\n  dns") ||
+		strings.Index(out, "\n  dns") >= strings.Index(out, "\n  domains") {
 		t.Fatalf("network rows are not ordered routes -> dns -> domains:\n%s", out)
 	}
 	for _, unwanted := range []string{
@@ -553,8 +553,8 @@ func TestRenderWifiStatusShowsCapabilities(t *testing.T) {
 			t.Fatalf("rendered output = %q, included unwanted %q", out, unwanted)
 		}
 	}
-	if !(strings.Index(out, "11k") < strings.Index(out, "11r") &&
-		strings.Index(out, "11r") < strings.Index(out, "11v_bss_transition")) {
+	if strings.Index(out, "11k") >= strings.Index(out, "11r") ||
+		strings.Index(out, "11r") >= strings.Index(out, "11v_bss_transition") {
 		t.Fatalf("rendered output = %q, capability rows are not sorted", out)
 	}
 }
