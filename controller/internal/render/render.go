@@ -1177,24 +1177,36 @@ func renderScanResults(b *strings.Builder, results []*controlpb.WifiScanResult) 
 		b.WriteString("  no results\n")
 		return
 	}
-	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "SSID\tBSSID\tRSSI\tBAND\tFREQ\tSTANDARD\tSECURITY\tFLAGS\tAP_MLD\tAP_LINK\tAFFILIATED")
+	columns := []displayTableColumn{
+		{header: "SSID"},
+		{header: "BSSID"},
+		{header: "RSSI"},
+		{header: "BAND"},
+		{header: "FREQ"},
+		{header: "STANDARD"},
+		{header: "SECURITY"},
+		{header: "FLAGS"},
+		{header: "AP_MLD"},
+		{header: "AP_LINK"},
+		{header: "AFFILIATED"},
+	}
+	rows := make([][]string, 0, len(results))
 	for _, result := range results {
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%d\t%s\t%s\t%s\t%s\t%s\t%d\n",
+		rows = append(rows, []string{
 			empty(result.GetSsid(), "<hidden>"),
 			empty(result.GetBssid(), "unknown"),
-			result.GetRssiDbm(),
+			strconv.Itoa(int(result.GetRssiDbm())),
 			empty(result.GetBand(), wifiBandFromFrequency(result.GetFrequencyMhz())),
-			result.GetFrequencyMhz(),
+			strconv.Itoa(int(result.GetFrequencyMhz())),
 			empty(result.GetWifiStandard(), "-"),
 			empty(strings.Join(result.GetSecurityTypes(), ","), empty(result.GetCapabilities(), "-")),
 			empty(strings.Join(scanConnectionCapabilityFlags(result), ","), "-"),
 			empty(wifiMLOScanMLDMAC(result), "<none>"),
 			scanMLOLinkID(result),
-			len(result.GetAffiliatedMloLinks()),
-		)
+			strconv.Itoa(len(result.GetAffiliatedMloLinks())),
+		})
 	}
-	_ = tw.Flush()
+	writeDisplayTable(b, columns, rows)
 	renderScanMLOLinks(b, results)
 }
 
@@ -1214,28 +1226,42 @@ func renderScanMLOLinks(b *strings.Builder, results []*controlpb.WifiScanResult)
 		return
 	}
 	writeSection(b, "Scan Affiliated MLO Links")
-	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "SSID\tBSSID\tAP_MLD\tAP_LINK\tID\tSTATE\tBAND\tCHANNEL\tRSSI\tTX\tRX\tAP_MAC\tSTA_MAC")
+	columns := []displayTableColumn{
+		{header: "SSID"},
+		{header: "BSSID"},
+		{header: "AP_MLD"},
+		{header: "AP_LINK"},
+		{header: "ID"},
+		{header: "STATE"},
+		{header: "BAND"},
+		{header: "CHANNEL"},
+		{header: "RSSI"},
+		{header: "TX"},
+		{header: "RX"},
+		{header: "AP_MAC"},
+		{header: "STA_MAC"},
+	}
+	rows := [][]string{}
 	for _, result := range results {
 		for _, link := range result.GetAffiliatedMloLinks() {
-			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%s\t%s\t%d\t%d\t%d\t%d\t%s\t%s\n",
+			rows = append(rows, []string{
 				empty(result.GetSsid(), "<hidden>"),
 				empty(result.GetBssid(), "unknown"),
 				empty(wifiMLOScanMLDMAC(result), "<none>"),
 				scanMLOLinkID(result),
-				link.GetLinkId(),
+				strconv.Itoa(int(link.GetLinkId())),
 				empty(link.GetState(), "unknown"),
 				empty(link.GetBand(), "unknown"),
-				link.GetChannel(),
-				link.GetRssiDbm(),
-				link.GetTxLinkSpeedMbps(),
-				link.GetRxLinkSpeedMbps(),
+				strconv.Itoa(int(link.GetChannel())),
+				strconv.Itoa(int(link.GetRssiDbm())),
+				strconv.Itoa(int(link.GetTxLinkSpeedMbps())),
+				strconv.Itoa(int(link.GetRxLinkSpeedMbps())),
 				empty(link.GetApMacAddress(), "unknown"),
 				empty(link.GetStaMacAddress(), "unknown"),
-			)
+			})
 		}
 	}
-	_ = tw.Flush()
+	writeDisplayTable(b, columns, rows)
 }
 
 func connectionInformationElementCapabilityNames(elements []*controlpb.WifiInformationElement) []string {
