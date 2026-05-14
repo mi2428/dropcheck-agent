@@ -908,6 +908,72 @@ func TestRenderWifiScanShowsMLOFields(t *testing.T) {
 	}
 }
 
+func TestRenderWifiScanAlignsFullWidthSSID(t *testing.T) {
+	result := &controlpb.CommandResult{
+		Status: controlpb.CommandResult_STATUS_OK,
+		Payload: &controlpb.CommandResult_WifiScan{
+			WifiScan: &controlpb.WifiScan{
+				Results: []*controlpb.WifiScanResult{{
+					Ssid:         "grape",
+					Bssid:        "aa:bb:cc:dd:ee:ff",
+					RssiDbm:      -45,
+					Band:         "6ghz",
+					FrequencyMhz: 5975,
+					WifiStandard: "802.11ax",
+					SecurityTypes: []string{
+						"sae",
+					},
+				}, {
+					Ssid:         "たか",
+					Bssid:        "11:22:33:44:55:66",
+					RssiDbm:      -49,
+					Band:         "2.4ghz",
+					FrequencyMhz: 2432,
+					WifiStandard: "802.11ax",
+					SecurityTypes: []string{
+						"psk",
+					},
+				}},
+			},
+		},
+	}
+
+	out, err := CommandResult("agent", result, command.Options{}, pipeline.FormatText)
+	if err != nil {
+		t.Fatalf("CommandResult() error = %v", err)
+	}
+	asciiLine := renderedLineContaining(out, "aa:bb:cc:dd:ee:ff")
+	fullWidthLine := renderedLineContaining(out, "11:22:33:44:55:66")
+	if asciiLine == "" || fullWidthLine == "" {
+		t.Fatalf("rendered output missing scan rows:\n%s", out)
+	}
+	asciiBSSIDColumn := displayColumn(asciiLine, "aa:bb:cc:dd:ee:ff")
+	fullWidthBSSIDColumn := displayColumn(fullWidthLine, "11:22:33:44:55:66")
+	if asciiBSSIDColumn != fullWidthBSSIDColumn {
+		t.Fatalf("BSSID column mismatch ascii=%d fullwidth=%d\nascii: %q\nfull:  %q\n%s", asciiBSSIDColumn, fullWidthBSSIDColumn, asciiLine, fullWidthLine, out)
+	}
+	if got := displayWidth("たか"); got != 4 {
+		t.Fatalf("displayWidth(full-width SSID) = %d, want 4", got)
+	}
+}
+
+func renderedLineContaining(out string, needle string) string {
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, needle) {
+			return line
+		}
+	}
+	return ""
+}
+
+func displayColumn(line string, needle string) int {
+	index := strings.Index(line, needle)
+	if index < 0 {
+		return -1
+	}
+	return displayWidth(line[:index])
+}
+
 func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 	result := &controlpb.CommandResult{
 		Status: controlpb.CommandResult_STATUS_OK,
