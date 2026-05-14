@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"text/tabwriter"
-	"unicode"
 
 	"dropcheck/controller/internal/controlpb"
 )
@@ -176,23 +174,33 @@ func renderWifiMLONetworks(b *strings.Builder, networks []*controlpb.NetworkDiag
 		return
 	}
 	writeSection(b, "Network MLO")
-	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "NETWORK\tACTIVE\tSSID\tBSSID\tAP_MLD\tAP_LINK\tASSOC\tAFFIL\tSTANDARD")
+	columns := []displayTableColumn{
+		{header: "NETWORK"},
+		{header: "ACTIVE"},
+		{header: "SSID"},
+		{header: "BSSID"},
+		{header: "AP_MLD"},
+		{header: "AP_LINK"},
+		{header: "ASSOC"},
+		{header: "AFFIL"},
+		{header: "STANDARD"},
+	}
+	tableRows := make([][]string, 0, len(rows))
 	for _, network := range rows {
 		conn := network.GetIpStatus().GetWifi()
-		_, _ = fmt.Fprintf(tw, "%s\t%t\t%s\t%s\t%s\t%s\t%d\t%d\t%s\n",
+		tableRows = append(tableRows, []string{
 			empty(network.GetNetworkId(), "<unknown>"),
-			network.GetActive(),
+			fmt.Sprint(network.GetActive()),
 			empty(conn.GetSsid(), "<hidden>"),
 			empty(conn.GetBssid(), "<unknown>"),
 			empty(wifiMLOConnectionMLDMAC(conn), "<none>"),
 			wifiMLOConnectionLinkID(conn),
-			len(conn.GetAssociatedMloLinks()),
-			len(conn.GetAffiliatedMloLinks()),
+			fmt.Sprint(len(conn.GetAssociatedMloLinks())),
+			fmt.Sprint(len(conn.GetAffiliatedMloLinks())),
 			empty(conn.GetWifiStandard(), "<unknown>"),
-		)
+		})
 	}
-	_ = tw.Flush()
+	writeDisplayTable(b, columns, tableRows)
 }
 
 func renderWifiMLOScanSummary(b *strings.Builder, scan *controlpb.WifiScan, candidates []*controlpb.WifiScanResult) {
@@ -1145,103 +1153,30 @@ func wifiMLOScanChannelWidth(value string) string {
 }
 
 func wifiMLOWriteTable(b *strings.Builder, columns []wifiMLOTableColumn, rows [][]string) {
-	preparedHeaders := make([]string, len(columns))
+	displayColumns := make([]displayTableColumn, len(columns))
 	for i, column := range columns {
-		preparedHeaders[i] = wifiMLOFitCell(column.header, column.maxWidth)
-	}
-	preparedRows := make([][]string, 0, len(rows))
-	for _, row := range rows {
-		prepared := make([]string, len(columns))
-		for i, column := range columns {
-			value := ""
-			if i < len(row) {
-				value = row[i]
-			}
-			prepared[i] = wifiMLOFitCell(value, column.maxWidth)
-		}
-		preparedRows = append(preparedRows, prepared)
-	}
-
-	widths := make([]int, len(columns))
-	for i := range columns {
-		widths[i] = wifiMLODisplayWidth(preparedHeaders[i])
-		for _, row := range preparedRows {
-			if width := wifiMLODisplayWidth(row[i]); width > widths[i] {
-				widths[i] = width
-			}
+		displayColumns[i] = displayTableColumn{
+			header:   column.header,
+			maxWidth: column.maxWidth,
 		}
 	}
-
-	wifiMLOWriteTableRow(b, preparedHeaders, widths)
-	for _, row := range preparedRows {
-		wifiMLOWriteTableRow(b, row, widths)
-	}
-}
-
-func wifiMLOWriteTableRow(b *strings.Builder, row []string, widths []int) {
-	for i, value := range row {
-		if i > 0 {
-			b.WriteString("  ")
-		}
-		b.WriteString(wifiMLOPadDisplayEnd(value, widths[i]))
-	}
-	b.WriteByte('\n')
+	writeDisplayTable(b, displayColumns, rows)
 }
 
 func wifiMLOFitCell(value string, maxWidth int) string {
-	cleaned := strings.ReplaceAll(value, "\t", " ")
-	if maxWidth <= 0 || wifiMLODisplayWidth(cleaned) <= maxWidth {
-		return cleaned
-	}
-	if maxWidth <= 3 {
-		return strings.Repeat(".", maxWidth)
-	}
-
-	suffix := "..."
-	targetWidth := maxWidth - wifiMLODisplayWidth(suffix)
-	var out strings.Builder
-	width := 0
-	for _, r := range cleaned {
-		runeWidth := wifiMLORuneDisplayWidth(r)
-		if width+runeWidth > targetWidth {
-			break
-		}
-		out.WriteRune(r)
-		width += runeWidth
-	}
-	out.WriteString(suffix)
-	return out.String()
+	return fitDisplayCell(value, maxWidth)
 }
 
 func wifiMLOPadDisplayEnd(value string, width int) string {
-	padding := width - wifiMLODisplayWidth(value)
-	if padding <= 0 {
-		return value
-	}
-	return value + strings.Repeat(" ", padding)
+	return padDisplayEnd(value, width)
 }
 
 func wifiMLODisplayWidth(value string) int {
-	width := 0
-	for _, r := range value {
-		width += wifiMLORuneDisplayWidth(r)
-	}
-	return width
+	return displayWidth(value)
 }
 
 func wifiMLORuneDisplayWidth(r rune) int {
-	if unicode.IsControl(r) || unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Me, r) || unicode.Is(unicode.Mc, r) {
-		return 0
-	}
-	if unicode.In(r,
-		unicode.Han,
-		unicode.Hiragana,
-		unicode.Katakana,
-		unicode.Hangul,
-	) || (r >= 0xff01 && r <= 0xff60) || (r >= 0xffe0 && r <= 0xffe6) {
-		return 2
-	}
-	return 1
+	return runeDisplayWidth(r)
 }
 
 func wifiMLOJoinStrings(values []string, emptyValue string) string {
