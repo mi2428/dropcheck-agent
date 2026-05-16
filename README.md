@@ -61,10 +61,37 @@ For the Android agent, use an Android 12+ test device with USB debugging enabled
 $ make install SERIAL=35251JEHN00258
 ```
 
-Wi-Fi provisioning uses Android privileged Wi-Fi APIs. For `wifi connect`, `wifi cycle`, and `wifi forget`, make the app a device owner on a fresh, unmanaged test device:
+Wi-Fi provisioning uses Android privileged Wi-Fi APIs. For `wifi connect`, `wifi cycle`, and `wifi forget`, make the app a device owner on a fresh, unmanaged test device.
+
+> [!WARNING]
+> Device Owner mode is for dedicated test handsets. Do not enable it on a personal daily-driver device. Android can prevent removing a Device Owner unless the APK is `android:testOnly`; the debug APK installed by `make install` is test-only, but a release or manually modified APK may require a factory reset to remove once it owns the device.
+
+Before setting Device Owner, the device must have no existing Device Owner or Profile Owner, no secondary users, and no local accounts. Removing a Google account from the web is not enough; remove every account from **Settings > Passwords & accounts** on the device, then verify:
 
 ```console
+$ adb -s 35251JEHN00258 shell dpm list-owners
+$ adb -s 35251JEHN00258 shell pm list users
+$ adb -s 35251JEHN00258 shell dumpsys account | grep -E 'Accounts:|Account \{'
+```
+
+If `dumpsys account` still shows accounts, remove them from device Settings. If Device Owner setup still fails with an already set-up/provisioned-device error, use a freshly factory-reset test device, or reset a test device with Android's test harness mode:
+
+```console
+$ adb -s 35251JEHN00258 shell cmd testharness enable
+```
+
+`cmd testharness enable` performs a factory reset. After the reset, skip account sign-in during setup, enable USB debugging, install the agent, and set Device Owner:
+
+```console
+$ make install SERIAL=35251JEHN00258
 $ adb -s 35251JEHN00258 shell dpm set-device-owner io.dropcheck.agent/.DeviceAdminReceiver
+$ adb -s 35251JEHN00258 shell dpm list-owners
+```
+
+For debug APKs installed by `make install`, Device Owner can usually be removed during test teardown with:
+
+```console
+$ adb -s 35251JEHN00258 shell dpm remove-active-admin io.dropcheck.agent/.DeviceAdminReceiver
 ```
 
 Grant Wi-Fi visibility permissions, or open the app once and approve the prompts:
