@@ -209,10 +209,8 @@ rtt min/avg/max/mdev = 10.200/12.400/16.300/1.900 ms
 
 ### MCP server
 
-`dist/dropcheck-mcp` runs an MCP stdio server backed by the same controller session machinery.
-It exposes session start/stop and agent discovery tools; Wi-Fi status, diagnostics, MLO, capabilities, scan, connect, disconnect, forget, reconnect, wait, assert, monitor, and cycle tools; IP status and probe tools for ping, traceroute, path MTU, global IP, DNS, HTTP, and download; standalone config, status, runs, run, edit, and clear tools; and a higher-level `dropcheck_run` sequence.
-
-A smoke check can initialize the stdio server and list registered tools without starting an Android session:
+`controller/dist/dropcheck-mcp` runs an MCP stdio server backed by the same controller session machinery.
+A smoke check can initialize the stdio server and list the current tool inventory without starting an Android session:
 
 ```text
 $ (
@@ -222,34 +220,100 @@ $ (
   printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
   sleep 0.5
 ) | controller/dist/dropcheck-mcp 2>/dev/null \
-  | jq -r 'select(.id==1).result.serverInfo.name, (select(.id==2).result.tools[].name | select(. == "dropcheck_session_start" or . == "dropcheck_wifi_status" or . == "dropcheck_ping" or . == "dropcheck_run"))'
+  | jq -r 'select(.id==1).result.serverInfo.name, select(.id==2).result.tools[].name'
 
 dropcheck-mcp
+dropcheck_adb_diagnostics
+dropcheck_agents
+dropcheck_command
+dropcheck_dns
+dropcheck_download
+dropcheck_global_ip
+dropcheck_http
+dropcheck_ip_status
+dropcheck_path_mtu
 dropcheck_ping
 dropcheck_run
 dropcheck_session_start
+dropcheck_session_stop
+dropcheck_standalone_clear_runs
+dropcheck_standalone_config
+dropcheck_standalone_config_edit
+dropcheck_standalone_run
+dropcheck_standalone_run_once
+dropcheck_standalone_runs
+dropcheck_standalone_status
+dropcheck_traceroute
+dropcheck_wifi_assert
+dropcheck_wifi_capabilities
+dropcheck_wifi_connect
+dropcheck_wifi_cycle
+dropcheck_wifi_diagnostics
+dropcheck_wifi_disconnect
+dropcheck_wifi_forget
+dropcheck_wifi_mlo
+dropcheck_wifi_monitor
+dropcheck_wifi_reconnect
+dropcheck_wifi_scan
+dropcheck_wifi_scan_detail
 dropcheck_wifi_status
+dropcheck_wifi_wait_connected
 ```
+
+It also exposes `dropcheck://session` and `dropcheck://agents` resources; standalone resource templates for config, status, runs, and one run archive; and prompts for connectivity, MLO investigation, and NOC smoke checks.
 
 The comprehensive MCP live test starts `dropcheck-mcp` through MCP CommandTransport and drives a real Android agent over ADB. It connects, disconnects, forgets Wi-Fi, edits standalone config, runs saved standalone archives, and clears synced archives, so run it only against a dedicated Device Owner test handset.
 
 ```console
-$ export DROPCHECK_LAB_WIFI_PSK='...'
+$ export DROPCHECK_WIFI_PSK='...'
 $ (
   cd controller
   DROPCHECK_E2E_LIVE=1 \
     ADB_SERIAL=R5CT12345 \
     DROPCHECK_E2E_WIFI_SSID=ShowNet \
-    DROPCHECK_E2E_WIFI_PSK_ENV=DROPCHECK_LAB_WIFI_PSK \
     go test -tags 'e2e mcp_live_full' ./integration/mcp \
       -run TestMCPServerCommandTransportComprehensiveLive -count=1 -v
 )
 ```
 
 Use `-v` when debugging; the test logs every MCP protocol call, tool call, progress notification, and logging message with Wi-Fi passphrases redacted.
-
 Use MCP when another tool should run checks without shelling out to the CLI grammar for every operation.
 For host-file writes, use the CLI directly: `sync standalone runs` is intentionally not exposed through MCP.
+
+MCP clients start the server over stdio. Build the controller first, then register or enable the binary with the client.
+Keep Wi-Fi passphrases out of prompts and config files where possible; export an environment variable in the shell that launches the MCP client and ask the agent to use `passphrase_env`.
+After changing MCP configuration, start a new Claude Code or Codex session from a shell with those environment variables exported.
+
+#### Claude Code
+
+Claude Code project-scoped MCP servers live in `.mcp.json` at the repository root. This repository includes a project-scoped `dropcheck` server that runs `${DROPCHECK_MCP_BIN:-./controller/dist/dropcheck-mcp}` and passes through `DROPCHECK_WIFI_PSK` when it is set. `.claude/` is for Claude Code settings, agents, commands, and local state; it is not the current project-scoped MCP server definition path.
+
+Build the server binary, export any secrets in the shell that starts Claude Code, then verify or approve the server with `/mcp`:
+
+```console
+$ make build TARGET=controller
+$ export DROPCHECK_WIFI_PSK='...'
+$ claude
+> /mcp
+```
+
+For a private per-project override instead of the checked-in `.mcp.json`, use local scope. Claude Code stores that in `~/.claude.json`, not in this repository:
+
+```console
+$ claude mcp add --transport stdio --scope local dropcheck -- "$PWD/controller/dist/dropcheck-mcp"
+$ claude mcp get dropcheck
+```
+
+#### Codex
+
+Register `dropcheck-mcp` as an MCP server:
+
+```console
+$ make build TARGET=controller
+$ export DROPCHECK_WIFI_PSK='...'
+$ codex mcp add dropcheck -- "$PWD/controller/dist/dropcheck-mcp"
+$ codex mcp get dropcheck
+```
 
 ### Standalone measurement and observability
 
