@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"dropcheck/controller/internal/adbdiag"
 	dropcmd "dropcheck/controller/internal/command"
@@ -496,13 +497,20 @@ func runOperationMaybeAll(ctx context.Context, backend Backend, target string, a
 		if len(agents) == 0 {
 			return toolError("no Android agents connected", map[string]any{"operation": op.Name})
 		}
-		execs := make([]Execution, 0, len(agents))
-		for _, agent := range agents {
-			exec, err := backend.Run(ctx, agent.ID, op)
+		execs := make([]Execution, len(agents))
+		errs := make([]error, len(agents))
+		var wg sync.WaitGroup
+		for i, agent := range agents {
+			i, agent := i, agent
+			wg.Go(func() {
+				execs[i], errs[i] = backend.Run(ctx, agent.ID, op)
+			})
+		}
+		wg.Wait()
+		for i, err := range errs {
 			if err != nil {
-				return toolError(err.Error(), map[string]any{"operation": op.Name, "target": agent.ID})
+				return toolError(err.Error(), map[string]any{"operation": op.Name, "target": agents[i].ID})
 			}
-			execs = append(execs, exec)
 		}
 		return executionsToolResult(execs)
 	}
