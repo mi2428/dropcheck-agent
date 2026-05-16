@@ -1,6 +1,6 @@
 //go:build e2e && mcp_live_full
 
-package e2e
+package mcp_test
 
 import (
 	"bytes"
@@ -31,18 +31,18 @@ const comprehensiveMCPPSKEnv = "DROPCHECK_E2E_MCP_WIFI_PSK"
 //
 //	DROPCHECK_E2E_LIVE=1 ADB_SERIAL=<serial> \
 //	  DROPCHECK_E2E_WIFI_SSID=<ssid> DROPCHECK_E2E_WIFI_PSK_ENV=<psk-env> \
-//	  go test -tags 'e2e mcp_live_full' ./integration/e2e \
+//	  go test -tags 'e2e mcp_live_full' ./integration/mcp \
 //	    -run TestMCPServerCommandTransportComprehensiveLive -count=1 -v
 func TestMCPServerCommandTransportComprehensiveLive(t *testing.T) {
-	cfg := loadConfig(t)
+	cfg := loadLiveMCPConfig(t)
 	if !cfg.live {
-		t.Skipf("%s=1 not set; skipping comprehensive live MCP check", envLive)
+		t.Skipf("%s=1 not set; skipping comprehensive live MCP check", liveEnvLive)
 	}
 	if cfg.serial == "" {
-		t.Skipf("%s or ADB_SERIAL is required", envSerial)
+		t.Skipf("%s or ADB_SERIAL is required", liveEnvSerial)
 	}
 	if cfg.ssid == "" || cfg.psk == "" {
-		t.Skipf("%s and %s/%s are required", envSSID, envPSKName, envPSK)
+		t.Skipf("%s and %s/%s are required", liveEnvSSID, liveEnvPSKName, liveEnvPSK)
 	}
 
 	t.Setenv(comprehensiveMCPPSKEnv, cfg.psk)
@@ -171,7 +171,7 @@ func TestMCPServerCommandTransportComprehensiveLive(t *testing.T) {
 
 type comprehensiveMCPCheck struct {
 	t        *testing.T
-	cfg      *e2eConfig
+	cfg      *liveMCPConfig
 	ctx      context.Context
 	cancel   context.CancelFunc
 	session  *mcp.ClientSession
@@ -190,7 +190,7 @@ type comprehensiveMCPResult struct {
 	duration time.Duration
 }
 
-func newComprehensiveMCPCheck(t *testing.T, cfg *e2eConfig) *comprehensiveMCPCheck {
+func newComprehensiveMCPCheck(t *testing.T, cfg *liveMCPConfig) *comprehensiveMCPCheck {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	check := &comprehensiveMCPCheck{
@@ -289,7 +289,7 @@ func (c *comprehensiveMCPCheck) inventory() {
 	})
 }
 
-func (c *comprehensiveMCPCheck) exerciseStandalone(cfg *e2eConfig) string {
+func (c *comprehensiveMCPCheck) exerciseStandalone(cfg *liveMCPConfig) string {
 	festa := "mcp-livecheck"
 	c.call("dropcheck_standalone_config", targetArg(cfg.serial), 20*time.Second)
 	c.call("dropcheck_standalone_status", targetArg(cfg.serial), 20*time.Second)
@@ -536,7 +536,7 @@ func errorString(err error) string {
 	return err.Error()
 }
 
-func redactE2ESecrets(cfg *e2eConfig, value string) string {
+func redactE2ESecrets(cfg *liveMCPConfig, value string) string {
 	for _, secret := range []string{cfg.psk, os.Getenv(comprehensiveMCPPSKEnv)} {
 		if secret != "" {
 			value = strings.ReplaceAll(value, secret, "[REDACTED]")

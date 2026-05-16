@@ -1,6 +1,6 @@
 //go:build e2e
 
-package e2e
+package mcp_test
 
 import (
 	"bytes"
@@ -18,15 +18,15 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const e2eMCPPSKEnv = "DROPCHECK_E2E_MCP_WIFI_PSK"
+const liveMCPPSKEnv = "DROPCHECK_E2E_MCP_WIFI_PSK"
 
 func TestMCPServerAndroidLive(t *testing.T) {
-	cfg := loadConfig(t)
+	cfg := loadLiveMCPConfig(t)
 	if !cfg.live {
-		t.Skipf("%s=1 not set; skipping live MCP Android e2e", envLive)
+		t.Skipf("%s=1 not set; skipping live MCP Android e2e", liveEnvLive)
 	}
 	if cfg.serial == "" {
-		t.Skipf("%s or ADB_SERIAL not set; skipping live MCP Android e2e", envSerial)
+		t.Skipf("%s or ADB_SERIAL not set; skipping live MCP Android e2e", liveEnvSerial)
 	}
 
 	cfg.resetLiveState()
@@ -94,24 +94,24 @@ func TestMCPServerAndroidLive(t *testing.T) {
 
 	t.Run("dropcheck run executes connect wait checks", func(t *testing.T) {
 		if cfg.ssid == "" || cfg.psk == "" {
-			t.Skipf("%s/%s not set; skipping MCP dropcheck_run live sequence", envSSID, envPSK)
+			t.Skipf("%s/%s not set; skipping MCP dropcheck_run live sequence", liveEnvSSID, liveEnvPSK)
 		}
-		t.Setenv(e2eMCPPSKEnv, cfg.psk)
+		t.Setenv(liveMCPPSKEnv, cfg.psk)
 		result, structured := callLiveMCPTool(t, session, "dropcheck_run", map[string]any{
 			"target":             target,
 			"essid":              cfg.ssid,
-			"passphrase_env":     e2eMCPPSKEnv,
+			"passphrase_env":     liveMCPPSKEnv,
 			"security":           "auto",
 			"band":               "all",
 			"connect_timeout_ms": 25000,
 			"wait_timeout_ms":    30000,
 			"require_ip":         true,
 			"checks":             []string{"wifi_status", "ip_status", "ping", "dns", "http"},
-			"ping_host":          standalonePingHost,
+			"ping_host":          livePingHost,
 			"ping_count":         1,
-			"dns_name":           standaloneDNSName,
+			"dns_name":           liveDNSName,
 			"dns_type":           "A",
-			"http_url":           standaloneHTTPURL,
+			"http_url":           liveHTTPURL,
 			"http_status":        204,
 		})
 		requireMCPToolSuccess(t, result, structured, "dropcheck_run")
@@ -129,12 +129,12 @@ func TestMCPServerAndroidLive(t *testing.T) {
 }
 
 func TestMCPServerCommandTransportAndroidLive(t *testing.T) {
-	cfg := loadConfig(t)
+	cfg := loadLiveMCPConfig(t)
 	if !cfg.live {
-		t.Skipf("%s=1 not set; skipping live MCP command transport e2e", envLive)
+		t.Skipf("%s=1 not set; skipping live MCP command transport e2e", liveEnvLive)
 	}
 	if cfg.serial == "" {
-		t.Skipf("%s or ADB_SERIAL not set; skipping live MCP command transport e2e", envSerial)
+		t.Skipf("%s or ADB_SERIAL not set; skipping live MCP command transport e2e", liveEnvSerial)
 	}
 
 	cfg.launchApp(t, "mcp command transport start", true)
@@ -165,7 +165,7 @@ func TestMCPServerCommandTransportAndroidLive(t *testing.T) {
 	requireMCPToolSuccess(t, result, structured, "dropcheck_session_stop")
 }
 
-func connectLiveMCP(t *testing.T, cfg *e2eConfig) (*mcp.ClientSession, func()) {
+func connectLiveMCP(t *testing.T, cfg *liveMCPConfig) (*mcp.ClientSession, func()) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
@@ -203,7 +203,7 @@ func connectLiveMCP(t *testing.T, cfg *e2eConfig) (*mcp.ClientSession, func()) {
 	return session, cleanup
 }
 
-func connectLiveMCPCommand(t *testing.T, cfg *e2eConfig) (*mcp.ClientSession, func()) {
+func connectLiveMCPCommand(t *testing.T, cfg *liveMCPConfig) (*mcp.ClientSession, func()) {
 	t.Helper()
 	bin := buildLiveMCPBinary(t, cfg)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -232,7 +232,7 @@ func connectLiveMCPCommand(t *testing.T, cfg *e2eConfig) (*mcp.ClientSession, fu
 	return session, cleanup
 }
 
-func buildLiveMCPBinary(t *testing.T, cfg *e2eConfig) string {
+func buildLiveMCPBinary(t *testing.T, cfg *liveMCPConfig) string {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "dropcheck-mcp")
 	t.Logf("building dropcheck-mcp binary: %s", bin)
