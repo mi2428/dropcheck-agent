@@ -207,14 +207,10 @@ func newComprehensiveMCPCheck(t *testing.T, cfg *liveMCPConfig) *comprehensiveMC
 	cmd.Stderr = check.stderr
 	client := mcp.NewClient(&mcp.Implementation{Name: "dropcheck-comprehensive-mcp-e2e", Version: "0.1.0"}, &mcp.ClientOptions{
 		ProgressNotificationHandler: func(_ context.Context, req *mcp.ProgressNotificationClientRequest) {
-			check.mu.Lock()
-			check.progress++
-			check.mu.Unlock()
+			check.logProgress(req)
 		},
 		LoggingMessageHandler: func(_ context.Context, req *mcp.LoggingMessageRequest) {
-			check.mu.Lock()
-			check.logs++
-			check.mu.Unlock()
+			check.logMCPLog(req)
 		},
 	})
 	session, err := client.Connect(ctx, &mcp.CommandTransport{
@@ -322,24 +318,33 @@ func (c *comprehensiveMCPCheck) call(name string, args map[string]any, timeout t
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	c.seq++
+	c.logStepStart("CALL", name, timeout, args)
 	params := &mcp.CallToolParams{Name: name, Arguments: args}
 	params.SetProgressToken("comprehensive-" + strconv.Itoa(c.seq) + "-" + name)
 	res, err := c.session.CallTool(ctx, params)
 	duration := time.Since(start)
 	if err != nil {
-		c.record(name, false, err.Error(), duration)
+		note := err.Error()
+		c.record(name, false, note, duration)
+		c.logStepDone("CALL", name, false, note, duration)
 		return nil, false
 	}
 	structured, err := liveStructuredMap(res)
 	if err != nil {
-		c.record(name, false, err.Error(), duration)
+		note := err.Error()
+		c.record(name, false, note, duration)
+		c.logStepDone("CALL", name, false, note, duration)
 		return nil, false
 	}
 	if res.IsError || structured["success"] != true {
-		c.record(name, false, liveToolMessage(res, structured), duration)
+		note := liveToolMessage(res, structured)
+		c.record(name, false, note, duration)
+		c.logStepDone("CALL", name, false, note, duration)
 		return structured, false
 	}
-	c.record(name, true, liveOperationNote(structured), duration)
+	note := liveOperationNote(structured)
+	c.record(name, true, note, duration)
+	c.logStepDone("CALL", name, true, note, duration)
 	return structured, true
 }
 
@@ -347,8 +352,12 @@ func (c *comprehensiveMCPCheck) protocol(name string, timeout time.Duration, fn 
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	c.logStepStart("PROTO", name, timeout, nil)
 	err := fn(ctx)
-	c.record(name, err == nil, errorString(err), time.Since(start))
+	note := errorString(err)
+	duration := time.Since(start)
+	c.record(name, err == nil, note, duration)
+	c.logStepDone("PROTO", name, err == nil, note, duration)
 }
 
 func (c *comprehensiveMCPCheck) readResource(uri string) {
@@ -397,6 +406,72 @@ func (c *comprehensiveMCPCheck) record(name string, ok bool, note string, durati
 		note:     redactE2ESecrets(c.cfg, note),
 		duration: duration,
 	})
+}
+
+func (c *comprehensiveMCPCheck) logStepStart(kind string, name string, timeout time.Duration, args any) {
+	if args == nil {
+		c.t.Logf("%s begin %-58s timeout=%s", kind, name, timeout)
+		return
+	}
+	c.t.Logf("%s begin %-58s timeout=%s args=%s", kind, name, timeout, c.shortJSON(args))
+}
+
+func (c *comprehensiveMCPCheck) logStepDone(kind string, name string, ok bool, note string, duration time.Duration) {
+	status := "OK"
+	if !ok {
+		status = "FAIL"
+	}
+	if note == "" {
+		note = "-"
+	}
+	c.t.Logf("%s end   %-58s status=%s duration=%s note=%s", kind, name, status, duration.Round(time.Millisecond), shortLiveText(redactE2ESecrets(c.cfg, note)))
+}
+
+func (c *comprehensiveMCPCheck) logProgress(req *mcp.ProgressNotificationClientRequest) {
+	c.mu.Lock()
+	c.progress++
+	count := c.progress
+	c.mu.Unlock()
+	if req == nil || req.Params == nil {
+		c.t.Logf("MCP progress #%d", count)
+		return
+	}
+	params := req.Params
+	c.t.Logf(
+		"MCP progress #%d token=%v progress=%.0f total=%.0f message=%s",
+		count,
+		params.ProgressToken,
+		params.Progress,
+		params.Total,
+		shortLiveText(redactE2ESecrets(c.cfg, params.Message)),
+	)
+}
+
+func (c *comprehensiveMCPCheck) logMCPLog(req *mcp.LoggingMessageRequest) {
+	c.mu.Lock()
+	c.logs++
+	count := c.logs
+	c.mu.Unlock()
+	if req == nil || req.Params == nil {
+		c.t.Logf("MCP log #%d", count)
+		return
+	}
+	params := req.Params
+	c.t.Logf(
+		"MCP log #%d level=%s logger=%s data=%s",
+		count,
+		params.Level,
+		params.Logger,
+		c.shortJSON(params.Data),
+	)
+}
+
+func (c *comprehensiveMCPCheck) shortJSON(value any) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return shortLiveText(redactE2ESecrets(c.cfg, fmt.Sprint(value)))
+	}
+	return shortLiveText(redactE2ESecrets(c.cfg, string(data)))
 }
 
 func (c *comprehensiveMCPCheck) failOnFailures() {
@@ -543,4 +618,13 @@ func redactE2ESecrets(cfg *liveMCPConfig, value string) string {
 		}
 	}
 	return value
+}
+
+func shortLiveText(value string) string {
+	value = strings.Join(strings.Fields(value), " ")
+	const limit = 500
+	if len(value) <= limit {
+		return value
+	}
+	return value[:limit] + "...[truncated]"
 }
