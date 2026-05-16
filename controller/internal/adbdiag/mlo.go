@@ -249,7 +249,7 @@ func parseMLOLinkStats(text string) []MLOLinkStat {
 
 func parseCommaKeyValues(segment string) map[string]string {
 	values := make(map[string]string)
-	for _, field := range strings.Split(segment, ",") {
+	for field := range strings.SplitSeq(segment, ",") {
 		key, value, ok := strings.Cut(strings.TrimSpace(field), "=")
 		if !ok || key == "" {
 			continue

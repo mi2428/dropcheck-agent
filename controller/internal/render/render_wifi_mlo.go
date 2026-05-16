@@ -2,6 +2,7 @@ package render
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -1224,7 +1225,7 @@ func wifiMLOSortedIntSet(values map[int32]bool) []int32 {
 	for value := range values {
 		out = append(out, value)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	slices.Sort(out)
 	return out
 }
 

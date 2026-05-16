@@ -96,7 +96,7 @@ func RegisterDropcheckControlServer(s grpc.ServiceRegistrar, srv DropcheckContro
 	s.RegisterService(&DropcheckControl_ServiceDesc, srv)
 }
 
-func _DropcheckControl_Session_Handler(srv interface{}, stream grpc.ServerStream) error {
+func _DropcheckControl_Session_Handler(srv any, stream grpc.ServerStream) error {
 	return srv.(DropcheckControlServer).Session(&dropcheckControlSessionServer{stream})
 }
 

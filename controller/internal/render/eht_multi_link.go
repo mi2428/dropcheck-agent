@@ -544,10 +544,7 @@ func parseVendorSpecificSubelement(data []byte) *ehtVendorSpecificSubelement {
 		value := int(data[3])
 		vendorType = &value
 	}
-	payloadStart := len(data)
-	if len(data) >= 4 {
-		payloadStart = 4
-	}
+	payloadStart := min(len(data), 4)
 	payload := data[payloadStart:]
 	return &ehtVendorSpecificSubelement{
 		oui:              oui,
@@ -757,7 +754,7 @@ func readMAC(bytes []byte, offset int, limit int) string {
 		return ""
 	}
 	parts := make([]string, 6)
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		parts[i] = fmt.Sprintf("%02x", bytes[offset+i])
 	}
 	return strings.Join(parts, ":")

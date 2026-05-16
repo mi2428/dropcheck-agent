@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -127,12 +128,7 @@ func (c shellReadlineCompleter) Do(line []rune, pos int) ([][]rune, int) {
 }
 
 func shouldAppendReadlineCompletionSpace(candidate string, state *shellState) bool {
-	for _, exact := range completeShellLine(candidate, state) {
-		if exact == candidate+" " {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(completeShellLine(candidate, state), candidate+" ")
 }
 
 func hasRunePrefix(value []rune, prefix []rune) bool {

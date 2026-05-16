@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 
 	"dropcheck/controller/internal/controlpb"
@@ -518,14 +519,7 @@ func validateSampleLabels(sample MetricSample, labels []string) error {
 		}
 	}
 	for label := range sample.Labels {
-		found := false
-		for _, want := range labels {
-			if label == want {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !slices.Contains(labels, label) {
 			return fmt.Errorf("%s has unexpected label %q", sample.Name, label)
 		}
 	}

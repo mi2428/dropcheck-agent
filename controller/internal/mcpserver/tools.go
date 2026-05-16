@@ -516,7 +516,6 @@ func runOperationMaybeAll(ctx context.Context, backend Backend, target string, a
 		errs := make([]error, len(agents))
 		var wg sync.WaitGroup
 		for i, agent := range agents {
-			i, agent := i, agent
 			wg.Go(func() {
 				execs[i], errs[i] = backend.Run(ctx, agent.ID, op)
 			})

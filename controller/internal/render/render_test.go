@@ -349,7 +349,7 @@ func TestRenderConfigDisplaySet(t *testing.T) {
 	if strings.Contains(text, "<redacted>") {
 		t.Fatalf("Config(display set) should emit copyable commands, got %q", text)
 	}
-	for _, line := range strings.Split(strings.TrimSpace(text), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(text), "\n") {
 		args, err := command.SplitArgs(line)
 		if err != nil {
 			t.Fatalf("SplitArgs(%q) error = %v", line, err)
@@ -958,7 +958,7 @@ func TestRenderWifiScanAlignsFullWidthSSID(t *testing.T) {
 }
 
 func renderedLineContaining(out string, needle string) string {
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if strings.Contains(line, needle) {
 			return line
 		}
@@ -967,11 +967,11 @@ func renderedLineContaining(out string, needle string) string {
 }
 
 func displayColumn(line string, needle string) int {
-	index := strings.Index(line, needle)
-	if index < 0 {
+	before, _, ok := strings.Cut(line, needle)
+	if !ok {
 		return -1
 	}
-	return displayWidth(line[:index])
+	return displayWidth(before)
 }
 
 func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
