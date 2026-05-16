@@ -231,6 +231,23 @@ dropcheck_session_start
 dropcheck_wifi_status
 ```
 
+The comprehensive MCP live test starts `dropcheck-mcp` through MCP CommandTransport and drives a real Android agent over ADB. It connects, disconnects, forgets Wi-Fi, edits standalone config, runs saved standalone archives, and clears synced archives, so run it only against a dedicated Device Owner test handset.
+
+```console
+$ export DROPCHECK_LAB_WIFI_PSK='...'
+$ (
+  cd controller
+  DROPCHECK_E2E_LIVE=1 \
+    ADB_SERIAL=R5CT12345 \
+    DROPCHECK_E2E_WIFI_SSID=ShowNet \
+    DROPCHECK_E2E_WIFI_PSK_ENV=DROPCHECK_LAB_WIFI_PSK \
+    go test -tags 'e2e mcp_live_full' ./integration/mcp \
+      -run TestMCPServerCommandTransportComprehensiveLive -count=1 -v
+)
+```
+
+Use `-v` when debugging; the test logs every MCP protocol call, tool call, progress notification, and logging message with Wi-Fi passphrases redacted.
+
 Use MCP when another tool should run checks without shelling out to the CLI grammar for every operation.
 For host-file writes, use the CLI directly: `sync standalone runs` is intentionally not exposed through MCP.
 
