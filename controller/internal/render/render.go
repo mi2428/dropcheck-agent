@@ -282,7 +282,7 @@ func writeKVRows(b *strings.Builder, rows ...kvRow) {
 		}
 		if strings.Contains(row.value, "\n") {
 			_, _ = fmt.Fprintf(tw, "  %s\n", row.label)
-			for _, line := range strings.Split(row.value, "\n") {
+			for line := range strings.SplitSeq(row.value, "\n") {
 				if line == "" {
 					continue
 				}
