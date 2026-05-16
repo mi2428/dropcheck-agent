@@ -29,8 +29,8 @@ const comprehensiveMCPPSKEnv = "DROPCHECK_E2E_MCP_WIFI_PSK"
 //
 // Example:
 //
-//	DROPCHECK_E2E_LIVE=1 ADB_SERIAL=<serial> \
-//	  DROPCHECK_E2E_WIFI_SSID=<ssid> DROPCHECK_E2E_WIFI_PSK_ENV=<psk-env> \
+//	DROPCHECK_WIFI_PSK=<psk> DROPCHECK_E2E_LIVE=1 ADB_SERIAL=<serial> \
+//	  DROPCHECK_E2E_WIFI_SSID=<ssid> \
 //	  go test -tags 'e2e mcp_live_full' ./integration/mcp \
 //	    -run TestMCPServerCommandTransportComprehensiveLive -count=1 -v
 func TestMCPServerCommandTransportComprehensiveLive(t *testing.T) {
@@ -42,7 +42,7 @@ func TestMCPServerCommandTransportComprehensiveLive(t *testing.T) {
 		t.Skipf("%s or ADB_SERIAL is required", liveEnvSerial)
 	}
 	if cfg.ssid == "" || cfg.psk == "" {
-		t.Skipf("%s and %s/%s are required", liveEnvSSID, liveEnvPSKName, liveEnvPSK)
+		t.Skipf("%s and %s or %s/%s are required", liveEnvSSID, liveDefaultPSK, liveEnvPSKName, liveEnvPSK)
 	}
 
 	t.Setenv(comprehensiveMCPPSKEnv, cfg.psk)

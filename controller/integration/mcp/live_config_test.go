@@ -24,7 +24,7 @@ const (
 	liveEnvLaunchApp = "DROPCHECK_E2E_LAUNCH_APP"
 	liveDefaultADB   = "adb"
 	liveDefaultPkg   = "io.dropcheck.agent"
-	liveDefaultPSK   = "DROPCHECK_E2E_WIFI_PSK"
+	liveDefaultPSK   = "DROPCHECK_WIFI_PSK"
 	liveDNSName      = "example.com"
 	livePingHost     = "1.1.1.1"
 	liveHTTPURL      = "http://connectivitycheck.gstatic.com/generate_204"
