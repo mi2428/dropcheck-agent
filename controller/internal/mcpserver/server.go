@@ -8,7 +8,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// NewServer builds the dropcheck MCP server with all supported tools.
+// NewServer builds the dropcheck MCP server with tools, resources, and prompts.
 func NewServer(backend Backend) *mcp.Server {
 	if backend == nil {
 		backend = NewRealBackend(SessionStartOptions{})
