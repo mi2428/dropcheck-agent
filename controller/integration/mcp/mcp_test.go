@@ -329,6 +329,30 @@ func TestToolOutputSchemasDescribeStructuredContent(t *testing.T) {
 			}
 		}
 	}
+	resultProperties := func(toolName string) map[string]any {
+		t.Helper()
+		result, ok := outputSchemaProperties(t, tools[toolName])["result"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s result schema missing", toolName)
+		}
+		properties, ok := result["properties"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s result properties missing: %v", toolName, result)
+		}
+		return properties
+	}
+	for name, payload := range map[string]string{
+		"dropcheck_wifi_status":    "wifi_status",
+		"dropcheck_ip_status":      "ip_status",
+		"dropcheck_ping":           "ping",
+		"dropcheck_dns":            "resolve_dns",
+		"dropcheck_http":           "http_check",
+		"dropcheck_standalone_run": "standalone_run",
+	} {
+		if _, ok := resultProperties(name)[payload]; !ok {
+			t.Fatalf("%s output schema missing result.%s", name, payload)
+		}
+	}
 }
 
 func TestToolAnnotationsReflectExternalAndDestructiveBehavior(t *testing.T) {

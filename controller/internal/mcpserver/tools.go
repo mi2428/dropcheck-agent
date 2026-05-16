@@ -240,10 +240,10 @@ func registerTools(server *mcp.Server, backend Backend) {
 		return toolResult(fmt.Sprintf("%d agent(s) connected", len(agents)), map[string]any{"success": true, "agents": agents}, false)
 	})
 
-	addOperationTool[targetArgs](server, backend, "dropcheck_wifi_status", "Read current Wi-Fi connection status.", annotations(true, nil, true), func(in targetArgs) (string, dropcmd.Operation, error) {
+	addOperationToolWithOutputSchema[targetArgs](server, backend, "dropcheck_wifi_status", "Read current Wi-Fi connection status.", wifiStatusOutputSchema(), annotations(true, nil, true), func(in targetArgs) (string, dropcmd.Operation, error) {
 		return in.Target, dropcmd.WifiStatusOperation(), nil
 	})
-	addOperationTool[targetArgs](server, backend, "dropcheck_ip_status", "Read current Android network/IP status.", annotations(true, nil, true), func(in targetArgs) (string, dropcmd.Operation, error) {
+	addOperationToolWithOutputSchema[targetArgs](server, backend, "dropcheck_ip_status", "Read current Android network/IP status.", ipStatusOutputSchema(), annotations(true, nil, true), func(in targetArgs) (string, dropcmd.Operation, error) {
 		return in.Target, dropcmd.IPStatusOperation(), nil
 	})
 	addOperationTool[targetArgs](server, backend, "dropcheck_wifi_diagnostics", "Read Wi-Fi diagnostics, configured network diagnostics, and scan data.", annotations(true, nil, true), func(in targetArgs) (string, dropcmd.Operation, error) {
@@ -331,7 +331,7 @@ func registerTools(server *mcp.Server, backend Backend) {
 		return in.Target, op, err
 	})
 
-	addOperationTool[pingArgs](server, backend, "dropcheck_ping", "Run an ICMP ping from the Android device.", annotations(true, nil, true), func(in pingArgs) (string, dropcmd.Operation, error) {
+	addOperationToolWithOutputSchema[pingArgs](server, backend, "dropcheck_ping", "Run an ICMP ping from the Android device.", pingOutputSchema(), annotations(true, nil, true), func(in pingArgs) (string, dropcmd.Operation, error) {
 		op, err := dropcmd.PingOperation(dropcmd.PingOptions{Host: in.Host, Count: number(in.Count), Size: number(in.SizeBytes), Timeout: millis(in.TimeoutMS)})
 		return in.Target, op, err
 	})
@@ -347,11 +347,11 @@ func registerTools(server *mcp.Server, backend Backend) {
 		op, err := dropcmd.GlobalIPOperation(in.Family, millis(in.TimeoutMS))
 		return in.Target, op, err
 	})
-	addOperationTool[dnsArgs](server, backend, "dropcheck_dns", "Resolve DNS from the Android device.", annotations(true, nil, true), func(in dnsArgs) (string, dropcmd.Operation, error) {
+	addOperationToolWithOutputSchema[dnsArgs](server, backend, "dropcheck_dns", "Resolve DNS from the Android device.", dnsOutputSchema(), annotations(true, nil, true), func(in dnsArgs) (string, dropcmd.Operation, error) {
 		op, err := dropcmd.DNSOperation(in.Name, in.Type, millis(in.TimeoutMS))
 		return in.Target, op, err
 	})
-	addOperationTool[httpArgs](server, backend, "dropcheck_http", "Run an HTTP status check from the Android device.", annotations(true, nil, true), func(in httpArgs) (string, dropcmd.Operation, error) {
+	addOperationToolWithOutputSchema[httpArgs](server, backend, "dropcheck_http", "Run an HTTP status check from the Android device.", httpOutputSchema(), annotations(true, nil, true), func(in httpArgs) (string, dropcmd.Operation, error) {
 		op, err := dropcmd.HTTPOperation(in.URL, number(in.ExpectedStatus), millis(in.TimeoutMS))
 		return in.Target, op, err
 	})
@@ -387,7 +387,7 @@ func registerStandaloneTools(server *mcp.Server, backend Backend) {
 		op, err := dropcmd.StandaloneListRunsOperation(dropcmd.StandaloneListOptions{Limit: number(in.Limit), IncludeSynced: in.IncludeSynced})
 		return in.Target, op, err
 	})
-	addOperationTool[standaloneRunArgs](server, backend, "dropcheck_standalone_run", "Fetch one stored standalone dropcheck run archive.", annotations(false, new(false), true), func(in standaloneRunArgs) (string, dropcmd.Operation, error) {
+	addOperationToolWithOutputSchema[standaloneRunArgs](server, backend, "dropcheck_standalone_run", "Fetch one stored standalone dropcheck run archive.", standaloneRunOutputSchema(), annotations(false, new(false), true), func(in standaloneRunArgs) (string, dropcmd.Operation, error) {
 		op, err := dropcmd.StandaloneRunOperation(in.RunID, in.MarkSynced)
 		return in.Target, op, err
 	})
@@ -470,7 +470,11 @@ func addToolWithOutputSchema[In any](server *mcp.Server, name string, descriptio
 }
 
 func addOperationTool[In any](server *mcp.Server, backend Backend, name string, description string, toolAnnotations *mcp.ToolAnnotations, build func(In) (string, dropcmd.Operation, error)) {
-	addToolWithOutputSchema[In](server, name, description, operationOutputSchema(), toolAnnotations, func(ctx context.Context, in In) (*mcp.CallToolResult, map[string]any, error) {
+	addOperationToolWithOutputSchema(server, backend, name, description, operationOutputSchema(), toolAnnotations, build)
+}
+
+func addOperationToolWithOutputSchema[In any](server *mcp.Server, backend Backend, name string, description string, outputSchema any, toolAnnotations *mcp.ToolAnnotations, build func(In) (string, dropcmd.Operation, error)) {
+	addToolWithOutputSchema[In](server, name, description, outputSchema, toolAnnotations, func(ctx context.Context, in In) (*mcp.CallToolResult, map[string]any, error) {
 		target, op, err := build(in)
 		if err != nil {
 			return toolError(err.Error(), map[string]any{"tool": name})
