@@ -453,20 +453,26 @@ func registerCommandTools(server *mcp.Server, backend Backend) {
 		}
 	})
 
-	addToolWithOutputSchema[dropcheckRunArgs](server, "dropcheck_run", "Connect to an ESSID and run a complete connectivity check sequence from the Android device.", dropcheckRunOutputSchema(), annotations(false, new(true), false), func(ctx context.Context, in dropcheckRunArgs) (*mcp.CallToolResult, map[string]any, error) {
-		return runDropcheck(ctx, backend, in)
+	addToolWithOutputSchemaWithRequest[dropcheckRunArgs](server, "dropcheck_run", "Connect to an ESSID and run a complete connectivity check sequence from the Android device.", dropcheckRunOutputSchema(), annotations(false, new(true), false), func(ctx context.Context, req *mcp.CallToolRequest, in dropcheckRunArgs) (*mcp.CallToolResult, map[string]any, error) {
+		return runDropcheck(ctx, req, backend, in)
 	})
 }
 
 func addToolWithOutputSchema[In any](server *mcp.Server, name string, description string, outputSchema any, toolAnnotations *mcp.ToolAnnotations, handler func(context.Context, In) (*mcp.CallToolResult, map[string]any, error)) {
+	addToolWithOutputSchemaWithRequest(server, name, description, outputSchema, toolAnnotations, func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, map[string]any, error) {
+		return handler(ctx, in)
+	})
+}
+
+func addToolWithOutputSchemaWithRequest[In any](server *mcp.Server, name string, description string, outputSchema any, toolAnnotations *mcp.ToolAnnotations, handler func(context.Context, *mcp.CallToolRequest, In) (*mcp.CallToolResult, map[string]any, error)) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:         name,
 		Title:        strings.TrimPrefix(name, "dropcheck_"),
 		Description:  description,
 		OutputSchema: outputSchema,
 		Annotations:  toolAnnotations,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, map[string]any, error) {
-		return handler(ctx, in)
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, map[string]any, error) {
+		return handler(ctx, req, in)
 	})
 }
 
@@ -475,15 +481,24 @@ func addOperationTool[In any](server *mcp.Server, backend Backend, name string, 
 }
 
 func addOperationToolWithOutputSchema[In any](server *mcp.Server, backend Backend, name string, description string, outputSchema any, toolAnnotations *mcp.ToolAnnotations, build func(In) (string, dropcmd.Operation, error)) {
-	addToolWithOutputSchema[In](server, name, description, outputSchema, toolAnnotations, func(ctx context.Context, in In) (*mcp.CallToolResult, map[string]any, error) {
+	addToolWithOutputSchemaWithRequest[In](server, name, description, outputSchema, toolAnnotations, func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, map[string]any, error) {
 		target, op, err := build(in)
 		if err != nil {
 			return toolError(err.Error(), map[string]any{"tool": name})
 		}
+		notifyToolProgress(ctx, req, 0, 1, "starting "+op.Name)
+		logTool(ctx, req, "info", map[string]any{"tool": name, "operation": op.Name, "target": target, "event": "start"})
 		exec, err := backend.Run(ctx, target, op)
 		if err != nil {
+			logTool(ctx, req, "error", map[string]any{"tool": name, "operation": op.Name, "target": target, "event": "error", "error": err.Error()})
 			return toolError(err.Error(), map[string]any{"tool": name, "operation": op.Name, "target": target})
 		}
+		status := "unknown"
+		if exec.Result != nil {
+			status = statusName(exec.Result.GetStatus())
+		}
+		logTool(ctx, req, "info", map[string]any{"tool": name, "operation": op.Name, "target": target, "event": "complete", "status": status})
+		notifyToolProgress(ctx, req, 1, 1, op.Name+" "+status)
 		return executionToolResult(exec)
 	})
 }
@@ -521,7 +536,7 @@ func runOperationMaybeAll(ctx context.Context, backend Backend, target string, a
 	return executionToolResult(exec)
 }
 
-func runDropcheck(ctx context.Context, backend Backend, in dropcheckRunArgs) (*mcp.CallToolResult, map[string]any, error) {
+func runDropcheck(ctx context.Context, req *mcp.CallToolRequest, backend Backend, in dropcheckRunArgs) (*mcp.CallToolResult, map[string]any, error) {
 	passphrase, err := passphraseValue(in.Passphrase, in.PassphraseEnv)
 	if err != nil {
 		return toolError(err.Error(), map[string]any{"essid": in.ESSID})
@@ -530,14 +545,38 @@ func runDropcheck(ctx context.Context, backend Backend, in dropcheckRunArgs) (*m
 	if in.RequireIP != nil {
 		requireIP = *in.RequireIP
 	}
+	checks := normalizedChecks(in.Checks)
+	totalSteps := 2 + len(checks)
+	if in.DisconnectAfter {
+		totalSteps++
+	}
+	if in.ForgetAfter {
+		totalSteps++
+	}
+	stepIndex := 0
 	var execs []Execution
-	runStep := func(op dropcmd.Operation) (bool, error) {
+	runStep := func(label string, op dropcmd.Operation) (bool, error) {
+		notifyToolProgress(ctx, req, stepIndex, totalSteps, "starting "+label)
+		logTool(ctx, req, "info", map[string]any{"tool": "dropcheck_run", "step": label, "operation": op.Name, "target": in.Target, "event": "start"})
 		exec, err := backend.Run(ctx, in.Target, op)
 		if err != nil {
+			logTool(ctx, req, "error", map[string]any{"tool": "dropcheck_run", "step": label, "operation": op.Name, "target": in.Target, "event": "error", "error": err.Error()})
 			return false, err
 		}
 		execs = append(execs, exec)
-		return exec.Result != nil && exec.Result.GetStatus() == controlpb.CommandResult_STATUS_OK, nil
+		stepIndex++
+		status := "unknown"
+		ok := exec.Result != nil && exec.Result.GetStatus() == controlpb.CommandResult_STATUS_OK
+		if exec.Result != nil {
+			status = statusName(exec.Result.GetStatus())
+		}
+		level := mcp.LoggingLevel("info")
+		if !ok {
+			level = "warning"
+		}
+		logTool(ctx, req, level, map[string]any{"tool": "dropcheck_run", "step": label, "operation": op.Name, "target": in.Target, "event": "complete", "status": status})
+		notifyToolProgress(ctx, req, stepIndex, totalSteps, label+" "+status)
+		return ok, nil
 	}
 	connect, err := dropcmd.WifiConnectOperation(dropcmd.WifiConnectOptions{
 		SSID:             in.ESSID,
@@ -551,7 +590,7 @@ func runDropcheck(ctx context.Context, backend Backend, in dropcheckRunArgs) (*m
 	if err != nil {
 		return toolError(err.Error(), map[string]any{"essid": in.ESSID})
 	}
-	ok, err := runStep(connect)
+	ok, err := runStep("wifi.connect", connect)
 	if err != nil {
 		return dropcheckPartialError(err.Error(), execs)
 	}
@@ -567,18 +606,18 @@ func runDropcheck(ctx context.Context, backend Backend, in dropcheckRunArgs) (*m
 		if err != nil {
 			return toolError(err.Error(), map[string]any{"essid": in.ESSID})
 		}
-		ok, err = runStep(wait)
+		ok, err = runStep("wifi.wait", wait)
 		if err != nil {
 			return dropcheckPartialError(err.Error(), execs)
 		}
 	}
 	if ok {
-		for _, check := range normalizedChecks(in.Checks) {
+		for _, check := range checks {
 			op, err := dropcheckCheckOperation(check, in)
 			if err != nil {
 				return dropcheckPartialError(err.Error(), execs)
 			}
-			ok, err = runStep(op)
+			ok, err = runStep(check, op)
 			if err != nil {
 				return dropcheckPartialError(err.Error(), execs)
 			}
@@ -588,13 +627,13 @@ func runDropcheck(ctx context.Context, backend Backend, in dropcheckRunArgs) (*m
 		}
 	}
 	if in.DisconnectAfter {
-		_, err = runStep(dropcmd.WifiDisconnectOperation())
+		_, err = runStep("wifi.disconnect", dropcmd.WifiDisconnectOperation())
 		if err != nil {
 			return dropcheckPartialError(err.Error(), execs)
 		}
 	}
 	if in.ForgetAfter {
-		_, err = runStep(dropcmd.WifiForgetOperation(in.ESSID))
+		_, err = runStep("wifi.forget", dropcmd.WifiForgetOperation(in.ESSID))
 		if err != nil {
 			return dropcheckPartialError(err.Error(), execs)
 		}
