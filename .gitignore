@@ -186,3 +186,10 @@ gradle-app.setting
 /controller/coverage.out
 /controller/*.test
 *.coverprofile
+
+# Local secrets and Claude Code local-only project state.
+.env
+.env.*
+!.env.example
+.claude/settings.local.json
+CLAUDE.local.md
