@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -128,4 +129,31 @@ func annotations(readOnly bool, destructive *bool, idempotent bool) *mcp.ToolAnn
 		IdempotentHint:  idempotent,
 		OpenWorldHint:   &openWorld,
 	}
+}
+
+func notifyToolProgress(ctx context.Context, req *mcp.CallToolRequest, progress int, total int, message string) {
+	if req == nil || req.Session == nil || req.Params == nil {
+		return
+	}
+	token := req.Params.GetProgressToken()
+	if token == nil {
+		return
+	}
+	_ = req.Session.NotifyProgress(ctx, &mcp.ProgressNotificationParams{
+		ProgressToken: token,
+		Progress:      float64(progress),
+		Total:         float64(total),
+		Message:       message,
+	})
+}
+
+func logTool(ctx context.Context, req *mcp.CallToolRequest, level mcp.LoggingLevel, data any) {
+	if req == nil || req.Session == nil {
+		return
+	}
+	_ = req.Session.Log(ctx, &mcp.LoggingMessageParams{
+		Level:  level,
+		Logger: "dropcheck-mcp",
+		Data:   data,
+	})
 }

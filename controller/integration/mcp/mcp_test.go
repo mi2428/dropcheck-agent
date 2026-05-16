@@ -190,6 +190,10 @@ func setPayload(result *controlpb.CommandResult, name string) {
 }
 
 func connectMCP(t *testing.T, backend *fakeBackend) (*mcp.ClientSession, func()) {
+	return connectMCPWithOptions(t, backend, nil)
+}
+
+func connectMCPWithOptions(t *testing.T, backend *fakeBackend, opts *mcp.ClientOptions) (*mcp.ClientSession, func()) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
@@ -198,7 +202,7 @@ func connectMCP(t *testing.T, backend *fakeBackend) (*mcp.ClientSession, func())
 	go func() {
 		serverDone <- server.Run(ctx, serverTransport)
 	}()
-	client := mcp.NewClient(&mcp.Implementation{Name: "dropcheck-mcp-test", Version: "0.1.0"}, nil)
+	client := mcp.NewClient(&mcp.Implementation{Name: "dropcheck-mcp-test", Version: "0.1.0"}, opts)
 	session, err := client.Connect(ctx, clientTransport, nil)
 	if err != nil {
 		cancel()
@@ -726,6 +730,60 @@ func TestDropcheckRunSequencesConnectWaitChecksAndCleanup(t *testing.T) {
 	steps, ok := structured["steps"].([]any)
 	if !ok || len(steps) != len(want) {
 		t.Fatalf("steps=%T %[1]v", structured["steps"])
+	}
+}
+
+func TestDropcheckRunEmitsProgressAndLogs(t *testing.T) {
+	backend := newFakeBackend()
+	var mu sync.Mutex
+	var progressMessages []string
+	var logEvents []any
+	session, cleanup := connectMCPWithOptions(t, backend, &mcp.ClientOptions{
+		ProgressNotificationHandler: func(_ context.Context, req *mcp.ProgressNotificationClientRequest) {
+			mu.Lock()
+			defer mu.Unlock()
+			progressMessages = append(progressMessages, req.Params.Message)
+		},
+		LoggingMessageHandler: func(_ context.Context, req *mcp.LoggingMessageRequest) {
+			mu.Lock()
+			defer mu.Unlock()
+			logEvents = append(logEvents, req.Params.Data)
+		},
+	})
+	defer cleanup()
+	if err := session.SetLoggingLevel(context.Background(), &mcp.SetLoggingLevelParams{Level: "debug"}); err != nil {
+		t.Fatalf("SetLoggingLevel: %v", err)
+	}
+
+	params := &mcp.CallToolParams{
+		Name: "dropcheck_run",
+		Arguments: map[string]any{
+			"target":     "serial-1",
+			"essid":      "Lab",
+			"passphrase": "secret",
+			"checks":     []string{"wifi_status", "ping"},
+			"ping_host":  "1.1.1.1",
+		},
+	}
+	params.SetProgressToken("dropcheck-run-progress")
+	result, err := session.CallTool(context.Background(), params)
+	if err != nil {
+		t.Fatalf("CallTool(dropcheck_run): %v", err)
+	}
+	structured := structuredMap(t, result)
+	if result.IsError {
+		t.Fatalf("dropcheck_run IsError=true structured=%v", structured)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(progressMessages) < 4 {
+		t.Fatalf("progressMessages=%v, want step progress", progressMessages)
+	}
+	if !slices.Contains(progressMessages, "starting wifi.connect") || !slices.Contains(progressMessages, "ping ok") {
+		t.Fatalf("progressMessages=%v", progressMessages)
+	}
+	if len(logEvents) < 4 {
+		t.Fatalf("logEvents=%v, want start/complete logs", logEvents)
 	}
 }
 
