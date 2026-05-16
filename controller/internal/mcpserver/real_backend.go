@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"dropcheck/controller/internal/adb"
+	"dropcheck/controller/internal/adbdiag"
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/runner"
@@ -117,6 +118,31 @@ func (b *RealBackend) Run(ctx context.Context, target string, op command.Operati
 		return exec, err
 	}
 	return exec, nil
+}
+
+// ADBDiagnostics collects host-side adb diagnostics for target.
+func (b *RealBackend) ADBDiagnostics(ctx context.Context, target string, kind string) (ADBDiagnostics, error) {
+	if _, err := b.ensureStartedLocked(ctx); err != nil {
+		return ADBDiagnostics{}, err
+	}
+	info, err := resolveAgentLocked(b.session, target)
+	if err != nil {
+		b.mu.Unlock()
+		return ADBDiagnostics{}, err
+	}
+	serial := info.Hello.GetAdbSerial()
+	if serial == "" {
+		b.mu.Unlock()
+		return ADBDiagnostics{}, fmt.Errorf("agent %s has no adb serial for diagnostics", info.ID)
+	}
+	agent := agentFromInfo(0, info)
+	adbPath := b.opts.ADBPath
+	b.mu.Unlock()
+	bundle, err := adbdiag.Collect(ctx, adb.Client{Path: adbPath, Serial: serial}, agent.ID, kind)
+	if err != nil {
+		return ADBDiagnostics{}, err
+	}
+	return ADBDiagnostics{Agent: agent, Bundle: bundle}, nil
 }
 
 // Close releases backend resources.

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"dropcheck/controller/internal/adbdiag"
 	dropcmd "dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/controlpb"
 	"dropcheck/controller/internal/linuxcli"
@@ -38,10 +39,21 @@ type wifiScanArgs struct {
 	TimeoutMS uint32 `json:"timeout_ms,omitempty" jsonschema:"fresh scan timeout in milliseconds"`
 }
 
+type wifiMLOArgs struct {
+	Target    string `json:"target,omitempty" jsonschema:"agent target; omit when one agent is connected"`
+	Fresh     bool   `json:"fresh,omitempty" jsonschema:"request a fresh Android scan before reading MLO diagnostics"`
+	TimeoutMS uint32 `json:"timeout_ms,omitempty" jsonschema:"fresh scan timeout in milliseconds; valid only when fresh is true"`
+}
+
 type wifiScanDetailArgs struct {
 	TargetAgent string `json:"target,omitempty" jsonschema:"agent target; omit when one agent is connected"`
 	Target      string `json:"scan_target" jsonschema:"ESSID/SSID or BSSID to inspect in scan results"`
 	Band        string `json:"band,omitempty" jsonschema:"all, 2.4ghz, 5ghz, 6ghz, or 60ghz"`
+}
+
+type adbDiagnosticsArgs struct {
+	Target string `json:"target,omitempty" jsonschema:"agent target; omit when one agent is connected"`
+	Kind   string `json:"kind" jsonschema:"diagnostics kind: cmd-wifi-status, dumpsys-wifi, dumpsys-connectivity, dumpsys-connectivity-networks, dumpsys-connectivity-requests, dumpsys-connectivity-diagnostics, dumpsys-connectivity-trafficcontroller, or full"`
 }
 
 type wifiForgetArgs struct {
@@ -237,8 +249,9 @@ func registerTools(server *mcp.Server, backend Backend) {
 	addOperationTool[targetArgs](server, backend, "dropcheck_wifi_diagnostics", "Read Wi-Fi diagnostics, configured network diagnostics, and scan data.", annotations(true, nil, true), func(in targetArgs) (string, dropcmd.Operation, error) {
 		return in.Target, dropcmd.WifiDiagnosticsOperation(), nil
 	})
-	addOperationTool[targetArgs](server, backend, "dropcheck_wifi_mlo", "Read MLO-focused Wi-Fi diagnostics.", annotations(true, nil, true), func(in targetArgs) (string, dropcmd.Operation, error) {
-		return in.Target, dropcmd.WifiMLOOperation(), nil
+	addOperationTool[wifiMLOArgs](server, backend, "dropcheck_wifi_mlo", "Read MLO-focused Wi-Fi diagnostics, optionally after a fresh scan.", annotations(true, nil, true), func(in wifiMLOArgs) (string, dropcmd.Operation, error) {
+		op, err := dropcmd.WifiMLOOperationWithOptions(dropcmd.WifiMLOOptions{Fresh: in.Fresh, Timeout: millis(in.TimeoutMS)})
+		return in.Target, op, err
 	})
 	addOperationTool[targetArgs](server, backend, "dropcheck_wifi_capabilities", "Read device Wi-Fi capability diagnostics.", annotations(true, nil, true), func(in targetArgs) (string, dropcmd.Operation, error) {
 		return in.Target, dropcmd.WifiCapabilitiesOperation(), nil
@@ -345,6 +358,18 @@ func registerTools(server *mcp.Server, backend Backend) {
 	addOperationTool[downloadArgs](server, backend, "dropcheck_download", "Run an HTTP download probe from the Android device.", annotations(true, nil, true), func(in downloadArgs) (string, dropcmd.Operation, error) {
 		op, err := dropcmd.DownloadOperation(in.URL, millis(in.TimeoutMS))
 		return in.Target, op, err
+	})
+
+	addToolWithOutputSchema[adbDiagnosticsArgs](server, "dropcheck_adb_diagnostics", "Collect host-side adb diagnostics for the selected Android device.", adbDiagnosticsOutputSchema(), annotations(true, nil, true), func(ctx context.Context, in adbDiagnosticsArgs) (*mcp.CallToolResult, map[string]any, error) {
+		kind, err := adbDiagnosticsKind(in.Kind)
+		if err != nil {
+			return toolError(err.Error(), map[string]any{"kind": in.Kind})
+		}
+		diagnostics, err := backend.ADBDiagnostics(ctx, in.Target, kind)
+		if err != nil {
+			return toolError(err.Error(), map[string]any{"kind": kind, "target": in.Target})
+		}
+		return toolResult(fmt.Sprintf("adb diagnostics %s completed", kind), map[string]any{"success": true, "agent": diagnostics.Agent, "diagnostics": diagnostics.Bundle}, false)
 	})
 
 	registerStandaloneTools(server, backend)
@@ -668,6 +693,25 @@ func passphraseValue(passphrase, envName string) (string, error) {
 		return "", fmt.Errorf("environment variable %s is not set or empty", envName)
 	}
 	return value, nil
+}
+
+func adbDiagnosticsKind(value string) (string, error) {
+	kind := strings.TrimSpace(value)
+	switch kind {
+	case adbdiag.KindCmdWifiStatus,
+		adbdiag.KindDumpsysWifi,
+		adbdiag.KindDumpsysConnectivity,
+		adbdiag.KindDumpsysConnectivityNetworks,
+		adbdiag.KindDumpsysConnectivityRequests,
+		adbdiag.KindDumpsysConnectivityDiagnostics,
+		adbdiag.KindDumpsysConnectivityTraffic,
+		adbdiag.KindFull:
+		return kind, nil
+	case "":
+		return "", fmt.Errorf("adb diagnostics kind is required")
+	default:
+		return "", fmt.Errorf("unsupported adb diagnostics kind %q", value)
+	}
 }
 
 func normalizedChecks(checks []string) []string {

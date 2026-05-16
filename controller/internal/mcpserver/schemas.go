@@ -29,6 +29,15 @@ func agentsOutputSchema() map[string]any {
 	}, "success")
 }
 
+func adbDiagnosticsOutputSchema() map[string]any {
+	return objectSchema(map[string]any{
+		"success":     booleanSchema(),
+		"error":       stringSchema(),
+		"agent":       agentSchema(),
+		"diagnostics": objectSchema(map[string]any{}),
+	}, "success")
+}
+
 func operationOutputSchema() map[string]any {
 	return objectSchema(operationOutputProperties(), "success")
 }
