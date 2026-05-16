@@ -50,7 +50,10 @@
             </intent-filter>
         </receiver>
 
-        <!-- Keep the legacy component resolvable for devices provisioned before the receiver was renamed. -->
+        <!-- New provisioning uses .DeviceAdminReceiver above.
+             Keep this legacy component resolvable because devices already
+             provisioned as io.dropcheck.agent/.DropDeviceAdminReceiver must keep
+             their Device Owner component installed for teardown and management. -->
         <receiver
             android:name=".DropDeviceAdminReceiver"
             android:description="@string/device_admin_description"
