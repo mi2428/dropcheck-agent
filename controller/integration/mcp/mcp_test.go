@@ -31,10 +31,13 @@ type fakeBackend struct {
 		target string
 		kind   string
 	}
-	statusByOp map[string]controlpb.CommandResult_Status
-	started    bool
-	startOpts  []mcpserver.SessionStartOptions
-	stopCount  int
+	statusByOp  map[string]controlpb.CommandResult_Status
+	started     bool
+	startOpts   []mcpserver.SessionStartOptions
+	stopCount   int
+	runDelay    time.Duration
+	inFlight    int
+	maxInFlight int
 }
 
 func newFakeBackend() *fakeBackend {
@@ -88,6 +91,17 @@ func (b *fakeBackend) Run(_ context.Context, target string, op dropcmd.Operation
 		return mcpserver.Execution{}, err
 	}
 	b.mu.Lock()
+	b.inFlight++
+	if b.inFlight > b.maxInFlight {
+		b.maxInFlight = b.inFlight
+	}
+	delay := b.runDelay
+	b.mu.Unlock()
+	if delay > 0 {
+		time.Sleep(delay)
+	}
+	b.mu.Lock()
+	b.inFlight--
 	defer b.mu.Unlock()
 	b.runs = append(b.runs, runRecord{target: target, op: op})
 	status := controlpb.CommandResult_STATUS_OK
@@ -104,13 +118,23 @@ func (b *fakeBackend) Run(_ context.Context, target string, op dropcmd.Operation
 		ElapsedMs: 12,
 	}
 	setPayload(result, op.Name)
+	agent := b.agentForTargetLocked(target)
 	return mcpserver.Execution{
-		Agent:        b.agents[0],
+		Agent:        agent,
 		CommandID:    "cmd-" + op.Name,
 		Operation:    op.Name,
 		CommandLabel: cmd.GetLabel(),
 		Result:       result,
 	}, nil
+}
+
+func (b *fakeBackend) agentForTargetLocked(target string) mcpserver.Agent {
+	for _, agent := range b.agents {
+		if target == "" || target == agent.ID || target == agent.ADBSerial {
+			return agent
+		}
+	}
+	return b.agents[0]
 }
 
 func (b *fakeBackend) ADBDiagnostics(_ context.Context, target string, kind string) (mcpserver.ADBDiagnostics, error) {
@@ -748,6 +772,40 @@ func TestDropcheckCommandParsesCLIGrammar(t *testing.T) {
 	forget := backend.runs[0].op.Command.GetForgetWifi()
 	if forget == nil || forget.GetTarget() != "Lab" {
 		t.Fatalf("ForgetWifi=%#v", forget)
+	}
+}
+
+func TestDropcheckCommandRunsAllAgentsConcurrently(t *testing.T) {
+	backend := newFakeBackend()
+	backend.agents = append(backend.agents, mcpserver.Agent{
+		Number:       2,
+		ID:           "serial-2",
+		ADBSerial:    "serial-2",
+		SessionID:    "session-2",
+		AppVersion:   "0.1.0",
+		Manufacturer: "Google",
+		Model:        "Pixel",
+		SDK:          36,
+		Connected:    time.Unix(1700000002, 0),
+	})
+	backend.runDelay = 50 * time.Millisecond
+	session, cleanup := connectMCP(t, backend)
+	defer cleanup()
+
+	result, structured := callTool(t, session, "dropcheck_command", map[string]any{
+		"all":     true,
+		"command": "request ping 1.1.1.1",
+	})
+	if result.IsError {
+		t.Fatalf("dropcheck_command IsError=true structured=%v", structured)
+	}
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	if len(backend.runs) != 2 {
+		t.Fatalf("runs=%d, want 2", len(backend.runs))
+	}
+	if backend.maxInFlight < 2 {
+		t.Fatalf("maxInFlight=%d, want concurrent runs", backend.maxInFlight)
 	}
 }
 

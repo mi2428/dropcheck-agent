@@ -108,12 +108,15 @@ func (b *RealBackend) Run(ctx context.Context, target string, op command.Operati
 	if _, err := b.ensureStartedLocked(ctx); err != nil {
 		return Execution{}, err
 	}
-	defer b.mu.Unlock()
 	info, err := resolveAgentLocked(b.session, target)
 	if err != nil {
+		b.mu.Unlock()
 		return Execution{}, err
 	}
-	result, err := runner.New(b.session.Server).Run(ctx, info, op)
+	server := b.session.Server
+	b.mu.Unlock()
+
+	result, err := runner.New(server).Run(ctx, info, op)
 	exec := Execution{
 		Agent:        agentFromInfo(0, info),
 		CommandID:    result.CommandID,
