@@ -319,6 +319,14 @@ $ codex mcp add dropcheck -- "$PWD/controller/dist/dropcheck-mcp"
 $ codex mcp get dropcheck
 ```
 
+> [!NOTE]
+> `codex mcp add` stores a machine-local/global MCP entry with the absolute binary path. If the repository moves or the path becomes stale, remove and re-add it:
+>
+> ```console
+> $ codex mcp remove dropcheck
+> $ codex mcp add dropcheck -- "$PWD/controller/dist/dropcheck-mcp"
+> ```
+
 ### Standalone measurement and observability
 
 Standalone mode stores "festa" configurations on the handset.
