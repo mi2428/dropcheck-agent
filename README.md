@@ -88,10 +88,14 @@ $ adb -s 35251JEHN00258 shell dpm set-device-owner io.dropcheck.agent/.DeviceAdm
 $ adb -s 35251JEHN00258 shell dpm list-owners
 ```
 
+Newly provisioned devices should use `io.dropcheck.agent/.DeviceAdminReceiver`.
+Some existing test handsets may still report the legacy component `io.dropcheck.agent/.DropDeviceAdminReceiver`; keep using the component shown by `dpm list-owners` for teardown on those devices.
+
 For debug APKs installed by `make install`, Device Owner can usually be removed during test teardown with:
 
 ```console
-$ adb -s 35251JEHN00258 shell dpm remove-active-admin io.dropcheck.agent/.DeviceAdminReceiver
+$ adb -s 35251JEHN00258 shell dpm list-owners
+$ adb -s 35251JEHN00258 shell dpm remove-active-admin <component-from-list-owners>
 ```
 
 Grant Wi-Fi visibility permissions, or open the app once and approve the prompts:
