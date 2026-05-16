@@ -54,6 +54,12 @@ func newFakeBackend() *fakeBackend {
 	}
 }
 
+func (b *fakeBackend) Info(context.Context) (mcpserver.SessionInfo, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return mcpserver.SessionInfo{Started: b.started, ListenAddr: "127.0.0.1:12345", AgentCount: len(b.agents), Agents: append([]mcpserver.Agent(nil), b.agents...), StartedAt: time.Unix(1700000001, 0)}, nil
+}
+
 func (b *fakeBackend) Start(_ context.Context, opts mcpserver.SessionStartOptions) (mcpserver.SessionInfo, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -148,6 +154,14 @@ func setPayload(result *controlpb.CommandResult, name string) {
 		result.Payload = &controlpb.CommandResult_ResolveDns{ResolveDns: &controlpb.ResolveDnsResult{Name: "example.com"}}
 	case "http":
 		result.Payload = &controlpb.CommandResult_HttpCheck{HttpCheck: &controlpb.HttpCheckResult{Url: "http://connectivitycheck.gstatic.com/generate_204", Status: 204, ExpectedStatus: 204, Matched: true}}
+	case "standalone.config":
+		result.Payload = &controlpb.CommandResult_StandaloneConfig{StandaloneConfig: &controlpb.StandaloneConfig{Enabled: true}}
+	case "standalone.status":
+		result.Payload = &controlpb.CommandResult_StandaloneStatus{StandaloneStatus: &controlpb.StandaloneStatus{Enabled: true, StoredRuns: 1}}
+	case "standalone.runs":
+		result.Payload = &controlpb.CommandResult_StandaloneRuns{StandaloneRuns: &controlpb.StandaloneRuns{TotalRuns: 1}}
+	case "standalone.run":
+		result.Payload = &controlpb.CommandResult_StandaloneRun{StandaloneRun: &controlpb.StandaloneRunArchive{Summary: &controlpb.StandaloneRunSummary{RunId: "run-1", Status: "ok"}}}
 	}
 }
 
@@ -216,6 +230,22 @@ func assertContentIncludesStructuredJSON(t *testing.T, result *mcp.CallToolResul
 		}
 	}
 	t.Fatalf("content does not include structured JSON: content=%#v structured=%#v", result.Content, structured)
+}
+
+func readResourceMap(t *testing.T, session *mcp.ClientSession, uri string) map[string]any {
+	t.Helper()
+	result, err := session.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: uri})
+	if err != nil {
+		t.Fatalf("ReadResource(%s): %v", uri, err)
+	}
+	if len(result.Contents) != 1 {
+		t.Fatalf("ReadResource(%s) contents=%d, want 1", uri, len(result.Contents))
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(result.Contents[0].Text), &out); err != nil {
+		t.Fatalf("ReadResource(%s) content %q: %v", uri, result.Contents[0].Text, err)
+	}
+	return out
 }
 
 func outputSchemaProperties(t *testing.T, tool *mcp.Tool) map[string]any {
@@ -340,6 +370,101 @@ func TestToolAnnotationsReflectExternalAndDestructiveBehavior(t *testing.T) {
 	}
 	if hint := standaloneRun.Annotations.DestructiveHint; hint == nil || *hint {
 		t.Fatalf("dropcheck_standalone_run DestructiveHint=%v, want false", hint)
+	}
+}
+
+func TestResourcesExposeSessionAgentsAndStandaloneState(t *testing.T) {
+	backend := newFakeBackend()
+	session, cleanup := connectMCP(t, backend)
+	defer cleanup()
+
+	resources, err := session.ListResources(context.Background(), &mcp.ListResourcesParams{})
+	if err != nil {
+		t.Fatalf("ListResources: %v", err)
+	}
+	var resourceURIs []string
+	for _, resource := range resources.Resources {
+		resourceURIs = append(resourceURIs, resource.URI)
+	}
+	for _, uri := range []string{"dropcheck://session", "dropcheck://agents"} {
+		if !slices.Contains(resourceURIs, uri) {
+			t.Fatalf("resource %s not listed; got %v", uri, resourceURIs)
+		}
+	}
+
+	templates, err := session.ListResourceTemplates(context.Background(), &mcp.ListResourceTemplatesParams{})
+	if err != nil {
+		t.Fatalf("ListResourceTemplates: %v", err)
+	}
+	var templateURIs []string
+	for _, template := range templates.ResourceTemplates {
+		templateURIs = append(templateURIs, template.URITemplate)
+	}
+	for _, uri := range []string{
+		"dropcheck://standalone/config/{target}",
+		"dropcheck://standalone/status/{target}",
+		"dropcheck://standalone/runs/{target}",
+		"dropcheck://standalone/run/{target}/{run_id}",
+	} {
+		if !slices.Contains(templateURIs, uri) {
+			t.Fatalf("resource template %s not listed; got %v", uri, templateURIs)
+		}
+	}
+
+	sessionResource := readResourceMap(t, session, "dropcheck://session")
+	if sessionResource["success"] != true {
+		t.Fatalf("session resource=%v", sessionResource)
+	}
+	agentsResource := readResourceMap(t, session, "dropcheck://agents")
+	if agents, ok := agentsResource["agents"].([]any); !ok || len(agents) != 1 {
+		t.Fatalf("agents resource=%v", agentsResource)
+	}
+	configResource := readResourceMap(t, session, "dropcheck://standalone/config/default")
+	if configResource["operation"] != "standalone.config" {
+		t.Fatalf("standalone config resource=%v", configResource)
+	}
+	runResource := readResourceMap(t, session, "dropcheck://standalone/run/serial-1/run-1")
+	if runResource["operation"] != "standalone.run" {
+		t.Fatalf("standalone run resource=%v", runResource)
+	}
+}
+
+func TestPromptsDescribeDropcheckWorkflows(t *testing.T) {
+	session, cleanup := connectMCP(t, newFakeBackend())
+	defer cleanup()
+
+	prompts, err := session.ListPrompts(context.Background(), &mcp.ListPromptsParams{})
+	if err != nil {
+		t.Fatalf("ListPrompts: %v", err)
+	}
+	var names []string
+	for _, prompt := range prompts.Prompts {
+		names = append(names, prompt.Name)
+	}
+	for _, name := range []string{"dropcheck_connectivity_check", "dropcheck_mlo_investigation", "dropcheck_noc_smoke_check"} {
+		if !slices.Contains(names, name) {
+			t.Fatalf("prompt %s not listed; got %v", name, names)
+		}
+	}
+
+	prompt, err := session.GetPrompt(context.Background(), &mcp.GetPromptParams{
+		Name: "dropcheck_mlo_investigation",
+		Arguments: map[string]string{
+			"target": "serial-1",
+			"essid":  "Lab",
+		},
+	})
+	if err != nil {
+		t.Fatalf("GetPrompt: %v", err)
+	}
+	if len(prompt.Messages) != 1 {
+		t.Fatalf("prompt messages=%d, want 1", len(prompt.Messages))
+	}
+	text := prompt.Messages[0].Content.(*mcp.TextContent).Text
+	for _, want := range []string{"dropcheck_wifi_mlo", "fresh=true", "dropcheck_adb_diagnostics", "Lab"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("prompt text missing %q: %s", want, text)
+		}
 	}
 }
 

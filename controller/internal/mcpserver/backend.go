@@ -14,6 +14,7 @@ import (
 // RealBackend owns a dropcheck controller session. Tests can provide a fake
 // backend to exercise MCP protocol behavior without ADB or Android devices.
 type Backend interface {
+	Info(context.Context) (SessionInfo, error)
 	Start(context.Context, SessionStartOptions) (SessionInfo, error)
 	Stop(context.Context) error
 	Agents(context.Context) ([]Agent, error)

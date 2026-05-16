@@ -19,6 +19,8 @@ func NewServer(backend Backend) *mcp.Server {
 		Version: version.Version,
 	}, nil)
 	registerTools(server, backend)
+	registerResources(server, backend)
+	registerPrompts(server)
 	return server
 }
 

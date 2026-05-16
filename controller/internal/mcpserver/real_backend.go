@@ -34,6 +34,16 @@ func NewRealBackend(opts SessionStartOptions) *RealBackend {
 	return &RealBackend{opts: defaultSessionStartOptions(opts)}
 }
 
+// Info returns the current controller session state without starting a session.
+func (b *RealBackend) Info(context.Context) (SessionInfo, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return SessionInfo{}, errors.New("dropcheck MCP backend is closed")
+	}
+	return b.sessionInfoLocked(), nil
+}
+
 // Start starts or restarts the controller session.
 func (b *RealBackend) Start(ctx context.Context, opts SessionStartOptions) (SessionInfo, error) {
 	b.mu.Lock()
