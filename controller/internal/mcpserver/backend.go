@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"dropcheck/controller/internal/adbdiag"
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/controlpb"
 )
@@ -17,6 +18,7 @@ type Backend interface {
 	Stop(context.Context) error
 	Agents(context.Context) ([]Agent, error)
 	Run(context.Context, string, command.Operation) (Execution, error)
+	ADBDiagnostics(context.Context, string, string) (ADBDiagnostics, error)
 	Close() error
 }
 
@@ -64,4 +66,10 @@ type Execution struct {
 	Operation    string
 	CommandLabel string
 	Result       *controlpb.CommandResult
+}
+
+// ADBDiagnostics is the MCP-facing result of one host-side adb diagnostics run.
+type ADBDiagnostics struct {
+	Agent  Agent          `json:"agent"`
+	Bundle adbdiag.Bundle `json:"bundle"`
 }

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"dropcheck/controller/internal/adbdiag"
 	dropcmd "dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/controlpb"
 	"dropcheck/controller/internal/mcpserver"
@@ -23,9 +24,13 @@ type runRecord struct {
 }
 
 type fakeBackend struct {
-	mu         sync.Mutex
-	agents     []mcpserver.Agent
-	runs       []runRecord
+	mu      sync.Mutex
+	agents  []mcpserver.Agent
+	runs    []runRecord
+	adbRuns []struct {
+		target string
+		kind   string
+	}
 	statusByOp map[string]controlpb.CommandResult_Status
 	started    bool
 	startOpts  []mcpserver.SessionStartOptions
@@ -99,6 +104,29 @@ func (b *fakeBackend) Run(_ context.Context, target string, op dropcmd.Operation
 		Operation:    op.Name,
 		CommandLabel: cmd.GetLabel(),
 		Result:       result,
+	}, nil
+}
+
+func (b *fakeBackend) ADBDiagnostics(_ context.Context, target string, kind string) (mcpserver.ADBDiagnostics, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.adbRuns = append(b.adbRuns, struct {
+		target string
+		kind   string
+	}{target: target, kind: kind})
+	return mcpserver.ADBDiagnostics{
+		Agent: b.agents[0],
+		Bundle: adbdiag.Bundle{
+			Agent:  b.agents[0].ID,
+			Serial: b.agents[0].ADBSerial,
+			Kind:   kind,
+			Commands: []adbdiag.CommandResult{{
+				Name:     "cmd wifi status",
+				Command:  "adb shell cmd wifi status",
+				Stdout:   "Wifi is enabled\n",
+				ExitCode: 0,
+			}},
+		},
 	}, nil
 }
 
@@ -229,6 +257,7 @@ func TestToolsListIncludesDropcheckOperations(t *testing.T) {
 		"dropcheck_wifi_mlo",
 		"dropcheck_wifi_monitor",
 		"dropcheck_ping",
+		"dropcheck_adb_diagnostics",
 		"dropcheck_standalone_run_once",
 		"dropcheck_command",
 		"dropcheck_run",
@@ -252,11 +281,12 @@ func TestToolOutputSchemasDescribeStructuredContent(t *testing.T) {
 		tools[tool.Name] = tool
 	}
 	for name, fields := range map[string][]string{
-		"dropcheck_session_start": {"success", "session", "error"},
-		"dropcheck_agents":        {"success", "agents", "error"},
-		"dropcheck_ping":          {"success", "operation", "status", "elapsed_ms", "result"},
-		"dropcheck_command":       {"success", "operation", "results", "agents", "error"},
-		"dropcheck_run":           {"success", "steps", "failed_step", "partial", "error"},
+		"dropcheck_session_start":   {"success", "session", "error"},
+		"dropcheck_agents":          {"success", "agents", "error"},
+		"dropcheck_ping":            {"success", "operation", "status", "elapsed_ms", "result"},
+		"dropcheck_adb_diagnostics": {"success", "agent", "diagnostics", "error"},
+		"dropcheck_command":         {"success", "operation", "results", "agents", "error"},
+		"dropcheck_run":             {"success", "steps", "failed_step", "partial", "error"},
 	} {
 		tool := tools[name]
 		if tool == nil {
@@ -321,6 +351,13 @@ func TestFirstClassWifiToolsCoverShellOperations(t *testing.T) {
 	if result, structured := callTool(t, session, "dropcheck_wifi_mlo", map[string]any{"target": "serial-1"}); result.IsError {
 		t.Fatalf("wifi mlo IsError=true structured=%v", structured)
 	}
+	if result, structured := callTool(t, session, "dropcheck_wifi_mlo", map[string]any{
+		"target":     "serial-1",
+		"fresh":      true,
+		"timeout_ms": float64(9000),
+	}); result.IsError {
+		t.Fatalf("wifi mlo fresh IsError=true structured=%v", structured)
+	}
 	if result, structured := callTool(t, session, "dropcheck_wifi_monitor", map[string]any{
 		"target":      "serial-1",
 		"duration_ms": float64(15000),
@@ -365,17 +402,20 @@ func TestFirstClassWifiToolsCoverShellOperations(t *testing.T) {
 
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
-	if len(backend.runs) != 5 {
-		t.Fatalf("runs=%d, want 5", len(backend.runs))
+	if len(backend.runs) != 6 {
+		t.Fatalf("runs=%d, want 6", len(backend.runs))
 	}
 	if backend.runs[0].op.Name != "wifi.mlo" {
 		t.Fatalf("mlo operation=%s", backend.runs[0].op.Name)
 	}
-	monitor := backend.runs[1].op.Command.GetMonitorWifi()
+	if backend.runs[1].op.Name != "wifi.mlo" || !backend.runs[1].op.Options.WifiMLOFreshScan || backend.runs[1].op.Options.WifiMLOFreshScanTimeoutMs != 9000 {
+		t.Fatalf("mlo fresh operation=%s options=%#v", backend.runs[1].op.Name, backend.runs[1].op.Options)
+	}
+	monitor := backend.runs[2].op.Command.GetMonitorWifi()
 	if monitor == nil || monitor.GetDurationMs() != 15000 || monitor.GetIntervalMs() != 500 {
 		t.Fatalf("MonitorWifi=%#v", monitor)
 	}
-	cycle := backend.runs[2].op.Command.GetCycleWifi()
+	cycle := backend.runs[3].op.Command.GetCycleWifi()
 	if cycle == nil {
 		t.Fatalf("CycleWifi command missing")
 	}
@@ -385,7 +425,7 @@ func TestFirstClassWifiToolsCoverShellOperations(t *testing.T) {
 	if cycle.GetCount() != 2 || cycle.GetPingHost() != "1.1.1.1" || cycle.GetHttpUrl() != "https://example.test/health" || !cycle.GetForgetAfterEach() || cycle.GetPauseMs() != 250 {
 		t.Fatalf("CycleWifi=%#v", cycle)
 	}
-	wait := backend.runs[3].op.Command.GetWaitWifiConnected()
+	wait := backend.runs[4].op.Command.GetWaitWifiConnected()
 	if wait == nil ||
 		wait.GetSsid() != "Lab" ||
 		wait.GetBssid() != "aa:bb:cc:dd:ee:ff" ||
@@ -396,7 +436,7 @@ func TestFirstClassWifiToolsCoverShellOperations(t *testing.T) {
 		wait.GetTimeoutMs() != 12000 {
 		t.Fatalf("WaitWifiConnected=%#v", wait)
 	}
-	assert := backend.runs[4].op.Command.GetAssertWifi()
+	assert := backend.runs[5].op.Command.GetAssertWifi()
 	if assert == nil ||
 		assert.GetSsid() != "Lab" ||
 		!assert.GetRequireIp() ||
@@ -447,6 +487,32 @@ func TestWifiConnectUsesPassphraseEnvAndRedactsOutput(t *testing.T) {
 		if text := content.(*mcp.TextContent).Text; strings.Contains(text, "super-secret") {
 			t.Fatalf("content leaked passphrase: %s", text)
 		}
+	}
+}
+
+func TestADBDiagnosticsToolCollectsHostDiagnostics(t *testing.T) {
+	backend := newFakeBackend()
+	session, cleanup := connectMCP(t, backend)
+	defer cleanup()
+
+	result, structured := callTool(t, session, "dropcheck_adb_diagnostics", map[string]any{
+		"target": "serial-1",
+		"kind":   "cmd-wifi-status",
+	})
+	if result.IsError {
+		t.Fatalf("adb diagnostics IsError=true structured=%v", structured)
+	}
+	diagnostics, ok := structured["diagnostics"].(map[string]any)
+	if !ok {
+		t.Fatalf("diagnostics=%T %[1]v", structured["diagnostics"])
+	}
+	if diagnostics["kind"] != "cmd-wifi-status" {
+		t.Fatalf("diagnostics.kind=%v structured=%v", diagnostics["kind"], structured)
+	}
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	if len(backend.adbRuns) != 1 || backend.adbRuns[0].target != "serial-1" || backend.adbRuns[0].kind != "cmd-wifi-status" {
+		t.Fatalf("adbRuns=%#v", backend.adbRuns)
 	}
 }
 
