@@ -94,7 +94,7 @@ func TestMCPServerAndroidLive(t *testing.T) {
 
 	t.Run("dropcheck run executes connect wait checks", func(t *testing.T) {
 		if cfg.ssid == "" || cfg.psk == "" {
-			t.Skipf("%s/%s not set; skipping MCP dropcheck_run live sequence", liveEnvSSID, liveEnvPSK)
+			t.Skipf("%s and %s or %s/%s not set; skipping MCP dropcheck_run live sequence", liveEnvSSID, liveDefaultPSK, liveEnvPSKName, liveEnvPSK)
 		}
 		t.Setenv(liveMCPPSKEnv, cfg.psk)
 		result, structured := callLiveMCPTool(t, session, "dropcheck_run", map[string]any{
