@@ -14,11 +14,11 @@ func TestTimeoutForControllerDeadlines(t *testing.T) {
 		want time.Duration
 	}{
 		{
-			name: "connect uses requested agent timeout without extra slack",
+			name: "connect keeps controller slack after agent wait",
 			cmd: &controlpb.RunCommand{Command: &controlpb.RunCommand_ConnectWifi{
 				ConnectWifi: &controlpb.ConnectWifi{TimeoutMs: 25000},
 			}},
-			want: 25 * time.Second,
+			want: 30 * time.Second,
 		},
 		{
 			name: "fresh scan keeps controller slack after agent wait",
