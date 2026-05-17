@@ -159,7 +159,7 @@ func roundTimelineTileWidths(width int, columns int) []int {
 	baseWidth := available / columns
 	remainder := available % columns
 	widths := make([]int, columns)
-	for column := 0; column < columns; column++ {
+	for column := range columns {
 		widths[column] = baseWidth
 		if column < remainder {
 			widths[column]++
@@ -286,7 +286,7 @@ func renderTargetRoundHistory(buckets []targetRoundBucket, checkCount int, width
 	}
 	checkCount = max(1, checkCount)
 	var b strings.Builder
-	for i := 0; i < width; i++ {
+	for i := range width {
 		bucket := targetRoundBucket{}
 		if i < len(buckets) {
 			bucket = buckets[i]

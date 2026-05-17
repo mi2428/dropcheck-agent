@@ -30,7 +30,7 @@ func renderSparkline(counts []int, maxCount int, width int, height int, style li
 		return lines
 	}
 	columnHeights := make([]int, width)
-	for i := 0; i < width; i++ {
+	for i := range width {
 		count := 0
 		if i < len(counts) {
 			count = counts[i]

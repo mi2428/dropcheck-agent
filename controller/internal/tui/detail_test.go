@@ -380,7 +380,7 @@ func TestFailedCheckDetailLogsUseStructuredHistoryBeyondVisibleEventLog(t *testi
 			Message:  "constraint failed",
 		},
 	})
-	for i := 0; i < visibleEventLogLimit+25; i++ {
+	for i := range visibleEventLogLimit + 25 {
 		m.apply(watch.Event{
 			Time:    at.Add(time.Duration(i+1) * time.Second),
 			Kind:    watch.EventLog,
@@ -457,7 +457,7 @@ func TestDetailModalShowsExpandedLogRows(t *testing.T) {
 	m := newModel("shownet-watch", []watch.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	target := watch.TargetSnapshot{Name: "radio-a", SSID: "Lab", Band: "5ghz"}
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		m.apply(watch.Event{
 			Time:     at.Add(time.Duration(i) * time.Second),
 			Kind:     watch.EventStepFinished,

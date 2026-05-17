@@ -52,10 +52,7 @@ func RecentEventBucketCount(window time.Duration, width int) int {
 	if window <= 0 || width <= 0 {
 		return 0
 	}
-	oneSecondBuckets := int((window + time.Second - 1) / time.Second)
-	if oneSecondBuckets < 1 {
-		oneSecondBuckets = 1
-	}
+	oneSecondBuckets := max(int((window+time.Second-1)/time.Second), 1)
 	return Clamp(width, 1, oneSecondBuckets)
 }
 
@@ -135,7 +132,7 @@ func ResampleSparklineCounts(counts []int, width int) []int {
 		copy(out, counts)
 		return out
 	}
-	for column := 0; column < width; column++ {
+	for column := range width {
 		start := column * len(counts) / width
 		end := (column + 1) * len(counts) / width
 		if end <= start {

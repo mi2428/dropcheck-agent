@@ -23,10 +23,10 @@ type Event struct {
 	Time     time.Time      `json:"time"`
 	Kind     EventKind      `json:"kind"`
 	Plan     string         `json:"plan,omitempty"`
-	Agent    AgentSnapshot  `json:"agent,omitempty"`
+	Agent    AgentSnapshot  `json:"agent"`
 	Round    uint64         `json:"round,omitempty"`
-	Target   TargetSnapshot `json:"target,omitempty"`
-	Step     StepSnapshot   `json:"step,omitempty"`
+	Target   TargetSnapshot `json:"target"`
+	Step     StepSnapshot   `json:"step"`
 	Finding  *Finding       `json:"finding,omitempty"`
 	Status   string         `json:"status,omitempty"`
 	Message  string         `json:"message,omitempty"`

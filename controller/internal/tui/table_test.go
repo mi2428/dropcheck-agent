@@ -25,9 +25,9 @@ func TestBarListLineAlignsColumns(t *testing.T) {
 	if strings.Index(short, "█") != strings.Index(long, "█") {
 		t.Fatalf("bar column should align:\nshort=%q\nlong=%q", short, long)
 	}
-	shortRight := strings.Index(short, "09:30:01")
-	longRight := strings.Index(long, "09:30:02")
-	if shortRight < 0 || longRight < 0 || lipgloss.Width(short[:shortRight]) != lipgloss.Width(long[:longRight]) {
+	shortBefore, _, shortOK := strings.Cut(short, "09:30:01")
+	longBefore, _, longOK := strings.Cut(long, "09:30:02")
+	if !shortOK || !longOK || lipgloss.Width(shortBefore) != lipgloss.Width(longBefore) {
 		t.Fatalf("right column should align:\nshort=%q\nlong=%q", short, long)
 	}
 	if strings.Contains(short, " / ") || strings.Contains(long, " / ") {
@@ -123,7 +123,7 @@ func TestInitialRenderWithoutMeasurementsIsStable(t *testing.T) {
 		}
 	}
 	failedHeader := ""
-	for _, line := range strings.Split(frame, "\n") {
+	for line := range strings.SplitSeq(frame, "\n") {
 		if strings.Contains(line, "Fail%") && strings.Contains(line, "Strk") {
 			failedHeader = line
 			break

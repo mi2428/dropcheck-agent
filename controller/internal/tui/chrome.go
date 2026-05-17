@@ -27,7 +27,7 @@ func renderPanelFocused(title string, width int, height int, body string, focuse
 
 	var b strings.Builder
 	b.WriteString(panelTop(title, width, border, titleSty))
-	for i := 0; i < contentHeight; i++ {
+	for i := range contentHeight {
 		b.WriteByte('\n')
 		line := ""
 		if i < len(lines) {

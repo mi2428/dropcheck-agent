@@ -36,7 +36,7 @@ func ParseWifiFailureCause(text string) string {
 	var authentication string
 	var blocklist string
 	var disconnect string
-	for _, raw := range strings.Split(text, "\n") {
+	for raw := range strings.SplitSeq(text, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" {
 			continue

@@ -281,7 +281,6 @@ func renderWatchFrameWithSteps(t *testing.T, steps []watch.StepSnapshot) string 
 		Target: watch.TargetSnapshot{Name: "shownet-6g-ap1", SSID: "ShowNet", Band: "6ghz"},
 	})
 	for _, step := range steps {
-		step := step
 		kind := watch.EventStepFinished
 		if step.Status == "running" {
 			kind = watch.EventStepStarted
@@ -336,7 +335,7 @@ func lineIndex(text string, needle string) int {
 }
 
 func panelTopWidth(text string, title string) int {
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		index := strings.Index(line, "┌"+title)
 		if index < 0 {
 			continue

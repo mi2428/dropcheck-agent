@@ -52,7 +52,7 @@ func TestPassingAndFailedChecksRenderCompactTables(t *testing.T) {
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(5 * time.Second)
 	target := watch.TargetSnapshot{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		m.apply(watch.Event{
 			Time:     at.Add(time.Duration(i) * time.Second),
 			Kind:     watch.EventStepFinished,

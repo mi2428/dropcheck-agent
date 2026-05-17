@@ -167,8 +167,8 @@ func compileStringMatcher(metric string, value string) (Matcher, error) {
 		return Matcher{Metric: metric, Op: "==", Want: ""}, nil
 	}
 	for _, op := range []string{">=", "<=", "!=", "==", ">", "<"} {
-		if strings.HasPrefix(value, op) {
-			return Matcher{Metric: metric, Op: op, Want: strings.TrimSpace(strings.TrimPrefix(value, op))}, nil
+		if after, ok := strings.CutPrefix(value, op); ok {
+			return Matcher{Metric: metric, Op: op, Want: strings.TrimSpace(after)}, nil
 		}
 	}
 	if rest, ok := strings.CutPrefix(value, "contains "); ok {
