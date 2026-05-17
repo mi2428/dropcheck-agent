@@ -1,0 +1,198 @@
+version: 1
+name: shownet-watch
+
+# Zero starts the next round immediately after the previous round completes.
+# Use values such as 5s or 1m when association churn should be gentler.
+round_interval: 0s
+
+defaults:
+  passphrase_env: DROPCHECK_WIFI_PSK
+  security: wpa3
+  mac_randomization: none
+  require_ip: true
+  require_validated: true
+  connect_timeout: 45s
+  wait_timeout: 45s
+  disconnect_after: true
+  forget_after: false
+
+targets:
+  - name: shownet-6g-ap1
+    ssid: ShowNet
+    bssid: aa:bb:cc:dd:ee:ff
+    band: 6ghz
+
+  - name: shownet-5g-any
+    ssid: ShowNet
+    band: 5ghz
+
+checks:
+  - name: wifi link
+    type: wifi_status
+    expect:
+      ssid: ShowNet
+      validated: true
+
+  - name: ip provisioning
+    type: ip_status
+    expect:
+      validated: true
+      internet: true
+      default_route: true
+      dns_server_count: ">=1"
+      mtu: ">=1280"
+      ipv4_addresses:
+        cidr: 0.0.0.0/0
+      ipv6_addresses:
+        cidr: "::/0"
+      ipv4_dns_servers:
+        cidr: 0.0.0.0/0
+        mode: exact
+      ipv6_dns_servers:
+        cidr: "::/0"
+        mode: exact
+
+  - name: scan target
+    type: scan_detail
+    scan_target: ShowNet
+    expect:
+      visible: true
+      result_count: ">=1"
+
+  - name: ping cloudflare v4
+    type: ping
+    host: 1.1.1.1
+    count: 5
+    expect:
+      received: 5
+      loss_percent: 0
+      avg_latency_ms: "<=200"
+
+  - name: ping cloudflare v6
+    type: ping
+    host: 2606:4700:4700::1111
+    count: 5
+    expect:
+      received: 5
+      loss_percent: 0
+      avg_latency_ms: "<=200"
+
+  - name: traceroute cloudflare v4
+    type: traceroute
+    host: 1.1.1.1
+    max_hops: 16
+    timeout: 30s
+    expect:
+      status: ok
+      hop_count: ">=1"
+      hop_ips:
+        cidr: 0.0.0.0/0
+
+  - name: traceroute cloudflare v6
+    type: traceroute
+    host: 2606:4700:4700::1111
+    max_hops: 16
+    timeout: 30s
+    expect:
+      status: ok
+      hop_count: ">=1"
+      ipv6_hop_ips:
+        cidr: "::/0"
+
+  - name: path mtu cloudflare v4
+    type: path_mtu
+    host: 1.1.1.1
+    min_mtu: 1280
+    max_mtu: 1500
+    timeout: 30s
+    expect:
+      discovered: true
+      path_mtu_bytes: ">=1280"
+
+  - name: path mtu cloudflare v6
+    type: path_mtu
+    host: 2606:4700:4700::1111
+    min_mtu: 1280
+    max_mtu: 1500
+    timeout: 30s
+    expect:
+      discovered: true
+      path_mtu_bytes: ">=1280"
+
+  - name: dns cloudflare a
+    type: dns
+    query: one.one.one.one
+    record: A
+    expect:
+      a_count: ">=1"
+      a_answers:
+        exact:
+          - 1.0.0.1
+          - 1.1.1.1
+      elapsed_ms: "<=1000"
+
+  - name: dns cloudflare aaaa
+    type: dns
+    query: one.one.one.one
+    record: AAAA
+    expect:
+      aaaa_count: ">=1"
+      aaaa_answers:
+        exact:
+          - 2606:4700:4700::1001
+          - 2606:4700:4700::1111
+      elapsed_ms: "<=1000"
+
+  - name: http cloudflare v4
+    type: http
+    url: http://1.1.1.1/cdn-cgi/trace
+    status: 301
+    expect:
+      matched: true
+      status_code: 301
+      elapsed_ms: "<=3000"
+
+  - name: http cloudflare v6
+    type: http
+    url: http://[2606:4700:4700::1111]/cdn-cgi/trace
+    status: 301
+    expect:
+      matched: true
+      status_code: 301
+      elapsed_ms: "<=3000"
+
+  - name: download cloudflare v4
+    type: download
+    url: http://1.1.1.1/cdn-cgi/trace
+    timeout: 10s
+    expect:
+      status_code: 301
+      bytes_read: ">=1"
+
+  - name: download cloudflare v6
+    type: download
+    url: http://[2606:4700:4700::1111]/cdn-cgi/trace
+    timeout: 10s
+    expect:
+      status_code: 301
+      bytes_read: ">=1"
+
+  - name: public ipv4
+    type: global_ip
+    family: ipv4
+    expect:
+      address_count: ">=1"
+      global_count: ">=1"
+      ipv4_global_ips:
+        cidr: 0.0.0.0/0
+      error_count: 0
+
+  - name: public ipv6
+    type: global_ip
+    family: ipv6
+    expect:
+      address_count: ">=1"
+      global_count: ">=1"
+      ipv6_global_ips:
+        cidr: "::/0"
+      error_count: 0

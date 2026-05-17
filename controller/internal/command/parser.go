@@ -132,7 +132,7 @@ func NormalizeDNSQType(value string) (string, error) {
 func timeoutFor(cmd *controlpb.RunCommand) time.Duration {
 	switch c := cmd.Command.(type) {
 	case *controlpb.RunCommand_ConnectWifi:
-		return durationFromMillis(c.ConnectWifi.TimeoutMs, 60*time.Second)
+		return durationFromMillis(c.ConnectWifi.TimeoutMs, 60*time.Second) + 5*time.Second
 	case *controlpb.RunCommand_GetWifiDiagnostics:
 		return 30 * time.Second
 	case *controlpb.RunCommand_GetWifiScan:
