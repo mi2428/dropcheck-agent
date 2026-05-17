@@ -232,7 +232,6 @@ func runCheck(ctx context.Context, opRunner OperationRunner, agent control.Agent
 	}
 	findings = append(findings, evaluateMatchers(target, check, metricsForResult(exec.Result))...)
 	for _, item := range findings {
-		item := item
 		if err := emit(Event{
 			Kind:    EventFinding,
 			Round:   round,

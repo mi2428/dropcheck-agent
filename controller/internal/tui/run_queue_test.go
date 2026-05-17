@@ -180,7 +180,7 @@ func TestRunQueueTreeKeepsScrollAnchorWhenNoTargetIsActive(t *testing.T) {
 	events := make(chan watch.Event)
 	m := newModel("shownet-watch", []watch.Target{}, events)
 	m.height = 9
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		status := "pending"
 		if i == 12 {
 			status = "running"
@@ -212,7 +212,7 @@ func TestRunQueueTreeUsesStableOffsetInsteadOfRecentering(t *testing.T) {
 	events := make(chan watch.Event)
 	m := newModel("shownet-watch", []watch.Target{}, events)
 	m.height = 9
-	for i := 0; i < 12; i++ {
+	for i := range 12 {
 		m.Targets = append(m.Targets, targetState{
 			Target: targetSnapshot(fmt.Sprintf("target-%02d", i)),
 			Status: "pending",

@@ -89,16 +89,13 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) error {
 	errCh := make(chan error, len(agents))
 	var wg sync.WaitGroup
 	for _, agent := range agents {
-		agent := agent
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			opRunner := watchOperationRunner{operation: runner.New(controlSession.Server), adbPath: opts.ADBPath}
 			if err := watch.Run(watchCtx, plan, opRunner, agent, sinks); err != nil {
 				errCh <- fmt.Errorf("%s: %w", agentDisplayName(agent), err)
 				cancel()
 			}
-		}()
+		})
 	}
 	go func() {
 		wg.Wait()
@@ -167,9 +164,7 @@ func (r watchOperationRunner) WatchFailureCause(ctx context.Context, agent contr
 	}
 	monitorCtx, cancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		baseline := r.collectWifiFailureCause(monitorCtx, serial, 1500*time.Millisecond)
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
@@ -185,7 +180,7 @@ func (r watchOperationRunner) WatchFailureCause(ctx context.Context, agent contr
 				}
 			}
 		}
-	}()
+	})
 	return func() {
 		cancel()
 		wg.Wait()

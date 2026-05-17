@@ -42,7 +42,7 @@ func TestSummarySparklineIsPinnedToBottom(t *testing.T) {
 	m := newModel("shownet-watch", []watch.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(4 * time.Second)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		m.apply(watch.Event{
 			Time:     at.Add(time.Duration(i) * time.Second),
 			Kind:     watch.EventStepFinished,
@@ -170,7 +170,7 @@ func TestPassingSparklineRetainsThirtyMinuteWindowBeyondFourHundredEvents(t *tes
 	m := newModel("shownet-watch", []watch.Target{}, events)
 	now := time.Date(2026, 5, 16, 9, 35, 0, 0, time.UTC)
 	m.Now = now
-	for i := 0; i < 401; i++ {
+	for i := range 401 {
 		offset := time.Duration(i) * 29 * time.Minute / 400
 		m.recordPassingCheck(passingCheckState{
 			When:     now.Add(-29 * time.Minute).Add(offset),
@@ -246,7 +246,7 @@ func TestSummarySparklineHeaderShowsScaleWhenCompressed(t *testing.T) {
 	m := newModel("shownet-watch", []watch.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(10 * time.Second)
-	for i := 0; i < 14; i++ {
+	for range 14 {
 		m.PassingChecks = append(m.PassingChecks, passingCheckState{
 			When:   at.Add(5 * time.Second),
 			Target: watch.TargetSnapshot{Name: "lab"},
