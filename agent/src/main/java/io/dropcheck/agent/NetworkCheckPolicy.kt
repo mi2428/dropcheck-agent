@@ -23,6 +23,7 @@ internal object NetworkCheckPolicy {
     const val DEFAULT_TRACEROUTE_MAX_HOPS = 30
     const val MAX_TRACEROUTE_HOPS = 255
     const val DEFAULT_DOWNLOAD_TIMEOUT_MS = 60_000
+    const val DEFAULT_DNS_TIMEOUT_MS = 5_000
     const val DEFAULT_HTTP_TIMEOUT_MS = 5_000
     const val DEFAULT_HTTP_STATUS = 200
     const val DEFAULT_GLOBAL_IP_TIMEOUT_MS = 5_000
