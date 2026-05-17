@@ -1,0 +1,99 @@
+package tui
+
+import (
+	"time"
+
+	"dropcheck/controller/internal/watch"
+	"dropcheck/controller/internal/watchstate"
+
+	"charm.land/bubbles/v2/key"
+)
+
+type targetState = watchstate.TargetState
+type stepState = watchstate.StepState
+type failedCheckState = watchstate.FailedCheck
+type failedCheckSummary = watchstate.FailedCheckSummary
+type passingCheckState = watchstate.PassingCheck
+type passingCheckSummary = watchstate.PassingCheckSummary
+type failureHotspotSummary = watchstate.FailureHotspotSummary
+type eventLogEntry = watchstate.EventLogEntry
+type occurrenceHistogram = watchstate.OccurrenceHistogram
+
+type outcomeEvent = watchstate.OutcomeEvent
+type outcomeBucket = watchstate.OutcomeBucket
+type checkStatusAggregate = watchstate.CheckStatusAggregate
+type checkStatusAgentResult = watchstate.CheckStatusAgentResult
+
+type targetRoundBucket struct {
+	Seen          bool
+	Failed        int
+	ConnectFailed bool
+}
+
+type runQueueLine struct {
+	Text    string
+	Status  string
+	Current bool
+}
+
+type focusPanel int
+
+const (
+	focusPassingChecks focusPanel = iota
+	focusFailedChecks
+	focusFailureHotspots
+)
+
+type focusSlot struct {
+	Panel           focusPanel
+	HotspotAgentKey string
+}
+
+const (
+	roundTimelineMinVisibleRounds = 10
+	roundTimelineTileGap          = 1
+	summarySparklineRows          = 5
+	summarySparklineWindow        = 30 * time.Minute
+	checkHistoryRetentionWindow   = summarySparklineWindow
+	eventLogRetentionWindow       = summarySparklineWindow
+	maxPassingCheckHistory        = 20000
+	maxFailedCheckHistory         = 10000
+	maxEventLogHistory            = 10000
+	visibleEventLogLimit          = 400
+	detailModalHeightPercent      = 55
+	detailModalLogLimit           = 120
+	recencyFreshWindow            = 15 * time.Second
+	recencyWarmWindow             = 90 * time.Second
+)
+
+type eventMsg watch.Event
+type closedMsg struct{}
+type tickMsg time.Time
+
+type keyMap struct {
+	quit key.Binding
+}
+
+type model struct {
+	Title  string
+	events <-chan watch.Event
+	keys   keyMap
+	width  int
+	height int
+	watchstate.State
+	closed               bool
+	focus                focusPanel
+	focusHotspotAgentKey string
+	passingCheckCursor   int
+	failedCheckCursor    int
+	failureHotspotCursor int
+	runQueueCursor       int
+	runQueueOffset       int
+	searchEditing        bool
+	searchQuery          string
+	detailOpen           bool
+	detailPanel          focusPanel
+	detailPassingKey     string
+	detailFailedKey      string
+	detailHotspotKey     string
+}
