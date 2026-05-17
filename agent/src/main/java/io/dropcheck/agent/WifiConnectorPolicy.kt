@@ -15,6 +15,7 @@ internal object WifiConnectorPolicy {
     data class ConfiguredNetworkRef(
         val networkId: Int,
         val ssid: String,
+        val bssid: String = "",
     )
 
     /** Minimal cached scan data needed to infer how a passphrase network should be configured. */
@@ -64,6 +65,30 @@ internal object WifiConnectorPolicy {
             .mapNotNull { securityFromCapabilities(it.capabilities) }
             .firstOrNull()
             ?: ConnectWifi.Security.SECURITY_WPA2_PSK
+    }
+
+    /**
+     * Resolves a band-only connect request into a concrete BSSID when possible.
+     *
+     * WifiConfiguration has a BSSID pin but no legacy band constraint. Without
+     * this, Android is free to associate to another AP with the same SSID.
+     */
+    fun resolveConnectBssid(
+        requested: String,
+        candidates: List<ScanSecurityCandidate>,
+        ssid: String,
+        band: WifiBand,
+    ): String {
+        if (requested.isNotBlank()) return requested
+        if (band == WifiBand.WIFI_BAND_UNSPECIFIED || band == WifiBand.WIFI_BAND_ALL) return ""
+        return candidates
+            .filter { it.ssid == ssid }
+            .filter { it.bssid.isNotBlank() }
+            .filter { frequencyMatchesWifiBand(it.frequencyMhz, band) }
+            .sortedByDescending { it.levelDbm }
+            .firstOrNull()
+            ?.bssid
+            .orEmpty()
     }
 
     /**
@@ -132,6 +157,44 @@ internal object WifiConnectorPolicy {
             numeric != null -> listOf(numeric)
             else -> emptyList()
         }
+    }
+
+    /**
+     * BSSID-pinned connects must not reuse Android's generic saved profile for
+     * the same SSID, because that lets framework network selection pick any AP.
+     */
+    fun bssidPinCleanupNetworkIds(
+        ssid: String,
+        bssid: String,
+        current: CurrentConnectionRef?,
+        configs: List<ConfiguredNetworkRef>,
+    ): List<Int> {
+        if (ssid.isBlank() || bssid.isBlank()) return emptyList()
+        val ids = linkedSetOf<Int>()
+        configs.forEach { config ->
+            if (config.networkId >= 0 &&
+                config.ssid.trim('"') == ssid &&
+                !config.bssid.equals(bssid, ignoreCase = true)
+            ) {
+                ids += config.networkId
+            }
+        }
+        return ids.toList()
+    }
+
+    /** Reports whether Android has moved far enough away from an active link for a new connect. */
+    fun disconnectSettled(networkId: Int, ssid: String, bssid: String, supplicantState: String?): Boolean {
+        val cleanSsid = ssid.trim('"')
+        if (networkId < 0) return true
+        if (cleanSsid.isBlank() || cleanSsid == "<unknown ssid>") return true
+        if (bssid.isBlank() || bssid == "00:00:00:00:00:00") return true
+        return supplicantState.orEmpty().uppercase(Locale.US) in setOf(
+            "DISCONNECTED",
+            "INTERFACE_DISABLED",
+            "INACTIVE",
+            "UNINITIALIZED",
+            "SCANNING",
+        )
     }
 
     /** A forget operation needs at least one successful remove and no framework exceptions. */

@@ -1,6 +1,8 @@
 package io.dropcheck.agent
 
 import android.net.Network
+import android.net.DnsResolver
+import android.os.CancellationSignal
 import io.dropcheck.agent.grpc.CommandResult
 import io.dropcheck.agent.grpc.DnsAnswer
 import io.dropcheck.agent.grpc.DnsRecordType
@@ -33,6 +35,8 @@ import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 
 /**
@@ -45,6 +49,12 @@ class NetworkCheckExecutor(
     private val networks: NetworkRepository,
     private val logger: CommandLogger,
 ) {
+    private data class DnsLookup(
+        val qtype: DnsRecordType,
+        val addresses: List<InetAddress> = emptyList(),
+        val error: String = "",
+    )
+
     /** Returns IP/link state for the selected Wi-Fi network without running a probe. */
     fun getIpStatus(selector: NetworkSelector): CommandResult {
         logger.info("ip status requested selector_ssid=${selector.ssid.ifBlank { "*" }}")
@@ -702,8 +712,13 @@ class NetworkCheckExecutor(
         val network = networks.waitForNetwork(command.selector, 0)
             ?: return failed("wifi network not available for DNS resolution")
         val ip = networks.ipStatus(network)
+        val qtypes = NetworkCheckPolicy.dnsRecordTypes(command.qtypesList)
+        val timeoutMs = NetworkCheckPolicy.effectiveTimeoutMs(
+            command.timeoutMs,
+            NetworkCheckPolicy.DEFAULT_DNS_TIMEOUT_MS,
+        )
         logger.debug("dns network selected network=${ip.networkId} transports=${ip.transportsList.joinToString(",")} iface=${ip.interfaceName} dns=${ip.dnsServersList.joinToString(",")}")
-        logger.debug("dns parameters name=${command.name} qtypes=${command.qtypesList.joinToString(",")} timeout_ms=${command.timeoutMs} selector_ssid=${command.selector.ssid.ifBlank { "*" }}")
+        logger.debug("dns parameters name=${command.name} qtypes=${qtypes.joinToString(",")} timeout_ms=$timeoutMs selector_ssid=${command.selector.ssid.ifBlank { "*" }}")
         logger.debugEvent("network.selected", listOf(
             "probe" to "dns",
             "network_id" to ip.networkId,
@@ -714,7 +729,6 @@ class NetworkCheckExecutor(
             "validated" to ip.validated,
             "internet" to ip.internet,
         ))
-        val qtypes = NetworkCheckPolicy.dnsRecordTypes(command.qtypesList)
 
         val started = System.nanoTime()
         val result = ResolveDnsResult.newBuilder()
@@ -724,36 +738,47 @@ class NetworkCheckExecutor(
                 "probe" to "dns",
                 "name" to command.name,
                 "qtypes" to qtypes.map { it.name },
-                "timeout_ms" to command.timeoutMs,
+                "timeout_ms" to timeoutMs,
                 "iface" to ip.interfaceName.ifBlank { "default" },
             ))
             logger.debugEvent("network.dns.lookup", listOf(
                 "name" to command.name,
                 "qtypes" to qtypes.map { it.name },
-                "timeout_ms" to command.timeoutMs,
+                "timeout_ms" to timeoutMs,
                 "iface" to ip.interfaceName.ifBlank { "default" },
                 "dns_servers" to ip.dnsServersList,
             ))
-            val addresses = network.getAllByName(command.name).toList()
+            val lookups = qtypes.map { qtype ->
+                resolveDnsQtype(network, command.name, qtype, timeoutMs)
+            }
+            val lookupErrors = lookups.mapNotNull { lookup ->
+                lookup.error.takeIf { it.isNotBlank() }?.let { "${lookup.qtype.name}=$it" }
+            }
+            if (lookupErrors.isNotEmpty()) {
+                result.error = lookupErrors.joinToString(";")
+            }
+            val addresses = lookups.flatMap { it.addresses }
             logger.debug("dns raw addresses name=${command.name} count=${addresses.size} values=${addresses.joinToString(",") { it.hostAddress.orEmpty() }}")
             logger.debugEvent("network.dns.raw_result", listOf(
                 "name" to command.name,
                 "addresses_count" to addresses.size,
                 "addresses" to addresses.map { it.hostAddress.orEmpty() },
             ))
-            for (address in addresses) {
-                when {
-                    address is Inet4Address && DnsRecordType.DNS_RECORD_TYPE_A in qtypes -> {
-                        result.addAnswers(DnsAnswer.newBuilder()
-                            .setType(DnsRecordType.DNS_RECORD_TYPE_A)
-                            .setAddress(address.hostAddress.orEmpty())
-                            .build())
-                    }
-                    address is Inet6Address && DnsRecordType.DNS_RECORD_TYPE_AAAA in qtypes -> {
-                        result.addAnswers(DnsAnswer.newBuilder()
-                            .setType(DnsRecordType.DNS_RECORD_TYPE_AAAA)
-                            .setAddress(address.hostAddress.orEmpty())
-                            .build())
+            for (lookup in lookups) {
+                for (address in lookup.addresses) {
+                    when {
+                        lookup.qtype == DnsRecordType.DNS_RECORD_TYPE_A && address is Inet4Address -> {
+                            result.addAnswers(DnsAnswer.newBuilder()
+                                .setType(DnsRecordType.DNS_RECORD_TYPE_A)
+                                .setAddress(address.hostAddress.orEmpty())
+                                .build())
+                        }
+                        lookup.qtype == DnsRecordType.DNS_RECORD_TYPE_AAAA && address is Inet6Address -> {
+                            result.addAnswers(DnsAnswer.newBuilder()
+                                .setType(DnsRecordType.DNS_RECORD_TYPE_AAAA)
+                                .setAddress(address.hostAddress.orEmpty())
+                                .build())
+                        }
                     }
                 }
             }
@@ -774,6 +799,55 @@ class NetworkCheckExecutor(
             .setMessage(if (ok) "dns resolved" else "dns resolution failed")
             .setResolveDns(built)
             .build()
+    }
+
+    private fun resolveDnsQtype(
+        network: Network,
+        name: String,
+        qtype: DnsRecordType,
+        timeoutMs: Int,
+    ): DnsLookup {
+        val resolverType = when (qtype) {
+            DnsRecordType.DNS_RECORD_TYPE_A -> DnsResolver.TYPE_A
+            DnsRecordType.DNS_RECORD_TYPE_AAAA -> DnsResolver.TYPE_AAAA
+            else -> return DnsLookup(qtype, error = "unsupported_qtype")
+        }
+        val latch = CountDownLatch(1)
+        val cancellation = CancellationSignal()
+        val executor = Executor { command -> command.run() }
+        var addresses = emptyList<InetAddress>()
+        var error = ""
+        DnsResolver.getInstance().query(
+            network,
+            name,
+            resolverType,
+            DnsResolver.FLAG_EMPTY,
+            executor,
+            cancellation,
+            object : DnsResolver.Callback<List<InetAddress>> {
+                override fun onAnswer(answer: List<InetAddress>, rcode: Int) {
+                    addresses = answer
+                    if (rcode != 0) {
+                        error = "dns_rcode=$rcode"
+                    }
+                    latch.countDown()
+                }
+
+                override fun onError(e: DnsResolver.DnsException) {
+                    error = "dns_error=${e.code}:${e.message.orEmpty()}"
+                    latch.countDown()
+                }
+            },
+        )
+        val completed = runCatching {
+            latch.await(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+        }.getOrDefault(false)
+        if (!completed) {
+            cancellation.cancel()
+            return DnsLookup(qtype, error = "dns_timeout=${timeoutMs}ms")
+        }
+        logger.debug("dns qtype result name=$name qtype=${qtype.name} count=${addresses.size} values=${addresses.joinToString(",") { it.hostAddress.orEmpty() }} error=${error.ifBlank { "none" }}")
+        return DnsLookup(qtype, addresses, error)
     }
 
     /**
