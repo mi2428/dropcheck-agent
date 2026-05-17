@@ -211,6 +211,69 @@ Ping: host=1.1.1.1 status=ok transmitted=5 received=5 loss=0.0% min/avg/max=10.2
 rtt min/avg/max/mdev = 10.200/12.400/16.300/1.900 ms
 ```
 
+### Watch TUI
+
+`dropcheck watch` runs a continuous E2E Wi-Fi test loop from the controller and renders a live terminal UI.
+It is meant for field operation: connection failures skip the remaining checks for that target, check failures are recorded as findings, and the next target and round continue.
+Use `--jsonl` when you also want an append-only event log.
+
+```console
+$ controller/dist/dropcheck --serial R5CT12345 watch -c examples/watch.yml --jsonl watch.jsonl
+```
+
+```yaml
+version: 1
+name: shownet-watch
+round_interval: 0s
+
+defaults:
+  passphrase_env: DROPCHECK_WIFI_PSK
+  security: wpa3
+  require_ip: true
+  require_validated: true
+  disconnect_after: true
+
+targets:
+  - name: noc-6g-ap1
+    ssid: ShowNet
+    bssid: aa:bb:cc:dd:ee:ff
+    band: 6ghz
+
+checks:
+  - name: wifi link
+    type: wifi_status
+    expect:
+      ssid: ShowNet
+      band: 6ghz
+  - name: ip
+    type: ip_status
+    expect:
+      validated: true
+      dns_server_count: ">=1"
+      mtu: ">=1280"
+      ipv4_addresses:
+        cidr: 192.168.20.0/22
+      ipv4_dns_servers:
+        cidr: 192.168.20.0/22
+        mode: at_least
+  - name: ping cloudflare
+    type: ping
+    host: 1.1.1.1
+    count: 5
+    expect:
+      received: 5
+      loss_percent: 0
+  - name: dns cloudflare
+    type: dns
+    query: one.one.one.one
+    record: A
+    expect:
+      a_answers:
+        exact:
+          - 1.0.0.1
+          - 1.1.1.1
+```
+
 ### MCP server
 
 `controller/dist/dropcheck-mcp` runs an MCP stdio server backed by the same controller session machinery.
