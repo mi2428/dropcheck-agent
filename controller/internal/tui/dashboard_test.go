@@ -245,6 +245,22 @@ func TestRoundTimelinePacksColumnsWhileKeepingTenRounds(t *testing.T) {
 	}
 }
 
+func TestRoundTimelineKeepsSixHostRunesAndTenRounds(t *testing.T) {
+	labelWidth, plotWidth := roundTimelineTileLayout(roundTimelineMinLabelRunes + 1 + 1 + roundTimelineMinVisibleRounds)
+	if labelWidth != roundTimelineMinLabelRunes+1 {
+		t.Fatalf("round timeline label width = %d, want %d to keep six host runes plus truncation marker", labelWidth, roundTimelineMinLabelRunes+1)
+	}
+	if plotWidth != roundTimelineMinVisibleRounds {
+		t.Fatalf("round timeline plot width = %d, want %d visible rounds", plotWidth, roundTimelineMinVisibleRounds)
+	}
+	if got := compactTargetLabel("cs20(5G)", labelWidth); got != "cs20(5~" {
+		t.Fatalf("compact target label = %q, want six host runes before truncation marker", got)
+	}
+	if got := roundTimelineColumnCount(35, 2); got != 1 {
+		t.Fatalf("round timeline columns = %d, want wrap before reducing labels below six runes or rounds below ten", got)
+	}
+}
+
 func TestCheckStatusPanelHeightFitsAllChecks(t *testing.T) {
 	events := make(chan watch.Event)
 	m := newModel("shownet-watch", []watch.Target{{Name: "u7-5ghz", SSID: "SHIZK RADIO"}}, events)
