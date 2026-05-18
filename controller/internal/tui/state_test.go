@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -706,6 +707,68 @@ func TestCheckStatusAutoWindowStaysStableBetweenStepTransitions(t *testing.T) {
 	}
 	if !strings.Contains(between, "PASS") {
 		t.Fatalf("step-finished frame should preserve the completed check instead of turning the tracked window into all WAIT:\n%s", between)
+	}
+}
+
+func TestCheckStatusAutoWindowRepositionsAfterResize(t *testing.T) {
+	events := make(chan watch.Event)
+	agents := []watch.AgentSnapshot{
+		{ID: "agent-a", Name: "pixel-a"},
+		{ID: "agent-b", Name: "pixel-b"},
+	}
+	targets := make([]watch.Target, 20)
+	for i := range targets {
+		targets[i] = watch.Target{
+			Name:      fmt.Sprintf("ap%02d(5G)", i+1),
+			ShortName: fmt.Sprintf("T%02d", i+1),
+			SSID:      "Lab",
+		}
+	}
+	m := newModelWithChecks("shownet-watch", targets, []watch.Check{{Name: "connect", Type: "connect"}}, events, agents)
+	for _, run := range []struct {
+		agent watch.AgentSnapshot
+		index int
+	}{
+		{agent: agents[0], index: 3},
+		{agent: agents[1], index: 17},
+	} {
+		target := watch.TargetSnapshot{
+			Name:      targets[run.index].Name,
+			ShortName: targets[run.index].ShortName,
+			SSID:      targets[run.index].SSID,
+		}
+		m.apply(watch.Event{
+			Kind:   watch.EventStepStarted,
+			Agent:  run.agent,
+			Round:  1,
+			Target: target,
+			Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
+			Status: "running",
+		})
+	}
+
+	checkStatusTargets := m.checkStatusTargets()
+	if got := m.checkStatusActiveTargetIndex(checkStatusTargets); got != 17 {
+		t.Fatalf("auto check status should track the rightmost running target, got index %d", got)
+	}
+
+	m.width = 80
+	checkStatusTargets, layout, maxOffset := m.checkStatusWindowMetrics(panelContentWidth(m.width))
+	if maxOffset <= 0 {
+		t.Fatalf("test requires horizontally scrollable check status, maxOffset=%d layout=%#v", maxOffset, layout)
+	}
+	m.checkStatusOffset = maxOffset
+	m.checkStatusPinned = false
+	m.normalizeCheckStatusOffset()
+
+	visible := min(layout.VisibleTargets, len(checkStatusTargets))
+	wantOffset := clamp(17-max(0, visible-2), 0, maxOffset)
+	if m.checkStatusOffset != wantOffset {
+		t.Fatalf("auto resize should align the latest running target with one following column, offset=%d want=%d layout=%#v", m.checkStatusOffset, wantOffset, layout)
+	}
+	window := m.checkStatusVisibleTargets(checkStatusTargets, layout)
+	if len(window) < 2 || window[len(window)-2].ShortName != "T18" || window[len(window)-1].ShortName != "T19" {
+		t.Fatalf("auto resize should show the latest running target plus one following column, got window %#v", window)
 	}
 }
 
