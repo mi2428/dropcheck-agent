@@ -120,7 +120,7 @@ func TestEnterShowsPassingCheckDetail(t *testing.T) {
 		})
 	}
 
-	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
 	m = updateKey(t, m, tea.Key{Code: tea.KeyEnter})
 	frame := stripANSI(m.render())
 	for _, want := range []string{
@@ -152,15 +152,15 @@ func TestTabKeepsModalOpenAndMovesPanelFocus(t *testing.T) {
 		Status:   "ok",
 		Duration: 10,
 	})
-	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
 	m = updateKey(t, m, tea.Key{Code: tea.KeyEnter})
 	if !m.detailOpen || m.detailPanel != focusPassingChecks {
 		t.Fatalf("enter on passing checks should open passing check detail: open=%v panel=%v", m.detailOpen, m.detailPanel)
 	}
 
-	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
 	if m.detailOpen || m.focus != focusCheckStatus {
-		t.Fatalf("tab to a non-detail panel should close modal and focus check status: open=%v focus=%v detail=%v", m.detailOpen, m.focus, m.detailPanel)
+		t.Fatalf("shift-tab to a non-detail panel should close modal and focus check status: open=%v focus=%v detail=%v", m.detailOpen, m.focus, m.detailPanel)
 	}
 }
 
