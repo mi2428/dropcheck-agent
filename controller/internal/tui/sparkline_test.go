@@ -21,7 +21,7 @@ func TestRoundTimelineShowsRoundProgressGauge(t *testing.T) {
 	}
 
 	text := stripANSI(m.roundProgressView(80))
-	for _, want := range []string{"round=7", "progress=", "50%", "2/4", "run=1", "fail=1"} {
+	for _, want := range []string{"round=7", "progress=", "50%", "(2/4)", "run=1", "fail=1"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("progress gauge missing %q:\n%s", want, text)
 		}
@@ -34,6 +34,10 @@ func TestRoundTimelineShowsRoundProgressGauge(t *testing.T) {
 	}
 	if !strings.Contains(text, "-") {
 		t.Fatalf("progress gauge should render line progress:\n%s", text)
+	}
+	header := stripANSI(m.roundTimelineHeaderView(80, 1, 1, 1, 1))
+	if !strings.Contains(header, "progress=50% (2/4)") {
+		t.Fatalf("round timeline header should group done/total in parentheses:\n%s", header)
 	}
 }
 
@@ -61,7 +65,7 @@ func TestSummarySparklineIsPinnedToBottom(t *testing.T) {
 	if strings.TrimSpace(lines[len(lines)-5]) != "" {
 		t.Fatalf("sparkline header should have a spacer row above it:\n%s", strings.Join(lines, "\n"))
 	}
-	if !strings.Contains(lines[len(lines)-4], "passing checks events last=30m") {
+	if !strings.Contains(lines[len(lines)-4], "timeline window=last=30m") {
 		t.Fatalf("sparkline header should be pinned above the bottom graph:\n%s", strings.Join(lines, "\n"))
 	}
 	graph := strings.Join(lines[len(lines)-3:], "\n")

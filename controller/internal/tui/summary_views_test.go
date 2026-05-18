@@ -106,7 +106,7 @@ func TestPassingAndFailedChecksRenderCompactTables(t *testing.T) {
 	if strings.Contains(passingTable, "▏") || strings.Contains(failedTable, "▏") {
 		t.Fatalf("summary tables should not render ambiguous tick glyphs:\npassing Checks:\n%s\nfailed Checks:\n%s", passingChecks, failedChecks)
 	}
-	if !strings.Contains(passingChecks, "passing checks events last=30m") || !strings.Contains(failedChecks, "failed checks events last=30m") {
+	if !strings.Contains(passingChecks, "timeline window=last=30m") || !strings.Contains(failedChecks, "timeline window=last=30m") {
 		t.Fatalf("summary panels should pin event sparklines at the bottom:\npassing Checks:\n%s\nfailed Checks:\n%s", passingChecks, failedChecks)
 	}
 	if !strings.Contains(failedChecks, "09:30:04") {
@@ -224,8 +224,8 @@ func TestFailureHotspotsPanelSplitsByAgent(t *testing.T) {
 		}
 	}
 	view := stripANSI(m.failureHotspotPanelsView(96, 14))
-	agentATitle := lineIndex(view, "Failure Hotspots agent-a")
-	agentBTitle := lineIndex(view, "Failure Hotspots agent-b")
+	agentATitle := lineIndex(view, "Failure Hotspots: agent-a")
+	agentBTitle := lineIndex(view, "Failure Hotspots: agent-b")
 	agentACause := lineIndex(view, "agent-a timeout")
 	agentBCause := lineIndex(view, "agent-b timeout")
 	if agentATitle < 0 || agentBTitle < 0 || agentBTitle <= agentATitle {
@@ -324,7 +324,7 @@ func TestFailureHotspotNavigationStaysWithinFocusedAgent(t *testing.T) {
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyEnter})
 	frame := stripANSI(m.render())
-	for _, want := range []string{"Failure Hotspot Detail", "device   target", "agent-b  radio-b1"} {
+	for _, want := range []string{"Failure Hotspot Detail", "Device   Target", "agent-b  radio-b1"} {
 		if !strings.Contains(frame, want) {
 			t.Fatalf("agent-b hotspot detail missing %q:\n%s", want, frame)
 		}
@@ -405,17 +405,19 @@ func TestEnterShowsFailureHotspotDetail(t *testing.T) {
 	frame := stripANSI(m.render())
 	for _, want := range []string{
 		"Failure Hotspot Detail",
-		"target   ssid         band",
+		"Target   SSID         Band",
 		"radio-a  SHIZK RADIO  2.4ghz",
-		"latest_cause",
+		"Latest Cause",
 		"REQUEST_DECLINED",
-		"fail_rate  failed_runs  failures  streak  last      latest_check  metric  observed  expected",
+		"Fail Rate  Failed Runs  Failures  Streak  Last      Latest Check  Metric  Observed  Expected",
 		"100%       2/2          2         2       09:31:00  Connect       status  failed    \"== ok\"",
-		"timeline window=last=90m  peak=1",
-		"causes",
-		"count  last      cause",
+		"window=last=90m count=",
+		"peak=1",
+		"scale=",
+		"Causes:",
+		"Count  Last      Cause",
 		"2      09:31:00  REQUEST_DECLINED",
-		"failure history",
+		"Failure History:",
 		"09:31:00  2      connect           status      failed    \"== ok\"   REQUEST_DECLINED",
 		"90m ago",
 		"now",

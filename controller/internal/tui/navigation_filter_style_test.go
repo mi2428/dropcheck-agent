@@ -94,6 +94,98 @@ func TestTabFocusAndPanelLocalNavigation(t *testing.T) {
 	}
 }
 
+func TestPassingChecksManualScrollPinsSelectionUntilEsc(t *testing.T) {
+	events := make(chan watch.Event)
+	m := newModel("shownet-watch", []watch.Target{}, events)
+	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
+	target := watch.TargetSnapshot{Name: "radio-a", SSID: "Lab"}
+	for i, check := range []string{"old pass", "middle pass"} {
+		m.apply(watch.Event{
+			Time:     at.Add(time.Duration(i) * time.Second),
+			Kind:     watch.EventStepFinished,
+			Round:    uint64(i + 1),
+			Target:   target,
+			Step:     watch.StepSnapshot{Name: check, Type: check, Status: "ok"},
+			Status:   "ok",
+			Duration: 10,
+		})
+	}
+	m.focus = focusPassingChecks
+	m = updateKey(t, m, tea.Key{Code: 'j', Text: "j"})
+	if !m.passingCheckPinned {
+		t.Fatalf("manual passing check scroll should pin selection")
+	}
+	if help := stripANSI(m.helpBar(120)); !strings.Contains(help, "Esc=Latest") {
+		t.Fatalf("manual passing scroll should advertise Esc=Latest:\n%s", help)
+	}
+	pinned := passingCheckSummaryIdentity(m.filteredPassingCheckSummaries()[m.passingCheckCursor])
+
+	m.apply(watch.Event{
+		Time:     at.Add(2 * time.Second),
+		Kind:     watch.EventStepFinished,
+		Round:    3,
+		Target:   target,
+		Step:     watch.StepSnapshot{Name: "new pass", Type: "new pass", Status: "ok"},
+		Status:   "ok",
+		Duration: 10,
+	})
+	rows := m.filteredPassingCheckSummaries()
+	if got := passingCheckSummaryIdentity(rows[m.passingCheckCursor]); got != pinned {
+		t.Fatalf("manual passing scroll should keep selected row, got key %q want %q rows=%#v", got, pinned, rows)
+	}
+
+	m = updateKey(t, m, tea.Key{Code: tea.KeyEscape})
+	rows = m.filteredPassingCheckSummaries()
+	if m.passingCheckPinned || m.passingCheckCursor != 0 || rows[0].Step.Name != "new pass" {
+		t.Fatalf("esc should resume passing autoscroll at latest row: pinned=%v cursor=%d latest=%q", m.passingCheckPinned, m.passingCheckCursor, rows[0].Step.Name)
+	}
+}
+
+func TestFailedChecksManualScrollPinsSelectionUntilEsc(t *testing.T) {
+	events := make(chan watch.Event)
+	m := newModel("shownet-watch", []watch.Target{}, events)
+	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
+	target := watch.TargetSnapshot{Name: "radio-a", SSID: "Lab"}
+	emitFinding := func(offset time.Duration, check string) {
+		m.apply(watch.Event{
+			Time:   at.Add(offset),
+			Kind:   watch.EventFinding,
+			Round:  uint64(offset/time.Second) + 1,
+			Target: target,
+			Step:   watch.StepSnapshot{Name: check, Type: "probe", Status: "failed"},
+			Status: "failed",
+			Finding: &watch.Finding{
+				Target:   "radio-a",
+				Check:    check,
+				Metric:   "status",
+				Observed: "failed",
+				Expected: "== ok",
+				Message:  check + " failed",
+			},
+		})
+	}
+	emitFinding(0, "old fail")
+	emitFinding(time.Second, "middle fail")
+	m.focus = focusFailedChecks
+	m = updateKey(t, m, tea.Key{Code: 'j', Text: "j"})
+	if !m.failedCheckPinned {
+		t.Fatalf("manual failed check scroll should pin selection")
+	}
+	pinned := failedCheckSummaryIdentity(m.filteredFailedCheckSummaries()[m.failedCheckCursor])
+
+	emitFinding(2*time.Second, "new fail")
+	rows := m.filteredFailedCheckSummaries()
+	if got := failedCheckSummaryIdentity(rows[m.failedCheckCursor]); got != pinned {
+		t.Fatalf("manual failed scroll should keep selected row, got key %q want %q rows=%#v", got, pinned, rows)
+	}
+
+	m = updateKey(t, m, tea.Key{Code: tea.KeyEscape})
+	rows = m.filteredFailedCheckSummaries()
+	if m.failedCheckPinned || m.failedCheckCursor != 0 || rows[0].Finding.Check != "new fail" {
+		t.Fatalf("esc should resume failed autoscroll at latest row: pinned=%v cursor=%d latest=%q", m.failedCheckPinned, m.failedCheckCursor, rows[0].Finding.Check)
+	}
+}
+
 func TestRunQueueFocusScrollsVertically(t *testing.T) {
 	events := make(chan watch.Event)
 	m := newModel("shownet-watch", []watch.Target{}, events)
@@ -225,7 +317,7 @@ func TestRenderLetsSummaryPanelsAbsorbRoundTimelineAndCheckStatusGrowth(t *testi
 		t.Fatalf("missing Failed Checks panel\nfew:\n%s\nmany:\n%s", fewSteps, manySteps)
 	}
 	if manyIndex <= fewIndex {
-		t.Fatalf("Failed Checks panel should move down when Check Status grows: few=%d many=%d\nfew:\n%s\nmany:\n%s", fewIndex, manyIndex, fewSteps, manySteps)
+		t.Fatalf("Failed Checks panel should move down when Latest Check Results grows: few=%d many=%d\nfew:\n%s\nmany:\n%s", fewIndex, manyIndex, fewSteps, manySteps)
 	}
 	fewEventLogIndex := lineIndex(fewSteps, "┌Event Log")
 	manyEventLogIndex := lineIndex(manySteps, "┌Event Log")
@@ -283,13 +375,23 @@ func TestVerticalSpacerStylesEveryRow(t *testing.T) {
 	}
 }
 
-func TestSummaryPanelsUseOrangePalette(t *testing.T) {
+func TestSummaryPanelsUseSemanticPalette(t *testing.T) {
 	now := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	assertStyleRGB(t, summaryPanelRowStyle(now, now), 0xff, 0xaa, 0x44)
-	assertStyleRGB(t, summaryPanelRowStyle(now.Add(-recencyFreshWindow-time.Second), now), 0xee, 0x88, 0x22)
-	assertStyleRGB(t, summaryPanelRowStyle(now.Add(-recencyWarmWindow-time.Second), now), 0xb4, 0x65, 0x22)
-	assertStyleRGB(t, summaryGraphStyle, 0xff, 0x9f, 0x1c)
+	assertStyleRGB(t, orangeSummaryPanelRowStyle(now, now), 0xff, 0xaa, 0x44)
+	assertStyleRGB(t, orangeSummaryPanelRowStyle(now.Add(-recencyFreshWindow-time.Second), now), 0xee, 0x88, 0x22)
+	assertStyleRGB(t, orangeSummaryPanelRowStyle(now.Add(-recencyWarmWindow-time.Second), now), 0xb4, 0x65, 0x22)
+	assertStyleRGB(t, failureSummaryPanelRowStyle(now, now), 0xff, 0x6b, 0x4a)
+	assertStyleRGB(t, failureSummaryPanelRowStyle(now.Add(-recencyWarmWindow-time.Second), now), 0xb4, 0x5a, 0x38)
+	assertStyleRGB(t, okGraphStyle, 0x86, 0xc7, 0x79)
+	assertStyleRGB(t, failGraphStyle, 0xff, 0x6b, 0x4a)
+	assertStyleRGB(t, summarySparklineLabelStyle, 0x58, 0xf2, 0xa5)
+	assertStyleRGB(t, summaryGraphLabelStyle, 0xff, 0xaa, 0x44)
+	assertStyleRGB(t, summaryGraphStyle, 0xff, 0xaa, 0x44)
 	assertStyleRGB(t, summaryTableHeaderStyle, 0xff, 0xaa, 0x44)
+	assertStyleRGB(t, summaryKeyStyle, 0x58, 0xf2, 0xa5)
+	assertStyleRGB(t, timelineKeyStyle, 0xff, 0xaa, 0x44)
+	assertStyleRGB(t, timelineValueStyle, 0xee, 0x88, 0x22)
+	assertStyleRGB(t, timelineBaseStyle, 0xb4, 0x65, 0x22)
 }
 
 func TestTickAdvancesSummaryRecencyClock(t *testing.T) {
@@ -316,7 +418,7 @@ func TestTickAdvancesSummaryRecencyClock(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("passing check summaries = %d, want 1", len(rows))
 	}
-	assertStyleRGB(t, summaryPanelRowStyle(rows[0].Last, m.currentTime()), 0xb4, 0x65, 0x22)
+	assertStyleRGB(t, orangeSummaryPanelRowStyle(rows[0].Last, m.currentTime()), 0xb4, 0x65, 0x22)
 }
 
 func TestRunQueueRowsUseStatusPalette(t *testing.T) {
@@ -324,7 +426,7 @@ func TestRunQueueRowsUseStatusPalette(t *testing.T) {
 	if !runQueueRowStyle("failed").GetBold() {
 		t.Fatalf("failed run queue rows should be bold")
 	}
-	assertStyleRGB(t, runQueueRowStyle("running"), 0xff, 0xd1, 0x66)
+	assertStyleRGB(t, runQueueRowStyle("running"), 0xff, 0xaa, 0x44)
 	if !runQueueRowStyle("running").GetBold() {
 		t.Fatalf("running run queue rows should be bold")
 	}
@@ -334,6 +436,12 @@ func TestRunQueueRowsUseStatusPalette(t *testing.T) {
 	}
 	assertStyleRGB(t, runQueueRowStyle("pending"), 0x9b, 0x6a, 0x43)
 	assertStyleRGB(t, runQueueRowStyle("skipped"), 0xd2, 0x8a, 0x3c)
+}
+
+func TestStatusBarCountsUseBaseValuePalette(t *testing.T) {
+	for _, key := range []string{"targets", "ok", "failed", "failed_checks"} {
+		assertStyleRGB(t, statusBarValueStyle(key, "1"), 0xee, 0x88, 0x22)
+	}
 }
 
 func TestHistoricalCheckStatusKeepsOutcomeHue(t *testing.T) {

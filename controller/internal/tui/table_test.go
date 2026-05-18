@@ -167,8 +167,8 @@ func TestInitialRenderWithoutMeasurementsIsStable(t *testing.T) {
 	for _, want := range []string{
 		"no passing checks",
 		"no failed checks",
-		"passing checks events last=30m count=0",
-		"failed checks events last=30m count=0",
+		"timeline window=last=30m",
+		"timeline window=last=30m",
 	} {
 		if !strings.Contains(frame, want) {
 			t.Fatalf("initial frame missing %q:\n%s", want, frame)

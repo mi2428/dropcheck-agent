@@ -30,7 +30,7 @@ func (m model) passingChecksView(width int, height int) string {
 	lines = append(lines, tableLine{Text: "  " + barListHeader(passingCheckListHeaderColumns(m.MultiAgent), passingCheckListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
 	for index, item := range rows {
 		line := barListLine(passingCheckListColumns(item, m.MultiAgent), passingCheckListRightColumns(item), item.Count, maxCount, layout)
-		style := summaryPanelRowStyle(item.Last, now)
+		style := orangeSummaryPanelRowStyle(item.Last, now)
 		fill := false
 		if m.focus == focusPassingChecks && index == selected {
 			style = selectedStyle
@@ -66,7 +66,7 @@ func (m model) failedChecksView(width int, height int) string {
 	lines = append(lines, tableLine{Text: "  " + barListHeader(failedCheckListHeaderColumns(m.MultiAgent), failedCheckListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
 	for index, item := range rows {
 		line := barListLine(failedCheckListColumns(item, m.MultiAgent), failedCheckListRightColumns(item), item.Count, maxCount, layout)
-		style := summaryPanelRowStyle(item.Last, now)
+		style := orangeSummaryPanelRowStyle(item.Last, now)
 		fill := false
 		if m.focus == focusFailedChecks && index == selected {
 			style = selectedStyle
@@ -95,7 +95,7 @@ func (m model) failureHotspotsView(width int, height int) string {
 	lines = append(lines, tableLine{Text: "  " + barListHeader(failureHotspotListHeaderColumns(), failureHotspotListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
 	for index, item := range rows {
 		line := barListLine(failureHotspotListColumns(item), failureHotspotListRightColumns(item), item.FailCount, 1, layout)
-		style := summaryPanelRowStyle(item.Last, m.currentTime())
+		style := failureSummaryPanelRowStyle(item.Last, m.currentTime())
 		fill := false
 		if m.focus == focusFailureHotspots && index == selected {
 			style = selectedStyle
@@ -118,7 +118,7 @@ func (m model) failureHotspotPanelsView(width int, height int) string {
 	heights := splitHeights(height, len(agents))
 	panels := make([]string, 0, len(agents))
 	for i, agent := range agents {
-		title := "Failure Hotspots " + compactTargetLabel(agentLabel(agent), max(4, width-18))
+		title := panelTitleWithLabel("Failure Hotspots", agentLabel(agent), width)
 		panelHeight := heights[i]
 		focused := m.failureHotspotPanelHasFocus(agent)
 		panels = append(panels, renderPanelFocused(title, width, panelHeight, m.failureHotspotsViewForAgent(agent, panelContentWidth(width), panelHeight-2), focused))
@@ -164,7 +164,7 @@ func (m model) failureHotspotsViewForAgent(agent watch.AgentSnapshot, width int,
 	for _, row := range rows {
 		item := row.Item
 		line := barListLine(failureHotspotListColumns(item), failureHotspotListRightColumns(item), item.FailCount, 1, layout)
-		style := summaryPanelRowStyle(item.Last, m.currentTime())
+		style := failureSummaryPanelRowStyle(item.Last, m.currentTime())
 		fill := false
 		if m.failureHotspotPanelHasFocus(agent) && row.Index == m.failureHotspotCursor {
 			style = selectedStyle
@@ -210,7 +210,7 @@ func summarySparklineHeight(height int) int {
 	return 0
 }
 
-func (m model) summarySparklineView(label string, times []time.Time, width int, height int, style lipgloss.Style) string {
+func (m model) summarySparklineView(_ string, times []time.Time, width int, height int, style lipgloss.Style) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
@@ -221,15 +221,16 @@ func (m model) summarySparklineView(label string, times []time.Time, width int, 
 	if eventsPerRow > 1 {
 		scaleText = fmt.Sprintf(" scale=%d/row", eventsPerRow)
 	}
-	headerPlain := fmt.Sprintf("%s events last=%s count=%d peak=%d%s", label, formatBucketDuration(summarySparklineWindow), histogram.Count, histogram.Max, scaleText)
-	header := summaryKeyStyle.Render(label+" events ") +
+	headerPlain := fmt.Sprintf("timeline window=last=%s count=%d peak=%d%s", formatBucketDuration(summarySparklineWindow), histogram.Count, histogram.Max, scaleText)
+	header := summarySparklineLabelStyle.Render("timeline ") +
+		summarySparklineLabelStyle.Render("window=") +
 		summaryValueStyle.Render("last="+formatBucketDuration(summarySparklineWindow)) +
-		summaryKeyStyle.Render(" count=") +
+		summarySparklineLabelStyle.Render(" count=") +
 		summaryValueStyle.Render(fmt.Sprint(histogram.Count)) +
-		summaryKeyStyle.Render(" peak=") +
+		summarySparklineLabelStyle.Render(" peak=") +
 		summaryValueStyle.Render(fmt.Sprint(histogram.Max))
 	if scaleText != "" {
-		header += summaryKeyStyle.Render(" scale=") + summaryValueStyle.Render(fmt.Sprintf("%d/row", eventsPerRow))
+		header += summarySparklineLabelStyle.Render(" scale=") + summaryValueStyle.Render(fmt.Sprintf("%d/row", eventsPerRow))
 	}
 	if height == 1 {
 		return fitANSI(header, width)
@@ -308,7 +309,15 @@ type barListLayout struct {
 
 const listColumnGap = 2
 
-func summaryPanelRowStyle(last time.Time, now time.Time) lipgloss.Style {
+func orangeSummaryPanelRowStyle(last time.Time, now time.Time) lipgloss.Style {
+	return recencyPanelRowStyle(last, now, summaryFreshRowStyle, summaryWarmRowStyle, summaryStaleRowStyle)
+}
+
+func failureSummaryPanelRowStyle(last time.Time, now time.Time) lipgloss.Style {
+	return recencyPanelRowStyle(last, now, summaryFailureRowStyle, summaryFailureRowStyle, staleFailedStatusStyle)
+}
+
+func recencyPanelRowStyle(last time.Time, now time.Time, fresh lipgloss.Style, warm lipgloss.Style, stale lipgloss.Style) lipgloss.Style {
 	if last.IsZero() {
 		return summaryStaleRowStyle
 	}
@@ -321,11 +330,11 @@ func summaryPanelRowStyle(last time.Time, now time.Time) lipgloss.Style {
 	}
 	switch {
 	case age <= recencyFreshWindow:
-		return summaryFreshRowStyle
+		return fresh
 	case age <= recencyWarmWindow:
-		return summaryWarmRowStyle
+		return warm
 	default:
-		return summaryStaleRowStyle
+		return stale
 	}
 }
 

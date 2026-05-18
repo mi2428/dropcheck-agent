@@ -218,7 +218,7 @@ func TestRunQueuePanelsSplitByAgent(t *testing.T) {
 	m.Targets[1].Status = "pending"
 
 	text := stripANSI(m.runQueuePanelsView(48, 16))
-	for _, want := range []string{"┌Run Queue pixel-a", "┌Run Queue pixel-b", "RUN  u7-5ghz", "├── RUN  Connect", "WAIT u7-5ghz", "└── WAIT Disconnect"} {
+	for _, want := range []string{"┌Run Queue: pixel-a", "┌Run Queue: pixel-b", "RUN  u7-5ghz", "├── RUN  Connect", "WAIT u7-5ghz", "└── WAIT Disconnect"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("split run queue panel missing %q:\n%s", want, text)
 		}
@@ -236,12 +236,12 @@ func TestRunQueuePanelsSplitByAgent(t *testing.T) {
 	m.focus = focusRunQueue
 	m.focusRunQueueAgentKey = roundAgentKey(agents[0])
 	focusedText := stripANSI(m.runQueuePanelsView(48, 16))
-	for _, want := range []string{"┌Run Queue pixel-a", "┌Run Queue pixel-b"} {
+	for _, want := range []string{"┌Run Queue: pixel-a", "┌Run Queue: pixel-b"} {
 		if !strings.Contains(focusedText, want) {
 			t.Fatalf("focused split run queue panel should keep agent panels, missing %q:\n%s", want, focusedText)
 		}
 	}
-	if count := strings.Count(focusedText, "Run Queue pixel-"); count != 2 {
+	if count := strings.Count(focusedText, "Run Queue: pixel-"); count != 2 {
 		t.Fatalf("focused run queue should not collapse split panels, got %d titles:\n%s", count, focusedText)
 	}
 }

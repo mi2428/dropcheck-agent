@@ -55,8 +55,8 @@ func TestRenderShowsRoundTimelineAndCheckStatus(t *testing.T) {
 
 	frame := stripANSI(m.render())
 	for _, want := range []string{
-		"Round Timeline",
-		"Check Status",
+		"Failure Events by Round",
+		"Latest Check Results",
 		"progress=",
 		"span=1..1",
 		"ok=1",
@@ -556,26 +556,26 @@ func TestCheckStatusSpansFullWidthAboveRoundTimelineAndRunQueue(t *testing.T) {
 	})
 
 	frame := stripANSI(m.render())
-	checkStatusRow := lineIndex(frame, "┌Check Status")
-	roundTimelineRow := lineIndex(frame, "┌Round Timeline")
+	checkStatusRow := lineIndex(frame, "┌Latest Check Results")
+	roundTimelineRow := lineIndex(frame, "┌Failure Events by Round")
 	runQueueRow := lineIndex(frame, "┌Run Queue")
 	if checkStatusRow < 0 || roundTimelineRow < 0 || runQueueRow < 0 {
 		t.Fatalf("missing expected panels:\n%s", frame)
 	}
 	if checkStatusRow >= roundTimelineRow {
-		t.Fatalf("Check Status should render above Round Timeline: checkStatus=%d roundTimeline=%d\n%s", checkStatusRow, roundTimelineRow, frame)
+		t.Fatalf("Latest Check Results should render above Failure Events by Round: checkStatus=%d roundTimeline=%d\n%s", checkStatusRow, roundTimelineRow, frame)
 	}
 	roundTimelineHeight, _, _, _ := m.dashboardPanelHeights(max(4, m.height-2), panelContentWidth(m.width))
 	if runQueueRow != roundTimelineRow+roundTimelineHeight {
-		t.Fatalf("Run Queue should start below full-width Round Timeline: runQueue=%d roundTimeline=%d roundTimelineHeight=%d\n%s", runQueueRow, roundTimelineRow, roundTimelineHeight, frame)
+		t.Fatalf("Run Queue should start below full-width Failure Events by Round: runQueue=%d roundTimeline=%d roundTimelineHeight=%d\n%s", runQueueRow, roundTimelineRow, roundTimelineHeight, frame)
 	}
 	checkStatusLine := strings.Split(frame, "\n")[checkStatusRow]
 	if lipgloss.Width(checkStatusLine) != m.width {
-		t.Fatalf("Check Status panel should span full app width, got %d want %d: %q", lipgloss.Width(checkStatusLine), m.width, checkStatusLine)
+		t.Fatalf("Latest Check Results panel should span full app width, got %d want %d: %q", lipgloss.Width(checkStatusLine), m.width, checkStatusLine)
 	}
 	roundTimelineLine := strings.Split(frame, "\n")[roundTimelineRow]
 	if lipgloss.Width(roundTimelineLine) != m.width {
-		t.Fatalf("Round Timeline panel should span full app width, got %d want %d: %q", lipgloss.Width(roundTimelineLine), m.width, roundTimelineLine)
+		t.Fatalf("Failure Events by Round panel should span full app width, got %d want %d: %q", lipgloss.Width(roundTimelineLine), m.width, roundTimelineLine)
 	}
 }
 
@@ -635,10 +635,10 @@ func TestAgentPanelTitlesUseDeviceModelAndSerial(t *testing.T) {
 
 	text := stripANSI(m.failureHotspotPanelsView(100, 12) + "\n" + m.runQueuePanelsView(100, 12))
 	for _, want := range []string{
-		"Failure Hotspots Pixel 7a (35251JEHN00258)",
-		"Failure Hotspots Pixel 9 (45240DLAQ007HG)",
-		"Run Queue Pixel 7a (35251JEHN00258)",
-		"Run Queue Pixel 9 (45240DLAQ007HG)",
+		"Failure Hotspots: Pixel 7a (35251JEHN00258)",
+		"Failure Hotspots: Pixel 9 (45240DLAQ007HG)",
+		"Run Queue: Pixel 7a (35251JEHN00258)",
+		"Run Queue: Pixel 9 (45240DLAQ007HG)",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("agent panel title missing %q:\n%s", want, text)
@@ -677,7 +677,7 @@ func TestHotspotsAndRunQueueStartBelowFullWidthRoundTimeline(t *testing.T) {
 	}
 
 	frame := stripANSI(m.render())
-	roundTimelineRow := lineIndex(frame, "┌Round Timeline")
+	roundTimelineRow := lineIndex(frame, "┌Failure Events by Round")
 	passingRow := lineIndex(frame, "┌Passing Checks")
 	failedRow := lineIndex(frame, "┌Failed Checks")
 	hotspotsRow := lineIndex(frame, "┌Failure Hotspots")
@@ -694,7 +694,7 @@ func TestHotspotsAndRunQueueStartBelowFullWidthRoundTimeline(t *testing.T) {
 	}
 	roundTimelineLine := strings.Split(frame, "\n")[roundTimelineRow]
 	if lipgloss.Width(roundTimelineLine) != m.width {
-		t.Fatalf("Round Timeline panel should span full app width, got %d want %d: %q", lipgloss.Width(roundTimelineLine), m.width, roundTimelineLine)
+		t.Fatalf("Failure Events by Round panel should span full app width, got %d want %d: %q", lipgloss.Width(roundTimelineLine), m.width, roundTimelineLine)
 	}
 	eventLogWidth := panelTopWidth(frame, "Event Log")
 	passingWidth := panelTopWidth(frame, "Passing Checks")

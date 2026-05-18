@@ -94,8 +94,8 @@ func TestMultiAgentResultsStaySeparated(t *testing.T) {
 	for _, want := range []string{
 		"pixel-a",
 		"pixel-b",
-		"Run Queue pixel-a",
-		"Run Queue pixel-b",
+		"Run Queue: pixel-a",
+		"Run Queue: pixel-b",
 		"FAIL SHIZK RADIO fail=1",
 		"connect failed",
 	} {

@@ -45,15 +45,17 @@ func TestEnterShowsFailedCheckDetail(t *testing.T) {
 		"Failed Check Detail",
 		"Event Log",
 		"Run Queue",
-		"target       check            metric    failures",
+		"Target       Check            Metric    Failures",
 		"SHIZK RADIO  ping cloudflare  received  1",
-		"fail_rate  streak",
+		"Fail Rate  Streak",
 		"100%       1",
-		"last      observed  expected",
+		"Last      Observed  Expected",
 		"09:30:00  0         \"== 5\"",
-		"message",
+		"Message",
 		"constraint failed",
-		"timeline window=last=90m  peak=1",
+		"window=last=90m count=",
+		"peak=1",
+		"scale=",
 		"█",
 		"90m ago",
 		"now",
@@ -95,7 +97,7 @@ func TestFailedRequiredStepDetailShowsWifiAssertFailurePoint(t *testing.T) {
 
 	view := stripANSI(m.failedCheckDetailView(180, 18))
 	for _, want := range []string{
-		"target   check           metric  failures  fail_rate  streak  last      observed  expected",
+		"Target   Check           Metric  Failures  Fail Rate  Streak  Last      Observed  Expected",
 		"ub2(6G)  Wait Connected  status  1         100%       1       10:27:26  failed    \"== ok\"",
 		"last_pass=band",
 		"failed=ip(actual=absent expected=present),validated(actual=false expected=true)",
@@ -135,11 +137,13 @@ func TestEnterShowsPassingCheckDetail(t *testing.T) {
 		"Passing Check Detail",
 		"Event Log",
 		"Run Queue",
-		"target       check    ssid         band  op            last",
+		"Target       Check    SSID         Band  Op            Last",
 		"SHIZK RADIO  Connect  SHIZK RADIO  5ghz  wifi.connect  09:30:40",
-		"duration  avg    max    samples",
+		"Duration  Avg    Max    Samples",
 		"120ms     120ms  120ms  3",
-		"timeline window=last=90m  peak=2",
+		"window=last=90m count=",
+		"peak=2",
+		"scale=",
 		"█",
 		"90m ago",
 		"now",
@@ -301,11 +305,13 @@ func TestFailedCheckDetailShowsOccurrenceHistogram(t *testing.T) {
 
 	frame := stripANSI(m.render())
 	for _, want := range []string{
-		"failures  fail_rate  streak",
+		"Failures  Fail Rate  Streak",
 		"7         100%       1",
-		"last      observed  expected",
+		"Last      Observed  Expected",
 		"09:31:00  0         \"== 5\"",
-		"timeline window=last=90m  peak=6",
+		"window=last=90m count=",
+		"peak=6",
+		"scale=",
 		"█",
 		"90m ago",
 		"now",
@@ -347,19 +353,21 @@ func TestFailedCheckDetailUsesDenseInvestigationLayout(t *testing.T) {
 		t.Fatalf("detail line count = %d, want %d:\n%s", got, want, view)
 	}
 	for _, want := range []string{
-		"target       check            metric    failures  fail_rate  streak",
+		"Target       Check            Metric    Failures  Fail Rate  Streak",
 		"SHIZK RADIO  ping cloudflare  received  3         100%       3",
-		"last      observed  expected",
+		"Last      Observed  Expected",
 		"09:30:40  0         \"== 5\"",
-		"timeline window=last=90m  peak=2",
-		"message",
+		"window=last=90m count=",
+		"peak=2",
+		"scale=",
+		"Message",
 		"constraint failed",
 		"90m ago",
 		"now",
-		"failure history",
-		"time      round  check",
+		"Failure History:",
+		"Time      Round  Check",
 		"09:30:40",
-		"logs",
+		"Logs:",
 		"kind=finding",
 	} {
 		if !strings.Contains(view, want) {
@@ -367,16 +375,67 @@ func TestFailedCheckDetailUsesDenseInvestigationLayout(t *testing.T) {
 		}
 	}
 	axis := lineIndex(view, "90m ago")
-	section := lineIndex(view, "failure history")
+	section := lineIndex(view, "Failure History:")
 	if axis <= 0 || section <= axis {
 		t.Fatalf("detail view missing expected graph/section order:\n%s", view)
 	}
-	timeline := lineIndex(view, "timeline window=last=90m")
+	timeline := lineIndex(view, "window=last=90m")
 	if timeline <= 0 || lines[timeline-1] != "" {
 		t.Fatalf("detail graph should have one blank line above it, got line before timeline = %q:\n%s", lines[max(0, timeline-1)], view)
 	}
 	if lines[section-1] != "" {
 		t.Fatalf("detail graph should have one blank line below it, got line before section = %q:\n%s", lines[section-1], view)
+	}
+	logs := lineIndex(view, "Logs:")
+	if logs <= section || lines[logs-1] != "" {
+		t.Fatalf("detail sections should be separated by one blank line before Logs, got line before Logs = %q:\n%s", lines[max(0, logs-1)], view)
+	}
+}
+
+func TestFailureHotspotDetailSectionsUseTitledSpacing(t *testing.T) {
+	events := make(chan watch.Event)
+	m := newModel("shownet-watch", []watch.Target{}, events)
+	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
+	m.Now = at.Add(2 * time.Minute)
+	target := watch.TargetSnapshot{Name: "radio-a", SSID: "SHIZK RADIO", Band: "5ghz"}
+	for round, when := range []time.Time{at, at.Add(time.Minute)} {
+		m.apply(watch.Event{
+			Time:   when,
+			Kind:   watch.EventFinding,
+			Round:  uint64(round + 1),
+			Target: target,
+			Step:   watch.StepSnapshot{Name: "public ipv6", Type: "global_ip", Status: "failed"},
+			Status: "failed",
+			Finding: &watch.Finding{
+				Target:   target.Name,
+				Check:    "public ipv6",
+				Metric:   "ipv6_global_ips",
+				Observed: "-",
+				Expected: "cidr ::/0 mode=at_least",
+				Message:  "constraint failed",
+			},
+		})
+	}
+
+	view := stripANSI(m.failureHotspotDetailView(120, 25))
+	for _, want := range []string{
+		"Causes:",
+		"2      09:31:00  constraint failed",
+		"Failure History:",
+		"09:31:00  2      public ipv6",
+		"Logs:",
+		"kind=finding",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("hotspot detail view missing %q:\n%s", want, view)
+		}
+	}
+	lines := strings.Split(view, "\n")
+	for _, marker := range []string{"Latest Cause", "Fail Rate", "Causes:", "Failure History:", "Logs:"} {
+		index := lineIndex(view, marker)
+		if index <= 0 || lines[index-1] != "" {
+			t.Fatalf("%s should have one blank line above it, got %q:\n%s", marker, lines[max(0, index-1)], view)
+		}
 	}
 }
 
@@ -419,7 +478,7 @@ func TestFailedCheckDetailLogsAreScopedToSelectedCheck(t *testing.T) {
 	})
 
 	view := stripANSI(m.failedCheckDetailView(120, 18))
-	for _, want := range []string{"logs", "kind=finding", "step=\"public ipv6\"", "metric=ipv6_global_ips"} {
+	for _, want := range []string{"Logs:", "kind=finding", "step=\"public ipv6\"", "metric=ipv6_global_ips"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("selected check detail missing %q:\n%s", want, view)
 		}
@@ -465,7 +524,7 @@ func TestFailedCheckDetailLogsUseStructuredHistoryBeyondVisibleEventLog(t *testi
 	}
 
 	view := stripANSI(m.failedCheckDetailView(120, 18))
-	for _, want := range []string{"logs", "kind=finding", "step=\"public ipv6\""} {
+	for _, want := range []string{"Logs:", "kind=finding", "step=\"public ipv6\""} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("detail should use structured history for %q:\n%s", want, view)
 		}
@@ -490,6 +549,19 @@ func TestDetailLogRowsWrapToViewWidth(t *testing.T) {
 	if strings.Contains(view, "~") {
 		t.Fatalf("wrapped log should not be truncated:\n%s", view)
 	}
+
+	hardWrapped := stripANSI(strings.Join(detailLogRowLines("09:30:00 "+strings.Repeat("x", 80), 24), "\n"))
+	if got := strings.Count(hardWrapped, "\n") + 1; got < 4 {
+		t.Fatalf("long log token should hard-wrap, got %d lines:\n%s", got, hardWrapped)
+	}
+	if strings.Contains(hardWrapped, "~") {
+		t.Fatalf("hard-wrapped log should not be truncated:\n%s", hardWrapped)
+	}
+	for i, line := range strings.Split(hardWrapped, "\n") {
+		if got := lipgloss.Width(line); got > 24 {
+			t.Fatalf("hard-wrapped line %d width = %d, want <= 24:\n%s", i, got, hardWrapped)
+		}
+	}
 }
 
 func TestDetailSummaryFieldsRenderAdaptiveTable(t *testing.T) {
@@ -510,7 +582,7 @@ func TestDetailSummaryFieldsRenderAdaptiveTable(t *testing.T) {
 	if len(wideLines) < 2 {
 		t.Fatalf("summary table should render header/value rows: %#v", wideLines)
 	}
-	if !strings.Contains(wideLines[0], "device") || !strings.Contains(wideLines[0], "target") || !strings.Contains(wideLines[0], "check") {
+	if !strings.Contains(wideLines[0], "Device") || !strings.Contains(wideLines[0], "Target") || !strings.Contains(wideLines[0], "Check") {
 		t.Fatalf("summary header row missing expected columns:\n%s", strings.Join(wideLines, "\n"))
 	}
 	if !strings.Contains(wideLines[1], "Pixel 7a") || !strings.Contains(wideLines[1], "hp1(5G)") || !strings.Contains(wideLines[1], "Wi-Fi Link") {
