@@ -350,7 +350,7 @@ func TestRunRoundSkipsUnsupportedTargetBandWithoutFailure(t *testing.T) {
 		Checks: []Check{{Name: "Ping CF IPv6", Type: "ping", Host: "2606:4700:4700::1111"}},
 	}
 	support := bandSupportFromCapabilities(&controlpb.WifiCapabilities{SupportedBands: []string{"2.4GHz", "5GHz"}})
-	failed, err := runRound(context.Background(), plan, forbiddenRunner{t: t}, control.AgentInfo{ID: "agent-a"}, 9, support, emit)
+	failed, err := runRound(context.Background(), plan, forbiddenRunner{t: t}, control.AgentInfo{ID: "agent-a"}, 9, support, nil, emit)
 	if err != nil {
 		t.Fatalf("runRound() error = %v", err)
 	}

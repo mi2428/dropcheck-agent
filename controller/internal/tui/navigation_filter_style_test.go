@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -65,9 +66,75 @@ func TestTabFocusAndPanelLocalNavigation(t *testing.T) {
 		t.Fatalf("ctrl-u should page passing checks cursor upward, got %d", m.passingCheckCursor)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
+	if m.focus != focusCheckStatus {
+		t.Fatalf("second tab should focus check status, got %v", m.focus)
+	}
+	m.checkStatusOffset = 0
+	m = updateKey(t, m, tea.Key{Code: 'l', Text: "l"})
+	if m.focus != focusCheckStatus {
+		t.Fatalf("l should keep check status focused, got %v", m.focus)
+	}
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
+	if m.focus != focusRunQueue {
+		t.Fatalf("third tab should focus run queue, got %v", m.focus)
+	}
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
 	m = updateKey(t, m, tea.Key{Code: 'k', Text: "k"})
 	if m.focus != focusFailedChecks || m.failedCheckCursor != 0 {
 		t.Fatalf("k should move failed checks cursor after focus returns: focus=%v failed=%d", m.focus, m.failedCheckCursor)
+	}
+}
+
+func TestRunQueueFocusScrollsVertically(t *testing.T) {
+	events := make(chan watch.Event)
+	m := newModel("shownet-watch", []watch.Target{}, events)
+	m.width = 120
+	m.height = 16
+	for i := range 20 {
+		m.Targets = append(m.Targets, targetState{
+			Target: targetSnapshot(fmt.Sprintf("target-%02d", i)),
+			Status: "pending",
+		})
+	}
+	m.focus = focusRunQueue
+	m.updateRunQueueCursor()
+
+	for range 8 {
+		m = updateKey(t, m, tea.Key{Code: 'j', Text: "j"})
+	}
+	if m.runQueueCursor != 8 || m.runQueueOffset == 0 || !m.runQueuePinned {
+		t.Fatalf("run queue scroll state cursor=%d offset=%d pinned=%v", m.runQueueCursor, m.runQueueOffset, m.runQueuePinned)
+	}
+	view := stripANSI(m.runQueuePanelsView(40, 8))
+	if !strings.Contains(view, "target-08") {
+		t.Fatalf("focused run queue should reveal scrolled cursor:\n%s", view)
+	}
+}
+
+func TestPauseResumeAndRightAlignedStatusItems(t *testing.T) {
+	events := make(chan watch.Event)
+	control := watch.NewPauseController()
+	m := newModel("shownet-watch", []watch.Target{}, events)
+	m.pauseControl = control
+	m.width = 120
+	m.searchQuery = "hop2"
+
+	m = updateKey(t, m, tea.Key{Code: 'w', Text: "w"})
+	if !m.paused || !control.Paused() {
+		t.Fatalf("w should pause model and controller: model=%v controller=%v", m.paused, control.Paused())
+	}
+	status := stripANSI(m.statusBar(120))
+	if !strings.HasSuffix(strings.TrimRight(status, " "), "Paused filter=/hop2") {
+		t.Fatalf("paused/filter status should be right aligned at end:\n%q", status)
+	}
+	help := stripANSI(m.helpBar(120))
+	if !strings.Contains(help, "Esc=Resume") || strings.Contains(help, "Esc=Clear") {
+		t.Fatalf("paused help should prioritize resume:\n%s", help)
+	}
+
+	m = updateKey(t, m, tea.Key{Code: tea.KeyEscape})
+	if m.paused || control.Paused() {
+		t.Fatalf("esc should resume model and controller: model=%v controller=%v", m.paused, control.Paused())
 	}
 }
 

@@ -16,6 +16,21 @@ import (
 // Run renders watch events until the user quits, ctx is canceled, or the event stream closes.
 func Run(ctx context.Context, title string, targets []watch.Target, checks []watch.Check, agents []watch.AgentSnapshot, events <-chan watch.Event) error {
 	m := newModelWithChecks(title, targets, checks, events, agents)
+	return runModel(ctx, m)
+}
+
+// RunWithPauseControl renders watch events and lets keyboard input pause or
+// resume the watch runner through pauseControl.
+func RunWithPauseControl(ctx context.Context, title string, targets []watch.Target, checks []watch.Check, agents []watch.AgentSnapshot, events <-chan watch.Event, pauseControl *watch.PauseController) error {
+	m := newModelWithChecks(title, targets, checks, events, agents)
+	m.pauseControl = pauseControl
+	if pauseControl != nil {
+		m.paused = pauseControl.Paused()
+	}
+	return runModel(ctx, m)
+}
+
+func runModel(ctx context.Context, m model) error {
 	_, err := tea.NewProgram(m, tea.WithContext(ctx)).Run()
 	if err != nil && ctx.Err() != nil {
 		return nil
@@ -86,9 +101,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "tab":
 			m.focusNextPanel()
 			if m.detailOpen {
-				m.detailPanel = m.focus
-				m.lockDetailToCursor(m.focus)
+				if panelSupportsDetail(m.focus) {
+					m.detailPanel = m.focus
+					m.lockDetailToCursor(m.focus)
+				} else {
+					m.detailOpen = false
+				}
 			}
+		case "w":
+			m.pause()
 		case "/":
 			m.searchEditing = true
 		case "j", "down":
@@ -129,7 +150,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.openDetailForPanel(focusFailureHotspots)
 			}
 		case "esc":
-			if m.detailOpen {
+			if m.paused {
+				m.resume()
+			} else if m.detailOpen {
 				m.detailOpen = false
 			} else if m.hasSearchFilter() {
 				m.clearSearch()
@@ -153,6 +176,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	return m, nil
+}
+
+func panelSupportsDetail(panel focusPanel) bool {
+	return panel == focusPassingChecks || panel == focusFailedChecks || panel == focusFailureHotspots
 }
 
 // View renders the current frame in the alternate screen buffer.

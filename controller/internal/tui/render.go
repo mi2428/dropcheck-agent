@@ -56,7 +56,7 @@ func (m model) render() string {
 
 	checkStatus := ""
 	if checkStatusHeight > 0 {
-		checkStatus = renderPanel("Check Status", width, checkStatusHeight, m.checkStatusView(panelContentWidth(width), checkStatusHeight-2))
+		checkStatus = renderPanelFocused("Check Status", width, checkStatusHeight, m.checkStatusView(panelContentWidth(width), checkStatusHeight-2), m.focus == focusCheckStatus)
 	}
 	roundTimeline := ""
 	if roundTimelineHeight > 0 {
@@ -202,15 +202,20 @@ func summaryAndEventLogHeights(bodyHeight int) (summaryHeight int, eventLogHeigh
 func (m model) helpBar(width int) string {
 	now := m.currentTime().Format("15:04:05")
 	label := " Keys:"
-	parts := []string{"Tab=Panel", "j=Down", "k=Up", "h/l=CheckScroll"}
+	parts := []string{"Tab=Panel", "j/k=Scroll", "h/l=CheckScroll"}
 	if m.focus == focusPassingChecks && len(m.filteredPassingCheckSummaries()) > 0 ||
 		m.focus == focusFailedChecks && len(m.filteredFailedCheckSummaries()) > 0 ||
 		m.focus == focusFailureHotspots && len(m.focusedFailureHotspotRows()) > 0 {
 		parts = append(parts, "Enter=Details")
 	}
 	parts = append(parts, "/=Filter")
-	if m.hasSearchFilter() {
-		parts = append(parts, "Esc=Clear")
+	if m.paused {
+		parts = append(parts, "Esc=Resume")
+	} else {
+		parts = append(parts, "w=Pause")
+		if m.hasSearchFilter() {
+			parts = append(parts, "Esc=Clear")
+		}
 	}
 	parts = append(parts, "Ctrl-D=PageDown", "Ctrl-U=PageUp", "Ctrl-C=Quit")
 	keys := " " + strings.Join(parts, " ")
@@ -236,7 +241,7 @@ func (m model) currentTime() time.Time {
 
 func (m model) statusBar(width int) string {
 	current := m.currentTargetName()
-	fields := [][2]string{
+	leftFields := [][2]string{
 		{"status", firstNonEmpty(m.RoundStatus, "starting")},
 		{"plan", firstNonEmpty(m.Title, "watch")},
 		{"round", fmt.Sprint(m.Round)},
@@ -247,30 +252,45 @@ func (m model) statusBar(width int) string {
 		{"failed", fmt.Sprint(m.targetCount("failed"))},
 		{"failed_checks", fmt.Sprint(len(m.FailedChecks))},
 	}
+	rightFields := [][2]string{}
+	if m.paused {
+		rightFields = append(rightFields, [2]string{"Paused", ""})
+	}
 	if m.searchEditing || m.hasSearchFilter() {
-		fields = append(fields, [2]string{"filter", "/" + m.searchQuery})
+		rightFields = append(rightFields, [2]string{"filter", "/" + m.searchQuery})
 	}
-	plain := statusPlain(fields)
-	if runeLen(plain) > width {
-		return valueStyle.Render(fit(plain, width))
+	leftPlain := statusPlain(leftFields)
+	rightPlain := statusRightPlain(rightFields)
+	plainWidth := runeLen(leftPlain)
+	if rightPlain != "" {
+		plainWidth += 1 + runeLen(rightPlain)
 	}
-	var b strings.Builder
-	b.WriteString(valueStyle.Render(" "))
-	for i, field := range fields {
-		if i > 0 {
-			b.WriteString(valueStyle.Render(" "))
+	if plainWidth > width {
+		if rightPlain == "" {
+			return valueStyle.Render(fit(leftPlain, width))
 		}
-		b.WriteString(keyStyle.Render(field[0] + "="))
-		b.WriteString(statusBarValueStyle(field[0], field[1]).Render(field[1]))
+		rightWidth := runeLen(rightPlain)
+		if rightWidth >= width {
+			return renderStatusFields(rightFields, width, true)
+		}
+		leftBudget := max(0, width-rightWidth-1)
+		return renderStatusFields(leftFields, leftBudget, false) + valueStyle.Render(" ") + renderStatusFields(rightFields, rightWidth, true)
 	}
-	b.WriteString(valueStyle.Render(strings.Repeat(" ", max(0, width-runeLen(plain)))))
-	return b.String()
+	left := renderStatusFields(leftFields, runeLen(leftPlain), false)
+	if rightPlain == "" {
+		return left + valueStyle.Render(strings.Repeat(" ", max(0, width-runeLen(leftPlain))))
+	}
+	right := renderStatusFields(rightFields, runeLen(rightPlain), true)
+	spaces := width - runeLen(leftPlain) - runeLen(rightPlain)
+	return left + valueStyle.Render(strings.Repeat(" ", max(1, spaces))) + right
 }
 
 func statusBarValueStyle(key string, value string) lipgloss.Style {
 	switch key {
 	case "status":
 		return checkStatusStyle(value)
+	case "Paused":
+		return runningStatusStyle
 	case "ok":
 		return okStatusStyle
 	case "failed", "failed_checks":
@@ -294,10 +314,63 @@ func statusPlain(fields [][2]string) string {
 	return b.String()
 }
 
+func statusRightPlain(fields [][2]string) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, field := range fields {
+		if i > 0 {
+			b.WriteString(" ")
+		}
+		if field[1] == "" {
+			b.WriteString(field[0])
+			continue
+		}
+		b.WriteString(field[0])
+		b.WriteString("=")
+		b.WriteString(field[1])
+	}
+	return b.String()
+}
+
+func renderStatusFields(fields [][2]string, width int, right bool) string {
+	if width <= 0 {
+		return ""
+	}
+	plain := statusPlain(fields)
+	if right {
+		plain = statusRightPlain(fields)
+	}
+	if runeLen(plain) > width {
+		return valueStyle.Render(fit(plain, width))
+	}
+	var b strings.Builder
+	if !right {
+		b.WriteString(valueStyle.Render(" "))
+	}
+	for i, field := range fields {
+		if i > 0 {
+			b.WriteString(valueStyle.Render(" "))
+		}
+		if field[1] == "" {
+			b.WriteString(statusBarValueStyle(field[0], field[1]).Render(field[0]))
+			continue
+		}
+		b.WriteString(keyStyle.Render(field[0] + "="))
+		b.WriteString(statusBarValueStyle(field[0], field[1]).Render(field[1]))
+	}
+	return b.String()
+}
+
 func (m model) focusName() string {
 	switch m.focus {
 	case focusPassingChecks:
 		return "passing_checks"
+	case focusCheckStatus:
+		return "check_status"
+	case focusRunQueue:
+		return "run_queue"
 	case focusFailureHotspots:
 		if m.failureHotspotPanelsSplit() {
 			key := m.currentHotspotAgentKey()

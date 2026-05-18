@@ -62,6 +62,8 @@ func passingCheckSummaryIndexByIdentity(rows []passingCheckSummary, key string) 
 }
 func durationLabel(duration int64) string { return watchstate.DurationLabel(duration) }
 
+func displayCheckName(name string) string { return watchstate.DisplayCheckName(name) }
+
 func agentDeviceLabel(agent watch.AgentSnapshot) string {
 	if agent.DeviceModel != "" {
 		return agent.DeviceModel

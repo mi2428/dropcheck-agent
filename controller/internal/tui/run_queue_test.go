@@ -52,8 +52,8 @@ func TestRunQueueTreeExpandsOnlyRunningTargets(t *testing.T) {
 	for _, want := range []string{
 		"OK   done-target",
 		"RUN  running-target",
-		"  ├── OK   connect",
-		"  ├── WAIT wait_connected",
+		"  ├── OK   Connect",
+		"  ├── WAIT Wait Connected",
 		"  ├── RUN  ping cloudflare",
 		"  └── WAIT download",
 		"WAIT waiting-target",
@@ -109,8 +109,8 @@ func TestRunQueueTreePrioritizesActiveStepsWhenClipped(t *testing.T) {
 	for _, want := range []string{
 		"OK   done-05",
 		"RUN  running-target",
-		"├── OK   connect",
-		"├── OK   wait_connected",
+		"├── OK   Connect",
+		"├── OK   Wait Connected",
 		"├── OK   ip provisioning",
 		"├── OK   ping cf ipv4",
 		"└── RUN  download",
@@ -216,7 +216,7 @@ func TestRunQueuePanelsSplitByAgent(t *testing.T) {
 	m.Targets[1].Status = "pending"
 
 	text := stripANSI(m.runQueuePanelsView(48, 16))
-	for _, want := range []string{"┌Run Queue pixel-a", "┌Run Queue pixel-b", "RUN  u7-5ghz", "├── RUN  connect", "WAIT u7-5ghz", "└── WAIT disconnect"} {
+	for _, want := range []string{"┌Run Queue pixel-a", "┌Run Queue pixel-b", "RUN  u7-5ghz", "├── RUN  Connect", "WAIT u7-5ghz", "└── WAIT Disconnect"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("split run queue panel missing %q:\n%s", want, text)
 		}
@@ -224,7 +224,7 @@ func TestRunQueuePanelsSplitByAgent(t *testing.T) {
 	if strings.Contains(text, "pixel-a u7-5ghz") || strings.Contains(text, "pixel-b u7-5ghz") {
 		t.Fatalf("agent-scoped run queue panel should not repeat agent names on target Rows:\n%s", text)
 	}
-	if strings.Contains(text, "WAIT connect") {
+	if strings.Contains(text, "WAIT Connect") {
 		t.Fatalf("waiting agent target should not expand child Rows:\n%s", text)
 	}
 	if strings.Contains(text, "▁") || strings.Contains(text, "█") || strings.Contains(text, "▌") {

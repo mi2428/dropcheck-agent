@@ -40,6 +40,11 @@ type FailureCauseMonitor interface {
 	WatchFailureCause(context.Context, control.AgentInfo, FailureCauseContext, func(string)) func()
 }
 
+// RunOptions configures one watch runner.
+type RunOptions struct {
+	Pause *PauseController
+}
+
 // Operation retries are intentionally fixed for watch runs. The watch command is
 // used against shared Wi-Fi infrastructure, where one failed probe is often less
 // useful than a bounded retry that records the flake without failing the target.
@@ -47,6 +52,11 @@ const operationRetryLimit = 3
 
 // Run executes plan rounds until ctx is canceled or an unrecoverable runner or sink error occurs.
 func Run(ctx context.Context, plan Plan, opRunner OperationRunner, agent control.AgentInfo, sink Sink) error {
+	return RunWithOptions(ctx, plan, opRunner, agent, sink, RunOptions{})
+}
+
+// RunWithOptions executes plan rounds with optional runner controls.
+func RunWithOptions(ctx context.Context, plan Plan, opRunner OperationRunner, agent control.AgentInfo, sink Sink, opts RunOptions) error {
 	if opRunner == nil {
 		return fmt.Errorf("watch runner is nil")
 	}
@@ -76,8 +86,14 @@ func Run(ctx context.Context, plan Plan, opRunner OperationRunner, agent control
 		if err := ctx.Err(); err != nil {
 			return nil
 		}
-		failed, err := runRound(ctx, plan, opRunner, agent, round, bands, emit)
+		if err := opts.Pause.Wait(ctx); err != nil {
+			return nil
+		}
+		failed, err := runRound(ctx, plan, opRunner, agent, round, bands, opts.Pause, emit)
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
 			return err
 		}
 		if plan.RoundInterval > 0 {
@@ -99,7 +115,7 @@ func snapshotAgent(agent control.AgentInfo) AgentSnapshot {
 	return AgentSnapshotFromInfo(agent)
 }
 
-func runRound(ctx context.Context, plan Plan, opRunner OperationRunner, agent control.AgentInfo, round uint64, bands bandSupport, emit func(Event) error) (int, error) {
+func runRound(ctx context.Context, plan Plan, opRunner OperationRunner, agent control.AgentInfo, round uint64, bands bandSupport, pause *PauseController, emit func(Event) error) (int, error) {
 	started := time.Now()
 	if err := emit(Event{Kind: EventRoundStarted, Round: round, Status: "running"}); err != nil {
 		return 0, err
@@ -107,7 +123,10 @@ func runRound(ctx context.Context, plan Plan, opRunner OperationRunner, agent co
 	failedTargets := 0
 	skippedTargets := 0
 	for _, target := range plan.Targets {
-		result, err := runTarget(ctx, plan, opRunner, agent, round, target, bands, emit)
+		if err := pause.Wait(ctx); err != nil {
+			return failedTargets, err
+		}
+		result, err := runTarget(ctx, plan, opRunner, agent, round, target, bands, pause, emit)
 		if err != nil {
 			return failedTargets, err
 		}
@@ -139,7 +158,7 @@ const (
 	targetSkipped
 )
 
-func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, bands bandSupport, emit func(Event) error) (targetResult, error) {
+func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, bands bandSupport, pause *PauseController, emit func(Event) error) (targetResult, error) {
 	targetStart := time.Now()
 	targetSnapshot := snapshotTarget(target)
 	if message, ok := bands.skipReason(target.Band); ok {
@@ -152,6 +171,9 @@ func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent c
 	ready := true
 	connect, err := connectOperation(target)
 	if err != nil {
+		return targetFailed, err
+	}
+	if err := pause.Wait(ctx); err != nil {
 		return targetFailed, err
 	}
 	ok, err := runRequiredStep(ctx, opRunner, agent, round, target, StepSnapshot{Name: "connect", Type: "connect", Operation: connect.Name}, connect, emit)
@@ -167,6 +189,9 @@ func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent c
 		if err != nil {
 			return targetFailed, err
 		}
+		if err := pause.Wait(ctx); err != nil {
+			return targetFailed, err
+		}
 		ok, err = runRequiredStep(ctx, opRunner, agent, round, target, StepSnapshot{Name: "wait_connected", Type: "wait_connected", Operation: wait.Name}, wait, emit)
 		if err != nil {
 			return targetFailed, err
@@ -178,6 +203,9 @@ func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent c
 	}
 	if ready {
 		for _, check := range plan.Checks {
+			if err := pause.Wait(ctx); err != nil {
+				return targetFailed, err
+			}
 			ok, err := runCheck(ctx, opRunner, agent, round, target, check, emit)
 			if err != nil {
 				return targetFailed, err
@@ -204,6 +232,9 @@ func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent c
 				return targetFailed, err
 			}
 		}
+	}
+	if err := pause.Wait(ctx); err != nil {
+		return targetFailed, err
 	}
 	if err := runCleanup(ctx, opRunner, agent, round, target, emit); err != nil {
 		return targetFailed, err
