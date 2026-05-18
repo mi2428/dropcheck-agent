@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,6 +35,11 @@ type FailureCauseCollector interface {
 type FailureCauseMonitor interface {
 	WatchFailureCause(context.Context, control.AgentInfo, FailureCauseContext, func(string)) func()
 }
+
+// Operation retries are intentionally fixed for watch runs. The watch command is
+// used against shared Wi-Fi infrastructure, where one failed probe is often less
+// useful than a bounded retry that records the flake without failing the target.
+const operationRetryLimit = 3
 
 // Run executes plan forever until ctx is canceled.
 func Run(ctx context.Context, plan Plan, opRunner OperationRunner, agent control.AgentInfo, sink Sink) error {
@@ -86,20 +92,7 @@ func Run(ctx context.Context, plan Plan, opRunner OperationRunner, agent control
 }
 
 func snapshotAgent(agent control.AgentInfo) AgentSnapshot {
-	serial := ""
-	if agent.Hello != nil {
-		serial = agent.Hello.GetAdbSerial()
-	}
-	name := firstNonEmpty(serial, agent.ID, agent.SessionID)
-	if serial == "" && len(name) > 12 {
-		name = name[:12]
-	}
-	return AgentSnapshot{
-		ID:        agent.ID,
-		SessionID: agent.SessionID,
-		Name:      name,
-		ADBSerial: serial,
-	}
+	return AgentSnapshotFromInfo(agent)
 }
 
 func runRound(ctx context.Context, plan Plan, opRunner OperationRunner, agent control.AgentInfo, round uint64, bands bandSupport, emit func(Event) error) (int, error) {
@@ -271,13 +264,200 @@ func runCheck(ctx context.Context, opRunner OperationRunner, agent control.Agent
 		return false, err
 	}
 	step := StepSnapshot{Name: check.DisplayName(), Type: check.Type, Operation: op.Name}
-	exec, err := runOperationStep(ctx, opRunner, agent, round, target, step, op, emit)
-	if err != nil || exec.Result == nil {
-		return false, err
+	targetSnapshot := snapshotTarget(target)
+	started := time.Now()
+	emitCause := failureCauseEmitter(round, target, step, emit)
+	maxAttempts := operationMaxAttempts(step)
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		exec, runErr, err := runOperationAttempt(ctx, opRunner, agent, round, target, step, op, attempt, maxAttempts, emit, emitCause)
+		if err != nil {
+			return false, err
+		}
+		failedStep, operationFailed := operationFailureStep(step, exec, runErr)
+		findings := checkFindings(target, check, exec)
+		if !operationFailed && len(findings) == 0 {
+			if err := emitRetrySucceeded(round, target, step, attempt, maxAttempts, emit); err != nil {
+				return false, err
+			}
+			step.Status = "ok"
+			if attempt > 1 {
+				step.Message = retrySucceededMessage(step, attempt, maxAttempts)
+			}
+			return true, emit(Event{
+				Kind:     EventStepFinished,
+				Round:    round,
+				Target:   targetSnapshot,
+				Step:     step,
+				Status:   "ok",
+				Message:  step.Message,
+				Duration: time.Since(started).Milliseconds(),
+			})
+		}
+		reason := checkFailureMessage(failedStep, findings)
+		if attempt < maxAttempts {
+			if err := emitRetrying(round, target, step, attempt, maxAttempts, reason, emit); err != nil {
+				return false, err
+			}
+			if operationFailed {
+				if err := emitFailureCause(ctx, opRunner, agent, round, target, failedStep, op, exec, runErr, emitCause); err != nil {
+					return false, err
+				}
+			}
+			continue
+		}
+		failedStep.Status = "failed"
+		failedStep.Message = firstNonEmpty(failedStep.Message, failedStep.Error, reason)
+		if err := emit(Event{
+			Kind:     EventStepFinished,
+			Round:    round,
+			Target:   targetSnapshot,
+			Step:     failedStep,
+			Status:   "failed",
+			Message:  failedStep.Message,
+			Duration: time.Since(started).Milliseconds(),
+		}); err != nil {
+			return false, err
+		}
+		if operationFailed {
+			if err := emitFailureCause(ctx, opRunner, agent, round, target, failedStep, op, exec, runErr, emitCause); err != nil {
+				return false, err
+			}
+		}
+		for _, item := range findings {
+			if err := emit(Event{
+				Kind:    EventFinding,
+				Round:   round,
+				Target:  targetSnapshot,
+				Step:    failedStep,
+				Finding: &item,
+				Status:  "failed",
+				Message: item.Message,
+			}); err != nil {
+				return false, err
+			}
+		}
+		return false, nil
 	}
-	ok := exec.Result.GetStatus() == controlpb.CommandResult_STATUS_OK
+	return false, nil
+}
+
+func runOperationStep(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, step StepSnapshot, op command.Operation, emit func(Event) error) (runner.Result, error) {
+	targetSnapshot := snapshotTarget(target)
+	started := time.Now()
+	emitCause := failureCauseEmitter(round, target, step, emit)
+	maxAttempts := operationMaxAttempts(step)
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		exec, runErr, err := runOperationAttempt(ctx, opRunner, agent, round, target, step, op, attempt, maxAttempts, emit, emitCause)
+		if err != nil {
+			return exec, err
+		}
+		finishedStep, failed := operationFailureStep(step, exec, runErr)
+		if !failed {
+			if err := emitRetrySucceeded(round, target, step, attempt, maxAttempts, emit); err != nil {
+				return exec, err
+			}
+			finishedStep.Status = "ok"
+			if attempt > 1 {
+				finishedStep.Message = retrySucceededMessage(step, attempt, maxAttempts)
+			}
+			return exec, emit(Event{
+				Kind:     EventStepFinished,
+				Round:    round,
+				Target:   targetSnapshot,
+				Step:     finishedStep,
+				Status:   "ok",
+				Message:  finishedStep.Message,
+				Duration: time.Since(started).Milliseconds(),
+			})
+		}
+		reason := operationFailureReason(finishedStep)
+		if attempt < maxAttempts {
+			if err := emitRetrying(round, target, step, attempt, maxAttempts, reason, emit); err != nil {
+				return exec, err
+			}
+			if err := emitFailureCause(ctx, opRunner, agent, round, target, finishedStep, op, exec, runErr, emitCause); err != nil {
+				return exec, err
+			}
+			continue
+		}
+		if err := emit(Event{
+			Kind:     EventStepFinished,
+			Round:    round,
+			Target:   targetSnapshot,
+			Step:     finishedStep,
+			Status:   "failed",
+			Message:  firstNonEmpty(operationFailureReason(finishedStep), "operation failed"),
+			Duration: time.Since(started).Milliseconds(),
+		}); err != nil {
+			return exec, err
+		}
+		if err := emitFailureCause(ctx, opRunner, agent, round, target, finishedStep, op, exec, runErr, emitCause); err != nil {
+			return exec, err
+		}
+		return exec, nil
+	}
+	return runner.Result{}, nil
+}
+
+func runOperationAttempt(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, step StepSnapshot, op command.Operation, attempt int, maxAttempts int, emit func(Event) error, emitCause func(string) error) (runner.Result, error, error) {
+	targetSnapshot := snapshotTarget(target)
+	attemptStep := step
+	attemptStep.Status = "running"
+	if attempt > 1 {
+		attemptStep.Message = retryAttemptMessage(step, attempt, maxAttempts)
+	}
+	if err := emit(Event{Kind: EventStepStarted, Round: round, Target: targetSnapshot, Step: attemptStep, Status: "running", Message: attemptStep.Message}); err != nil {
+		return runner.Result{}, nil, err
+	}
+	stopCauseMonitor := startFailureCauseMonitor(ctx, opRunner, agent, round, target, attemptStep, op, emitCause)
+	exec, runErr := opRunner.Run(ctx, agent, op)
+	if stopCauseMonitor != nil {
+		stopCauseMonitor()
+	}
+	if runErr != nil && ctx.Err() != nil {
+		return exec, runErr, ctx.Err()
+	}
+	return exec, runErr, nil
+}
+
+func operationMaxAttempts(step StepSnapshot) int {
+	if !retryableStep(step) {
+		return 1
+	}
+	return 1 + operationRetryLimit
+}
+
+func retryableStep(step StepSnapshot) bool {
+	stepType := strings.ToLower(firstNonEmpty(step.Type, step.Name))
+	return stepType != "cleanup"
+}
+
+func operationFailureStep(step StepSnapshot, exec runner.Result, runErr error) (StepSnapshot, bool) {
+	step.Status = "ok"
+	if runErr != nil {
+		step.Status = "failed"
+		step.Error = runErr.Error()
+		return step, true
+	}
+	if exec.Result == nil {
+		step.Status = "failed"
+		step.Message = "missing command result"
+		return step, true
+	}
+	if exec.Result.GetStatus() != controlpb.CommandResult_STATUS_OK {
+		step.Status = "failed"
+		step.Message = operationFailureMessage(exec.Result)
+		return step, true
+	}
+	return step, false
+}
+
+func checkFindings(target Target, check Check, exec runner.Result) []Finding {
+	if exec.Result == nil {
+		return nil
+	}
 	var findings []Finding
-	if !ok {
+	if exec.Result.GetStatus() != controlpb.CommandResult_STATUS_OK {
 		findings = append(findings, Finding{
 			Target:   target.DisplayName(),
 			Check:    check.DisplayName(),
@@ -288,72 +468,118 @@ func runCheck(ctx context.Context, opRunner OperationRunner, agent control.Agent
 		})
 	}
 	findings = append(findings, evaluateMatchers(target, check, metricsForResult(exec.Result))...)
-	for _, item := range findings {
-		if err := emit(Event{
-			Kind:    EventFinding,
-			Round:   round,
-			Target:  snapshotTarget(target),
-			Step:    step,
-			Finding: &item,
-			Status:  "failed",
-			Message: item.Message,
-		}); err != nil {
-			return false, err
-		}
-	}
-	return ok && len(findings) == 0, nil
+	return findings
 }
 
-func runOperationStep(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, step StepSnapshot, op command.Operation, emit func(Event) error) (runner.Result, error) {
-	targetSnapshot := snapshotTarget(target)
-	step.Status = "running"
-	if err := emit(Event{Kind: EventStepStarted, Round: round, Target: targetSnapshot, Step: step, Status: "running"}); err != nil {
-		return runner.Result{}, err
+func checkFailureMessage(step StepSnapshot, findings []Finding) string {
+	if message := operationFailureReason(step); message != "" {
+		return message
 	}
-	started := time.Now()
-	emitCause := failureCauseEmitter(round, target, step, emit)
-	stopCauseMonitor := startFailureCauseMonitor(ctx, opRunner, agent, round, target, step, op, emitCause)
-	exec, err := opRunner.Run(ctx, agent, op)
-	if stopCauseMonitor != nil {
-		stopCauseMonitor()
-	}
-	step.Status = "ok"
-	if err != nil {
-		if ctx.Err() != nil {
-			return exec, ctx.Err()
-		}
-		step.Status = "failed"
-		step.Error = err.Error()
-		if emitErr := emit(Event{Kind: EventStepFinished, Round: round, Target: targetSnapshot, Step: step, Status: "failed", Message: err.Error(), Duration: time.Since(started).Milliseconds()}); emitErr != nil {
-			return exec, emitErr
-		}
-		if emitErr := emitFailureCause(ctx, opRunner, agent, round, target, step, op, exec, err, emitCause); emitErr != nil {
-			return exec, emitErr
-		}
-		return exec, nil
-	}
-	if exec.Result != nil && exec.Result.GetStatus() != controlpb.CommandResult_STATUS_OK {
-		step.Status = "failed"
-		step.Message = exec.Result.GetMessage()
-	}
-	status := step.Status
-	if err := emit(Event{
-		Kind:     EventStepFinished,
-		Round:    round,
-		Target:   targetSnapshot,
-		Step:     step,
-		Status:   status,
-		Message:  step.Message,
-		Duration: time.Since(started).Milliseconds(),
-	}); err != nil {
-		return exec, err
-	}
-	if step.Status == "failed" {
-		if err := emitFailureCause(ctx, opRunner, agent, round, target, step, op, exec, nil, emitCause); err != nil {
-			return exec, err
+	for _, finding := range findings {
+		if message := firstNonEmpty(finding.Message, finding.Metric+"="+finding.Observed); message != "" {
+			return message
 		}
 	}
-	return exec, nil
+	return "check failed"
+}
+
+func operationFailureReason(step StepSnapshot) string {
+	return firstNonEmpty(step.Message, step.Error)
+}
+
+func emitRetrying(round uint64, target Target, step StepSnapshot, attempt int, maxAttempts int, reason string, emit func(Event) error) error {
+	if attempt >= maxAttempts {
+		return nil
+	}
+	return emit(Event{
+		Kind:    EventLog,
+		Round:   round,
+		Target:  snapshotTarget(target),
+		Step:    step,
+		Status:  "warn",
+		Message: fmt.Sprintf("retrying %s attempt=%d/%d retry=%d/%d reason=%s", retryStepLabel(step), attempt, maxAttempts, attempt, maxAttempts-1, firstNonEmpty(reason, "failed")),
+	})
+}
+
+func emitRetrySucceeded(round uint64, target Target, step StepSnapshot, attempt int, maxAttempts int, emit func(Event) error) error {
+	if attempt <= 1 {
+		return nil
+	}
+	return emit(Event{
+		Kind:    EventLog,
+		Round:   round,
+		Target:  snapshotTarget(target),
+		Step:    step,
+		Status:  "info",
+		Message: retrySucceededMessage(step, attempt, maxAttempts),
+	})
+}
+
+func retryAttemptMessage(step StepSnapshot, attempt int, maxAttempts int) string {
+	return fmt.Sprintf("retry attempt %d/%d for %s", attempt, maxAttempts, retryStepLabel(step))
+}
+
+func retrySucceededMessage(step StepSnapshot, attempt int, maxAttempts int) string {
+	return fmt.Sprintf("retry succeeded %s attempt=%d/%d retries=%d", retryStepLabel(step), attempt, maxAttempts, attempt-1)
+}
+
+func retryStepLabel(step StepSnapshot) string {
+	return firstNonEmpty(step.Name, step.Type, step.Operation, "operation")
+}
+
+func operationFailureMessage(result *controlpb.CommandResult) string {
+	if result == nil {
+		return ""
+	}
+	message := result.GetMessage()
+	if detail := wifiAssertFailureMessage(result.GetWifiAssert()); detail != "" {
+		if message == "" {
+			return detail
+		}
+		if strings.Contains(message, detail) {
+			return message
+		}
+		return message + ": " + detail
+	}
+	return message
+}
+
+func wifiAssertFailureMessage(result *controlpb.WifiAssertResult) string {
+	if result == nil || result.GetPassed() {
+		return ""
+	}
+	failed := make([]string, 0)
+	lastPass := ""
+	foundFailure := false
+	for _, check := range result.GetChecks() {
+		key := firstNonEmpty(check.GetKey(), "check")
+		if check.GetPassed() {
+			if !foundFailure {
+				lastPass = key
+			}
+			continue
+		}
+		foundFailure = true
+		failed = append(failed, fmt.Sprintf("%s(actual=%s expected=%s)",
+			key,
+			firstNonEmpty(check.GetActual(), "-"),
+			firstNonEmpty(check.GetExpected(), "-"),
+		))
+	}
+	parts := make([]string, 0, 3)
+	if lastPass != "" && len(failed) > 0 {
+		parts = append(parts, "last_pass="+lastPass)
+	}
+	if len(failed) > 0 {
+		parts = append(parts, "failed="+strings.Join(failed, ","))
+	}
+	if result.GetElapsedMs() > 0 {
+		parts = append(parts, fmt.Sprintf("assert_elapsed_ms=%d", result.GetElapsedMs()))
+	}
+	if len(result.GetErrors()) > 0 {
+		parts = append(parts, "errors="+strings.Join(result.GetErrors(), ";"))
+	}
+	return strings.Join(parts, " ")
 }
 
 func startFailureCauseMonitor(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, step StepSnapshot, op command.Operation, emitCause func(string) error) func() {
@@ -386,12 +612,16 @@ func failureCauseEmitter(round uint64, target Target, step StepSnapshot, emit fu
 		}
 		seen[message] = struct{}{}
 		mu.Unlock()
+		status := "warn"
+		if strings.HasPrefix(message, "wifi connect state:") {
+			status = "info"
+		}
 		return emit(Event{
 			Kind:    EventLog,
 			Round:   round,
 			Target:  snapshotTarget(target),
 			Step:    step,
-			Status:  "warn",
+			Status:  status,
 			Message: message,
 		})
 	}

@@ -12,11 +12,13 @@ import (
 var (
 	wifiStatusRE = regexp.MustCompile(`(?i)\bstatus(?:Code)?\s*(?:=|:)\s*([0-9]+)(?::([A-Z0-9_]+))?`)
 	wifiFieldREs = map[string]*regexp.Regexp{
-		"bssid":      regexp.MustCompile(`(?i)\bbssid\s*(?:=|:)\s*("[^"]*"|[^,\s]+)`),
-		"durationMs": regexp.MustCompile(`(?i)\bdurationMs\s*(?:=|:)\s*("[^"]*"|[^,\s]+)`),
-		"reason":     regexp.MustCompile(`(?i)\breason\s*(?:=|:)\s*("[^"]*"|[^,\s]+)`),
-		"ssid":       regexp.MustCompile(`(?i)\bssid\s*(?:=|:)\s*("[^"]*"|[^,]+)`),
-		"timedOut":   regexp.MustCompile(`(?i)\btimedOut\s*(?:=|:)\s*("[^"]*"|[^,\s]+)`),
+		"bssid":            regexp.MustCompile(`(?i)\bbssid\s*(?:=|:)\s*("[^"]*"|[^,\s]+)`),
+		"durationMs":       regexp.MustCompile(`(?i)\bdurationMs\s*(?:=|:)\s*("[^"]*"|[^,\s]+)`),
+		"locallyGenerated": regexp.MustCompile(`(?i)\blocallyGenerated\s*(?:=|:)\s*("[^"]*"|[^,\s]+)`),
+		"reason":           regexp.MustCompile(`(?i)\breason\s*(?:=|:)\s*("[^"]*"|[^,\s]+)`),
+		"reasonCode":       regexp.MustCompile(`(?i)\breasonCode\s*(?:=|:)\s*("[^"]*"|[^,\s]+)`),
+		"ssid":             regexp.MustCompile(`(?i)\bssid\s*(?:=|:)\s*("[^"]*"|[^,]+)`),
+		"timedOut":         regexp.MustCompile(`(?i)\btimedOut\s*(?:=|:)\s*("[^"]*"|[^,\s]+)`),
 	}
 )
 
@@ -99,7 +101,9 @@ func renderBlocklist(line string) string {
 
 func renderDisconnect(line string) string {
 	fields := []string{"disconnected"}
-	appendField(&fields, "reason", wifiField(line, "reason"))
+	reason := firstNonEmpty(wifiField(line, "reason"), wifiField(line, "reasonCode"))
+	appendField(&fields, "reason", reason)
+	appendField(&fields, "locally_generated", wifiField(line, "locallyGenerated"))
 	appendField(&fields, "bssid", wifiField(line, "bssid"))
 	appendField(&fields, "ssid", wifiField(line, "ssid"))
 	return strings.Join(fields, " ")
@@ -141,4 +145,14 @@ func appendField(fields *[]string, key string, value string) {
 		value = strconv.Quote(value)
 	}
 	*fields = append(*fields, key+"="+value)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

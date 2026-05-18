@@ -14,6 +14,7 @@ func TestLoadFileAppliesDefaultsAndCompilesExpectations(t *testing.T) {
 name: lab-watch
 round_interval: 250ms
 defaults:
+  agent: 35251JEHN00258
   passphrase_env: DROPCHECK_WIFI_PSK
   security: wpa3
   require_ip: true
@@ -21,6 +22,7 @@ defaults:
   disconnect_after: false
 targets:
   - name: lab-6g
+    short_name: L6
     ssid: Lab
     bssid: aa:bb:cc:dd:ee:ff
     band: 6ghz
@@ -46,6 +48,12 @@ checks:
 	target := plan.Targets[0]
 	if target.PassphraseEnv != "DROPCHECK_WIFI_PSK" || target.Security != "wpa3" || !target.requireIP() || !target.requireValidated() || target.disconnectAfter() {
 		t.Fatalf("target defaults not applied: %#v", target)
+	}
+	if target.Agent != "35251JEHN00258" {
+		t.Fatalf("target agent = %q, want 35251JEHN00258", target.Agent)
+	}
+	if target.ShortName != "L6" {
+		t.Fatalf("target short name = %q, want L6", target.ShortName)
 	}
 	if got := len(plan.Checks[0].compiledExpect); got != 2 {
 		t.Fatalf("compiled expectations = %d, want 2", got)
