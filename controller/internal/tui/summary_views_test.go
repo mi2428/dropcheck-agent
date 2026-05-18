@@ -238,22 +238,30 @@ func TestFailureHotspotsPanelSplitsByAgent(t *testing.T) {
 		t.Fatalf("agent-b hotspot should render inside agent-b Panel: title=%d cause=%d\n%s", agentBTitle, agentBCause, view)
 	}
 
-	m.focus = focusRunQueue
-	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
+	m.focus = focusFailedChecks
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
 	if m.focus != focusFailureHotspots || m.focusHotspotAgentKey != roundAgentKey(agents[0]) {
-		t.Fatalf("shift-tab from run queue should focus first hotspot agent panel: focus=%v hotspot=%q", m.focus, m.focusHotspotAgentKey)
+		t.Fatalf("tab from failed checks should focus first hotspot agent panel: focus=%v hotspot=%q", m.focus, m.focusHotspotAgentKey)
 	}
-	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
 	if m.focus != focusFailureHotspots || m.focusHotspotAgentKey != roundAgentKey(agents[1]) {
-		t.Fatalf("second shift-tab should focus second hotspot agent Panel: focus=%v hotspot=%q", m.focus, m.focusHotspotAgentKey)
+		t.Fatalf("second tab should focus second hotspot agent panel: focus=%v hotspot=%q", m.focus, m.focusHotspotAgentKey)
+	}
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
+	if m.focus != focusRunQueue || m.focusRunQueueAgentKey != roundAgentKey(agents[0]) {
+		t.Fatalf("third tab should focus first run queue agent panel: focus=%v runQueue=%q", m.focus, m.focusRunQueueAgentKey)
+	}
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
+	if m.focus != focusRunQueue || m.focusRunQueueAgentKey != roundAgentKey(agents[1]) {
+		t.Fatalf("fourth tab should focus second run queue agent panel: focus=%v runQueue=%q", m.focus, m.focusRunQueueAgentKey)
+	}
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
+	if m.focus != focusCheckStatus {
+		t.Fatalf("fifth tab should focus check status, got %v", m.focus)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
-	if m.focus != focusFailedChecks {
-		t.Fatalf("third shift-tab should focus failed checks, got %v", m.focus)
-	}
-	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
-	if m.focus != focusPassingChecks {
-		t.Fatalf("fourth shift-tab should focus passing checks, got %v", m.focus)
+	if m.focus != focusRunQueue || m.focusRunQueueAgentKey != roundAgentKey(agents[1]) {
+		t.Fatalf("shift-tab should reverse to second run queue agent panel: focus=%v runQueue=%q", m.focus, m.focusRunQueueAgentKey)
 	}
 }
 
@@ -295,8 +303,8 @@ func TestFailureHotspotNavigationStaysWithinFocusedAgent(t *testing.T) {
 	addFail(agents[0], "radio-a2", time.Second)
 	addFail(agents[1], "radio-b1", 2*time.Second)
 
-	m.focus = focusRunQueue
-	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
+	m.focus = focusFailedChecks
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
 	if m.focusHotspotAgentKey != roundAgentKey(agents[0]) {
 		t.Fatalf("expected first hotspot agent focus, got %q", m.focusHotspotAgentKey)
 	}
@@ -307,7 +315,7 @@ func TestFailureHotspotNavigationStaysWithinFocusedAgent(t *testing.T) {
 	if got := m.filteredFailureHotspots()[m.failureHotspotCursor].Target.Name; got != "radio-a1" {
 		t.Fatalf("j should stay within agent-a hotspot rows, got %q", got)
 	}
-	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
 	if m.focusHotspotAgentKey != roundAgentKey(agents[1]) {
 		t.Fatalf("expected second hotspot agent focus, got %q", m.focusHotspotAgentKey)
 	}

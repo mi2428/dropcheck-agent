@@ -97,7 +97,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.handleSearchKey(msg)
 			return m, nil
 		}
-		switch msg.String() {
+		switch msg.Keystroke() {
 		case "tab":
 			m.focusPreviousPanel()
 			if m.detailOpen {
