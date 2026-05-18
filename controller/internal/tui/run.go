@@ -108,6 +108,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.detailOpen = false
 				}
 			}
+		case "shift+tab":
+			m.focusPreviousPanel()
+			if m.detailOpen {
+				if panelSupportsDetail(m.focus) {
+					m.detailPanel = m.focus
+					m.lockDetailToCursor(m.focus)
+				} else {
+					m.detailOpen = false
+				}
+			}
 		case "w":
 			m.pause()
 		case "/":
@@ -125,9 +135,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.lockDetailToCursor(m.focus)
 			}
 		case "h", "left":
-			m.moveCheckStatusHorizontal(-1)
+			if m.focus == focusCheckStatus {
+				m.moveCheckStatusHorizontal(-1)
+			}
 		case "l", "right":
-			m.moveCheckStatusHorizontal(1)
+			if m.focus == focusCheckStatus {
+				m.moveCheckStatusHorizontal(1)
+			}
 		case "ctrl+d", "pgdown":
 			m.moveFocusedCursor(10)
 			if m.detailOpen {

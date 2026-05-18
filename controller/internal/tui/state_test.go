@@ -373,7 +373,7 @@ func TestCheckStatusCompactTokenUsesPlannedAgentProgress(t *testing.T) {
 	}
 }
 
-func TestCheckStatusReservesClippedColumnsForWaitingTargets(t *testing.T) {
+func TestCheckStatusUsesContiguousInitialWindow(t *testing.T) {
 	events := make(chan watch.Event)
 	agents := []watch.AgentSnapshot{{ID: "agent-a", Name: "pixel-a"}}
 	disconnectAfter := false
@@ -404,20 +404,17 @@ func TestCheckStatusReservesClippedColumnsForWaitingTargets(t *testing.T) {
 	}
 
 	checkStatus := stripANSI(m.checkStatusView(52, 3))
-	for _, want := range []string{"A1", "A2", "A3", "A4", "A5", "A7", "A8"} {
+	for _, want := range []string{"A1", "A2", "A3", "A4", "A5", "A6", "A7"} {
 		if !strings.Contains(checkStatus, want) {
-			t.Fatalf("clipped check status should keep visible prefix and waiting tail %q:\n%s", want, checkStatus)
+			t.Fatalf("clipped check status should keep a contiguous prefix window %q:\n%s", want, checkStatus)
 		}
 	}
-	if strings.Contains(checkStatus, "A6") {
-		t.Fatalf("clipped check status should replace a completed hidden target with a waiting target:\n%s", checkStatus)
-	}
-	if strings.Index(checkStatus, "A7") < strings.Index(checkStatus, "A5") || strings.Index(checkStatus, "A8") < strings.Index(checkStatus, "A7") {
-		t.Fatalf("waiting targets should occupy the right edge in configured order:\n%s", checkStatus)
+	if strings.Contains(checkStatus, "A8") {
+		t.Fatalf("clipped check status should not splice waiting targets into the visible window:\n%s", checkStatus)
 	}
 }
 
-func TestCheckStatusAutoWindowPrefersRunningTargetsBeforeWaitingTail(t *testing.T) {
+func TestCheckStatusAutoWindowTracksRunningTargetContiguously(t *testing.T) {
 	events := make(chan watch.Event)
 	agents := []watch.AgentSnapshot{{ID: "agent-a", Name: "pixel-a"}}
 	disconnectAfter := false
@@ -455,22 +452,22 @@ func TestCheckStatusAutoWindowPrefersRunningTargetsBeforeWaitingTail(t *testing.
 	m.width = 28
 
 	checkStatus := stripANSI(m.checkStatusView(panelContentWidth(m.width), 3))
-	for _, want := range []string{"A1", "A5", "A6", "RUN", "WAIT"} {
+	for _, want := range []string{"A4", "A5", "A6", "RUN", "WAIT"} {
 		if !strings.Contains(checkStatus, want) {
-			t.Fatalf("auto check status should keep visible prefix, running target, and waiting tail %q:\n%s", want, checkStatus)
+			t.Fatalf("auto check status should keep a contiguous window around the running target %q:\n%s", want, checkStatus)
 		}
 	}
-	for _, notWant := range []string{"A2", "A3", "A4"} {
+	for _, notWant := range []string{"A1", "A2", "A3"} {
 		if strings.Contains(checkStatus, notWant) {
-			t.Fatalf("auto check status should replace completed hidden targets before active or waiting targets %q:\n%s", notWant, checkStatus)
+			t.Fatalf("auto check status should not splice a leading prefix before the tracked window %q:\n%s", notWant, checkStatus)
 		}
 	}
-	if strings.Index(checkStatus, "A5") < strings.Index(checkStatus, "A1") || strings.Index(checkStatus, "A6") < strings.Index(checkStatus, "A5") {
-		t.Fatalf("active and waiting targets should occupy the right edge in priority order:\n%s", checkStatus)
+	if strings.Index(checkStatus, "A5") < strings.Index(checkStatus, "A4") || strings.Index(checkStatus, "A6") < strings.Index(checkStatus, "A5") {
+		t.Fatalf("tracked target window should stay in configured order:\n%s", checkStatus)
 	}
 }
 
-func TestCheckStatusAutoWindowPrefersFailedTargetsBeforeWaitingTail(t *testing.T) {
+func TestCheckStatusAutoWindowTracksFailedTargetContiguously(t *testing.T) {
 	events := make(chan watch.Event)
 	agents := []watch.AgentSnapshot{{ID: "agent-a", Name: "pixel-a"}}
 	disconnectAfter := false
@@ -513,18 +510,18 @@ func TestCheckStatusAutoWindowPrefersFailedTargetsBeforeWaitingTail(t *testing.T
 	m.width = 28
 
 	checkStatus := stripANSI(m.checkStatusView(panelContentWidth(m.width), 3))
-	for _, want := range []string{"A1", "A5", "A6", "FAIL", "WAIT"} {
+	for _, want := range []string{"A4", "A5", "A6", "FAIL", "WAIT"} {
 		if !strings.Contains(checkStatus, want) {
-			t.Fatalf("auto check status should keep visible prefix, failed target, and waiting tail %q:\n%s", want, checkStatus)
+			t.Fatalf("auto check status should keep a contiguous window around the failed target %q:\n%s", want, checkStatus)
 		}
 	}
-	for _, notWant := range []string{"A2", "A3", "A4"} {
+	for _, notWant := range []string{"A1", "A2", "A3"} {
 		if strings.Contains(checkStatus, notWant) {
-			t.Fatalf("auto check status should replace completed hidden targets before failed or waiting targets %q:\n%s", notWant, checkStatus)
+			t.Fatalf("auto check status should not splice a leading prefix before the tracked failure %q:\n%s", notWant, checkStatus)
 		}
 	}
-	if strings.Index(checkStatus, "A5") < strings.Index(checkStatus, "A1") || strings.Index(checkStatus, "A6") < strings.Index(checkStatus, "A5") {
-		t.Fatalf("failed and waiting targets should occupy the right edge in priority order:\n%s", checkStatus)
+	if strings.Index(checkStatus, "A5") < strings.Index(checkStatus, "A4") || strings.Index(checkStatus, "A6") < strings.Index(checkStatus, "A5") {
+		t.Fatalf("tracked failure window should stay in configured order:\n%s", checkStatus)
 	}
 }
 
@@ -576,8 +573,164 @@ func TestCheckStatusHorizontalScrollPinsVisibleWindow(t *testing.T) {
 	}
 
 	m.moveCheckStatusHorizontal(-2)
+	if !m.checkStatusPinned {
+		t.Fatalf("check status should keep manual horizontal window pinned at the left edge")
+	}
+	checkStatus = stripANSI(m.checkStatusView(panelContentWidth(m.width), 3))
+	for _, want := range []string{"A1", "A2", "A3"} {
+		if !strings.Contains(checkStatus, want) {
+			t.Fatalf("left-edge pinned check status missing %q:\n%s", want, checkStatus)
+		}
+	}
+	for _, notWant := range []string{"A4", "A5", "A6"} {
+		if strings.Contains(checkStatus, notWant) {
+			t.Fatalf("left-edge pinned check status should show the first contiguous window, not %q:\n%s", notWant, checkStatus)
+		}
+	}
+}
+
+func TestCheckStatusLeftScrollFromAutoWindowPinsPreviousWindow(t *testing.T) {
+	events := make(chan watch.Event)
+	agents := []watch.AgentSnapshot{{ID: "agent-a", Name: "pixel-a"}}
+	disconnectAfter := false
+	targets := []watch.Target{
+		{Name: "ap1(5G)", ShortName: "A1", SSID: "Lab", DisconnectAfter: &disconnectAfter},
+		{Name: "ap2(5G)", ShortName: "A2", SSID: "Lab", DisconnectAfter: &disconnectAfter},
+		{Name: "ap3(5G)", ShortName: "A3", SSID: "Lab", DisconnectAfter: &disconnectAfter},
+		{Name: "ap4(5G)", ShortName: "A4", SSID: "Lab", DisconnectAfter: &disconnectAfter},
+		{Name: "ap5(5G)", ShortName: "A5", SSID: "Lab", DisconnectAfter: &disconnectAfter},
+		{Name: "ap6(5G)", ShortName: "A6", SSID: "Lab", DisconnectAfter: &disconnectAfter},
+	}
+	m := newModelWithChecks("shownet-watch", targets, []watch.Check{}, events, agents)
+	for i := 0; i < 4; i++ {
+		target := watch.TargetSnapshot{Name: targets[i].Name, ShortName: targets[i].ShortName, SSID: targets[i].SSID}
+		for _, step := range []string{"connect", "wait_connected"} {
+			m.apply(watch.Event{
+				Kind:     watch.EventStepFinished,
+				Agent:    agents[0],
+				Round:    1,
+				Target:   target,
+				Step:     watch.StepSnapshot{Name: step, Type: step, Status: "ok"},
+				Status:   "ok",
+				Duration: 10,
+			})
+		}
+	}
+	m.width = 28
+	m.apply(watch.Event{
+		Kind:   watch.EventStepStarted,
+		Agent:  agents[0],
+		Round:  1,
+		Target: watch.TargetSnapshot{Name: targets[4].Name, ShortName: targets[4].ShortName, SSID: targets[4].SSID},
+		Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
+		Status: "running",
+	})
+
+	auto := stripANSI(m.checkStatusView(panelContentWidth(m.width), 3))
+	for _, want := range []string{"A4", "A5", "A6"} {
+		if !strings.Contains(auto, want) {
+			t.Fatalf("auto check status should track the running target before manual scroll %q:\n%s", want, auto)
+		}
+	}
+	m.moveCheckStatusHorizontal(-1)
+	if !m.checkStatusPinned {
+		t.Fatalf("left scroll from auto should pin a contiguous target window")
+	}
+	checkStatus := stripANSI(m.checkStatusView(panelContentWidth(m.width), 3))
+	for _, want := range []string{"A3", "A4", "A5"} {
+		if !strings.Contains(checkStatus, want) {
+			t.Fatalf("left-scrolled check status missing %q:\n%s", want, checkStatus)
+		}
+	}
+	for _, notWant := range []string{"A1", "A2", "A6"} {
+		if strings.Contains(checkStatus, notWant) {
+			t.Fatalf("left-scrolled check status should show the previous contiguous window, not %q:\n%s", notWant, checkStatus)
+		}
+	}
+}
+
+func TestCheckStatusAutoWindowStaysStableBetweenStepTransitions(t *testing.T) {
+	events := make(chan watch.Event)
+	agents := []watch.AgentSnapshot{{ID: "agent-a", Name: "pixel-a"}}
+	targets := []watch.Target{
+		{Name: "ap1(5G)", ShortName: "A1", SSID: "Lab"},
+		{Name: "ap2(5G)", ShortName: "A2", SSID: "Lab"},
+		{Name: "ap3(5G)", ShortName: "A3", SSID: "Lab"},
+		{Name: "ap4(5G)", ShortName: "A4", SSID: "Lab"},
+		{Name: "ap5(5G)", ShortName: "A5", SSID: "Lab"},
+		{Name: "ap6(5G)", ShortName: "A6", SSID: "Lab"},
+	}
+	m := newModelWithChecks("shownet-watch", targets, []watch.Check{}, events, agents)
+	m.width = 28
+	target := watch.TargetSnapshot{Name: targets[4].Name, ShortName: targets[4].ShortName, SSID: targets[4].SSID}
+	m.apply(watch.Event{
+		Kind:   watch.EventStepStarted,
+		Agent:  agents[0],
+		Round:  1,
+		Target: target,
+		Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
+		Status: "running",
+	})
+	before := stripANSI(m.checkStatusView(panelContentWidth(m.width), 3))
+	m.apply(watch.Event{
+		Kind:     watch.EventStepFinished,
+		Agent:    agents[0],
+		Round:    1,
+		Target:   target,
+		Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Status:   "ok",
+		Duration: 10,
+	})
+	between := stripANSI(m.checkStatusView(panelContentWidth(m.width), 3))
+	m.apply(watch.Event{
+		Kind:   watch.EventStepStarted,
+		Agent:  agents[0],
+		Round:  1,
+		Target: target,
+		Step:   watch.StepSnapshot{Name: "wait_connected", Type: "wait_connected", Status: "running"},
+		Status: "running",
+	})
+	after := stripANSI(m.checkStatusView(panelContentWidth(m.width), 3))
+
+	for _, view := range []string{before, between, after} {
+		for _, want := range []string{"A4", "A5", "A6"} {
+			if !strings.Contains(view, want) {
+				t.Fatalf("auto check status should keep the same target window across step transitions, missing %q:\nbefore:\n%s\nbetween:\n%s\nafter:\n%s", want, before, between, after)
+			}
+		}
+		for _, notWant := range []string{"A1", "A2", "A3"} {
+			if strings.Contains(view, notWant) {
+				t.Fatalf("auto check status should not swap back to the leading window between step events, found %q:\nbefore:\n%s\nbetween:\n%s\nafter:\n%s", notWant, before, between, after)
+			}
+		}
+	}
+	if !strings.Contains(between, "PASS") {
+		t.Fatalf("step-finished frame should preserve the completed check instead of turning the tracked window into all WAIT:\n%s", between)
+	}
+}
+
+func TestCheckStatusManualScrollUnpinsWhenFocusLeaves(t *testing.T) {
+	events := make(chan watch.Event)
+	agents := []watch.AgentSnapshot{{ID: "agent-a", Name: "pixel-a"}}
+	targets := []watch.Target{
+		{Name: "ap1(5G)", ShortName: "A1", SSID: "Lab"},
+		{Name: "ap2(5G)", ShortName: "A2", SSID: "Lab"},
+		{Name: "ap3(5G)", ShortName: "A3", SSID: "Lab"},
+		{Name: "ap4(5G)", ShortName: "A4", SSID: "Lab"},
+		{Name: "ap5(5G)", ShortName: "A5", SSID: "Lab"},
+		{Name: "ap6(5G)", ShortName: "A6", SSID: "Lab"},
+	}
+	m := newModelWithChecks("shownet-watch", targets, []watch.Check{}, events, agents)
+	m.width = 28
+	m.focus = focusCheckStatus
+	m.moveCheckStatusHorizontal(1)
+	if !m.checkStatusPinned || m.checkStatusOffset == 0 {
+		t.Fatalf("check status horizontal scroll should pin a manual window, pinned=%v offset=%d", m.checkStatusPinned, m.checkStatusOffset)
+	}
+
+	m.setFocusSlot(focusSlot{Panel: focusRunQueue})
 	if m.checkStatusPinned {
-		t.Fatalf("check status should return to automatic window selection at the left edge")
+		t.Fatalf("leaving check status should unpin manual horizontal window")
 	}
 }
 

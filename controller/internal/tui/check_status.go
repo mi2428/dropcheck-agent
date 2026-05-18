@@ -24,7 +24,7 @@ func (m model) checkStatusView(width int, height int) string {
 	}
 	agents := m.outcomeAgents(m.outcomeEvents())
 	layout := checkStatusTableLayout(width, checks, targets, agents)
-	targets = m.checkStatusVisibleTargets(targets, checks, agents, layout)
+	targets = m.checkStatusVisibleTargets(targets, layout)
 	var lines []string
 	var header strings.Builder
 	header.WriteString(padVisible("Check", layout.LabelWidth))
@@ -58,7 +58,7 @@ func (m model) checkStatusView(width int, height int) string {
 			cell := m.checkStatusTargetCell(check, target, m.checkStatusAgentsForTarget(target, agents))
 			b.WriteString(renderCheckStatusAggregateCell(cell, layout.CellWidth, m.MultiAgent, layout.ShortMode))
 		}
-		lines = append(lines, b.String())
+		lines = append(lines, padCheckStatusLine(b.String(), width))
 		visibleRows--
 	}
 	if footer != "" {
@@ -126,7 +126,7 @@ func allCheckStatusTargetsHaveShortName(targets []watch.TargetSnapshot) bool {
 	return true
 }
 
-func (m model) checkStatusVisibleTargets(targets []watch.TargetSnapshot, checks []string, agents []watch.AgentSnapshot, layout checkStatusLayout) []watch.TargetSnapshot {
+func (m model) checkStatusVisibleTargets(targets []watch.TargetSnapshot, layout checkStatusLayout) []watch.TargetSnapshot {
 	visible := min(layout.VisibleTargets, len(targets))
 	if visible >= len(targets) {
 		return targets
@@ -134,68 +134,8 @@ func (m model) checkStatusVisibleTargets(targets []watch.TargetSnapshot, checks 
 	if visible <= 0 {
 		return nil
 	}
-	if m.checkStatusPinned {
-		offset := clamp(m.checkStatusOffset, 0, len(targets)-visible)
-		return targets[offset : offset+visible]
-	}
-	trailingColumns := min(2, visible)
-	leadingColumns := visible - trailingColumns
-	selected := make([]watch.TargetSnapshot, 0, visible)
-	seen := make(map[string]bool, visible)
-	add := func(target watch.TargetSnapshot) {
-		key := checkStatusTargetKey(target)
-		if key == "" || seen[key] || len(selected) >= visible {
-			return
-		}
-		seen[key] = true
-		selected = append(selected, target)
-	}
-	for _, target := range targets[:leadingColumns] {
-		add(target)
-	}
-	for _, status := range []string{"running", "failed"} {
-		for _, target := range targets[leadingColumns:] {
-			if !m.checkStatusTargetHasStatus(target, checks, agents, status) {
-				continue
-			}
-			add(target)
-		}
-	}
-	for _, target := range targets[leadingColumns:] {
-		if m.checkStatusTargetIsWaiting(target, checks, agents) {
-			add(target)
-		}
-	}
-	for _, target := range targets[leadingColumns:] {
-		add(target)
-	}
-	return selected
-}
-
-func (m model) checkStatusTargetHasStatus(target watch.TargetSnapshot, checks []string, agents []watch.AgentSnapshot, status string) bool {
-	if len(checks) == 0 {
-		return false
-	}
-	targetAgents := m.checkStatusAgentsForTarget(target, agents)
-	for _, check := range checks {
-		if normalizeStatus(m.checkStatusTargetCell(check, target, targetAgents).Status) == status {
-			return true
-		}
-	}
-	return false
-}
-
-func (m model) checkStatusTargetIsWaiting(target watch.TargetSnapshot, checks []string, agents []watch.AgentSnapshot) bool {
-	if len(checks) == 0 {
-		return false
-	}
-	targetAgents := m.checkStatusAgentsForTarget(target, agents)
-	for _, check := range checks {
-		if normalizeStatus(m.checkStatusTargetCell(check, target, targetAgents).Status) != "pending" {
-			return false
-		}
-	}
-	return true
+	offset := clamp(m.checkStatusOffset, 0, len(targets)-visible)
+	return targets[offset : offset+visible]
 }
 
 func (m *model) moveCheckStatusHorizontal(delta int) {
@@ -209,31 +149,114 @@ func (m *model) moveCheckStatusHorizontal(delta int) {
 		return
 	}
 	m.checkStatusOffset = clamp(m.checkStatusOffset+delta, 0, maxOffset)
-	m.checkStatusPinned = m.checkStatusOffset > 0
+	m.checkStatusPinned = true
+}
+
+func padCheckStatusLine(line string, width int) string {
+	line = fitANSI(line, width)
+	return line + valueStyle.Render(strings.Repeat(" ", max(0, width-lipgloss.Width(line))))
 }
 
 func (m *model) normalizeCheckStatusOffset() {
-	maxOffset := m.checkStatusMaxOffset(panelContentWidth(m.width))
+	targets, layout, maxOffset := m.checkStatusWindowMetrics(panelContentWidth(m.width))
 	if maxOffset <= 0 {
 		m.checkStatusOffset = 0
 		m.checkStatusPinned = false
 		return
 	}
 	m.checkStatusOffset = clamp(m.checkStatusOffset, 0, maxOffset)
+	if m.checkStatusPinned {
+		return
+	}
+	active := m.checkStatusActiveTargetIndex(targets)
+	if active < 0 {
+		return
+	}
+	visible := min(layout.VisibleTargets, len(targets))
+	if visible <= 0 {
+		return
+	}
+	desiredPosition := max(0, visible-2)
+	if active < m.checkStatusOffset {
+		m.checkStatusOffset = active
+	} else if active > m.checkStatusOffset+desiredPosition {
+		m.checkStatusOffset = clamp(active-desiredPosition, 0, maxOffset)
+	}
 }
 
 func (m model) checkStatusMaxOffset(width int) int {
+	_, _, maxOffset := m.checkStatusWindowMetrics(width)
+	return maxOffset
+}
+
+func (m model) checkStatusWindowMetrics(width int) ([]watch.TargetSnapshot, checkStatusLayout, int) {
 	targets := m.checkStatusTargets()
 	if len(targets) == 0 {
-		return 0
+		return nil, checkStatusLayout{}, 0
 	}
 	checks := m.checkStatusChecks()
 	if len(checks) == 0 {
-		return 0
+		return targets, checkStatusLayout{}, 0
 	}
 	agents := m.outcomeAgents(m.outcomeEvents())
 	layout := checkStatusTableLayout(width, checks, targets, agents)
-	return max(0, len(targets)-layout.VisibleTargets)
+	return targets, layout, max(0, len(targets)-layout.VisibleTargets)
+}
+
+func (m model) checkStatusActiveTargetIndex(targets []watch.TargetSnapshot) int {
+	for i, target := range targets {
+		if m.checkStatusTargetRunning(target) {
+			return i
+		}
+	}
+	for i := len(targets) - 1; i >= 0; i-- {
+		if m.checkStatusTargetFailed(targets[i]) {
+			return i
+		}
+	}
+	return -1
+}
+
+func (m model) checkStatusTargetRunning(target watch.TargetSnapshot) bool {
+	targetKey := checkStatusTargetKey(target)
+	if targetKey == "" {
+		return false
+	}
+	for _, state := range m.Targets {
+		if checkStatusTargetKey(state.Target) != targetKey {
+			continue
+		}
+		if normalizeStatus(state.Status) == "running" || strings.TrimSpace(state.CurrentStep) != "" {
+			return true
+		}
+		for _, step := range state.Steps {
+			if normalizeStatus(step.Status) == "running" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (m model) checkStatusTargetFailed(target watch.TargetSnapshot) bool {
+	targetKey := checkStatusTargetKey(target)
+	if targetKey == "" {
+		return false
+	}
+	for _, state := range m.Targets {
+		if checkStatusTargetKey(state.Target) != targetKey {
+			continue
+		}
+		if normalizeStatus(state.Status) == "failed" {
+			return true
+		}
+		for _, step := range state.Steps {
+			if normalizeStatus(step.Status) == "failed" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func checkStatusHeaderLabel(target watch.TargetSnapshot, layout checkStatusLayout) string {

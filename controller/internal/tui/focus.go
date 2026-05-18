@@ -60,8 +60,16 @@ func (m *model) moveFocusedCursor(delta int) {
 }
 
 func (m *model) focusNextPanel() {
+	m.movePanelFocus(1)
+}
+
+func (m *model) focusPreviousPanel() {
+	m.movePanelFocus(-1)
+}
+
+func (m *model) movePanelFocus(delta int) {
 	slots := m.focusSlots()
-	if len(slots) == 0 {
+	if len(slots) == 0 || delta == 0 {
 		return
 	}
 	current := m.currentFocusSlot()
@@ -83,25 +91,31 @@ func (m *model) focusNextPanel() {
 	if index < 0 {
 		index = 0
 	}
-	m.setFocusSlot(slots[(index+1)%len(slots)])
+	next := (index + delta) % len(slots)
+	if next < 0 {
+		next += len(slots)
+	}
+	m.setFocusSlot(slots[next])
 }
 
 func (m model) focusSlots() []focusSlot {
 	slots := []focusSlot{
-		{Panel: focusPassingChecks},
 		{Panel: focusCheckStatus},
 		{Panel: focusRunQueue},
-		{Panel: focusFailedChecks},
 	}
-	if !m.failureHotspotsVisible() {
-		return slots
+	if m.failureHotspotsVisible() {
+		if !m.failureHotspotPanelsSplit() {
+			slots = append(slots, focusSlot{Panel: focusFailureHotspots})
+		} else {
+			for _, agent := range m.failureHotspotAgents() {
+				slots = append(slots, focusSlot{Panel: focusFailureHotspots, HotspotAgentKey: roundAgentKey(agent)})
+			}
+		}
 	}
-	if !m.failureHotspotPanelsSplit() {
-		return append(slots, focusSlot{Panel: focusFailureHotspots})
-	}
-	for _, agent := range m.failureHotspotAgents() {
-		slots = append(slots, focusSlot{Panel: focusFailureHotspots, HotspotAgentKey: roundAgentKey(agent)})
-	}
+	slots = append(slots,
+		focusSlot{Panel: focusFailedChecks},
+		focusSlot{Panel: focusPassingChecks},
+	)
 	return slots
 }
 
@@ -117,7 +131,12 @@ func (m model) currentFocusSlot() focusSlot {
 }
 
 func (m *model) setFocusSlot(slot focusSlot) {
+	previous := m.focus
 	m.focus = slot.Panel
+	if previous == focusCheckStatus && slot.Panel != focusCheckStatus {
+		m.checkStatusPinned = false
+		m.normalizeCheckStatusOffset()
+	}
 	if slot.Panel == focusRunQueue {
 		m.runQueuePinned = false
 		m.updateRunQueueCursor()

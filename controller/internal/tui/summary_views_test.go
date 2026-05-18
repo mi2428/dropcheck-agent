@@ -238,17 +238,22 @@ func TestFailureHotspotsPanelSplitsByAgent(t *testing.T) {
 		t.Fatalf("agent-b hotspot should render inside agent-b Panel: title=%d cause=%d\n%s", agentBTitle, agentBCause, view)
 	}
 
+	m.focus = focusRunQueue
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
 	if m.focus != focusFailureHotspots || m.focusHotspotAgentKey != roundAgentKey(agents[0]) {
-		t.Fatalf("first tab from failed checks should focus first hotspot agent Panel: focus=%v hotspot=%q", m.focus, m.focusHotspotAgentKey)
+		t.Fatalf("tab from run queue should focus first hotspot agent panel: focus=%v hotspot=%q", m.focus, m.focusHotspotAgentKey)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
 	if m.focus != focusFailureHotspots || m.focusHotspotAgentKey != roundAgentKey(agents[1]) {
 		t.Fatalf("second tab should focus second hotspot agent Panel: focus=%v hotspot=%q", m.focus, m.focusHotspotAgentKey)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
+	if m.focus != focusFailedChecks {
+		t.Fatalf("third tab should focus failed checks, got %v", m.focus)
+	}
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
 	if m.focus != focusPassingChecks {
-		t.Fatalf("third tab should wrap to passing checks, got %v", m.focus)
+		t.Fatalf("fourth tab should focus passing checks, got %v", m.focus)
 	}
 }
 
@@ -290,6 +295,7 @@ func TestFailureHotspotNavigationStaysWithinFocusedAgent(t *testing.T) {
 	addFail(agents[0], "radio-a2", time.Second)
 	addFail(agents[1], "radio-b1", 2*time.Second)
 
+	m.focus = focusRunQueue
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
 	if m.focusHotspotAgentKey != roundAgentKey(agents[0]) {
 		t.Fatalf("expected first hotspot agent focus, got %q", m.focusHotspotAgentKey)
@@ -327,12 +333,8 @@ func TestTabCyclesThroughFailureHotspotsWhenVisible(t *testing.T) {
 		t.Fatalf("wide frame should expose failure hotspots panel")
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
-	if m.focus != focusFailureHotspots {
-		t.Fatalf("tab from failed checks should focus failure hotspots, got %v", m.focus)
-	}
-	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
 	if m.focus != focusPassingChecks {
-		t.Fatalf("tab from failure hotspots should focus passing checks, got %v", m.focus)
+		t.Fatalf("tab from failed checks should focus passing checks, got %v", m.focus)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
 	if m.focus != focusCheckStatus {
@@ -343,8 +345,16 @@ func TestTabCyclesThroughFailureHotspotsWhenVisible(t *testing.T) {
 		t.Fatalf("tab from check status should focus run queue, got %v", m.focus)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
+	if m.focus != focusFailureHotspots {
+		t.Fatalf("tab from run queue should focus failure hotspots, got %v", m.focus)
+	}
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
 	if m.focus != focusFailedChecks {
-		t.Fatalf("tab from run queue should focus failed checks, got %v", m.focus)
+		t.Fatalf("tab from failure hotspots should focus failed checks, got %v", m.focus)
+	}
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
+	if m.focus != focusFailureHotspots {
+		t.Fatalf("shift-tab from failed checks should focus failure hotspots, got %v", m.focus)
 	}
 }
 
@@ -375,9 +385,10 @@ func TestEnterShowsFailureHotspotDetail(t *testing.T) {
 		})
 	}
 
+	m.focus = focusRunQueue
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
 	if m.focus != focusFailureHotspots {
-		t.Fatalf("tab should focus hotspot panel before opening detail, got %v", m.focus)
+		t.Fatalf("tab from run queue should focus hotspot panel before opening detail, got %v", m.focus)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyEnter})
 	frame := stripANSI(m.render())

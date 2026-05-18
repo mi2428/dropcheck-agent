@@ -57,6 +57,14 @@ func TestTabFocusAndPanelLocalNavigation(t *testing.T) {
 	if m.focus != focusPassingChecks {
 		t.Fatalf("tab should focus passing checks, got %v", m.focus)
 	}
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
+	if m.focus != focusFailedChecks {
+		t.Fatalf("shift-tab should move counter-clockwise back to failed checks, got %v", m.focus)
+	}
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
+	if m.focus != focusPassingChecks {
+		t.Fatalf("tab should return clockwise to passing checks, got %v", m.focus)
+	}
 	m = updateKey(t, m, tea.Key{Code: 'j', Text: "j"})
 	if m.passingCheckCursor != 1 || m.failedCheckCursor != 1 {
 		t.Fatalf("j should move passing checks cursor only: passing=%d failed=%d", m.passingCheckCursor, m.failedCheckCursor)
@@ -67,7 +75,7 @@ func TestTabFocusAndPanelLocalNavigation(t *testing.T) {
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
 	if m.focus != focusCheckStatus {
-		t.Fatalf("second tab should focus check status, got %v", m.focus)
+		t.Fatalf("tab from passing checks should focus check status, got %v", m.focus)
 	}
 	m.checkStatusOffset = 0
 	m = updateKey(t, m, tea.Key{Code: 'l', Text: "l"})
@@ -76,7 +84,7 @@ func TestTabFocusAndPanelLocalNavigation(t *testing.T) {
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
 	if m.focus != focusRunQueue {
-		t.Fatalf("third tab should focus run queue, got %v", m.focus)
+		t.Fatalf("tab from check status should focus run queue, got %v", m.focus)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
 	m = updateKey(t, m, tea.Key{Code: 'k', Text: "k"})
