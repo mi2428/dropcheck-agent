@@ -34,11 +34,11 @@ func (s *State) Apply(event watch.Event) {
 		s.Phase = "idle"
 	case watch.EventTargetStarted:
 		target := s.EnsureTarget(event.Agent, event.Target)
-		target.Status = "running"
+		target.Status = FirstNonEmpty(event.Status, "running")
 		s.Phase = s.EventTargetLabel(event)
 		s.EventLogTarget = s.EventTargetLabel(event)
 		s.EventLogStep = ""
-		s.EventLogLast = "target started"
+		s.EventLogLast = "target " + FirstNonEmpty(event.Status, "started")
 	case watch.EventTargetFinished:
 		target := s.EnsureTarget(event.Agent, event.Target)
 		target.Status = event.Status
