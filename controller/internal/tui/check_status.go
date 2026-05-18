@@ -31,15 +31,15 @@ func (m model) checkStatusView(width int, height int) string {
 	targets = targets[:visibleTargets]
 	var lines []string
 	var header strings.Builder
-	header.WriteString(tableHeaderStyle.Render(padVisible("Check", labelWidth)))
-	header.WriteString(tableHeaderStyle.Render(" "))
+	header.WriteString(padVisible("Check", labelWidth))
+	header.WriteString(" ")
 	for i, target := range targets {
 		if i > 0 {
-			header.WriteString(tableHeaderStyle.Render(" "))
+			header.WriteString(" ")
 		}
-		header.WriteString(tableHeaderStyle.Render(padVisible(compactTargetLabel(checkStatusTargetLabel(target), cellWidth), cellWidth)))
+		header.WriteString(padVisible(compactTargetLabel(checkStatusTargetLabel(target), cellWidth), cellWidth))
 	}
-	lines = append(lines, header.String())
+	lines = append(lines, tableHeaderStyle.Render(padVisible(header.String(), width)))
 	visibleRows := max(0, height-1)
 	for _, check := range checks {
 		if visibleRows <= 0 {
