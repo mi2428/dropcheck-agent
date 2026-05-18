@@ -47,6 +47,11 @@ func TestPlainListLayoutFillsPanelWidth(t *testing.T) {
 	if got := lipgloss.Width(header); got != 70 {
 		t.Fatalf("plain list header width = %d, want 70: %q", got, header)
 	}
+	for i, want := range []int{len("radio-u7"), len("connect"), len("Metric")} {
+		if got := layout.ColumnWidths[i]; got != want {
+			t.Fatalf("plain list column width[%d] = %d, want data-fit width %d; layout=%#v", i, got, want, layout)
+		}
+	}
 	targetIndex := strings.Index(header, "Target")
 	checkIndex := strings.Index(header, "Check")
 	metricIndex := strings.Index(header, "Metric")
@@ -54,11 +59,42 @@ func TestPlainListLayoutFillsPanelWidth(t *testing.T) {
 	if targetIndex < 0 || checkIndex < 0 || metricIndex < 0 || countIndex < 0 {
 		t.Fatalf("plain list header missing columns: %q", header)
 	}
-	if checkIndex-targetIndex < 12 || metricIndex-checkIndex < 12 || countIndex-metricIndex < 12 {
-		t.Fatalf("plain list columns should spread across the panel width: %q", header)
+	if checkIndex-targetIndex != layout.ColumnWidths[0]+listColumnGap || metricIndex-checkIndex != layout.ColumnWidths[1]+listColumnGap {
+		t.Fatalf("plain list left columns should use data-fit widths before the flexible spacer: %q layout=%#v", header, layout)
+	}
+	if countIndex-metricIndex <= layout.ColumnWidths[2]+listColumnGap {
+		t.Fatalf("plain list flexible spacer should sit before right metrics: %q layout=%#v", header, layout)
 	}
 	if strings.Contains(header, "Target Check") || strings.Contains(header, "Check Metric") || strings.Contains(header, "Cnt Last") {
 		t.Fatalf("plain list columns should be separated by at least two spaces: %q", header)
+	}
+}
+
+func TestFailedCheckLayoutMovesSpareWidthOutOfTargetColumn(t *testing.T) {
+	row := failedCheckSummary{
+		Count:       1,
+		FailPercent: 50,
+		FailStreak:  1,
+		Target:      watch.TargetSnapshot{Name: "ub2(6G)"},
+		Finding: watch.Finding{
+			Target: "ub2(6G)",
+			Check:  "wait_connected",
+			Metric: "status",
+		},
+	}
+	layout := failedCheckBarListLayout([]failedCheckSummary{row}, 76, true)
+	if got, want := layout.ColumnWidths[0], lipgloss.Width("ub2(6G)"); got != want {
+		t.Fatalf("target column width = %d, want data-fit width %d; layout=%#v", got, want, layout)
+	}
+	if got, want := layout.ColumnWidths[1], lipgloss.Width("wait_connected"); got < want {
+		t.Fatalf("check column width = %d, want at least %d to avoid truncation; layout=%#v", got, want, layout)
+	}
+	line := barListLine(failedCheckListColumns(row, true), failedCheckListRightColumns(row), row.Count, row.Count, layout)
+	if got := lipgloss.Width(line); got != 76 {
+		t.Fatalf("failed check row width = %d, want 76: %q", got, line)
+	}
+	if strings.Contains(line, "wait_connec~") || !strings.Contains(line, "wait_connected") {
+		t.Fatalf("failed check row should use target slack for full check name: %q layout=%#v", line, layout)
 	}
 }
 

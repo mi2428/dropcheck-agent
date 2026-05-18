@@ -297,6 +297,7 @@ type barListLayout struct {
 	ColumnWidths []int
 	BarWidth     int
 	RightWidths  []int
+	RightGap     int
 }
 
 const listColumnGap = 2
@@ -391,9 +392,16 @@ func newListLayout(width int, columns [][]string, rights [][]string, includeBar 
 		}
 	} else {
 		budget := max(1, width-joinedWidths(rightWidths)-listColumnGap)
-		columnWidths = expandWidthsEvenly(columnWidths, budget)
+		columnWidths = shrinkWidths(columnWidths, budget, 4)
+		if emptyRows {
+			columnWidths = expandWidthsEvenly(columnWidths, budget)
+		}
 	}
-	return barListLayout{ColumnWidths: columnWidths, BarWidth: barWidth, RightWidths: rightWidths}
+	rightGap := listColumnGap
+	if !includeBar {
+		rightGap = max(listColumnGap, width-joinedWidths(columnWidths)-joinedWidths(rightWidths))
+	}
+	return barListLayout{ColumnWidths: columnWidths, BarWidth: barWidth, RightWidths: rightWidths, RightGap: rightGap}
 }
 
 func expandWidthsEvenly(widths []int, budget int) []int {
@@ -476,7 +484,7 @@ func barListHeader(columns []string, rightColumns []string, layout barListLayout
 	left := renderBarListColumns(columns, layout.ColumnWidths, false)
 	right := renderBarListColumns(rightColumns, layout.RightWidths, true)
 	if layout.BarWidth <= 0 {
-		return joinListColumns(left, right)
+		return joinListColumns(left, right, layout.RightGap)
 	}
 	return left + strings.Repeat(" ", listColumnGap) + strings.Repeat(" ", layout.BarWidth) + strings.Repeat(" ", listColumnGap) + right
 }
@@ -488,19 +496,19 @@ func barListLine(columns []string, rightColumns []string, count int, maxCount in
 	left := renderBarListColumns(columns, layout.ColumnWidths, false)
 	right := renderBarListColumns(rightColumns, layout.RightWidths, true)
 	if layout.BarWidth <= 0 {
-		return joinListColumns(left, right)
+		return joinListColumns(left, right, layout.RightGap)
 	}
 	return left + strings.Repeat(" ", listColumnGap) + countBar(count, maxCount, layout.BarWidth) + strings.Repeat(" ", listColumnGap) + right
 }
 
-func joinListColumns(left string, right string) string {
+func joinListColumns(left string, right string, gap int) string {
 	if right == "" {
 		return left
 	}
 	if left == "" {
 		return right
 	}
-	return left + strings.Repeat(" ", listColumnGap) + right
+	return left + strings.Repeat(" ", max(listColumnGap, gap)) + right
 }
 
 func renderBarListColumns(values []string, widths []int, rightAlign bool) string {
