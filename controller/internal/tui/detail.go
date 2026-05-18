@@ -230,7 +230,7 @@ func detailSectionAllocations(sections []detailSection, available int) []int {
 func (m model) passingCheckDetailRows(summary passingCheckSummary) []string {
 	items := make([]passingCheckState, 0, summary.Count)
 	for _, item := range m.PassingChecks {
-		if passingCheckSummaryKey(item.Target, item.Step) == passingCheckSummaryKey(summary.Target, summary.Step) {
+		if passingCheckSummaryKey(item.Agent, item.Target, item.Step) == passingCheckSummaryKey(summary.Agent, summary.Target, summary.Step) {
 			items = append(items, item)
 		}
 	}

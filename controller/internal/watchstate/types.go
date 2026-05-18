@@ -122,6 +122,17 @@ type EventLogEntry struct {
 	Line  string
 }
 
+// ConnectState is the latest live association phase reported for one agent.
+type ConnectState struct {
+	Last       time.Time
+	Agent      watch.AgentSnapshot
+	Target     watch.TargetSnapshot
+	Supplicant string
+	SSID       string
+	BSSID      string
+	IP         string
+}
+
 type failureHotspotRun struct {
 	Last   time.Time
 	failed bool
@@ -167,6 +178,7 @@ type State struct {
 	PassingChecks   []PassingCheck
 	Logs            []string
 	EventLogEntries []EventLogEntry
+	ConnectStates   []ConnectState
 	EventLogTarget  string
 	EventLogStep    string
 	EventLogLast    string
@@ -177,7 +189,7 @@ func New(targets []watch.Target, checks []watch.Check, agents []watch.AgentSnaps
 	states := make([]TargetState, 0, Max(1, len(agents))*len(targets))
 	index := make(map[string]int, Max(1, len(agents))*len(targets))
 	addTarget := func(agent watch.AgentSnapshot, target watch.Target) {
-		snapshot := watch.TargetSnapshot{Name: target.DisplayName(), SSID: target.SSID, BSSID: target.BSSID, Band: target.Band}
+		snapshot := watch.TargetSnapshot{Name: target.DisplayName(), ShortName: target.ShortName, Agent: target.Agent, SSID: target.SSID, BSSID: target.BSSID, Band: target.Band}
 		key := TargetStateKey(agent, snapshot)
 		index[key] = len(states)
 		states = append(states, TargetState{Agent: agent, Target: snapshot, Status: "pending", PlannedSteps: PlannedStepsForTarget(target, checks)})
@@ -187,8 +199,11 @@ func New(targets []watch.Target, checks []watch.Check, agents []watch.AgentSnaps
 			addTarget(watch.AgentSnapshot{}, target)
 		}
 	} else {
-		for _, agent := range agents {
-			for _, target := range targets {
+		for _, target := range targets {
+			for _, agent := range agents {
+				if target.Agent != "" && !watch.AgentSnapshotMatches(agent, target.Agent) {
+					continue
+				}
 				addTarget(agent, target)
 			}
 		}

@@ -243,7 +243,7 @@ func (s State) CheckStatusTargetCell(check string, target watch.TargetSnapshot, 
 	case failed > 0:
 		return CheckStatusAggregate{Status: "failed", Count: failed, Failed: failed, Total: total, Stale: currentCounts["failed"] == 0}
 	case counts["running"] > 0:
-		return CheckStatusAggregate{Status: "running", Count: counts["running"], Total: total}
+		return CheckStatusAggregate{Status: "running", Count: total - counts["pending"], Total: total}
 	case counts["ok"] > 0:
 		return CheckStatusAggregate{Status: "ok", Count: counts["ok"], Total: total, Stale: currentCounts["ok"] == 0}
 	case counts["skipped"] > 0:

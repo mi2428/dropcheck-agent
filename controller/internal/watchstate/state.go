@@ -12,6 +12,9 @@ import (
 // summary fields. Cursor movement and repaint decisions stay in the TUI layer.
 func (s *State) Apply(event watch.Event) {
 	s.PushEventLog(event)
+	if event.Kind == watch.EventLog {
+		s.RecordConnectState(event)
+	}
 	if event.Round > s.Round {
 		s.Round = event.Round
 	}
@@ -138,6 +141,12 @@ func (s *State) EnsureTarget(agent watch.AgentSnapshot, snapshot watch.TargetSna
 func MergeTargetSnapshot(base watch.TargetSnapshot, update watch.TargetSnapshot) watch.TargetSnapshot {
 	if update.Name != "" {
 		base.Name = update.Name
+	}
+	if update.ShortName != "" {
+		base.ShortName = update.ShortName
+	}
+	if update.Agent != "" {
+		base.Agent = update.Agent
 	}
 	if update.SSID != "" {
 		base.SSID = update.SSID

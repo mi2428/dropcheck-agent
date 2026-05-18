@@ -104,6 +104,11 @@ func CheckStatusTargetLabel(target watch.TargetSnapshot) string {
 	return FirstNonEmpty(target.Name, target.SSID, target.BSSID, "-")
 }
 
+// CheckStatusTargetShortLabel returns the configured dense label for a target.
+func CheckStatusTargetShortLabel(target watch.TargetSnapshot) string {
+	return FirstNonEmpty(target.ShortName, target.Name, target.SSID, target.BSSID, "-")
+}
+
 // EventTargetLabel returns the target label used in event-log summaries.
 func (s State) EventTargetLabel(event watch.Event) string {
 	label := event.Target.Name
@@ -156,14 +161,16 @@ func PassingCheckKey(agent watch.AgentSnapshot, target watch.TargetSnapshot, ste
 	return strings.Join([]string{AgentKey(agent), targetName, target.SSID, target.BSSID, stepName, step.Type}, "\x00")
 }
 
-// PassingCheckSummaryKey returns the summary identity for a target/step pair.
-func PassingCheckSummaryKey(target watch.TargetSnapshot, step watch.StepSnapshot) string {
-	return PassingCheckKey(watch.AgentSnapshot{}, target, step)
+// PassingCheckSummaryKey returns the summary identity for an agent, target, and
+// step. Passing summaries include the agent so device-labelled TUI rows never
+// merge results from different phones into one ambiguous row.
+func PassingCheckSummaryKey(agent watch.AgentSnapshot, target watch.TargetSnapshot, step watch.StepSnapshot) string {
+	return PassingCheckKey(agent, target, step)
 }
 
 // PassingCheckSummaryIdentity returns the stable identity for a passing summary.
 func PassingCheckSummaryIdentity(item PassingCheckSummary) string {
-	return PassingCheckSummaryKey(item.Target, item.Step)
+	return PassingCheckSummaryKey(item.Agent, item.Target, item.Step)
 }
 
 // PassingCheckSummaryIndexByIdentity finds key in rows or returns -1.

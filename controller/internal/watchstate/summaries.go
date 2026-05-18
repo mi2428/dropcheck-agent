@@ -63,10 +63,11 @@ func (s State) PassingCheckSummaries() []PassingCheckSummary {
 	rows := make([]PassingCheckSummary, 0, len(s.PassingChecks))
 	index := make(map[string]int, len(s.PassingChecks))
 	for _, item := range s.PassingChecks {
-		key := PassingCheckSummaryKey(item.Target, item.Step)
+		key := PassingCheckSummaryKey(item.Agent, item.Target, item.Step)
 		if pos, ok := index[key]; ok {
 			rows[pos].Last = item.When
 			rows[pos].Count++
+			rows[pos].Agent = item.Agent
 			rows[pos].Target = item.Target
 			rows[pos].Step = item.Step
 			rows[pos].Duration = item.Duration
@@ -81,6 +82,7 @@ func (s State) PassingCheckSummaries() []PassingCheckSummary {
 		row := PassingCheckSummary{
 			Last:     item.When,
 			Count:    1,
+			Agent:    item.Agent,
 			Target:   item.Target,
 			Step:     item.Step,
 			Duration: item.Duration,
@@ -437,6 +439,9 @@ func NormalizedSearchQuery(value string) string {
 // PassingCheckSummaryMatches reports whether row contains query.
 func PassingCheckSummaryMatches(row PassingCheckSummary, query string) bool {
 	fields := []string{
+		row.Agent.DisplayName(),
+		row.Agent.DeviceModel,
+		row.Agent.Name,
 		row.Target.Name,
 		row.Target.SSID,
 		row.Target.BSSID,

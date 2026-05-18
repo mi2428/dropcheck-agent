@@ -21,6 +21,9 @@ func (m model) passingChecksView(width int, height int) string {
 	selected := clamp(m.passingCheckCursor, 0, max(0, len(rows)-1))
 	now := m.currentTime()
 	sparkHeight := summarySparklineHeight(height)
+	if sparkHeight > 0 {
+		sparkHeight = min(height, sparkHeight+1)
+	}
 	tableHeight := max(0, height-sparkHeight)
 	lines := make([]tableLine, 0, len(rows)*2+1)
 	selectedLine := -1
@@ -54,6 +57,9 @@ func (m model) failedChecksView(width int, height int) string {
 	selected := clamp(m.failedCheckCursor, 0, max(0, len(rows)-1))
 	now := m.currentTime()
 	sparkHeight := summarySparklineHeight(height)
+	if sparkHeight > 0 {
+		sparkHeight = min(height, sparkHeight+1)
+	}
 	tableHeight := max(0, height-sparkHeight)
 	lines := make([]tableLine, 0, len(rows)*2+1)
 	selectedLine := -1
@@ -209,7 +215,7 @@ func (m model) summarySparklineView(label string, times []time.Time, width int, 
 		return ""
 	}
 	histogram := recentEventHistogram(times, width, summarySparklineWindow, m.currentTime())
-	plotHeight := max(1, height-2)
+	plotHeight := max(1, height-3)
 	eventsPerRow := sparklineEventsPerRow(histogram.Max, plotHeight)
 	scaleText := ""
 	if eventsPerRow > 1 {
@@ -231,7 +237,7 @@ func (m model) summarySparklineView(label string, times []time.Time, width int, 
 	if lipgloss.Width(headerPlain) > width {
 		header = summaryValueStyle.Render(fit(headerPlain, width))
 	}
-	lines := []string{fitANSI(header, width)}
+	lines := []string{"", fitANSI(header, width)}
 	lines = append(lines, renderSparkline(histogram.Counts, histogram.Max, width, plotHeight, style)...)
 	lines = append(lines, summarySparklineAxis(width, summarySparklineWindow))
 	return strings.Join(lines[:min(len(lines), height)], "\n")
@@ -317,7 +323,7 @@ func summaryPanelRowStyle(last time.Time, now time.Time) lipgloss.Style {
 	case age <= recencyFreshWindow:
 		return summaryFreshRowStyle
 	case age <= recencyWarmWindow:
-		return summaryValueStyle
+		return summaryWarmRowStyle
 	default:
 		return summaryStaleRowStyle
 	}
@@ -533,16 +539,17 @@ func countBarWidth(width int) int {
 
 func passingCheckListHeaderColumns(multiAgent bool) []string {
 	if multiAgent {
-		return []string{"Target", "Check"}
+		return []string{"Device", "Target", "Check"}
 	}
 	return []string{"Check"}
 }
 
 func passingCheckListColumns(item passingCheckSummary, multiAgent bool) []string {
+	device := agentDeviceLabel(item.Agent)
 	target := compactTargetLabel(firstNonEmpty(item.Target.Name, item.Target.SSID, item.Target.BSSID, "-"), 18)
 	step := firstNonEmpty(item.Step.Name, item.Step.Type, "step")
 	if multiAgent {
-		return []string{target, step}
+		return []string{device, target, step}
 	}
 	return []string{step}
 }

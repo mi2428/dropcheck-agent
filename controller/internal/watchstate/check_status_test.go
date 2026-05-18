@@ -73,6 +73,59 @@ func TestCheckStatusTargetCellPrefersCurrentResultOverHistory(t *testing.T) {
 	}
 }
 
+func TestCheckStatusTargetCellCountsReachedAgentsForRunning(t *testing.T) {
+	agentA := watch.AgentSnapshot{Name: "agent-a"}
+	agentB := watch.AgentSnapshot{Name: "agent-b"}
+	target := watch.TargetSnapshot{Name: "ap-1", SSID: "shownet"}
+	state := State{Targets: []TargetState{
+		{
+			Agent:  agentA,
+			Target: target,
+			Status: "running",
+			Steps:  []StepState{{Name: "ping", Status: "ok"}},
+		},
+		{
+			Agent:       agentB,
+			Target:      target,
+			Status:      "running",
+			CurrentStep: "ping",
+			Steps:       []StepState{{Name: "ping", Status: "pending"}},
+		},
+	}}
+
+	cell := state.CheckStatusTargetCell("ping", target, []watch.AgentSnapshot{agentA, agentB})
+	if cell.Status != "running" || cell.Count != 2 || cell.Total != 2 {
+		t.Fatalf("running aggregate = %#v, want second reached agent to render RUN2/2", cell)
+	}
+}
+
+func TestNewPreservesConfiguredTargetOrderAcrossAssignedAgents(t *testing.T) {
+	agents := []watch.AgentSnapshot{
+		{ID: "agent-a", ADBSerial: "35251JEHN00258", DeviceModel: "Pixel 7a"},
+		{ID: "agent-b", ADBSerial: "45240DLAQ007HG", DeviceModel: "Pixel 9"},
+	}
+	state := New([]watch.Target{
+		{Name: "n1(5G)", Agent: "35251JEHN00258", SSID: "Lab"},
+		{Name: "n1(6G)", Agent: "45240DLAQ007HG", SSID: "Lab"},
+		{Name: "n2(5G)", Agent: "35251JEHN00258", SSID: "Lab"},
+		{Name: "n2(6G)", Agent: "45240DLAQ007HG", SSID: "Lab"},
+	}, []watch.Check{}, agents, time.Now())
+
+	var got []string
+	for _, target := range state.CheckStatusTargets() {
+		got = append(got, target.Name)
+	}
+	want := []string{"n1(5G)", "n1(6G)", "n2(5G)", "n2(6G)"}
+	if len(got) != len(want) {
+		t.Fatalf("target order = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("target order = %#v, want %#v", got, want)
+		}
+	}
+}
+
 func TestOutcomeBucketsMapFirstAndLastEventsToGraphEdges(t *testing.T) {
 	base := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	buckets := OutcomeBuckets([]OutcomeEvent{
