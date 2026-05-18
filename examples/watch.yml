@@ -18,6 +18,9 @@ defaults:
 
 targets:
   - name: shownet-6g-ap1
+    # Optional: bind this target to one connected agent by ADB serial.
+    # A unique serial prefix is accepted, but device model names are display-only.
+    # agent: 45240DLAQ007HG
     ssid: ShowNet
     bssid: aa:bb:cc:dd:ee:ff
     band: 6ghz
