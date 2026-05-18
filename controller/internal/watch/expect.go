@@ -8,6 +8,7 @@ import (
 	"strings"
 )
 
+// Matcher is one compiled expectation for a probe metric.
 type Matcher struct {
 	Metric string
 	Op     string
@@ -16,6 +17,7 @@ type Matcher struct {
 	Mode   string
 }
 
+// Finding describes one expectation mismatch emitted by a failed check.
 type Finding struct {
 	Target   string `json:"target,omitempty"`
 	Check    string `json:"check,omitempty"`

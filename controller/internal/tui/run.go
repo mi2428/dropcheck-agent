@@ -13,7 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// Run renders watch events until the user quits or ctx is canceled.
+// Run renders watch events until the user quits, ctx is canceled, or the event stream closes.
 func Run(ctx context.Context, title string, targets []watch.Target, checks []watch.Check, agents []watch.AgentSnapshot, events <-chan watch.Event) error {
 	m := newModelWithChecks(title, targets, checks, events, agents)
 	_, err := tea.NewProgram(m, tea.WithContext(ctx)).Run()

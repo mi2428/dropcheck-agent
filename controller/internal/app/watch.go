@@ -548,7 +548,7 @@ func writeWatchHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "Options:")
 	writeHelpRows(w, []helpRow{
 		{"-c, --config PATH", "watch YAML configuration"},
-		{"--target TARGET", "agent ID, prefix, adb serial, model, display number, or all; default is all connected agents"},
+		{"--target TARGET", "agent ID, prefix, adb serial, model, display number, or all; default is all agents in the session"},
 		{"--jsonl PATH", "append watch events to JSONL"},
 		{"--no-tui", "print findings without starting the live TUI"},
 	})

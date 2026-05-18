@@ -15,10 +15,12 @@ import (
 	"dropcheck/controller/internal/runner"
 )
 
+// OperationRunner executes one controller operation for one Android agent.
 type OperationRunner interface {
 	Run(context.Context, control.AgentInfo, command.Operation) (runner.Result, error)
 }
 
+// FailureCauseContext describes the failed or in-flight operation being diagnosed.
 type FailureCauseContext struct {
 	Round     uint64
 	Target    Target
@@ -28,10 +30,12 @@ type FailureCauseContext struct {
 	Err       error
 }
 
+// FailureCauseCollector collects a best-effort failure cause after an operation attempt.
 type FailureCauseCollector interface {
 	FailureCause(context.Context, control.AgentInfo, FailureCauseContext) string
 }
 
+// FailureCauseMonitor streams best-effort failure causes while an operation is running.
 type FailureCauseMonitor interface {
 	WatchFailureCause(context.Context, control.AgentInfo, FailureCauseContext, func(string)) func()
 }
@@ -41,7 +45,7 @@ type FailureCauseMonitor interface {
 // useful than a bounded retry that records the flake without failing the target.
 const operationRetryLimit = 3
 
-// Run executes plan forever until ctx is canceled.
+// Run executes plan rounds until ctx is canceled or an unrecoverable runner or sink error occurs.
 func Run(ctx context.Context, plan Plan, opRunner OperationRunner, agent control.AgentInfo, sink Sink) error {
 	if opRunner == nil {
 		return fmt.Errorf("watch runner is nil")

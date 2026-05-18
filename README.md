@@ -216,6 +216,8 @@ rtt min/avg/max/mdev = 10.200/12.400/16.300/1.900 ms
 `dropcheck watch` runs a continuous E2E Wi-Fi test loop from the controller and renders a live terminal UI.
 It is meant for field operation: connection failures skip the remaining checks for that target, check failures are recorded as findings, and the next target and round continue.
 Use `--jsonl` when you also want an append-only event log.
+When multiple agents are connected, unassigned targets run on every selected agent.
+Set `agent:` on a target to bind it to one Android agent by ADB serial; a unique serial prefix is accepted, while device model names are display-only in the YAML plan.
 
 ```console
 $ controller/dist/dropcheck --serial R5CT12345 watch -c examples/watch.yml --jsonl watch.jsonl
@@ -235,6 +237,9 @@ defaults:
 
 targets:
   - name: noc-6g-ap1
+    # Optional: bind this target to one connected agent by ADB serial.
+    # A unique serial prefix is accepted; device model names are display-only.
+    # agent: R5CT12345
     ssid: ShowNet
     bssid: aa:bb:cc:dd:ee:ff
     band: 6ghz
