@@ -56,11 +56,11 @@ func (m model) render() string {
 
 	checkStatus := ""
 	if checkStatusHeight > 0 {
-		checkStatus = renderPanelFocused("Check Status", width, checkStatusHeight, m.checkStatusView(panelContentWidth(width), checkStatusHeight-2), m.focus == focusCheckStatus)
+		checkStatus = renderPanelFocused("Latest Check Results", width, checkStatusHeight, m.checkStatusView(panelContentWidth(width), checkStatusHeight-2), m.focus == focusCheckStatus)
 	}
 	roundTimeline := ""
 	if roundTimelineHeight > 0 {
-		roundTimeline = renderPanel("Round Timeline", width, roundTimelineHeight, m.roundTimelineView(panelContentWidth(width), roundTimelineHeight-2))
+		roundTimeline = renderPanel("Failure Events by Round", width, roundTimelineHeight, m.roundTimelineView(panelContentWidth(width), roundTimelineHeight-2))
 	}
 	passingChecks := renderPanelFocused("Passing Checks", passingChecksWidth, summaryHeight, m.passingChecksView(panelContentWidth(passingChecksWidth), summaryHeight-2), m.focus == focusPassingChecks)
 	failedChecks := renderPanelFocused("Failed Checks", failedChecksWidth, summaryHeight, m.failedChecksView(panelContentWidth(failedChecksWidth), summaryHeight-2), m.focus == focusFailedChecks)
@@ -213,7 +213,9 @@ func (m model) helpBar(width int) string {
 		parts = append(parts, "Esc=Resume")
 	} else {
 		parts = append(parts, "w=Pause")
-		if m.hasSearchFilter() {
+		if m.focusedScrollPinned() {
+			parts = append(parts, "Esc=Latest")
+		} else if m.hasSearchFilter() {
 			parts = append(parts, "Esc=Clear")
 		}
 	}
@@ -291,10 +293,6 @@ func statusBarValueStyle(key string, value string) lipgloss.Style {
 		return checkStatusStyle(value)
 	case "Paused":
 		return runningStatusStyle
-	case "ok":
-		return okStatusStyle
-	case "failed", "failed_checks":
-		return failedStatusStyle
 	default:
 		return valueStyle
 	}

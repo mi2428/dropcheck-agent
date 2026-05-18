@@ -168,7 +168,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.resume()
 			} else if m.detailOpen {
 				m.detailOpen = false
-			} else if m.hasSearchFilter() {
+			} else if !m.clearFocusedScrollPin() && m.hasSearchFilter() {
 				m.clearSearch()
 			}
 		}

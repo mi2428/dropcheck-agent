@@ -93,8 +93,14 @@ type model struct {
 	focusHotspotAgentKey  string
 	focusRunQueueAgentKey string
 	passingCheckCursor    int
+	passingCheckPinned    bool
+	passingCheckPinnedKey string
 	failedCheckCursor     int
+	failedCheckPinned     bool
+	failedCheckPinnedKey  string
 	failureHotspotCursor  int
+	failureHotspotPinned  bool
+	failureHotspotKey     string
 	checkStatusOffset     int
 	checkStatusPinned     bool
 	runQueueCursor        int

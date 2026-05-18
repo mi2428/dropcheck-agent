@@ -46,8 +46,9 @@ func (m model) roundTimelineHeaderView(width int, startRound uint64, endRound ui
 	if endRound > 0 {
 		span = fmt.Sprintf("%d..%d", startRound, endRound)
 	}
+	progressText := fmt.Sprintf("%d%% (%d/%d)", percent, done, counts.Total)
 	leftPlain := fmt.Sprintf("round=%d span=%s ok=%d fail=%d run=%d", m.Round, span, ok, failed, counts.Running)
-	rightPlain := fmt.Sprintf("progress=%d%% %d/%d", percent, done, counts.Total)
+	rightPlain := "progress=" + progressText
 	if runeLen(leftPlain)+1+runeLen(rightPlain) > width {
 		leftWidth := max(0, width-runeLen(rightPlain)-1)
 		if leftWidth == 0 {
@@ -56,14 +57,14 @@ func (m model) roundTimelineHeaderView(width int, startRound uint64, endRound ui
 		return valueStyle.Render(fit(leftPlain, leftWidth)) +
 			valueStyle.Render(strings.Repeat(" ", max(1, width-leftWidth-runeLen(rightPlain)))) +
 			keyStyle.Render("progress=") +
-			valueStyle.Render(fmt.Sprintf("%d%% %d/%d", percent, done, counts.Total))
+			valueStyle.Render(progressText)
 	}
 	left := keyStyle.Render("round=") + valueStyle.Render(fmt.Sprint(m.Round)) +
 		keyStyle.Render(" span=") + valueStyle.Render(span) +
-		keyStyle.Render(" ok=") + okStatusStyle.Render(fmt.Sprint(ok)) +
-		keyStyle.Render(" fail=") + failedStatusStyle.Render(fmt.Sprint(failed)) +
-		keyStyle.Render(" run=") + runningStatusStyle.Render(fmt.Sprint(counts.Running))
-	right := keyStyle.Render("progress=") + valueStyle.Render(fmt.Sprintf("%d%% %d/%d", percent, done, counts.Total))
+		keyStyle.Render(" ok=") + valueStyle.Render(fmt.Sprint(ok)) +
+		keyStyle.Render(" fail=") + valueStyle.Render(fmt.Sprint(failed)) +
+		keyStyle.Render(" run=") + valueStyle.Render(fmt.Sprint(counts.Running))
+	right := keyStyle.Render("progress=") + valueStyle.Render(progressText)
 	spaces := max(1, width-runeLen(leftPlain)-runeLen(rightPlain))
 	return left + valueStyle.Render(strings.Repeat(" ", spaces)) + right
 }
@@ -227,10 +228,10 @@ func (m model) roundTimelineTargetTile(target watch.TargetSnapshot, width int, l
 	plotWidth = m.roundTimelinePlotWidth(plotWidth)
 	buckets, _, _ := m.targetRoundHistory(target, plotWidth)
 	checkCount := max(1, len(m.checkStatusChecks()))
-	label := summaryKeyStyle.Render(padVisible(roundTimelineTargetLabel(target, labelWidth), labelWidth))
+	label := timelineKeyStyle.Render(padVisible(roundTimelineTargetLabel(target, labelWidth), labelWidth))
 	plot := renderTargetRoundHistory(buckets, checkCount, plotWidth)
-	content := fitANSI(label+valueStyle.Render(" ")+plot, width)
-	return content + valueStyle.Render(strings.Repeat(" ", max(0, width-lipgloss.Width(content))))
+	content := fitANSI(label+timelineValueStyle.Render(" ")+plot, width)
+	return content + timelineValueStyle.Render(strings.Repeat(" ", max(0, width-lipgloss.Width(content))))
 }
 
 func (m model) roundTimelinePlotWidth(maxWidth int) int {
@@ -453,7 +454,7 @@ func (m model) roundProgressView(width int) string {
 		percent = done * 100 / counts.Total
 	}
 	prefixPlain := fmt.Sprintf("round=%d progress=", m.Round)
-	suffixPlain := fmt.Sprintf(" %3d%% %d/%d run=%d fail=%d", percent, done, counts.Total, counts.Running, counts.Failed)
+	suffixPlain := fmt.Sprintf(" %3d%% (%d/%d) run=%d fail=%d", percent, done, counts.Total, counts.Running, counts.Failed)
 	lineWidth := width - runeLen(prefixPlain) - runeLen(suffixPlain)
 	if lineWidth < 4 {
 		line := prefixPlain + strings.TrimSpace(suffixPlain)

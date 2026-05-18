@@ -61,6 +61,12 @@ func panelTop(title string, width int, border lipgloss.Style, titleStyle lipglos
 	return border.Render("┌") + titleStyle.Render(title) + border.Render(strings.Repeat("─", fill)+"┐")
 }
 
+func panelTitleWithLabel(prefix string, label string, width int) string {
+	prefix = strings.TrimSpace(prefix) + ": "
+	labelWidth := max(4, max(0, width-2-runeLen(prefix)))
+	return prefix + compactTargetLabel(label, labelWidth)
+}
+
 func panelBodyLines(body string) []string {
 	body = strings.TrimRight(body, "\n")
 	if body == "" {

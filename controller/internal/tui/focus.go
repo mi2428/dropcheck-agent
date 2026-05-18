@@ -14,7 +14,11 @@ func (m *model) moveFailedCheckCursor(delta int) {
 		m.failedCheckCursor = 0
 		return
 	}
+	old := m.failedCheckCursor
 	m.failedCheckCursor = clamp(m.failedCheckCursor+delta, 0, len(rows)-1)
+	if m.failedCheckCursor != old {
+		m.pinFailedCheckCursor()
+	}
 }
 
 func (m *model) movePassingCheckCursor(delta int) {
@@ -23,7 +27,11 @@ func (m *model) movePassingCheckCursor(delta int) {
 		m.passingCheckCursor = 0
 		return
 	}
+	old := m.passingCheckCursor
 	m.passingCheckCursor = clamp(m.passingCheckCursor+delta, 0, len(rows)-1)
+	if m.passingCheckCursor != old {
+		m.pinPassingCheckCursor()
+	}
 }
 
 func (m *model) moveFailureHotspotCursor(delta int) {
@@ -31,6 +39,7 @@ func (m *model) moveFailureHotspotCursor(delta int) {
 	if len(rows) == 0 {
 		return
 	}
+	old := m.failureHotspotCursor
 	position := -1
 	for i, row := range rows {
 		if row.Index == m.failureHotspotCursor {
@@ -44,6 +53,9 @@ func (m *model) moveFailureHotspotCursor(delta int) {
 		position = clamp(position+delta, 0, len(rows)-1)
 	}
 	m.failureHotspotCursor = rows[position].Index
+	if m.failureHotspotCursor != old {
+		m.pinFailureHotspotCursor()
+	}
 }
 
 func (m *model) moveFocusedCursor(delta int) {
@@ -287,6 +299,7 @@ func (m *model) clearSearch() {
 }
 
 func (m *model) normalizeCursors() {
+	m.followPinnedSummaryCursors()
 	m.passingCheckCursor = clamp(m.passingCheckCursor, 0, max(0, len(m.filteredPassingCheckSummaries())-1))
 	m.failedCheckCursor = clamp(m.failedCheckCursor, 0, max(0, len(m.filteredFailedCheckSummaries())-1))
 	m.failureHotspotCursor = clamp(m.failureHotspotCursor, 0, max(0, len(m.filteredFailureHotspots())-1))
@@ -304,6 +317,137 @@ func (m *model) normalizeCursors() {
 	}
 	if m.detailOpen {
 		m.followLockedDetailItems()
+	}
+}
+
+func (m *model) pinPassingCheckCursor() {
+	rows := m.filteredPassingCheckSummaries()
+	if len(rows) == 0 {
+		m.passingCheckPinned = false
+		m.passingCheckPinnedKey = ""
+		return
+	}
+	index := clamp(m.passingCheckCursor, 0, len(rows)-1)
+	m.passingCheckCursor = index
+	m.passingCheckPinned = true
+	m.passingCheckPinnedKey = passingCheckSummaryIdentity(rows[index])
+}
+
+func (m *model) pinFailedCheckCursor() {
+	rows := m.filteredFailedCheckSummaries()
+	if len(rows) == 0 {
+		m.failedCheckPinned = false
+		m.failedCheckPinnedKey = ""
+		return
+	}
+	index := clamp(m.failedCheckCursor, 0, len(rows)-1)
+	m.failedCheckCursor = index
+	m.failedCheckPinned = true
+	m.failedCheckPinnedKey = failedCheckSummaryIdentity(rows[index])
+}
+
+func (m *model) pinFailureHotspotCursor() {
+	rows := m.filteredFailureHotspots()
+	if len(rows) == 0 {
+		m.failureHotspotPinned = false
+		m.failureHotspotKey = ""
+		return
+	}
+	index := clamp(m.failureHotspotCursor, 0, len(rows)-1)
+	m.failureHotspotCursor = index
+	m.failureHotspotPinned = true
+	m.failureHotspotKey = failureHotspotSummaryIdentity(rows[index])
+}
+
+func (m *model) followPinnedSummaryCursors() {
+	if m.passingCheckPinned && m.passingCheckPinnedKey != "" {
+		if index := passingCheckSummaryIndexByIdentity(m.filteredPassingCheckSummaries(), m.passingCheckPinnedKey); index >= 0 {
+			m.passingCheckCursor = index
+		}
+	}
+	if m.failedCheckPinned && m.failedCheckPinnedKey != "" {
+		if index := failedCheckSummaryIndexByIdentity(m.filteredFailedCheckSummaries(), m.failedCheckPinnedKey); index >= 0 {
+			m.failedCheckCursor = index
+		}
+	}
+	if m.failureHotspotPinned && m.failureHotspotKey != "" {
+		rows := m.filteredFailureHotspots()
+		if index := failureHotspotSummaryIndexByIdentity(rows, m.failureHotspotKey); index >= 0 {
+			m.failureHotspotCursor = index
+			if m.focus == focusFailureHotspots {
+				m.focusHotspotAgentKey = roundAgentKey(rows[index].Agent)
+			}
+		}
+	}
+}
+
+func (m model) focusedScrollPinned() bool {
+	switch m.focus {
+	case focusPassingChecks:
+		return m.passingCheckPinned
+	case focusFailedChecks:
+		return m.failedCheckPinned
+	case focusFailureHotspots:
+		return m.failureHotspotPinned
+	case focusRunQueue:
+		return m.runQueuePinned
+	case focusCheckStatus:
+		return m.checkStatusPinned
+	default:
+		return false
+	}
+}
+
+func (m *model) clearFocusedScrollPin() bool {
+	switch m.focus {
+	case focusPassingChecks:
+		if !m.passingCheckPinned {
+			return false
+		}
+		m.passingCheckPinned = false
+		m.passingCheckPinnedKey = ""
+		m.passingCheckCursor = 0
+		m.normalizeCursors()
+		return true
+	case focusFailedChecks:
+		if !m.failedCheckPinned {
+			return false
+		}
+		m.failedCheckPinned = false
+		m.failedCheckPinnedKey = ""
+		m.failedCheckCursor = 0
+		m.normalizeCursors()
+		return true
+	case focusFailureHotspots:
+		if !m.failureHotspotPinned {
+			return false
+		}
+		m.failureHotspotPinned = false
+		m.failureHotspotKey = ""
+		rows := m.focusedFailureHotspotRows()
+		if len(rows) == 0 {
+			m.failureHotspotCursor = 0
+		} else {
+			m.failureHotspotCursor = rows[0].Index
+		}
+		m.normalizeCursors()
+		return true
+	case focusRunQueue:
+		if !m.runQueuePinned {
+			return false
+		}
+		m.runQueuePinned = false
+		m.updateRunQueueCursor()
+		return true
+	case focusCheckStatus:
+		if !m.checkStatusPinned {
+			return false
+		}
+		m.checkStatusPinned = false
+		m.normalizeCheckStatusOffset()
+		return true
+	default:
+		return false
 	}
 }
 

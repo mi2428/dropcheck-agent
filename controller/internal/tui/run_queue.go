@@ -60,7 +60,7 @@ func (m model) runQueuePanelsView(width int, height int) string {
 	heights := splitHeights(height, len(agents))
 	panels := make([]string, 0, len(agents))
 	for i, agent := range agents {
-		title := "Run Queue " + compactTargetLabel(agentLabel(agent), max(4, width-8))
+		title := panelTitleWithLabel("Run Queue", agentLabel(agent), width)
 		panelHeight := heights[i]
 		focused := m.runQueuePanelHasFocus(agent)
 		panels = append(panels, renderPanelFocused(title, width, panelHeight, m.runQueueTreeViewForAgent(agent, panelContentWidth(width), panelHeight-2), focused))
