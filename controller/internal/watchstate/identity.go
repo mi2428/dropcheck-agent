@@ -13,14 +13,16 @@ func FailedCheckKey(finding watch.Finding) string {
 	return strings.Join([]string{finding.Target, finding.Check, finding.Metric, finding.Expected, finding.Message}, "\x00")
 }
 
-// FailedCheckSummaryKey returns the summary key for a target/finding pair.
-func FailedCheckSummaryKey(target watch.TargetSnapshot, finding watch.Finding) string {
-	return FailedCheckStateKey(watch.AgentSnapshot{}, target, finding)
+// FailedCheckSummaryKey returns the summary key for an agent/target/finding
+// tuple. Failed summaries include the agent so device-labelled TUI rows never
+// merge results from different phones into one ambiguous row.
+func FailedCheckSummaryKey(agent watch.AgentSnapshot, target watch.TargetSnapshot, finding watch.Finding) string {
+	return FailedCheckStateKey(agent, target, finding)
 }
 
 // FailedCheckSummaryIdentity returns the stable identity for a failed summary.
 func FailedCheckSummaryIdentity(item FailedCheckSummary) string {
-	return FailedCheckSummaryKey(item.Target, item.Finding)
+	return FailedCheckSummaryKey(item.Agent, item.Target, item.Finding)
 }
 
 // FailedCheckSummaryIndexByIdentity finds key in rows or returns -1.

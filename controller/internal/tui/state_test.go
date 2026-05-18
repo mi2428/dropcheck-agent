@@ -149,6 +149,49 @@ func TestPassingCheckPanelShowsDeviceColumn(t *testing.T) {
 	}
 }
 
+func TestFailedCheckPanelShowsDeviceColumn(t *testing.T) {
+	events := make(chan watch.Event)
+	agents := []watch.AgentSnapshot{
+		{ID: "agent-a", Name: "35251JEHN00258", ADBSerial: "35251JEHN00258", DeviceModel: "Pixel 7a"},
+		{ID: "agent-b", Name: "45240DLAQ007HG", ADBSerial: "45240DLAQ007HG", DeviceModel: "Pixel 9"},
+	}
+	m := newModel("shownet-watch", []watch.Target{{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}}, events, agents)
+	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
+	for i, agent := range agents {
+		m.apply(watch.Event{
+			Time:   at.Add(time.Duration(i) * time.Second),
+			Kind:   watch.EventFinding,
+			Agent:  agent,
+			Round:  1,
+			Target: watch.TargetSnapshot{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"},
+			Step:   watch.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
+			Status: "failed",
+			Finding: &watch.Finding{
+				Target:   "SHIZK RADIO",
+				Check:    "ping cloudflare",
+				Metric:   "status",
+				Observed: "failed",
+				Expected: "== ok",
+				Message:  "ping failed",
+			},
+		})
+	}
+
+	rows := m.failedCheckSummaries()
+	if len(rows) != 2 || rows[0].Count != 1 || rows[1].Count != 1 {
+		t.Fatalf("failedChecks should keep device-labelled rows separate, got %#v", rows)
+	}
+	table := stripANSI(m.failedChecksView(112, 8))
+	for _, want := range []string{"Device", "Pixel 7a", "Pixel 9"} {
+		if !strings.Contains(table, want) {
+			t.Fatalf("failedChecks table should render %q:\n%s", want, table)
+		}
+	}
+	if strings.Contains(table, "35251JEHN00258") || strings.Contains(table, "45240DLAQ007HG") {
+		t.Fatalf("failedChecks table should use device names without serials:\n%s", table)
+	}
+}
+
 func TestCheckStatusUsesCurrentRoundStateBeforeHistory(t *testing.T) {
 	events := make(chan watch.Event)
 	m := newModel("shownet-watch", []watch.Target{{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}}, events)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/control"
@@ -101,6 +102,12 @@ func (r *sequenceResultRunner) Run(context.Context, control.AgentInfo, command.O
 		index = len(r.results) - 1
 	}
 	return runner.Result{Result: r.results[index]}, nil
+}
+
+type okRunner struct{}
+
+func (okRunner) Run(context.Context, control.AgentInfo, command.Operation) (runner.Result, error) {
+	return runner.Result{Result: &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK}}, nil
 }
 
 func TestRunRequiredStepEmitsFailureCauseLog(t *testing.T) {
@@ -350,7 +357,7 @@ func TestRunRoundSkipsUnsupportedTargetBandWithoutFailure(t *testing.T) {
 		Checks: []Check{{Name: "Ping CF IPv6", Type: "ping", Host: "2606:4700:4700::1111"}},
 	}
 	support := bandSupportFromCapabilities(&controlpb.WifiCapabilities{SupportedBands: []string{"2.4GHz", "5GHz"}})
-	failed, err := runRound(context.Background(), plan, forbiddenRunner{t: t}, control.AgentInfo{ID: "agent-a"}, 9, support, nil, emit)
+	failed, err := runRound(context.Background(), plan, forbiddenRunner{t: t}, control.AgentInfo{ID: "agent-a"}, 9, support, nil, nil, emit)
 	if err != nil {
 		t.Fatalf("runRound() error = %v", err)
 	}
@@ -377,6 +384,97 @@ func TestRunRoundSkipsUnsupportedTargetBandWithoutFailure(t *testing.T) {
 	}
 	if got := events[6]; got.Kind != EventRoundFinished || got.Status != "ok" || !strings.Contains(got.Message, "failed=0 skipped=1") {
 		t.Fatalf("round finished event = %#v, want ok with skipped count", got)
+	}
+}
+
+func TestRunRoundBarrierDelaysRoundFinishedUntilAllAgentsArrive(t *testing.T) {
+	disconnectAfter := false
+	plan := Plan{
+		Name: "lab-watch",
+		Targets: []Target{{
+			Name:            "lab-5g",
+			SSID:            "Lab",
+			DisconnectAfter: &disconnectAfter,
+		}},
+	}
+	barrier := NewRoundBarrier(2)
+	eventsA := make(chan Event, 16)
+	doneA := make(chan error, 1)
+	go func() {
+		_, err := runRound(context.Background(), plan, okRunner{}, control.AgentInfo{ID: "agent-a"}, 1, bandSupport{}, nil, barrier, func(event Event) error {
+			eventsA <- event
+			return nil
+		})
+		doneA <- err
+	}()
+
+	for {
+		select {
+		case event := <-eventsA:
+			if event.Kind == EventRoundFinished {
+				t.Fatalf("agent-a emitted round_finished before agent-b reached the barrier: %#v", event)
+			}
+			if event.Kind == EventTargetFinished {
+				goto targetFinished
+			}
+		case <-time.After(time.Second):
+			t.Fatal("agent-a did not reach target_finished")
+		}
+	}
+
+targetFinished:
+	select {
+	case event := <-eventsA:
+		t.Fatalf("agent-a emitted event after target finish before agent-b arrived: %#v", event)
+	case err := <-doneA:
+		t.Fatalf("agent-a runRound returned before agent-b arrived: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	eventsB := make(chan Event, 16)
+	doneB := make(chan error, 1)
+	go func() {
+		_, err := runRound(context.Background(), plan, okRunner{}, control.AgentInfo{ID: "agent-b"}, 1, bandSupport{}, nil, barrier, func(event Event) error {
+			eventsB <- event
+			return nil
+		})
+		doneB <- err
+	}()
+
+	select {
+	case err := <-doneA:
+		if err != nil {
+			t.Fatalf("agent-a runRound error after barrier release: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("agent-a did not finish after agent-b reached the barrier")
+	}
+	select {
+	case err := <-doneB:
+		if err != nil {
+			t.Fatalf("agent-b runRound error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("agent-b did not finish")
+	}
+	if !eventChannelContains(eventsA, EventRoundFinished) {
+		t.Fatal("agent-a did not emit round_finished after barrier release")
+	}
+	if !eventChannelContains(eventsB, EventRoundFinished) {
+		t.Fatal("agent-b did not emit round_finished")
+	}
+}
+
+func eventChannelContains(events <-chan Event, kind EventKind) bool {
+	for {
+		select {
+		case event := <-events:
+			if event.Kind == kind {
+				return true
+			}
+		default:
+			return false
+		}
 	}
 }
 

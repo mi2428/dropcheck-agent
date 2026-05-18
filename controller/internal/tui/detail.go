@@ -254,7 +254,7 @@ func (m model) passingCheckDetailRows(summary passingCheckSummary) []string {
 func (m model) failedCheckDetailRows(summary failedCheckSummary) []string {
 	items := make([]failedCheckState, 0, summary.Count)
 	for _, item := range m.FailedChecks {
-		if failedCheckSummaryKey(item.Target, item.Finding) == failedCheckSummaryKey(summary.Target, summary.Finding) {
+		if failedCheckSummaryKey(item.Agent, item.Target, item.Finding) == failedCheckSummaryKey(summary.Agent, summary.Target, summary.Finding) {
 			items = append(items, item)
 		}
 	}

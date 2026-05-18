@@ -42,7 +42,8 @@ type FailureCauseMonitor interface {
 
 // RunOptions configures one watch runner.
 type RunOptions struct {
-	Pause *PauseController
+	Pause        *PauseController
+	RoundBarrier *RoundBarrier
 }
 
 // Operation retries are intentionally fixed for watch runs. The watch command is
@@ -89,7 +90,7 @@ func RunWithOptions(ctx context.Context, plan Plan, opRunner OperationRunner, ag
 		if err := opts.Pause.Wait(ctx); err != nil {
 			return nil
 		}
-		failed, err := runRound(ctx, plan, opRunner, agent, round, bands, opts.Pause, emit)
+		failed, err := runRound(ctx, plan, opRunner, agent, round, bands, opts.Pause, opts.RoundBarrier, emit)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
@@ -115,7 +116,7 @@ func snapshotAgent(agent control.AgentInfo) AgentSnapshot {
 	return AgentSnapshotFromInfo(agent)
 }
 
-func runRound(ctx context.Context, plan Plan, opRunner OperationRunner, agent control.AgentInfo, round uint64, bands bandSupport, pause *PauseController, emit func(Event) error) (int, error) {
+func runRound(ctx context.Context, plan Plan, opRunner OperationRunner, agent control.AgentInfo, round uint64, bands bandSupport, pause *PauseController, barrier *RoundBarrier, emit func(Event) error) (int, error) {
 	started := time.Now()
 	if err := emit(Event{Kind: EventRoundStarted, Round: round, Status: "running"}); err != nil {
 		return 0, err
@@ -140,6 +141,9 @@ func runRound(ctx context.Context, plan Plan, opRunner OperationRunner, agent co
 	status := "ok"
 	if failedTargets > 0 {
 		status = "failed"
+	}
+	if err := barrier.Wait(ctx); err != nil {
+		return failedTargets, err
 	}
 	return failedTargets, emit(Event{
 		Kind:     EventRoundFinished,
