@@ -2,6 +2,7 @@ package watch
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -34,18 +35,25 @@ type Event struct {
 }
 
 type AgentSnapshot struct {
-	ID        string `json:"id,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
-	Name      string `json:"name,omitempty"`
-	ADBSerial string `json:"adb_serial,omitempty"`
+	ID          string `json:"id,omitempty"`
+	SessionID   string `json:"session_id,omitempty"`
+	Name        string `json:"name,omitempty"`
+	ADBSerial   string `json:"adb_serial,omitempty"`
+	DeviceModel string `json:"device_model,omitempty"`
 }
 
 func (snapshot AgentSnapshot) DisplayName() string {
+	model := strings.TrimSpace(snapshot.DeviceModel)
+	serial := strings.TrimSpace(snapshot.ADBSerial)
 	switch {
+	case model != "" && serial != "":
+		return model + " (" + serial + ")"
+	case model != "":
+		return model
 	case snapshot.Name != "":
 		return snapshot.Name
-	case snapshot.ADBSerial != "":
-		return snapshot.ADBSerial
+	case serial != "":
+		return serial
 	case snapshot.ID != "":
 		if len(snapshot.ID) > 12 {
 			return snapshot.ID[:12]
@@ -62,10 +70,12 @@ func (snapshot AgentSnapshot) DisplayName() string {
 }
 
 type TargetSnapshot struct {
-	Name  string `json:"name,omitempty"`
-	SSID  string `json:"ssid,omitempty"`
-	BSSID string `json:"bssid,omitempty"`
-	Band  string `json:"band,omitempty"`
+	Name      string `json:"name,omitempty"`
+	ShortName string `json:"short_name,omitempty"`
+	Agent     string `json:"agent,omitempty"`
+	SSID      string `json:"ssid,omitempty"`
+	BSSID     string `json:"bssid,omitempty"`
+	Band      string `json:"band,omitempty"`
 }
 
 type StepSnapshot struct {
@@ -86,9 +96,11 @@ type Sink interface {
 
 func snapshotTarget(target Target) TargetSnapshot {
 	return TargetSnapshot{
-		Name:  target.DisplayName(),
-		SSID:  target.SSID,
-		BSSID: target.BSSID,
-		Band:  target.Band,
+		Name:      target.DisplayName(),
+		ShortName: target.ShortName,
+		Agent:     target.Agent,
+		SSID:      target.SSID,
+		BSSID:     target.BSSID,
+		Band:      target.Band,
 	}
 }

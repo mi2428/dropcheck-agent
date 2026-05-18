@@ -20,6 +20,7 @@ type Config struct {
 }
 
 type TargetDefaults struct {
+	Agent            string   `yaml:"agent"`
 	Passphrase       string   `yaml:"passphrase"`
 	PassphraseEnv    string   `yaml:"passphrase_env"`
 	Security         string   `yaml:"security"`
@@ -34,6 +35,8 @@ type TargetDefaults struct {
 
 type Target struct {
 	Name             string   `yaml:"name"`
+	ShortName        string   `yaml:"short_name"`
+	Agent            string   `yaml:"agent"`
 	SSID             string   `yaml:"ssid"`
 	BSSID            string   `yaml:"bssid"`
 	Band             string   `yaml:"band"`
@@ -109,6 +112,8 @@ func (cfg Config) Plan() (Plan, error) {
 		if target.Name == "" {
 			target.Name = targetDisplayName(target)
 		}
+		target.ShortName = strings.TrimSpace(target.ShortName)
+		target.Agent = strings.TrimSpace(target.Agent)
 		targets = append(targets, target)
 	}
 	checks := make([]Check, 0, len(cfg.Checks))
@@ -136,6 +141,9 @@ func (cfg Config) Plan() (Plan, error) {
 }
 
 func applyTargetDefaults(target Target, defaults TargetDefaults) Target {
+	if target.Agent == "" {
+		target.Agent = defaults.Agent
+	}
 	if target.Passphrase == "" {
 		target.Passphrase = defaults.Passphrase
 	}

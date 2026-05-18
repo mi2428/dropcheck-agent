@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"dropcheck/controller/internal/controlpb"
 	"google.golang.org/grpc"
@@ -164,15 +166,23 @@ func (s *Server) Agents() []AgentInfo {
 // target may be an exact or unique-prefix match for agent ID, session ID, adb
 // serial, or the controller agent ID reported in the hello frame.
 func (s *Server) ResolveAgent(target string) (AgentInfo, error) {
-	needle := target
+	needle := strings.TrimSpace(target)
 	if needle == "" {
 		return AgentInfo{}, fmt.Errorf("agent target is empty")
 	}
 	agents := s.Agents()
+	var exact []AgentInfo
 	for _, info := range agents {
 		if agentMatches(info, needle) {
-			return info, nil
+			exact = append(exact, info)
 		}
+	}
+	switch len(exact) {
+	case 1:
+		return exact[0], nil
+	case 0:
+	default:
+		return AgentInfo{}, fmt.Errorf("agent %q is ambiguous", target)
 	}
 	var matched []AgentInfo
 	for _, info := range agents {
@@ -209,19 +219,61 @@ func agentSortKey(info AgentInfo) string {
 }
 
 func agentMatches(info AgentInfo, target string) bool {
-	return info.ID == target ||
-		info.SessionID == target ||
-		info.Hello.GetAdbSerial() == target ||
-		info.Hello.GetControllerAgentId() == target
+	normalized := normalizeAgentSelector(target)
+	for _, value := range agentSelectorValues(info) {
+		if value == target || normalized != "" && normalizeAgentSelector(value) == normalized {
+			return true
+		}
+	}
+	return false
 }
 
 func agentPrefixMatches(info AgentInfo, target string) bool {
-	return stringsHasPrefix(info.ID, target) ||
-		stringsHasPrefix(info.SessionID, target) ||
-		stringsHasPrefix(info.Hello.GetAdbSerial(), target) ||
-		stringsHasPrefix(info.Hello.GetControllerAgentId(), target)
+	normalized := normalizeAgentSelector(target)
+	for _, value := range agentSelectorValues(info) {
+		if stringsHasPrefix(value, target) || normalized != "" && strings.HasPrefix(normalizeAgentSelector(value), normalized) {
+			return true
+		}
+	}
+	return false
+}
+
+func agentSelectorValues(info AgentInfo) []string {
+	device := info.Hello.GetDevice()
+	deviceName := device.GetModel()
+	manufacturerModel := stringsTrimJoin(device.GetManufacturer(), device.GetModel())
+	return []string{
+		info.ID,
+		info.SessionID,
+		info.Hello.GetAdbSerial(),
+		info.Hello.GetControllerAgentId(),
+		deviceName,
+		manufacturerModel,
+		device.GetDevice(),
+	}
 }
 
 func stringsHasPrefix(value string, prefix string) bool {
 	return value != "" && len(prefix) > 0 && len(value) >= len(prefix) && value[:len(prefix)] == prefix
+}
+
+func normalizeAgentSelector(value string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(strings.TrimSpace(value)) {
+		if unicode.IsSpace(r) || r == '-' || r == '_' || r == '(' || r == ')' {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+func stringsTrimJoin(parts ...string) string {
+	var values []string
+	for _, part := range parts {
+		if part = strings.TrimSpace(part); part != "" {
+			values = append(values, part)
+		}
+	}
+	return strings.Join(values, " ")
 }

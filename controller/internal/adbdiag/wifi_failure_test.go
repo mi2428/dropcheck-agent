@@ -67,3 +67,18 @@ func TestParseWifiFailureCauseFallsBackToDisconnect(t *testing.T) {
 		}
 	}
 }
+
+func TestParseWifiFailureCauseReportsReasonCodeDisconnect(t *testing.T) {
+	got := ParseWifiFailureCause(`NETWORK_DISCONNECTION_EVENT bssid: 02:00:00:00:00:21 reasonCode: 6 locallyGenerated: false ssid: "Example Net"`)
+	for _, want := range []string{
+		"disconnected",
+		"reason=6",
+		"locally_generated=false",
+		"bssid=02:00:00:00:00:21",
+		`ssid="Example Net"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("ParseWifiFailureCause() = %q, missing %q", got, want)
+		}
+	}
+}

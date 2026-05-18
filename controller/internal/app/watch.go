@@ -69,6 +69,11 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) error {
 	if err != nil {
 		return err
 	}
+	agentPlans, uiPlan, err := watchAgentPlans(plan, agents)
+	if err != nil {
+		return err
+	}
+	agents = watchAgentsFromPlans(agentPlans)
 	agentSnapshots := watchAgentSnapshots(agents)
 
 	watchCtx, cancel := context.WithCancel(ctx)
@@ -86,13 +91,13 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) error {
 	}
 	sinks = append(sinks, watch.ChannelSink{C: eventPipe.C})
 
-	errCh := make(chan error, len(agents))
+	errCh := make(chan error, len(agentPlans))
 	var wg sync.WaitGroup
-	for _, agent := range agents {
+	for _, agentPlan := range agentPlans {
 		wg.Go(func() {
 			opRunner := watchOperationRunner{operation: runner.New(controlSession.Server), adbPath: opts.ADBPath}
-			if err := watch.Run(watchCtx, plan, opRunner, agent, sinks); err != nil {
-				errCh <- fmt.Errorf("%s: %w", agentDisplayName(agent), err)
+			if err := watch.Run(watchCtx, agentPlan.Plan, opRunner, agentPlan.Agent, sinks); err != nil {
+				errCh <- fmt.Errorf("%s: %w", agentDisplayName(agentPlan.Agent), err)
 				cancel()
 			}
 		})
@@ -122,7 +127,7 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) error {
 				)
 			}
 		}
-	} else if err := tui.Run(watchCtx, plan.Name, plan.Targets, plan.Checks, agentSnapshots, eventPipe.C); err != nil {
+	} else if err := tui.Run(watchCtx, uiPlan.Name, uiPlan.Targets, uiPlan.Checks, agentSnapshots, eventPipe.C); err != nil {
 		cancel()
 		_ = collectWatchErrors(errCh)
 		return err
@@ -138,6 +143,11 @@ type watchOperationRunner struct {
 	operation runner.Runner
 	adbPath   string
 }
+
+const (
+	watchWifiConnectEventTimeout  = 2 * time.Second
+	watchWifiConnectStatusTimeout = 300 * time.Millisecond
+)
 
 func (r watchOperationRunner) Run(ctx context.Context, agent control.AgentInfo, op command.Operation) (runner.Result, error) {
 	return r.operation.Run(ctx, agent, op)
@@ -164,6 +174,26 @@ func (r watchOperationRunner) WatchFailureCause(ctx context.Context, agent contr
 	}
 	monitorCtx, cancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup
+	wg.Go(func() {
+		lastConnectState := r.collectWifiConnectStatus(monitorCtx, serial, watchWifiConnectStatusTimeout)
+		if lastConnectState != "" {
+			emit(lastConnectState)
+		}
+		connectTicker := time.NewTicker(time.Second)
+		defer connectTicker.Stop()
+		for {
+			select {
+			case <-monitorCtx.Done():
+				return
+			case <-connectTicker.C:
+				message := r.collectWifiConnectState(monitorCtx, serial)
+				if message != "" && message != lastConnectState {
+					lastConnectState = message
+					emit(message)
+				}
+			}
+		}
+	})
 	wg.Go(func() {
 		baseline := r.collectWifiFailureCause(monitorCtx, serial, 1500*time.Millisecond)
 		ticker := time.NewTicker(time.Second)
@@ -199,6 +229,41 @@ func (r watchOperationRunner) collectWifiFailureCause(ctx context.Context, seria
 		return ""
 	}
 	return "wifi failure cause: " + message
+}
+
+func (r watchOperationRunner) collectWifiConnectState(ctx context.Context, serial string) string {
+	if message := r.collectWifiConnectEvents(ctx, serial, watchWifiConnectEventTimeout); message != "" {
+		return message
+	}
+	return r.collectWifiConnectStatus(ctx, serial, watchWifiConnectStatusTimeout)
+}
+
+func (r watchOperationRunner) collectWifiConnectEvents(ctx context.Context, serial string, timeout time.Duration) string {
+	diagCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	message := adbdiag.CollectWifiConnectEventState(diagCtx, adb.Client{
+		Path:    r.adbPath,
+		Serial:  serial,
+		Timeout: timeout,
+	}).LogMessage()
+	if message == "" {
+		return ""
+	}
+	return message
+}
+
+func (r watchOperationRunner) collectWifiConnectStatus(ctx context.Context, serial string, timeout time.Duration) string {
+	diagCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	message := adbdiag.CollectWifiConnectStatusState(diagCtx, adb.Client{
+		Path:    r.adbPath,
+		Serial:  serial,
+		Timeout: timeout,
+	}).LogMessage()
+	if message == "" {
+		return ""
+	}
+	return message
 }
 
 func watchAgentADBSerial(agent control.AgentInfo) string {
@@ -322,19 +387,98 @@ func watchTargetAgents(state *shellState) ([]control.AgentInfo, error) {
 	return []control.AgentInfo{info}, nil
 }
 
+type watchAgentPlan struct {
+	Agent control.AgentInfo
+	Plan  watch.Plan
+}
+
+func watchAgentPlans(plan watch.Plan, agents []control.AgentInfo) ([]watchAgentPlan, watch.Plan, error) {
+	if len(agents) == 0 {
+		return nil, plan, fmt.Errorf("no Android agents connected")
+	}
+	snapshots := watchAgentSnapshots(agents)
+	plans := make([]watchAgentPlan, len(agents))
+	active := make([]bool, len(agents))
+	for i, agent := range agents {
+		agentPlan := plan
+		agentPlan.Targets = nil
+		plans[i] = watchAgentPlan{Agent: agent, Plan: agentPlan}
+	}
+	uiPlan := plan
+	uiPlan.Targets = append([]watch.Target(nil), plan.Targets...)
+	for targetIndex, target := range plan.Targets {
+		selector := strings.TrimSpace(target.Agent)
+		if selector == "" {
+			for i := range plans {
+				plans[i].Plan.Targets = append(plans[i].Plan.Targets, target)
+				active[i] = true
+			}
+			continue
+		}
+		agentIndex, err := resolveWatchPlanAgent(selector, snapshots)
+		if err != nil {
+			return nil, plan, fmt.Errorf("targets[%d] %s agent %q: %w", targetIndex, target.DisplayName(), selector, err)
+		}
+		resolved := watchAgentStableSelector(snapshots[agentIndex])
+		target.Agent = resolved
+		uiPlan.Targets[targetIndex].Agent = resolved
+		plans[agentIndex].Plan.Targets = append(plans[agentIndex].Plan.Targets, target)
+		active[agentIndex] = true
+	}
+	result := make([]watchAgentPlan, 0, len(plans))
+	for i, agentPlan := range plans {
+		if active[i] {
+			result = append(result, agentPlan)
+		}
+	}
+	if len(result) == 0 {
+		return nil, plan, fmt.Errorf("watch plan has no targets for the selected agents")
+	}
+	return result, uiPlan, nil
+}
+
+func resolveWatchPlanAgent(selector string, agents []watch.AgentSnapshot) (int, error) {
+	resolved, err := watch.ResolveAgentSnapshot(selector, agents)
+	if err != nil {
+		return 0, err
+	}
+	for i, agent := range agents {
+		if sameWatchAgentSnapshot(agent, resolved) {
+			return i, nil
+		}
+	}
+	return 0, fmt.Errorf("agent serial %q is not selected", selector)
+}
+
+func sameWatchAgentSnapshot(a watch.AgentSnapshot, b watch.AgentSnapshot) bool {
+	return a.ID == b.ID &&
+		a.SessionID == b.SessionID &&
+		a.Name == b.Name &&
+		a.ADBSerial == b.ADBSerial &&
+		a.DeviceModel == b.DeviceModel
+}
+
+func watchAgentStableSelector(agent watch.AgentSnapshot) string {
+	for _, value := range []string{agent.ADBSerial, agent.ID, agent.Name, agent.SessionID} {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return agent.DisplayName()
+}
+
+func watchAgentsFromPlans(plans []watchAgentPlan) []control.AgentInfo {
+	agents := make([]control.AgentInfo, 0, len(plans))
+	for _, plan := range plans {
+		agents = append(agents, plan.Agent)
+	}
+	return agents
+}
+
 func watchAgentSnapshots(agents []control.AgentInfo) []watch.AgentSnapshot {
 	snapshots := make([]watch.AgentSnapshot, 0, len(agents))
 	for _, agent := range agents {
-		serial := ""
-		if agent.Hello != nil {
-			serial = agent.Hello.GetAdbSerial()
-		}
-		snapshots = append(snapshots, watch.AgentSnapshot{
-			ID:        agent.ID,
-			SessionID: agent.SessionID,
-			Name:      agentDisplayName(agent),
-			ADBSerial: serial,
-		})
+		snapshots = append(snapshots, watch.AgentSnapshotFromInfo(agent))
 	}
 	return snapshots
 }
@@ -404,7 +548,7 @@ func writeWatchHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "Options:")
 	writeHelpRows(w, []helpRow{
 		{"-c, --config PATH", "watch YAML configuration"},
-		{"--target TARGET", "agent ID, prefix, adb serial, display number, or all; default is all connected agents"},
+		{"--target TARGET", "agent ID, prefix, adb serial, model, display number, or all; default is all connected agents"},
 		{"--jsonl PATH", "append watch events to JSONL"},
 		{"--no-tui", "print findings without starting the live TUI"},
 	})
