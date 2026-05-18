@@ -99,7 +99,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.String() {
 		case "tab":
-			m.focusNextPanel()
+			m.focusPreviousPanel()
 			if m.detailOpen {
 				if panelSupportsDetail(m.focus) {
 					m.detailPanel = m.focus
@@ -109,7 +109,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "shift+tab":
-			m.focusPreviousPanel()
+			m.focusNextPanel()
 			if m.detailOpen {
 				if panelSupportsDetail(m.focus) {
 					m.detailPanel = m.focus

@@ -54,16 +54,16 @@ func TestTabFocusAndPanelLocalNavigation(t *testing.T) {
 		t.Fatalf("j should move failed checks cursor only: focus=%v passing=%d failed=%d", m.focus, m.passingCheckCursor, m.failedCheckCursor)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
-	if m.focus != focusPassingChecks {
-		t.Fatalf("tab should focus passing checks, got %v", m.focus)
+	if m.focus != focusRunQueue {
+		t.Fatalf("tab should move counter-clockwise to run queue, got %v", m.focus)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
 	if m.focus != focusFailedChecks {
-		t.Fatalf("shift-tab should move counter-clockwise back to failed checks, got %v", m.focus)
+		t.Fatalf("shift-tab should move clockwise back to failed checks, got %v", m.focus)
 	}
-	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
 	if m.focus != focusPassingChecks {
-		t.Fatalf("tab should return clockwise to passing checks, got %v", m.focus)
+		t.Fatalf("shift-tab should move clockwise to passing checks, got %v", m.focus)
 	}
 	m = updateKey(t, m, tea.Key{Code: 'j', Text: "j"})
 	if m.passingCheckCursor != 1 || m.failedCheckCursor != 1 {
@@ -73,20 +73,20 @@ func TestTabFocusAndPanelLocalNavigation(t *testing.T) {
 	if m.passingCheckCursor != 0 {
 		t.Fatalf("ctrl-u should page passing checks cursor upward, got %d", m.passingCheckCursor)
 	}
-	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
 	if m.focus != focusCheckStatus {
-		t.Fatalf("tab from passing checks should focus check status, got %v", m.focus)
+		t.Fatalf("shift-tab from passing checks should focus check status, got %v", m.focus)
 	}
 	m.checkStatusOffset = 0
 	m = updateKey(t, m, tea.Key{Code: 'l', Text: "l"})
 	if m.focus != focusCheckStatus {
 		t.Fatalf("l should keep check status focused, got %v", m.focus)
 	}
-	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
 	if m.focus != focusRunQueue {
-		t.Fatalf("tab from check status should focus run queue, got %v", m.focus)
+		t.Fatalf("shift-tab from check status should focus run queue, got %v", m.focus)
 	}
-	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
 	m = updateKey(t, m, tea.Key{Code: 'k', Text: "k"})
 	if m.focus != focusFailedChecks || m.failedCheckCursor != 0 {
 		t.Fatalf("k should move failed checks cursor after focus returns: focus=%v failed=%d", m.focus, m.failedCheckCursor)
