@@ -83,10 +83,10 @@ func TestFailedCheckLayoutMovesSpareWidthOutOfTargetColumn(t *testing.T) {
 		},
 	}
 	layout := failedCheckBarListLayout([]failedCheckSummary{row}, 76, true)
-	if got, want := layout.ColumnWidths[0], lipgloss.Width("ub2(6G)"); got != want {
+	if got, want := layout.ColumnWidths[1], lipgloss.Width("ub2(6G)"); got != want {
 		t.Fatalf("target column width = %d, want data-fit width %d; layout=%#v", got, want, layout)
 	}
-	if got, want := layout.ColumnWidths[1], lipgloss.Width("Wait Connected"); got < want {
+	if got, want := layout.ColumnWidths[2], lipgloss.Width("Wait Connected"); got < want {
 		t.Fatalf("check column width = %d, want at least %d to avoid truncation; layout=%#v", got, want, layout)
 	}
 	line := barListLine(failedCheckListColumns(row, true), failedCheckListRightColumns(row), row.Count, row.Count, layout)
@@ -101,14 +101,15 @@ func TestFailedCheckLayoutMovesSpareWidthOutOfTargetColumn(t *testing.T) {
 func TestEmptyFailedCheckHeaderDistributesColumns(t *testing.T) {
 	layout := failedCheckBarListLayout(nil, 96, true)
 	header := barListHeader(failedCheckListHeaderColumns(true), failedCheckListRightHeaderColumns(), layout)
+	deviceIndex := strings.Index(header, "Device")
 	targetIndex := strings.Index(header, "Target")
 	checkIndex := strings.Index(header, "Check")
 	metricIndex := strings.Index(header, "Metric")
 	countIndex := strings.Index(header, "Cnt")
-	if targetIndex < 0 || checkIndex < 0 || metricIndex < 0 || countIndex < 0 {
+	if deviceIndex < 0 || targetIndex < 0 || checkIndex < 0 || metricIndex < 0 || countIndex < 0 {
 		t.Fatalf("empty failed header missing expected columns: %q", header)
 	}
-	if checkIndex-targetIndex < 16 || metricIndex-checkIndex < 16 {
+	if targetIndex-deviceIndex < 12 || checkIndex-targetIndex < 12 || metricIndex-checkIndex < 12 {
 		t.Fatalf("empty failed header should distribute left columns evenly: %q", header)
 	}
 	if countIndex-metricIndex < 16 {
@@ -175,12 +176,12 @@ func TestInitialRenderWithoutMeasurementsIsStable(t *testing.T) {
 	}
 	failedHeader := ""
 	for line := range strings.SplitSeq(frame, "\n") {
-		if strings.Contains(line, "Fail%") && strings.Contains(line, "Strk") {
+		if strings.Contains(line, "Fail%") {
 			failedHeader = line
 			break
 		}
 	}
-	if !strings.Contains(failedHeader, "Cnt") || !strings.Contains(failedHeader, "Fail%") || !strings.Contains(failedHeader, "Strk") {
+	if !strings.Contains(failedHeader, "Dev") || !strings.Contains(failedHeader, "Cnt") || !strings.Contains(failedHeader, "Fail%") {
 		t.Fatalf("initial failed header missing expected columns: %q\n%s", failedHeader, frame)
 	}
 }

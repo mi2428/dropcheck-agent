@@ -564,17 +564,18 @@ func passingCheckListRightColumns(item passingCheckSummary) []string {
 
 func failedCheckListHeaderColumns(multiAgent bool) []string {
 	if multiAgent {
-		return []string{"Target", "Check", "Metric"}
+		return []string{"Device", "Target", "Check", "Metric"}
 	}
 	return []string{"Check", "Metric"}
 }
 
 func failedCheckListColumns(item failedCheckSummary, multiAgent bool) []string {
+	device := agentDeviceLabel(item.Agent)
 	target := compactTargetLabel(firstNonEmpty(item.Finding.Target, item.Target.Name, item.Target.SSID, item.Target.BSSID, "-"), 18)
 	check := displayCheckName(firstNonEmpty(item.Finding.Check, "check"))
 	metric := firstNonEmpty(item.Finding.Metric, "status")
 	if multiAgent {
-		return []string{target, check, metric}
+		return []string{device, target, check, metric}
 	}
 	return []string{check, metric}
 }

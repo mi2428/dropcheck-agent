@@ -214,13 +214,13 @@ func (s State) PassingCheckOccurrences(agent watch.AgentSnapshot, target watch.T
 func (s State) FailedCheckOccurrences(agent watch.AgentSnapshot, target watch.TargetSnapshot, finding watch.Finding) []time.Time {
 	key := FailedCheckStateKey(agent, target, finding)
 	if AgentKey(agent) == "" {
-		key = FailedCheckSummaryKey(target, finding)
+		key = FailedCheckSummaryKey(watch.AgentSnapshot{}, target, finding)
 	}
 	times := make([]time.Time, 0, len(s.FailedChecks))
 	for _, item := range s.FailedChecks {
 		itemKey := FailedCheckStateKey(item.Agent, item.Target, item.Finding)
 		if AgentKey(agent) == "" {
-			itemKey = FailedCheckSummaryKey(item.Target, item.Finding)
+			itemKey = FailedCheckSummaryKey(watch.AgentSnapshot{}, item.Target, item.Finding)
 		}
 		if itemKey == key {
 			times = append(times, item.When)

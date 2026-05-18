@@ -11,8 +11,8 @@ import (
 )
 
 func failedCheckKey(finding watch.Finding) string { return watchstate.FailedCheckKey(finding) }
-func failedCheckSummaryKey(target watch.TargetSnapshot, finding watch.Finding) string {
-	return watchstate.FailedCheckSummaryKey(target, finding)
+func failedCheckSummaryKey(agent watch.AgentSnapshot, target watch.TargetSnapshot, finding watch.Finding) string {
+	return watchstate.FailedCheckSummaryKey(agent, target, finding)
 }
 func failedCheckSummaryIdentity(item failedCheckSummary) string {
 	return watchstate.FailedCheckSummaryIdentity(item)

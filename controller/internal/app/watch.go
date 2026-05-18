@@ -79,6 +79,7 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) error {
 	watchCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	pauseControl := watch.NewPauseController()
+	roundBarrier := watch.NewRoundBarrier(len(agentPlans))
 
 	var sinks watch.MultiSink
 	var jsonlFile *os.File
@@ -97,7 +98,7 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) error {
 	for _, agentPlan := range agentPlans {
 		wg.Go(func() {
 			opRunner := watchOperationRunner{operation: runner.New(controlSession.Server), adbPath: opts.ADBPath}
-			if err := watch.RunWithOptions(watchCtx, agentPlan.Plan, opRunner, agentPlan.Agent, sinks, watch.RunOptions{Pause: pauseControl}); err != nil {
+			if err := watch.RunWithOptions(watchCtx, agentPlan.Plan, opRunner, agentPlan.Agent, sinks, watch.RunOptions{Pause: pauseControl, RoundBarrier: roundBarrier}); err != nil {
 				errCh <- fmt.Errorf("%s: %w", agentDisplayName(agentPlan.Agent), err)
 				cancel()
 			}

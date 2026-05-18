@@ -116,23 +116,24 @@ func (s State) FilteredPassingCheckSummaries(queryValue string) []PassingCheckSu
 	return filtered
 }
 
-// FailedCheckSummaries groups failure history by target and finding identity,
-// newest summary first.
+// FailedCheckSummaries groups failure history by agent, target, and finding
+// identity, newest summary first.
 func (s State) FailedCheckSummaries() []FailedCheckSummary {
 	rows := make([]FailedCheckSummary, 0, len(s.FailedChecks))
 	index := make(map[string]int, len(s.FailedChecks))
 	for _, item := range s.FailedChecks {
 		finding := item.Finding
-		key := FailedCheckSummaryKey(item.Target, finding)
+		key := FailedCheckSummaryKey(item.Agent, item.Target, finding)
 		if pos, ok := index[key]; ok {
 			rows[pos].Last = item.When
 			rows[pos].Count++
+			rows[pos].Agent = item.Agent
 			rows[pos].Target = item.Target
 			rows[pos].Finding = finding
 			continue
 		}
 		index[key] = len(rows)
-		rows = append(rows, FailedCheckSummary{Last: item.When, Count: 1, Target: item.Target, Finding: finding})
+		rows = append(rows, FailedCheckSummary{Last: item.When, Count: 1, Agent: item.Agent, Target: item.Target, Finding: finding})
 	}
 	s.DecorateFailedCheckSummaries(rows)
 	sort.SliceStable(rows, func(i, j int) bool {
@@ -150,7 +151,7 @@ func (s State) DecorateFailedCheckSummaries(rows []FailedCheckSummary) {
 	attemptsByGroup := s.failedCheckAttemptsByGroup()
 	for i := range rows {
 		key := FailedCheckSummaryIdentity(rows[i])
-		attempts := attemptsByGroup[FailedCheckAttemptGroupKey(rows[i].Target, rows[i].Finding.Target, rows[i].Finding.Check)]
+		attempts := attemptsByGroup[FailedCheckAttemptGroupKey(rows[i].Agent, rows[i].Target, rows[i].Finding.Target, rows[i].Finding.Check)]
 		failedAttempts := 0
 		for _, attempt := range attempts {
 			if attempt.FailedKeys[key] {
@@ -198,12 +199,12 @@ func (s State) failedCheckAttemptsByGroup() map[string][]failedCheckAttempt {
 	}
 	for _, item := range s.PassingChecks {
 		check := FirstNonEmpty(item.Step.Name, item.Step.Type)
-		group := FailedCheckAttemptGroupKey(item.Target, "", check)
+		group := FailedCheckAttemptGroupKey(item.Agent, item.Target, "", check)
 		upsert(group, CheckAttemptKey(item.Agent, item.Round, item.When), item.When, false, "")
 	}
 	for _, item := range s.FailedChecks {
-		group := FailedCheckAttemptGroupKey(item.Target, item.Finding.Target, item.Finding.Check)
-		upsert(group, CheckAttemptKey(item.Agent, item.Round, item.When), item.When, true, FailedCheckSummaryKey(item.Target, item.Finding))
+		group := FailedCheckAttemptGroupKey(item.Agent, item.Target, item.Finding.Target, item.Finding.Check)
+		upsert(group, CheckAttemptKey(item.Agent, item.Round, item.When), item.When, true, FailedCheckSummaryKey(item.Agent, item.Target, item.Finding))
 	}
 	for group := range groups {
 		sort.SliceStable(groups[group], func(i, j int) bool {
@@ -215,13 +216,13 @@ func (s State) failedCheckAttemptsByGroup() map[string][]failedCheckAttempt {
 
 // FailedCheckAttemptGroupKey returns the grouping key used to compute failure
 // percentages and streaks.
-func FailedCheckAttemptGroupKey(target watch.TargetSnapshot, findingTarget string, check string) string {
+func FailedCheckAttemptGroupKey(agent watch.AgentSnapshot, target watch.TargetSnapshot, findingTarget string, check string) string {
 	targetKey := FirstNonEmpty(CheckStatusTargetKey(target), findingTarget)
 	check = FirstNonEmpty(check)
 	if targetKey == "" || check == "" {
 		return ""
 	}
-	return strings.Join([]string{targetKey, check}, "\x00")
+	return strings.Join([]string{RoundAgentKey(agent), targetKey, check}, "\x00")
 }
 
 // CheckAttemptKey returns a per-agent attempt key for one round or timestamp.
@@ -419,12 +420,10 @@ func (s State) FilteredFailedCheckSummaries(queryValue string) []FailedCheckSumm
 }
 
 // FailedCheckSummaryIndex returns the current row index for a finding summary.
-// Agent is accepted for call-site symmetry; summary identity is target/finding
-// based so multi-agent failures aggregate into one row when appropriate.
 func (s State) FailedCheckSummaryIndex(agent watch.AgentSnapshot, target watch.TargetSnapshot, finding watch.Finding) int {
-	key := FailedCheckSummaryKey(target, finding)
+	key := FailedCheckSummaryKey(agent, target, finding)
 	for i, item := range s.FailedCheckSummaries() {
-		if FailedCheckSummaryKey(item.Target, item.Finding) == key {
+		if FailedCheckSummaryKey(item.Agent, item.Target, item.Finding) == key {
 			return i
 		}
 	}
@@ -462,6 +461,10 @@ func PassingCheckSummaryMatches(row PassingCheckSummary, query string) bool {
 func FailedCheckSummaryMatches(row FailedCheckSummary, query string) bool {
 	finding := row.Finding
 	fields := []string{
+		row.Agent.DisplayName(),
+		row.Agent.DeviceModel,
+		row.Agent.Name,
+		row.Agent.ADBSerial,
 		row.Target.Name,
 		row.Target.SSID,
 		row.Target.BSSID,

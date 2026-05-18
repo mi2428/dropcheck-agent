@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"charm.land/lipgloss/v2"
 	"dropcheck/controller/internal/watch"
 )
 
@@ -189,11 +190,24 @@ func (m model) roundTimelineTargetTile(target watch.TargetSnapshot, width int) s
 		return ""
 	}
 	labelWidth, plotWidth := roundTimelineTileLayout(width)
+	plotWidth = m.roundTimelinePlotWidth(plotWidth)
 	buckets, _, _ := m.targetRoundHistory(target, plotWidth)
 	checkCount := max(1, len(m.checkStatusChecks()))
-	label := summaryKeyStyle.Render(padVisible(roundTimelineTargetLabel(target, labelWidth), labelWidth))
+	label := summaryKeyStyle.Render(roundTimelineTargetLabel(target, labelWidth))
 	plot := renderTargetRoundHistory(buckets, checkCount, plotWidth)
-	return fitANSI(label+valueStyle.Render(" ")+plot, width)
+	content := fitANSI(label+valueStyle.Render(" ")+plot, width)
+	return content + valueStyle.Render(strings.Repeat(" ", max(0, width-lipgloss.Width(content))))
+}
+
+func (m model) roundTimelinePlotWidth(maxWidth int) int {
+	if maxWidth <= 0 {
+		return 0
+	}
+	latest := int(m.latestRound())
+	if latest <= 0 {
+		return 1
+	}
+	return clamp(latest, 1, maxWidth)
 }
 
 func roundTimelineTileLayout(width int) (labelWidth int, plotWidth int) {

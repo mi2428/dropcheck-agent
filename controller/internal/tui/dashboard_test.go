@@ -248,6 +248,39 @@ func TestRoundTimelinePacksColumnsWhileKeepingTenRounds(t *testing.T) {
 	}
 }
 
+func TestRoundTimelineDoesNotPadSingleRoundGraph(t *testing.T) {
+	events := make(chan watch.Event)
+	m := newModel("shownet-watch", []watch.Target{
+		{Name: "hp1(5G)", SSID: "Lab"},
+		{Name: "hp6(5G)", SSID: "Lab"},
+	}, events)
+	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
+	for _, target := range []watch.TargetSnapshot{{Name: "hp1(5G)", SSID: "Lab"}, {Name: "hp6(5G)", SSID: "Lab"}} {
+		m.apply(watch.Event{
+			Time:   at,
+			Kind:   watch.EventStepFinished,
+			Round:  1,
+			Target: target,
+			Step:   watch.StepSnapshot{Name: "Connect", Type: "connect", Status: "ok"},
+			Status: "ok",
+		})
+	}
+
+	view := stripANSI(m.roundTimelineView(80, 3))
+	lines := strings.Split(view, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("round timeline missing target row:\n%s", view)
+	}
+	first := strings.Index(lines[1], "hp1(5G) ▁")
+	second := strings.Index(lines[1], "hp6(5G) ▁")
+	if first < 0 || second < 0 {
+		t.Fatalf("single-round timeline should render graph next to each label:\n%s", view)
+	}
+	if second-first <= len("hp1(5G) ▁ ")+1 {
+		t.Fatalf("single-round timeline should keep target columns padded:\n%s", view)
+	}
+}
+
 func TestRoundTimelineKeepsTenTargetRunesAndTenRounds(t *testing.T) {
 	labelWidth, plotWidth := roundTimelineTileLayout(roundTimelineMinTileWidth())
 	if labelWidth != roundTimelineTargetLabelRunes {
