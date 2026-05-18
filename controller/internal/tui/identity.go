@@ -51,8 +51,8 @@ func (m model) runQueueTargetLabel(target targetState, includeAgentLabel bool) s
 func passingCheckKey(agent watch.AgentSnapshot, target watch.TargetSnapshot, step watch.StepSnapshot) string {
 	return watchstate.PassingCheckKey(agent, target, step)
 }
-func passingCheckSummaryKey(target watch.TargetSnapshot, step watch.StepSnapshot) string {
-	return watchstate.PassingCheckSummaryKey(target, step)
+func passingCheckSummaryKey(agent watch.AgentSnapshot, target watch.TargetSnapshot, step watch.StepSnapshot) string {
+	return watchstate.PassingCheckSummaryKey(agent, target, step)
 }
 func passingCheckSummaryIdentity(item passingCheckSummary) string {
 	return watchstate.PassingCheckSummaryIdentity(item)
@@ -61,6 +61,18 @@ func passingCheckSummaryIndexByIdentity(rows []passingCheckSummary, key string) 
 	return watchstate.PassingCheckSummaryIndexByIdentity(rows, key)
 }
 func durationLabel(duration int64) string { return watchstate.DurationLabel(duration) }
+
+func agentDeviceLabel(agent watch.AgentSnapshot) string {
+	if agent.DeviceModel != "" {
+		return agent.DeviceModel
+	}
+	for _, value := range []string{agent.Name, agent.ID, agent.SessionID} {
+		if value != "" && value != agent.ADBSerial {
+			return value
+		}
+	}
+	return "-"
+}
 
 func fit(value string, width int) string {
 	runes := []rune(value)

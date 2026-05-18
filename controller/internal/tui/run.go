@@ -103,6 +103,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.detailPanel = m.focus
 				m.lockDetailToCursor(m.focus)
 			}
+		case "h", "left":
+			m.moveCheckStatusHorizontal(-1)
+		case "l", "right":
+			m.moveCheckStatusHorizontal(1)
 		case "ctrl+d", "pgdown":
 			m.moveFocusedCursor(10)
 			if m.detailOpen {

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -231,13 +232,15 @@ func TestRoundTimelinePacksColumnsWhileKeepingTenRounds(t *testing.T) {
 	if len(narrowLines) < 3 {
 		t.Fatalf("narrow timeline should wrap Targets:\n%s", narrow)
 	}
-	for _, want := range []string{"t0", "t1", "t2", "t3", "t4"} {
+	for _, want := range []string{"t0", "t2", "t4"} {
 		if !strings.Contains(narrowLines[1], want) {
-			t.Fatalf("narrow first row should use the maximum fitting columns, missing %q:\n%s", want, narrow)
+			t.Fatalf("narrow first row should show the top of each column, missing %q:\n%s", want, narrow)
 		}
 	}
-	if strings.Contains(narrowLines[1], "t5") || !strings.Contains(narrowLines[2], "t5") {
-		t.Fatalf("narrow timeline should wrap only after columns can no longer keep ten rounds:\n%s", narrow)
+	for _, want := range []string{"t1", "t3", "t5"} {
+		if strings.Contains(narrowLines[1], want) || !strings.Contains(narrowLines[2], want) {
+			t.Fatalf("narrow timeline should fill columns from top to bottom, target %q placed incorrectly:\n%s", want, narrow)
+		}
 	}
 	start, end = m.roundTimelineRoundSpan(100)
 	if got := int(end - start + 1); got < 10 {
@@ -245,19 +248,36 @@ func TestRoundTimelinePacksColumnsWhileKeepingTenRounds(t *testing.T) {
 	}
 }
 
-func TestRoundTimelineKeepsSixHostRunesAndTenRounds(t *testing.T) {
-	labelWidth, plotWidth := roundTimelineTileLayout(roundTimelineMinLabelRunes + 1 + 1 + roundTimelineMinVisibleRounds)
-	if labelWidth != roundTimelineMinLabelRunes+1 {
-		t.Fatalf("round timeline label width = %d, want %d to keep six host runes plus truncation marker", labelWidth, roundTimelineMinLabelRunes+1)
+func TestRoundTimelineKeepsTenTargetRunesAndTenRounds(t *testing.T) {
+	labelWidth, plotWidth := roundTimelineTileLayout(roundTimelineMinTileWidth())
+	if labelWidth != roundTimelineTargetLabelRunes {
+		t.Fatalf("round timeline label width = %d, want %d", labelWidth, roundTimelineTargetLabelRunes)
 	}
 	if plotWidth != roundTimelineMinVisibleRounds {
 		t.Fatalf("round timeline plot width = %d, want %d visible rounds", plotWidth, roundTimelineMinVisibleRounds)
 	}
-	if got := compactTargetLabel("cs20(5G)", labelWidth); got != "cs20(5~" {
-		t.Fatalf("compact target label = %q, want six host runes before truncation marker", got)
+	if got := roundTimelineTargetLabel(watch.TargetSnapshot{Name: "cs20(5G)-extra"}, labelWidth); got != "cs20(5G)-~" {
+		t.Fatalf("round timeline target label = %q, want width-10 truncation", got)
 	}
 	if got := roundTimelineColumnCount(35, 2); got != 1 {
-		t.Fatalf("round timeline columns = %d, want wrap before reducing labels below six runes or rounds below ten", got)
+		t.Fatalf("round timeline columns = %d, want wrap before reducing labels below ten runes or rounds below ten", got)
+	}
+}
+
+func TestRoundTimelinePanelHeightExpandsForWrappedTargetRows(t *testing.T) {
+	events := make(chan watch.Event)
+	targets := make([]watch.Target, 0, 24)
+	for i := range 24 {
+		targets = append(targets, watch.Target{Name: fmt.Sprintf("target-%02d", i), SSID: "SHIZK RADIO"})
+	}
+	m := newModel("shownet-watch", targets, events)
+	grid := roundTimelineGrid(100, len(targets))
+	height := m.roundTimelinePanelHeight(100)
+	if grid.Rows < 6 {
+		t.Fatalf("round timeline grid rows = %d, want wrapped rows", grid.Rows)
+	}
+	if want := grid.Rows + 3; height != want {
+		t.Fatalf("round timeline panel height = %d, want %d for header plus wrapped rows", height, want)
 	}
 }
 
@@ -340,6 +360,73 @@ func TestCheckStatusSpansFullWidthAboveRoundTimelineAndRunQueue(t *testing.T) {
 	roundTimelineLine := strings.Split(frame, "\n")[roundTimelineRow]
 	if lipgloss.Width(roundTimelineLine) != m.width {
 		t.Fatalf("Round Timeline panel should span full app width, got %d want %d: %q", lipgloss.Width(roundTimelineLine), m.width, roundTimelineLine)
+	}
+}
+
+func TestCheckStatusFooterShowsLiveConnectStateByAgent(t *testing.T) {
+	events := make(chan watch.Event)
+	agents := []watch.AgentSnapshot{
+		{ID: "agent-a", Name: "35251JEHN00258", ADBSerial: "35251JEHN00258", DeviceModel: "Pixel 7a"},
+		{ID: "agent-b", Name: "45240DLAQ007HG", ADBSerial: "45240DLAQ007HG", DeviceModel: "Pixel 9"},
+		{ID: "agent-c", Name: "extra-agent"},
+	}
+	m := newModelWithChecks("shownet-watch", []watch.Target{{Name: "ub1(5G)", SSID: "SHIZK RADIO"}}, []watch.Check{{Name: "connect", Type: "connect"}}, events, agents)
+	m.apply(watch.Event{
+		Time:    time.Date(2026, 5, 18, 11, 0, 0, 0, time.UTC),
+		Kind:    watch.EventLog,
+		Agent:   agents[0],
+		Message: "wifi connect state: supplicant=FOUR_WAY_HANDSHAKE bssid=70:a7:41:a0:9a:6f",
+	})
+	m.apply(watch.Event{
+		Time:    time.Date(2026, 5, 18, 11, 0, 0, 0, time.UTC),
+		Kind:    watch.EventLog,
+		Agent:   agents[1],
+		Message: "wifi connect state: supplicant=COMPLETED bssid=22:0b:8b:b6:2c:e1",
+	})
+	m.apply(watch.Event{
+		Time:    time.Date(2026, 5, 18, 11, 0, 0, 0, time.UTC),
+		Kind:    watch.EventLog,
+		Agent:   agents[2],
+		Message: "wifi connect state: supplicant=ASSOCIATED bssid=22:0b:8b:b6:2c:e2",
+	})
+
+	view := stripANSI(m.checkStatusView(140, 5))
+	lines := strings.Split(view, "\n")
+	if got := lines[len(lines)-1]; !strings.Contains(got, "Pixel 7a (") ||
+		!strings.Contains(got, "35251") ||
+		!strings.Contains(got, "FOUR_WAY_HANDSHAKE") ||
+		!strings.Contains(got, "Pixel 9 (") ||
+		!strings.Contains(got, "45240") ||
+		!strings.Contains(got, "COMPLETED") ||
+		!strings.Contains(got, "extra-agent=") ||
+		!strings.Contains(got, "ASSOCIATED") {
+		t.Fatalf("connect footer missing live states:\n%s", view)
+	}
+	if strings.Count(lines[len(lines)-1], " ") < 2 {
+		t.Fatalf("connect footer should use single-space separated agent items:\n%s", view)
+	}
+}
+
+func TestAgentPanelTitlesUseDeviceModelAndSerial(t *testing.T) {
+	events := make(chan watch.Event)
+	agents := []watch.AgentSnapshot{
+		{ID: "agent-a", Name: "35251JEHN00258", ADBSerial: "35251JEHN00258", DeviceModel: "Pixel 7a"},
+		{ID: "agent-b", Name: "45240DLAQ007HG", ADBSerial: "45240DLAQ007HG", DeviceModel: "Pixel 9"},
+	}
+	m := newModelWithChecks("shownet-watch", []watch.Target{{Name: "ub1(5G)", SSID: "SHIZK RADIO"}}, []watch.Check{{Name: "connect", Type: "connect"}}, events, agents)
+	m.width = 220
+	m.height = 60
+
+	text := stripANSI(m.failureHotspotPanelsView(100, 12) + "\n" + m.runQueuePanelsView(100, 12))
+	for _, want := range []string{
+		"Failure Hotspots Pixel 7a (35251JEHN00258)",
+		"Failure Hotspots Pixel 9 (45240DLAQ007HG)",
+		"Run Queue Pixel 7a (35251JEHN00258)",
+		"Run Queue Pixel 9 (45240DLAQ007HG)",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("agent panel title missing %q:\n%s", want, text)
+		}
 	}
 }
 

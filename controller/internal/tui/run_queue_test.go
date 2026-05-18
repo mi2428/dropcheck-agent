@@ -70,6 +70,62 @@ func TestRunQueueTreeExpandsOnlyRunningTargets(t *testing.T) {
 	}
 }
 
+func TestRunQueueTreePrioritizesActiveStepsWhenClipped(t *testing.T) {
+	events := make(chan watch.Event)
+	m := newModel("shownet-watch", []watch.Target{}, events)
+	for i := range 6 {
+		m.Targets = append(m.Targets, targetState{
+			Target: targetSnapshot(fmt.Sprintf("done-%02d", i)),
+			Status: "ok",
+		})
+	}
+	m.Targets = append(m.Targets, targetState{
+		Target:      targetSnapshot("running-target"),
+		Status:      "running",
+		CurrentStep: "download",
+		PlannedSteps: []stepState{
+			{Name: "connect", Type: "connect"},
+			{Name: "wait_connected", Type: "wait_connected"},
+			{Name: "ip provisioning", Type: "ip_status"},
+			{Name: "ping cf ipv4", Type: "ping"},
+			{Name: "download", Type: "download"},
+		},
+		Steps: []stepState{
+			{Name: "connect", Status: "ok"},
+			{Name: "wait_connected", Status: "ok"},
+			{Name: "ip provisioning", Status: "ok"},
+			{Name: "ping cf ipv4", Status: "ok"},
+			{Name: "download", Status: "running"},
+		},
+	})
+	for i := range 3 {
+		m.Targets = append(m.Targets, targetState{
+			Target: targetSnapshot(fmt.Sprintf("waiting-%02d", i)),
+			Status: "pending",
+		})
+	}
+
+	text := stripANSI(m.runQueueTreeView(80, 7))
+	for _, want := range []string{
+		"OK   done-05",
+		"RUN  running-target",
+		"├── OK   connect",
+		"├── OK   wait_connected",
+		"├── OK   ip provisioning",
+		"├── OK   ping cf ipv4",
+		"└── RUN  download",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("compact run queue missing %q:\n%s", want, text)
+		}
+	}
+	for _, unwanted := range []string{"done-00", "done-04", "waiting-00"} {
+		if strings.Contains(text, unwanted) {
+			t.Fatalf("compact run queue should prioritize active child rows over %q:\n%s", unwanted, text)
+		}
+	}
+}
+
 func TestRunQueueCursorStaysOnChildBetweenStepFinishAndNextStart(t *testing.T) {
 	events := make(chan watch.Event)
 	m := newModel("shownet-watch", []watch.Target{}, events)

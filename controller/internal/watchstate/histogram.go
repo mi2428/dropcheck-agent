@@ -191,7 +191,7 @@ func OccurrenceGraphHeight(contentHeight int) int {
 func (s State) PassingCheckOccurrences(agent watch.AgentSnapshot, target watch.TargetSnapshot, step watch.StepSnapshot) []time.Time {
 	key := PassingCheckKey(agent, target, step)
 	if AgentKey(agent) == "" {
-		key = PassingCheckSummaryKey(target, step)
+		key = PassingCheckSummaryKey(watch.AgentSnapshot{}, target, step)
 	}
 	if key == "" {
 		return nil
@@ -200,7 +200,7 @@ func (s State) PassingCheckOccurrences(agent watch.AgentSnapshot, target watch.T
 	for _, item := range s.PassingChecks {
 		itemKey := PassingCheckKey(item.Agent, item.Target, item.Step)
 		if AgentKey(agent) == "" {
-			itemKey = PassingCheckSummaryKey(item.Target, item.Step)
+			itemKey = PassingCheckSummaryKey(watch.AgentSnapshot{}, item.Target, item.Step)
 		}
 		if itemKey == key {
 			times = append(times, item.When)

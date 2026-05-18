@@ -24,10 +24,9 @@ func (m model) roundTimelineView(width int, height int) string {
 		lines = append(lines, dimStyle.Render("no targets"))
 		return strings.Join(lines[:min(len(lines), height)], "\n")
 	}
-	columns := roundTimelineColumnCount(width, len(targets))
-	for start := 0; start < len(targets) && len(lines) < height; start += columns {
-		end := min(len(targets), start+columns)
-		lines = append(lines, m.roundTimelineTargetRow(targets[start:end], width, columns))
+	grid := roundTimelineGrid(width, len(targets))
+	for row := 0; row < grid.Rows && len(lines) < height; row++ {
+		lines = append(lines, m.roundTimelineTargetRow(targets, width, grid, row))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -82,7 +81,7 @@ func (m model) roundTimelineRoundSpan(width int) (uint64, uint64) {
 }
 
 func (m model) roundTimelineVisibleRounds(width int) int {
-	columns := roundTimelineColumnCount(width, len(m.checkStatusTargets()))
+	columns := roundTimelineGrid(width, len(m.checkStatusTargets())).Columns
 	tileWidths := roundTimelineTileWidths(width, columns)
 	if len(tileWidths) == 0 {
 		return 1
@@ -110,16 +109,34 @@ func (m model) latestRound() uint64 {
 	return latest
 }
 
-func (m model) roundTimelineTargetRow(targets []watch.TargetSnapshot, width int, columns int) string {
+type roundTimelineGridLayout struct {
+	Columns int
+	Rows    int
+}
+
+func roundTimelineGrid(width int, targetCount int) roundTimelineGridLayout {
+	if targetCount <= 0 {
+		return roundTimelineGridLayout{Columns: 1}
+	}
+	maxColumns := roundTimelineColumnCount(width, targetCount)
+	rows := (targetCount + maxColumns - 1) / maxColumns
+	rows = max(1, rows)
+	columns := (targetCount + rows - 1) / rows
+	return roundTimelineGridLayout{Columns: max(1, columns), Rows: rows}
+}
+
+func (m model) roundTimelineTargetRow(targets []watch.TargetSnapshot, width int, grid roundTimelineGridLayout, row int) string {
 	if width <= 0 {
 		return ""
 	}
-	columns = max(1, columns)
+	columns := max(1, grid.Columns)
+	rows := max(1, grid.Rows)
 	tileWidths := roundTimelineTileWidths(width, columns)
 	tiles := make([]string, 0, len(tileWidths))
 	for column, tileWidth := range tileWidths {
-		if column < len(targets) {
-			tiles = append(tiles, m.roundTimelineTargetTile(targets[column], tileWidth))
+		index := column*rows + row
+		if index < len(targets) {
+			tiles = append(tiles, m.roundTimelineTargetTile(targets[index], tileWidth))
 		} else {
 			tiles = append(tiles, valueStyle.Render(strings.Repeat(" ", tileWidth)))
 		}
@@ -138,8 +155,7 @@ func roundTimelineColumnCount(width int, targetCount int) int {
 		}
 		fits := true
 		for _, tileWidth := range widths {
-			_, plotWidth := roundTimelineTileLayout(tileWidth)
-			if plotWidth < roundTimelineMinVisibleRounds {
+			if tileWidth < roundTimelineMinTileWidth() {
 				fits = false
 				break
 			}
@@ -175,7 +191,7 @@ func (m model) roundTimelineTargetTile(target watch.TargetSnapshot, width int) s
 	labelWidth, plotWidth := roundTimelineTileLayout(width)
 	buckets, _, _ := m.targetRoundHistory(target, plotWidth)
 	checkCount := max(1, len(m.checkStatusChecks()))
-	label := groupStyle.Render(padVisible(compactTargetLabel(checkStatusTargetLabel(target), labelWidth), labelWidth))
+	label := summaryKeyStyle.Render(padVisible(roundTimelineTargetLabel(target, labelWidth), labelWidth))
 	plot := renderTargetRoundHistory(buckets, checkCount, plotWidth)
 	return fitANSI(label+valueStyle.Render(" ")+plot, width)
 }
@@ -184,10 +200,20 @@ func roundTimelineTileLayout(width int) (labelWidth int, plotWidth int) {
 	if width <= 0 {
 		return 0, 0
 	}
-	minLabelWidth := min(width, roundTimelineMinLabelRunes+1)
-	labelWidth = clamp(width/4, minLabelWidth, min(16, max(minLabelWidth, width-roundTimelineMinVisibleRounds-1)))
+	labelWidth = min(roundTimelineTargetLabelRunes, width)
+	if width > roundTimelineMinVisibleRounds+1 && width < roundTimelineMinTileWidth() {
+		labelWidth = max(1, width-roundTimelineMinVisibleRounds-1)
+	}
 	plotWidth = max(1, width-labelWidth-1)
 	return labelWidth, plotWidth
+}
+
+func roundTimelineMinTileWidth() int {
+	return roundTimelineTargetLabelRunes + 1 + roundTimelineMinVisibleRounds
+}
+
+func roundTimelineTargetLabel(target watch.TargetSnapshot, width int) string {
+	return fitANSI(checkStatusTargetLabel(target), width)
 }
 
 func (m model) targetRoundHistory(target watch.TargetSnapshot, width int) ([]targetRoundBucket, int, int) {
@@ -211,7 +237,7 @@ func (m model) targetRoundHistory(target watch.TargetSnapshot, width int) ([]tar
 	total := 0
 	peak := 0
 	targetKey := checkStatusTargetKey(target)
-	expectedAgents := m.expectedRoundAgentCount()
+	expectedAgents := m.expectedRoundAgentCount(target)
 	markConnectFailed := func(index int, agent watch.AgentSnapshot) {
 		if connectFailedAgents[index] == nil {
 			connectFailedAgents[index] = map[string]bool{}
@@ -257,7 +283,17 @@ func (m model) targetRoundHistory(target watch.TargetSnapshot, width int) ([]tar
 	return buckets, total, peak
 }
 
-func (m model) expectedRoundAgentCount() int {
+func (m model) expectedRoundAgentCount(target watch.TargetSnapshot) int {
+	targetKey := checkStatusTargetKey(target)
+	seenForTarget := map[string]bool{}
+	for _, state := range m.Targets {
+		if checkStatusTargetKey(state.Target) == targetKey {
+			seenForTarget[roundAgentKey(state.Agent)] = true
+		}
+	}
+	if len(seenForTarget) > 0 {
+		return len(seenForTarget)
+	}
 	if len(m.Agents) > 0 {
 		return len(m.Agents)
 	}

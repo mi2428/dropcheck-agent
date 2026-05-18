@@ -201,6 +201,7 @@ func (m *model) normalizeCursors() {
 	m.passingCheckCursor = clamp(m.passingCheckCursor, 0, max(0, len(m.filteredPassingCheckSummaries())-1))
 	m.failedCheckCursor = clamp(m.failedCheckCursor, 0, max(0, len(m.filteredFailedCheckSummaries())-1))
 	m.failureHotspotCursor = clamp(m.failureHotspotCursor, 0, max(0, len(m.filteredFailureHotspots())-1))
+	m.normalizeCheckStatusOffset()
 	if m.focus == focusFailureHotspots && !m.failureHotspotsVisible() {
 		m.focus = focusFailedChecks
 	}

@@ -58,6 +58,9 @@ func TestSummarySparklineIsPinnedToBottom(t *testing.T) {
 	if len(lines) != 8 {
 		t.Fatalf("passingChecks table should fill the requested height, got %d lines:\n%s", len(lines), strings.Join(lines, "\n"))
 	}
+	if strings.TrimSpace(lines[len(lines)-5]) != "" {
+		t.Fatalf("sparkline header should have a spacer row above it:\n%s", strings.Join(lines, "\n"))
+	}
 	if !strings.Contains(lines[len(lines)-4], "passing checks events last=30m") {
 		t.Fatalf("sparkline header should be pinned above the bottom graph:\n%s", strings.Join(lines, "\n"))
 	}
@@ -253,7 +256,7 @@ func TestSummarySparklineHeaderShowsScaleWhenCompressed(t *testing.T) {
 			Step:   watch.StepSnapshot{Name: "connect"},
 		})
 	}
-	view := stripANSI(m.summarySparklineView("passing checks", m.passingCheckEventTimes(), 120, 5, okGraphStyle))
+	view := stripANSI(m.summarySparklineView("passing checks", m.passingCheckEventTimes(), 120, 6, okGraphStyle))
 	if !strings.Contains(view, "peak=14 scale=5/row") {
 		t.Fatalf("compressed sparkline header should expose the absolute y scale:\n%s", view)
 	}

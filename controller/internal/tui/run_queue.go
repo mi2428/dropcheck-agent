@@ -10,19 +10,32 @@ import (
 )
 
 func (m model) runQueueTreeView(width int, height int) string {
-	lines := m.runQueueTreeLines(width)
+	return m.runQueueTreeViewScoped(watch.AgentSnapshot{}, m.MultiAgent, width, height, m.runQueueOffset, m.runQueueCursor)
+}
+
+func (m model) runQueueTreeViewScoped(agent watch.AgentSnapshot, includeAgentLabel bool, width int, height int, offset int, cursor int) string {
+	lines := m.runQueueTreeLinesForAgent(width, agent, includeAgentLabel)
 	if len(lines) == 0 || height <= 0 {
 		return ""
 	}
-	current, ok := m.currentRunQueueLineIndex()
+	if len(lines) > height {
+		if compact, ok := m.compactRunQueueTreeLinesForAgent(width, height, agent, includeAgentLabel); ok {
+			return renderRunQueueLines(compact, width)
+		}
+	}
+	current, ok := m.currentRunQueueLineIndexForAgent(agent)
 	if !ok {
-		current = m.runQueueCursor
+		current = cursor
 	}
 	current = clamp(current, 0, len(lines)-1)
-	start := stableOffset(current, m.runQueueOffset, height, len(lines))
+	start := stableOffset(current, offset, height, len(lines))
 	end := min(len(lines), start+height)
+	return renderRunQueueLines(lines[start:end], width)
+}
+
+func renderRunQueueLines(lines []runQueueLine, width int) string {
 	var b strings.Builder
-	for _, line := range lines[start:end] {
+	for _, line := range lines {
 		b.WriteString(renderRunQueueLine(line, width))
 		b.WriteByte('\n')
 	}
@@ -68,23 +81,7 @@ func splitHeights(total int, count int) []int {
 }
 
 func (m model) runQueueTreeViewForAgent(agent watch.AgentSnapshot, width int, height int) string {
-	lines := m.runQueueTreeLinesForAgent(width, agent, false)
-	if len(lines) == 0 || height <= 0 {
-		return ""
-	}
-	current, ok := m.currentRunQueueLineIndexForAgent(agent)
-	if !ok {
-		current = 0
-	}
-	current = clamp(current, 0, len(lines)-1)
-	start := stableOffset(current, 0, height, len(lines))
-	end := min(len(lines), start+height)
-	var b strings.Builder
-	for _, line := range lines[start:end] {
-		b.WriteString(renderRunQueueLine(line, width))
-		b.WriteByte('\n')
-	}
-	return b.String()
+	return m.runQueueTreeViewScoped(agent, false, width, height, 0, 0)
 }
 
 func renderRunQueueLine(line runQueueLine, width int) string {
@@ -100,7 +97,24 @@ func (m model) runQueueTreeLines(width int) []runQueueLine {
 }
 
 func (m model) runQueueTreeLinesForAgent(width int, agent watch.AgentSnapshot, includeAgentLabel bool) []runQueueLine {
+	blocks := m.runQueueTreeBlocksForAgent(width, agent, includeAgentLabel)
 	lines := make([]runQueueLine, 0, len(m.Targets)*2)
+	for _, block := range blocks {
+		lines = append(lines, block.Target)
+		lines = append(lines, block.Steps...)
+	}
+	return lines
+}
+
+type runQueueTargetBlock struct {
+	Target runQueueLine
+	Steps  []runQueueLine
+	Status string
+	Active bool
+}
+
+func (m model) runQueueTreeBlocksForAgent(width int, agent watch.AgentSnapshot, includeAgentLabel bool) []runQueueTargetBlock {
+	blocks := make([]runQueueTargetBlock, 0, len(m.Targets))
 	for _, target := range m.Targets {
 		if agentKey(agent) != "" && !sameAgent(target.Agent, agent) {
 			continue
@@ -114,9 +128,14 @@ func (m model) runQueueTreeLinesForAgent(width int, agent watch.AgentSnapshot, i
 		}
 		currentStepName := runQueueCurrentStepName(target)
 		line := fmt.Sprintf("%s %s%s", statusToken(status), m.runQueueTargetLabel(target, includeAgentLabel), suffix)
-		lines = append(lines, runQueueLine{Text: fitANSI(line, width), Status: status, Current: active && currentStepName == ""})
+		block := runQueueTargetBlock{
+			Target: runQueueLine{Text: fitANSI(line, width), Status: status, Current: active && currentStepName == ""},
+			Status: status,
+			Active: active,
+		}
 		steps := runQueueVisibleSteps(target)
 		if len(steps) == 0 {
+			blocks = append(blocks, block)
 			continue
 		}
 		for i, step := range steps {
@@ -132,10 +151,79 @@ func (m model) runQueueTreeLinesForAgent(width int, agent watch.AgentSnapshot, i
 				status = "pending"
 			}
 			line := fmt.Sprintf("  %s %s %s", branch, statusToken(status), step.Name)
-			lines = append(lines, runQueueLine{Text: fitANSI(line, width), Status: status, Current: stepCurrent})
+			block.Steps = append(block.Steps, runQueueLine{Text: fitANSI(line, width), Status: status, Current: stepCurrent})
+		}
+		blocks = append(blocks, block)
+	}
+	return blocks
+}
+
+func (m model) compactRunQueueTreeLinesForAgent(width int, height int, agent watch.AgentSnapshot, includeAgentLabel bool) ([]runQueueLine, bool) {
+	if height <= 0 {
+		return nil, false
+	}
+	blocks := m.runQueueTreeBlocksForAgent(width, agent, includeAgentLabel)
+	active := -1
+	for i, block := range blocks {
+		if block.Active {
+			active = i
+			break
 		}
 	}
+	if active < 0 {
+		return nil, false
+	}
+	activeLines := compactActiveRunQueueBlock(blocks[active], height)
+	if len(activeLines) >= height {
+		return activeLines[:min(len(activeLines), height)], true
+	}
+	lines := make([]runQueueLine, 0, height)
+	if previous, ok := previousCompletedRunQueueTarget(blocks, active); ok && len(activeLines)+1 <= height {
+		lines = append(lines, previous)
+	}
+	lines = append(lines, activeLines...)
+	for i := active + 1; i < len(blocks) && len(lines) < height; i++ {
+		lines = append(lines, blocks[i].Target)
+	}
+	return lines, true
+}
+
+func compactActiveRunQueueBlock(block runQueueTargetBlock, height int) []runQueueLine {
+	if height <= 0 {
+		return nil
+	}
+	if len(block.Steps)+1 <= height {
+		lines := make([]runQueueLine, 0, len(block.Steps)+1)
+		lines = append(lines, block.Target)
+		lines = append(lines, block.Steps...)
+		return lines
+	}
+	childHeight := max(0, height-1)
+	lines := []runQueueLine{block.Target}
+	if childHeight == 0 || len(block.Steps) == 0 {
+		return lines
+	}
+	current := 0
+	for i, step := range block.Steps {
+		if step.Current {
+			current = i
+			break
+		}
+	}
+	start := stableOffset(current, 0, childHeight, len(block.Steps))
+	end := min(len(block.Steps), start+childHeight)
+	lines = append(lines, block.Steps[start:end]...)
 	return lines
+}
+
+func previousCompletedRunQueueTarget(blocks []runQueueTargetBlock, active int) (runQueueLine, bool) {
+	for i := active - 1; i >= 0; i-- {
+		switch normalizeStatus(blocks[i].Status) {
+		case "ok", "failed", "skipped":
+			return blocks[i].Target, true
+		}
+	}
+	return runQueueLine{}, false
 }
 
 func runQueueVisibleSteps(target targetState) []stepState {

@@ -18,6 +18,7 @@ var (
 	summaryKeyStyle         = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFAA44")).Background(lipgloss.Color("#1A0A02"))
 	summaryValueStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#EE8822")).Background(lipgloss.Color("#1A0A02"))
 	summaryFreshRowStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFAA44")).Background(lipgloss.Color("#1A0A02"))
+	summaryWarmRowStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#EE8822")).Background(lipgloss.Color("#1A0A02"))
 	summaryStaleRowStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#B46522")).Background(lipgloss.Color("#1A0A02"))
 	summaryTableHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFAA44")).Background(lipgloss.Color("#3A1203"))
 	summaryGraphStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF9F1C")).Background(lipgloss.Color("#1A0A02"))

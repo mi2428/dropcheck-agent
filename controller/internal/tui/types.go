@@ -17,6 +17,7 @@ type passingCheckState = watchstate.PassingCheck
 type passingCheckSummary = watchstate.PassingCheckSummary
 type failureHotspotSummary = watchstate.FailureHotspotSummary
 type eventLogEntry = watchstate.EventLogEntry
+type connectState = watchstate.ConnectState
 type occurrenceHistogram = watchstate.OccurrenceHistogram
 
 type outcomeEvent = watchstate.OutcomeEvent
@@ -51,7 +52,7 @@ type focusSlot struct {
 
 const (
 	roundTimelineMinVisibleRounds = 10
-	roundTimelineMinLabelRunes    = 6
+	roundTimelineTargetLabelRunes = 10
 	roundTimelineTileGap          = 1
 	summarySparklineRows          = 5
 	summarySparklineWindow        = 30 * time.Minute
@@ -64,7 +65,7 @@ const (
 	detailModalHeightPercent      = 55
 	detailModalLogLimit           = 120
 	recencyFreshWindow            = 15 * time.Second
-	recencyWarmWindow             = 90 * time.Second
+	recencyWarmWindow             = 30 * time.Second
 )
 
 type eventMsg watch.Event
@@ -88,6 +89,8 @@ type model struct {
 	passingCheckCursor   int
 	failedCheckCursor    int
 	failureHotspotCursor int
+	checkStatusOffset    int
+	checkStatusPinned    bool
 	runQueueCursor       int
 	runQueueOffset       int
 	searchEditing        bool

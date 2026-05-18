@@ -57,6 +57,48 @@ func TestEnterShowsFailedCheckDetail(t *testing.T) {
 	}
 }
 
+func TestFailedRequiredStepDetailShowsWifiAssertFailurePoint(t *testing.T) {
+	events := make(chan watch.Event)
+	m := newModel("shownet-watch", []watch.Target{
+		{Name: "ub2(6G)", SSID: "SHIZK RADIO", BSSID: "70:a7:41:a0:9a:6f", Band: "5ghz"},
+	}, events)
+	m.width = 180
+	m.height = 50
+	at := time.Date(2026, 5, 18, 10, 27, 26, 0, time.UTC)
+	m.Now = at
+	target := watch.TargetSnapshot{Name: "ub2(6G)", SSID: "SHIZK RADIO", BSSID: "70:a7:41:a0:9a:6f", Band: "5ghz"}
+	message := "wifi condition timeout: last_pass=band failed=ip(actual=absent expected=present),validated(actual=false expected=true) assert_elapsed_ms=30000"
+	m.apply(watch.Event{
+		Time:   at,
+		Kind:   watch.EventStepFinished,
+		Round:  1,
+		Target: target,
+		Step:   watch.StepSnapshot{Name: "wait_connected", Type: "wait_connected", Operation: "wifi.wait", Status: "failed", Message: message},
+		Status: "failed",
+	})
+	m.apply(watch.Event{
+		Time:    at.Add(time.Second),
+		Kind:    watch.EventLog,
+		Round:   1,
+		Target:  target,
+		Step:    watch.StepSnapshot{Name: "wait_connected", Type: "wait_connected", Operation: "wifi.wait", Status: "failed"},
+		Status:  "warn",
+		Message: `wifi failure cause: disconnected reason=6 locally_generated=false bssid=70:a7:41:a0:9a:6f ssid="SHIZK RADIO"`,
+	})
+
+	view := stripANSI(m.failedCheckDetailView(180, 18))
+	for _, want := range []string{
+		"target=ub2(6G)  check=wait_connected  metric=status",
+		"last_pass=band",
+		"failed=ip(actual=absent expected=present),validated(actual=false expected=true)",
+		"wifi failure cause: disconnected reason=6 locally_generated=false",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("failed required step detail missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestEnterShowsPassingCheckDetail(t *testing.T) {
 	events := make(chan watch.Event)
 	m := newModel("shownet-watch", []watch.Target{

@@ -159,10 +159,9 @@ func (m model) roundTimelinePanelHeight(width int) int {
 	if len(targets) == 0 {
 		contentHeight++ // empty-state line
 	} else {
-		columns := roundTimelineColumnCount(width, len(targets))
-		contentHeight += (len(targets) + columns - 1) / columns
+		contentHeight += roundTimelineGrid(width, len(targets)).Rows
 	}
-	return clamp(contentHeight+2, 4, 12)
+	return max(4, contentHeight+2)
 }
 
 func (m model) checkStatusPanelHeight() int {
@@ -171,6 +170,9 @@ func (m model) checkStatusPanelHeight() int {
 		contentHeight = 1
 	} else {
 		contentHeight += len(m.checkStatusChecks())
+	}
+	if len(m.connectStatusFooterItems()) > 0 {
+		contentHeight++
 	}
 	return max(3, contentHeight+2)
 }
@@ -200,7 +202,7 @@ func summaryAndEventLogHeights(bodyHeight int) (summaryHeight int, eventLogHeigh
 func (m model) helpBar(width int) string {
 	now := m.currentTime().Format("15:04:05")
 	label := " Keys:"
-	parts := []string{"Tab=Panel", "j=Down", "k=Up"}
+	parts := []string{"Tab=Panel", "j=Down", "k=Up", "h/l=CheckScroll"}
 	if m.focus == focusPassingChecks && len(m.filteredPassingCheckSummaries()) > 0 ||
 		m.focus == focusFailedChecks && len(m.filteredFailedCheckSummaries()) > 0 ||
 		m.focus == focusFailureHotspots && len(m.focusedFailureHotspotRows()) > 0 {
