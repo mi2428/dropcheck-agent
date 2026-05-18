@@ -50,6 +50,10 @@ func (m *model) moveFocusedCursor(delta int) {
 		m.movePassingCheckCursor(delta)
 	case focusFailureHotspots:
 		m.moveFailureHotspotCursor(delta)
+	case focusRunQueue:
+		m.moveRunQueueCursor(delta)
+	case focusCheckStatus:
+		return
 	default:
 		m.moveFailedCheckCursor(delta)
 	}
@@ -85,6 +89,8 @@ func (m *model) focusNextPanel() {
 func (m model) focusSlots() []focusSlot {
 	slots := []focusSlot{
 		{Panel: focusPassingChecks},
+		{Panel: focusCheckStatus},
+		{Panel: focusRunQueue},
 		{Panel: focusFailedChecks},
 	}
 	if !m.failureHotspotsVisible() {
@@ -112,6 +118,10 @@ func (m model) currentFocusSlot() focusSlot {
 
 func (m *model) setFocusSlot(slot focusSlot) {
 	m.focus = slot.Panel
+	if slot.Panel == focusRunQueue {
+		m.runQueuePinned = false
+		m.updateRunQueueCursor()
+	}
 	if slot.Panel != focusFailureHotspots {
 		return
 	}

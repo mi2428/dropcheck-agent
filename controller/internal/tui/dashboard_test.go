@@ -65,7 +65,7 @@ func TestRenderShowsRoundTimelineAndCheckStatus(t *testing.T) {
 		"pixel-b",
 		"u7-5ghz",
 		"u6-5ghz",
-		"connect",
+		"Connect",
 		"ping cloudflare",
 		"FAIL(50%)",
 		"█",
@@ -314,8 +314,9 @@ func TestCheckStatusPanelHeightFitsAllChecks(t *testing.T) {
 	}
 	checkStatus := stripANSI(m.checkStatusView(160, wantHeight-2))
 	for _, check := range checks {
-		if !strings.Contains(checkStatus, check) {
-			t.Fatalf("checkStatus missing check %q:\n%s", check, checkStatus)
+		label := displayCheckName(check)
+		if !strings.Contains(checkStatus, label) {
+			t.Fatalf("checkStatus missing check %q:\n%s", label, checkStatus)
 		}
 	}
 }

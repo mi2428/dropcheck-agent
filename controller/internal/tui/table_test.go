@@ -86,14 +86,14 @@ func TestFailedCheckLayoutMovesSpareWidthOutOfTargetColumn(t *testing.T) {
 	if got, want := layout.ColumnWidths[0], lipgloss.Width("ub2(6G)"); got != want {
 		t.Fatalf("target column width = %d, want data-fit width %d; layout=%#v", got, want, layout)
 	}
-	if got, want := layout.ColumnWidths[1], lipgloss.Width("wait_connected"); got < want {
+	if got, want := layout.ColumnWidths[1], lipgloss.Width("Wait Connected"); got < want {
 		t.Fatalf("check column width = %d, want at least %d to avoid truncation; layout=%#v", got, want, layout)
 	}
 	line := barListLine(failedCheckListColumns(row, true), failedCheckListRightColumns(row), row.Count, row.Count, layout)
 	if got := lipgloss.Width(line); got != 76 {
 		t.Fatalf("failed check row width = %d, want 76: %q", got, line)
 	}
-	if strings.Contains(line, "wait_connec~") || !strings.Contains(line, "wait_connected") {
+	if strings.Contains(line, "Wait Connec~") || !strings.Contains(line, "Wait Connected") {
 		t.Fatalf("failed check row should use target slack for full check name: %q layout=%#v", line, layout)
 	}
 }

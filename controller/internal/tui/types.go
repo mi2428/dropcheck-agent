@@ -42,6 +42,8 @@ type focusPanel int
 const (
 	focusPassingChecks focusPanel = iota
 	focusFailedChecks
+	focusCheckStatus
+	focusRunQueue
 	focusFailureHotspots
 )
 
@@ -93,8 +95,11 @@ type model struct {
 	checkStatusPinned    bool
 	runQueueCursor       int
 	runQueueOffset       int
+	runQueuePinned       bool
 	searchEditing        bool
 	searchQuery          string
+	paused               bool
+	pauseControl         *watch.PauseController
 	detailOpen           bool
 	detailPanel          focusPanel
 	detailPassingKey     string

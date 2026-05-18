@@ -335,8 +335,16 @@ func TestTabCyclesThroughFailureHotspotsWhenVisible(t *testing.T) {
 		t.Fatalf("tab from failure hotspots should focus passing checks, got %v", m.focus)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
+	if m.focus != focusCheckStatus {
+		t.Fatalf("tab from passing checks should focus check status, got %v", m.focus)
+	}
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
+	if m.focus != focusRunQueue {
+		t.Fatalf("tab from check status should focus run queue, got %v", m.focus)
+	}
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
 	if m.focus != focusFailedChecks {
-		t.Fatalf("tab from passing checks should focus failed checks, got %v", m.focus)
+		t.Fatalf("tab from run queue should focus failed checks, got %v", m.focus)
 	}
 }
 

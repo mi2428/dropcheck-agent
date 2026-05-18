@@ -91,6 +91,25 @@ func SameAgent(a watch.AgentSnapshot, b watch.AgentSnapshot) bool {
 	return AgentKey(a) == AgentKey(b)
 }
 
+// DisplayCheckName returns an operator-facing label for internal watch steps.
+func DisplayCheckName(name string) string {
+	name = strings.TrimSpace(name)
+	switch strings.ToLower(name) {
+	case "connect":
+		return "Connect"
+	case "wait_connected":
+		return "Wait Connected"
+	case "disconnect":
+		return "Disconnect"
+	case "forget":
+		return "Forget"
+	case "target":
+		return "Target"
+	default:
+		return name
+	}
+}
+
 // CheckStatusTargetKey is the target identity used for cross-round check
 // aggregation. It deliberately omits band so late events with partial target
 // snapshots still land on the configured target row.

@@ -60,7 +60,7 @@ func TestRenderUsesDropcheckLayout(t *testing.T) {
 	if strings.Contains(frame, "│ Passing Checks") || strings.Contains(frame, "│ Failed Checks") || strings.Contains(frame, "│ Failure Hotspots") || strings.Contains(frame, "│ Event Log") || strings.Contains(frame, "│ Run Queue") {
 		t.Fatalf("panel titles should not consume an interior content row:\n%s", frame)
 	}
-	if !strings.Contains(frame, "└── RUN  connect") {
+	if !strings.Contains(frame, "└── RUN  Connect") {
 		t.Fatalf("run queue panel should render the current target as an expanded tree:\n%s", frame)
 	}
 	if strings.Contains(frame, "> RUN") || strings.Contains(frame, "> OK") || strings.Contains(frame, "> FAIL") || strings.Contains(frame, "> WAIT") {

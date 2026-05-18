@@ -49,7 +49,7 @@ func (m model) checkStatusView(width int, height int) string {
 			break
 		}
 		var b strings.Builder
-		b.WriteString(valueStyle.Render(padVisible(check, layout.LabelWidth)))
+		b.WriteString(valueStyle.Render(padVisible(displayCheckName(check), layout.LabelWidth)))
 		b.WriteString(valueStyle.Render(" "))
 		for i, target := range targets {
 			if i > 0 {
@@ -363,7 +363,7 @@ func connectStatusPhaseStyle(phase string) lipgloss.Style {
 func maxCheckStatusLabelWidth(checks []string) int {
 	width := 5
 	for _, check := range checks {
-		width = max(width, lipgloss.Width(check))
+		width = max(width, lipgloss.Width(displayCheckName(check)))
 	}
 	return width
 }

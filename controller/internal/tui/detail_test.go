@@ -159,8 +159,8 @@ func TestTabKeepsModalOpenAndMovesPanelFocus(t *testing.T) {
 	}
 
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
-	if !m.detailOpen || m.focus != focusFailedChecks || m.detailPanel != focusFailedChecks {
-		t.Fatalf("tab should keep modal open and move focus/detail Panel: open=%v focus=%v detail=%v", m.detailOpen, m.focus, m.detailPanel)
+	if m.detailOpen || m.focus != focusCheckStatus {
+		t.Fatalf("tab to a non-detail panel should close modal and focus check status: open=%v focus=%v detail=%v", m.detailOpen, m.focus, m.detailPanel)
 	}
 }
 

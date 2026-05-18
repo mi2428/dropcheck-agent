@@ -27,9 +27,18 @@ func (m model) runQueueTreeViewScoped(agent watch.AgentSnapshot, includeAgentLab
 	if !ok {
 		current = cursor
 	}
+	if m.focus == focusRunQueue && agentKey(agent) == "" {
+		current = cursor
+		ok = true
+	}
 	current = clamp(current, 0, len(lines)-1)
 	start := stableOffset(current, offset, height, len(lines))
 	end := min(len(lines), start+height)
+	if ok && m.focus == focusRunQueue && agentKey(agent) == "" {
+		for i := start; i < end; i++ {
+			lines[i].Current = i == current
+		}
+	}
 	return renderRunQueueLines(lines[start:end], width)
 }
 
@@ -43,6 +52,9 @@ func renderRunQueueLines(lines []runQueueLine, width int) string {
 }
 
 func (m model) runQueuePanelsView(width int, height int) string {
+	if m.focus == focusRunQueue {
+		return renderPanelFocused("Run Queue", width, height, m.runQueueTreeView(panelContentWidth(width), height-2), true)
+	}
 	if !m.MultiAgent || height < 6 {
 		return renderPanel("Run Queue", width, height, m.runQueueTreeView(panelContentWidth(width), height-2))
 	}
@@ -150,7 +162,7 @@ func (m model) runQueueTreeBlocksForAgent(width int, agent watch.AgentSnapshot, 
 			} else if status == "" {
 				status = "pending"
 			}
-			line := fmt.Sprintf("  %s %s %s", branch, statusToken(status), step.Name)
+			line := fmt.Sprintf("  %s %s %s", branch, statusToken(status), displayCheckName(step.Name))
 			block.Steps = append(block.Steps, runQueueLine{Text: fitANSI(line, width), Status: status, Current: stepCurrent})
 		}
 		blocks = append(blocks, block)
@@ -371,6 +383,11 @@ func lineWithRightSuffix(line string, suffix string, width int) string {
 // fallback clamps the previous cursor into the new line set instead of jumping
 // back to the top of the panel.
 func (m *model) updateRunQueueCursor() {
+	if m.focus == focusRunQueue && m.runQueuePinned {
+		m.runQueueCursor = clamp(m.runQueueCursor, 0, max(0, m.runQueueLineCount()-1))
+		m.runQueueOffset = clamp(m.runQueueOffset, 0, max(0, m.runQueueLineCount()-m.runQueueViewportHeight()))
+		return
+	}
 	if index, ok := m.currentRunQueueLineIndex(); ok {
 		m.runQueueCursor = index
 		m.runQueueOffset = stableOffset(index, m.runQueueOffset, m.runQueueViewportHeight(), m.runQueueLineCount())
@@ -419,6 +436,18 @@ func (m model) currentRunQueueLineIndexForAgent(agent watch.AgentSnapshot) (int,
 		}
 	}
 	return 0, false
+}
+
+func (m *model) moveRunQueueCursor(delta int) {
+	count := m.runQueueLineCount()
+	if count == 0 {
+		m.runQueueCursor = 0
+		m.runQueueOffset = 0
+		return
+	}
+	m.runQueuePinned = true
+	m.runQueueCursor = clamp(m.runQueueCursor+delta, 0, count-1)
+	m.runQueueOffset = stableOffset(m.runQueueCursor, m.runQueueOffset, m.runQueueViewportHeight(), count)
 }
 
 func (m model) runQueueLineCount() int {
