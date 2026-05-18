@@ -14,8 +14,8 @@ func (m model) roundTimelineView(width int, height int) string {
 		return ""
 	}
 	events := m.outcomeEvents()
-	ok, failed := outcomeCounts(events)
 	startRound, endRound := m.roundTimelineRoundSpan(width)
+	ok, failed := outcomeCounts(roundTimelineEventsInSpan(events, startRound, endRound))
 	lines := []string{m.roundTimelineHeaderView(width, startRound, endRound, ok, failed)}
 	if height == 1 {
 		return lines[0]
@@ -69,16 +69,28 @@ func (m model) roundTimelineHeaderView(width int, startRound uint64, endRound ui
 }
 
 func (m model) roundTimelineRoundSpan(width int) (uint64, uint64) {
+	visibleRounds := max(1, m.roundTimelineVisibleRounds(width))
+	return m.roundTimelineRoundRange(visibleRounds)
+}
+
+func (m model) roundTimelineRoundRange(visibleRounds int) (uint64, uint64) {
 	endRound := m.latestRound()
 	if endRound == 0 {
 		return 0, 0
 	}
-	visibleRounds := max(1, m.roundTimelineVisibleRounds(width))
+	if m.roundTimelineCurrentRoundOnly() {
+		return m.Round, m.Round
+	}
+	visibleRounds = max(1, visibleRounds)
 	startRound := uint64(1)
 	if endRound > uint64(visibleRounds) {
 		startRound = endRound - uint64(visibleRounds) + 1
 	}
 	return startRound, endRound
+}
+
+func (m model) roundTimelineCurrentRoundOnly() bool {
+	return m.Round > 0 && normalizeStatus(m.RoundStatus) == "running"
 }
 
 func (m model) roundTimelineVisibleRounds(width int) int {
@@ -225,6 +237,9 @@ func (m model) roundTimelinePlotWidth(maxWidth int) int {
 	if maxWidth <= 0 {
 		return 0
 	}
+	if m.roundTimelineCurrentRoundOnly() {
+		return 1
+	}
 	latest := int(m.latestRound())
 	if latest <= 0 {
 		return 1
@@ -265,13 +280,9 @@ func (m model) targetRoundHistory(target watch.TargetSnapshot, width int) ([]tar
 	width = max(1, width)
 	buckets := make([]targetRoundBucket, width)
 	connectFailedAgents := make([]map[string]bool, width)
-	endRound := m.latestRound()
-	if endRound == 0 {
+	startRound, endRound := m.roundTimelineRoundRange(width)
+	if startRound == 0 || endRound == 0 {
 		return buckets, 0, 0
-	}
-	startRound := uint64(1)
-	if endRound > uint64(width) {
-		startRound = endRound - uint64(width) + 1
 	}
 	indexForRound := func(round uint64) (int, bool) {
 		if round == 0 || round < startRound || round > endRound {
@@ -326,6 +337,20 @@ func (m model) targetRoundHistory(target watch.TargetSnapshot, width int) ([]tar
 		}
 	}
 	return buckets, total, peak
+}
+
+func roundTimelineEventsInSpan(events []outcomeEvent, startRound uint64, endRound uint64) []outcomeEvent {
+	if startRound == 0 || endRound == 0 {
+		return nil
+	}
+	filtered := make([]outcomeEvent, 0, len(events))
+	for _, event := range events {
+		if event.Round < startRound || event.Round > endRound {
+			continue
+		}
+		filtered = append(filtered, event)
+	}
+	return filtered
 }
 
 func (m model) expectedRoundAgentCount(target watch.TargetSnapshot) int {

@@ -210,6 +210,8 @@ func TestRunQueuePanelsSplitByAgent(t *testing.T) {
 		{ID: "agent-b", Name: "pixel-b"},
 	}
 	m := newModelWithChecks("shownet-watch", []watch.Target{{Name: "u7-5ghz", SSID: "SHIZK RADIO"}}, []watch.Check{{Name: "wifi link", Type: "wifi_status"}}, events, agents)
+	m.width = 120
+	m.height = 30
 	m.Targets[0].Status = "running"
 	m.Targets[0].CurrentStep = "connect"
 	m.Targets[0].Steps = []stepState{{Name: "connect", Status: "running"}}
@@ -229,6 +231,18 @@ func TestRunQueuePanelsSplitByAgent(t *testing.T) {
 	}
 	if strings.Contains(text, "▁") || strings.Contains(text, "█") || strings.Contains(text, "▌") {
 		t.Fatalf("split run queue panel should not render outcome bars:\n%s", text)
+	}
+
+	m.focus = focusRunQueue
+	m.focusRunQueueAgentKey = roundAgentKey(agents[0])
+	focusedText := stripANSI(m.runQueuePanelsView(48, 16))
+	for _, want := range []string{"┌Run Queue pixel-a", "┌Run Queue pixel-b"} {
+		if !strings.Contains(focusedText, want) {
+			t.Fatalf("focused split run queue panel should keep agent panels, missing %q:\n%s", want, focusedText)
+		}
+	}
+	if count := strings.Count(focusedText, "Run Queue pixel-"); count != 2 {
+		t.Fatalf("focused run queue should not collapse split panels, got %d titles:\n%s", count, focusedText)
 	}
 }
 

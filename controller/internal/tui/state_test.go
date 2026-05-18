@@ -193,7 +193,7 @@ func TestFailedCheckPanelShowsDeviceColumn(t *testing.T) {
 	}
 }
 
-func TestCheckStatusUsesCurrentRoundStateBeforeHistory(t *testing.T) {
+func TestCheckStatusShowsCurrentRoundPendingBeforeHistory(t *testing.T) {
 	events := make(chan watch.Event)
 	m := newModel("shownet-watch", []watch.Target{{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}}, events)
 	target := watch.TargetSnapshot{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}
@@ -212,12 +212,48 @@ func TestCheckStatusUsesCurrentRoundStateBeforeHistory(t *testing.T) {
 
 	m.apply(watch.Event{Kind: watch.EventRoundStarted, Round: 2, Status: "running"})
 	checkStatus := stripANSI(m.checkStatusView(72, 4))
-	if !strings.Contains(checkStatus, "PASS") || strings.Contains(checkStatus, "WAIT") {
-		t.Fatalf("new round should keep previous result token instead of replacing it with WAIT:\n%s", checkStatus)
+	if !strings.Contains(checkStatus, "WAIT") || strings.Contains(checkStatus, "PASS") {
+		t.Fatalf("new round should show pending current-round check instead of stale history:\n%s", checkStatus)
 	}
 	cell := m.checkStatusTargetCell("connect", target, []watch.AgentSnapshot{{}})
-	if cell.Status != "ok" || !cell.Stale {
-		t.Fatalf("new round checkStatus cell = %#v, want stale ok", cell)
+	if cell.Status != "pending" || cell.Stale {
+		t.Fatalf("new round checkStatus cell = %#v, want current pending", cell)
+	}
+}
+
+func TestCheckStatusFutureTargetsDoNotShowHistoricalPassDuringRound(t *testing.T) {
+	events := make(chan watch.Event)
+	targets := []watch.Target{
+		{Name: "cs21(5G)", ShortName: "C21_5", SSID: "Lab"},
+		{Name: "ub1(5G)", ShortName: "U1_5", SSID: "Lab"},
+	}
+	m := newModelWithChecks("shownet-watch", targets, []watch.Check{{Name: "connect", Type: "connect"}}, events)
+	future := watch.TargetSnapshot{Name: "ub1(5G)", ShortName: "U1_5", SSID: "Lab"}
+	m.apply(watch.Event{
+		Time:     time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC),
+		Kind:     watch.EventStepFinished,
+		Round:    1,
+		Target:   future,
+		Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Status:   "ok",
+		Duration: 42,
+	})
+	m.apply(watch.Event{Kind: watch.EventRoundStarted, Round: 2, Status: "running"})
+	m.apply(watch.Event{
+		Kind:   watch.EventStepStarted,
+		Round:  2,
+		Target: watch.TargetSnapshot{Name: "cs21(5G)", ShortName: "C21_5", SSID: "Lab"},
+		Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
+		Status: "running",
+	})
+
+	cell := m.checkStatusTargetCell("connect", future, []watch.AgentSnapshot{{}})
+	if cell.Status != "pending" || cell.Stale {
+		t.Fatalf("future current-round target should stay pending instead of showing stale pass: %#v", cell)
+	}
+	checkStatus := stripANSI(m.checkStatusView(72, 3))
+	if strings.Contains(checkStatus, "PASS") {
+		t.Fatalf("future current-round target should not render historical PASS:\n%s", checkStatus)
 	}
 }
 
@@ -851,7 +887,7 @@ func TestAssignedTargetsUseAssignedAgentAsCheckStatusDenominator(t *testing.T) {
 	}
 }
 
-func TestCheckStatusKeepsPreviousFailedCheckDimmedOnNextRound(t *testing.T) {
+func TestCheckStatusShowsPendingInsteadOfPreviousFailureOnNextRound(t *testing.T) {
 	events := make(chan watch.Event)
 	m := newModel("shownet-watch", []watch.Target{{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}}, events)
 	target := watch.TargetSnapshot{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}
@@ -874,11 +910,11 @@ func TestCheckStatusKeepsPreviousFailedCheckDimmedOnNextRound(t *testing.T) {
 
 	m.apply(watch.Event{Kind: watch.EventRoundStarted, Round: 2, Status: "running"})
 	checkStatus := stripANSI(m.checkStatusView(72, 4))
-	if !strings.Contains(checkStatus, "FAIL") || strings.Contains(checkStatus, "WAIT") {
-		t.Fatalf("new round should keep previous failed-check token instead of replacing it with WAIT:\n%s", checkStatus)
+	if !strings.Contains(checkStatus, "WAIT") || strings.Contains(checkStatus, "FAIL") {
+		t.Fatalf("new round should show pending current-round check instead of stale failure:\n%s", checkStatus)
 	}
 	cell := m.checkStatusTargetCell("ping cloudflare", target, []watch.AgentSnapshot{{}})
-	if cell.Status != "failed" || !cell.Stale {
-		t.Fatalf("new round checkStatus cell = %#v, want stale failed", cell)
+	if cell.Status != "pending" || cell.Stale {
+		t.Fatalf("new round checkStatus cell = %#v, want current pending", cell)
 	}
 }

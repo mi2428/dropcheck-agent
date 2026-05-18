@@ -199,6 +199,139 @@ func TestRoundTimelineConnectFailureXRequiresAllAgents(t *testing.T) {
 	}
 }
 
+func TestRoundTimelineRunningRoundIgnoresPreviousRoundFutureTargets(t *testing.T) {
+	events := make(chan watch.Event)
+	targets := []watch.Target{
+		{Name: "cs12(5G)", ShortName: "C12_5", SSID: "Lab"},
+		{Name: "ub1(5G)", ShortName: "U1_5", SSID: "Lab"},
+	}
+	m := newModelWithChecks("shownet-watch", targets, []watch.Check{{Name: "connect", Type: "connect"}}, events)
+	current := watch.TargetSnapshot{Name: "cs12(5G)", ShortName: "C12_5", SSID: "Lab"}
+	future := watch.TargetSnapshot{Name: "ub1(5G)", ShortName: "U1_5", SSID: "Lab"}
+	m.apply(watch.Event{
+		Time:     time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC),
+		Kind:     watch.EventStepFinished,
+		Round:    1,
+		Target:   future,
+		Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Status:   "ok",
+		Duration: 42,
+	})
+	m.apply(watch.Event{Kind: watch.EventRoundStarted, Round: 2, Status: "running"})
+	m.apply(watch.Event{
+		Time:     time.Date(2026, 5, 16, 9, 31, 0, 0, time.UTC),
+		Kind:     watch.EventStepFinished,
+		Round:    2,
+		Target:   current,
+		Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Status:   "ok",
+		Duration: 42,
+	})
+
+	currentBuckets, _, _ := m.targetRoundHistory(current, 1)
+	if !currentBuckets[0].Seen {
+		t.Fatalf("current round target should mark its current-round pass: %#v", currentBuckets[0])
+	}
+	futureBuckets, _, _ := m.targetRoundHistory(future, 1)
+	if futureBuckets[0].Seen {
+		t.Fatalf("future target should not mark previous-round pass while current round is running: %#v", futureBuckets[0])
+	}
+	timeline := stripANSI(m.roundTimelineView(96, 3))
+	for _, want := range []string{"span=2..2", "ok=1"} {
+		if !strings.Contains(timeline, want) {
+			t.Fatalf("running round timeline should be scoped to current round, missing %q:\n%s", want, timeline)
+		}
+	}
+	if strings.Contains(timeline, "ok=2") {
+		t.Fatalf("running round timeline should not count previous-round outcomes:\n%s", timeline)
+	}
+}
+
+func TestRunningRoundDashboardDoesNotProjectPreviousPassesIntoFutureGroups(t *testing.T) {
+	events := make(chan watch.Event)
+	agents := []watch.AgentSnapshot{
+		{ID: "pixel-7a", Name: "Pixel 7a"},
+		{ID: "pixel-9", Name: "Pixel 9"},
+	}
+	targets := []watch.Target{
+		{Name: "cs9(5G)", ShortName: "C9_5", Agent: "pixel-7a", SSID: "Lab"},
+		{Name: "cs9(6G)", ShortName: "C9_6", Agent: "pixel-9", SSID: "Lab"},
+		{Name: "cs10(5G)", ShortName: "C10_5", Agent: "pixel-7a", SSID: "Lab"},
+		{Name: "cs10(6G)", ShortName: "C10_6", Agent: "pixel-9", SSID: "Lab"},
+		{Name: "cs11(5G)", ShortName: "C11_5", Agent: "pixel-7a", SSID: "Lab"},
+		{Name: "cs11(6G)", ShortName: "C11_6", Agent: "pixel-9", SSID: "Lab"},
+		{Name: "cs12(5G)", ShortName: "C12_5", Agent: "pixel-7a", SSID: "Lab"},
+		{Name: "cs12(6G)", ShortName: "C12_6", Agent: "pixel-9", SSID: "Lab"},
+		{Name: "ym1(5G)", ShortName: "Y1_5", Agent: "pixel-7a", SSID: "Lab"},
+		{Name: "ym1(6G)", ShortName: "Y1_6", Agent: "pixel-9", SSID: "Lab"},
+		{Name: "ub1(5G)", ShortName: "U1_5", Agent: "pixel-7a", SSID: "Lab"},
+		{Name: "ub1(6G)", ShortName: "U1_6", Agent: "pixel-9", SSID: "Lab"},
+		{Name: "ft1(5G)", ShortName: "F1_5", Agent: "pixel-7a", SSID: "Lab"},
+		{Name: "ft1(6G)", ShortName: "F1_6", Agent: "pixel-9", SSID: "Lab"},
+	}
+	m := newModelWithChecks("shownet-watch", targets, []watch.Check{{Name: "connect", Type: "connect"}}, events, agents)
+	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
+	futureTargets := []watch.TargetSnapshot{
+		{Name: "ym1(5G)", ShortName: "Y1_5", Agent: "pixel-7a", SSID: "Lab"},
+		{Name: "ym1(6G)", ShortName: "Y1_6", Agent: "pixel-9", SSID: "Lab"},
+		{Name: "ub1(5G)", ShortName: "U1_5", Agent: "pixel-7a", SSID: "Lab"},
+		{Name: "ub1(6G)", ShortName: "U1_6", Agent: "pixel-9", SSID: "Lab"},
+		{Name: "ft1(5G)", ShortName: "F1_5", Agent: "pixel-7a", SSID: "Lab"},
+		{Name: "ft1(6G)", ShortName: "F1_6", Agent: "pixel-9", SSID: "Lab"},
+	}
+	for i, target := range futureTargets {
+		m.apply(watch.Event{
+			Time:     at.Add(time.Duration(i) * time.Second),
+			Kind:     watch.EventStepFinished,
+			Agent:    agents[i%len(agents)],
+			Round:    1,
+			Target:   target,
+			Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+			Status:   "ok",
+			Duration: 42,
+		})
+	}
+	for _, agent := range agents {
+		m.apply(watch.Event{Kind: watch.EventRoundStarted, Agent: agent, Round: 2, Status: "running"})
+	}
+	currentTargets := []watch.TargetSnapshot{
+		{Name: "cs9(6G)", ShortName: "C9_6", Agent: "pixel-9", SSID: "Lab"},
+		{Name: "cs12(5G)", ShortName: "C12_5", Agent: "pixel-7a", SSID: "Lab"},
+	}
+	for i, target := range currentTargets {
+		m.apply(watch.Event{
+			Time:   at.Add(time.Minute + time.Duration(i)*time.Second),
+			Kind:   watch.EventStepStarted,
+			Agent:  agents[1-i],
+			Round:  2,
+			Target: target,
+			Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
+			Status: "running",
+		})
+	}
+
+	for _, target := range currentTargets {
+		buckets, _, _ := m.targetRoundHistory(target, 1)
+		if buckets[0].Seen {
+			t.Fatalf("running but unfinished current target should not show pass mark: target=%s bucket=%#v", target.Name, buckets[0])
+		}
+	}
+	for _, target := range futureTargets {
+		buckets, _, _ := m.targetRoundHistory(target, 1)
+		if buckets[0].Seen {
+			t.Fatalf("future target should not project previous-round pass into current round: target=%s bucket=%#v", target.Name, buckets[0])
+		}
+		cell := m.checkStatusTargetCell("connect", target, []watch.AgentSnapshot{agents[0], agents[1]})
+		if cell.Status != "pending" || cell.Stale {
+			t.Fatalf("future target check status should stay current-round pending: target=%s cell=%#v", target.Name, cell)
+		}
+	}
+	timeline := stripANSI(m.roundTimelineView(160, 4))
+	if !strings.Contains(timeline, "span=2..2") || !strings.Contains(timeline, "ok=0") {
+		t.Fatalf("running timeline should be scoped to unfinished current round only:\n%s", timeline)
+	}
+}
+
 func TestRoundTimelinePacksColumnsWhileKeepingTenRounds(t *testing.T) {
 	events := make(chan watch.Event)
 	targets := []watch.Target{

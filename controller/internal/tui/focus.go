@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 
+	"dropcheck/controller/internal/watch"
+
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -100,52 +102,72 @@ func (m *model) movePanelFocus(delta int) {
 
 func (m model) focusSlots() []focusSlot {
 	slots := []focusSlot{
+		{Panel: focusFailedChecks},
+		{Panel: focusPassingChecks},
 		{Panel: focusCheckStatus},
-		{Panel: focusRunQueue},
+	}
+	if !m.runQueuePanelsSplit() {
+		slots = append(slots, focusSlot{Panel: focusRunQueue})
+	} else {
+		agents := m.runQueueAgents()
+		for i := len(agents) - 1; i >= 0; i-- {
+			slots = append(slots, focusSlot{Panel: focusRunQueue, RunQueueAgentKey: roundAgentKey(agents[i])})
+		}
 	}
 	if m.failureHotspotsVisible() {
 		if !m.failureHotspotPanelsSplit() {
 			slots = append(slots, focusSlot{Panel: focusFailureHotspots})
 		} else {
-			for _, agent := range m.failureHotspotAgents() {
-				slots = append(slots, focusSlot{Panel: focusFailureHotspots, HotspotAgentKey: roundAgentKey(agent)})
+			agents := m.failureHotspotAgents()
+			for i := len(agents) - 1; i >= 0; i-- {
+				slots = append(slots, focusSlot{Panel: focusFailureHotspots, HotspotAgentKey: roundAgentKey(agents[i])})
 			}
 		}
 	}
-	slots = append(slots,
-		focusSlot{Panel: focusFailedChecks},
-		focusSlot{Panel: focusPassingChecks},
-	)
 	return slots
 }
 
 func (m model) currentFocusSlot() focusSlot {
-	if m.focus != focusFailureHotspots {
+	switch m.focus {
+	case focusFailureHotspots:
+		key := ""
+		if m.failureHotspotPanelsSplit() {
+			key = m.currentHotspotAgentKey()
+		}
+		return focusSlot{Panel: focusFailureHotspots, HotspotAgentKey: key}
+	case focusRunQueue:
+		key := ""
+		if m.runQueuePanelsSplit() {
+			key = m.currentRunQueueAgentKey()
+		}
+		return focusSlot{Panel: focusRunQueue, RunQueueAgentKey: key}
+	default:
 		return focusSlot{Panel: m.focus}
 	}
-	key := ""
-	if m.failureHotspotPanelsSplit() {
-		key = m.currentHotspotAgentKey()
-	}
-	return focusSlot{Panel: focusFailureHotspots, HotspotAgentKey: key}
 }
 
 func (m *model) setFocusSlot(slot focusSlot) {
 	previous := m.focus
+	previousRunQueueKey := m.focusRunQueueAgentKey
 	m.focus = slot.Panel
 	if previous == focusCheckStatus && slot.Panel != focusCheckStatus {
 		m.checkStatusPinned = false
 		m.normalizeCheckStatusOffset()
 	}
 	if slot.Panel == focusRunQueue {
+		m.focusRunQueueAgentKey = slot.RunQueueAgentKey
+		m.normalizeFocusRunQueueAgent()
+		if previous != focusRunQueue || previousRunQueueKey != m.focusRunQueueAgentKey {
+			m.runQueueCursor = 0
+			m.runQueueOffset = 0
+		}
 		m.runQueuePinned = false
 		m.updateRunQueueCursor()
 	}
-	if slot.Panel != focusFailureHotspots {
-		return
+	if slot.Panel == focusFailureHotspots {
+		m.focusHotspotAgentKey = slot.HotspotAgentKey
+		m.ensureFailureHotspotCursorInFocus()
 	}
-	m.focusHotspotAgentKey = slot.HotspotAgentKey
-	m.ensureFailureHotspotCursorInFocus()
 }
 
 func (m model) currentHotspotAgentKey() string {
@@ -171,6 +193,44 @@ func (m *model) normalizeFocusHotspotAgent() {
 		return
 	}
 	m.focusHotspotAgentKey = m.currentHotspotAgentKey()
+}
+
+func (m model) currentRunQueueAgentKey() string {
+	if !m.runQueuePanelsSplit() {
+		return ""
+	}
+	agents := m.runQueueAgents()
+	if len(agents) == 0 {
+		return ""
+	}
+	for _, agent := range agents {
+		key := roundAgentKey(agent)
+		if key == m.focusRunQueueAgentKey {
+			return key
+		}
+	}
+	return roundAgentKey(agents[0])
+}
+
+func (m model) currentRunQueueAgent() watch.AgentSnapshot {
+	if !m.runQueuePanelsSplit() {
+		return watch.AgentSnapshot{}
+	}
+	key := m.currentRunQueueAgentKey()
+	for _, agent := range m.runQueueAgents() {
+		if roundAgentKey(agent) == key {
+			return agent
+		}
+	}
+	return watch.AgentSnapshot{}
+}
+
+func (m *model) normalizeFocusRunQueueAgent() {
+	if !m.runQueuePanelsSplit() {
+		m.focusRunQueueAgentKey = ""
+		return
+	}
+	m.focusRunQueueAgentKey = m.currentRunQueueAgentKey()
 }
 
 func (m *model) ensureFailureHotspotCursorInFocus() {
@@ -237,6 +297,10 @@ func (m *model) normalizeCursors() {
 	if m.focus == focusFailureHotspots {
 		m.normalizeFocusHotspotAgent()
 		m.ensureFailureHotspotCursorInFocus()
+	}
+	if m.focus == focusRunQueue {
+		m.normalizeFocusRunQueueAgent()
+		m.updateRunQueueCursor()
 	}
 	if m.detailOpen {
 		m.followLockedDetailItems()

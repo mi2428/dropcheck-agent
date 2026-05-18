@@ -48,8 +48,9 @@ const (
 )
 
 type focusSlot struct {
-	Panel           focusPanel
-	HotspotAgentKey string
+	Panel            focusPanel
+	HotspotAgentKey  string
+	RunQueueAgentKey string
 }
 
 const (
@@ -85,24 +86,25 @@ type model struct {
 	width  int
 	height int
 	watchstate.State
-	closed               bool
-	focus                focusPanel
-	focusHotspotAgentKey string
-	passingCheckCursor   int
-	failedCheckCursor    int
-	failureHotspotCursor int
-	checkStatusOffset    int
-	checkStatusPinned    bool
-	runQueueCursor       int
-	runQueueOffset       int
-	runQueuePinned       bool
-	searchEditing        bool
-	searchQuery          string
-	paused               bool
-	pauseControl         *watch.PauseController
-	detailOpen           bool
-	detailPanel          focusPanel
-	detailPassingKey     string
-	detailFailedKey      string
-	detailHotspotKey     string
+	closed                bool
+	focus                 focusPanel
+	focusHotspotAgentKey  string
+	focusRunQueueAgentKey string
+	passingCheckCursor    int
+	failedCheckCursor     int
+	failureHotspotCursor  int
+	checkStatusOffset     int
+	checkStatusPinned     bool
+	runQueueCursor        int
+	runQueueOffset        int
+	runQueuePinned        bool
+	searchEditing         bool
+	searchQuery           string
+	paused                bool
+	pauseControl          *watch.PauseController
+	detailOpen            bool
+	detailPanel           focusPanel
+	detailPassingKey      string
+	detailFailedKey       string
+	detailHotspotKey      string
 }

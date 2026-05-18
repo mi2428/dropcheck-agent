@@ -370,6 +370,14 @@ func (m model) focusName() string {
 	case focusCheckStatus:
 		return "check_status"
 	case focusRunQueue:
+		if m.runQueuePanelsSplit() {
+			key := m.currentRunQueueAgentKey()
+			for _, agent := range m.runQueueAgents() {
+				if roundAgentKey(agent) == key {
+					return "run_queue:" + compactTargetLabel(agentLabel(agent), 24)
+				}
+			}
+		}
 		return "run_queue"
 	case focusFailureHotspots:
 		if m.failureHotspotPanelsSplit() {

@@ -12,6 +12,7 @@ import (
 // timeline views.
 type OutcomeEvent struct {
 	When   time.Time
+	Round  uint64
 	Agent  watch.AgentSnapshot
 	Target watch.TargetSnapshot
 	Status string
@@ -44,10 +45,10 @@ type CheckStatusAgentResult struct {
 func (s State) OutcomeEvents() []OutcomeEvent {
 	events := make([]OutcomeEvent, 0, len(s.PassingChecks)+len(s.FailedChecks))
 	for _, passingCheck := range s.PassingChecks {
-		events = append(events, OutcomeEvent{When: passingCheck.When, Agent: passingCheck.Agent, Target: passingCheck.Target, Status: "ok"})
+		events = append(events, OutcomeEvent{When: passingCheck.When, Round: passingCheck.Round, Agent: passingCheck.Agent, Target: passingCheck.Target, Status: "ok"})
 	}
 	for _, failedCheck := range s.FailedChecks {
-		events = append(events, OutcomeEvent{When: failedCheck.When, Agent: failedCheck.Agent, Target: failedCheck.Target, Status: "failed"})
+		events = append(events, OutcomeEvent{When: failedCheck.When, Round: failedCheck.Round, Agent: failedCheck.Agent, Target: failedCheck.Target, Status: "failed"})
 	}
 	sort.SliceStable(events, func(i, j int) bool {
 		return events[i].When.Before(events[j].When)
@@ -253,13 +254,11 @@ func (s State) CheckStatusTargetCell(check string, target watch.TargetSnapshot, 
 	}
 }
 
-// CheckStatusAgentResult returns current check status when available and a
-// stale historical result otherwise.
+// CheckStatusAgentResult returns the current round state for configured targets
+// and uses stale history only when no current target state exists.
 func (s State) CheckStatusAgentResult(agent watch.AgentSnapshot, target watch.TargetSnapshot, check string) CheckStatusAgentResult {
 	if status, ok := s.CurrentCheckStatus(agent, target, check); ok {
-		if NormalizeStatus(status) != "pending" {
-			return CheckStatusAgentResult{Status: status}
-		}
+		return CheckStatusAgentResult{Status: status}
 	}
 	if status, ok := s.HistoricalCheckStatus(agent, target, check); ok {
 		return CheckStatusAgentResult{Status: status, Stale: true}

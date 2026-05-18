@@ -27,14 +27,15 @@ func (m model) runQueueTreeViewScoped(agent watch.AgentSnapshot, includeAgentLab
 	if !ok {
 		current = cursor
 	}
-	if m.focus == focusRunQueue && agentKey(agent) == "" {
+	focused := m.focus == focusRunQueue && (agentKey(agent) == "" || m.runQueuePanelHasFocus(agent))
+	if focused {
 		current = cursor
 		ok = true
 	}
 	current = clamp(current, 0, len(lines)-1)
 	start := stableOffset(current, offset, height, len(lines))
 	end := min(len(lines), start+height)
-	if ok && m.focus == focusRunQueue && agentKey(agent) == "" {
+	if ok && focused {
 		for i := start; i < end; i++ {
 			lines[i].Current = i == current
 		}
@@ -52,24 +53,49 @@ func renderRunQueueLines(lines []runQueueLine, width int) string {
 }
 
 func (m model) runQueuePanelsView(width int, height int) string {
-	if m.focus == focusRunQueue {
-		return renderPanelFocused("Run Queue", width, height, m.runQueueTreeView(panelContentWidth(width), height-2), true)
-	}
-	if !m.MultiAgent || height < 6 {
-		return renderPanel("Run Queue", width, height, m.runQueueTreeView(panelContentWidth(width), height-2))
+	if !m.runQueuePanelsCanSplit(height) {
+		return renderPanelFocused("Run Queue", width, height, m.runQueueTreeView(panelContentWidth(width), height-2), m.focus == focusRunQueue)
 	}
 	agents := m.runQueueAgents()
-	if len(agents) <= 1 || height < len(agents)*3 {
-		return renderPanel("Run Queue", width, height, m.runQueueTreeView(panelContentWidth(width), height-2))
-	}
 	heights := splitHeights(height, len(agents))
 	panels := make([]string, 0, len(agents))
 	for i, agent := range agents {
 		title := "Run Queue " + compactTargetLabel(agentLabel(agent), max(4, width-8))
 		panelHeight := heights[i]
-		panels = append(panels, renderPanel(title, width, panelHeight, m.runQueueTreeViewForAgent(agent, panelContentWidth(width), panelHeight-2)))
+		focused := m.runQueuePanelHasFocus(agent)
+		panels = append(panels, renderPanelFocused(title, width, panelHeight, m.runQueueTreeViewForAgent(agent, panelContentWidth(width), panelHeight-2), focused))
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, panels...)
+}
+
+func (m model) runQueuePanelsSplit() bool {
+	height := m.height
+	if height <= 0 {
+		height = 32
+	}
+	width := m.width
+	if width <= 0 {
+		width = 120
+	}
+	bodyHeight := max(4, height-2)
+	roundTimelineHeight, checkStatusHeight, _, _ := m.dashboardPanelHeights(bodyHeight, panelContentWidth(width))
+	lowerHeight := max(0, bodyHeight-checkStatusHeight-roundTimelineHeight)
+	return m.runQueuePanelsCanSplit(lowerHeight)
+}
+
+func (m model) runQueuePanelsCanSplit(height int) bool {
+	if !m.MultiAgent || height < 6 {
+		return false
+	}
+	agents := m.runQueueAgents()
+	return len(agents) > 1 && height >= len(agents)*3
+}
+
+func (m model) runQueuePanelHasFocus(agent watch.AgentSnapshot) bool {
+	if m.focus != focusRunQueue || !m.runQueuePanelsSplit() {
+		return false
+	}
+	return roundAgentKey(agent) == m.currentRunQueueAgentKey()
 }
 
 func (m model) runQueueAgents() []watch.AgentSnapshot {
@@ -93,7 +119,13 @@ func splitHeights(total int, count int) []int {
 }
 
 func (m model) runQueueTreeViewForAgent(agent watch.AgentSnapshot, width int, height int) string {
-	return m.runQueueTreeViewScoped(agent, false, width, height, 0, 0)
+	offset := 0
+	cursor := 0
+	if m.runQueuePanelHasFocus(agent) {
+		offset = m.runQueueOffset
+		cursor = m.runQueueCursor
+	}
+	return m.runQueueTreeViewScoped(agent, false, width, height, offset, cursor)
 }
 
 func renderRunQueueLine(line runQueueLine, width int) string {
@@ -383,18 +415,24 @@ func lineWithRightSuffix(line string, suffix string, width int) string {
 // fallback clamps the previous cursor into the new line set instead of jumping
 // back to the top of the panel.
 func (m *model) updateRunQueueCursor() {
+	agent := watch.AgentSnapshot{}
+	if m.focus == focusRunQueue && m.runQueuePanelsSplit() {
+		agent = m.currentRunQueueAgent()
+	}
+	count := m.runQueueLineCountForAgent(agent)
+	viewportHeight := m.runQueueViewportHeight()
 	if m.focus == focusRunQueue && m.runQueuePinned {
-		m.runQueueCursor = clamp(m.runQueueCursor, 0, max(0, m.runQueueLineCount()-1))
-		m.runQueueOffset = clamp(m.runQueueOffset, 0, max(0, m.runQueueLineCount()-m.runQueueViewportHeight()))
+		m.runQueueCursor = clamp(m.runQueueCursor, 0, max(0, count-1))
+		m.runQueueOffset = clamp(m.runQueueOffset, 0, max(0, count-viewportHeight))
 		return
 	}
-	if index, ok := m.currentRunQueueLineIndex(); ok {
+	if index, ok := m.currentRunQueueLineIndexForAgent(agent); ok {
 		m.runQueueCursor = index
-		m.runQueueOffset = stableOffset(index, m.runQueueOffset, m.runQueueViewportHeight(), m.runQueueLineCount())
+		m.runQueueOffset = stableOffset(index, m.runQueueOffset, viewportHeight, count)
 		return
 	}
-	m.runQueueCursor = clamp(m.runQueueCursor, 0, max(0, m.runQueueLineCount()-1))
-	m.runQueueOffset = clamp(m.runQueueOffset, 0, max(0, m.runQueueLineCount()-m.runQueueViewportHeight()))
+	m.runQueueCursor = clamp(m.runQueueCursor, 0, max(0, count-1))
+	m.runQueueOffset = clamp(m.runQueueOffset, 0, max(0, count-viewportHeight))
 }
 
 func (m model) runQueueViewportHeight() int {
@@ -409,6 +447,16 @@ func (m model) runQueueViewportHeight() int {
 	bodyHeight := max(4, height-2)
 	roundTimelineHeight, checkStatusHeight, _, _ := m.dashboardPanelHeights(bodyHeight, panelContentWidth(width))
 	lowerHeight := max(1, bodyHeight-checkStatusHeight-roundTimelineHeight)
+	if m.focus == focusRunQueue && m.runQueuePanelsSplit() {
+		agents := m.runQueueAgents()
+		heights := splitHeights(lowerHeight, len(agents))
+		key := m.currentRunQueueAgentKey()
+		for i, agent := range agents {
+			if roundAgentKey(agent) == key {
+				return max(1, heights[i]-2)
+			}
+		}
+	}
 	return max(1, lowerHeight-2)
 }
 
@@ -439,7 +487,11 @@ func (m model) currentRunQueueLineIndexForAgent(agent watch.AgentSnapshot) (int,
 }
 
 func (m *model) moveRunQueueCursor(delta int) {
-	count := m.runQueueLineCount()
+	agent := watch.AgentSnapshot{}
+	if m.focus == focusRunQueue && m.runQueuePanelsSplit() {
+		agent = m.currentRunQueueAgent()
+	}
+	count := m.runQueueLineCountForAgent(agent)
 	if count == 0 {
 		m.runQueueCursor = 0
 		m.runQueueOffset = 0
@@ -451,8 +503,15 @@ func (m *model) moveRunQueueCursor(delta int) {
 }
 
 func (m model) runQueueLineCount() int {
+	return m.runQueueLineCountForAgent(watch.AgentSnapshot{})
+}
+
+func (m model) runQueueLineCountForAgent(agent watch.AgentSnapshot) int {
 	count := 0
 	for _, target := range m.Targets {
+		if agentKey(agent) != "" && !sameAgent(target.Agent, agent) {
+			continue
+		}
 		count++
 		count += len(runQueueVisibleSteps(target))
 	}
