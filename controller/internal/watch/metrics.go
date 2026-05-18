@@ -10,6 +10,7 @@ import (
 	"dropcheck/controller/internal/controlpb"
 )
 
+// Value is a typed probe metric value used by expectation matchers.
 type Value struct {
 	value any
 }
@@ -23,6 +24,7 @@ func stringListValue(value []string) Value {
 	return Value{value: append([]string(nil), value...)}
 }
 
+// String renders the metric value for logs and findings.
 func (v Value) String() string {
 	switch value := v.value.(type) {
 	case nil:
@@ -44,6 +46,7 @@ func (v Value) String() string {
 	}
 }
 
+// Bool returns the metric value as a boolean when it can be interpreted as one.
 func (v Value) Bool() (bool, bool) {
 	switch value := v.value.(type) {
 	case bool:
@@ -56,6 +59,7 @@ func (v Value) Bool() (bool, bool) {
 	}
 }
 
+// Strings returns the metric value as a string slice for list matchers.
 func (v Value) Strings() []string {
 	switch value := v.value.(type) {
 	case nil:
@@ -72,6 +76,7 @@ func (v Value) Strings() []string {
 	}
 }
 
+// Float returns the metric value as a float when numeric comparison is possible.
 func (v Value) Float() (float64, bool) {
 	switch value := v.value.(type) {
 	case int64:

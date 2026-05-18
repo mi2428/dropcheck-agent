@@ -60,7 +60,7 @@ type FailedCheck struct {
 	Finding watch.Finding
 }
 
-// FailedCheckSummary aggregates failures by target, check, metric, and expected value.
+// FailedCheckSummary aggregates failures sharing one target/finding identity.
 type FailedCheckSummary struct {
 	Last        time.Time
 	Count       int
@@ -81,7 +81,7 @@ type PassingCheck struct {
 	Duration int64
 }
 
-// PassingCheckSummary aggregates successful checks by target and step.
+// PassingCheckSummary aggregates successful checks by agent, target, and step.
 type PassingCheckSummary struct {
 	Last          time.Time
 	Count         int

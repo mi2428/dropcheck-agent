@@ -9,10 +9,12 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+// Duration decodes watch YAML durations from Go-style strings, day-suffix strings, or integer milliseconds.
 type Duration struct {
 	time.Duration
 }
 
+// UnmarshalYAML decodes a duration scalar from YAML.
 func (d *Duration) UnmarshalYAML(node *yaml.Node) error {
 	switch node.Kind {
 	case yaml.ScalarNode:

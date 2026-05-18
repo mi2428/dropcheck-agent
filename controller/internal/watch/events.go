@@ -6,6 +6,7 @@ import (
 	"time"
 )
 
+// EventKind identifies the type of one watch event.
 type EventKind string
 
 const (
@@ -20,6 +21,7 @@ const (
 	EventLog            EventKind = "log"
 )
 
+// Event is one structured state transition, finding, or log item emitted by a watch run.
 type Event struct {
 	Time     time.Time      `json:"time"`
 	Kind     EventKind      `json:"kind"`
@@ -34,6 +36,7 @@ type Event struct {
 	Duration int64          `json:"duration_ms,omitempty"`
 }
 
+// AgentSnapshot captures the stable agent identity and display metadata stored with events.
 type AgentSnapshot struct {
 	ID          string `json:"id,omitempty"`
 	SessionID   string `json:"session_id,omitempty"`
@@ -42,6 +45,7 @@ type AgentSnapshot struct {
 	DeviceModel string `json:"device_model,omitempty"`
 }
 
+// DisplayName returns the most useful operator-facing label for the agent.
 func (snapshot AgentSnapshot) DisplayName() string {
 	model := strings.TrimSpace(snapshot.DeviceModel)
 	serial := strings.TrimSpace(snapshot.ADBSerial)
@@ -69,6 +73,7 @@ func (snapshot AgentSnapshot) DisplayName() string {
 	}
 }
 
+// TargetSnapshot captures the stable target identity stored with events.
 type TargetSnapshot struct {
 	Name      string `json:"name,omitempty"`
 	ShortName string `json:"short_name,omitempty"`
@@ -78,6 +83,7 @@ type TargetSnapshot struct {
 	Band      string `json:"band,omitempty"`
 }
 
+// StepSnapshot captures one watch step state stored with events.
 type StepSnapshot struct {
 	Name      string `json:"name,omitempty"`
 	Type      string `json:"type,omitempty"`
@@ -88,8 +94,10 @@ type StepSnapshot struct {
 	Skipped   bool   `json:"skipped,omitempty"`
 }
 
+// Emitter receives watch events without returning delivery errors.
 type Emitter func(Event)
 
+// Sink receives watch events and may report delivery errors.
 type Sink interface {
 	Emit(context.Context, Event) error
 }

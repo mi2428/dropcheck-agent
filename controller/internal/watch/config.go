@@ -19,6 +19,7 @@ type Config struct {
 	Checks        []Check        `yaml:"checks"`
 }
 
+// TargetDefaults contains YAML defaults applied to every configured target.
 type TargetDefaults struct {
 	Agent            string   `yaml:"agent"`
 	Passphrase       string   `yaml:"passphrase"`
@@ -33,6 +34,7 @@ type TargetDefaults struct {
 	ForgetAfter      *bool    `yaml:"forget_after"`
 }
 
+// Target describes one Wi-Fi association target in a watch plan.
 type Target struct {
 	Name             string   `yaml:"name"`
 	ShortName        string   `yaml:"short_name"`
@@ -52,6 +54,7 @@ type Target struct {
 	ForgetAfter      *bool    `yaml:"forget_after"`
 }
 
+// Check describes one probe to run after a target is connected and ready.
 type Check struct {
 	Name           string         `yaml:"name"`
 	Type           string         `yaml:"type"`
@@ -73,6 +76,7 @@ type Check struct {
 	compiledExpect []Matcher
 }
 
+// Plan is the validated watch configuration consumed by the runner and TUI.
 type Plan struct {
 	Name          string
 	RoundInterval time.Duration
@@ -93,6 +97,7 @@ func LoadFile(path string) (Plan, error) {
 	return cfg.Plan()
 }
 
+// Plan validates cfg, applies defaults, and returns an executable watch plan.
 func (cfg Config) Plan() (Plan, error) {
 	if cfg.Version != 0 && cfg.Version != 1 {
 		return Plan{}, fmt.Errorf("unsupported watch config version %d", cfg.Version)
@@ -188,6 +193,7 @@ func targetDisplayName(target Target) string {
 	return strings.Join(parts, "/")
 }
 
+// DisplayName returns the configured target name, falling back to SSID/BSSID/band.
 func (target Target) DisplayName() string {
 	if strings.TrimSpace(target.Name) != "" {
 		return strings.TrimSpace(target.Name)
@@ -217,6 +223,7 @@ func (target Target) forgetAfter() bool {
 	return target.ForgetAfter != nil && *target.ForgetAfter
 }
 
+// DisplayName returns the configured check name, falling back to its type.
 func (check Check) DisplayName() string {
 	if strings.TrimSpace(check.Name) != "" {
 		return strings.TrimSpace(check.Name)
