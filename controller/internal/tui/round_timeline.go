@@ -184,7 +184,8 @@ func roundTimelineTileLayout(width int) (labelWidth int, plotWidth int) {
 	if width <= 0 {
 		return 0, 0
 	}
-	labelWidth = clamp(width/4, 6, min(16, max(6, width-4)))
+	minLabelWidth := min(width, roundTimelineMinLabelRunes+1)
+	labelWidth = clamp(width/4, minLabelWidth, min(16, max(minLabelWidth, width-roundTimelineMinVisibleRounds-1)))
 	plotWidth = max(1, width-labelWidth-1)
 	return labelWidth, plotWidth
 }

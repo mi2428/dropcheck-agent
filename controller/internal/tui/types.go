@@ -51,6 +51,7 @@ type focusSlot struct {
 
 const (
 	roundTimelineMinVisibleRounds = 10
+	roundTimelineMinLabelRunes    = 6
 	roundTimelineTileGap          = 1
 	summarySparklineRows          = 5
 	summarySparklineWindow        = 30 * time.Minute
