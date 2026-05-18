@@ -8,6 +8,9 @@ import (
 
 func (m *model) apply(event watch.Event) {
 	m.State.Apply(event)
+	if event.Kind == watch.EventRoundStarted && !m.checkStatusPinned {
+		m.checkStatusOffset = 0
+	}
 	if event.Kind == watch.EventFinding && event.Finding != nil {
 		m.failedCheckCursor = m.failedCheckSummaryIndex(event.Agent, event.Target, *event.Finding)
 	}

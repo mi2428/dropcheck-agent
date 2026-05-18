@@ -202,7 +202,7 @@ func summaryAndEventLogHeights(bodyHeight int) (summaryHeight int, eventLogHeigh
 func (m model) helpBar(width int) string {
 	now := m.currentTime().Format("15:04:05")
 	label := " Keys:"
-	parts := []string{"Tab=Panel", "j/k=Scroll", "h/l=CheckScroll"}
+	parts := []string{"Tab/Shift+Tab=Panel", "j/k=Scroll", "h/l=CheckScroll"}
 	if m.focus == focusPassingChecks && len(m.filteredPassingCheckSummaries()) > 0 ||
 		m.focus == focusFailedChecks && len(m.filteredFailedCheckSummaries()) > 0 ||
 		m.focus == focusFailureHotspots && len(m.focusedFailureHotspotRows()) > 0 {
