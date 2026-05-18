@@ -324,7 +324,7 @@ func TestFailureHotspotNavigationStaysWithinFocusedAgent(t *testing.T) {
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyEnter})
 	frame := stripANSI(m.render())
-	for _, want := range []string{"Failure Hotspot Detail", "agent=agent-b  target=radio-b1"} {
+	for _, want := range []string{"Failure Hotspot Detail", "device   target", "agent-b  radio-b1"} {
 		if !strings.Contains(frame, want) {
 			t.Fatalf("agent-b hotspot detail missing %q:\n%s", want, frame)
 		}
@@ -340,6 +340,17 @@ func TestTabCyclesThroughFailureHotspotsWhenVisible(t *testing.T) {
 	if !m.failureHotspotsVisible() {
 		t.Fatalf("wide frame should expose failure hotspots panel")
 	}
+	if m.focus != focusCheckStatus {
+		t.Fatalf("initial focus should be check status, got %v", m.focus)
+	}
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
+	if m.focus != focusPassingChecks {
+		t.Fatalf("tab from check status should focus passing checks, got %v", m.focus)
+	}
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
+	if m.focus != focusFailedChecks {
+		t.Fatalf("tab from passing checks should focus failed checks, got %v", m.focus)
+	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
 	if m.focus != focusFailureHotspots {
 		t.Fatalf("tab from failed checks should focus failure hotspots, got %v", m.focus)
@@ -352,17 +363,9 @@ func TestTabCyclesThroughFailureHotspotsWhenVisible(t *testing.T) {
 	if m.focus != focusCheckStatus {
 		t.Fatalf("tab from run queue should focus check status, got %v", m.focus)
 	}
-	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
-	if m.focus != focusPassingChecks {
-		t.Fatalf("tab from check status should focus passing checks, got %v", m.focus)
-	}
-	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
-	if m.focus != focusFailedChecks {
-		t.Fatalf("tab from passing checks should focus failed checks, got %v", m.focus)
-	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
-	if m.focus != focusPassingChecks {
-		t.Fatalf("shift-tab from failed checks should focus passing checks, got %v", m.focus)
+	if m.focus != focusRunQueue {
+		t.Fatalf("shift-tab from check status should focus run queue, got %v", m.focus)
 	}
 }
 
@@ -402,11 +405,19 @@ func TestEnterShowsFailureHotspotDetail(t *testing.T) {
 	frame := stripANSI(m.render())
 	for _, want := range []string{
 		"Failure Hotspot Detail",
-		"target=radio-a  ssid=SHIZK RADIO  band=2.4ghz",
-		"cause=REQUEST_DECLINED",
-		"fail_rate=100%  fail_runs=2/2  failures=2  streak=2  last=09:31:00  events=last=30m count=2 peak=1",
-		"check=connect  metric=status  observed=failed  expected=\"== ok\"",
-		"30m ago",
+		"target   ssid         band",
+		"radio-a  SHIZK RADIO  2.4ghz",
+		"latest_cause",
+		"REQUEST_DECLINED",
+		"fail_rate  failed_runs  failures  streak  last      latest_check  metric  observed  expected",
+		"100%       2/2          2         2       09:31:00  Connect       status  failed    \"== ok\"",
+		"timeline window=last=90m  peak=1",
+		"causes",
+		"count  last      cause",
+		"2      09:31:00  REQUEST_DECLINED",
+		"failure history",
+		"09:31:00  2      connect           status      failed    \"== ok\"   REQUEST_DECLINED",
+		"90m ago",
 		"now",
 		"█",
 	} {
@@ -459,7 +470,7 @@ func TestFailureHotspotDetailCursorFollowsOpenedItemAcrossUpdates(t *testing.T) 
 		t.Fatalf("hotspot cursor should follow opened item after re-sort, got %q rows=%#v", got, rows)
 	}
 	view := stripANSI(m.failureHotspotDetailView(100, 12))
-	if !strings.Contains(view, "target=radio-b") {
+	if !strings.Contains(view, "radio-b") {
 		t.Fatalf("hotspot detail modal should keep showing opened Item:\n%s", view)
 	}
 }

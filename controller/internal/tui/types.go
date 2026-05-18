@@ -59,12 +59,14 @@ const (
 	roundTimelineTileGap          = 1
 	summarySparklineRows          = 5
 	summarySparklineWindow        = 30 * time.Minute
+	detailTimelineWindow          = 90 * time.Minute
 	checkHistoryRetentionWindow   = summarySparklineWindow
 	eventLogRetentionWindow       = summarySparklineWindow
 	maxPassingCheckHistory        = 20000
 	maxFailedCheckHistory         = 10000
 	maxEventLogHistory            = 10000
 	visibleEventLogLimit          = 400
+	detailModalWidthPercent       = 54
 	detailModalHeightPercent      = 55
 	detailModalLogLimit           = 120
 	recencyFreshWindow            = 15 * time.Second
