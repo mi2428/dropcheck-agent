@@ -80,6 +80,21 @@ func TestEmptyFailedCheckHeaderDistributesColumns(t *testing.T) {
 	}
 }
 
+func TestCheckStatusHeaderFillsPanelWidth(t *testing.T) {
+	events := make(chan watch.Event)
+	m := newModel("shownet-watch", []watch.Target{{Name: "ub1(5G)", SSID: "SHIZK RADIO"}}, events)
+	m.Targets[0].Steps = []stepState{{Name: "connect", Status: "ok"}}
+
+	view := m.checkStatusView(64, 3)
+	lines := strings.Split(view, "\n")
+	if got := lipgloss.Width(lines[0]); got != 64 {
+		t.Fatalf("checkStatus header width = %d, want full panel content width 64: %q", got, lines[0])
+	}
+	if !strings.Contains(lines[0], "\x1b[") {
+		t.Fatalf("checkStatus header should be styled: %q", lines[0])
+	}
+}
+
 func TestInitialRenderWithoutMeasurementsIsStable(t *testing.T) {
 	events := make(chan watch.Event)
 	agents := []watch.AgentSnapshot{
