@@ -177,11 +177,7 @@ func (m *model) normalizeCheckStatusOffset() {
 		return
 	}
 	desiredPosition := max(0, visible-2)
-	if active < m.checkStatusOffset {
-		m.checkStatusOffset = active
-	} else if active > m.checkStatusOffset+desiredPosition {
-		m.checkStatusOffset = clamp(active-desiredPosition, 0, maxOffset)
-	}
+	m.checkStatusOffset = clamp(active-desiredPosition, 0, maxOffset)
 }
 
 func (m model) checkStatusMaxOffset(width int) int {
@@ -204,8 +200,8 @@ func (m model) checkStatusWindowMetrics(width int) ([]watch.TargetSnapshot, chec
 }
 
 func (m model) checkStatusActiveTargetIndex(targets []watch.TargetSnapshot) int {
-	for i, target := range targets {
-		if m.checkStatusTargetRunning(target) {
+	for i := len(targets) - 1; i >= 0; i-- {
+		if m.checkStatusTargetRunning(targets[i]) {
 			return i
 		}
 	}
