@@ -56,6 +56,36 @@ func TestTimeoutForControllerDeadlines(t *testing.T) {
 			want: 12 * time.Second,
 		},
 		{
+			name: "dns all qtypes allows one timeout per qtype",
+			cmd: &controlpb.RunCommand{Command: &controlpb.RunCommand_ResolveDns{
+				ResolveDns: &controlpb.ResolveDns{
+					Qtypes: []controlpb.DnsRecordType{
+						controlpb.DnsRecordType_DNS_RECORD_TYPE_A,
+						controlpb.DnsRecordType_DNS_RECORD_TYPE_AAAA,
+					},
+					TimeoutMs: 9000,
+				},
+			}},
+			want: 21 * time.Second,
+		},
+		{
+			name: "dns empty qtypes defaults to both address families",
+			cmd: &controlpb.RunCommand{Command: &controlpb.RunCommand_ResolveDns{
+				ResolveDns: &controlpb.ResolveDns{},
+			}},
+			want: 13 * time.Second,
+		},
+		{
+			name: "dns single qtype uses one lookup timeout",
+			cmd: &controlpb.RunCommand{Command: &controlpb.RunCommand_ResolveDns{
+				ResolveDns: &controlpb.ResolveDns{
+					Qtypes:    []controlpb.DnsRecordType{controlpb.DnsRecordType_DNS_RECORD_TYPE_A},
+					TimeoutMs: 9000,
+				},
+			}},
+			want: 12 * time.Second,
+		},
+		{
 			name: "standalone run once allows long on-device festa execution",
 			cmd: &controlpb.RunCommand{Command: &controlpb.RunCommand_RunStandaloneOnce{
 				RunStandaloneOnce: &controlpb.RunStandaloneOnce{Festa: "smoke"},

@@ -171,7 +171,8 @@ func timeoutFor(cmd *controlpb.RunCommand) time.Duration {
 	case *controlpb.RunCommand_Wget:
 		return durationFromMillis(c.Wget.TimeoutMs, 60*time.Second) + 5*time.Second
 	case *controlpb.RunCommand_ResolveDns:
-		return durationFromMillis(c.ResolveDns.TimeoutMs, 10*time.Second) + 3*time.Second
+		return time.Duration(resolveDNSQTypeCount(c.ResolveDns))*
+			durationFromMillis(c.ResolveDns.TimeoutMs, 5*time.Second) + 3*time.Second
 	case *controlpb.RunCommand_HttpCheck:
 		return durationFromMillis(c.HttpCheck.TimeoutMs, 10*time.Second) + 3*time.Second
 	case *controlpb.RunCommand_RunStandaloneOnce:
@@ -202,6 +203,13 @@ func durationFromMillis(ms uint32, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return time.Duration(ms) * time.Millisecond
+}
+
+func resolveDNSQTypeCount(cmd *controlpb.ResolveDns) int {
+	if cmd == nil || len(cmd.GetQtypes()) == 0 {
+		return 2
+	}
+	return len(cmd.GetQtypes())
 }
 
 func splitArgs(line string) ([]string, error) {
