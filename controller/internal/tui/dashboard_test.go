@@ -281,6 +281,55 @@ func TestRoundTimelineDoesNotPadSingleRoundGraph(t *testing.T) {
 	}
 }
 
+func TestRoundTimelineAlignsGraphStartWithinColumn(t *testing.T) {
+	events := make(chan watch.Event)
+	targets := []watch.Target{
+		{Name: "hp1(5G)", SSID: "Lab"},
+		{Name: "hp10(5G)", SSID: "Lab"},
+		{Name: "hp2(5G)", SSID: "Lab"},
+	}
+	m := newModel("shownet-watch", targets, events)
+	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
+	for _, target := range []watch.TargetSnapshot{
+		{Name: "hp1(5G)", SSID: "Lab"},
+		{Name: "hp10(5G)", SSID: "Lab"},
+		{Name: "hp2(5G)", SSID: "Lab"},
+	} {
+		m.apply(watch.Event{
+			Time:   at,
+			Kind:   watch.EventStepFinished,
+			Round:  1,
+			Target: target,
+			Step:   watch.StepSnapshot{Name: "Connect", Type: "connect", Status: "ok"},
+			Status: "ok",
+		})
+	}
+
+	view := stripANSI(m.roundTimelineView(35, 5))
+	lines := strings.Split(view, "\n")
+	if len(lines) < 4 {
+		t.Fatalf("round timeline should wrap targets into one column:\n%s", view)
+	}
+	offsets := make([]int, 0, len(targets))
+	for i, target := range targets {
+		line := lines[i+1]
+		labelStart := strings.Index(line, target.Name)
+		graphStart := strings.Index(line, "▁")
+		if labelStart < 0 || graphStart < 0 {
+			t.Fatalf("round timeline row missing label or graph for %q:\n%s", target.Name, view)
+		}
+		offsets = append(offsets, graphStart-labelStart)
+	}
+	for _, offset := range offsets[1:] {
+		if offset != offsets[0] {
+			t.Fatalf("graph starts should align within the wrapped target column, got offsets %v:\n%s", offsets, view)
+		}
+	}
+	if offsets[0] >= roundTimelineTargetLabelRunes+1 {
+		t.Fatalf("graph alignment should use visible label width instead of fixed label padding, got offset %d:\n%s", offsets[0], view)
+	}
+}
+
 func TestRoundTimelineKeepsTenTargetRunesAndTenRounds(t *testing.T) {
 	labelWidth, plotWidth := roundTimelineTileLayout(roundTimelineMinTileWidth())
 	if labelWidth != roundTimelineTargetLabelRunes {

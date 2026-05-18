@@ -82,14 +82,17 @@ func (m model) roundTimelineRoundSpan(width int) (uint64, uint64) {
 }
 
 func (m model) roundTimelineVisibleRounds(width int) int {
-	columns := roundTimelineGrid(width, len(m.checkStatusTargets())).Columns
+	targets := m.checkStatusTargets()
+	grid := roundTimelineGrid(width, len(targets))
+	columns := grid.Columns
 	tileWidths := roundTimelineTileWidths(width, columns)
 	if len(tileWidths) == 0 {
 		return 1
 	}
+	labelWidths := roundTimelineColumnLabelWidths(targets, tileWidths, grid.Rows)
 	visible := 1
-	for _, tileWidth := range tileWidths {
-		_, plotWidth := roundTimelineTileLayout(tileWidth)
+	for i, tileWidth := range tileWidths {
+		_, plotWidth := roundTimelineTileLayoutForLabel(tileWidth, labelWidths[i])
 		visible = max(visible, plotWidth)
 	}
 	return visible
@@ -133,11 +136,12 @@ func (m model) roundTimelineTargetRow(targets []watch.TargetSnapshot, width int,
 	columns := max(1, grid.Columns)
 	rows := max(1, grid.Rows)
 	tileWidths := roundTimelineTileWidths(width, columns)
+	labelWidths := roundTimelineColumnLabelWidths(targets, tileWidths, rows)
 	tiles := make([]string, 0, len(tileWidths))
 	for column, tileWidth := range tileWidths {
 		index := column*rows + row
 		if index < len(targets) {
-			tiles = append(tiles, m.roundTimelineTargetTile(targets[index], tileWidth))
+			tiles = append(tiles, m.roundTimelineTargetTile(targets[index], tileWidth, labelWidths[column]))
 		} else {
 			tiles = append(tiles, valueStyle.Render(strings.Repeat(" ", tileWidth)))
 		}
@@ -185,15 +189,33 @@ func roundTimelineTileWidths(width int, columns int) []int {
 	return widths
 }
 
-func (m model) roundTimelineTargetTile(target watch.TargetSnapshot, width int) string {
+func roundTimelineColumnLabelWidths(targets []watch.TargetSnapshot, tileWidths []int, rows int) []int {
+	widths := make([]int, len(tileWidths))
+	rows = max(1, rows)
+	for column, tileWidth := range tileWidths {
+		maxLabelWidth, _ := roundTimelineTileLayout(tileWidth)
+		labelWidth := 1
+		for row := 0; row < rows; row++ {
+			index := column*rows + row
+			if index >= len(targets) {
+				continue
+			}
+			labelWidth = max(labelWidth, min(maxLabelWidth, lipgloss.Width(checkStatusTargetLabel(targets[index]))))
+		}
+		widths[column] = clamp(labelWidth, 1, maxLabelWidth)
+	}
+	return widths
+}
+
+func (m model) roundTimelineTargetTile(target watch.TargetSnapshot, width int, labelWidth int) string {
 	if width <= 0 {
 		return ""
 	}
-	labelWidth, plotWidth := roundTimelineTileLayout(width)
+	labelWidth, plotWidth := roundTimelineTileLayoutForLabel(width, labelWidth)
 	plotWidth = m.roundTimelinePlotWidth(plotWidth)
 	buckets, _, _ := m.targetRoundHistory(target, plotWidth)
 	checkCount := max(1, len(m.checkStatusChecks()))
-	label := summaryKeyStyle.Render(roundTimelineTargetLabel(target, labelWidth))
+	label := summaryKeyStyle.Render(padVisible(roundTimelineTargetLabel(target, labelWidth), labelWidth))
 	plot := renderTargetRoundHistory(buckets, checkCount, plotWidth)
 	content := fitANSI(label+valueStyle.Render(" ")+plot, width)
 	return content + valueStyle.Render(strings.Repeat(" ", max(0, width-lipgloss.Width(content))))
@@ -220,6 +242,15 @@ func roundTimelineTileLayout(width int) (labelWidth int, plotWidth int) {
 	}
 	plotWidth = max(1, width-labelWidth-1)
 	return labelWidth, plotWidth
+}
+
+func roundTimelineTileLayoutForLabel(width int, labelWidth int) (int, int) {
+	maxLabelWidth, _ := roundTimelineTileLayout(width)
+	if maxLabelWidth <= 0 {
+		return 0, 0
+	}
+	labelWidth = clamp(labelWidth, 1, maxLabelWidth)
+	return labelWidth, max(1, width-labelWidth-1)
 }
 
 func roundTimelineMinTileWidth() int {
