@@ -19,31 +19,12 @@ func (m model) passingCheckDetailView(width int, height int) string {
 	}
 	selected := clamp(m.passingCheckCursor, 0, len(rows)-1)
 	item := rows[selected]
-	histogram := recentEventHistogram(m.passingCheckOccurrences(item.Agent, item.Target, item.Step), width, summarySparklineWindow, m.currentTime())
-	targetLine := keyStyle.Render("target=") + valueStyle.Render(item.Target.Name) +
-		keyStyle.Render("  ssid=") + valueStyle.Render(firstNonEmpty(item.Target.SSID, "-")) +
-		keyStyle.Render("  step=") + valueStyle.Render(item.Step.Name)
-	if m.MultiAgent && agentKey(item.Agent) != "" {
-		targetLine = keyStyle.Render("agent=") + valueStyle.Render(agentLabel(item.Agent)) +
-			keyStyle.Render("  ") + targetLine
-	}
-	lines := []string{
-		targetLine,
-		keyStyle.Render("status=") + valueStyle.Render(firstNonEmpty(item.Step.Status, "ok")) +
-			keyStyle.Render("  type=") + valueStyle.Render(firstNonEmpty(item.Step.Type, "-")) +
-			keyStyle.Render("  op=") + valueStyle.Render(firstNonEmpty(item.Step.Operation, "-")) +
-			keyStyle.Render("  duration=") + valueStyle.Render(durationLabel(item.Duration)),
-		keyStyle.Render("count=") + valueStyle.Render(fmt.Sprint(item.Count)) +
-			keyStyle.Render("  last=") + valueStyle.Render(item.Last.Format("15:04:05")),
-	}
-	if histogram.Count > 0 {
-		lines[2] += detailHistogramSummary(histogram, detailCompactGraphHeight(height, len(lines), 2))
-	}
+	histogram := recentEventHistogram(m.passingCheckOccurrences(item.Agent, item.Target, item.Step), width, detailTimelineWindow, m.currentTime())
+	fields := detailPassingSummaryFields(item, m.MultiAgent)
 	sections := []detailSection{
-		{Title: "recent passes", Rows: m.passingCheckDetailRows(item)},
-		{Title: "logs", Rows: m.passingCheckRelatedLogLines(item, detailModalLogLimit)},
+		{Title: "logs", Rows: m.passingCheckRelatedLogLines(item, detailModalLogLimit), WrapLogs: true},
 	}
-	return denseDetailView(lines, histogram, okGraphStyle, sections, width, height)
+	return denseDetailView(detailSummaryTableLines(fields, width), histogram, okGraphStyle, detailTimelineLabel(histogram), sections, width, height)
 }
 
 func (m model) failedCheckDetailView(width int, height int) string {
@@ -54,30 +35,13 @@ func (m model) failedCheckDetailView(width int, height int) string {
 	selected := clamp(m.failedCheckCursor, 0, len(rows)-1)
 	item := rows[selected]
 	finding := item.Finding
-	histogram := recentEventHistogram(m.failedCheckOccurrences(item.Agent, item.Target, finding), width, summarySparklineWindow, m.currentTime())
-	targetLine := keyStyle.Render("target=") + valueStyle.Render(finding.Target) +
-		keyStyle.Render("  check=") + valueStyle.Render(finding.Check) +
-		keyStyle.Render("  metric=") + valueStyle.Render(finding.Metric)
-	if m.MultiAgent && agentKey(item.Agent) != "" {
-		targetLine = keyStyle.Render("agent=") + valueStyle.Render(agentLabel(item.Agent)) +
-			keyStyle.Render("  ") + targetLine
-	}
-	lines := []string{
-		targetLine,
-		keyStyle.Render("observed=") + valueStyle.Render(finding.Observed) +
-			keyStyle.Render("  expected=") + valueStyle.Render(detailValue(finding.Expected)) +
-			keyStyle.Render("  message=") + valueStyle.Render(finding.Message),
-		keyStyle.Render("count=") + valueStyle.Render(fmt.Sprint(item.Count)) +
-			keyStyle.Render("  last=") + valueStyle.Render(item.Last.Format("15:04:05")),
-	}
-	if histogram.Count > 0 {
-		lines[2] += detailHistogramSummary(histogram, detailCompactGraphHeight(height, len(lines), 2))
-	}
+	histogram := recentEventHistogram(m.failedCheckOccurrences(item.Agent, item.Target, finding), width, detailTimelineWindow, m.currentTime())
+	fields := detailFailedSummaryFields(item, m.MultiAgent)
 	sections := []detailSection{
-		{Title: "recent failures", Rows: m.failedCheckDetailRows(item)},
-		{Title: "logs", Rows: m.failedCheckRelatedLogLines(item, detailModalLogLimit)},
+		{Title: "failure history", Rows: m.failedCheckDetailRows(item)},
+		{Title: "logs", Rows: m.failedCheckRelatedLogLines(item, detailModalLogLimit), WrapLogs: true},
 	}
-	return denseDetailView(lines, histogram, failGraphStyle, sections, width, height)
+	return denseDetailView(detailSummaryTableLines(fields, width), histogram, failGraphStyle, detailTimelineLabel(histogram), sections, width, height)
 }
 
 func (m model) failureHotspotDetailView(width int, height int) string {
@@ -93,49 +57,134 @@ func (m model) failureHotspotDetailView(width int, height int) string {
 		}
 	}
 	item := rows[selected].Item
+	histogram := recentEventHistogram(m.failureHotspotOccurrences(item), width, detailTimelineWindow, m.currentTime())
+	fields := detailHotspotSummaryFields(item, m.MultiAgent)
+	sections := []detailSection{
+		{Title: "causes", Rows: m.failureHotspotCauseRows(item)},
+		{Title: "failure history", Rows: m.failureHotspotDetailRows(item)},
+		{Title: "logs", Rows: m.failureHotspotRelatedLogLines(item, detailModalLogLimit), WrapLogs: true},
+	}
+	return denseDetailView(detailSummaryTableLines(fields, width), histogram, failGraphStyle, detailTimelineLabel(histogram), sections, width, height)
+}
+
+type detailSection struct {
+	Title    string
+	Rows     []string
+	WrapLogs bool
+}
+
+type detailField struct {
+	Key   string
+	Value string
+	Wide  bool
+}
+
+func detailPassingSummaryFields(item passingCheckSummary, multiAgent bool) []detailField {
+	fields := make([]detailField, 0, 12)
+	detailAppendAgentField(&fields, item.Agent, multiAgent)
+	fields = append(fields,
+		detailField{Key: "target", Value: firstNonEmpty(item.Target.Name, item.Target.SSID, item.Target.BSSID, "-")},
+		detailField{Key: "check", Value: displayCheckName(firstNonEmpty(item.Step.Name, item.Step.Type, "check"))},
+	)
+	detailAppendTargetFields(&fields, item.Target)
+	detailAppendOperationFields(&fields, item.Step)
+	fields = append(fields,
+		detailField{Key: "last", Value: item.Last.Format("15:04:05")},
+		detailField{Key: "duration", Value: durationLabel(item.Duration)},
+		detailField{Key: "avg", Value: durationLabel(item.AvgDuration())},
+		detailField{Key: "max", Value: durationLabel(item.MaxDuration)},
+		detailField{Key: "samples", Value: fmt.Sprint(item.Count)},
+	)
+	return fields
+}
+
+func detailFailedSummaryFields(item failedCheckSummary, multiAgent bool) []detailField {
+	finding := item.Finding
+	fields := make([]detailField, 0, 12)
+	detailAppendAgentField(&fields, item.Agent, multiAgent)
+	fields = append(fields,
+		detailField{Key: "target", Value: firstNonEmpty(finding.Target, item.Target.Name, item.Target.SSID, item.Target.BSSID, "-")},
+		detailField{Key: "check", Value: displayCheckName(firstNonEmpty(finding.Check, "check"))},
+		detailField{Key: "metric", Value: firstNonEmpty(finding.Metric, "-")},
+		detailField{Key: "failures", Value: fmt.Sprint(item.Count)},
+		detailField{Key: "fail_rate", Value: fmt.Sprintf("%d%%", item.FailPercent)},
+		detailField{Key: "streak", Value: fmt.Sprint(item.FailStreak)},
+		detailField{Key: "last", Value: item.Last.Format("15:04:05")},
+		detailField{Key: "observed", Value: firstNonEmpty(finding.Observed, "-")},
+		detailField{Key: "expected", Value: detailValue(finding.Expected)},
+	)
+	if finding.Message != "" {
+		fields = append(fields, detailField{Key: "message", Value: finding.Message, Wide: true})
+	}
+	return fields
+}
+
+func detailHotspotSummaryFields(item failureHotspotSummary, multiAgent bool) []detailField {
 	finding := item.LatestFinding
-	histogram := recentEventHistogram(m.failureHotspotOccurrences(item), width, summarySparklineWindow, m.currentTime())
 	rate := 0
 	if item.RunCount > 0 {
 		rate = item.FailRunCount * 100 / item.RunCount
 	}
-	targetLine := keyStyle.Render("target=") + valueStyle.Render(checkStatusTargetLabel(item.Target)) +
-		keyStyle.Render("  ssid=") + valueStyle.Render(firstNonEmpty(item.Target.SSID, "-")) +
-		keyStyle.Render("  band=") + valueStyle.Render(firstNonEmpty(item.Target.Band, "-"))
-	if m.MultiAgent && agentKey(item.Agent) != "" {
-		targetLine = keyStyle.Render("agent=") + valueStyle.Render(agentLabel(item.Agent)) +
-			keyStyle.Render("  ") + targetLine
-	}
-	lines := []string{
-		targetLine,
-		keyStyle.Render("cause=") + valueStyle.Render(firstNonEmpty(item.LatestCause, "-")),
-		keyStyle.Render("fail_rate=") + valueStyle.Render(fmt.Sprintf("%d%%", rate)) +
-			keyStyle.Render("  fail_runs=") + valueStyle.Render(fmt.Sprintf("%d/%d", item.FailRunCount, item.RunCount)) +
-			keyStyle.Render("  failures=") + valueStyle.Render(fmt.Sprint(item.FailCount)) +
-			keyStyle.Render("  streak=") + valueStyle.Render(fmt.Sprint(item.FailStreak)) +
-			keyStyle.Render("  last=") + valueStyle.Render(item.Last.Format("15:04:05")),
-		keyStyle.Render("check=") + valueStyle.Render(firstNonEmpty(finding.Check, "-")) +
-			keyStyle.Render("  metric=") + valueStyle.Render(firstNonEmpty(finding.Metric, "-")) +
-			keyStyle.Render("  observed=") + valueStyle.Render(firstNonEmpty(finding.Observed, "-")) +
-			keyStyle.Render("  expected=") + valueStyle.Render(detailValue(finding.Expected)),
-	}
-	if histogram.Count > 0 {
-		lines[2] += detailHistogramSummary(histogram, detailCompactGraphHeight(height, len(lines), 3))
-	}
-	sections := []detailSection{
-		{Title: "causes", Rows: m.failureHotspotCauseRows(item)},
-		{Title: "recent failures", Rows: m.failureHotspotDetailRows(item)},
-		{Title: "logs", Rows: m.failureHotspotRelatedLogLines(item, detailModalLogLimit)},
-	}
-	return denseDetailView(lines, histogram, failGraphStyle, sections, width, height)
+	fields := make([]detailField, 0, 16)
+	detailAppendAgentField(&fields, item.Agent, multiAgent)
+	fields = append(fields, detailField{Key: "target", Value: firstNonEmpty(checkStatusTargetLabel(item.Target), finding.Target, "-")})
+	detailAppendTargetFields(&fields, item.Target)
+	fields = append(fields,
+		detailField{Key: "latest_cause", Value: firstNonEmpty(item.LatestCause, "-"), Wide: true},
+		detailField{Key: "fail_rate", Value: fmt.Sprintf("%d%%", rate)},
+		detailField{Key: "failed_runs", Value: fmt.Sprintf("%d/%d", item.FailRunCount, item.RunCount)},
+		detailField{Key: "failures", Value: fmt.Sprint(item.FailCount)},
+		detailField{Key: "streak", Value: fmt.Sprint(item.FailStreak)},
+		detailField{Key: "last", Value: item.Last.Format("15:04:05")},
+		detailField{Key: "latest_check", Value: displayCheckName(firstNonEmpty(finding.Check, "check"))},
+		detailField{Key: "metric", Value: firstNonEmpty(finding.Metric, "-")},
+		detailField{Key: "observed", Value: firstNonEmpty(finding.Observed, "-")},
+		detailField{Key: "expected", Value: detailValue(finding.Expected)},
+	)
+	return fields
 }
 
-type detailSection struct {
-	Title string
-	Rows  []string
+func detailAppendAgentField(fields *[]detailField, agent watch.AgentSnapshot, multiAgent bool) {
+	if multiAgent && agentKey(agent) != "" {
+		*fields = append(*fields, detailField{Key: "device", Value: agentLabel(agent)})
+	}
 }
 
-func denseDetailView(summary []string, histogram occurrenceHistogram, graphStyle lipgloss.Style, sections []detailSection, width int, height int) string {
+func detailAppendTargetFields(fields *[]detailField, target watch.TargetSnapshot) {
+	for _, field := range []detailField{
+		{Key: "ssid", Value: target.SSID},
+		{Key: "bssid", Value: target.BSSID},
+		{Key: "band", Value: target.Band},
+	} {
+		if field.Value != "" {
+			*fields = append(*fields, field)
+		}
+	}
+}
+
+func detailAppendOperationFields(fields *[]detailField, step watch.StepSnapshot) {
+	display := normalizedScopeToken(displayCheckName(firstNonEmpty(step.Name, step.Type)))
+	for _, field := range []detailField{
+		{Key: "op", Value: step.Operation},
+		{Key: "type", Value: step.Type},
+	} {
+		if field.Value == "" || normalizedScopeToken(field.Value) == display {
+			continue
+		}
+		*fields = append(*fields, field)
+	}
+}
+
+const (
+	detailGraphVerticalPadding = 2
+	detailTimelineHeaderHeight = 1
+	detailSummaryColumnGap     = 2
+	detailSummaryMinCellWidth  = 4
+	detailSummaryMaxCellWidth  = 30
+	detailSummaryTargetCell    = 12
+)
+
+func denseDetailView(summary []string, histogram occurrenceHistogram, graphStyle lipgloss.Style, timeline string, sections []detailSection, width int, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
@@ -147,8 +196,11 @@ func denseDetailView(summary []string, histogram occurrenceHistogram, graphStyle
 		lines = append(lines, fitANSI(line, width))
 	}
 	graphHeight := detailCompactGraphHeight(height, len(lines), len(sections))
-	if histogram.Count > 0 && graphHeight > 0 && len(lines)+graphHeight <= height {
+	if histogram.Count > 0 && graphHeight > 0 && len(lines)+graphHeight+detailGraphVerticalPadding+detailTimelineHeaderHeight <= height {
+		lines = append(lines, "")
+		lines = append(lines, fitANSI(timeline, width))
 		lines = append(lines, renderDetailHistogram(histogram, width, graphHeight, graphStyle)...)
+		lines = append(lines, "")
 	}
 	remaining := height - len(lines)
 	if remaining <= 0 || len(sections) == 0 {
@@ -165,11 +217,19 @@ func denseDetailView(summary []string, histogram occurrenceHistogram, graphStyle
 		if len(rows) == 0 {
 			rows = []string{dimStyle.Render("  no matching entries")}
 		}
-		for _, row := range rows[:min(len(rows), rowLimit)] {
-			if len(lines) >= height {
+		rendered := 0
+		for _, row := range rows {
+			if len(lines) >= height || rendered >= rowLimit {
 				break
 			}
-			lines = append(lines, fitANSI(row, width))
+			rowLines := detailSectionRowLines(section, row, width)
+			for _, rowLine := range rowLines {
+				if len(lines) >= height || rendered >= rowLimit {
+					break
+				}
+				lines = append(lines, fitANSI(rowLine, width))
+				rendered++
+			}
 		}
 	}
 	for len(lines) < height {
@@ -178,9 +238,221 @@ func denseDetailView(summary []string, histogram occurrenceHistogram, graphStyle
 	return strings.Join(lines, "\n")
 }
 
+func detailSummaryTableLines(fields []detailField, width int) []string {
+	if width <= 0 {
+		return nil
+	}
+	lines := make([]string, 0, max(1, len(fields)/3)*2)
+	pending := make([]detailField, 0, len(fields))
+	flush := func() {
+		if len(pending) == 0 {
+			return
+		}
+		lines = append(lines, detailSummaryFieldTableLines(pending, width)...)
+		pending = pending[:0]
+	}
+	for _, field := range fields {
+		if field.Wide {
+			flush()
+			lines = append(lines, detailSummaryRenderFieldRow([]detailField{field}, []int{width})...)
+			continue
+		}
+		pending = append(pending, field)
+	}
+	flush()
+	return lines
+}
+
+func detailSummaryFieldTableLines(fields []detailField, width int) []string {
+	lines := make([]string, 0, max(1, len(fields)/3)*2)
+	for len(fields) > 0 {
+		count, widths := detailSummaryRowShape(fields, width)
+		lines = append(lines, detailSummaryRenderFieldRow(fields[:count], widths)...)
+		fields = fields[count:]
+	}
+	return lines
+}
+
+func detailSummaryRowShape(fields []detailField, width int) (int, []int) {
+	maxColumns := clamp(width/detailSummaryTargetCell, 1, len(fields))
+	for count := maxColumns; count >= 1; count-- {
+		widths := detailSummaryMinWidths(fields[:count])
+		if detailSummaryWidthSum(widths) <= width {
+			return count, detailSummaryColumnWidths(fields[:count], width)
+		}
+	}
+	return 1, []int{max(1, width)}
+}
+
+func detailSummaryColumnWidths(fields []detailField, width int) []int {
+	if len(fields) == 0 {
+		return nil
+	}
+	minWidths := detailSummaryMinWidths(fields)
+	preferred := make([]int, len(fields))
+	for i, field := range fields {
+		preferred[i] = detailSummaryPreferredWidth(field)
+	}
+	if detailSummaryWidthSum(preferred) <= width {
+		return preferred
+	}
+	widths := append([]int(nil), minWidths...)
+	remaining := width - detailSummaryWidthSum(widths)
+	for remaining > 0 {
+		best := -1
+		bestNeed := 0
+		for i := range widths {
+			need := preferred[i] - widths[i]
+			if need > bestNeed {
+				best = i
+				bestNeed = need
+			}
+		}
+		if best < 0 {
+			break
+		}
+		widths[best]++
+		remaining--
+	}
+	return widths
+}
+
+func detailSummaryMinWidths(fields []detailField) []int {
+	widths := make([]int, len(fields))
+	for i, field := range fields {
+		keyWidth := lipgloss.Width(field.Key)
+		valueWidth := min(lipgloss.Width(firstNonEmpty(field.Value, "-")), detailSummaryTargetCell)
+		widths[i] = max(detailSummaryMinCellWidth, max(keyWidth, valueWidth))
+	}
+	return widths
+}
+
+func detailSummaryPreferredWidth(field detailField) int {
+	value := firstNonEmpty(field.Value, "-")
+	preferred := max(lipgloss.Width(field.Key), lipgloss.Width(value))
+	return clamp(preferred, detailSummaryMinCellWidth, detailSummaryMaxCellWidth)
+}
+
+func detailSummaryWidthSum(widths []int) int {
+	if len(widths) == 0 {
+		return 0
+	}
+	sum := detailSummaryColumnGap * (len(widths) - 1)
+	for _, width := range widths {
+		sum += width
+	}
+	return sum
+}
+
+func detailSummaryRenderFieldRow(fields []detailField, widths []int) []string {
+	if len(fields) == 0 {
+		return nil
+	}
+	headers := make([]string, 0, len(fields))
+	values := make([]string, 0, len(fields))
+	for i, field := range fields {
+		width := widths[i]
+		headers = append(headers, detailSummaryCell(keyStyle, field.Key, width))
+		values = append(values, detailSummaryCell(valueStyle, firstNonEmpty(field.Value, "-"), width))
+	}
+	gap := valueStyle.Render(strings.Repeat(" ", detailSummaryColumnGap))
+	return []string{
+		strings.Join(headers, gap),
+		strings.Join(values, gap),
+	}
+}
+
+func detailSummaryCell(style lipgloss.Style, value string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	return style.Render(padVisible(fitText(value, width), width))
+}
+
+func detailTimelineLabel(histogram occurrenceHistogram) string {
+	label := keyStyle.Render("timeline ") +
+		summaryKeyStyle.Render("window=") + valueStyle.Render("last="+detailTimelineWindowLabel()) +
+		summaryKeyStyle.Render("  peak=") + valueStyle.Render(fmt.Sprint(histogram.Max))
+	return label
+}
+
+func detailTimelineWindowLabel() string {
+	return fmt.Sprintf("%dm", int(detailTimelineWindow/time.Minute))
+}
+
+func detailTimelineAxis(width int) string {
+	if width <= 0 {
+		return ""
+	}
+	left := detailTimelineWindowLabel() + " ago"
+	right := "now"
+	if width < len(left)+len(right)+1 {
+		return dimStyle.Render(strings.Repeat("-", width))
+	}
+	mid := strings.Repeat("-", max(1, width-len(left)-len(right)))
+	return dimStyle.Render(left + mid + right)
+}
+
+func detailSectionRowLines(section detailSection, row string, width int) []string {
+	if !section.WrapLogs {
+		return []string{row}
+	}
+	return detailLogRowLines(row, width)
+}
+
+func detailLogRowLines(row string, width int) []string {
+	if width <= 0 {
+		return nil
+	}
+	row = strings.TrimSpace(sanitizeLogText(ansi.Strip(row)))
+	if row == "" {
+		return nil
+	}
+	timestamp, body, ok := detailSplitLogTimestamp(row)
+	if !ok {
+		body = row
+	}
+	prefix := "  "
+	continuationPrefix := "  "
+	if ok {
+		prefix += timestamp + "  "
+		continuationPrefix += strings.Repeat(" ", lipgloss.Width(timestamp)) + "  "
+	}
+	bodyWidth := max(1, width-lipgloss.Width(prefix))
+	wrapped := strings.Split(ansi.Wrap(body, bodyWidth, " "), "\n")
+	lines := make([]string, 0, max(1, len(wrapped)))
+	if len(wrapped) == 0 {
+		wrapped = []string{""}
+	}
+	for i, part := range wrapped {
+		linePrefix := prefix
+		if i > 0 {
+			linePrefix = continuationPrefix
+		}
+		lines = append(lines, valueStyle.Render(linePrefix+fitANSI(strings.TrimSpace(part), bodyWidth)))
+	}
+	return lines
+}
+
+func detailSplitLogTimestamp(row string) (timestamp string, body string, ok bool) {
+	if len(row) < len("15:04:05 ") {
+		return "", "", false
+	}
+	if !asciiDigit(row[0]) || !asciiDigit(row[1]) || row[2] != ':' ||
+		!asciiDigit(row[3]) || !asciiDigit(row[4]) || row[5] != ':' ||
+		!asciiDigit(row[6]) || !asciiDigit(row[7]) || row[8] != ' ' {
+		return "", "", false
+	}
+	return row[:8], strings.TrimSpace(row[9:]), true
+}
+
+func asciiDigit(ch byte) bool {
+	return ch >= '0' && ch <= '9'
+}
+
 func detailCompactGraphHeight(height int, used int, sectionCount int) int {
 	remaining := height - used
-	if remaining < sectionCount*2+4 {
+	if remaining < sectionCount*2+4+detailGraphVerticalPadding+detailTimelineHeaderHeight {
 		return 0
 	}
 	if remaining >= 12 {
@@ -225,30 +497,6 @@ func detailSectionAllocations(sections []detailSection, available int) []int {
 		}
 	}
 	return allocations
-}
-
-func (m model) passingCheckDetailRows(summary passingCheckSummary) []string {
-	items := make([]passingCheckState, 0, summary.Count)
-	for _, item := range m.PassingChecks {
-		if passingCheckSummaryKey(item.Agent, item.Target, item.Step) == passingCheckSummaryKey(summary.Agent, summary.Target, summary.Step) {
-			items = append(items, item)
-		}
-	}
-	sort.SliceStable(items, func(i, j int) bool {
-		return items[i].When.After(items[j].When)
-	})
-	rows := []string{summaryKeyStyle.Render("  time      round  status  dur     op/type")}
-	for _, item := range items {
-		op := firstNonEmpty(item.Step.Operation, item.Step.Type, "-")
-		rows = append(rows, valueStyle.Render(fmt.Sprintf("  %s  %-5s  %-6s  %-6s  %s",
-			item.When.Format("15:04:05"),
-			roundLabel(item.Round),
-			firstNonEmpty(item.Step.Status, "ok"),
-			durationLabel(item.Duration),
-			op,
-		)))
-	}
-	return rows
 }
 
 func (m model) failedCheckDetailRows(summary failedCheckSummary) []string {
@@ -404,7 +652,7 @@ func (m model) scopedLogLines(limit int, match func(eventLogEntry) bool) []strin
 	for i := len(m.EventLogEntries) - 1; i >= 0 && len(rows) < limit; i-- {
 		entry := m.EventLogEntries[i]
 		if match(entry) {
-			rows = append(rows, valueStyle.Render("  "+entry.Line))
+			rows = append(rows, entry.Line)
 		}
 	}
 	return rows
@@ -516,21 +764,6 @@ func roundLabel(round uint64) string {
 	return fmt.Sprint(round)
 }
 
-func detailHistogramSummary(histogram occurrenceHistogram, graphHeight int) string {
-	plotHeight := max(1, graphHeight-1)
-	eventsPerRow := sparklineEventsPerRow(histogram.Max, plotHeight)
-	out := keyStyle.Render("  events=") +
-		valueStyle.Render("last="+formatBucketDuration(summarySparklineWindow)) +
-		keyStyle.Render(" count=") +
-		valueStyle.Render(fmt.Sprint(histogram.Count)) +
-		keyStyle.Render(" peak=") +
-		valueStyle.Render(fmt.Sprint(histogram.Max))
-	if eventsPerRow > 1 {
-		out += keyStyle.Render(" scale=") + valueStyle.Render(fmt.Sprintf("%d/row", eventsPerRow))
-	}
-	return out
-}
-
 func renderDetailHistogram(histogram occurrenceHistogram, width int, height int, style lipgloss.Style) []string {
 	if width <= 0 || height <= 0 || len(histogram.Counts) == 0 || histogram.Max <= 0 {
 		return nil
@@ -539,7 +772,7 @@ func renderDetailHistogram(histogram occurrenceHistogram, width int, height int,
 		return renderSparkline(histogram.Counts, histogram.Max, width, 1, style)
 	}
 	lines := renderSparkline(histogram.Counts, histogram.Max, width, max(1, height-1), style)
-	lines = append(lines, summarySparklineAxis(width, summarySparklineWindow))
+	lines = append(lines, detailTimelineAxis(width))
 	return lines[:min(len(lines), height)]
 }
 
@@ -555,21 +788,25 @@ func (m model) detailModal(width int, height int) string {
 }
 
 func (m model) passingCheckDetailModal(width int, height int) string {
-	modalWidth := max(2, width*90/100)
+	modalWidth := detailModalWidth(width)
 	modalHeight := detailModalHeight(height)
 	return renderPanel("Passing Check Detail", modalWidth, modalHeight, m.passingCheckDetailView(panelContentWidth(modalWidth), modalHeight-2))
 }
 
 func (m model) failedCheckDetailModal(width int, height int) string {
-	modalWidth := max(2, width*90/100)
+	modalWidth := detailModalWidth(width)
 	modalHeight := detailModalHeight(height)
 	return renderPanel("Failed Check Detail", modalWidth, modalHeight, m.failedCheckDetailView(panelContentWidth(modalWidth), modalHeight-2))
 }
 
 func (m model) failureHotspotDetailModal(width int, height int) string {
-	modalWidth := max(2, width*90/100)
+	modalWidth := detailModalWidth(width)
 	modalHeight := detailModalHeight(height)
 	return renderPanel("Failure Hotspot Detail", modalWidth, modalHeight, m.failureHotspotDetailView(panelContentWidth(modalWidth), modalHeight-2))
+}
+
+func detailModalWidth(width int) int {
+	return max(2, width*detailModalWidthPercent/100)
 }
 
 func detailModalHeight(height int) int {

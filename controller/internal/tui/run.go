@@ -58,7 +58,7 @@ func newModelWithChecks(title string, targets []watch.Target, checks []watch.Che
 		events:      events,
 		keys:        keyMap{quit: key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl-c", "quit"))},
 		State:       watchstate.New(targets, checks, agents, time.Now()),
-		focus:       focusFailedChecks,
+		focus:       focusCheckStatus,
 		detailPanel: focusFailedChecks,
 	}
 }

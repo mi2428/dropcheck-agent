@@ -48,6 +48,7 @@ func TestTabFocusAndPanelLocalNavigation(t *testing.T) {
 		})
 	}
 	m.failedCheckCursor = 0
+	m.focus = focusFailedChecks
 
 	m = updateKey(t, m, tea.Key{Code: 'j', Text: "j"})
 	if m.focus != focusFailedChecks || m.failedCheckCursor != 1 || m.passingCheckCursor != 0 {
