@@ -24,7 +24,11 @@ func TestAgentsAreSortedAndResolvedByExactOrPrefix(t *testing.T) {
 	addTestAgent(server, AgentInfo{
 		ID:        "agent-a",
 		SessionID: "session-a",
-		Hello:     &controlpb.AgentHello{AdbSerial: "serial-a", ControllerAgentId: "controller-a"},
+		Hello: &controlpb.AgentHello{
+			AdbSerial:         "serial-a",
+			ControllerAgentId: "controller-a",
+			Device:            &controlpb.DeviceInfo{Manufacturer: "Google", Model: "Pixel 7a"},
+		},
 		Connected: time.Unix(1, 0),
 	})
 
@@ -34,7 +38,7 @@ func TestAgentsAreSortedAndResolvedByExactOrPrefix(t *testing.T) {
 		t.Fatalf("Agents IDs = %#v", gotIDs)
 	}
 
-	for _, target := range []string{"agent-a", "session-a", "serial-a", "controller-a", "serial-b"} {
+	for _, target := range []string{"agent-a", "session-a", "serial-a", "controller-a", "Pixel 7a", "pixel7a", "serial-b"} {
 		t.Run(target, func(t *testing.T) {
 			info, err := server.ResolveAgent(target)
 			if err != nil {

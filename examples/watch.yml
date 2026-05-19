@@ -1,0 +1,203 @@
+version: 1
+name: shownet-hotstage-cisco
+
+# Zero starts the next round immediately after the previous round completes.
+# Use values such as 5s or 1m when association churn should be gentler.
+round_interval: 5s
+
+defaults:
+  passphrase_env: DROPCHECK_WIFI_PSK
+  security: wpa3
+  mac_randomization: none
+  require_ip: true
+  require_validated: true
+  # Connect includes association plus the first IP-visible state; 3s is too
+  # aggressive for repeated BSSID-pinned reconnects and produces false FAILs.
+  connect_timeout: 10s
+  wait_timeout: 45s
+  disconnect_after: true
+  forget_after: false
+
+targets:
+  - name: cs1(5G)
+    agent: ABCD1234567
+    short_name: C1_5
+    ssid: cs1
+    bssid: 02:00:00:00:05:01
+    band: 5ghz
+
+  - name: cs1(6G)
+    agent: WXYZ9876543
+    short_name: C1_6
+    ssid: cs1
+    bssid: 02:00:00:00:06:01
+    band: 6ghz
+
+  - name: cs2(5G)
+    agent: ABCD1234567
+    short_name: C2_5
+    ssid: cs2
+    bssid: 02:00:00:00:05:01
+    band: 5ghz
+
+  - name: cs2(6G)
+    agent: WXYZ9876543
+    short_name: C2_6
+    ssid: cs2
+    bssid: 02:00:00:00:06:01
+    band: 6ghz
+
+  - name: cs3(5G)
+    agent: ABCD1234567
+    short_name: C3_5
+    ssid: cs3
+    bssid: 02:00:00:00:05:01
+    band: 5ghz
+
+  - name: cs3(6G)
+    agent: WXYZ9876543
+    short_name: C3_6
+    ssid: cs3
+    bssid: 02:00:00:00:06:01
+    band: 6ghz
+
+checks:
+  - name: IP Provisioning
+    type: ip_status
+    expect:
+      validated: true
+      internet: true
+      default_route: true
+      dns_server_count: ">=1"
+      mtu: ">=1280"
+      ipv4_addresses:
+        cidr: "0.0.0.0/0"
+      ipv6_addresses:
+        cidr: "::/0"
+
+  - name: Ping GW IPv4
+    type: ping
+    host: 192.168.23.254
+    count: 5
+    expect:
+      received: ">=4"
+      loss_percent: "<=20"
+      avg_latency_ms: "<=500"
+
+  - name: Ping CF IPv4
+    type: ping
+    host: 1.1.1.1
+    count: 5
+    expect:
+      received: ">=4"
+      loss_percent: "<=20"
+      avg_latency_ms: "<=500"
+
+  - name: Ping CF IPv6
+    type: ping
+    host: 2606:4700:4700::1111
+    count: 5
+    expect:
+      received: ">=4"
+      loss_percent: "<=20"
+      avg_latency_ms: "<=500"
+
+  - name: MTU CF IPv4
+    type: path_mtu
+    host: 1.1.1.1
+    min_mtu: 1280
+    max_mtu: 1500
+    timeout: 30s
+    expect:
+      discovered: true
+      path_mtu_bytes: ">=1280"
+
+  - name: MTU CF IPv6
+    type: path_mtu
+    host: 2606:4700:4700::1111
+    min_mtu: 1280
+    max_mtu: 1500
+    timeout: 30s
+    expect:
+      discovered: true
+      path_mtu_bytes: ">=1280"
+
+  - name: DNS CF A
+    type: dns
+    query: one.one.one.one
+    record: A
+    expect:
+      a_count: ">=1"
+      a_answers:
+        exact:
+          - 1.0.0.1
+          - 1.1.1.1
+      elapsed_ms: "<=2000"
+
+  - name: DNS CF AAAA
+    type: dns
+    query: one.one.one.one
+    record: AAAA
+    expect:
+      aaaa_count: ">=1"
+      aaaa_answers:
+        exact:
+          - 2606:4700:4700::1001
+          - 2606:4700:4700::1111
+      elapsed_ms: "<=2000"
+
+  - name: HTTP CF IPv4
+    type: http
+    url: http://1.1.1.1/cdn-cgi/trace
+    status: 301
+    expect:
+      matched: true
+      status_code: 301
+      elapsed_ms: "<=3000"
+
+  - name: HTTP CF IPv6
+    type: http
+    url: http://[2606:4700:4700::1111]/cdn-cgi/trace
+    status: 301
+    expect:
+      matched: true
+      status_code: 301
+      elapsed_ms: "<=3000"
+
+  - name: Download CF IPv4
+    type: download
+    url: http://1.1.1.1/cdn-cgi/trace
+    timeout: 10s
+    expect:
+      status_code: 301
+      bytes_read: ">=1"
+
+  - name: Download CF IPv6
+    type: download
+    url: http://[2606:4700:4700::1111]/cdn-cgi/trace
+    timeout: 10s
+    expect:
+      status_code: 301
+      bytes_read: ">=1"
+
+  - name: Public IPv4
+    type: global_ip
+    family: ipv4
+    expect:
+      address_count: ">=1"
+      global_count: ">=1"
+      ipv4_count: ">=1"
+      ipv4_global_ips:
+        cidr: "0.0.0.0/0"
+      error_count: 0
+
+  - name: Public IPv6
+    type: global_ip
+    family: ipv6
+    expect:
+      address_count: ">=1"
+      global_count: ">=1"
+      ipv6_count: ">=1"
+      ipv6_global_ips:
+        cidr: "::/0"
+      error_count: 0

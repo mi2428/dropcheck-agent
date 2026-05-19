@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -31,6 +32,9 @@ type Options struct {
 	PackageName string
 	// ListenAddr is the controller gRPC listen address. Empty uses 127.0.0.1:0.
 	ListenAddr string
+	// OnLog receives WARN/ERROR logs emitted by Android agents. Nil writes them
+	// to stderr, preserving the default CLI and shell behavior.
+	OnLog func(control.LogEvent)
 }
 
 // Session represents a running controller session and its cleanup handles.
@@ -103,17 +107,7 @@ func startOnce(ctx context.Context, opts Options, targets []adb.Device, token st
 	listenAddr := listener.Addr().String()
 
 	server := grpc.NewServer()
-	controlServer := control.NewServer(token, func(event control.LogEvent) {
-		if event.Level == controlpb.CommandLog_LEVEL_DEBUG || event.Level == controlpb.CommandLog_LEVEL_INFO {
-			return
-		}
-		prefix := levelName(event.Level)
-		if event.CommandID != "" {
-			fmt.Fprintf(os.Stderr, "[%s agent=%s command=%s] %s\n", prefix, empty(event.AgentID, "unknown"), event.CommandID, event.Message)
-			return
-		}
-		fmt.Fprintf(os.Stderr, "[%s agent=%s] %s\n", prefix, empty(event.AgentID, "unknown"), event.Message)
-	})
+	controlServer := control.NewServer(token, sessionLogHandler(opts))
 	controlServer.Register(server)
 
 	serveDone := make(chan error, 1)
@@ -159,6 +153,27 @@ func startOnce(ctx context.Context, opts Options, targets []adb.Device, token st
 	session.Agents = infos
 	cleanupOnError = false
 	return session, nil
+}
+
+func sessionLogHandler(opts Options) func(control.LogEvent) {
+	if opts.OnLog != nil {
+		return opts.OnLog
+	}
+	return func(event control.LogEvent) {
+		writeSessionLog(os.Stderr, event)
+	}
+}
+
+func writeSessionLog(w io.Writer, event control.LogEvent) {
+	if event.Level == controlpb.CommandLog_LEVEL_DEBUG || event.Level == controlpb.CommandLog_LEVEL_INFO {
+		return
+	}
+	prefix := levelName(event.Level)
+	if event.CommandID != "" {
+		_, _ = fmt.Fprintf(w, "[%s agent=%s command=%s] %s\n", prefix, empty(event.AgentID, "unknown"), event.CommandID, event.Message)
+		return
+	}
+	_, _ = fmt.Fprintf(w, "[%s agent=%s] %s\n", prefix, empty(event.AgentID, "unknown"), event.Message)
 }
 
 func listenAddrUsesEphemeralPort(addr string) bool {

@@ -122,6 +122,79 @@ class WifiConnectorPolicyTest {
     }
 
     @Test
+    fun resolvesBandOnlyConnectToStrongestMatchingBssid() {
+        val candidates = listOf(
+            WifiConnectorPolicy.ScanSecurityCandidate(
+                ssid = "Lab",
+                bssid = "00:00:00:00:00:01",
+                capabilities = "[RSN-SAE-CCMP][ESS]",
+                frequencyMhz = 2412,
+                levelDbm = -70,
+            ),
+            WifiConnectorPolicy.ScanSecurityCandidate(
+                ssid = "Lab",
+                bssid = "00:00:00:00:00:02",
+                capabilities = "[RSN-SAE-CCMP][ESS]",
+                frequencyMhz = 2462,
+                levelDbm = -42,
+            ),
+            WifiConnectorPolicy.ScanSecurityCandidate(
+                ssid = "Lab",
+                bssid = "70:a7:41:a0:9a:6f",
+                capabilities = "[RSN-SAE-CCMP][ESS]",
+                frequencyMhz = 5200,
+                levelDbm = -35,
+            ),
+        )
+
+        assertEquals(
+            "00:00:00:00:00:02",
+            WifiConnectorPolicy.resolveConnectBssid(
+                requested = "",
+                candidates = candidates,
+                ssid = "Lab",
+                band = WifiBand.WIFI_BAND_2_4_GHZ,
+            ),
+        )
+    }
+
+    @Test
+    fun keepsExplicitBssidWhenResolvingConnectBssid() {
+        assertEquals(
+            "22:0B:8B:B6:2C:E0",
+            WifiConnectorPolicy.resolveConnectBssid(
+                requested = "22:0B:8B:B6:2C:E0",
+                candidates = emptyList(),
+                ssid = "Lab",
+                band = WifiBand.WIFI_BAND_2_4_GHZ,
+            ),
+        )
+    }
+
+    @Test
+    fun leavesConnectBssidBlankWithoutSpecificBand() {
+        val candidates = listOf(
+            WifiConnectorPolicy.ScanSecurityCandidate(
+                ssid = "Lab",
+                bssid = "00:00:00:00:00:01",
+                capabilities = "[RSN-SAE-CCMP][ESS]",
+                frequencyMhz = 2412,
+                levelDbm = -42,
+            ),
+        )
+
+        assertEquals(
+            "",
+            WifiConnectorPolicy.resolveConnectBssid(
+                requested = "",
+                candidates = candidates,
+                ssid = "Lab",
+                band = WifiBand.WIFI_BAND_ALL,
+            ),
+        )
+    }
+
+    @Test
     fun acceptsAlreadyConnectedNetworkWhenItMatchesConnectRequest() {
         val current = WifiConnectorPolicy.CurrentConnectionRef(
             networkId = 10,
@@ -219,6 +292,64 @@ class WifiConnectorPolicyTest {
         assertEquals(listOf(42), WifiConnectorPolicy.forgetNetworkIds("42", configs))
         assertEquals(emptyList<Int>(), WifiConnectorPolicy.forgetNetworkIds("Missing", configs))
         assertEquals(emptyList<Int>(), WifiConnectorPolicy.forgetNetworkIds("", configs))
+    }
+
+    @Test
+    fun selectsConflictingProfilesBeforeBssidPinnedConnect() {
+        val current = WifiConnectorPolicy.CurrentConnectionRef(
+            networkId = 10,
+            ssid = "Lab",
+            bssid = "70:a7:41:a0:9a:6f",
+            frequencyMhz = 5200,
+            securityType = "sae",
+        )
+        val configs = listOf(
+            WifiConnectorPolicy.ConfiguredNetworkRef(networkId = 7, ssid = "\"Lab\""),
+            WifiConnectorPolicy.ConfiguredNetworkRef(networkId = 8, ssid = "\"Lab\"", bssid = "22:0b:8b:b6:2c:e1"),
+            WifiConnectorPolicy.ConfiguredNetworkRef(networkId = 9, ssid = "\"Guest\""),
+        )
+
+        assertEquals(
+            listOf(7),
+            WifiConnectorPolicy.bssidPinCleanupNetworkIds(
+                ssid = "Lab",
+                bssid = "22:0B:8B:B6:2C:E1",
+                current = current,
+                configs = configs,
+            ),
+        )
+    }
+
+    @Test
+    fun keepsProfilesWhenBssidPinnedConnectAlreadyMatches() {
+        val current = WifiConnectorPolicy.CurrentConnectionRef(
+            networkId = 10,
+            ssid = "Lab",
+            bssid = "22:0b:8b:b6:2c:e1",
+            frequencyMhz = 5220,
+            securityType = "sae",
+        )
+        val configs = listOf(
+            WifiConnectorPolicy.ConfiguredNetworkRef(networkId = 8, ssid = "\"Lab\"", bssid = "22:0b:8b:b6:2c:e1"),
+        )
+
+        assertEquals(
+            emptyList<Int>(),
+            WifiConnectorPolicy.bssidPinCleanupNetworkIds(
+                ssid = "Lab",
+                bssid = "22:0B:8B:B6:2C:E1",
+                current = current,
+                configs = configs,
+            ),
+        )
+    }
+
+    @Test
+    fun treatsDisconnectedFrameworkStatesAsSettled() {
+        assertTrue(WifiConnectorPolicy.disconnectSettled(-1, "\"Lab\"", "70:a7:41:a0:9a:6f", "COMPLETED"))
+        assertTrue(WifiConnectorPolicy.disconnectSettled(7, "<unknown ssid>", "", "SCANNING"))
+        assertTrue(WifiConnectorPolicy.disconnectSettled(7, "\"Lab\"", "00:00:00:00:00:00", "DISCONNECTED"))
+        assertFalse(WifiConnectorPolicy.disconnectSettled(7, "\"Lab\"", "70:a7:41:a0:9a:6f", "COMPLETED"))
     }
 
     @Test
