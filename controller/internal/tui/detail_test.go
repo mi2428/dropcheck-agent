@@ -53,12 +53,8 @@ func TestEnterShowsFailedCheckDetail(t *testing.T) {
 		"09:30:00  0         \"== 5\"",
 		"Message",
 		"constraint failed",
-		"window=last=90m count=",
-		"peak=1",
-		"scale=",
-		"█",
-		"90m ago",
-		"now",
+		"Failure History:",
+		"Logs:",
 	} {
 		if !strings.Contains(frame, want) {
 			t.Fatalf("detail view missing %q:\n%s", want, frame)
@@ -274,7 +270,7 @@ func TestFailedCheckDetailOverlaysExistingTUI(t *testing.T) {
 	}
 }
 
-func TestFailedCheckDetailShowsOccurrenceHistogram(t *testing.T) {
+func TestFailedCheckDetailModalKeepsInvestigationRowsWhenCompact(t *testing.T) {
 	events := make(chan watch.Event)
 	m := newModel("shownet-watch", []watch.Target{
 		{Name: "SHIZK RADIO", SSID: "SHIZK RADIO", Band: "5ghz"},
@@ -309,15 +305,11 @@ func TestFailedCheckDetailShowsOccurrenceHistogram(t *testing.T) {
 		"7         100%       1",
 		"Last      Observed  Expected",
 		"09:31:00  0         \"== 5\"",
-		"window=last=90m count=",
-		"peak=6",
-		"scale=",
-		"█",
-		"90m ago",
-		"now",
+		"Failure History:",
+		"Logs:",
 	} {
 		if !strings.Contains(frame, want) {
-			t.Fatalf("detail histogram missing %q:\n%s", want, frame)
+			t.Fatalf("compact detail view missing %q:\n%s", want, frame)
 		}
 	}
 	if strings.Contains(frame, "回数") || strings.Contains(frame, "時刻") || strings.Contains(frame, "·") {
@@ -420,7 +412,7 @@ func TestFailureHotspotDetailSectionsUseTitledSpacing(t *testing.T) {
 	view := stripANSI(m.failureHotspotDetailView(120, 25))
 	for _, want := range []string{
 		"Causes:",
-		"2      09:31:00  constraint failed",
+		"2  09:31:00  constraint failed",
 		"Failure History:",
 		"09:31:00  2      public ipv6",
 		"Logs:",
@@ -642,6 +634,150 @@ func TestOccurrenceGraphHeightUsesHalfOfDetailContent(t *testing.T) {
 	}
 }
 
+func TestFailureCauseHistoryTableAlignsWithLongCheckNames(t *testing.T) {
+	events := make(chan watch.Event)
+	m := newModel("shownet-watch", []watch.Target{}, events)
+	at := time.Date(2026, 5, 16, 13, 41, 52, 0, time.UTC)
+	m.Now = at.Add(time.Minute)
+	target := watch.TargetSnapshot{Name: "debug-a1(5G)", SSID: "SHIZK RADIO"}
+	m.apply(watch.Event{
+		Time:   at,
+		Kind:   watch.EventFinding,
+		Round:  2,
+		Target: target,
+		Step:   watch.StepSnapshot{Name: "Debug Ping Blackhole", Type: "ping", Status: "failed"},
+		Status: "failed",
+		Finding: &watch.Finding{
+			Target:   target.Name,
+			Check:    "Debug Ping Blackhole",
+			Metric:   "status",
+			Observed: "failed",
+			Expected: "== ok",
+			Message:  "ping failed",
+		},
+	})
+	causes := m.failureCauses()
+	if len(causes) != 1 {
+		t.Fatalf("failure causes = %d, want 1: %#v", len(causes), causes)
+	}
+
+	rows := m.failureCauseDetailRows(causes[0], 120)
+	if len(rows) < 2 {
+		t.Fatalf("failure cause history rows = %d, want header and data", len(rows))
+	}
+	assertDetailTableColumnAligned(t, rows[0], rows[1], [][2]string{
+		{"Metric", "status"},
+		{"Observed", "failed"},
+		{"Expected", "\"== ok\""},
+	})
+}
+
+func TestFailureHotspotHistoryTableAlignsWithLongCheckNames(t *testing.T) {
+	events := make(chan watch.Event)
+	m := newModel("shownet-watch", []watch.Target{}, events)
+	at := time.Date(2026, 5, 16, 14, 6, 35, 0, time.UTC)
+	m.Now = at.Add(time.Minute)
+	target := watch.TargetSnapshot{Name: "debug-a1(5G)", SSID: "SHIZK RADIO"}
+	m.apply(watch.Event{
+		Time:   at,
+		Kind:   watch.EventFinding,
+		Round:  1,
+		Target: target,
+		Step:   watch.StepSnapshot{Name: "Debug HTTP Wrong Status", Type: "http", Status: "failed"},
+		Status: "failed",
+		Finding: &watch.Finding{
+			Target:   target.Name,
+			Check:    "Debug HTTP Wrong Status",
+			Metric:   "elapsed_ms",
+			Observed: "45",
+			Expected: "<= 1",
+			Message:  "constraint failed",
+		},
+	})
+	hotspots := m.failureHotspots()
+	if len(hotspots) != 1 {
+		t.Fatalf("failure hotspots = %d, want 1: %#v", len(hotspots), hotspots)
+	}
+
+	rows := m.failureHotspotDetailRows(hotspots[0], 120)
+	if len(rows) < 2 {
+		t.Fatalf("failure hotspot history rows = %d, want header and data", len(rows))
+	}
+	assertDetailTableColumnAligned(t, rows[0], rows[1], [][2]string{
+		{"Metric", "elapsed_ms"},
+		{"Observed", "45"},
+		{"Expected", "\"<= 1\""},
+		{"Cause", "constraint failed"},
+	})
+}
+
+func assertDetailTableColumnAligned(t *testing.T, headerLine string, rowLine string, pairs [][2]string) {
+	t.Helper()
+	header := stripANSI(headerLine)
+	row := stripANSI(rowLine)
+	for _, pair := range pairs {
+		want := strings.Index(header, pair[0])
+		got := strings.Index(row, pair[1])
+		if want < 0 || got < 0 {
+			t.Fatalf("column pair not found: header %q index=%d row %q index=%d\nheader=%q\nrow=%q", pair[0], want, pair[1], got, header, row)
+		}
+		if got != want {
+			t.Fatalf("column %q not aligned: header index=%d row index=%d\nheader=%q\nrow=%q", pair[0], want, got, header, row)
+		}
+	}
+}
+
+func TestDetailSectionAllocationsPrioritizeHistoryAndUseLogFloor(t *testing.T) {
+	sections := []detailSection{
+		{Title: "causes", Rows: []string{"  Count  Last      Cause", "      2  14:29:36  constraint failed", "      2  14:29:35  ping failed"}},
+		{Title: "failure history", Rows: detailTestRows(17, "  14:29:36  2  Debug HTTP Wrong Status  status  failed  \"== ok\"")},
+		{Title: "logs", Rows: detailTestRows(80, "  14:30:37  kind=step_started round=3 status=running target=debug-a2(5G)"), WrapLogs: true},
+	}
+
+	allocations := detailSectionAllocations(sections, 40, 160)
+
+	if got, want := allocations[0], detailSectionNaturalAllocation(sections[0], 160); got != want {
+		t.Fatalf("causes allocation = %d, want full %d", got, want)
+	}
+	if got, want := allocations[1], detailSectionNaturalAllocation(sections[1], 160); got != want {
+		t.Fatalf("failure history allocation = %d, want full %d", got, want)
+	}
+	if got, floor := allocations[2], detailLogMinimumAllocation(40); got < floor {
+		t.Fatalf("logs allocation = %d, want at least %d", got, floor)
+	}
+	if got := allocations[0] + allocations[1] + allocations[2]; got != 40 {
+		t.Fatalf("allocations should use all section height, got %d: %#v", got, allocations)
+	}
+}
+
+func TestDetailSectionAllocationsKeepLogsAtFloorWhenHistoryOverflows(t *testing.T) {
+	sections := []detailSection{
+		{Title: "failure history", Rows: detailTestRows(80, "  14:29:36  2  Debug HTTP Wrong Status  status  failed  \"== ok\"")},
+		{Title: "logs", Rows: detailTestRows(80, "  14:30:37  kind=step_started round=3 status=running target=debug-a2(5G)"), WrapLogs: true},
+	}
+
+	allocations := detailSectionAllocations(sections, 40, 160)
+	logFloor := detailLogMinimumAllocation(40)
+
+	if got := allocations[1]; got != logFloor {
+		t.Fatalf("logs should stay at floor while history is overflowing: got=%d floor=%d allocations=%#v", got, logFloor, allocations)
+	}
+	if got := allocations[0]; got <= allocations[1] {
+		t.Fatalf("failure history should receive the remaining height before extra logs: allocations=%#v", allocations)
+	}
+	if got := allocations[0] + allocations[1]; got != 40 {
+		t.Fatalf("allocations should use all section height, got %d: %#v", got, allocations)
+	}
+}
+
+func detailTestRows(count int, value string) []string {
+	rows := make([]string, count)
+	for i := range rows {
+		rows[i] = value
+	}
+	return rows
+}
+
 func TestFailedCheckDetailModalUsesFixedAppRatio(t *testing.T) {
 	events := make(chan watch.Event)
 	m := newModel("shownet-watch", []watch.Target{}, events)
@@ -650,7 +786,7 @@ func TestFailedCheckDetailModalUsesFixedAppRatio(t *testing.T) {
 	if got, want := lipgloss.Width(modal), 81; got != want {
 		t.Fatalf("modal width = %d, want %d", got, want)
 	}
-	if got, want := lipgloss.Height(modal), 17; got != want {
+	if got, want := lipgloss.Height(modal), 10; got != want {
 		t.Fatalf("modal height = %d, want %d", got, want)
 	}
 }
@@ -674,8 +810,15 @@ func TestDetailModalShowsExpandedLogRows(t *testing.T) {
 	m.focus = focusPassingChecks
 	m.openDetailForPanel(focusPassingChecks)
 
-	modal := stripANSI(m.passingCheckDetailModal(150, 60))
-	if got := strings.Count(modal, "kind=step_finished"); got < 9 {
+	modalFrame := m.passingCheckDetailModal(150, 60)
+	if got, base := lipgloss.Height(modalFrame), detailModalHeight(60); got <= base {
+		t.Fatalf("modal should grow beyond base height when logs overflow: got=%d base=%d\n%s", got, base, stripANSI(modalFrame))
+	}
+	if got, want := lipgloss.Height(modalFrame), detailModalMaxHeight(60); got != want {
+		t.Fatalf("overflowing modal height = %d, want cap %d", got, want)
+	}
+	modal := stripANSI(modalFrame)
+	if got := strings.Count(modal, "kind=step_finished"); got < 4 {
 		t.Fatalf("expanded modal should show multiple related log rows, got %d:\n%s", got, modal)
 	}
 	if !strings.Contains(modal, "          band=5ghz") && !strings.Contains(modal, "            band=5ghz") {

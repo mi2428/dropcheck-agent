@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"dropcheck/controller/internal/watch"
+	"dropcheck/controller/internal/watchstate"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -184,6 +185,91 @@ func TestFailureHotspotsRankTargetsByStreakRateCount(t *testing.T) {
 	}
 }
 
+func TestFailureCauseModeRanksCausesByTargetSpread(t *testing.T) {
+	events := make(chan watch.Event)
+	m := newModel("shownet-watch", []watch.Target{}, events)
+	m.width = 180
+	m.height = 36
+	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
+	m.Now = at.Add(5 * time.Minute)
+	targetA := watch.TargetSnapshot{Name: "radio-a", SSID: "SHIZK RADIO"}
+	targetB := watch.TargetSnapshot{Name: "radio-b", SSID: "SHIZK RADIO"}
+	targetC := watch.TargetSnapshot{Name: "radio-c", SSID: "SHIZK RADIO"}
+	addFail := func(round uint64, at time.Time, target watch.TargetSnapshot, message string) {
+		m.apply(watch.Event{
+			Time:   at,
+			Kind:   watch.EventFinding,
+			Round:  round,
+			Target: target,
+			Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
+			Status: "failed",
+			Finding: &watch.Finding{
+				Target:   target.Name,
+				Check:    "connect",
+				Metric:   "status",
+				Observed: "failed",
+				Expected: "== ok",
+				Message:  message,
+			},
+		})
+	}
+	addFail(1, at, targetA, "shared dns timeout")
+	addFail(2, at.Add(time.Minute), targetB, "shared dns timeout")
+	addFail(3, at.Add(2*time.Minute), targetC, "connect timeout")
+	addFail(4, at.Add(3*time.Minute), targetC, "connect timeout")
+	addFail(5, at.Add(4*time.Minute), targetC, "connect timeout")
+
+	rows := m.failureCauses()
+	if got, want := len(rows), 2; got != want {
+		t.Fatalf("cause rows = %d, want %d: %#v", got, want, rows)
+	}
+	if rows[0].Cause != "shared dns timeout" || rows[0].TargetCount != 2 || rows[0].FailCount != 2 {
+		t.Fatalf("cause rows should prioritize target spread: %#v", rows)
+	}
+	if rows[1].Cause != "connect timeout" || rows[1].TargetCount != 1 || rows[1].FailCount != 3 {
+		t.Fatalf("single-target cause row stats = %#v", rows[1])
+	}
+
+	m.focus = focusFailureHotspots
+	m = updateKey(t, m, tea.Key{Code: 'm', Text: "m"})
+	if m.failureHotspotMode != failureHotspotModeCauses {
+		t.Fatalf("m should switch hotspot panel to cause mode")
+	}
+	view := stripANSI(m.failureHotspotPanelsView(100, 10))
+	for _, want := range []string{"Failure Causes", "Cause", "Targets", "Hits", "shared dns timeout", "radio-b"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("failure causes view missing %q:\n%s", want, view)
+		}
+	}
+
+	m = updateKey(t, m, tea.Key{Code: tea.KeyEnter})
+	frame := stripANSI(m.render())
+	for _, want := range []string{"Failure Cause Detail", "Targets", "radio-a", "radio-b", "shared dns timeout"} {
+		if !strings.Contains(frame, want) {
+			t.Fatalf("failure cause detail missing %q:\n%s", want, frame)
+		}
+	}
+}
+
+func TestFailureCauseTargetsLabelShowsNamesAndOverflowCount(t *testing.T) {
+	item := failureCauseSummary{Targets: []watchstate.FailureCauseTargetSummary{
+		{Target: watch.TargetSnapshot{Name: "radio-a"}},
+		{Target: watch.TargetSnapshot{Name: "radio-b"}},
+		{Target: watch.TargetSnapshot{Name: "radio-c"}},
+		{Target: watch.TargetSnapshot{Name: "radio-d"}},
+	}}
+
+	if got, want := failureCauseTargetsLabel(item, 0), "radio-a, radio-b, radio-c, radio-d"; got != want {
+		t.Fatalf("unbounded targets label = %q, want %q", got, want)
+	}
+	if got, want := failureCauseTargetsLabel(item, len("radio-a, radio-b ...(2)")), "radio-a, radio-b ...(2)"; got != want {
+		t.Fatalf("bounded targets label = %q, want %q", got, want)
+	}
+	if got, want := failureCauseTargetsLabel(item, len("...(4)")), "...(4)"; got != want {
+		t.Fatalf("suffix-only targets label = %q, want %q", got, want)
+	}
+}
+
 func TestFailureHotspotDetailSurvivesSummaryWindow(t *testing.T) {
 	events := make(chan watch.Event)
 	m := newModel("shownet-watch", []watch.Target{}, events)
@@ -299,20 +385,12 @@ func TestFailureHotspotsPanelSplitsByAgent(t *testing.T) {
 		t.Fatalf("second tab should focus second hotspot agent panel: focus=%v hotspot=%q", m.focus, m.focusHotspotAgentKey)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
-	if m.focus != focusRunQueue || m.focusRunQueueAgentKey != roundAgentKey(agents[0]) {
-		t.Fatalf("third tab should focus first run queue agent panel: focus=%v runQueue=%q", m.focus, m.focusRunQueueAgentKey)
-	}
-	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
-	if m.focus != focusRunQueue || m.focusRunQueueAgentKey != roundAgentKey(agents[1]) {
-		t.Fatalf("fourth tab should focus second run queue agent panel: focus=%v runQueue=%q", m.focus, m.focusRunQueueAgentKey)
-	}
-	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
 	if m.focus != focusCheckStatus {
-		t.Fatalf("fifth tab should focus check status, got %v", m.focus)
+		t.Fatalf("third tab should focus check status, got %v", m.focus)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
-	if m.focus != focusRunQueue || m.focusRunQueueAgentKey != roundAgentKey(agents[1]) {
-		t.Fatalf("shift-tab should reverse to second run queue agent panel: focus=%v runQueue=%q", m.focus, m.focusRunQueueAgentKey)
+	if m.focus != focusFailureHotspots || m.focusHotspotAgentKey != roundAgentKey(agents[1]) {
+		t.Fatalf("shift-tab should reverse to second hotspot agent panel: focus=%v hotspot=%q", m.focus, m.focusHotspotAgentKey)
 	}
 }
 
@@ -407,16 +485,12 @@ func TestTabCyclesThroughFailureHotspotsWhenVisible(t *testing.T) {
 		t.Fatalf("tab from failed checks should focus failure hotspots, got %v", m.focus)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
-	if m.focus != focusRunQueue {
-		t.Fatalf("tab from failure hotspots should focus run queue, got %v", m.focus)
-	}
-	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
 	if m.focus != focusCheckStatus {
-		t.Fatalf("tab from run queue should focus check status, got %v", m.focus)
+		t.Fatalf("tab from failure hotspots should focus check status, got %v", m.focus)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
-	if m.focus != focusRunQueue {
-		t.Fatalf("shift-tab from check status should focus run queue, got %v", m.focus)
+	if m.focus != focusFailureHotspots {
+		t.Fatalf("shift-tab from check status should focus failure hotspots, got %v", m.focus)
 	}
 }
 
@@ -447,10 +521,10 @@ func TestEnterShowsFailureHotspotDetail(t *testing.T) {
 		})
 	}
 
-	m.focus = focusRunQueue
-	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
+	m.focus = focusFailedChecks
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
 	if m.focus != focusFailureHotspots {
-		t.Fatalf("shift-tab from run queue should focus hotspot panel before opening detail, got %v", m.focus)
+		t.Fatalf("tab from failed checks should focus hotspot panel before opening detail, got %v", m.focus)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyEnter})
 	frame := stripANSI(m.render())
@@ -462,17 +536,9 @@ func TestEnterShowsFailureHotspotDetail(t *testing.T) {
 		"REQUEST_DECLINED",
 		"Fail Rate  Failed Runs  Failures  Streak  Last      Latest Check  Metric  Observed  Expected",
 		"100%       2/2          2         2       09:31:00  Connect       status  failed    \"== ok\"",
-		"window=last=90m count=",
-		"peak=1",
-		"scale=",
 		"Causes:",
 		"Count  Last      Cause",
-		"2      09:31:00  REQUEST_DECLINED",
-		"Failure History:",
-		"09:31:00  2      connect           status      failed    \"== ok\"   REQUEST_DECLINED",
-		"90m ago",
-		"now",
-		"█",
+		"2  09:31:00  REQUEST_DECLINED",
 	} {
 		if !strings.Contains(frame, want) {
 			t.Fatalf("failure hotspot detail view missing %q:\n%s", want, frame)

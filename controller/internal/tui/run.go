@@ -125,12 +125,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.detailOpen = false
 				}
 			}
-		case "w":
+		case "ctrl+z":
 			m.pause()
 		case "ctrl+n":
 			m.skipCurrent()
 		case "/":
-			m.searchEditing = true
+			if panelSupportsFilter(m.focus) {
+				m.searchPanel = m.focus
+				m.searchEditing = true
+			}
 		case "j", "down":
 			m.moveFocusedCursor(1)
 			if m.detailOpen {
@@ -150,6 +153,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "l", "right":
 			if m.focus == focusCheckStatus {
 				m.moveCheckStatusHorizontal(1)
+			}
+		case "m":
+			if m.focus == focusFailureHotspots {
+				m.toggleFailureHotspotMode()
 			}
 		case "ctrl+d", "pgdown":
 			m.moveFocusedCursor(10)

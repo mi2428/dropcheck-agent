@@ -55,8 +55,8 @@ func TestTabFocusAndPanelLocalNavigation(t *testing.T) {
 		t.Fatalf("j should move failed checks cursor only: focus=%v passing=%d failed=%d", m.focus, m.passingCheckCursor, m.failedCheckCursor)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
-	if m.focus != focusRunQueue {
-		t.Fatalf("tab should move counter-clockwise to run queue, got %v", m.focus)
+	if m.focus != focusCheckStatus {
+		t.Fatalf("tab should move counter-clockwise to check status, got %v", m.focus)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
 	if m.focus != focusFailedChecks {
@@ -84,10 +84,9 @@ func TestTabFocusAndPanelLocalNavigation(t *testing.T) {
 		t.Fatalf("l should keep check status focused, got %v", m.focus)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
-	if m.focus != focusRunQueue {
-		t.Fatalf("shift-tab from check status should focus run queue, got %v", m.focus)
+	if m.focus != focusFailedChecks {
+		t.Fatalf("shift-tab from check status should focus failed checks, got %v", m.focus)
 	}
-	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
 	m = updateKey(t, m, tea.Key{Code: 'k', Text: "k"})
 	if m.focus != focusFailedChecks || m.failedCheckCursor != 0 {
 		t.Fatalf("k should move failed checks cursor after focus returns: focus=%v failed=%d", m.focus, m.failedCheckCursor)
@@ -218,11 +217,16 @@ func TestPauseResumeAndRightAlignedStatusItems(t *testing.T) {
 	m := newModel("shownet-watch", []watch.Target{}, events)
 	m.pauseControl = control
 	m.width = 120
-	m.searchQuery = "hop2"
+	m.focus = focusFailedChecks
+	m.failedSearchQuery = "hop2"
 
 	m = updateKey(t, m, tea.Key{Code: 'w', Text: "w"})
+	if m.paused || control.Paused() {
+		t.Fatalf("w should not pause model or controller: model=%v controller=%v", m.paused, control.Paused())
+	}
+	m = updateKey(t, m, tea.Key{Code: 'z', Mod: tea.ModCtrl})
 	if !m.paused || !control.Paused() {
-		t.Fatalf("w should pause model and controller: model=%v controller=%v", m.paused, control.Paused())
+		t.Fatalf("ctrl-z should pause model and controller: model=%v controller=%v", m.paused, control.Paused())
 	}
 	status := stripANSI(m.statusBar(120))
 	if !strings.HasSuffix(strings.TrimRight(status, " "), "Paused filter=/hop2") {
@@ -288,6 +292,7 @@ func TestSlashFilterAppliesToPassingAndFailedChecks(t *testing.T) {
 		},
 	})
 
+	m.focus = focusFailedChecks
 	m = updateKey(t, m, tea.Key{Code: '/', Text: "/"})
 	for _, ch := range "ping" {
 		m = updateKey(t, m, tea.Key{Code: ch, Text: string(ch)})
@@ -297,22 +302,93 @@ func TestSlashFilterAppliesToPassingAndFailedChecks(t *testing.T) {
 	if m.searchEditing {
 		t.Fatalf("enter should apply filter editing")
 	}
-	if got := len(m.filteredPassingCheckSummaries()); got != 0 {
-		t.Fatalf("filtered passing check count = %d, want 0", got)
+	if got := len(m.filteredPassingCheckSummaries()); got != 1 {
+		t.Fatalf("non-focused passing check count = %d, want unfiltered 1", got)
 	}
 	if got := len(m.filteredFailedCheckSummaries()); got != 1 {
 		t.Fatalf("filtered failed check count = %d, want 1", got)
 	}
 	frame := stripANSI(m.render())
-	for _, want := range []string{"filter=/ping", "Esc=Clear", "no passing checks match", "ping cloudflare"} {
+	for _, want := range []string{"filter=/ping", "Esc=Clear", "connect", "ping cloudflare"} {
 		if !strings.Contains(frame, want) {
 			t.Fatalf("filtered frame missing %q:\n%s", want, frame)
 		}
 	}
+	if strings.Contains(frame, "no passing checks match") {
+		t.Fatalf("non-focused passing panel should not show filtered empty text:\n%s", frame)
+	}
+
+	m.focus = focusPassingChecks
+	m = updateKey(t, m, tea.Key{Code: '/', Text: "/"})
+	for _, ch := range "connect" {
+		m = updateKey(t, m, tea.Key{Code: ch, Text: string(ch)})
+	}
+	m = updateKey(t, m, tea.Key{Code: tea.KeyEnter})
+	if got := len(m.filteredPassingCheckSummaries()); got != 1 {
+		t.Fatalf("filtered passing check count = %d, want 1", got)
+	}
+	if got := len(m.filteredFailedCheckSummaries()); got != 1 {
+		t.Fatalf("non-focused failed check count = %d, want unfiltered 1", got)
+	}
 
 	m = updateKey(t, m, tea.Key{Code: tea.KeyEscape})
 	if m.hasSearchFilter() || len(m.filteredPassingCheckSummaries()) != 1 {
-		t.Fatalf("esc should clear applied filter: query=%q passingChecks=%d", m.searchQuery, len(m.filteredPassingCheckSummaries()))
+		t.Fatalf("esc should clear focused filter: query=%q passingChecks=%d", m.activeSearchQuery(), len(m.filteredPassingCheckSummaries()))
+	}
+}
+
+func TestSlashFilterAppliesToFocusedCheckStatusAxes(t *testing.T) {
+	events := make(chan watch.Event)
+	m := newModelWithChecks("shownet-watch", []watch.Target{
+		{Name: "alpha-5g", SSID: "Lab"},
+		{Name: "beta-6g", SSID: "Lab"},
+	}, []watch.Check{
+		{Name: "connect", Type: "connect"},
+		{Name: "download_cf_ipv4", Type: "download"},
+	}, events)
+	m.focus = focusCheckStatus
+
+	m = updateKey(t, m, tea.Key{Code: '/', Text: "/"})
+	for _, ch := range "beta" {
+		m = updateKey(t, m, tea.Key{Code: ch, Text: string(ch)})
+	}
+	m = updateKey(t, m, tea.Key{Code: tea.KeyEnter})
+	if m.checkStatusSearchQuery != "beta" {
+		t.Fatalf("slash filter should bind to focused check status panel, got %q", m.checkStatusSearchQuery)
+	}
+	view := stripANSI(m.checkStatusView(96, 4))
+	if !strings.Contains(view, "beta-6g") || strings.Contains(view, "alpha-5g") {
+		t.Fatalf("target header filter should keep only matching columns:\n%s", view)
+	}
+	for _, want := range []string{"Connect", "download_cf_ipv4"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("target-only filter should keep unfiltered check rows %q:\n%s", want, view)
+		}
+	}
+
+	m.checkStatusSearchQuery = "download"
+	view = stripANSI(m.checkStatusView(96, 4))
+	if !strings.Contains(view, "download_cf_ipv4") || strings.Contains(view, "Connect") {
+		t.Fatalf("check header filter should keep only matching rows:\n%s", view)
+	}
+	for _, want := range []string{"alpha-5g", "beta-6g"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("check-only filter should keep unfiltered target columns %q:\n%s", want, view)
+		}
+	}
+
+	m.checkStatusSearchQuery = "missing"
+	view = stripANSI(m.checkStatusView(96, 4))
+	if !strings.Contains(view, "no checks or targets match") {
+		t.Fatalf("unmatched check status filter should render an empty message:\n%s", view)
+	}
+
+	m.focus = focusFailedChecks
+	view = stripANSI(m.checkStatusView(96, 4))
+	for _, want := range []string{"alpha-5g", "beta-6g", "Connect", "download_cf_ipv4"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("non-focused check status should ignore stored filter %q:\n%s", want, view)
+		}
 	}
 }
 

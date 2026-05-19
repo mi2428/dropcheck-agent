@@ -40,7 +40,7 @@ func (m model) passingChecksView(width int, height int) string {
 		lines = append(lines, tableLine{Text: "  " + line, Style: style, Fill: fill})
 	}
 	if len(rows) == 0 {
-		lines = append(lines, tableLine{Text: "  " + m.emptyPanelText("passing checks"), Style: summaryStaleRowStyle})
+		lines = append(lines, tableLine{Text: "  " + m.emptyPanelText(focusPassingChecks, "passing checks"), Style: summaryStaleRowStyle})
 	}
 	table := renderTableLines(lines, width, tableHeight, selectedLine)
 	sparkline := m.summarySparklineView("passing checks", m.passingCheckEventTimes(), width, sparkHeight, summaryGraphStyle)
@@ -76,7 +76,7 @@ func (m model) failedChecksView(width int, height int) string {
 		lines = append(lines, tableLine{Text: "  " + line, Style: style, Fill: fill})
 	}
 	if len(rows) == 0 {
-		lines = append(lines, tableLine{Text: "  " + m.emptyPanelText("failed checks"), Style: summaryStaleRowStyle})
+		lines = append(lines, tableLine{Text: "  " + m.emptyPanelText(focusFailedChecks, "failed checks"), Style: summaryStaleRowStyle})
 	}
 	table := renderTableLines(lines, width, tableHeight, selectedLine)
 	sparkline := m.summarySparklineView("failed checks", m.failedCheckEventTimes(), width, sparkHeight, summaryGraphStyle)
@@ -84,6 +84,9 @@ func (m model) failedChecksView(width int, height int) string {
 }
 
 func (m model) failureHotspotsView(width int, height int) string {
+	if m.failureHotspotMode == failureHotspotModeCauses {
+		return m.failureCausesView(width, height)
+	}
 	if width <= 0 || height <= 0 {
 		return ""
 	}
@@ -105,25 +108,59 @@ func (m model) failureHotspotsView(width int, height int) string {
 		lines = append(lines, tableLine{Text: "  " + line, Style: style, Fill: fill})
 	}
 	if len(rows) == 0 {
-		lines = append(lines, tableLine{Text: "  " + m.emptyPanelText("failure hotspots"), Style: summaryStaleRowStyle})
+		lines = append(lines, tableLine{Text: "  " + m.emptyPanelText(focusFailureHotspots, "failure hotspots"), Style: summaryStaleRowStyle})
+	}
+	return renderTableLines(lines, width, height, selectedLine)
+}
+
+func (m model) failureCausesView(width int, height int) string {
+	if width <= 0 || height <= 0 {
+		return ""
+	}
+	rows := m.filteredFailureCauseRows()
+	layout := failureCauseListLayout(rows, max(1, width-2))
+	selected := clamp(m.failureHotspotCursor, 0, max(0, len(rows)-1))
+	lines := make([]tableLine, 0, len(rows)+1)
+	selectedLine := -1
+	lines = append(lines, tableLine{Text: "  " + barListHeader(failureCauseListHeaderColumns(), failureCauseListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
+	for index, item := range rows {
+		line := barListLine(failureCauseListColumns(item, failureCauseTargetColumnWidth(layout)), failureCauseListRightColumns(item), item.TargetCount, 1, layout)
+		style := failureSummaryPanelRowStyle(item.Last, m.currentTime())
+		fill := false
+		if m.focus == focusFailureHotspots && index == selected {
+			style = selectedStyle
+			fill = true
+			selectedLine = len(lines)
+		}
+		lines = append(lines, tableLine{Text: "  " + line, Style: style, Fill: fill})
+	}
+	if len(rows) == 0 {
+		lines = append(lines, tableLine{Text: "  " + m.emptyPanelText(focusFailureHotspots, "failure causes"), Style: summaryStaleRowStyle})
 	}
 	return renderTableLines(lines, width, height, selectedLine)
 }
 
 func (m model) failureHotspotPanelsView(width int, height int) string {
 	if !m.failureHotspotPanelsSplit() {
-		return renderPanelFocused("Failure Hotspots", width, height, m.failureHotspotsView(panelContentWidth(width), height-2), m.focus == focusFailureHotspots)
+		return renderPanelFocused(m.failureHotspotPanelTitle(), width, height, m.failureHotspotsView(panelContentWidth(width), height-2), m.focus == focusFailureHotspots)
 	}
 	agents := m.failureHotspotAgents()
 	heights := splitHeights(height, len(agents))
 	panels := make([]string, 0, len(agents))
 	for i, agent := range agents {
-		title := panelTitleWithLabel("Failure Hotspots", agentLabel(agent), width)
+		title := panelTitleWithLabel(m.failureHotspotPanelTitle(), agentLabel(agent), width)
 		panelHeight := heights[i]
 		focused := m.failureHotspotPanelHasFocus(agent)
 		panels = append(panels, renderPanelFocused(title, width, panelHeight, m.failureHotspotsViewForAgent(agent, panelContentWidth(width), panelHeight-2), focused))
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, panels...)
+}
+
+func (m model) failureHotspotPanelTitle() string {
+	if m.failureHotspotMode == failureHotspotModeTargets {
+		return "Failure Hotspots"
+	}
+	return "Failure Causes"
 }
 
 func (m model) failureHotspotPanelsSplit() bool {
@@ -149,6 +186,9 @@ func (m model) failureHotspotPanelsSplit() bool {
 }
 
 func (m model) failureHotspotsViewForAgent(agent watch.AgentSnapshot, width int, height int) string {
+	if m.failureHotspotMode == failureHotspotModeCauses {
+		return m.failureCausesViewForAgent(agent, width, height)
+	}
 	if width <= 0 || height <= 0 {
 		return ""
 	}
@@ -174,7 +214,38 @@ func (m model) failureHotspotsViewForAgent(agent watch.AgentSnapshot, width int,
 		lines = append(lines, tableLine{Text: "  " + line, Style: style, Fill: fill})
 	}
 	if len(rows) == 0 {
-		lines = append(lines, tableLine{Text: "  " + m.emptyPanelText("failure hotspots"), Style: summaryStaleRowStyle})
+		lines = append(lines, tableLine{Text: "  " + m.emptyPanelText(focusFailureHotspots, "failure hotspots"), Style: summaryStaleRowStyle})
+	}
+	return renderTableLines(lines, width, height, selectedLine)
+}
+
+func (m model) failureCausesViewForAgent(agent watch.AgentSnapshot, width int, height int) string {
+	if width <= 0 || height <= 0 {
+		return ""
+	}
+	rows := m.filteredFailureCauseRowsForAgent(agent)
+	items := make([]failureCauseSummary, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, row.Item)
+	}
+	layout := failureCauseListLayout(items, max(1, width-2))
+	lines := make([]tableLine, 0, len(rows)+1)
+	selectedLine := -1
+	lines = append(lines, tableLine{Text: "  " + barListHeader(failureCauseListHeaderColumns(), failureCauseListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
+	for _, row := range rows {
+		item := row.Item
+		line := barListLine(failureCauseListColumns(item, failureCauseTargetColumnWidth(layout)), failureCauseListRightColumns(item), item.TargetCount, 1, layout)
+		style := failureSummaryPanelRowStyle(item.Last, m.currentTime())
+		fill := false
+		if m.failureHotspotPanelHasFocus(agent) && row.Index == m.failureHotspotCursor {
+			style = selectedStyle
+			fill = true
+			selectedLine = len(lines)
+		}
+		lines = append(lines, tableLine{Text: "  " + line, Style: style, Fill: fill})
+	}
+	if len(rows) == 0 {
+		lines = append(lines, tableLine{Text: "  " + m.emptyPanelText(focusFailureHotspots, "failure causes"), Style: summaryStaleRowStyle})
 	}
 	return renderTableLines(lines, width, height, selectedLine)
 }
@@ -190,8 +261,8 @@ func (m model) failureHotspotAgents() []watch.AgentSnapshot {
 	return m.outcomeAgents(m.outcomeEvents())
 }
 
-func (m model) emptyPanelText(noun string) string {
-	if m.hasSearchFilter() {
+func (m model) emptyPanelText(panel focusPanel, noun string) string {
+	if strings.TrimSpace(m.panelFilterQuery(panel)) != "" {
 		return "no " + noun + " match"
 	}
 	return "no " + noun
@@ -364,6 +435,16 @@ func failureHotspotListLayout(rows []failureHotspotSummary, width int) barListLa
 	for _, row := range rows {
 		columns = append(columns, failureHotspotListColumns(row))
 		rights = append(rights, failureHotspotListRightColumns(row))
+	}
+	return newPlainListLayout(width, columns, rights)
+}
+
+func failureCauseListLayout(rows []failureCauseSummary, width int) barListLayout {
+	columns := [][]string{failureCauseListHeaderColumns()}
+	rights := [][]string{failureCauseListRightHeaderColumns()}
+	for _, row := range rows {
+		columns = append(columns, failureCauseListColumns(row, 0))
+		rights = append(rights, failureCauseListRightColumns(row))
 	}
 	return newPlainListLayout(width, columns, rights)
 }
@@ -620,6 +701,70 @@ func failureHotspotListRightColumns(item failureHotspotSummary) []string {
 		fmt.Sprintf("%d/%d", item.FailCount, item.RunCount),
 		item.Last.Format("15:04:05"),
 	}
+}
+
+func failureCauseListHeaderColumns() []string {
+	return []string{"Cause", "Targets"}
+}
+
+func failureCauseListColumns(item failureCauseSummary, targetWidth int) []string {
+	return []string{item.Cause, failureCauseTargetsLabel(item, targetWidth)}
+}
+
+func failureCauseListRightHeaderColumns() []string {
+	return []string{"Hits", "Fail%", "Fail/Run", "Last"}
+}
+
+func failureCauseListRightColumns(item failureCauseSummary) []string {
+	rate := 0
+	if item.RunCount > 0 {
+		rate = item.FailRunCount * 100 / item.RunCount
+	}
+	return []string{
+		fmt.Sprint(item.TargetCount),
+		fmt.Sprintf("%d%%", rate),
+		fmt.Sprintf("%d/%d", item.FailCount, item.RunCount),
+		item.Last.Format("15:04:05"),
+	}
+}
+
+func failureCauseTargetColumnWidth(layout barListLayout) int {
+	if len(layout.ColumnWidths) < 2 {
+		return 0
+	}
+	return layout.ColumnWidths[1]
+}
+
+func failureCauseTargetsLabel(item failureCauseSummary, width int) string {
+	labels := failureCauseTargetLabels(item)
+	if len(labels) == 0 {
+		return "-"
+	}
+	full := strings.Join(labels, ", ")
+	if width <= 0 || lipgloss.Width(full) <= width {
+		return full
+	}
+	for shown := len(labels) - 1; shown >= 0; shown-- {
+		omitted := len(labels) - shown
+		suffix := fmt.Sprintf("...(%d)", omitted)
+		candidate := suffix
+		if shown > 0 {
+			candidate = strings.Join(labels[:shown], ", ") + " " + suffix
+		}
+		if lipgloss.Width(candidate) <= width {
+			return candidate
+		}
+	}
+	return fitANSI(fmt.Sprintf("...(%d)", len(labels)), width)
+}
+
+func failureCauseTargetLabels(item failureCauseSummary) []string {
+	labels := make([]string, 0, len(item.Targets))
+	for _, target := range item.Targets {
+		label := firstNonEmpty(target.Target.Name, target.Target.SSID, target.Target.BSSID, target.LatestFinding.Target, "-")
+		labels = append(labels, compactTargetLabel(label, 18))
+	}
+	return labels
 }
 
 func countBar(count int, maxCount int, width int) string {

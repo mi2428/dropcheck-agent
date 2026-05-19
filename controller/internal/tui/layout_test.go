@@ -36,6 +36,9 @@ func TestRenderUsesDropcheckLayout(t *testing.T) {
 	frame := stripANSI(m.render())
 	for _, want := range []string{
 		"Keys:",
+		"Tab=Focus",
+		"h/j/k/l=Scroll",
+		"Ctrl-Z=Pause",
 		"Now=",
 		"status=running plan=shownet-watch",
 		"Passing Checks",

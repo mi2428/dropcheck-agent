@@ -202,18 +202,21 @@ func summaryAndEventLogHeights(bodyHeight int) (summaryHeight int, eventLogHeigh
 func (m model) helpBar(width int) string {
 	now := m.currentTime().Format("15:04:05")
 	label := " Keys:"
-	parts := []string{"Tab/Shift+Tab=Panel", "j/k=Scroll", "h/l=CheckScroll"}
+	parts := []string{"Tab=Focus", "h/j/k/l=Scroll"}
 	if m.focus == focusPassingChecks && len(m.filteredPassingCheckSummaries()) > 0 ||
 		m.focus == focusFailedChecks && len(m.filteredFailedCheckSummaries()) > 0 ||
 		m.focus == focusFailureHotspots && len(m.focusedFailureHotspotRows()) > 0 {
 		parts = append(parts, "Enter=Details")
+	}
+	if m.focus == focusFailureHotspots {
+		parts = append(parts, "m=Mode")
 	}
 	parts = append(parts, "/=Filter")
 	parts = append(parts, "Ctrl-N=Skip")
 	if m.paused {
 		parts = append(parts, "Esc=Resume")
 	} else {
-		parts = append(parts, "w=Pause")
+		parts = append(parts, "Ctrl-Z=Pause")
 		if m.focusedScrollPinned() {
 			parts = append(parts, "Esc=Latest")
 		} else if m.hasSearchFilter() {
@@ -260,7 +263,7 @@ func (m model) statusBar(width int) string {
 		rightFields = append(rightFields, [2]string{"Paused", ""})
 	}
 	if m.searchEditing || m.hasSearchFilter() {
-		rightFields = append(rightFields, [2]string{"filter", "/" + m.searchQuery})
+		rightFields = append(rightFields, [2]string{"filter", "/" + m.activeSearchQuery()})
 	}
 	leftPlain := statusPlain(leftFields)
 	rightPlain := statusRightPlain(rightFields)
@@ -379,15 +382,19 @@ func (m model) focusName() string {
 		}
 		return "run_queue"
 	case focusFailureHotspots:
+		name := "failure_hotspots"
+		if m.failureHotspotMode == failureHotspotModeCauses {
+			name = "failure_causes"
+		}
 		if m.failureHotspotPanelsSplit() {
 			key := m.currentHotspotAgentKey()
 			for _, agent := range m.failureHotspotAgents() {
 				if roundAgentKey(agent) == key {
-					return "failure_hotspots:" + compactTargetLabel(agentLabel(agent), 24)
+					return name + ":" + compactTargetLabel(agentLabel(agent), 24)
 				}
 			}
 		}
-		return "failure_hotspots"
+		return name
 	default:
 		return "failed_checks"
 	}
