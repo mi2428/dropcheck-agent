@@ -367,6 +367,181 @@ func (s State) FilteredFailureHotspots(queryValue string) []FailureHotspotSummar
 	return filtered
 }
 
+// FailureCauses ranks failure causes by how broadly they affect targets inside
+// FailureHotspotWindow.
+func (s State) FailureCauses() []FailureCauseSummary {
+	now := s.CurrentTime()
+	start := now.Add(-FailureHotspotWindow)
+	type targetAggregate struct {
+		summary FailureCauseTargetSummary
+		runs    map[string]failureHotspotRun
+		cause   string
+	}
+	type aggregate struct {
+		summary FailureCauseSummary
+		targets map[string]*targetAggregate
+	}
+	aggregates := map[string]*aggregate{}
+	aggregatesByTarget := map[string][]*targetAggregate{}
+	targetKey := func(agent watch.AgentSnapshot, target watch.TargetSnapshot) string {
+		return strings.Join([]string{RoundAgentKey(agent), CheckStatusTargetKey(target)}, "\x00")
+	}
+	ensure := func(agent watch.AgentSnapshot, cause string, target watch.TargetSnapshot, findingTargets ...string) (*aggregate, *targetAggregate) {
+		cause = FirstNonEmpty(cause, "failure")
+		if target.Name == "" {
+			target.Name = FirstNonEmpty(target.SSID, target.BSSID, FirstNonEmpty(findingTargets...), "target")
+		}
+		key := FailureCauseIdentity(agent, cause)
+		item, ok := aggregates[key]
+		if !ok {
+			item = &aggregate{summary: FailureCauseSummary{Agent: agent, Cause: cause}, targets: map[string]*targetAggregate{}}
+			aggregates[key] = item
+		}
+		if AgentKey(item.summary.Agent) == "" {
+			item.summary.Agent = agent
+		}
+		targetIdentity := FirstNonEmpty(CheckStatusTargetKey(target), FirstNonEmpty(findingTargets...), "target")
+		targetItem, ok := item.targets[targetIdentity]
+		if !ok {
+			targetItem = &targetAggregate{summary: FailureCauseTargetSummary{Target: target}, runs: map[string]failureHotspotRun{}, cause: cause}
+			item.targets[targetIdentity] = targetItem
+			aggregatesByTarget[targetKey(agent, target)] = append(aggregatesByTarget[targetKey(agent, target)], targetItem)
+		}
+		targetItem.summary.Target = MergeTargetSnapshot(targetItem.summary.Target, target)
+		return item, targetItem
+	}
+	recordRun := func(item *aggregate, targetItem *targetAggregate, round uint64, at time.Time, failed bool) {
+		if at.IsZero() {
+			at = now
+		}
+		key := FailureHotspotRunKey(round, at)
+		run := targetItem.runs[key]
+		if at.After(run.Last) || run.Last.IsZero() {
+			run.Last = at
+		}
+		run.failed = run.failed || failed
+		targetItem.runs[key] = run
+		if at.After(item.summary.Last) || item.summary.Last.IsZero() {
+			item.summary.Last = at
+		}
+		if at.After(targetItem.summary.Last) || targetItem.summary.Last.IsZero() {
+			targetItem.summary.Last = at
+		}
+	}
+	for _, failedCheck := range s.FailedChecks {
+		if !WithinWindow(failedCheck.When, start) {
+			continue
+		}
+		cause := FailureHotspotCause(failedCheck.Finding)
+		item, targetItem := ensure(failedCheck.Agent, cause, failedCheck.Target, failedCheck.Finding.Target)
+		previousLast := item.summary.Last
+		targetPreviousLast := targetItem.summary.Last
+		recordRun(item, targetItem, failedCheck.Round, failedCheck.When, true)
+		item.summary.FailCount++
+		targetItem.summary.FailCount++
+		if failedCheck.When.After(previousLast) || item.summary.LatestFinding.Check == "" {
+			item.summary.LatestFinding = failedCheck.Finding
+		}
+		if failedCheck.When.After(targetPreviousLast) || targetItem.summary.LatestFinding.Check == "" {
+			targetItem.summary.LatestFinding = failedCheck.Finding
+		}
+	}
+	for _, passingCheck := range s.PassingChecks {
+		if !WithinWindow(passingCheck.When, start) {
+			continue
+		}
+		for _, targetItem := range aggregatesByTarget[targetKey(passingCheck.Agent, passingCheck.Target)] {
+			item := aggregates[FailureCauseIdentity(passingCheck.Agent, targetItem.cause)]
+			if item == nil {
+				continue
+			}
+			recordRun(item, targetItem, passingCheck.Round, passingCheck.When, false)
+		}
+	}
+	rows := make([]FailureCauseSummary, 0, len(aggregates))
+	for _, item := range aggregates {
+		if item.summary.FailCount == 0 {
+			continue
+		}
+		targets := make([]FailureCauseTargetSummary, 0, len(item.targets))
+		for _, targetItem := range item.targets {
+			if targetItem.summary.FailCount == 0 {
+				continue
+			}
+			for _, run := range targetItem.runs {
+				targetItem.summary.RunCount++
+				if run.failed {
+					targetItem.summary.FailRunCount++
+				}
+			}
+			item.summary.RunCount += targetItem.summary.RunCount
+			item.summary.FailRunCount += targetItem.summary.FailRunCount
+			targets = append(targets, targetItem.summary)
+		}
+		sort.SliceStable(targets, func(i, j int) bool {
+			if targets[i].FailCount != targets[j].FailCount {
+				return targets[i].FailCount > targets[j].FailCount
+			}
+			leftRate := 0
+			if targets[i].RunCount > 0 {
+				leftRate = targets[i].FailRunCount * 1000 / targets[i].RunCount
+			}
+			rightRate := 0
+			if targets[j].RunCount > 0 {
+				rightRate = targets[j].FailRunCount * 1000 / targets[j].RunCount
+			}
+			if leftRate != rightRate {
+				return leftRate > rightRate
+			}
+			return targets[i].Last.After(targets[j].Last)
+		})
+		item.summary.Targets = targets
+		item.summary.TargetCount = len(targets)
+		if len(targets) > 0 {
+			item.summary.TopTarget = targets[0].Target
+			item.summary.TopTargetFailCount = targets[0].FailCount
+		}
+		rows = append(rows, item.summary)
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].TargetCount != rows[j].TargetCount {
+			return rows[i].TargetCount > rows[j].TargetCount
+		}
+		leftRate := 0
+		if rows[i].RunCount > 0 {
+			leftRate = rows[i].FailRunCount * 1000 / rows[i].RunCount
+		}
+		rightRate := 0
+		if rows[j].RunCount > 0 {
+			rightRate = rows[j].FailRunCount * 1000 / rows[j].RunCount
+		}
+		if leftRate != rightRate {
+			return leftRate > rightRate
+		}
+		if rows[i].FailCount != rows[j].FailCount {
+			return rows[i].FailCount > rows[j].FailCount
+		}
+		return rows[i].Last.After(rows[j].Last)
+	})
+	return rows
+}
+
+// FilteredFailureCauses returns cause summaries matching queryValue.
+func (s State) FilteredFailureCauses(queryValue string) []FailureCauseSummary {
+	query := NormalizedSearchQuery(queryValue)
+	rows := s.FailureCauses()
+	if query == "" {
+		return rows
+	}
+	filtered := rows[:0]
+	for _, row := range rows {
+		if FailureCauseSummaryMatches(row, query) {
+			filtered = append(filtered, row)
+		}
+	}
+	return filtered
+}
+
 // WithinWindow reports whether at is non-zero and not before start.
 func WithinWindow(at time.Time, start time.Time) bool {
 	if at.IsZero() {
@@ -494,6 +669,39 @@ func FailureHotspotSummaryMatches(row FailureHotspotSummary, query string) bool 
 		fmt.Sprint(row.FailRunCount),
 		fmt.Sprint(row.RunCount),
 		fmt.Sprint(row.FailStreak),
+	}
+	return FieldsContainQuery(fields, query)
+}
+
+// FailureCauseSummaryMatches reports whether a cause row contains query.
+func FailureCauseSummaryMatches(row FailureCauseSummary, query string) bool {
+	fields := []string{
+		AgentLabel(row.Agent),
+		AgentKey(row.Agent),
+		row.Cause,
+		row.TopTarget.Name,
+		row.TopTarget.SSID,
+		row.TopTarget.BSSID,
+		row.TopTarget.Band,
+		fmt.Sprint(row.TargetCount),
+		fmt.Sprint(row.FailCount),
+		fmt.Sprint(row.FailRunCount),
+		fmt.Sprint(row.RunCount),
+	}
+	for _, target := range row.Targets {
+		fields = append(fields,
+			target.Target.Name,
+			target.Target.SSID,
+			target.Target.BSSID,
+			target.Target.Band,
+			target.LatestFinding.Target,
+			target.LatestFinding.Check,
+			DisplayCheckName(target.LatestFinding.Check),
+			target.LatestFinding.Metric,
+			target.LatestFinding.Observed,
+			target.LatestFinding.Expected,
+			target.LatestFinding.Message,
+		)
 	}
 	return FieldsContainQuery(fields, query)
 }

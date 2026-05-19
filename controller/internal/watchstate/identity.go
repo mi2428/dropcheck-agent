@@ -56,6 +56,27 @@ func FailureHotspotSummaryIndexByIdentity(rows []FailureHotspotSummary, key stri
 	return -1
 }
 
+// FailureCauseSummaryIdentity returns the stable identity for a cause row.
+func FailureCauseSummaryIdentity(item FailureCauseSummary) string {
+	return FailureCauseIdentity(item.Agent, item.Cause)
+}
+
+// FailureCauseSummaryIndexByIdentity finds key in cause rows or returns -1.
+func FailureCauseSummaryIndexByIdentity(rows []FailureCauseSummary, key string) int {
+	for i, row := range rows {
+		if FailureCauseSummaryIdentity(row) == key {
+			return i
+		}
+	}
+	return -1
+}
+
+// FailureCauseIdentity returns the per-agent cause identity used for
+// cross-target hotspot aggregation.
+func FailureCauseIdentity(agent watch.AgentSnapshot, cause string) string {
+	return strings.Join([]string{RoundAgentKey(agent), strings.ToLower(strings.TrimSpace(cause))}, "\x00")
+}
+
 // FailureHotspotIdentity returns the per-agent target identity used for hotspot
 // aggregation.
 func FailureHotspotIdentity(agent watch.AgentSnapshot, target watch.TargetSnapshot, findingTargets ...string) string {

@@ -116,6 +116,33 @@ type FailureHotspotSummary struct {
 	LatestFinding watch.Finding
 }
 
+// FailureCauseTargetSummary is the per-target breakdown inside one
+// cross-target failure cause.
+type FailureCauseTargetSummary struct {
+	Target        watch.TargetSnapshot
+	Last          time.Time
+	FailCount     int
+	FailRunCount  int
+	RunCount      int
+	LatestFinding watch.Finding
+}
+
+// FailureCauseSummary ranks causes that affect multiple targets inside the
+// retained investigation history.
+type FailureCauseSummary struct {
+	Agent              watch.AgentSnapshot
+	Cause              string
+	Last               time.Time
+	FailCount          int
+	FailRunCount       int
+	RunCount           int
+	TargetCount        int
+	TopTarget          watch.TargetSnapshot
+	TopTargetFailCount int
+	LatestFinding      watch.Finding
+	Targets            []FailureCauseTargetSummary
+}
+
 // EventLogEntry keeps the structured watch event beside the rendered log line for detail scoping.
 type EventLogEntry struct {
 	When  time.Time
