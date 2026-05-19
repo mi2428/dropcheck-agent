@@ -1337,7 +1337,7 @@ class NetworkCheckExecutor(
 
     companion object {
         private const val PING_TRACE_HOP_TIMEOUT_MS = 2_000
-        private const val PATH_MTU_PROBE_TIMEOUT_MS = 2_500
+        private const val PATH_MTU_PROBE_TIMEOUT_MS = 500
         private const val PROBE_SOURCE_ADDRESS_WAIT_MS = 5_000
         private const val PROBE_SOURCE_ADDRESS_POLL_MS = 250
         private const val GLOBAL_IP_SERVICE_HOST = "ifconfig.me"

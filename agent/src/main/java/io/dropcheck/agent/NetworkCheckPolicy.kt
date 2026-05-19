@@ -17,6 +17,8 @@ internal object NetworkCheckPolicy {
     private const val DEFAULT_PING_COUNT = 3
     private const val PING_PER_PACKET_TIMEOUT_MS = 2_000L
     private const val PING_BASE_TIMEOUT_MS = 3_000L
+    private const val PING_PACKET_INTERVAL_SECONDS = "0.2"
+    private const val PING_REPLY_WAIT_SECONDS = 1
 
     /** Local process and HTTP probes are bounded so cancellation remains responsive. */
     const val DEFAULT_TRACEROUTE_TIMEOUT_MS = 60_000
@@ -105,6 +107,10 @@ internal object NetworkCheckPolicy {
                 add("-s")
                 add(sizeBytes.toString())
             }
+            add("-i")
+            add(PING_PACKET_INTERVAL_SECONDS)
+            add("-W")
+            add(PING_REPLY_WAIT_SECONDS.toString())
             add("-c")
             add(count.toString())
             add(host)
@@ -186,6 +192,8 @@ internal object NetworkCheckPolicy {
             add("do")
             add("-s")
             add(payloadSizeBytes.toString())
+            add("-i")
+            add(PING_PACKET_INTERVAL_SECONDS)
             add("-c")
             add("1")
             add("-W")

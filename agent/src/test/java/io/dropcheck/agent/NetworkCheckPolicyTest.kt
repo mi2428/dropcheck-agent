@@ -20,11 +20,11 @@ class NetworkCheckPolicyTest {
         assertEquals("/system/bin/ping", NetworkCheckPolicy.pingBinary("example.com"))
         assertEquals("/system/bin/ping6", NetworkCheckPolicy.pingBinary("2001:db8::1"))
         assertEquals(
-            listOf("/system/bin/ping", "-I", "wlan0", "-s", "128", "-c", "3", "example.com"),
+            listOf("/system/bin/ping", "-I", "wlan0", "-s", "128", "-i", "0.2", "-W", "1", "-c", "3", "example.com"),
             NetworkCheckPolicy.pingArgs("/system/bin/ping", "wlan0", 128, 3, "example.com"),
         )
         assertEquals(
-            listOf("/system/bin/ping", "-c", "1", "example.com"),
+            listOf("/system/bin/ping", "-i", "0.2", "-W", "1", "-c", "1", "example.com"),
             NetworkCheckPolicy.pingArgs("/system/bin/ping", "", 0, 1, "example.com"),
         )
     }
@@ -119,7 +119,7 @@ class NetworkCheckPolicyTest {
         assertEquals(NetworkCheckPolicy.IPV6_PING_OVERHEAD_BYTES, NetworkCheckPolicy.pathMtuOverheadBytes("2001:db8::1"))
         assertEquals(1472, NetworkCheckPolicy.pathMtuPayloadBytes(1500, NetworkCheckPolicy.IPV4_PING_OVERHEAD_BYTES))
         assertEquals(
-            listOf("/system/bin/ping", "-I", "wlan0", "-M", "do", "-s", "1472", "-c", "1", "-W", "2", "example.com"),
+            listOf("/system/bin/ping", "-I", "wlan0", "-M", "do", "-s", "1472", "-i", "0.2", "-c", "1", "-W", "2", "example.com"),
             NetworkCheckPolicy.pathMtuPingArgs(
                 binary = "/system/bin/ping",
                 bindTarget = "wlan0",
