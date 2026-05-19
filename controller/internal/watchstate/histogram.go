@@ -247,3 +247,22 @@ func (s State) FailureHotspotOccurrences(item FailureHotspotSummary) []time.Time
 	})
 	return times
 }
+
+// FailureCauseOccurrences returns failure times for the selected cause.
+func (s State) FailureCauseOccurrences(item FailureCauseSummary) []time.Time {
+	key := FailureCauseSummaryIdentity(item)
+	if key == "" {
+		return nil
+	}
+	times := make([]time.Time, 0, len(s.FailedChecks))
+	for _, failedCheck := range s.FailedChecks {
+		causeKey := FailureCauseIdentity(failedCheck.Agent, FailureHotspotCause(failedCheck.Finding))
+		if causeKey == key {
+			times = append(times, failedCheck.When)
+		}
+	}
+	sort.SliceStable(times, func(i, j int) bool {
+		return times[i].Before(times[j])
+	})
+	return times
+}
