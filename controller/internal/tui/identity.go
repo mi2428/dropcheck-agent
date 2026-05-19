@@ -20,9 +20,6 @@ func failedCheckSummaryIdentity(item failedCheckSummary) string {
 func failedCheckSummaryIndexByIdentity(rows []failedCheckSummary, key string) int {
 	return watchstate.FailedCheckSummaryIndexByIdentity(rows, key)
 }
-func failedCheckStateKey(agent watch.AgentSnapshot, target watch.TargetSnapshot, finding watch.Finding) string {
-	return watchstate.FailedCheckStateKey(agent, target, finding)
-}
 func failureHotspotSummaryIdentity(item failureHotspotSummary) string {
 	return watchstate.FailureHotspotSummaryIdentity(item)
 }
@@ -48,12 +45,6 @@ func (m model) runQueueTargetLabel(target targetState, includeAgentLabel bool) s
 	return agentLabel(target.Agent) + " " + label
 }
 
-func passingCheckKey(agent watch.AgentSnapshot, target watch.TargetSnapshot, step watch.StepSnapshot) string {
-	return watchstate.PassingCheckKey(agent, target, step)
-}
-func passingCheckSummaryKey(agent watch.AgentSnapshot, target watch.TargetSnapshot, step watch.StepSnapshot) string {
-	return watchstate.PassingCheckSummaryKey(agent, target, step)
-}
 func passingCheckSummaryIdentity(item passingCheckSummary) string {
 	return watchstate.PassingCheckSummaryIdentity(item)
 }
@@ -127,7 +118,6 @@ func runQueueRowStyle(status string) lipgloss.Style {
 
 func firstNonEmpty(values ...string) string { return watchstate.FirstNonEmpty(values...) }
 func max(a, b int) int                      { return watchstate.Max(a, b) }
-func maxInt64(a, b int64) int64             { return watchstate.MaxInt64(a, b) }
 func min(a, b int) int                      { return watchstate.Min(a, b) }
 func clamp(value, low, high int) int        { return watchstate.Clamp(value, low, high) }
 func correctedOffset(selected int, visibleRows int, totalRows int) int {

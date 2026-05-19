@@ -25,15 +25,6 @@ func (s State) CurrentTarget() (TargetState, bool) {
 	return TargetState{}, false
 }
 
-func currentStepState(target TargetState) (StepState, bool) {
-	for _, step := range target.Steps {
-		if step.Name == target.CurrentStep {
-			return step, true
-		}
-	}
-	return StepState{}, false
-}
-
 // TargetFailedCheckCount counts failed checks for one target label and agent.
 func (s State) TargetFailedCheckCount(agent watch.AgentSnapshot, target string) int {
 	count := 0

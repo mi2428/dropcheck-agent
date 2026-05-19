@@ -654,26 +654,6 @@ func maxFailedCheckSummaryCount(rows []failedCheckSummary) int {
 	return maxCount
 }
 
-type passingCheckSummaryRow struct {
-	Index int
-	Item  passingCheckSummary
-}
-
-type passingCheckSummaryGroup struct {
-	SSID string
-	Rows []passingCheckSummaryRow
-}
-
-type failedCheckSummaryRow struct {
-	Index int
-	Item  failedCheckSummary
-}
-
-type failedCheckSummaryGroup struct {
-	SSID string
-	Rows []failedCheckSummaryRow
-}
-
 func renderTableLines(lines []tableLine, width int, visible int, selectedLine int) string {
 	if visible <= 0 || len(lines) == 0 {
 		return ""
@@ -693,44 +673,4 @@ func renderTableLines(lines []tableLine, width int, visible int, selectedLine in
 		b.WriteByte('\n')
 	}
 	return b.String()
-}
-
-func groupPassingCheckSummaries(rows []passingCheckSummary) []passingCheckSummaryGroup {
-	groups := make([]passingCheckSummaryGroup, 0, len(rows))
-	index := make(map[string]int, len(rows))
-	for i, row := range rows {
-		ssid := passingCheckSummarySSID(row)
-		pos, ok := index[ssid]
-		if !ok {
-			pos = len(groups)
-			index[ssid] = pos
-			groups = append(groups, passingCheckSummaryGroup{SSID: ssid})
-		}
-		groups[pos].Rows = append(groups[pos].Rows, passingCheckSummaryRow{Index: i, Item: row})
-	}
-	return groups
-}
-
-func groupFailedCheckSummaries(rows []failedCheckSummary) []failedCheckSummaryGroup {
-	groups := make([]failedCheckSummaryGroup, 0, len(rows))
-	index := make(map[string]int, len(rows))
-	for i, row := range rows {
-		ssid := failedCheckSummarySSID(row)
-		pos, ok := index[ssid]
-		if !ok {
-			pos = len(groups)
-			index[ssid] = pos
-			groups = append(groups, failedCheckSummaryGroup{SSID: ssid})
-		}
-		groups[pos].Rows = append(groups[pos].Rows, failedCheckSummaryRow{Index: i, Item: row})
-	}
-	return groups
-}
-
-func passingCheckSummarySSID(row passingCheckSummary) string {
-	return firstNonEmpty(row.Target.SSID, row.Target.BSSID, row.Target.Name, "-")
-}
-
-func failedCheckSummarySSID(row failedCheckSummary) string {
-	return firstNonEmpty(row.Target.SSID, row.Target.BSSID, row.Finding.Target, "-")
 }

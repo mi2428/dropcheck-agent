@@ -101,23 +101,3 @@ func (m model) filteredFailedCheckSummaries() []failedCheckSummary {
 func (m model) failedCheckSummaryIndex(agent watch.AgentSnapshot, target watch.TargetSnapshot, finding watch.Finding) int {
 	return m.State.FailedCheckSummaryIndex(agent, target, finding)
 }
-
-func normalizedSearchQuery(value string) string {
-	return watchstate.NormalizedSearchQuery(value)
-}
-
-func passingCheckSummaryMatches(row passingCheckSummary, query string) bool {
-	return watchstate.PassingCheckSummaryMatches(row, query)
-}
-
-func failedCheckSummaryMatches(row failedCheckSummary, query string) bool {
-	return watchstate.FailedCheckSummaryMatches(row, query)
-}
-
-func failureHotspotSummaryMatches(row failureHotspotSummary, query string) bool {
-	return watchstate.FailureHotspotSummaryMatches(row, query)
-}
-
-func fieldsContainQuery(fields []string, query string) bool {
-	return watchstate.FieldsContainQuery(fields, query)
-}

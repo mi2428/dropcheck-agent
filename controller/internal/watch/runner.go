@@ -416,11 +416,6 @@ func runCheckWithSkip(ctx context.Context, opRunner OperationRunner, agent contr
 	return false, false, nil
 }
 
-func runOperationStep(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, step StepSnapshot, op command.Operation, emit func(Event) error) (runner.Result, error) {
-	exec, _, err := runOperationStepWithSkip(ctx, opRunner, agent, round, target, step, op, nil, emit)
-	return exec, err
-}
-
 func runOperationStepWithSkip(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, step StepSnapshot, op command.Operation, skip *SkipController, emit func(Event) error) (runner.Result, bool, error) {
 	targetSnapshot := snapshotTarget(target)
 	started := time.Now()
