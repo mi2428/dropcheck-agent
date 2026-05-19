@@ -79,6 +79,7 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) error {
 	watchCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	pauseControl := watch.NewPauseController()
+	skipControl := watch.NewSkipController()
 	roundBarrier := watch.NewRoundBarrier(len(agentPlans))
 
 	var sinks watch.MultiSink
@@ -98,7 +99,7 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) error {
 	for _, agentPlan := range agentPlans {
 		wg.Go(func() {
 			opRunner := watchOperationRunner{operation: runner.New(controlSession.Server), adbPath: opts.ADBPath}
-			if err := watch.RunWithOptions(watchCtx, agentPlan.Plan, opRunner, agentPlan.Agent, sinks, watch.RunOptions{Pause: pauseControl, RoundBarrier: roundBarrier}); err != nil {
+			if err := watch.RunWithOptions(watchCtx, agentPlan.Plan, opRunner, agentPlan.Agent, sinks, watch.RunOptions{Pause: pauseControl, Skip: skipControl, RoundBarrier: roundBarrier}); err != nil {
 				errCh <- fmt.Errorf("%s: %w", agentDisplayName(agentPlan.Agent), err)
 				cancel()
 			}
@@ -129,7 +130,7 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) error {
 				)
 			}
 		}
-	} else if err := tui.RunWithPauseControl(watchCtx, uiPlan.Name, uiPlan.Targets, uiPlan.Checks, agentSnapshots, eventPipe.C, pauseControl); err != nil {
+	} else if err := tui.RunWithControls(watchCtx, uiPlan.Name, uiPlan.Targets, uiPlan.Checks, agentSnapshots, eventPipe.C, pauseControl, skipControl); err != nil {
 		cancel()
 		_ = collectWatchErrors(errCh)
 		return err

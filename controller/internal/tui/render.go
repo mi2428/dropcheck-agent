@@ -209,6 +209,7 @@ func (m model) helpBar(width int) string {
 		parts = append(parts, "Enter=Details")
 	}
 	parts = append(parts, "/=Filter")
+	parts = append(parts, "Ctrl-N=Skip")
 	if m.paused {
 		parts = append(parts, "Esc=Resume")
 	} else {

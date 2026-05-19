@@ -239,6 +239,22 @@ func TestPauseResumeAndRightAlignedStatusItems(t *testing.T) {
 	}
 }
 
+func TestCtrlNSkipsCurrentWatchOperation(t *testing.T) {
+	events := make(chan watch.Event)
+	control := watch.NewSkipController()
+	m := newModel("shownet-watch", []watch.Target{}, events)
+	m.skipControl = control
+
+	m = updateKey(t, m, tea.Key{Code: 'n', Mod: tea.ModCtrl})
+	if got := control.Requests(); got != 1 {
+		t.Fatalf("ctrl-n skip requests = %d, want 1", got)
+	}
+	help := stripANSI(m.helpBar(120))
+	if !strings.Contains(help, "Ctrl-N=Skip") {
+		t.Fatalf("help should include skip shortcut:\n%s", help)
+	}
+}
+
 func TestSlashFilterAppliesToPassingAndFailedChecks(t *testing.T) {
 	events := make(chan watch.Event)
 	m := newModel("shownet-watch", []watch.Target{}, events)

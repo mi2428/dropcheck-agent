@@ -111,6 +111,7 @@ type model struct {
 	searchQuery           string
 	paused                bool
 	pauseControl          *watch.PauseController
+	skipControl           *watch.SkipController
 	detailOpen            bool
 	detailPanel           focusPanel
 	detailPassingKey      string

@@ -13,3 +13,9 @@ func (m *model) resume() {
 		m.pauseControl.Resume()
 	}
 }
+
+func (m *model) skipCurrent() {
+	if m.skipControl != nil {
+		m.skipControl.Skip()
+	}
+}

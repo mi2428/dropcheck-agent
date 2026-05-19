@@ -328,6 +328,46 @@ func TestCheckStatusRendersPartialNonFailedStatusPercent(t *testing.T) {
 	}
 }
 
+func TestOperatorSkippedStepRendersPendingInCheckStatus(t *testing.T) {
+	events := make(chan watch.Event)
+	target := watch.TargetSnapshot{Name: "u7-5ghz", SSID: "SHIZK RADIO"}
+	m := newModelWithChecks("shownet-watch", []watch.Target{{Name: "u7-5ghz", SSID: "SHIZK RADIO"}}, []watch.Check{{Name: "ping cloudflare", Type: "ping"}}, events)
+	m.apply(watch.Event{
+		Kind:   watch.EventTargetStarted,
+		Round:  1,
+		Target: target,
+		Status: "running",
+	})
+	m.apply(watch.Event{
+		Kind:   watch.EventStepStarted,
+		Round:  1,
+		Target: target,
+		Step:   watch.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "running"},
+		Status: "running",
+	})
+	m.apply(watch.Event{
+		Kind:   watch.EventStepFinished,
+		Round:  1,
+		Target: target,
+		Step:   watch.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "pending", Skipped: true, Message: "skipped by operator"},
+		Status: "skipped",
+	})
+	m.apply(watch.Event{
+		Kind:   watch.EventTargetFinished,
+		Round:  1,
+		Target: target,
+		Status: "skipped",
+	})
+
+	checkStatus := stripANSI(m.checkStatusView(72, 6))
+	if strings.Contains(checkStatus, "SKIP") {
+		t.Fatalf("operator-skipped check should not render SKIP in Latest Check Results:\n%s", checkStatus)
+	}
+	if !strings.Contains(checkStatus, "WAIT") {
+		t.Fatalf("operator-skipped check should render as pending in Latest Check Results:\n%s", checkStatus)
+	}
+}
+
 func TestCheckStatusShortNameModeCompactsHeadersAndTokens(t *testing.T) {
 	events := make(chan watch.Event)
 	agents := []watch.AgentSnapshot{

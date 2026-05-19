@@ -110,6 +110,22 @@ func (okRunner) Run(context.Context, control.AgentInfo, command.Operation) (runn
 	return runner.Result{Result: &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK}}, nil
 }
 
+type blockingAfterRunner struct {
+	blockOnCall int
+	started     chan string
+	calls       int
+}
+
+func (r *blockingAfterRunner) Run(ctx context.Context, _ control.AgentInfo, op command.Operation) (runner.Result, error) {
+	r.calls++
+	if r.calls == r.blockOnCall {
+		r.started <- op.Name
+		<-ctx.Done()
+		return runner.Result{}, ctx.Err()
+	}
+	return runner.Result{Result: &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK}}, nil
+}
+
 func TestRunRequiredStepEmitsFailureCauseLog(t *testing.T) {
 	var events []Event
 	emit := func(event Event) error {
@@ -341,6 +357,86 @@ func TestRunCheckRetriesExpectationFailureAndSuppressesTransientFinding(t *testi
 	}
 }
 
+func TestRunTargetOperatorSkipCancelsCurrentCheckAndLeavesCheckPending(t *testing.T) {
+	disconnectAfter := false
+	plan := Plan{
+		Name: "lab-watch",
+		Checks: []Check{
+			{Name: "ping cloudflare", Type: "ping", Host: "1.1.1.1"},
+			{Name: "dns a", Type: "dns", Query: "example.com"},
+		},
+	}
+	target := Target{Name: "ap1", SSID: "Lab", DisconnectAfter: &disconnectAfter}
+	skip := NewSkipController()
+	opRunner := &blockingAfterRunner{blockOnCall: 3, started: make(chan string, 1)}
+	var events []Event
+	emit := func(event Event) error {
+		events = append(events, event)
+		return nil
+	}
+
+	done := make(chan struct {
+		result targetResult
+		err    error
+	}, 1)
+	go func() {
+		result, err := runTarget(context.Background(), plan, opRunner, control.AgentInfo{ID: "agent-a"}, 12, target, bandSupport{}, nil, skip, emit)
+		done <- struct {
+			result targetResult
+			err    error
+		}{result: result, err: err}
+	}()
+
+	select {
+	case op := <-opRunner.started:
+		if op != "ping" {
+			t.Fatalf("blocked operation = %q, want ping", op)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runner did not reach blocking check")
+	}
+	skip.Skip()
+
+	var got struct {
+		result targetResult
+		err    error
+	}
+	select {
+	case got = <-done:
+	case <-time.After(time.Second):
+		t.Fatal("runTarget did not finish after skip")
+	}
+	if got.err != nil {
+		t.Fatalf("runTarget() error = %v", got.err)
+	}
+	if got.result != targetSkipped {
+		t.Fatalf("runTarget() result = %v, want targetSkipped", got.result)
+	}
+	if opRunner.calls != 3 {
+		t.Fatalf("operation calls = %d, want connect, wait, and current check only", opRunner.calls)
+	}
+	if findings := countEvents(events, EventFinding, nil); findings != 0 {
+		t.Fatalf("operator skip should not emit findings, got %d: %#v", findings, events)
+	}
+	skipped, ok := firstEvent(events, EventStepFinished, func(event Event) bool {
+		return event.Step.Name == "ping cloudflare"
+	})
+	if !ok {
+		t.Fatalf("events missing skipped check finish: %#v", events)
+	}
+	if skipped.Status != "skipped" || skipped.Step.Status != "pending" || !skipped.Step.Skipped {
+		t.Fatalf("skipped step event = %#v, want event skipped with pending step state", skipped)
+	}
+	if got, ok := lastEvent(events, EventTargetFinished); !ok || got.Status != "skipped" {
+		t.Fatalf("target finished event = %#v, want skipped", got)
+	}
+	if _, ok := firstEvent(events, EventStepStarted, func(event Event) bool {
+		return event.Step.Name == "dns a"
+	}); ok {
+		t.Fatalf("operator skip should move to the next target, not run the next check: %#v", events)
+	}
+}
+
 func TestRunRoundSkipsUnsupportedTargetBandWithoutFailure(t *testing.T) {
 	var events []Event
 	emit := func(event Event) error {
@@ -357,7 +453,7 @@ func TestRunRoundSkipsUnsupportedTargetBandWithoutFailure(t *testing.T) {
 		Checks: []Check{{Name: "Ping CF IPv6", Type: "ping", Host: "2606:4700:4700::1111"}},
 	}
 	support := bandSupportFromCapabilities(&controlpb.WifiCapabilities{SupportedBands: []string{"2.4GHz", "5GHz"}})
-	failed, err := runRound(context.Background(), plan, forbiddenRunner{t: t}, control.AgentInfo{ID: "agent-a"}, 9, support, nil, nil, emit)
+	failed, err := runRound(context.Background(), plan, forbiddenRunner{t: t}, control.AgentInfo{ID: "agent-a"}, 9, support, nil, nil, nil, emit)
 	if err != nil {
 		t.Fatalf("runRound() error = %v", err)
 	}
@@ -401,7 +497,7 @@ func TestRunRoundBarrierDelaysRoundFinishedUntilAllAgentsArrive(t *testing.T) {
 	eventsA := make(chan Event, 16)
 	doneA := make(chan error, 1)
 	go func() {
-		_, err := runRound(context.Background(), plan, okRunner{}, control.AgentInfo{ID: "agent-a"}, 1, bandSupport{}, nil, barrier, func(event Event) error {
+		_, err := runRound(context.Background(), plan, okRunner{}, control.AgentInfo{ID: "agent-a"}, 1, bandSupport{}, nil, nil, barrier, func(event Event) error {
 			eventsA <- event
 			return nil
 		})
@@ -434,7 +530,7 @@ targetFinished:
 	eventsB := make(chan Event, 16)
 	doneB := make(chan error, 1)
 	go func() {
-		_, err := runRound(context.Background(), plan, okRunner{}, control.AgentInfo{ID: "agent-b"}, 1, bandSupport{}, nil, barrier, func(event Event) error {
+		_, err := runRound(context.Background(), plan, okRunner{}, control.AgentInfo{ID: "agent-b"}, 1, bandSupport{}, nil, nil, barrier, func(event Event) error {
 			eventsB <- event
 			return nil
 		})
