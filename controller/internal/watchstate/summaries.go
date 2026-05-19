@@ -252,11 +252,11 @@ func FailedCheckStreak(attempts []failedCheckAttempt, failedKey string) int {
 	return streak
 }
 
-// FailureHotspots ranks targets by current failure streak, recent failure rate,
-// total failures, and recency inside SummarySparklineWindow.
+// FailureHotspots ranks targets by current failure streak, failure rate, total
+// failures, and recency inside FailureHotspotWindow.
 func (s State) FailureHotspots() []FailureHotspotSummary {
 	now := s.CurrentTime()
-	start := now.Add(-SummarySparklineWindow)
+	start := now.Add(-FailureHotspotWindow)
 	type aggregate struct {
 		summary FailureHotspotSummary
 		runs    map[string]failureHotspotRun

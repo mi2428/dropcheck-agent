@@ -102,7 +102,8 @@ func (item PassingCheckSummary) AvgDuration() int64 {
 	return (item.DurationTotal + int64(item.DurationCount/2)) / int64(item.DurationCount)
 }
 
-// FailureHotspotSummary ranks targets that are failing repeatedly inside the recent window.
+// FailureHotspotSummary ranks targets that are failing repeatedly inside the
+// retained investigation history.
 type FailureHotspotSummary struct {
 	Agent         watch.AgentSnapshot
 	Target        watch.TargetSnapshot
@@ -155,11 +156,13 @@ type OccurrenceHistogram struct {
 
 const (
 	SummarySparklineWindow      = 30 * time.Minute
-	CheckHistoryRetentionWindow = SummarySparklineWindow
-	EventLogRetentionWindow     = SummarySparklineWindow
-	MaxPassingCheckHistory      = 20000
-	MaxFailedCheckHistory       = 10000
-	MaxEventLogHistory          = 10000
+	InvestigationHistoryWindow  = 24 * time.Hour
+	FailureHotspotWindow        = InvestigationHistoryWindow
+	CheckHistoryRetentionWindow = InvestigationHistoryWindow
+	EventLogRetentionWindow     = InvestigationHistoryWindow
+	MaxPassingCheckHistory      = 200000
+	MaxFailedCheckHistory       = 100000
+	MaxEventLogHistory          = 100000
 	VisibleEventLogLimit        = 400
 )
 
