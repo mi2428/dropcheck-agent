@@ -118,14 +118,6 @@ func (m model) focusSlots() []focusSlot {
 		{Panel: focusPassingChecks},
 		{Panel: focusCheckStatus},
 	}
-	if !m.runQueuePanelsSplit() {
-		slots = append(slots, focusSlot{Panel: focusRunQueue})
-	} else {
-		agents := m.runQueueAgents()
-		for i := len(agents) - 1; i >= 0; i-- {
-			slots = append(slots, focusSlot{Panel: focusRunQueue, RunQueueAgentKey: roundAgentKey(agents[i])})
-		}
-	}
 	if m.failureHotspotsVisible() {
 		if !m.failureHotspotPanelsSplit() {
 			slots = append(slots, focusSlot{Panel: focusFailureHotspots})
@@ -258,30 +250,111 @@ func (m *model) ensureFailureHotspotCursorInFocus() {
 	m.failureHotspotCursor = rows[0].Index
 }
 
+func (m *model) toggleFailureHotspotMode() {
+	if m.failureHotspotMode == failureHotspotModeCauses {
+		m.failureHotspotMode = failureHotspotModeTargets
+	} else {
+		m.failureHotspotMode = failureHotspotModeCauses
+	}
+	m.failureHotspotCursor = 0
+	m.failureHotspotPinned = false
+	m.failureHotspotKey = ""
+	m.ensureFailureHotspotCursorInFocus()
+	if m.detailOpen && m.detailPanel == focusFailureHotspots {
+		m.lockDetailToCursor(focusFailureHotspots)
+	}
+}
+
+func panelSupportsFilter(panel focusPanel) bool {
+	switch panel {
+	case focusPassingChecks, focusFailedChecks, focusCheckStatus, focusFailureHotspots:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m model) activeSearchPanel() focusPanel {
+	if m.searchEditing {
+		return m.searchPanel
+	}
+	return m.focus
+}
+
+func (m model) activeSearchQuery() string {
+	return m.panelSearchQuery(m.activeSearchPanel())
+}
+
+func (m model) panelSearchQuery(panel focusPanel) string {
+	switch panel {
+	case focusPassingChecks:
+		return m.passingSearchQuery
+	case focusFailedChecks:
+		return m.failedSearchQuery
+	case focusCheckStatus:
+		return m.checkStatusSearchQuery
+	case focusFailureHotspots:
+		return m.failureHotspotSearchQuery
+	default:
+		return ""
+	}
+}
+
+func (m *model) setPanelSearchQuery(panel focusPanel, query string) {
+	switch panel {
+	case focusPassingChecks:
+		m.passingSearchQuery = query
+	case focusFailedChecks:
+		m.failedSearchQuery = query
+	case focusCheckStatus:
+		m.checkStatusSearchQuery = query
+	case focusFailureHotspots:
+		m.failureHotspotSearchQuery = query
+	}
+}
+
+func (m model) filterAppliesToPanel(panel focusPanel) bool {
+	if !panelSupportsFilter(panel) {
+		return false
+	}
+	if m.searchEditing {
+		return m.searchPanel == panel
+	}
+	return m.focus == panel
+}
+
+func (m model) panelFilterQuery(panel focusPanel) string {
+	if !m.filterAppliesToPanel(panel) {
+		return ""
+	}
+	return m.panelSearchQuery(panel)
+}
+
 func (m *model) handleSearchKey(msg tea.KeyPressMsg) {
+	panel := m.searchPanel
+	query := m.panelSearchQuery(panel)
 	switch msg.String() {
 	case "enter":
 		m.searchEditing = false
 	case "esc":
 		m.searchEditing = false
-		if m.searchQuery == "" {
-			m.clearSearch()
-		}
 	case "backspace":
-		if m.searchQuery != "" {
-			runes := []rune(m.searchQuery)
-			m.searchQuery = string(runes[:len(runes)-1])
+		if query != "" {
+			runes := []rune(query)
+			m.setPanelSearchQuery(panel, string(runes[:len(runes)-1]))
 			m.normalizeCursors()
 		}
 	case "ctrl+u":
-		m.searchQuery = ""
-		m.normalizeCursors()
+		if query != "" {
+			m.setPanelSearchQuery(panel, "")
+			m.normalizeCursors()
+		}
 	default:
 		value := msg.String()
 		if len([]rune(value)) == 1 {
 			r := []rune(value)[0]
 			if r >= 0x20 && r != 0x7f {
-				m.searchQuery += string(r)
+				m.setPanelSearchQuery(panel, query+string(r))
 				m.normalizeCursors()
 			}
 		}
@@ -289,12 +362,13 @@ func (m *model) handleSearchKey(msg tea.KeyPressMsg) {
 }
 
 func (m model) hasSearchFilter() bool {
-	return strings.TrimSpace(m.searchQuery) != ""
+	return strings.TrimSpace(m.activeSearchQuery()) != ""
 }
 
 func (m *model) clearSearch() {
+	panel := m.activeSearchPanel()
 	m.searchEditing = false
-	m.searchQuery = ""
+	m.setPanelSearchQuery(panel, "")
 	m.normalizeCursors()
 }
 
@@ -302,7 +376,7 @@ func (m *model) normalizeCursors() {
 	m.followPinnedSummaryCursors()
 	m.passingCheckCursor = clamp(m.passingCheckCursor, 0, max(0, len(m.filteredPassingCheckSummaries())-1))
 	m.failedCheckCursor = clamp(m.failedCheckCursor, 0, max(0, len(m.filteredFailedCheckSummaries())-1))
-	m.failureHotspotCursor = clamp(m.failureHotspotCursor, 0, max(0, len(m.filteredFailureHotspots())-1))
+	m.failureHotspotCursor = clamp(m.failureHotspotCursor, 0, max(0, len(m.indexedFailureAnalysisRows(m.failureHotspotMode))-1))
 	m.normalizeCheckStatusOffset()
 	if m.focus == focusFailureHotspots && !m.failureHotspotsVisible() {
 		m.focus = focusFailedChecks
@@ -347,16 +421,22 @@ func (m *model) pinFailedCheckCursor() {
 }
 
 func (m *model) pinFailureHotspotCursor() {
-	rows := m.filteredFailureHotspots()
+	rows := m.focusedFailureHotspotRows()
 	if len(rows) == 0 {
 		m.failureHotspotPinned = false
 		m.failureHotspotKey = ""
 		return
 	}
-	index := clamp(m.failureHotspotCursor, 0, len(rows)-1)
-	m.failureHotspotCursor = index
+	index := 0
+	for i, row := range rows {
+		if row.Index == m.failureHotspotCursor {
+			index = i
+			break
+		}
+	}
+	m.failureHotspotCursor = rows[index].Index
 	m.failureHotspotPinned = true
-	m.failureHotspotKey = failureHotspotSummaryIdentity(rows[index])
+	m.failureHotspotKey = failureAnalysisRowIdentity(rows[index])
 }
 
 func (m *model) followPinnedSummaryCursors() {
@@ -371,11 +451,10 @@ func (m *model) followPinnedSummaryCursors() {
 		}
 	}
 	if m.failureHotspotPinned && m.failureHotspotKey != "" {
-		rows := m.filteredFailureHotspots()
-		if index := failureHotspotSummaryIndexByIdentity(rows, m.failureHotspotKey); index >= 0 {
-			m.failureHotspotCursor = index
+		if row, ok := m.failureAnalysisRowByIdentity(m.failureHotspotMode, m.failureHotspotKey); ok {
+			m.failureHotspotCursor = row.Index
 			if m.focus == focusFailureHotspots {
-				m.focusHotspotAgentKey = roundAgentKey(rows[index].Agent)
+				m.focusHotspotAgentKey = roundAgentKey(failureAnalysisRowAgent(row))
 			}
 		}
 	}
@@ -495,7 +574,8 @@ func (m *model) lockDetailToCursor(panel focusPanel) {
 			}
 		}
 		m.failureHotspotCursor = rows[index].Index
-		m.detailHotspotKey = failureHotspotSummaryIdentity(rows[index].Item)
+		m.detailHotspotMode = m.failureHotspotMode
+		m.detailHotspotKey = failureAnalysisRowIdentity(rows[index])
 	}
 }
 
@@ -511,11 +591,10 @@ func (m *model) followLockedDetailItems() {
 		}
 	}
 	if m.detailHotspotKey != "" {
-		rows := m.filteredFailureHotspots()
-		if index := failureHotspotSummaryIndexByIdentity(rows, m.detailHotspotKey); index >= 0 {
-			m.failureHotspotCursor = index
+		if row, ok := m.failureAnalysisRowByIdentity(m.detailHotspotMode, m.detailHotspotKey); ok {
+			m.failureHotspotCursor = row.Index
 			if m.detailPanel == focusFailureHotspots {
-				m.focusHotspotAgentKey = roundAgentKey(rows[index].Agent)
+				m.focusHotspotAgentKey = roundAgentKey(failureAnalysisRowAgent(row))
 			}
 		}
 	}

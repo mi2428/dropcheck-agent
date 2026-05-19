@@ -132,6 +132,21 @@ func TestCheckStatusHeaderFillsPanelWidth(t *testing.T) {
 	}
 }
 
+func TestCheckStatusCheckColumnCanGrowByHalf(t *testing.T) {
+	checks := []string{"Debug HTTP Wrong Status"}
+	targets := []watch.TargetSnapshot{{Name: "debug-a1", ShortName: "DA1"}}
+
+	layout := checkStatusTableLayout(64, checks, targets, nil)
+	if got, want := layout.LabelWidth, lipgloss.Width("Debug HTTP Wrong Status"); got != want {
+		t.Fatalf("check column should fit long check name when space allows: width=%d want=%d layout=%#v", got, want, layout)
+	}
+
+	layout = checkStatusTableLayout(200, []string{"this check label is intentionally much too long"}, targets, nil)
+	if got, want := layout.LabelWidth, 27; got != want {
+		t.Fatalf("check column max width = %d, want %d", got, want)
+	}
+}
+
 func TestInitialRenderWithoutMeasurementsIsStable(t *testing.T) {
 	events := make(chan watch.Event)
 	agents := []watch.AgentSnapshot{

@@ -87,6 +87,10 @@ func (m model) failureHotspotOccurrences(item failureHotspotSummary) []time.Time
 	return m.State.FailureHotspotOccurrences(item)
 }
 
+func (m model) failureCauseOccurrences(item failureCauseSummary) []time.Time {
+	return m.State.FailureCauseOccurrences(item)
+}
+
 func formatBucketDuration(duration time.Duration) string {
 	return watchstate.FormatBucketDuration(duration)
 }

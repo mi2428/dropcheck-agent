@@ -22,6 +22,10 @@ func (m model) checkStatusView(width int, height int) string {
 	if len(checks) == 0 {
 		return dimStyle.Render("no checks")
 	}
+	checks, targets = m.filteredCheckStatusAxes(checks, targets)
+	if len(checks) == 0 || len(targets) == 0 {
+		return dimStyle.Render("no checks or targets match")
+	}
 	agents := m.outcomeAgents(m.outcomeEvents())
 	layout := checkStatusTableLayout(width, checks, targets, agents)
 	targets = m.checkStatusVisibleTargets(targets, layout)
@@ -78,7 +82,7 @@ type checkStatusLayout struct {
 }
 
 func checkStatusTableLayout(width int, checks []string, targets []watch.TargetSnapshot, agents []watch.AgentSnapshot) checkStatusLayout {
-	labelWidth := clamp(maxCheckStatusLabelWidth(checks), 5, min(18, max(5, width/4)))
+	labelWidth := clamp(maxCheckStatusLabelWidth(checks), 5, min(27, max(5, width*3/8)))
 	available := max(1, width-labelWidth-1)
 	fullMinCellWidth := 9
 	fullVisible := checkStatusVisibleTargetCount(available, len(targets), fullMinCellWidth)
@@ -194,9 +198,62 @@ func (m model) checkStatusWindowMetrics(width int) ([]watch.TargetSnapshot, chec
 	if len(checks) == 0 {
 		return targets, checkStatusLayout{}, 0
 	}
+	checks, targets = m.filteredCheckStatusAxes(checks, targets)
+	if len(checks) == 0 || len(targets) == 0 {
+		return nil, checkStatusLayout{}, 0
+	}
 	agents := m.outcomeAgents(m.outcomeEvents())
 	layout := checkStatusTableLayout(width, checks, targets, agents)
 	return targets, layout, max(0, len(targets)-layout.VisibleTargets)
+}
+
+func (m model) filteredCheckStatusAxes(checks []string, targets []watch.TargetSnapshot) ([]string, []watch.TargetSnapshot) {
+	query := watchstate.NormalizedSearchQuery(m.panelFilterQuery(focusCheckStatus))
+	if query == "" {
+		return checks, targets
+	}
+	matchedChecks := make([]string, 0, len(checks))
+	for _, check := range checks {
+		if checkStatusCheckMatches(check, query) {
+			matchedChecks = append(matchedChecks, check)
+		}
+	}
+	matchedTargets := make([]watch.TargetSnapshot, 0, len(targets))
+	for _, target := range targets {
+		if checkStatusTargetMatches(target, query) {
+			matchedTargets = append(matchedTargets, target)
+		}
+	}
+	if len(matchedChecks) == 0 && len(matchedTargets) == 0 {
+		return nil, nil
+	}
+	if len(matchedChecks) > 0 {
+		checks = matchedChecks
+	}
+	if len(matchedTargets) > 0 {
+		targets = matchedTargets
+	}
+	return checks, targets
+}
+
+func checkStatusCheckMatches(check string, query string) bool {
+	return watchstate.FieldsContainQuery([]string{
+		check,
+		displayCheckName(check),
+	}, query)
+}
+
+func checkStatusTargetMatches(target watch.TargetSnapshot, query string) bool {
+	return watchstate.FieldsContainQuery([]string{
+		target.Name,
+		target.ShortName,
+		target.Agent,
+		target.SSID,
+		target.BSSID,
+		target.Band,
+		checkStatusTargetLabel(target),
+		checkStatusTargetShortLabel(target),
+	}, query)
 }
 
 func (m model) checkStatusActiveTargetIndex(targets []watch.TargetSnapshot) int {

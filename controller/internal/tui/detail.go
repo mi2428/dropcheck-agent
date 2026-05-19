@@ -15,9 +15,17 @@ import (
 )
 
 func (m model) passingCheckDetailView(width int, height int) string {
-	rows := m.filteredPassingCheckSummaries()
-	if len(rows) == 0 || height <= 0 {
+	content, ok := m.passingCheckDetailContent(width)
+	if !ok {
 		return dimStyle.Render("no passing check selected")
+	}
+	return content.render(width, height)
+}
+
+func (m model) passingCheckDetailContent(width int) (detailContent, bool) {
+	rows := m.filteredPassingCheckSummaries()
+	if len(rows) == 0 {
+		return detailContent{}, false
 	}
 	selected := clamp(m.passingCheckCursor, 0, len(rows)-1)
 	item := rows[selected]
@@ -26,13 +34,26 @@ func (m model) passingCheckDetailView(width int, height int) string {
 	sections := []detailSection{
 		{Title: "logs", Rows: m.passingCheckRelatedLogLines(item, detailModalLogLimit), WrapLogs: true},
 	}
-	return denseDetailView(detailSummaryTableLines(fields, width), histogram, summaryGraphStyle, sections, width, height)
+	return detailContent{
+		Summary:    detailSummaryTableLines(fields, width),
+		Histogram:  histogram,
+		GraphStyle: summaryGraphStyle,
+		Sections:   sections,
+	}, true
 }
 
 func (m model) failedCheckDetailView(width int, height int) string {
-	rows := m.filteredFailedCheckSummaries()
-	if len(rows) == 0 || height <= 0 {
+	content, ok := m.failedCheckDetailContent(width)
+	if !ok {
 		return dimStyle.Render("no failed check selected")
+	}
+	return content.render(width, height)
+}
+
+func (m model) failedCheckDetailContent(width int) (detailContent, bool) {
+	rows := m.filteredFailedCheckSummaries()
+	if len(rows) == 0 {
+		return detailContent{}, false
 	}
 	selected := clamp(m.failedCheckCursor, 0, len(rows)-1)
 	item := rows[selected]
@@ -40,16 +61,33 @@ func (m model) failedCheckDetailView(width int, height int) string {
 	histogram := recentEventHistogram(m.failedCheckOccurrences(item.Agent, item.Target, finding), width, detailTimelineWindow, m.currentTime())
 	fields := detailFailedSummaryFields(item, m.MultiAgent)
 	sections := []detailSection{
-		{Title: "failure history", Rows: m.failedCheckDetailRows(item)},
+		{Title: "failure history", Rows: m.failedCheckDetailRows(item, width)},
 		{Title: "logs", Rows: m.failedCheckRelatedLogLines(item, detailModalLogLimit), WrapLogs: true},
 	}
-	return denseDetailView(detailSummaryTableLines(fields, width), histogram, summaryGraphStyle, sections, width, height)
+	return detailContent{
+		Summary:    detailSummaryTableLines(fields, width),
+		Histogram:  histogram,
+		GraphStyle: summaryGraphStyle,
+		Sections:   sections,
+	}, true
 }
 
 func (m model) failureHotspotDetailView(width int, height int) string {
-	rows := m.focusedFailureHotspotRows()
-	if len(rows) == 0 || height <= 0 {
+	content, ok := m.failureHotspotDetailContent(width)
+	if !ok {
 		return dimStyle.Render("no failure hotspot selected")
+	}
+	return content.render(width, height)
+}
+
+func (m model) failureHotspotDetailContent(width int) (detailContent, bool) {
+	mode := m.failureHotspotMode
+	if m.detailOpen && m.detailPanel == focusFailureHotspots {
+		mode = m.detailHotspotMode
+	}
+	rows := m.focusedFailureAnalysisRowsForMode(mode)
+	if len(rows) == 0 {
+		return detailContent{}, false
 	}
 	selected := 0
 	for i, row := range rows {
@@ -58,15 +96,84 @@ func (m model) failureHotspotDetailView(width int, height int) string {
 			break
 		}
 	}
-	item := rows[selected].Item
+	row := rows[selected]
+	if row.Mode == failureHotspotModeCauses {
+		return m.failureCauseDetailContent(row.Cause, width), true
+	}
+	item := row.Hotspot
 	histogram := recentEventHistogram(m.failureHotspotOccurrences(item), width, detailTimelineWindow, m.currentTime())
 	fields := detailHotspotSummaryFields(item, m.MultiAgent)
 	sections := []detailSection{
-		{Title: "causes", Rows: m.failureHotspotCauseRows(item)},
-		{Title: "failure history", Rows: m.failureHotspotDetailRows(item)},
+		{Title: "causes", Rows: m.failureHotspotCauseRows(item, width)},
+		{Title: "failure history", Rows: m.failureHotspotDetailRows(item, width)},
 		{Title: "logs", Rows: m.failureHotspotRelatedLogLines(item, detailModalLogLimit), WrapLogs: true},
 	}
-	return denseDetailView(detailSummaryTableLines(fields, width), histogram, summaryGraphStyle, sections, width, height)
+	return detailContent{
+		Summary:    detailSummaryTableLines(fields, width),
+		Histogram:  histogram,
+		GraphStyle: summaryGraphStyle,
+		Sections:   sections,
+	}, true
+}
+
+func (m model) failureCauseDetailContent(item failureCauseSummary, width int) detailContent {
+	histogram := recentEventHistogram(m.failureCauseOccurrences(item), width, detailTimelineWindow, m.currentTime())
+	fields := detailCauseSummaryFields(item, m.MultiAgent, width)
+	sections := []detailSection{
+		{Title: "targets", Rows: failureCauseTargetRows(item, width)},
+		{Title: "failure history", Rows: m.failureCauseDetailRows(item, width)},
+		{Title: "logs", Rows: m.failureCauseRelatedLogLines(item, detailModalLogLimit), WrapLogs: true},
+	}
+	return detailContent{
+		Summary:    detailSummaryTableLines(fields, width),
+		Histogram:  histogram,
+		GraphStyle: summaryGraphStyle,
+		Sections:   sections,
+	}
+}
+
+type detailContent struct {
+	Summary    []string
+	Histogram  occurrenceHistogram
+	GraphStyle lipgloss.Style
+	Sections   []detailSection
+}
+
+func (content detailContent) render(width int, height int) string {
+	return denseDetailView(content.Summary, content.Histogram, content.GraphStyle, content.Sections, width, height)
+}
+
+func (content detailContent) naturalHeight(width int) int {
+	height := len(content.Summary)
+	trailingBlank := height > 0 && detailLineBlank(content.Summary[height-1])
+	if content.Histogram.Count > 0 {
+		if height > 0 && !trailingBlank {
+			height++
+		}
+		height += detailTimelineHeaderHeight
+		height += detailNaturalGraphHeight
+		height++
+		trailingBlank = true
+	}
+	for _, section := range content.Sections {
+		if height > 0 && !trailingBlank {
+			height++
+		}
+		height++
+		for _, row := range detailSectionNaturalRows(section) {
+			height += len(detailSectionRowLines(section, row, width))
+		}
+		trailingBlank = false
+	}
+	return height
+}
+
+func detailSectionNaturalRows(section detailSection) []string {
+	rows := section.Rows
+	if len(rows) == 0 {
+		return []string{dimStyle.Render("  no matching entries")}
+	}
+	return rows
 }
 
 type detailSection struct {
@@ -146,6 +253,25 @@ func detailHotspotSummaryFields(item failureHotspotSummary, multiAgent bool) []d
 	return fields
 }
 
+func detailCauseSummaryFields(item failureCauseSummary, multiAgent bool, width int) []detailField {
+	rate := 0
+	if item.RunCount > 0 {
+		rate = item.FailRunCount * 100 / item.RunCount
+	}
+	fields := make([]detailField, 0, 12)
+	detailAppendAgentField(&fields, item.Agent, multiAgent)
+	fields = append(fields,
+		detailField{Key: "cause", Value: firstNonEmpty(item.Cause, "-"), Wide: true},
+		detailField{Key: "targets", Value: failureCauseTargetsLabel(item, width), Wide: true},
+		detailField{Key: "target_count", Value: fmt.Sprint(item.TargetCount)},
+		detailField{Key: "fail_rate", Value: fmt.Sprintf("%d%%", rate)},
+		detailField{Key: "failed_runs", Value: fmt.Sprintf("%d/%d", item.FailRunCount, item.RunCount)},
+		detailField{Key: "failures", Value: fmt.Sprint(item.FailCount)},
+		detailField{Key: "last", Value: item.Last.Format("15:04:05")},
+	)
+	return fields
+}
+
 func detailAppendAgentField(fields *[]detailField, agent watch.AgentSnapshot, multiAgent bool) {
 	if multiAgent && agentKey(agent) != "" {
 		*fields = append(*fields, detailField{Key: "device", Value: agentLabel(agent)})
@@ -180,6 +306,7 @@ func detailAppendOperationFields(fields *[]detailField, step watch.StepSnapshot)
 const (
 	detailGraphVerticalPadding = 2
 	detailTimelineHeaderHeight = 1
+	detailNaturalGraphHeight   = 4
 	detailSummaryColumnGap     = 2
 	detailSummaryMinCellWidth  = 4
 	detailSummaryMaxCellWidth  = 30
@@ -209,7 +336,7 @@ func denseDetailView(summary []string, histogram occurrenceHistogram, graphStyle
 	if remaining <= 0 || len(sections) == 0 {
 		return strings.Join(lines[:min(len(lines), height)], "\n")
 	}
-	allocations := detailSectionAllocations(sections, max(0, remaining-detailSectionGapCount(lines, len(sections))))
+	allocations := detailSectionAllocations(sections, max(0, remaining-detailSectionGapCount(lines, len(sections))), width)
 	for i, section := range sections {
 		if len(lines) >= height || allocations[i] <= 0 {
 			continue
@@ -611,23 +738,20 @@ func detailSectionsMinimumHeight(sections []detailSection) int {
 	return total
 }
 
-func detailSectionAllocations(sections []detailSection, available int) []int {
+func detailSectionAllocations(sections []detailSection, available int, width int) []int {
 	allocations := make([]int, len(sections))
 	if len(sections) == 0 || available <= 0 {
 		return allocations
 	}
-	weights := make([]int, len(sections))
-	totalWeight := 0
+	naturals := make([]int, len(sections))
 	minimums := make([]int, len(sections))
 	minimumTotal := 0
 	for i, section := range sections {
-		weight := 1
-		if detailSectionIsLogs(section) {
-			weight = 2
-		}
-		weights[i] = weight
-		totalWeight += weight
+		naturals[i] = detailSectionNaturalAllocation(section, width)
 		minimums[i] = detailSectionMinAllocation(section)
+		if naturals[i] > 0 {
+			minimums[i] = min(minimums[i], naturals[i])
+		}
 		minimumTotal += minimums[i]
 	}
 	if available <= minimumTotal {
@@ -643,28 +767,53 @@ func detailSectionAllocations(sections []detailSection, available int) []int {
 	}
 	copy(allocations, minimums)
 	remaining := available - minimumTotal
-	assigned := 0
-	for i := range sections {
-		extra := remaining * weights[i] / totalWeight
-		allocations[i] += extra
-		assigned += extra
-	}
-	remaining -= assigned
-	for remaining > 0 {
-		changed := false
-		for i := range allocations {
-			if remaining <= 0 {
-				break
-			}
-			allocations[i]++
-			remaining--
-			changed = true
+
+	grant := func(index int, target int) {
+		if remaining <= 0 || index < 0 || index >= len(allocations) {
+			return
 		}
-		if !changed {
-			break
+		target = min(target, naturals[index])
+		if target <= allocations[index] {
+			return
+		}
+		extra := min(target-allocations[index], remaining)
+		allocations[index] += extra
+		remaining -= extra
+	}
+
+	for i := range sections {
+		if detailSectionIsLogs(sections[i]) {
+			grant(i, detailLogMinimumAllocation(available))
+		}
+	}
+	for i := range sections {
+		if detailSectionIsFailureHistory(sections[i]) {
+			grant(i, naturals[i])
+		}
+	}
+	for i := range sections {
+		if !detailSectionIsLogs(sections[i]) && !detailSectionIsFailureHistory(sections[i]) {
+			grant(i, naturals[i])
+		}
+	}
+	for i := range sections {
+		if detailSectionIsLogs(sections[i]) {
+			grant(i, naturals[i])
 		}
 	}
 	return allocations
+}
+
+func detailSectionNaturalAllocation(section detailSection, width int) int {
+	total := 1
+	for _, row := range detailSectionNaturalRows(section) {
+		total += len(detailSectionRowLines(section, row, width))
+	}
+	return total
+}
+
+func detailLogMinimumAllocation(available int) int {
+	return max(2, (available+3)/4)
 }
 
 func detailSectionMinAllocation(section detailSection) int {
@@ -699,12 +848,16 @@ func detailSectionIsLogs(section detailSection) bool {
 	return detailSectionTitleKey(section) == "logs"
 }
 
+func detailSectionIsFailureHistory(section detailSection) bool {
+	return detailSectionTitleKey(section) == "failure history"
+}
+
 func detailSectionTitleKey(section detailSection) string {
 	title := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(section.Title)), ":")
 	return strings.Join(strings.Fields(title), " ")
 }
 
-func (m model) failedCheckDetailRows(summary failedCheckSummary) []string {
+func (m model) failedCheckDetailRows(summary failedCheckSummary, width int) []string {
 	items := make([]failedCheckState, 0, summary.Count)
 	for _, item := range m.FailedChecks {
 		if failedCheckSummaryKey(item.Agent, item.Target, item.Finding) == failedCheckSummaryKey(summary.Agent, summary.Target, summary.Finding) {
@@ -714,10 +867,10 @@ func (m model) failedCheckDetailRows(summary failedCheckSummary) []string {
 	sort.SliceStable(items, func(i, j int) bool {
 		return items[i].When.After(items[j].When)
 	})
-	rows := []string{summaryKeyStyle.Render("  Time      Round  Check             Metric      Observed  Expected  Message")}
+	tableRows := make([][]string, 0, len(items))
 	for _, item := range items {
 		finding := item.Finding
-		rows = append(rows, valueStyle.Render(fmt.Sprintf("  %s  %-5s  %-16s  %-10s  %-8s  %-8s  %s",
+		tableRows = append(tableRows, []string{
 			item.When.Format("15:04:05"),
 			roundLabel(item.Round),
 			firstNonEmpty(finding.Check, "-"),
@@ -725,12 +878,12 @@ func (m model) failedCheckDetailRows(summary failedCheckSummary) []string {
 			firstNonEmpty(finding.Observed, "-"),
 			detailValue(finding.Expected),
 			firstNonEmpty(finding.Message, "-"),
-		)))
+		})
 	}
-	return rows
+	return detailTableRows([]string{"Time", "Round", "Check", "Metric", "Observed", "Expected", "Message"}, tableRows, width, nil)
 }
 
-func (m model) failureHotspotDetailRows(summary failureHotspotSummary) []string {
+func (m model) failureHotspotDetailRows(summary failureHotspotSummary, width int) []string {
 	key := failureHotspotSummaryIdentity(summary)
 	items := make([]failedCheckState, 0, summary.FailCount)
 	for _, item := range m.FailedChecks {
@@ -741,10 +894,10 @@ func (m model) failureHotspotDetailRows(summary failureHotspotSummary) []string 
 	sort.SliceStable(items, func(i, j int) bool {
 		return items[i].When.After(items[j].When)
 	})
-	rows := []string{summaryKeyStyle.Render("  Time      Round  Check             Metric      Observed  Expected  Cause")}
+	tableRows := make([][]string, 0, len(items))
 	for _, item := range items {
 		finding := item.Finding
-		rows = append(rows, valueStyle.Render(fmt.Sprintf("  %s  %-5s  %-16s  %-10s  %-8s  %-8s  %s",
+		tableRows = append(tableRows, []string{
 			item.When.Format("15:04:05"),
 			roundLabel(item.Round),
 			firstNonEmpty(finding.Check, "-"),
@@ -752,9 +905,9 @@ func (m model) failureHotspotDetailRows(summary failureHotspotSummary) []string 
 			firstNonEmpty(finding.Observed, "-"),
 			detailValue(finding.Expected),
 			failureHotspotCause(finding),
-		)))
+		})
 	}
-	return rows
+	return detailTableRows([]string{"Time", "Round", "Check", "Metric", "Observed", "Expected", "Cause"}, tableRows, width, nil)
 }
 
 type failureHotspotCauseSummary struct {
@@ -763,7 +916,7 @@ type failureHotspotCauseSummary struct {
 	Last  time.Time
 }
 
-func (m model) failureHotspotCauseRows(summary failureHotspotSummary) []string {
+func (m model) failureHotspotCauseRows(summary failureHotspotSummary, width int) []string {
 	key := failureHotspotSummaryIdentity(summary)
 	index := map[string]int{}
 	rows := make([]failureHotspotCauseSummary, 0)
@@ -789,11 +942,90 @@ func (m model) failureHotspotCauseRows(summary failureHotspotSummary) []string {
 		}
 		return rows[i].Last.After(rows[j].Last)
 	})
-	out := []string{summaryKeyStyle.Render("  Count  Last      Cause")}
+	tableRows := make([][]string, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, valueStyle.Render(fmt.Sprintf("  %-5d  %-8s  %s", row.Count, row.Last.Format("15:04:05"), row.Cause)))
+		tableRows = append(tableRows, []string{fmt.Sprint(row.Count), row.Last.Format("15:04:05"), row.Cause})
+	}
+	return detailTableRows([]string{"Count", "Last", "Cause"}, tableRows, width, map[int]bool{0: true})
+}
+
+func failureCauseTargetRows(summary failureCauseSummary, width int) []string {
+	tableRows := make([][]string, 0, len(summary.Targets))
+	for _, target := range summary.Targets {
+		rate := 0
+		if target.RunCount > 0 {
+			rate = target.FailRunCount * 100 / target.RunCount
+		}
+		tableRows = append(tableRows, []string{
+			firstNonEmpty(target.Target.Name, target.Target.SSID, target.Target.BSSID, target.LatestFinding.Target, "-"),
+			fmt.Sprintf("%d%%", rate),
+			fmt.Sprintf("%d/%d", target.FailRunCount, target.RunCount),
+			fmt.Sprint(target.FailCount),
+			target.Last.Format("15:04:05"),
+			firstNonEmpty(target.LatestFinding.Check, "-"),
+		})
+	}
+	return detailTableRows([]string{"Target", "Fail%", "Fail/Run", "Failures", "Last", "Latest"}, tableRows, width, map[int]bool{1: true, 2: true, 3: true})
+}
+
+func (m model) failureCauseDetailRows(summary failureCauseSummary, width int) []string {
+	key := failureCauseSummaryIdentity(summary)
+	items := make([]failedCheckState, 0, summary.FailCount)
+	for _, item := range m.FailedChecks {
+		if failureCauseIdentity(item.Agent, item.Finding) == key {
+			items = append(items, item)
+		}
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		return items[i].When.After(items[j].When)
+	})
+	tableRows := make([][]string, 0, len(items))
+	for _, item := range items {
+		finding := item.Finding
+		tableRows = append(tableRows, []string{
+			item.When.Format("15:04:05"),
+			roundLabel(item.Round),
+			firstNonEmpty(item.Target.Name, item.Target.SSID, item.Target.BSSID, finding.Target, "-"),
+			firstNonEmpty(finding.Check, "-"),
+			firstNonEmpty(finding.Metric, "-"),
+			firstNonEmpty(finding.Observed, "-"),
+			detailValue(finding.Expected),
+		})
+	}
+	return detailTableRows([]string{"Time", "Round", "Target", "Check", "Metric", "Observed", "Expected"}, tableRows, width, nil)
+}
+
+func detailTableRows(headers []string, rows [][]string, width int, rightAlign map[int]bool) []string {
+	if width <= 0 || len(headers) == 0 {
+		return nil
+	}
+	allRows := make([][]string, 0, len(rows)+1)
+	allRows = append(allRows, headers)
+	allRows = append(allRows, rows...)
+	widths := maxColumnWidths(allRows)
+	widths = shrinkWidths(widths, max(1, width-2), 1)
+	out := make([]string, 0, len(rows)+1)
+	out = append(out, summaryKeyStyle.Render("  "+detailTableLine(headers, widths, rightAlign)))
+	for _, row := range rows {
+		out = append(out, valueStyle.Render("  "+detailTableLine(row, widths, rightAlign)))
 	}
 	return out
+}
+
+func detailTableLine(values []string, widths []int, rightAlign map[int]bool) string {
+	parts := make([]string, 0, len(widths))
+	for i, width := range widths {
+		value := ""
+		if i < len(values) {
+			value = values[i]
+		}
+		if rightAlign != nil && rightAlign[i] {
+			parts = append(parts, padLeftVisible(value, width))
+		} else {
+			parts = append(parts, padVisible(value, width))
+		}
+	}
+	return strings.Join(parts, strings.Repeat(" ", listColumnGap))
 }
 
 func (m model) passingCheckRelatedLogLines(item passingCheckSummary, limit int) []string {
@@ -846,6 +1078,27 @@ func (m model) failureHotspotRelatedLogLines(item failureHotspotSummary, limit i
 		default:
 			return false
 		}
+	})
+}
+
+func (m model) failureCauseRelatedLogLines(item failureCauseSummary, limit int) []string {
+	return m.scopedLogLines(limit, func(entry eventLogEntry) bool {
+		event := entry.Event
+		if event.Kind == "" || !scopedEventAgentMatches(event.Agent, item.Agent) {
+			return false
+		}
+		if event.Finding != nil {
+			return failureCauseIdentity(event.Agent, *event.Finding) == failureCauseSummaryIdentity(item)
+		}
+		if event.Kind != watch.EventStepFinished && event.Kind != watch.EventLog {
+			return false
+		}
+		for _, target := range item.Targets {
+			if scopedEventTargetMatches(event, target.Target, target.LatestFinding.Target) && eventFailureLike(event) {
+				return true
+			}
+		}
+		return false
 	})
 }
 
@@ -994,20 +1247,45 @@ func (m model) detailModal(width int, height int) string {
 
 func (m model) passingCheckDetailModal(width int, height int) string {
 	modalWidth := detailModalWidth(width)
+	contentWidth := panelContentWidth(modalWidth)
+	content, ok := m.passingCheckDetailContent(contentWidth)
 	modalHeight := detailModalHeight(height)
-	return renderPanel("Passing Check Detail", modalWidth, modalHeight, m.passingCheckDetailView(panelContentWidth(modalWidth), modalHeight-2))
+	body := dimStyle.Render("no passing check selected")
+	if ok {
+		modalHeight = detailModalHeightForContent(height, content.naturalHeight(contentWidth))
+		body = content.render(contentWidth, modalHeight-2)
+	}
+	return renderPanel("Passing Check Detail", modalWidth, modalHeight, body)
 }
 
 func (m model) failedCheckDetailModal(width int, height int) string {
 	modalWidth := detailModalWidth(width)
+	contentWidth := panelContentWidth(modalWidth)
+	content, ok := m.failedCheckDetailContent(contentWidth)
 	modalHeight := detailModalHeight(height)
-	return renderPanel("Failed Check Detail", modalWidth, modalHeight, m.failedCheckDetailView(panelContentWidth(modalWidth), modalHeight-2))
+	body := dimStyle.Render("no failed check selected")
+	if ok {
+		modalHeight = detailModalHeightForContent(height, content.naturalHeight(contentWidth))
+		body = content.render(contentWidth, modalHeight-2)
+	}
+	return renderPanel("Failed Check Detail", modalWidth, modalHeight, body)
 }
 
 func (m model) failureHotspotDetailModal(width int, height int) string {
 	modalWidth := detailModalWidth(width)
+	contentWidth := panelContentWidth(modalWidth)
+	content, ok := m.failureHotspotDetailContent(contentWidth)
 	modalHeight := detailModalHeight(height)
-	return renderPanel("Failure Hotspot Detail", modalWidth, modalHeight, m.failureHotspotDetailView(panelContentWidth(modalWidth), modalHeight-2))
+	title := "Failure Cause Detail"
+	if m.detailHotspotMode == failureHotspotModeTargets {
+		title = "Failure Hotspot Detail"
+	}
+	body := dimStyle.Render("no failure hotspot selected")
+	if ok {
+		modalHeight = detailModalHeightForContent(height, content.naturalHeight(contentWidth))
+		body = content.render(contentWidth, modalHeight-2)
+	}
+	return renderPanel(title, modalWidth, modalHeight, body)
 }
 
 func detailModalWidth(width int) int {
@@ -1016,6 +1294,19 @@ func detailModalWidth(width int) int {
 
 func detailModalHeight(height int) int {
 	return max(2, height*detailModalHeightPercent/100)
+}
+
+func detailModalMaxHeight(height int) int {
+	return max(2, height*detailModalMaxHeightPercent/100)
+}
+
+func detailModalHeightForContent(appHeight int, contentHeight int) int {
+	baseHeight := detailModalHeight(appHeight)
+	baseContentHeight := max(0, baseHeight-2)
+	if contentHeight <= baseContentHeight {
+		return baseHeight
+	}
+	return clamp(contentHeight+2, baseHeight, detailModalMaxHeight(appHeight))
 }
 
 func overlayModal(frame string, width int, height int, modal string) string {

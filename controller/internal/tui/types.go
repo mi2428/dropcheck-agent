@@ -16,6 +16,7 @@ type failedCheckSummary = watchstate.FailedCheckSummary
 type passingCheckState = watchstate.PassingCheck
 type passingCheckSummary = watchstate.PassingCheckSummary
 type failureHotspotSummary = watchstate.FailureHotspotSummary
+type failureCauseSummary = watchstate.FailureCauseSummary
 type eventLogEntry = watchstate.EventLogEntry
 type connectState = watchstate.ConnectState
 type occurrenceHistogram = watchstate.OccurrenceHistogram
@@ -51,6 +52,13 @@ type focusSlot struct {
 	RunQueueAgentKey string
 }
 
+type failureHotspotMode int
+
+const (
+	failureHotspotModeTargets failureHotspotMode = iota
+	failureHotspotModeCauses
+)
+
 const (
 	roundTimelineMinVisibleRounds = 10
 	roundTimelineTargetLabelRunes = 10
@@ -66,7 +74,8 @@ const (
 	maxEventLogHistory            = 100000
 	visibleEventLogLimit          = 400
 	detailModalWidthPercent       = 54
-	detailModalHeightPercent      = 55
+	detailModalHeightPercent      = 33
+	detailModalMaxHeightPercent   = 80
 	detailModalLogLimit           = 120
 	recencyFreshWindow            = 15 * time.Second
 	recencyWarmWindow             = 30 * time.Second
@@ -87,32 +96,38 @@ type model struct {
 	width  int
 	height int
 	watchstate.State
-	closed                bool
-	focus                 focusPanel
-	focusHotspotAgentKey  string
-	focusRunQueueAgentKey string
-	passingCheckCursor    int
-	passingCheckPinned    bool
-	passingCheckPinnedKey string
-	failedCheckCursor     int
-	failedCheckPinned     bool
-	failedCheckPinnedKey  string
-	failureHotspotCursor  int
-	failureHotspotPinned  bool
-	failureHotspotKey     string
-	checkStatusOffset     int
-	checkStatusPinned     bool
-	runQueueCursor        int
-	runQueueOffset        int
-	runQueuePinned        bool
-	searchEditing         bool
-	searchQuery           string
-	paused                bool
-	pauseControl          *watch.PauseController
-	skipControl           *watch.SkipController
-	detailOpen            bool
-	detailPanel           focusPanel
-	detailPassingKey      string
-	detailFailedKey       string
-	detailHotspotKey      string
+	closed                    bool
+	focus                     focusPanel
+	focusHotspotAgentKey      string
+	focusRunQueueAgentKey     string
+	passingCheckCursor        int
+	passingCheckPinned        bool
+	passingCheckPinnedKey     string
+	failedCheckCursor         int
+	failedCheckPinned         bool
+	failedCheckPinnedKey      string
+	failureHotspotCursor      int
+	failureHotspotMode        failureHotspotMode
+	failureHotspotPinned      bool
+	failureHotspotKey         string
+	checkStatusOffset         int
+	checkStatusPinned         bool
+	runQueueCursor            int
+	runQueueOffset            int
+	runQueuePinned            bool
+	searchEditing             bool
+	searchPanel               focusPanel
+	passingSearchQuery        string
+	failedSearchQuery         string
+	checkStatusSearchQuery    string
+	failureHotspotSearchQuery string
+	paused                    bool
+	pauseControl              *watch.PauseController
+	skipControl               *watch.SkipController
+	detailOpen                bool
+	detailPanel               focusPanel
+	detailHotspotMode         failureHotspotMode
+	detailPassingKey          string
+	detailFailedKey           string
+	detailHotspotKey          string
 }

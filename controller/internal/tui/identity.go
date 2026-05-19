@@ -23,8 +23,11 @@ func failedCheckSummaryIndexByIdentity(rows []failedCheckSummary, key string) in
 func failureHotspotSummaryIdentity(item failureHotspotSummary) string {
 	return watchstate.FailureHotspotSummaryIdentity(item)
 }
-func failureHotspotSummaryIndexByIdentity(rows []failureHotspotSummary, key string) int {
-	return watchstate.FailureHotspotSummaryIndexByIdentity(rows, key)
+func failureCauseSummaryIdentity(item failureCauseSummary) string {
+	return watchstate.FailureCauseSummaryIdentity(item)
+}
+func failureCauseIdentity(agent watch.AgentSnapshot, finding watch.Finding) string {
+	return watchstate.FailureCauseIdentity(agent, watchstate.FailureHotspotCause(finding))
 }
 func failureHotspotIdentity(agent watch.AgentSnapshot, target watch.TargetSnapshot, findingTargets ...string) string {
 	return watchstate.FailureHotspotIdentity(agent, target, findingTargets...)
