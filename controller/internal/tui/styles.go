@@ -32,7 +32,6 @@ var (
 	keyStyle                   = lipgloss.NewStyle().Bold(true).Foreground(colorBrilliantGreen).Background(colorBackground)
 	valueStyle                 = lipgloss.NewStyle().Foreground(colorOrange).Background(colorBackground)
 	logStyle                   = lipgloss.NewStyle().Foreground(colorOrangeMuted).Background(colorBackground)
-	groupStyle                 = lipgloss.NewStyle().Bold(true).Foreground(colorBrilliantGreen).Background(colorBackground)
 	tableHeaderStyle           = lipgloss.NewStyle().Bold(true).Foreground(colorBrilliantGreen).Background(colorHeaderBackground)
 	summaryKeyStyle            = lipgloss.NewStyle().Bold(true).Foreground(colorBrilliantGreen).Background(colorBackground)
 	summaryValueStyle          = lipgloss.NewStyle().Foreground(colorOrange).Background(colorBackground)

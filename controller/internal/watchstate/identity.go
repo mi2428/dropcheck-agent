@@ -249,13 +249,6 @@ func NormalizeStatus(status string) string {
 	}
 }
 
-func (item PassingCheckSummary) avgDuration() int64 {
-	if item.DurationCount <= 0 {
-		return 0
-	}
-	return (item.DurationTotal + int64(item.DurationCount/2)) / int64(item.DurationCount)
-}
-
 // FirstNonEmpty returns the first non-blank trimmed value.
 func FirstNonEmpty(values ...string) string {
 	for _, value := range values {
@@ -302,36 +295,4 @@ func Clamp(value, low, high int) int {
 		return high
 	}
 	return value
-}
-
-func correctedOffset(selected int, visibleRows int, totalRows int) int {
-	if totalRows <= 0 {
-		return 0
-	}
-	visibleRows = Max(1, visibleRows)
-	selected = Clamp(selected, 0, totalRows-1)
-	if totalRows <= visibleRows {
-		return 0
-	}
-	start := selected - visibleRows/2
-	return Clamp(start, 0, totalRows-visibleRows)
-}
-
-func stableOffset(selected int, currentOffset int, visibleRows int, totalRows int) int {
-	if totalRows <= 0 {
-		return 0
-	}
-	visibleRows = Max(1, visibleRows)
-	selected = Clamp(selected, 0, totalRows-1)
-	currentOffset = Clamp(currentOffset, 0, Max(0, totalRows-visibleRows))
-	if totalRows <= visibleRows {
-		return 0
-	}
-	if selected < currentOffset {
-		return selected
-	}
-	if selected >= currentOffset+visibleRows {
-		return selected - visibleRows + 1
-	}
-	return currentOffset
 }

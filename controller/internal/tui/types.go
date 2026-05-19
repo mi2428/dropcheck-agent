@@ -21,9 +21,7 @@ type connectState = watchstate.ConnectState
 type occurrenceHistogram = watchstate.OccurrenceHistogram
 
 type outcomeEvent = watchstate.OutcomeEvent
-type outcomeBucket = watchstate.OutcomeBucket
 type checkStatusAggregate = watchstate.CheckStatusAggregate
-type checkStatusAgentResult = watchstate.CheckStatusAgentResult
 
 type targetRoundBucket struct {
 	Seen          bool

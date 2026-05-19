@@ -336,79 +336,6 @@ func mergeRunQueueSteps(planned []stepState, actual []stepState) []stepState {
 	return steps
 }
 
-func (m model) targetOutcomeStrip(agent watch.AgentSnapshot, target watch.TargetSnapshot, width int, fallbackStatus string) string {
-	if width <= 0 {
-		return ""
-	}
-	events := filterOutcomeEvents(m.outcomeEvents(), agent, target)
-	if len(events) == 0 && normalizeStatus(fallbackStatus) == "pending" {
-		return strings.Repeat("-", width)
-	}
-	return plainRecentOutcomeStrip(events, width, fallbackStatus)
-}
-
-func plainRecentOutcomeStrip(events []outcomeEvent, width int, fallbackStatus string) string {
-	if width <= 0 {
-		return ""
-	}
-	if len(events) == 0 {
-		switch normalizeStatus(fallbackStatus) {
-		case "running":
-			return "▌" + strings.Repeat(" ", max(0, width-1))
-		case "ok":
-			return strings.Repeat("▁", width)
-		case "failed":
-			return strings.Repeat("█", width)
-		default:
-			return strings.Repeat("-", width)
-		}
-	}
-	start := max(0, len(events)-width)
-	events = events[start:]
-	var b strings.Builder
-	if leftPad := width - len(events); leftPad > 0 {
-		b.WriteString(strings.Repeat("-", leftPad))
-	}
-	for _, event := range events {
-		if event.Status == "failed" {
-			b.WriteString("█")
-		} else {
-			b.WriteString("▁")
-		}
-	}
-	return b.String()
-}
-
-func runQueueStripWidth(width int) int {
-	switch {
-	case width >= 44:
-		return 10
-	case width >= 34:
-		return 8
-	case width >= 28:
-		return 6
-	default:
-		return 0
-	}
-}
-
-func lineWithRightSuffix(line string, suffix string, width int) string {
-	if width <= 0 || suffix == "" {
-		return line
-	}
-	suffixWidth := lipgloss.Width(suffix)
-	if suffixWidth+2 >= width {
-		return line
-	}
-	lineWidth := lipgloss.Width(line)
-	available := width - suffixWidth - 1
-	if lineWidth > available {
-		line = fit(line, available)
-		lineWidth = lipgloss.Width(line)
-	}
-	return line + strings.Repeat(" ", max(1, available-lineWidth+1)) + suffix
-}
-
 // updateRunQueueCursor keeps the queue anchored to the active target or step
 // while preserving the existing scroll position whenever the active row remains
 // visible. Completed steps can disappear or collapse out of the tree, so the
@@ -460,10 +387,6 @@ func (m model) runQueueViewportHeight() int {
 	return max(1, lowerHeight-2)
 }
 
-func (m model) currentRunQueueLineIndex() (int, bool) {
-	return m.currentRunQueueLineIndexForAgent(watch.AgentSnapshot{})
-}
-
 func (m model) currentRunQueueLineIndexForAgent(agent watch.AgentSnapshot) (int, bool) {
 	index := 0
 	for _, target := range m.Targets {
@@ -500,10 +423,6 @@ func (m *model) moveRunQueueCursor(delta int) {
 	m.runQueuePinned = true
 	m.runQueueCursor = clamp(m.runQueueCursor+delta, 0, count-1)
 	m.runQueueOffset = stableOffset(m.runQueueCursor, m.runQueueOffset, m.runQueueViewportHeight(), count)
-}
-
-func (m model) runQueueLineCount() int {
-	return m.runQueueLineCountForAgent(watch.AgentSnapshot{})
 }
 
 func (m model) runQueueLineCountForAgent(agent watch.AgentSnapshot) int {

@@ -57,7 +57,6 @@ func renderSparkline(counts []int, maxCount int, width int, height int, style li
 func sparklineEventsPerRow(maxCount int, height int) int {
 	return watchstate.SparklineEventsPerRow(maxCount, height)
 }
-func niceSparklineUnit(needed int) int { return watchstate.NiceSparklineUnit(needed) }
 func resampleSparklineCounts(counts []int, width int) []int {
 	return watchstate.ResampleSparklineCounts(counts, width)
 }
