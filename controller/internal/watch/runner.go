@@ -2,6 +2,7 @@ package watch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -43,6 +44,7 @@ type FailureCauseMonitor interface {
 // RunOptions configures one watch runner.
 type RunOptions struct {
 	Pause        *PauseController
+	Skip         *SkipController
 	RoundBarrier *RoundBarrier
 }
 
@@ -90,7 +92,7 @@ func RunWithOptions(ctx context.Context, plan Plan, opRunner OperationRunner, ag
 		if err := opts.Pause.Wait(ctx); err != nil {
 			return nil
 		}
-		failed, err := runRound(ctx, plan, opRunner, agent, round, bands, opts.Pause, opts.RoundBarrier, emit)
+		failed, err := runRound(ctx, plan, opRunner, agent, round, bands, opts.Pause, opts.Skip, opts.RoundBarrier, emit)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
@@ -116,7 +118,7 @@ func snapshotAgent(agent control.AgentInfo) AgentSnapshot {
 	return AgentSnapshotFromInfo(agent)
 }
 
-func runRound(ctx context.Context, plan Plan, opRunner OperationRunner, agent control.AgentInfo, round uint64, bands bandSupport, pause *PauseController, barrier *RoundBarrier, emit func(Event) error) (int, error) {
+func runRound(ctx context.Context, plan Plan, opRunner OperationRunner, agent control.AgentInfo, round uint64, bands bandSupport, pause *PauseController, skip *SkipController, barrier *RoundBarrier, emit func(Event) error) (int, error) {
 	started := time.Now()
 	if err := emit(Event{Kind: EventRoundStarted, Round: round, Status: "running"}); err != nil {
 		return 0, err
@@ -127,7 +129,7 @@ func runRound(ctx context.Context, plan Plan, opRunner OperationRunner, agent co
 		if err := pause.Wait(ctx); err != nil {
 			return failedTargets, err
 		}
-		result, err := runTarget(ctx, plan, opRunner, agent, round, target, bands, pause, emit)
+		result, err := runTarget(ctx, plan, opRunner, agent, round, target, bands, pause, skip, emit)
 		if err != nil {
 			return failedTargets, err
 		}
@@ -162,7 +164,7 @@ const (
 	targetSkipped
 )
 
-func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, bands bandSupport, pause *PauseController, emit func(Event) error) (targetResult, error) {
+func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, bands bandSupport, pause *PauseController, skip *SkipController, emit func(Event) error) (targetResult, error) {
 	targetStart := time.Now()
 	targetSnapshot := snapshotTarget(target)
 	if message, ok := bands.skipReason(target.Band); ok {
@@ -180,9 +182,12 @@ func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent c
 	if err := pause.Wait(ctx); err != nil {
 		return targetFailed, err
 	}
-	ok, err := runRequiredStep(ctx, opRunner, agent, round, target, StepSnapshot{Name: "connect", Type: "connect", Operation: connect.Name}, connect, emit)
+	ok, skipped, err := runRequiredStepWithSkip(ctx, opRunner, agent, round, target, StepSnapshot{Name: "connect", Type: "connect", Operation: connect.Name}, connect, skip, emit)
 	if err != nil {
 		return targetFailed, err
+	}
+	if skipped {
+		return targetSkipped, finishOperatorSkippedTarget(round, target, targetStart, emit)
 	}
 	if !ok {
 		ready = false
@@ -196,9 +201,12 @@ func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent c
 		if err := pause.Wait(ctx); err != nil {
 			return targetFailed, err
 		}
-		ok, err = runRequiredStep(ctx, opRunner, agent, round, target, StepSnapshot{Name: "wait_connected", Type: "wait_connected", Operation: wait.Name}, wait, emit)
+		ok, skipped, err = runRequiredStepWithSkip(ctx, opRunner, agent, round, target, StepSnapshot{Name: "wait_connected", Type: "wait_connected", Operation: wait.Name}, wait, skip, emit)
 		if err != nil {
 			return targetFailed, err
+		}
+		if skipped {
+			return targetSkipped, finishOperatorSkippedTarget(round, target, targetStart, emit)
 		}
 		if !ok {
 			ready = false
@@ -210,9 +218,12 @@ func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent c
 			if err := pause.Wait(ctx); err != nil {
 				return targetFailed, err
 			}
-			ok, err := runCheck(ctx, opRunner, agent, round, target, check, emit)
+			ok, skipped, err := runCheckWithSkip(ctx, opRunner, agent, round, target, check, skip, emit)
 			if err != nil {
 				return targetFailed, err
+			}
+			if skipped {
+				return targetSkipped, finishOperatorSkippedTarget(round, target, targetStart, emit)
 			}
 			if !ok {
 				targetOK = false
@@ -240,7 +251,7 @@ func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent c
 	if err := pause.Wait(ctx); err != nil {
 		return targetFailed, err
 	}
-	if err := runCleanup(ctx, opRunner, agent, round, target, emit); err != nil {
+	if err := runCleanup(ctx, opRunner, agent, round, target, skip, emit); err != nil && !errors.Is(err, ErrSkipRequested) {
 		return targetFailed, err
 	}
 	status := "ok"
@@ -278,6 +289,18 @@ func skipTarget(round uint64, target Target, checks []Check, started time.Time, 
 	})
 }
 
+func finishOperatorSkippedTarget(round uint64, target Target, started time.Time, emit func(Event) error) error {
+	message := "skipped by operator"
+	return emit(Event{
+		Kind:     EventTargetFinished,
+		Round:    round,
+		Target:   snapshotTarget(target),
+		Status:   "skipped",
+		Message:  message,
+		Duration: time.Since(started).Milliseconds(),
+	})
+}
+
 func skippedTargetSteps(checks []Check, message string) []StepSnapshot {
 	steps := []StepSnapshot{
 		{Name: "connect", Type: "connect", Operation: "wifi.connect", Status: "skipped", Skipped: true, Message: message},
@@ -290,17 +313,27 @@ func skippedTargetSteps(checks []Check, message string) []StepSnapshot {
 }
 
 func runRequiredStep(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, step StepSnapshot, op command.Operation, emit func(Event) error) (bool, error) {
-	exec, err := runOperationStep(ctx, opRunner, agent, round, target, step, op, emit)
+	ok, _, err := runRequiredStepWithSkip(ctx, opRunner, agent, round, target, step, op, nil, emit)
+	return ok, err
+}
+
+func runRequiredStepWithSkip(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, step StepSnapshot, op command.Operation, skip *SkipController, emit func(Event) error) (bool, bool, error) {
+	exec, skipped, err := runOperationStepWithSkip(ctx, opRunner, agent, round, target, step, op, skip, emit)
 	if err != nil || exec.Result == nil {
-		return false, err
+		return false, skipped, err
 	}
-	return exec.Result.GetStatus() == controlpb.CommandResult_STATUS_OK, nil
+	return exec.Result.GetStatus() == controlpb.CommandResult_STATUS_OK, skipped, nil
 }
 
 func runCheck(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, check Check, emit func(Event) error) (bool, error) {
+	ok, _, err := runCheckWithSkip(ctx, opRunner, agent, round, target, check, nil, emit)
+	return ok, err
+}
+
+func runCheckWithSkip(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, check Check, skip *SkipController, emit func(Event) error) (bool, bool, error) {
 	op, err := checkOperation(check, target)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	step := StepSnapshot{Name: check.DisplayName(), Type: check.Type, Operation: op.Name}
 	targetSnapshot := snapshotTarget(target)
@@ -308,21 +341,24 @@ func runCheck(ctx context.Context, opRunner OperationRunner, agent control.Agent
 	emitCause := failureCauseEmitter(round, target, step, emit)
 	maxAttempts := operationMaxAttempts(step)
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		exec, runErr, err := runOperationAttempt(ctx, opRunner, agent, round, target, step, op, attempt, maxAttempts, emit, emitCause)
+		exec, runErr, err, skipped := runOperationAttempt(ctx, opRunner, agent, round, target, step, op, attempt, maxAttempts, skip, emit, emitCause)
 		if err != nil {
-			return false, err
+			return false, false, err
+		}
+		if skipped {
+			return false, true, emitOperatorSkippedStep(round, targetSnapshot, step, started, emit)
 		}
 		failedStep, operationFailed := operationFailureStep(step, exec, runErr)
 		findings := checkFindings(target, check, exec)
 		if !operationFailed && len(findings) == 0 {
 			if err := emitRetrySucceeded(round, target, step, attempt, maxAttempts, emit); err != nil {
-				return false, err
+				return false, false, err
 			}
 			step.Status = "ok"
 			if attempt > 1 {
 				step.Message = retrySucceededMessage(step, attempt, maxAttempts)
 			}
-			return true, emit(Event{
+			return true, false, emit(Event{
 				Kind:     EventStepFinished,
 				Round:    round,
 				Target:   targetSnapshot,
@@ -335,11 +371,11 @@ func runCheck(ctx context.Context, opRunner OperationRunner, agent control.Agent
 		reason := checkFailureMessage(failedStep, findings)
 		if attempt < maxAttempts {
 			if err := emitRetrying(round, target, step, attempt, maxAttempts, reason, emit); err != nil {
-				return false, err
+				return false, false, err
 			}
 			if operationFailed {
 				if err := emitFailureCause(ctx, opRunner, agent, round, target, failedStep, op, exec, runErr, emitCause); err != nil {
-					return false, err
+					return false, false, err
 				}
 			}
 			continue
@@ -355,11 +391,11 @@ func runCheck(ctx context.Context, opRunner OperationRunner, agent control.Agent
 			Message:  failedStep.Message,
 			Duration: time.Since(started).Milliseconds(),
 		}); err != nil {
-			return false, err
+			return false, false, err
 		}
 		if operationFailed {
 			if err := emitFailureCause(ctx, opRunner, agent, round, target, failedStep, op, exec, runErr, emitCause); err != nil {
-				return false, err
+				return false, false, err
 			}
 		}
 		for _, item := range findings {
@@ -372,34 +408,42 @@ func runCheck(ctx context.Context, opRunner OperationRunner, agent control.Agent
 				Status:  "failed",
 				Message: item.Message,
 			}); err != nil {
-				return false, err
+				return false, false, err
 			}
 		}
-		return false, nil
+		return false, false, nil
 	}
-	return false, nil
+	return false, false, nil
 }
 
 func runOperationStep(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, step StepSnapshot, op command.Operation, emit func(Event) error) (runner.Result, error) {
+	exec, _, err := runOperationStepWithSkip(ctx, opRunner, agent, round, target, step, op, nil, emit)
+	return exec, err
+}
+
+func runOperationStepWithSkip(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, step StepSnapshot, op command.Operation, skip *SkipController, emit func(Event) error) (runner.Result, bool, error) {
 	targetSnapshot := snapshotTarget(target)
 	started := time.Now()
 	emitCause := failureCauseEmitter(round, target, step, emit)
 	maxAttempts := operationMaxAttempts(step)
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		exec, runErr, err := runOperationAttempt(ctx, opRunner, agent, round, target, step, op, attempt, maxAttempts, emit, emitCause)
+		exec, runErr, err, skipped := runOperationAttempt(ctx, opRunner, agent, round, target, step, op, attempt, maxAttempts, skip, emit, emitCause)
 		if err != nil {
-			return exec, err
+			return exec, false, err
+		}
+		if skipped {
+			return exec, true, emitOperatorSkippedStep(round, targetSnapshot, step, started, emit)
 		}
 		finishedStep, failed := operationFailureStep(step, exec, runErr)
 		if !failed {
 			if err := emitRetrySucceeded(round, target, step, attempt, maxAttempts, emit); err != nil {
-				return exec, err
+				return exec, false, err
 			}
 			finishedStep.Status = "ok"
 			if attempt > 1 {
 				finishedStep.Message = retrySucceededMessage(step, attempt, maxAttempts)
 			}
-			return exec, emit(Event{
+			return exec, false, emit(Event{
 				Kind:     EventStepFinished,
 				Round:    round,
 				Target:   targetSnapshot,
@@ -412,10 +456,10 @@ func runOperationStep(ctx context.Context, opRunner OperationRunner, agent contr
 		reason := operationFailureReason(finishedStep)
 		if attempt < maxAttempts {
 			if err := emitRetrying(round, target, step, attempt, maxAttempts, reason, emit); err != nil {
-				return exec, err
+				return exec, false, err
 			}
 			if err := emitFailureCause(ctx, opRunner, agent, round, target, finishedStep, op, exec, runErr, emitCause); err != nil {
-				return exec, err
+				return exec, false, err
 			}
 			continue
 		}
@@ -428,17 +472,32 @@ func runOperationStep(ctx context.Context, opRunner OperationRunner, agent contr
 			Message:  firstNonEmpty(operationFailureReason(finishedStep), "operation failed"),
 			Duration: time.Since(started).Milliseconds(),
 		}); err != nil {
-			return exec, err
+			return exec, false, err
 		}
 		if err := emitFailureCause(ctx, opRunner, agent, round, target, finishedStep, op, exec, runErr, emitCause); err != nil {
-			return exec, err
+			return exec, false, err
 		}
-		return exec, nil
+		return exec, false, nil
 	}
-	return runner.Result{}, nil
+	return runner.Result{}, false, nil
 }
 
-func runOperationAttempt(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, step StepSnapshot, op command.Operation, attempt int, maxAttempts int, emit func(Event) error, emitCause func(string) error) (runner.Result, error, error) {
+func emitOperatorSkippedStep(round uint64, target TargetSnapshot, step StepSnapshot, started time.Time, emit func(Event) error) error {
+	step.Status = "pending"
+	step.Skipped = true
+	step.Message = "skipped by operator"
+	return emit(Event{
+		Kind:     EventStepFinished,
+		Round:    round,
+		Target:   target,
+		Step:     step,
+		Status:   "skipped",
+		Message:  step.Message,
+		Duration: time.Since(started).Milliseconds(),
+	})
+}
+
+func runOperationAttempt(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, step StepSnapshot, op command.Operation, attempt int, maxAttempts int, skip *SkipController, emit func(Event) error, emitCause func(string) error) (runner.Result, error, error, bool) {
 	targetSnapshot := snapshotTarget(target)
 	attemptStep := step
 	attemptStep.Status = "running"
@@ -446,17 +505,22 @@ func runOperationAttempt(ctx context.Context, opRunner OperationRunner, agent co
 		attemptStep.Message = retryAttemptMessage(step, attempt, maxAttempts)
 	}
 	if err := emit(Event{Kind: EventStepStarted, Round: round, Target: targetSnapshot, Step: attemptStep, Status: "running", Message: attemptStep.Message}); err != nil {
-		return runner.Result{}, nil, err
+		return runner.Result{}, nil, err, false
 	}
-	stopCauseMonitor := startFailureCauseMonitor(ctx, opRunner, agent, round, target, attemptStep, op, emitCause)
-	exec, runErr := opRunner.Run(ctx, agent, op)
+	opCtx, finish := skip.operationContext(ctx)
+	stopCauseMonitor := startFailureCauseMonitor(opCtx, opRunner, agent, round, target, attemptStep, op, emitCause)
+	exec, runErr := opRunner.Run(opCtx, agent, op)
+	finish()
 	if stopCauseMonitor != nil {
 		stopCauseMonitor()
 	}
-	if runErr != nil && ctx.Err() != nil {
-		return exec, runErr, ctx.Err()
+	if operationSkipped(opCtx) {
+		return exec, runErr, nil, true
 	}
-	return exec, runErr, nil
+	if runErr != nil && ctx.Err() != nil {
+		return exec, runErr, ctx.Err(), false
+	}
+	return exec, runErr, nil, false
 }
 
 func operationMaxAttempts(step StepSnapshot) int {
@@ -685,19 +749,25 @@ func emitFailureCause(ctx context.Context, opRunner OperationRunner, agent contr
 	return emitCause(message)
 }
 
-func runCleanup(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, emit func(Event) error) error {
+func runCleanup(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, skip *SkipController, emit func(Event) error) error {
 	if target.disconnectAfter() {
 		op := command.WifiDisconnectOperation()
-		_, err := runOperationStep(ctx, opRunner, agent, round, target, StepSnapshot{Name: "disconnect", Type: "cleanup", Operation: op.Name}, op, emit)
+		_, skipped, err := runOperationStepWithSkip(ctx, opRunner, agent, round, target, StepSnapshot{Name: "disconnect", Type: "cleanup", Operation: op.Name}, op, skip, emit)
 		if err != nil {
 			return err
+		}
+		if skipped {
+			return ErrSkipRequested
 		}
 	}
 	if target.forgetAfter() {
 		op := command.WifiForgetOperation(target.SSID)
-		_, err := runOperationStep(ctx, opRunner, agent, round, target, StepSnapshot{Name: "forget", Type: "cleanup", Operation: op.Name}, op, emit)
+		_, skipped, err := runOperationStepWithSkip(ctx, opRunner, agent, round, target, StepSnapshot{Name: "forget", Type: "cleanup", Operation: op.Name}, op, skip, emit)
 		if err != nil {
 			return err
+		}
+		if skipped {
+			return ErrSkipRequested
 		}
 	}
 	return nil

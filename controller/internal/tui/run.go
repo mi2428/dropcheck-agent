@@ -22,8 +22,15 @@ func Run(ctx context.Context, title string, targets []watch.Target, checks []wat
 // RunWithPauseControl renders watch events and lets keyboard input pause or
 // resume the watch runner through pauseControl.
 func RunWithPauseControl(ctx context.Context, title string, targets []watch.Target, checks []watch.Check, agents []watch.AgentSnapshot, events <-chan watch.Event, pauseControl *watch.PauseController) error {
+	return RunWithControls(ctx, title, targets, checks, agents, events, pauseControl, nil)
+}
+
+// RunWithControls renders watch events and lets keyboard input control the
+// watch runner through pause and skip controllers.
+func RunWithControls(ctx context.Context, title string, targets []watch.Target, checks []watch.Check, agents []watch.AgentSnapshot, events <-chan watch.Event, pauseControl *watch.PauseController, skipControl *watch.SkipController) error {
 	m := newModelWithChecks(title, targets, checks, events, agents)
 	m.pauseControl = pauseControl
+	m.skipControl = skipControl
 	if pauseControl != nil {
 		m.paused = pauseControl.Paused()
 	}
@@ -120,6 +127,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "w":
 			m.pause()
+		case "ctrl+n":
+			m.skipCurrent()
 		case "/":
 			m.searchEditing = true
 		case "j", "down":
