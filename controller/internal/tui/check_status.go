@@ -320,19 +320,19 @@ func checkStatusHeaderLabel(target watch.TargetSnapshot, layout checkStatusLayou
 }
 
 func (m model) outcomeEvents() []outcomeEvent {
-	return m.State.OutcomeEvents()
+	return m.OutcomeEvents()
 }
 
 func (m model) outcomeAgents(events []outcomeEvent) []watch.AgentSnapshot {
-	return m.State.OutcomeAgents(events)
+	return m.OutcomeAgents(events)
 }
 
 func (m model) checkStatusTargets() []watch.TargetSnapshot {
-	return m.State.CheckStatusTargets()
+	return m.CheckStatusTargets()
 }
 
 func (m model) checkStatusChecks() []string {
-	return m.State.CheckStatusChecks()
+	return m.CheckStatusChecks()
 }
 
 func (m model) checkStatusAgentsForTarget(target watch.TargetSnapshot, fallback []watch.AgentSnapshot) []watch.AgentSnapshot {
@@ -527,7 +527,7 @@ func checkStatusTargetShortLabel(target watch.TargetSnapshot) string {
 }
 
 func (m model) checkStatusTargetCell(check string, target watch.TargetSnapshot, agents []watch.AgentSnapshot) checkStatusAggregate {
-	return m.State.CheckStatusTargetCell(check, target, agents)
+	return m.CheckStatusTargetCell(check, target, agents)
 }
 
 func compactTargetLabel(label string, width int) string {

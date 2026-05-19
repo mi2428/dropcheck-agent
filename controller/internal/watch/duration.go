@@ -57,5 +57,5 @@ func durationMillis(value Duration) string {
 	if value.Duration <= 0 {
 		return ""
 	}
-	return strconv.FormatInt(value.Duration.Milliseconds(), 10)
+	return strconv.FormatInt(value.Milliseconds(), 10)
 }

@@ -242,7 +242,7 @@ func (m model) helpBar(width int) string {
 }
 
 func (m model) currentTime() time.Time {
-	return m.State.CurrentTime()
+	return m.CurrentTime()
 }
 
 func (m model) statusBar(width int) string {
