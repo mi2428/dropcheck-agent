@@ -9,6 +9,7 @@ import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Build
 import io.dropcheck.agent.grpc.ConnectWifi
+import io.dropcheck.agent.grpc.WifiBand
 
 @Suppress("DEPRECATION")
 /**
@@ -51,16 +52,25 @@ class WifiConnector(
         val passphrase = command.passphrase
         if (ssid.isBlank()) return Setup(error = "wifi ssid is required")
 
-        val securityCandidates = if (command.security == ConnectWifi.Security.SECURITY_UNSPECIFIED) scanSecurityCandidates() else emptyList()
+        val needsBandPin = command.bssid.isBlank() &&
+            command.band != WifiBand.WIFI_BAND_UNSPECIFIED &&
+            command.band != WifiBand.WIFI_BAND_ALL
+        val securityCandidates = if (command.security == ConnectWifi.Security.SECURITY_UNSPECIFIED || needsBandPin) scanSecurityCandidates() else emptyList()
+        val resolvedBssid = WifiConnectorPolicy.resolveConnectBssid(
+            requested = command.bssid,
+            candidates = securityCandidates,
+            ssid = ssid,
+            band = command.band,
+        )
         val resolvedSecurity = WifiConnectorPolicy.resolveConnectSecurity(
             requested = command.security,
             candidates = securityCandidates,
             ssid = ssid,
-            bssid = command.bssid,
+            bssid = resolvedBssid,
             band = command.band,
         )
 
-        logger.info("wifi configure ssid=$ssid security=${command.security} resolved_security=$resolvedSecurity bssid=${command.bssid.ifBlank { "*" }} band=${command.band} mac_randomization=${command.macRandomization} passphrase_present=${passphrase.isNotBlank()} security_candidates=${securityCandidates.size}")
+        logger.info("wifi configure ssid=$ssid security=${command.security} resolved_security=$resolvedSecurity bssid=${command.bssid.ifBlank { "*" }} resolved_bssid=${resolvedBssid.ifBlank { "*" }} band=${command.band} mac_randomization=${command.macRandomization} passphrase_present=${passphrase.isNotBlank()} security_candidates=${securityCandidates.size}")
         val beforeInfo = wifi.connectionInfo
         logger.debug("wifi manager state enabled=${wifi.isWifiEnabled} state=${wifi.wifiState} connection_network_id=${beforeInfo?.networkId} connection_ssid=${beforeInfo?.ssid} connection_bssid=${beforeInfo?.bssid} rssi=${beforeInfo?.rssi} freq=${beforeInfo?.frequency}")
         val previousNetworkId = beforeInfo?.networkId?.takeIf { it >= 0 }
@@ -68,7 +78,7 @@ class WifiConnector(
         if (WifiConnectorPolicy.currentConnectionSatisfiesConnect(
                 current = current,
                 ssid = ssid,
-                bssid = command.bssid,
+                bssid = resolvedBssid,
                 security = command.security,
                 band = command.band,
             )
@@ -76,9 +86,12 @@ class WifiConnector(
             logger.info("wifi connect already satisfied ssid=$ssid network_id=${current?.networkId} bssid=${current?.bssid} security=${current?.securityType} freq=${current?.frequencyMhz}")
             return Setup(networkId = previousNetworkId, previousNetworkId = previousNetworkId)
         }
+        cleanupConflictingBssidProfiles(ssid, resolvedBssid, current)?.let { error ->
+            return Setup(error = error)
+        }
         val config = WifiConfiguration().apply {
             SSID = WifiConnectorPolicy.quoteWifi(ssid)
-            if (command.bssid.isNotBlank()) BSSID = command.bssid
+            if (resolvedBssid.isNotBlank()) BSSID = resolvedBssid
             if (passphrase.isNotBlank()) preSharedKey = WifiConnectorPolicy.quoteWifi(passphrase)
             when (resolvedSecurity) {
                 ConnectWifi.Security.SECURITY_WPA3_SAE -> setSecurityParams(WifiConfiguration.SECURITY_TYPE_SAE)
@@ -141,6 +154,65 @@ class WifiConnector(
         }.getOrDefault(emptyList())
     }
 
+    /**
+     * Android may merge a BSSID-pinned WifiConfiguration into an existing saved
+     * SSID profile. Removing that profile first keeps framework selection from
+     * reducing the request to targetBssid=any.
+     */
+    @SuppressLint("MissingPermission")
+    private fun cleanupConflictingBssidProfiles(
+        ssid: String,
+        bssid: String,
+        current: WifiConnectorPolicy.CurrentConnectionRef?,
+    ): String? {
+        if (bssid.isBlank()) return null
+        val configs = runCatching { wifi.configuredNetworks.orEmpty() }.getOrElse {
+            logger.warn("wifi configuredNetworks failed before BSSID pin cleanup error=${errorSummary(it)}")
+            emptyList()
+        }
+        val refs = configs.map { config ->
+            WifiConnectorPolicy.ConfiguredNetworkRef(
+                networkId = config.networkId,
+                ssid = config.SSID.orEmpty(),
+                bssid = config.BSSID.orEmpty(),
+            )
+        }
+        val networkIds = WifiConnectorPolicy.bssidPinCleanupNetworkIds(
+            ssid = ssid,
+            bssid = bssid,
+            current = current,
+            configs = refs,
+        )
+        if (networkIds.isEmpty()) {
+            logger.debug("wifi BSSID pin cleanup skipped ssid=$ssid bssid=$bssid configured_network_count=${configs.size}")
+            return null
+        }
+        logger.info("wifi BSSID pin cleanup ssid=$ssid bssid=$bssid configured_network_count=${configs.size} network_ids=${networkIds.joinToString(",")}")
+        val errors = mutableListOf<String>()
+        networkIds.forEach { networkId ->
+            val removed = runCatching { wifi.removeNetwork(networkId) }
+                .onSuccess {
+                    logger.debug("wifi BSSID pin cleanup remove network_id=$networkId result=$it")
+                    if (!it) {
+                        logger.debug("wifi BSSID pin cleanup remove returned false network_id=$networkId; retrying after disable")
+                    }
+                }
+                .onFailure { errors += "remove_$networkId=${errorSummary(it)}" }
+                .getOrDefault(false)
+            if (removed) return@forEach
+            runCatching { wifi.disableNetwork(networkId) }
+                .onSuccess { logger.debug("wifi BSSID pin cleanup disable network_id=$networkId result=$it") }
+                .onFailure { errors += "disable_$networkId=${errorSummary(it)}" }
+            runCatching { wifi.removeNetwork(networkId) }
+                .onSuccess {
+                    logger.debug("wifi BSSID pin cleanup remove_after_disable network_id=$networkId result=$it")
+                    if (!it) errors += "remove_$networkId=false"
+                }
+                .onFailure { errors += "remove_after_disable_$networkId=${errorSummary(it)}" }
+        }
+        return errors.takeIf { it.isNotEmpty() }?.joinToString("; ", prefix = "wifi BSSID pin cleanup failed: ")
+    }
+
     /** Requests Wi-Fi disconnect and records the connection that was active beforehand. */
     @SuppressLint("MissingPermission")
     fun disconnect(): Operation {
@@ -153,16 +225,23 @@ class WifiConnector(
                 errors = listOf(errorSummary(it)),
             )
         }
-        logger.info("wifi disconnect requested result=$ok previous_network_id=${before?.networkId} previous_ssid=${before?.ssid} previous_bssid=${before?.bssid}")
+        val settled = waitForDisconnectSettle(1500)
+        val after = wifi.connectionInfo
+        logger.info("wifi disconnect requested result=$ok settled=$settled previous_network_id=${before?.networkId} previous_ssid=${before?.ssid} previous_bssid=${before?.bssid} current_network_id=${after?.networkId} current_ssid=${after?.ssid} current_bssid=${after?.bssid} current_supplicant=${after?.supplicantState}")
         return Operation(
             operation = "disconnect",
             ok = true,
             message = if (ok) "disconnect requested" else "disconnect request not permitted by framework",
             fields = listOf(
                 "framework_result" to ok.toString(),
+                "settled" to settled.toString(),
                 "previous_network_id" to (before?.networkId?.toString() ?: ""),
                 "previous_ssid" to before?.ssid.orEmpty(),
                 "previous_bssid" to before?.bssid.orEmpty(),
+                "current_network_id" to (after?.networkId?.toString() ?: ""),
+                "current_ssid" to after?.ssid.orEmpty(),
+                "current_bssid" to after?.bssid.orEmpty(),
+                "current_supplicant" to after?.supplicantState?.toString().orEmpty(),
             ),
         )
     }
@@ -329,6 +408,24 @@ class WifiConnector(
         } else {
             "unavailable"
         }
+    }
+
+    private fun waitForDisconnectSettle(timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            val info = wifi.connectionInfo ?: return true
+            if (WifiConnectorPolicy.disconnectSettled(info.networkId, info.ssid.orEmpty(), info.bssid.orEmpty(), info.supplicantState?.toString())) {
+                return true
+            }
+            Thread.sleep(100)
+        }
+        val info = wifi.connectionInfo
+        return WifiConnectorPolicy.disconnectSettled(
+            networkId = info?.networkId ?: -1,
+            ssid = info?.ssid.orEmpty(),
+            bssid = info?.bssid.orEmpty(),
+            supplicantState = info?.supplicantState?.toString(),
+        )
     }
 
     private fun currentConnectionRef(info: WifiInfo?): WifiConnectorPolicy.CurrentConnectionRef? {

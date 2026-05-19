@@ -14,11 +14,11 @@ func TestTimeoutForControllerDeadlines(t *testing.T) {
 		want time.Duration
 	}{
 		{
-			name: "connect uses requested agent timeout without extra slack",
+			name: "connect keeps controller slack after agent wait",
 			cmd: &controlpb.RunCommand{Command: &controlpb.RunCommand_ConnectWifi{
 				ConnectWifi: &controlpb.ConnectWifi{TimeoutMs: 25000},
 			}},
-			want: 25 * time.Second,
+			want: 30 * time.Second,
 		},
 		{
 			name: "fresh scan keeps controller slack after agent wait",
@@ -50,6 +50,36 @@ func TestTimeoutForControllerDeadlines(t *testing.T) {
 			cmd: &controlpb.RunCommand{Command: &controlpb.RunCommand_GlobalIp{
 				GlobalIp: &controlpb.GlobalIp{
 					Family:    controlpb.IpFamily_IP_FAMILY_IPV4,
+					TimeoutMs: 9000,
+				},
+			}},
+			want: 12 * time.Second,
+		},
+		{
+			name: "dns all qtypes allows one timeout per qtype",
+			cmd: &controlpb.RunCommand{Command: &controlpb.RunCommand_ResolveDns{
+				ResolveDns: &controlpb.ResolveDns{
+					Qtypes: []controlpb.DnsRecordType{
+						controlpb.DnsRecordType_DNS_RECORD_TYPE_A,
+						controlpb.DnsRecordType_DNS_RECORD_TYPE_AAAA,
+					},
+					TimeoutMs: 9000,
+				},
+			}},
+			want: 21 * time.Second,
+		},
+		{
+			name: "dns empty qtypes defaults to both address families",
+			cmd: &controlpb.RunCommand{Command: &controlpb.RunCommand_ResolveDns{
+				ResolveDns: &controlpb.ResolveDns{},
+			}},
+			want: 13 * time.Second,
+		},
+		{
+			name: "dns single qtype uses one lookup timeout",
+			cmd: &controlpb.RunCommand{Command: &controlpb.RunCommand_ResolveDns{
+				ResolveDns: &controlpb.ResolveDns{
+					Qtypes:    []controlpb.DnsRecordType{controlpb.DnsRecordType_DNS_RECORD_TYPE_A},
 					TimeoutMs: 9000,
 				},
 			}},
