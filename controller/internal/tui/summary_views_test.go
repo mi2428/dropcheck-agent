@@ -158,12 +158,13 @@ func TestFailureHotspotsRankTargetsByStreakRateCount(t *testing.T) {
 	addPass(4, at.Add(3*time.Minute), targetB)
 	addFail(5, at.Add(4*time.Minute), targetC, "wait_connected timeout")
 	addFail(6, at.Add(-31*time.Minute), watch.TargetSnapshot{Name: "old-radio"}, "old failure")
+	addFail(7, at.Add(-25*time.Hour), watch.TargetSnapshot{Name: "expired-radio"}, "expired failure")
 
 	rows := m.failureHotspots()
-	if got, want := len(rows), 3; got != want {
+	if got, want := len(rows), 4; got != want {
 		t.Fatalf("hotspot rows = %d, want %d: %#v", got, want, rows)
 	}
-	if got := []string{rows[0].Target.Name, rows[1].Target.Name, rows[2].Target.Name}; !reflect.DeepEqual(got, []string{"radio-a", "radio-c", "radio-b"}) {
+	if got := []string{rows[0].Target.Name, rows[1].Target.Name, rows[2].Target.Name, rows[3].Target.Name}; !reflect.DeepEqual(got, []string{"radio-a", "radio-c", "old-radio", "radio-b"}) {
 		t.Fatalf("hotspots sorted incorrectly: %#v rows=%#v", got, rows)
 	}
 	if rows[0].FailStreak != 2 || rows[0].FailCount != 2 || rows[0].RunCount != 2 || rows[0].FailRunCount != 2 {
@@ -175,8 +176,58 @@ func TestFailureHotspotsRankTargetsByStreakRateCount(t *testing.T) {
 			t.Fatalf("failure hotspots view missing %q:\n%s", want, view)
 		}
 	}
-	if strings.Contains(view, "old-radio") {
-		t.Fatalf("failure hotspots should ignore events outside the 30m window:\n%s", view)
+	if !strings.Contains(view, "old-radio") {
+		t.Fatalf("failure hotspots should retain events beyond the 30m summary window:\n%s", view)
+	}
+	if strings.Contains(view, "expired-radio") {
+		t.Fatalf("failure hotspots should ignore events outside investigation history:\n%s", view)
+	}
+}
+
+func TestFailureHotspotDetailSurvivesSummaryWindow(t *testing.T) {
+	events := make(chan watch.Event)
+	m := newModel("shownet-watch", []watch.Target{}, events)
+	m.width = 180
+	m.height = 50
+	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
+	target := watch.TargetSnapshot{Name: "radio-a", SSID: "SHIZK RADIO", Band: "5ghz"}
+	m.apply(watch.Event{
+		Time:   at,
+		Kind:   watch.EventFinding,
+		Round:  1,
+		Target: target,
+		Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
+		Status: "failed",
+		Finding: &watch.Finding{
+			Target:   target.Name,
+			Check:    "connect",
+			Metric:   "status",
+			Observed: "failed",
+			Expected: "== ok",
+			Message:  "REQUEST_DECLINED",
+		},
+	})
+	m.apply(watch.Event{
+		Time:    at.Add(31 * time.Minute),
+		Kind:    watch.EventLog,
+		Message: "unrelated later log",
+	})
+	m.Now = at.Add(31 * time.Minute)
+	m.focus = focusFailureHotspots
+	m.failureHotspotCursor = 0
+
+	rows := m.failureHotspots()
+	if got, want := len(rows), 1; got != want {
+		t.Fatalf("hotspot rows after summary window = %d, want %d: %#v", got, want, rows)
+	}
+	view := stripANSI(m.failureHotspotDetailView(140, 20))
+	for _, want := range []string{"radio-a", "Failure History:", "REQUEST_DECLINED", "Logs:", "kind=finding"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("failure hotspot detail should retain %q beyond the 30m summary window:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "no matching entries") {
+		t.Fatalf("failure hotspot detail logs should not disappear beyond the 30m summary window:\n%s", view)
 	}
 }
 

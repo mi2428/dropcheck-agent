@@ -222,12 +222,17 @@ func trimPassingCheckHistory(items []PassingCheck, reference time.Time) []Passin
 	}
 	if !reference.IsZero() {
 		cutoff := reference.Add(-CheckHistoryRetentionWindow)
-		items = filterPassingChecksSince(items, cutoff)
+		before := len(items)
+		filtered := filterPassingChecksSince(items, cutoff)
+		clear(filtered[len(filtered):before])
+		items = filtered
 	}
 	if len(items) > MaxPassingCheckHistory {
-		items = items[len(items)-MaxPassingCheckHistory:]
+		drop := len(items) - MaxPassingCheckHistory
+		clear(items[:drop])
+		items = items[drop:]
 	}
-	return items
+	return compactHistory(items)
 }
 
 func trimFailedCheckHistory(items []FailedCheck, reference time.Time) []FailedCheck {
@@ -239,12 +244,17 @@ func trimFailedCheckHistory(items []FailedCheck, reference time.Time) []FailedCh
 	}
 	if !reference.IsZero() {
 		cutoff := reference.Add(-CheckHistoryRetentionWindow)
-		items = filterFailedChecksSince(items, cutoff)
+		before := len(items)
+		filtered := filterFailedChecksSince(items, cutoff)
+		clear(filtered[len(filtered):before])
+		items = filtered
 	}
 	if len(items) > MaxFailedCheckHistory {
-		items = items[len(items)-MaxFailedCheckHistory:]
+		drop := len(items) - MaxFailedCheckHistory
+		clear(items[:drop])
+		items = items[drop:]
 	}
-	return items
+	return compactHistory(items)
 }
 
 func filterPassingChecksSince(items []PassingCheck, cutoff time.Time) []PassingCheck {
@@ -289,6 +299,18 @@ func latestFailedCheckTime(items []FailedCheck) time.Time {
 	return latest
 }
 
+func compactHistory[T any](items []T) []T {
+	if len(items) == 0 {
+		return nil
+	}
+	if cap(items) <= Max(1024, len(items)*2) {
+		return items
+	}
+	compacted := make([]T, len(items))
+	copy(compacted, items)
+	return compacted
+}
+
 // RemovePassingCheckForFailedCheck removes an optimistic same-round pass when a
 // later finding reports that the same step actually failed.
 func (s *State) RemovePassingCheckForFailedCheck(event watch.Event) {
@@ -303,7 +325,8 @@ func (s *State) RemovePassingCheckForFailedCheck(event watch.Event) {
 		}
 		filtered = append(filtered, passingCheck)
 	}
-	s.PassingChecks = filtered
+	clear(filtered[len(filtered):len(s.PassingChecks)])
+	s.PassingChecks = compactHistory(filtered)
 }
 
 // PushLog appends a controller-generated log line that does not have a
@@ -324,6 +347,8 @@ func (s *State) PushLog(message string) {
 func (s *State) PushVisibleLog(line string) {
 	s.Logs = append(s.Logs, line)
 	if len(s.Logs) > VisibleEventLogLimit {
-		s.Logs = s.Logs[len(s.Logs)-VisibleEventLogLimit:]
+		drop := len(s.Logs) - VisibleEventLogLimit
+		clear(s.Logs[:drop])
+		s.Logs = compactHistory(s.Logs[drop:])
 	}
 }

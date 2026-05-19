@@ -60,11 +60,12 @@ const (
 	summarySparklineRows          = 5
 	summarySparklineWindow        = 30 * time.Minute
 	detailTimelineWindow          = 90 * time.Minute
-	checkHistoryRetentionWindow   = summarySparklineWindow
-	eventLogRetentionWindow       = summarySparklineWindow
-	maxPassingCheckHistory        = 20000
-	maxFailedCheckHistory         = 10000
-	maxEventLogHistory            = 10000
+	investigationHistoryWindow    = 24 * time.Hour
+	checkHistoryRetentionWindow   = investigationHistoryWindow
+	eventLogRetentionWindow       = investigationHistoryWindow
+	maxPassingCheckHistory        = 200000
+	maxFailedCheckHistory         = 100000
+	maxEventLogHistory            = 100000
 	visibleEventLogLimit          = 400
 	detailModalWidthPercent       = 54
 	detailModalHeightPercent      = 55

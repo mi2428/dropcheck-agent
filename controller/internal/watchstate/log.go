@@ -32,16 +32,21 @@ func (s *State) TrimEventLogEntries(reference time.Time) {
 		return
 	}
 	cutoff := reference.Add(-EventLogRetentionWindow)
+	before := len(s.EventLogEntries)
 	filtered := s.EventLogEntries[:0]
 	for _, entry := range s.EventLogEntries {
 		if entry.When.IsZero() || !entry.When.Before(cutoff) {
 			filtered = append(filtered, entry)
 		}
 	}
+	clear(filtered[len(filtered):before])
 	s.EventLogEntries = filtered
 	if len(s.EventLogEntries) > MaxEventLogHistory {
-		s.EventLogEntries = s.EventLogEntries[len(s.EventLogEntries)-MaxEventLogHistory:]
+		drop := len(s.EventLogEntries) - MaxEventLogHistory
+		clear(s.EventLogEntries[:drop])
+		s.EventLogEntries = s.EventLogEntries[drop:]
 	}
+	s.EventLogEntries = compactHistory(s.EventLogEntries)
 }
 
 // EventLogLine renders one watch event as stable key=value text.
