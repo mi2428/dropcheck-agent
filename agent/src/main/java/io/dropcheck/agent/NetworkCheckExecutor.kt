@@ -817,7 +817,7 @@ class NetworkCheckExecutor(
         val executor = Executor { command -> command.run() }
         var addresses = emptyList<InetAddress>()
         var error = ""
-        DnsResolver.getInstance().query(
+        platformDnsResolver().query(
             network,
             name,
             resolverType,
@@ -849,6 +849,9 @@ class NetworkCheckExecutor(
         logger.debug("dns qtype result name=$name qtype=${qtype.name} count=${addresses.size} values=${addresses.joinToString(",") { it.hostAddress.orEmpty() }} error=${error.ifBlank { "none" }}")
         return DnsLookup(qtype, addresses, error)
     }
+
+    @Suppress("DEPRECATION")
+    private fun platformDnsResolver(): DnsResolver = DnsResolver.getInstance()
 
     /**
      * Performs a simple status-code check through the selected Android Network.

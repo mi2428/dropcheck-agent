@@ -170,10 +170,10 @@ func writeSessionLog(w io.Writer, event control.LogEvent) {
 	}
 	prefix := levelName(event.Level)
 	if event.CommandID != "" {
-		fmt.Fprintf(w, "[%s agent=%s command=%s] %s\n", prefix, empty(event.AgentID, "unknown"), event.CommandID, event.Message)
+		_, _ = fmt.Fprintf(w, "[%s agent=%s command=%s] %s\n", prefix, empty(event.AgentID, "unknown"), event.CommandID, event.Message)
 		return
 	}
-	fmt.Fprintf(w, "[%s agent=%s] %s\n", prefix, empty(event.AgentID, "unknown"), event.Message)
+	_, _ = fmt.Fprintf(w, "[%s agent=%s] %s\n", prefix, empty(event.AgentID, "unknown"), event.Message)
 }
 
 func listenAddrUsesEphemeralPort(addr string) bool {

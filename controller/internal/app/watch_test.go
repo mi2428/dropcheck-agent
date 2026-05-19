@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 	"time"
@@ -31,6 +32,54 @@ func TestWatchSessionLogEventFormatsWarnForTUI(t *testing.T) {
 	}
 	if want := "[warn agent=agent-a command=cmd-1] traceroute binary not available"; !strings.Contains(event.Message, want) {
 		t.Fatalf("message = %q, want %q", event.Message, want)
+	}
+}
+
+func TestPrintWatchNoTUIEventPrintsRequiredStepFailure(t *testing.T) {
+	var out bytes.Buffer
+	printWatchNoTUIEvent(&out, watch.Event{
+		Time:  time.Date(2026, 5, 19, 10, 11, 12, 0, time.UTC),
+		Kind:  watch.EventStepFinished,
+		Round: 4,
+		Agent: watch.AgentSnapshot{ADBSerial: "R5CT12345"},
+		Target: watch.TargetSnapshot{
+			Name: "lab-6g",
+			SSID: "Lab",
+		},
+		Step: watch.StepSnapshot{
+			Name:    "wait_connected",
+			Type:    "wait_connected",
+			Status:  "failed",
+			Message: "wifi condition timeout",
+		},
+		Status: "failed",
+	}, true)
+
+	got := out.String()
+	for _, want := range []string{
+		"10:11:12 agent=R5CT12345 round=4",
+		"target=lab-6g",
+		"check=wait_connected",
+		"metric=status",
+		"observed=failed",
+		"expected=== ok",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("no-tui output = %q, missing %q", got, want)
+		}
+	}
+}
+
+func TestPrintWatchNoTUIEventIgnoresPassingStep(t *testing.T) {
+	var out bytes.Buffer
+	printWatchNoTUIEvent(&out, watch.Event{
+		Kind:   watch.EventStepFinished,
+		Step:   watch.StepSnapshot{Name: "ping", Type: "ping", Status: "ok"},
+		Status: "ok",
+	}, false)
+
+	if out.Len() != 0 {
+		t.Fatalf("no-tui output = %q, want empty", out.String())
 	}
 }
 

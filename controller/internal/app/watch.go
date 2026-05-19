@@ -18,6 +18,7 @@ import (
 	"dropcheck/controller/internal/runner"
 	"dropcheck/controller/internal/tui"
 	"dropcheck/controller/internal/watch"
+	"dropcheck/controller/internal/watchstate"
 )
 
 type watchOptions struct {
@@ -27,7 +28,7 @@ type watchOptions struct {
 	noTUI      bool
 }
 
-func runWatch(ctx context.Context, opts shellOptions, args []string) error {
+func runWatch(ctx context.Context, opts shellOptions, args []string) (retErr error) {
 	watchOpts, err := parseWatchOptions(args)
 	if err != nil {
 		if errors.Is(err, errWatchHelpRequested) {
@@ -89,7 +90,11 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) error {
 		if err != nil {
 			return fmt.Errorf("open jsonl output: %w", err)
 		}
-		defer jsonlFile.Close()
+		defer func() {
+			if closeErr := jsonlFile.Close(); closeErr != nil && retErr == nil {
+				retErr = fmt.Errorf("close jsonl output: %w", closeErr)
+			}
+		}()
 		sinks = append(sinks, watch.NewJSONLWriter(jsonlFile))
 	}
 	sinks = append(sinks, watch.ChannelSink{C: eventPipe.C})
@@ -113,22 +118,7 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) error {
 
 	if watchOpts.noTUI {
 		for event := range eventPipe.C {
-			if event.Kind == watch.EventFinding && event.Finding != nil {
-				agentLabel := ""
-				if len(agents) > 1 {
-					agentLabel = fmt.Sprintf(" agent=%s", event.Agent.DisplayName())
-				}
-				fmt.Printf("%s%s round=%d target=%s check=%s metric=%s observed=%s expected=%s\n",
-					event.Time.Format("15:04:05"),
-					agentLabel,
-					event.Round,
-					event.Finding.Target,
-					event.Finding.Check,
-					event.Finding.Metric,
-					event.Finding.Observed,
-					event.Finding.Expected,
-				)
-			}
+			printWatchNoTUIEvent(os.Stdout, event, len(agents) > 1)
 		}
 	} else if err := tui.RunWithControls(watchCtx, uiPlan.Name, uiPlan.Targets, uiPlan.Checks, agentSnapshots, eventPipe.C, pauseControl, skipControl); err != nil {
 		cancel()
@@ -140,6 +130,37 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) error {
 		return err
 	}
 	return nil
+}
+
+func printWatchNoTUIEvent(w io.Writer, event watch.Event, multiAgent bool) {
+	finding, ok := watchNoTUIFinding(event)
+	if !ok {
+		return
+	}
+	agentLabel := ""
+	if multiAgent {
+		agentLabel = fmt.Sprintf(" agent=%s", event.Agent.DisplayName())
+	}
+	_, _ = fmt.Fprintf(w, "%s%s round=%d target=%s check=%s metric=%s observed=%s expected=%s\n",
+		event.Time.Format("15:04:05"),
+		agentLabel,
+		event.Round,
+		finding.Target,
+		finding.Check,
+		finding.Metric,
+		finding.Observed,
+		finding.Expected,
+	)
+}
+
+func watchNoTUIFinding(event watch.Event) (watch.Finding, bool) {
+	if event.Kind == watch.EventFinding && event.Finding != nil {
+		return *event.Finding, true
+	}
+	if event.Kind != watch.EventStepFinished {
+		return watch.Finding{}, false
+	}
+	return watchstate.RequiredStepFailedCheck(event)
 }
 
 type watchOperationRunner struct {

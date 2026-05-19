@@ -102,7 +102,7 @@ func padToWidth(value string, width int) string {
 }
 
 func runeLen(value string) int                { return len([]rune(value)) }
-func (m model) targetCount(status string) int { return m.State.TargetCount(status) }
+func (m model) targetCount(status string) int { return m.TargetCount(status) }
 
 func runQueueRowStyle(status string) lipgloss.Style {
 	switch normalizeStatus(status) {

@@ -76,19 +76,19 @@ func summarySparklineAxis(width int, window time.Duration) string {
 }
 
 func (m model) passingCheckOccurrences(agent watch.AgentSnapshot, target watch.TargetSnapshot, step watch.StepSnapshot) []time.Time {
-	return m.State.PassingCheckOccurrences(agent, target, step)
+	return m.PassingCheckOccurrences(agent, target, step)
 }
 
 func (m model) failedCheckOccurrences(agent watch.AgentSnapshot, target watch.TargetSnapshot, finding watch.Finding) []time.Time {
-	return m.State.FailedCheckOccurrences(agent, target, finding)
+	return m.FailedCheckOccurrences(agent, target, finding)
 }
 
 func (m model) failureHotspotOccurrences(item failureHotspotSummary) []time.Time {
-	return m.State.FailureHotspotOccurrences(item)
+	return m.FailureHotspotOccurrences(item)
 }
 
 func (m model) failureCauseOccurrences(item failureCauseSummary) []time.Time {
-	return m.State.FailureCauseOccurrences(item)
+	return m.FailureCauseOccurrences(item)
 }
 
 func formatBucketDuration(duration time.Duration) string {

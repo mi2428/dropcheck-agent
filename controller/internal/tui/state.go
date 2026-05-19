@@ -3,7 +3,7 @@ package tui
 import "dropcheck/controller/internal/watch"
 
 func (m *model) apply(event watch.Event) {
-	m.State.Apply(event)
+	m.Apply(event)
 	if event.Kind == watch.EventRoundStarted && !m.checkStatusPinned {
 		m.checkStatusOffset = 0
 	}
@@ -15,10 +15,10 @@ func (m *model) apply(event watch.Event) {
 }
 
 func (m *model) recordPassingCheck(passingCheck passingCheckState) {
-	m.State.RecordPassingCheck(passingCheck)
+	m.RecordPassingCheck(passingCheck)
 	m.normalizeCursors()
 }
 
 func (m *model) pushLog(message string) {
-	m.State.PushLog(message)
+	m.PushLog(message)
 }

@@ -13,7 +13,7 @@ func (m model) currentTargetName() string {
 }
 
 func (m model) currentTarget() (targetState, bool) {
-	return m.State.CurrentTarget()
+	return m.CurrentTarget()
 }
 
 func currentStepState(target targetState) (stepState, bool) {
@@ -26,35 +26,35 @@ func currentStepState(target targetState) (stepState, bool) {
 }
 
 func (m model) targetFailedCheckCount(agent watch.AgentSnapshot, target string) int {
-	return m.State.TargetFailedCheckCount(agent, target)
+	return m.TargetFailedCheckCount(agent, target)
 }
 
 func (m model) passingCheckSummaries() []passingCheckSummary {
-	return m.State.PassingCheckSummaries()
+	return m.PassingCheckSummaries()
 }
 
 func (m model) filteredPassingCheckSummaries() []passingCheckSummary {
-	return m.State.FilteredPassingCheckSummaries(m.panelFilterQuery(focusPassingChecks))
+	return m.FilteredPassingCheckSummaries(m.panelFilterQuery(focusPassingChecks))
 }
 
 func (m model) failedCheckSummaries() []failedCheckSummary {
-	return m.State.FailedCheckSummaries()
+	return m.FailedCheckSummaries()
 }
 
 func (m model) failureHotspots() []failureHotspotSummary {
-	return m.State.FailureHotspots()
+	return m.FailureHotspots()
 }
 
 func (m model) filteredFailureHotspots() []failureHotspotSummary {
-	return m.State.FilteredFailureHotspots(m.panelFilterQuery(focusFailureHotspots))
+	return m.FilteredFailureHotspots(m.panelFilterQuery(focusFailureHotspots))
 }
 
 func (m model) failureCauses() []failureCauseSummary {
-	return m.State.FailureCauses()
+	return m.FailureCauses()
 }
 
 func (m model) filteredFailureCauses() []failureCauseSummary {
-	return m.State.FilteredFailureCauses(m.panelFilterQuery(focusFailureHotspots))
+	return m.FilteredFailureCauses(m.panelFilterQuery(focusFailureHotspots))
 }
 
 type failureHotspotSummaryRow struct {
@@ -199,9 +199,9 @@ func failureHotspotCause(finding watch.Finding) string {
 }
 
 func (m model) filteredFailedCheckSummaries() []failedCheckSummary {
-	return m.State.FilteredFailedCheckSummaries(m.panelFilterQuery(focusFailedChecks))
+	return m.FilteredFailedCheckSummaries(m.panelFilterQuery(focusFailedChecks))
 }
 
 func (m model) failedCheckSummaryIndex(agent watch.AgentSnapshot, target watch.TargetSnapshot, finding watch.Finding) int {
-	return m.State.FailedCheckSummaryIndex(agent, target, finding)
+	return m.FailedCheckSummaryIndex(agent, target, finding)
 }

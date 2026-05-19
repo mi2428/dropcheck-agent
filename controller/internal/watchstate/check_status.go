@@ -161,9 +161,10 @@ func FilterOutcomeEvents(events []OutcomeEvent, agent watch.AgentSnapshot, targe
 // OutcomeCounts counts passing and failed events.
 func OutcomeCounts(events []OutcomeEvent) (ok int, failed int) {
 	for _, event := range events {
-		if event.Status == "failed" {
+		switch event.Status {
+		case "failed":
 			failed++
-		} else if event.Status == "ok" {
+		case "ok":
 			ok++
 		}
 	}
@@ -196,9 +197,10 @@ func OutcomeBuckets(events []OutcomeEvent, width int) []OutcomeBucket {
 			index = 0
 		}
 		index = Clamp(index, 0, width-1)
-		if event.Status == "failed" {
+		switch event.Status {
+		case "failed":
 			buckets[index].Failed++
-		} else if event.Status == "ok" {
+		case "ok":
 			buckets[index].OK++
 		}
 	}
