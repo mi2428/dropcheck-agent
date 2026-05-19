@@ -104,6 +104,42 @@ func (r *sequenceResultRunner) Run(context.Context, control.AgentInfo, command.O
 	return runner.Result{Result: r.results[index]}, nil
 }
 
+type gatewayPingRunner struct {
+	t        *testing.T
+	routes   []string
+	calls    []string
+	pingHost string
+}
+
+func (r *gatewayPingRunner) Run(_ context.Context, _ control.AgentInfo, op command.Operation) (runner.Result, error) {
+	r.calls = append(r.calls, op.Name)
+	switch op.Name {
+	case "ip.status":
+		return runner.Result{Result: &controlpb.CommandResult{
+			Status: controlpb.CommandResult_STATUS_OK,
+			Payload: &controlpb.CommandResult_IpStatus{IpStatus: &controlpb.IpStatus{
+				Routes: r.routes,
+			}},
+		}}, nil
+	case "ping":
+		ping := op.Command.GetPing()
+		r.pingHost = ping.GetHost()
+		count := ping.GetCount()
+		return runner.Result{Result: &controlpb.CommandResult{
+			Status: controlpb.CommandResult_STATUS_OK,
+			Payload: &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{
+				Host:        ping.GetHost(),
+				Count:       count,
+				Transmitted: count,
+				Received:    count,
+			}},
+		}}, nil
+	default:
+		r.t.Fatalf("unexpected operation %q", op.Name)
+		return runner.Result{}, nil
+	}
+}
+
 type okRunner struct{}
 
 func (okRunner) Run(context.Context, control.AgentInfo, command.Operation) (runner.Result, error) {
@@ -354,6 +390,111 @@ func TestRunCheckRetriesExpectationFailureAndSuppressesTransientFinding(t *testi
 		return strings.Contains(event.Message, "retrying Ping CF IPv4")
 	}); !ok {
 		t.Fatalf("events missing retry log: %#v", events)
+	}
+}
+
+func TestRunCheckGatewayPingUsesDefaultGateway(t *testing.T) {
+	var events []Event
+	emit := func(event Event) error {
+		events = append(events, event)
+		return nil
+	}
+	runner := &gatewayPingRunner{
+		t:      t,
+		routes: []string{"0.0.0.0/0 -> 192.168.23.254 wlan0"},
+	}
+
+	ok, err := runCheck(
+		context.Background(),
+		runner,
+		control.AgentInfo{ID: "agent-a"},
+		12,
+		Target{Name: "ap1", SSID: "Lab"},
+		Check{
+			Name:   "Ping GW IPv4",
+			Type:   "gateway_ping",
+			Family: "ipv4",
+			Count:  2,
+			compiledExpect: []Matcher{
+				{Metric: "received", Op: ">=", Want: "1"},
+			},
+		},
+		emit,
+	)
+	if err != nil {
+		t.Fatalf("runCheck() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("gateway ping should pass")
+	}
+	if got, want := strings.Join(runner.calls, ","), "ip.status,ping"; got != want {
+		t.Fatalf("operations = %s, want %s", got, want)
+	}
+	if runner.pingHost != "192.168.23.254" {
+		t.Fatalf("ping host = %q, want gateway", runner.pingHost)
+	}
+	finished, ok := lastEvent(events, EventStepFinished)
+	if !ok || finished.Step.Type != "gateway_ping" || finished.Step.Operation != "gateway.ping" || finished.Status != "ok" {
+		t.Fatalf("gateway ping finished event = %#v", finished)
+	}
+}
+
+func TestGatewayPingHostScopesIPv6LinkLocalGateway(t *testing.T) {
+	host, ok, reason := gatewayPingHostFromStatus(&controlpb.IpStatus{
+		Routes: []string{"::/0 -> fe80::1 wlan0 mtu 0"},
+	}, "ipv6")
+	if !ok {
+		t.Fatalf("gateway host not found: %s", reason)
+	}
+	if host != "fe80::1%wlan0" {
+		t.Fatalf("gateway host = %q, want scoped link-local address", host)
+	}
+}
+
+func TestGatewayPingHostScopesIPv6LinkLocalGatewayWithDevRoute(t *testing.T) {
+	host, ok, reason := gatewayPingHostFromStatus(&controlpb.IpStatus{
+		Routes: []string{"default via fe80::1 dev wlan0 metric 100"},
+	}, "ipv6")
+	if !ok {
+		t.Fatalf("gateway host not found: %s", reason)
+	}
+	if host != "fe80::1%wlan0" {
+		t.Fatalf("gateway host = %q, want scoped link-local address", host)
+	}
+}
+
+func TestRunCheckGatewayPingReportsMissingGateway(t *testing.T) {
+	var events []Event
+	emit := func(event Event) error {
+		events = append(events, event)
+		return nil
+	}
+	runner := &gatewayPingRunner{
+		t:      t,
+		routes: []string{"192.168.23.0/24 -> 0.0.0.0 wlan0"},
+	}
+
+	ok, err := runCheck(
+		context.Background(),
+		runner,
+		control.AgentInfo{ID: "agent-a"},
+		13,
+		Target{Name: "ap1", SSID: "Lab"},
+		Check{Name: "Ping GW IPv4", Type: "gateway_ping", Family: "ipv4"},
+		emit,
+	)
+	if err != nil {
+		t.Fatalf("runCheck() error = %v", err)
+	}
+	if ok {
+		t.Fatal("gateway ping should fail when no default gateway is present")
+	}
+	if got := strings.Join(runner.calls, ","); strings.Contains(got, "ping") {
+		t.Fatalf("gateway ping should not run ping without a gateway: calls=%s", got)
+	}
+	finding, ok := firstEvent(events, EventFinding, nil)
+	if !ok || finding.Finding == nil || finding.Finding.Metric != "status" || !strings.Contains(finding.Finding.Message, "default gateway not found") {
+		t.Fatalf("missing gateway finding = %#v", finding)
 	}
 }
 
