@@ -68,7 +68,10 @@ func TestSummarySparklineIsPinnedToBottom(t *testing.T) {
 	if !strings.Contains(lines[len(lines)-4], "timeline window=last=30m") {
 		t.Fatalf("sparkline header should be pinned above the bottom graph:\n%s", strings.Join(lines, "\n"))
 	}
-	graph := strings.Join(lines[len(lines)-3:], "\n")
+	if strings.TrimSpace(lines[len(lines)-3]) != "" {
+		t.Fatalf("sparkline header should have a spacer row below it:\n%s", strings.Join(lines, "\n"))
+	}
+	graph := strings.Join(lines[len(lines)-2:], "\n")
 	if strings.ContainsAny(graph, "░▁▂▃▄▅▆▇─") {
 		t.Fatalf("sparkline should avoid fragile partial-block glyphs:\n%s", graph)
 	}
@@ -261,7 +264,7 @@ func TestSummarySparklineHeaderShowsScaleWhenCompressed(t *testing.T) {
 		})
 	}
 	view := stripANSI(m.summarySparklineView("passing checks", m.passingCheckEventTimes(), 120, 6, okGraphStyle))
-	if !strings.Contains(view, "peak=14 scale=5/row") {
+	if !strings.Contains(view, "peak=14 scale=10/row") {
 		t.Fatalf("compressed sparkline header should expose the absolute y scale:\n%s", view)
 	}
 }

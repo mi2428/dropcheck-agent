@@ -286,7 +286,7 @@ func (m model) summarySparklineView(_ string, times []time.Time, width int, heig
 		return ""
 	}
 	histogram := recentEventHistogram(times, width, summarySparklineWindow, m.currentTime())
-	plotHeight := max(1, height-3)
+	plotHeight := summarySparklinePlotHeight(height)
 	eventsPerRow := sparklineEventsPerRow(histogram.Max, plotHeight)
 	scaleText := ""
 	if eventsPerRow > 1 {
@@ -309,10 +309,31 @@ func (m model) summarySparklineView(_ string, times []time.Time, width int, heig
 	if lipgloss.Width(headerPlain) > width {
 		header = summaryValueStyle.Render(fit(headerPlain, width))
 	}
-	lines := []string{"", fitANSI(header, width)}
+	lines := make([]string, 0, height)
+	if height >= 5 {
+		lines = append(lines, "")
+	}
+	lines = append(lines, fitANSI(header, width))
+	if height >= 4 {
+		lines = append(lines, "")
+	}
 	lines = append(lines, renderSparkline(histogram.Counts, histogram.Max, width, plotHeight, style)...)
 	lines = append(lines, summarySparklineAxis(width, summarySparklineWindow))
 	return strings.Join(lines[:min(len(lines), height)], "\n")
+}
+
+func summarySparklinePlotHeight(height int) int {
+	if height <= 2 {
+		return 1
+	}
+	reserved := 2 // header + axis
+	if height >= 5 {
+		reserved++ // spacer above header
+	}
+	if height >= 4 {
+		reserved++ // spacer between header and graph
+	}
+	return max(1, height-reserved)
 }
 
 func (m model) passingCheckEventTimes() []time.Time {

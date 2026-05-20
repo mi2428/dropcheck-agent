@@ -305,7 +305,7 @@ func detailAppendOperationFields(fields *[]detailField, step watch.StepSnapshot)
 
 const (
 	detailGraphVerticalPadding = 2
-	detailTimelineHeaderHeight = 1
+	detailTimelineHeaderHeight = 2
 	detailNaturalGraphHeight   = 4
 	detailSummaryColumnGap     = 2
 	detailSummaryMinCellWidth  = 4
@@ -329,6 +329,7 @@ func denseDetailView(summary []string, histogram occurrenceHistogram, graphStyle
 		lines = append(lines, "")
 		timeline := detailTimelineLabel(histogram, graphHeight)
 		lines = append(lines, fitANSI(timeline, width))
+		lines = append(lines, "")
 		lines = append(lines, renderDetailHistogram(histogram, width, graphHeight, graphStyle)...)
 		lines = append(lines, "")
 	}
