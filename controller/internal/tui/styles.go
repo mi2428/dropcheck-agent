@@ -37,7 +37,6 @@ var (
 	summaryValueStyle          = lipgloss.NewStyle().Foreground(colorOrange).Background(colorBackground)
 	summaryFreshRowStyle       = lipgloss.NewStyle().Foreground(colorOrangeStrong).Background(colorBackground)
 	summaryWarmRowStyle        = lipgloss.NewStyle().Foreground(colorOrange).Background(colorBackground)
-	summaryFailureRowStyle     = lipgloss.NewStyle().Foreground(colorFailure).Background(colorBackground)
 	summaryStaleRowStyle       = lipgloss.NewStyle().Foreground(colorOrangeMuted).Background(colorBackground)
 	summaryTableHeaderStyle    = lipgloss.NewStyle().Bold(true).Foreground(colorOrangeStrong).Background(colorHeaderBackground)
 	summarySparklineLabelStyle = lipgloss.NewStyle().Bold(true).Foreground(colorBrilliantGreen).Background(colorBackground)

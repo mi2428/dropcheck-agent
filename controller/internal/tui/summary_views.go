@@ -98,7 +98,7 @@ func (m model) failureHotspotsView(width int, height int) string {
 	lines = append(lines, tableLine{Text: "  " + barListHeader(failureHotspotListHeaderColumns(), failureHotspotListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
 	for index, item := range rows {
 		line := barListLine(failureHotspotListColumns(item), failureHotspotListRightColumns(item), item.FailCount, 1, layout)
-		style := failureSummaryPanelRowStyle(item.Last, m.currentTime())
+		style := orangeSummaryPanelRowStyle(item.Last, m.currentTime())
 		fill := false
 		if m.focus == focusFailureHotspots && index == selected {
 			style = selectedStyle
@@ -125,7 +125,7 @@ func (m model) failureCausesView(width int, height int) string {
 	lines = append(lines, tableLine{Text: "  " + barListHeader(failureCauseListHeaderColumns(), failureCauseListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
 	for index, item := range rows {
 		line := barListLine(failureCauseListColumns(item, failureCauseTargetColumnWidth(layout)), failureCauseListRightColumns(item), item.TargetCount, 1, layout)
-		style := failureSummaryPanelRowStyle(item.Last, m.currentTime())
+		style := orangeSummaryPanelRowStyle(item.Last, m.currentTime())
 		fill := false
 		if m.focus == focusFailureHotspots && index == selected {
 			style = selectedStyle
@@ -204,7 +204,7 @@ func (m model) failureHotspotsViewForAgent(agent watch.AgentSnapshot, width int,
 	for _, row := range rows {
 		item := row.Item
 		line := barListLine(failureHotspotListColumns(item), failureHotspotListRightColumns(item), item.FailCount, 1, layout)
-		style := failureSummaryPanelRowStyle(item.Last, m.currentTime())
+		style := orangeSummaryPanelRowStyle(item.Last, m.currentTime())
 		fill := false
 		if m.failureHotspotPanelHasFocus(agent) && row.Index == m.failureHotspotCursor {
 			style = selectedStyle
@@ -235,7 +235,7 @@ func (m model) failureCausesViewForAgent(agent watch.AgentSnapshot, width int, h
 	for _, row := range rows {
 		item := row.Item
 		line := barListLine(failureCauseListColumns(item, failureCauseTargetColumnWidth(layout)), failureCauseListRightColumns(item), item.TargetCount, 1, layout)
-		style := failureSummaryPanelRowStyle(item.Last, m.currentTime())
+		style := orangeSummaryPanelRowStyle(item.Last, m.currentTime())
 		fill := false
 		if m.failureHotspotPanelHasFocus(agent) && row.Index == m.failureHotspotCursor {
 			style = selectedStyle
@@ -403,10 +403,6 @@ const listColumnGap = 2
 
 func orangeSummaryPanelRowStyle(last time.Time, now time.Time) lipgloss.Style {
 	return recencyPanelRowStyle(last, now, summaryFreshRowStyle, summaryWarmRowStyle, summaryStaleRowStyle)
-}
-
-func failureSummaryPanelRowStyle(last time.Time, now time.Time) lipgloss.Style {
-	return recencyPanelRowStyle(last, now, summaryFailureRowStyle, summaryFailureRowStyle, staleFailedStatusStyle)
 }
 
 func recencyPanelRowStyle(last time.Time, now time.Time, fresh lipgloss.Style, warm lipgloss.Style, stale lipgloss.Style) lipgloss.Style {

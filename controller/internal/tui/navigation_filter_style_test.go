@@ -472,8 +472,6 @@ func TestSummaryPanelsUseSemanticPalette(t *testing.T) {
 	assertStyleRGB(t, orangeSummaryPanelRowStyle(now, now), 0xff, 0xaa, 0x44)
 	assertStyleRGB(t, orangeSummaryPanelRowStyle(now.Add(-recencyFreshWindow-time.Second), now), 0xee, 0x88, 0x22)
 	assertStyleRGB(t, orangeSummaryPanelRowStyle(now.Add(-recencyWarmWindow-time.Second), now), 0xb4, 0x65, 0x22)
-	assertStyleRGB(t, failureSummaryPanelRowStyle(now, now), 0xff, 0x6b, 0x4a)
-	assertStyleRGB(t, failureSummaryPanelRowStyle(now.Add(-recencyWarmWindow-time.Second), now), 0xb4, 0x5a, 0x38)
 	assertStyleRGB(t, okGraphStyle, 0x86, 0xc7, 0x79)
 	assertStyleRGB(t, failGraphStyle, 0xff, 0x6b, 0x4a)
 	assertStyleRGB(t, summarySparklineLabelStyle, 0x58, 0xf2, 0xa5)
