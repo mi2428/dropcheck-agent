@@ -339,9 +339,9 @@ func TestFailedCheckDetailUsesDenseInvestigationLayout(t *testing.T) {
 		})
 	}
 
-	view := stripANSI(m.failedCheckDetailView(80, 18))
+	view := stripANSI(m.failedCheckDetailView(80, 19))
 	lines := strings.Split(view, "\n")
-	if got, want := len(lines), 18; got != want {
+	if got, want := len(lines), 19; got != want {
 		t.Fatalf("detail line count = %d, want %d:\n%s", got, want, view)
 	}
 	for _, want := range []string{
@@ -374,6 +374,9 @@ func TestFailedCheckDetailUsesDenseInvestigationLayout(t *testing.T) {
 	timeline := lineIndex(view, "window=last=90m")
 	if timeline <= 0 || lines[timeline-1] != "" {
 		t.Fatalf("detail graph should have one blank line above it, got line before timeline = %q:\n%s", lines[max(0, timeline-1)], view)
+	}
+	if timeline+1 >= len(lines) || lines[timeline+1] != "" {
+		t.Fatalf("detail graph should have one blank line below its timeline header, got line after timeline = %q:\n%s", lines[min(len(lines)-1, timeline+1)], view)
 	}
 	if lines[section-1] != "" {
 		t.Fatalf("detail graph should have one blank line below it, got line before section = %q:\n%s", lines[section-1], view)
@@ -631,6 +634,34 @@ func TestOccurrenceGraphHeightUsesHalfOfDetailContent(t *testing.T) {
 	}
 	if got, want := occurrenceGraphHeight(6), 3; got != want {
 		t.Fatalf("occurrenceGraphHeight(6) = %d, want %d", got, want)
+	}
+}
+
+func TestDenseDetailTimelineSeparatesHeaderAndGraph(t *testing.T) {
+	now := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
+	histogram := recentEventHistogram([]time.Time{now.Add(-time.Minute)}, 80, detailTimelineWindow, now)
+	view := stripANSI(denseDetailView([]string{"Device  Pixel 9"}, histogram, failGraphStyle, nil, 80, 8))
+	lines := strings.Split(view, "\n")
+	header := -1
+	for i, line := range lines {
+		if strings.Contains(line, "window=last=90m") {
+			header = i
+			break
+		}
+	}
+	if header < 0 {
+		t.Fatalf("detail timeline header missing:\n%s", view)
+	}
+	if header+1 >= len(lines) || strings.TrimSpace(lines[header+1]) != "" {
+		t.Fatalf("detail timeline header should have a spacer row below it:\n%s", view)
+	}
+	axis := lineIndex(view, "90m ago")
+	if axis <= header+2 {
+		t.Fatalf("detail timeline graph should start after the spacer row:\n%s", view)
+	}
+	graph := strings.Join(lines[header+2:axis], "\n")
+	if !strings.Contains(graph, "█") {
+		t.Fatalf("detail timeline graph should render after the spacer row:\n%s", view)
 	}
 }
 
