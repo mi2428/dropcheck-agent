@@ -3,10 +3,15 @@ package watch
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"dropcheck/controller/internal/controlpb"
 )
+
+func boolPtr(value bool) *bool {
+	return &value
+}
 
 func TestLoadFileAppliesDefaultsAndCompilesExpectations(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "watch.yml")
@@ -71,6 +76,41 @@ func TestExampleWatchConfigLoads(t *testing.T) {
 	}
 	if len(plan.Targets) == 0 || len(plan.Checks) == 0 {
 		t.Fatalf("example config produced empty plan: targets=%d checks=%d", len(plan.Targets), len(plan.Checks))
+	}
+}
+
+func TestMacRotationDefaultsToNonPersistentAndForcesCleanup(t *testing.T) {
+	plan, err := Config{
+		Defaults: TargetDefaults{
+			MacRotation:     "per_target",
+			DisconnectAfter: boolPtr(false),
+			ForgetAfter:     boolPtr(false),
+		},
+		Targets: []Target{{SSID: "Lab"}},
+		Checks:  []Check{{Type: "ip_status"}},
+	}.Plan()
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	target := plan.Targets[0]
+	if target.MacRotation != macRotationPerTarget {
+		t.Fatalf("mac rotation = %q, want %q", target.MacRotation, macRotationPerTarget)
+	}
+	if target.MacRandomization != "non-persistent" {
+		t.Fatalf("mac randomization = %q, want non-persistent", target.MacRandomization)
+	}
+	if !target.disconnectAfter() || !target.forgetAfter() {
+		t.Fatalf("per-target rotation should force disconnect and forget cleanup: %#v", target)
+	}
+}
+
+func TestMacRotationRejectsNonRotatingRandomizationModes(t *testing.T) {
+	_, err := Config{
+		Targets: []Target{{SSID: "Lab", MacRotation: "per_round", MacRandomization: "none"}},
+		Checks:  []Check{{Type: "ip_status"}},
+	}.Plan()
+	if err == nil || !strings.Contains(err.Error(), "requires mac_randomization: non-persistent") {
+		t.Fatalf("Plan() error = %v, want mac randomization validation", err)
 	}
 }
 
