@@ -231,9 +231,14 @@ round_interval: 0s
 defaults:
   passphrase_env: DROPCHECK_WIFI_PSK
   security: wpa3
+  # Use non-persistent plus mac_rotation when each target or round should get a
+  # fresh randomized MAC. Supported rotations are none, per_target, and per_round.
+  mac_randomization: non-persistent
+  mac_rotation: per_target
   require_ip: true
   require_validated: true
   disconnect_after: true
+  forget_after: true
 
 targets:
   - name: noc-6g-ap1

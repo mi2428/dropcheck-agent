@@ -9,6 +9,9 @@ defaults:
   passphrase_env: DROPCHECK_WIFI_PSK
   security: wpa3
   mac_randomization: none
+  # Set mac_randomization: non-persistent and mac_rotation: per_target or
+  # per_round when every target or round should use a fresh randomized MAC.
+  mac_rotation: none
   require_ip: true
   require_validated: true
   # Connect includes association plus the first IP-visible state; 3s is too

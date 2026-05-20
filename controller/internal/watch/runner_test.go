@@ -612,6 +612,96 @@ func TestRunTargetRequiredStatusCheckWaitsUntilExpectationsPass(t *testing.T) {
 	}
 }
 
+func TestRunTargetPerTargetMacRotationForgetsBeforeConnectAndAfterCleanup(t *testing.T) {
+	disconnectAfter := false
+	forgetAfter := false
+	plan := Plan{Name: "lab-watch"}
+	target := Target{
+		Name:             "ap1",
+		SSID:             "Lab",
+		MacRotation:      macRotationPerTarget,
+		MacRandomization: "non-persistent",
+		DisconnectAfter:  &disconnectAfter,
+		ForgetAfter:      &forgetAfter,
+	}
+	runner := &sequenceResultRunner{results: []*controlpb.CommandResult{
+		{Status: controlpb.CommandResult_STATUS_FAILED, Message: "wifi network not found"},
+		{Status: controlpb.CommandResult_STATUS_OK},
+		{Status: controlpb.CommandResult_STATUS_OK},
+		{Status: controlpb.CommandResult_STATUS_OK},
+		{Status: controlpb.CommandResult_STATUS_OK},
+	}}
+	var events []Event
+	emit := func(event Event) error {
+		events = append(events, event)
+		return nil
+	}
+
+	result, err := runTarget(context.Background(), plan, runner, control.AgentInfo{ID: "agent-a"}, 16, target, bandSupport{}, nil, nil, emit)
+	if err != nil {
+		t.Fatalf("runTarget() error = %v", err)
+	}
+	if result != targetPassed {
+		t.Fatalf("runTarget() result = %v, want targetPassed", result)
+	}
+	got := strings.Join(runner.opNames, ",")
+	want := "wifi.forget,wifi.connect,wifi.wait,wifi.disconnect,wifi.forget"
+	if got != want {
+		t.Fatalf("operations = %s, want %s", got, want)
+	}
+	if logs := countEvents(events, EventLog, func(event Event) bool {
+		return strings.Contains(event.Message, "mac_rotation=per_target") && strings.Contains(event.Message, "result=not_found")
+	}); logs != 1 {
+		t.Fatalf("mac rotation not-found log count = %d, want 1: %#v", logs, events)
+	}
+}
+
+func TestRunRoundPerRoundMacRotationForgetsOnceBeforeAndAfterRound(t *testing.T) {
+	disconnectAfter := false
+	forgetAfter := false
+	plan := Plan{
+		Name: "lab-watch",
+		Targets: []Target{
+			{Name: "ap1", SSID: "Lab", MacRotation: macRotationPerRound, MacRandomization: "non-persistent", DisconnectAfter: &disconnectAfter, ForgetAfter: &forgetAfter},
+			{Name: "ap2", SSID: "Lab", MacRotation: macRotationPerRound, MacRandomization: "non-persistent", DisconnectAfter: &disconnectAfter, ForgetAfter: &forgetAfter},
+		},
+	}
+	runner := &sequenceResultRunner{results: []*controlpb.CommandResult{
+		{Status: controlpb.CommandResult_STATUS_FAILED, Message: "wifi network not found"},
+		{Status: controlpb.CommandResult_STATUS_OK},
+		{Status: controlpb.CommandResult_STATUS_OK},
+		{Status: controlpb.CommandResult_STATUS_OK},
+		{Status: controlpb.CommandResult_STATUS_OK},
+		{Status: controlpb.CommandResult_STATUS_OK},
+		{Status: controlpb.CommandResult_STATUS_OK},
+		{Status: controlpb.CommandResult_STATUS_OK},
+	}}
+	var events []Event
+	emit := func(event Event) error {
+		events = append(events, event)
+		return nil
+	}
+
+	failed, err := runRound(context.Background(), plan, runner, control.AgentInfo{ID: "agent-a"}, 17, bandSupport{}, nil, nil, nil, emit)
+	if err != nil {
+		t.Fatalf("runRound() error = %v", err)
+	}
+	if failed != 0 {
+		t.Fatalf("runRound() failed targets = %d, want 0", failed)
+	}
+	if got := countString(runner.opNames, "wifi.forget"); got != 2 {
+		t.Fatalf("wifi.forget calls = %d, want 2; operations=%v", got, runner.opNames)
+	}
+	if got := countString(runner.opNames, "wifi.disconnect"); got != 2 {
+		t.Fatalf("wifi.disconnect calls = %d, want 2; operations=%v", got, runner.opNames)
+	}
+	for _, event := range events {
+		if event.Kind == EventStepFinished && event.Step.Name == "forget" {
+			t.Fatalf("per-round rotation should not forget after each target: %#v", event)
+		}
+	}
+}
+
 func TestRunTargetOperatorSkipCancelsCurrentCheckAndLeavesCheckPending(t *testing.T) {
 	disconnectAfter := false
 	plan := Plan{

@@ -26,6 +26,7 @@ type TargetDefaults struct {
 	PassphraseEnv    string   `yaml:"passphrase_env"`
 	Security         string   `yaml:"security"`
 	MacRandomization string   `yaml:"mac_randomization"`
+	MacRotation      string   `yaml:"mac_rotation"`
 	ConnectTimeout   Duration `yaml:"connect_timeout"`
 	WaitTimeout      Duration `yaml:"wait_timeout"`
 	RequireIP        *bool    `yaml:"require_ip"`
@@ -46,6 +47,7 @@ type Target struct {
 	PassphraseEnv    string   `yaml:"passphrase_env"`
 	Security         string   `yaml:"security"`
 	MacRandomization string   `yaml:"mac_randomization"`
+	MacRotation      string   `yaml:"mac_rotation"`
 	ConnectTimeout   Duration `yaml:"connect_timeout"`
 	WaitTimeout      Duration `yaml:"wait_timeout"`
 	RequireIP        *bool    `yaml:"require_ip"`
@@ -115,6 +117,9 @@ func (cfg Config) Plan() (Plan, error) {
 		if strings.TrimSpace(target.SSID) == "" {
 			return Plan{}, fmt.Errorf("targets[%d] must set ssid", i)
 		}
+		if err := normalizeTargetMacRotation(&target, i); err != nil {
+			return Plan{}, err
+		}
 		if target.Name == "" {
 			target.Name = targetDisplayName(target)
 		}
@@ -162,6 +167,9 @@ func applyTargetDefaults(target Target, defaults TargetDefaults) Target {
 	if target.MacRandomization == "" {
 		target.MacRandomization = defaults.MacRandomization
 	}
+	if target.MacRotation == "" {
+		target.MacRotation = defaults.MacRotation
+	}
 	if target.ConnectTimeout.Duration == 0 {
 		target.ConnectTimeout = defaults.ConnectTimeout
 	}
@@ -181,6 +189,44 @@ func applyTargetDefaults(target Target, defaults TargetDefaults) Target {
 		target.ForgetAfter = defaults.ForgetAfter
 	}
 	return target
+}
+
+const (
+	macRotationNone      = "none"
+	macRotationPerTarget = "per_target"
+	macRotationPerRound  = "per_round"
+)
+
+func normalizeTargetMacRotation(target *Target, index int) error {
+	rotation, err := normalizeMacRotation(target.MacRotation)
+	if err != nil {
+		return fmt.Errorf("targets[%d] mac_rotation: %w", index, err)
+	}
+	target.MacRotation = rotation
+	if rotation == macRotationNone {
+		return nil
+	}
+	if strings.TrimSpace(target.MacRandomization) == "" {
+		target.MacRandomization = "non-persistent"
+	}
+	target.MacRandomization = strings.ToLower(strings.TrimSpace(target.MacRandomization))
+	if target.MacRandomization != "non-persistent" {
+		return fmt.Errorf("targets[%d] mac_rotation %q requires mac_randomization: non-persistent", index, rotation)
+	}
+	return nil
+}
+
+func normalizeMacRotation(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "none":
+		return macRotationNone, nil
+	case "per_target", "per-target":
+		return macRotationPerTarget, nil
+	case "per_round", "per-round":
+		return macRotationPerRound, nil
+	default:
+		return "", fmt.Errorf("unsupported value %q; use none, per_target, or per_round", value)
+	}
 }
 
 func targetDisplayName(target Target) string {
@@ -213,7 +259,18 @@ func (target Target) requireValidated() bool {
 	return target.RequireValidated != nil && *target.RequireValidated
 }
 
+func (target Target) macRotation() string {
+	rotation, err := normalizeMacRotation(target.MacRotation)
+	if err != nil {
+		return macRotationNone
+	}
+	return rotation
+}
+
 func (target Target) disconnectAfter() bool {
+	if target.macRotation() != macRotationNone {
+		return true
+	}
 	if target.DisconnectAfter == nil {
 		return true
 	}
@@ -221,6 +278,9 @@ func (target Target) disconnectAfter() bool {
 }
 
 func (target Target) forgetAfter() bool {
+	if target.macRotation() == macRotationPerTarget {
+		return true
+	}
 	return target.ForgetAfter != nil && *target.ForgetAfter
 }
 

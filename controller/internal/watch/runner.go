@@ -125,6 +125,9 @@ func runRound(ctx context.Context, plan Plan, opRunner OperationRunner, agent co
 	if err := emit(Event{Kind: EventRoundStarted, Round: round, Status: "running"}); err != nil {
 		return 0, err
 	}
+	if err := runRoundMacRotation(ctx, plan, opRunner, agent, round, "before_round", pause, skip, emit); err != nil && !errors.Is(err, ErrSkipRequested) {
+		return 0, err
+	}
 	failedTargets := 0
 	skippedTargets := 0
 	for _, target := range plan.Targets {
@@ -141,6 +144,9 @@ func runRound(ctx context.Context, plan Plan, opRunner OperationRunner, agent co
 		case targetFailed:
 			failedTargets++
 		}
+	}
+	if err := runRoundMacRotation(ctx, plan, opRunner, agent, round, "after_round", pause, skip, emit); err != nil && !errors.Is(err, ErrSkipRequested) {
+		return failedTargets, err
 	}
 	status := "ok"
 	if failedTargets > 0 {
@@ -177,6 +183,29 @@ func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent c
 	}
 	targetOK := true
 	ready := true
+	if target.macRotation() == macRotationPerTarget {
+		ok, skipped, err := runMacRotationForget(ctx, opRunner, agent, round, target, "before_target", skip, emit)
+		if err != nil {
+			return targetFailed, err
+		}
+		if skipped {
+			return targetSkipped, finishOperatorSkippedTarget(round, target, targetStart, emit)
+		}
+		if !ok {
+			message := "mac rotation forget failed"
+			if err := skipTargetPlanSteps(round, targetSnapshot, plan.Checks, message, emit); err != nil {
+				return targetFailed, err
+			}
+			return targetFailed, emit(Event{
+				Kind:     EventTargetFinished,
+				Round:    round,
+				Target:   targetSnapshot,
+				Status:   "failed",
+				Message:  message,
+				Duration: time.Since(targetStart).Milliseconds(),
+			})
+		}
+	}
 	connect, err := connectOperation(target)
 	if err != nil {
 		return targetFailed, err
@@ -280,6 +309,22 @@ func skipChecks(round uint64, target TargetSnapshot, checks []Check, message str
 			Status:  "skipped",
 			Message: message,
 		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func skipTargetPlanSteps(round uint64, target TargetSnapshot, checks []Check, message string, emit func(Event) error) error {
+	steps := []StepSnapshot{
+		{Name: "connect", Type: "connect", Operation: "wifi.connect", Status: "skipped", Skipped: true, Message: message},
+		{Name: "wait_connected", Type: "wait_connected", Operation: "wifi.wait", Status: "skipped", Skipped: true, Message: message},
+	}
+	for _, check := range checks {
+		steps = append(steps, StepSnapshot{Name: check.DisplayName(), Type: check.Type, Status: "skipped", Skipped: true, Message: message})
+	}
+	for _, step := range steps {
+		if err := emit(Event{Kind: EventStepFinished, Round: round, Target: target, Step: step, Status: "skipped", Message: message}); err != nil {
 			return err
 		}
 	}
@@ -821,6 +866,95 @@ func emitFailureCause(ctx context.Context, opRunner OperationRunner, agent contr
 		return nil
 	}
 	return emitCause(message)
+}
+
+func runRoundMacRotation(ctx context.Context, plan Plan, opRunner OperationRunner, agent control.AgentInfo, round uint64, phase string, pause *PauseController, skip *SkipController, emit func(Event) error) error {
+	seen := map[string]struct{}{}
+	for _, target := range plan.Targets {
+		if target.macRotation() != macRotationPerRound {
+			continue
+		}
+		key := macRotationForgetKey(target)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		if err := pause.Wait(ctx); err != nil {
+			return err
+		}
+		_, skipped, err := runMacRotationForget(ctx, opRunner, agent, round, target, phase, skip, emit)
+		if err != nil {
+			return err
+		}
+		if skipped {
+			return ErrSkipRequested
+		}
+	}
+	return nil
+}
+
+func macRotationForgetKey(target Target) string {
+	return strings.ToLower(strings.TrimSpace(target.SSID))
+}
+
+func runMacRotationForget(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, phase string, skip *SkipController, emit func(Event) error) (bool, bool, error) {
+	op := command.WifiForgetOperation(target.SSID)
+	opCtx, finish := skip.operationContext(ctx)
+	exec, runErr := opRunner.Run(opCtx, agent, op)
+	finish()
+	if operationSkipped(opCtx) {
+		return false, true, nil
+	}
+	if runErr != nil && ctx.Err() != nil {
+		return false, false, ctx.Err()
+	}
+	ok, message := macRotationForgetResult(exec, runErr)
+	status := "info"
+	stepStatus := "ok"
+	if !ok {
+		status = "warn"
+		stepStatus = "failed"
+	}
+	if err := emit(Event{
+		Kind:   EventLog,
+		Round:  round,
+		Target: snapshotTarget(target),
+		Step: StepSnapshot{
+			Name:      "mac_rotation_" + phase,
+			Type:      "cleanup",
+			Operation: op.Name,
+			Status:    stepStatus,
+		},
+		Status:  status,
+		Message: fmt.Sprintf("mac_rotation=%s phase=%s ssid=%q %s", target.macRotation(), phase, target.SSID, message),
+	}); err != nil {
+		return false, false, err
+	}
+	return ok, false, nil
+}
+
+func macRotationForgetResult(exec runner.Result, runErr error) (bool, string) {
+	if runErr != nil {
+		return false, "error=" + runErr.Error()
+	}
+	if exec.Result == nil {
+		return false, "missing command result"
+	}
+	message := firstNonEmpty(exec.Result.GetMessage(), statusName(exec.Result.GetStatus()))
+	if exec.Result.GetStatus() == controlpb.CommandResult_STATUS_OK {
+		return true, "result=" + message
+	}
+	if macRotationForgetNotFound(exec.Result) {
+		return true, "result=not_found"
+	}
+	return false, "result=" + message
+}
+
+func macRotationForgetNotFound(result *controlpb.CommandResult) bool {
+	if result == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(result.GetMessage()), "wifi network not found")
 }
 
 func runCleanup(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, skip *SkipController, emit func(Event) error) error {
