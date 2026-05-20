@@ -171,6 +171,8 @@ func addIPStatusMetrics(metrics map[string]Value, status *controlpb.IpStatus) {
 	metrics["ipv6_dns_servers"] = stringListValue(ipv6DNSServers)
 	metrics["route_count"] = intValue(int64(len(status.GetRoutes())))
 	metrics["default_route"] = boolValue(hasDefaultRoute(status.GetRoutes()))
+	metrics["ipv4_default_route"] = boolValue(hasDefaultRouteForFamily(status.GetRoutes(), "ipv4"))
+	metrics["ipv6_default_route"] = boolValue(hasDefaultRouteForFamily(status.GetRoutes(), "ipv6"))
 }
 
 func addPingMetrics(metrics map[string]Value, ping *controlpb.PingResult) {
@@ -453,12 +455,48 @@ func addWifiScanDetailMetrics(metrics map[string]Value, detail *controlpb.WifiSc
 }
 
 func hasDefaultRoute(routes []string) bool {
+	return hasDefaultRouteForFamily(routes, "any")
+}
+
+func hasDefaultRouteForFamily(routes []string, family string) bool {
 	for _, route := range routes {
-		if strings.Contains(route, "0.0.0.0/0") || strings.Contains(route, "::/0") || strings.Contains(strings.ToLower(route), "default") {
+		routeFamily, ok := defaultRouteFamily(route)
+		if !ok {
+			continue
+		}
+		if family == "any" || routeFamily == family {
 			return true
 		}
 	}
 	return false
+}
+
+func defaultRouteFamily(route string) (string, bool) {
+	fields := strings.Fields(route)
+	if len(fields) == 0 {
+		return "", false
+	}
+	family, defaultRoute := routeDestinationFamily(fields[0])
+	if !defaultRoute {
+		return "", false
+	}
+	if family != "" {
+		return family, true
+	}
+	for i, field := range fields {
+		switch strings.ToLower(strings.Trim(field, ",")) {
+		case "->", "via":
+			if i+1 >= len(fields) {
+				continue
+			}
+			addr, ok := parseIPLiteral(fields[i+1])
+			if !ok {
+				continue
+			}
+			return gatewayFamily(addr), true
+		}
+	}
+	return "", true
 }
 
 func splitIPListByFamily(values []string) ([]string, []string) {

@@ -72,6 +72,7 @@ type Check struct {
 	ScanTarget     string         `yaml:"scan_target"`
 	Band           string         `yaml:"band"`
 	Timeout        Duration       `yaml:"timeout"`
+	Required       bool           `yaml:"required"`
 	Expect         map[string]any `yaml:"expect"`
 	compiledExpect []Matcher
 }

@@ -93,9 +93,11 @@ func (r *sequenceRunner) Run(context.Context, control.AgentInfo, command.Operati
 type sequenceResultRunner struct {
 	results []*controlpb.CommandResult
 	calls   int
+	opNames []string
 }
 
-func (r *sequenceResultRunner) Run(context.Context, control.AgentInfo, command.Operation) (runner.Result, error) {
+func (r *sequenceResultRunner) Run(_ context.Context, _ control.AgentInfo, op command.Operation) (runner.Result, error) {
+	r.opNames = append(r.opNames, op.Name)
 	index := r.calls
 	r.calls++
 	if index >= len(r.results) {
@@ -498,6 +500,118 @@ func TestRunCheckGatewayPingReportsMissingGateway(t *testing.T) {
 	}
 }
 
+func TestRunTargetRequiredCheckSkipsRemainingChecks(t *testing.T) {
+	disconnectAfter := false
+	plan := Plan{
+		Name: "lab-watch",
+		Checks: []Check{
+			{
+				Name:     "IP Provisioning",
+				Type:     "ip_status",
+				Required: true,
+				compiledExpect: []Matcher{
+					{Metric: "ipv6_default_route", Op: "==", Want: "true"},
+				},
+			},
+			{Name: "Ping CF IPv6", Type: "ping", Host: "2606:4700:4700::1111"},
+		},
+	}
+	target := Target{Name: "ap1", SSID: "Lab", DisconnectAfter: &disconnectAfter}
+	runner := &sequenceResultRunner{results: []*controlpb.CommandResult{
+		{Status: controlpb.CommandResult_STATUS_OK},
+		{Status: controlpb.CommandResult_STATUS_OK},
+		{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_IpStatus{IpStatus: &controlpb.IpStatus{
+			Routes: []string{"0.0.0.0/0 -> 192.168.23.254 wlan0"},
+		}}},
+	}}
+	var events []Event
+	emit := func(event Event) error {
+		events = append(events, event)
+		return nil
+	}
+
+	result, err := runTarget(context.Background(), plan, runner, control.AgentInfo{ID: "agent-a"}, 14, target, bandSupport{}, nil, nil, emit)
+	if err != nil {
+		t.Fatalf("runTarget() error = %v", err)
+	}
+	if result != targetFailed {
+		t.Fatalf("runTarget() result = %v, want targetFailed", result)
+	}
+	if got := strings.Join(runner.opNames, ","); strings.Contains(got, "ping") {
+		t.Fatalf("required check should skip later ping, operations=%s", got)
+	}
+	skipped, ok := firstEvent(events, EventStepFinished, func(event Event) bool {
+		return event.Step.Name == "Ping CF IPv6"
+	})
+	if !ok || skipped.Status != "skipped" || !skipped.Step.Skipped || !strings.Contains(skipped.Message, "required check failed: IP Provisioning") {
+		t.Fatalf("remaining check was not skipped with required-check message: %#v", skipped)
+	}
+	finished, ok := lastEvent(events, EventTargetFinished)
+	if !ok || finished.Status != "failed" {
+		t.Fatalf("target finished event = %#v, want failed", finished)
+	}
+}
+
+func TestRunTargetRequiredStatusCheckWaitsUntilExpectationsPass(t *testing.T) {
+	previousPoll := checkExpectationPollInterval
+	checkExpectationPollInterval = time.Millisecond
+	defer func() { checkExpectationPollInterval = previousPoll }()
+
+	disconnectAfter := false
+	plan := Plan{
+		Name: "lab-watch",
+		Checks: []Check{
+			{
+				Name:     "IP Provisioning",
+				Type:     "ip_status",
+				Required: true,
+				Timeout:  Duration{Duration: 50 * time.Millisecond},
+				compiledExpect: []Matcher{
+					{Metric: "ipv6_default_route", Op: "==", Want: "true"},
+				},
+			},
+			{Name: "Ping CF IPv6", Type: "ping", Host: "2606:4700:4700::1111"},
+		},
+	}
+	target := Target{Name: "ap1", SSID: "Lab", DisconnectAfter: &disconnectAfter}
+	runner := &sequenceResultRunner{results: []*controlpb.CommandResult{
+		{Status: controlpb.CommandResult_STATUS_OK},
+		{Status: controlpb.CommandResult_STATUS_OK},
+		{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_IpStatus{IpStatus: &controlpb.IpStatus{
+			Routes: []string{"0.0.0.0/0 -> 192.168.23.254 wlan0"},
+		}}},
+		{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_IpStatus{IpStatus: &controlpb.IpStatus{
+			Routes: []string{"0.0.0.0/0 -> 192.168.23.254 wlan0", "::/0 -> fe80::1 wlan0"},
+		}}},
+		{Status: controlpb.CommandResult_STATUS_OK},
+	}}
+	var events []Event
+	emit := func(event Event) error {
+		events = append(events, event)
+		return nil
+	}
+
+	result, err := runTarget(context.Background(), plan, runner, control.AgentInfo{ID: "agent-a"}, 15, target, bandSupport{}, nil, nil, emit)
+	if err != nil {
+		t.Fatalf("runTarget() error = %v", err)
+	}
+	if result != targetPassed {
+		t.Fatalf("runTarget() result = %v, want targetPassed", result)
+	}
+	if got := countString(runner.opNames, "ip.status"); got != 2 {
+		t.Fatalf("ip.status calls = %d, want 2; operations=%v", got, runner.opNames)
+	}
+	if got := strings.Join(runner.opNames, ","); !strings.Contains(got, "ping") {
+		t.Fatalf("required check should allow later ping after expectations pass, operations=%s", got)
+	}
+	finished, ok := firstEvent(events, EventStepFinished, func(event Event) bool {
+		return event.Step.Name == "Ping CF IPv6"
+	})
+	if !ok || finished.Status != "ok" {
+		t.Fatalf("later check was not run after provisioning passed: %#v", finished)
+	}
+}
+
 func TestRunTargetOperatorSkipCancelsCurrentCheckAndLeavesCheckPending(t *testing.T) {
 	disconnectAfter := false
 	plan := Plan{
@@ -713,6 +827,16 @@ func eventChannelContains(events <-chan Event, kind EventKind) bool {
 			return false
 		}
 	}
+}
+
+func countString(values []string, want string) int {
+	count := 0
+	for _, value := range values {
+		if value == want {
+			count++
+		}
+	}
+	return count
 }
 
 func countEvents(events []Event, kind EventKind, match func(Event) bool) int {

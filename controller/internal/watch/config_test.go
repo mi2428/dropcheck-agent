@@ -29,6 +29,7 @@ targets:
 checks:
   - name: ping gateway
     type: ping
+    required: true
     host: 1.1.1.1
     count: 5
     expect:
@@ -57,6 +58,9 @@ checks:
 	}
 	if got := len(plan.Checks[0].compiledExpect); got != 2 {
 		t.Fatalf("compiled expectations = %d, want 2", got)
+	}
+	if !plan.Checks[0].Required {
+		t.Fatalf("required check flag was not loaded: %#v", plan.Checks[0])
 	}
 }
 
@@ -181,6 +185,31 @@ func TestNetworkProbeMetrics(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestIPDefaultRouteMetricsByFamily(t *testing.T) {
+	metrics := metricsForResult(&controlpb.CommandResult{Payload: &controlpb.CommandResult_IpStatus{IpStatus: &controlpb.IpStatus{
+		Routes: []string{
+			"0.0.0.0/0 -> 192.168.23.254 wlan0",
+			"2405:6581:3e00:a600::/64 -> :: wlan0",
+			"2405:6581:3e00:a604::/64 -> fe80::88c:2e0c:8c82:2c02 wlan0",
+		},
+	}}})
+
+	for key, want := range map[string]bool{
+		"default_route":      true,
+		"ipv4_default_route": true,
+		"ipv6_default_route": false,
+	} {
+		got, ok := metrics[key]
+		if !ok {
+			t.Fatalf("metric %q missing from %#v", key, metrics)
+		}
+		gotBool, ok := got.Bool()
+		if !ok || gotBool != want {
+			t.Fatalf("metric %q = %q, want %t", key, got.String(), want)
+		}
 	}
 }
 
