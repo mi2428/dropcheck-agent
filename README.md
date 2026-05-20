@@ -214,7 +214,7 @@ rtt min/avg/max/mdev = 10.200/12.400/16.300/1.900 ms
 ### Watch TUI
 
 `dropcheck watch` runs a continuous E2E Wi-Fi test loop from the controller and renders a live terminal UI.
-It is meant for field operation: connection failures skip the remaining checks for that target, check failures are recorded as findings, and the next target and round continue.
+It is meant for field operation: connection failures and failed `required: true` checks skip the remaining checks for that target, other check failures are recorded as findings, and the next target and round continue.
 Use `--jsonl` when you also want an append-only event log.
 When multiple agents are connected, unassigned targets run on every selected agent.
 Set `agent:` on a target to bind it to one Android agent by ADB serial; a unique serial prefix is accepted, while device model names are display-only in the YAML plan.
@@ -252,8 +252,12 @@ checks:
       band: 6ghz
   - name: ip
     type: ip_status
+    required: true
+    timeout: 45s
     expect:
       validated: true
+      default_route: true
+      ipv4_default_route: true
       dns_server_count: ">=1"
       mtu: ">=1280"
       ipv4_addresses:

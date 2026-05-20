@@ -53,6 +53,8 @@ type RunOptions struct {
 // useful than a bounded retry that records the flake without failing the target.
 const operationRetryLimit = 3
 
+var checkExpectationPollInterval = time.Second
+
 // Run executes plan rounds until ctx is canceled or an unrecoverable runner or sink error occurs.
 func Run(ctx context.Context, plan Plan, opRunner OperationRunner, agent control.AgentInfo, sink Sink) error {
 	return RunWithOptions(ctx, plan, opRunner, agent, sink, RunOptions{})
@@ -214,7 +216,7 @@ func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent c
 		}
 	}
 	if ready {
-		for _, check := range plan.Checks {
+		for i, check := range plan.Checks {
 			if err := pause.Wait(ctx); err != nil {
 				return targetFailed, err
 			}
@@ -227,25 +229,18 @@ func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent c
 			}
 			if !ok {
 				targetOK = false
+				if check.Required {
+					message := fmt.Sprintf("required check failed: %s", check.DisplayName())
+					if err := skipChecks(round, targetSnapshot, plan.Checks[i+1:], message, emit); err != nil {
+						return targetFailed, err
+					}
+					break
+				}
 			}
 		}
 	} else {
-		for _, check := range plan.Checks {
-			if err := emit(Event{
-				Kind:   EventStepFinished,
-				Round:  round,
-				Target: targetSnapshot,
-				Step: StepSnapshot{
-					Name:    check.DisplayName(),
-					Type:    check.Type,
-					Status:  "skipped",
-					Skipped: true,
-					Message: "connect or wait_connected failed",
-				},
-				Status: "skipped",
-			}); err != nil {
-				return targetFailed, err
-			}
+		if err := skipChecks(round, targetSnapshot, plan.Checks, "connect or wait_connected failed", emit); err != nil {
+			return targetFailed, err
 		}
 	}
 	if err := pause.Wait(ctx); err != nil {
@@ -267,6 +262,28 @@ func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent c
 		Status:   status,
 		Duration: time.Since(targetStart).Milliseconds(),
 	})
+}
+
+func skipChecks(round uint64, target TargetSnapshot, checks []Check, message string, emit func(Event) error) error {
+	for _, check := range checks {
+		if err := emit(Event{
+			Kind:   EventStepFinished,
+			Round:  round,
+			Target: target,
+			Step: StepSnapshot{
+				Name:    check.DisplayName(),
+				Type:    check.Type,
+				Status:  "skipped",
+				Skipped: true,
+				Message: message,
+			},
+			Status:  "skipped",
+			Message: message,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func skipTarget(round uint64, target Target, checks []Check, started time.Time, message string, emit func(Event) error) error {
@@ -342,8 +359,9 @@ func runCheckWithSkip(ctx context.Context, opRunner OperationRunner, agent contr
 	targetSnapshot := snapshotTarget(target)
 	started := time.Now()
 	emitCause := failureCauseEmitter(round, target, step, emit)
-	maxAttempts := operationMaxAttempts(step)
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
+	deadline, poll := checkExpectationDeadline(check, started)
+	maxAttempts := checkMaxAttempts(step, check, poll)
+	for attempt := 1; ; attempt++ {
 		exec, runErr, err, skipped := runOperationAttempt(ctx, opRunner, agent, round, target, step, op, attempt, maxAttempts, skip, emit, emitCause)
 		if err != nil {
 			return false, false, err
@@ -372,7 +390,7 @@ func runCheckWithSkip(ctx context.Context, opRunner OperationRunner, agent contr
 			})
 		}
 		reason := checkFailureMessage(failedStep, findings)
-		if attempt < maxAttempts {
+		if checkRetryAvailable(attempt, maxAttempts, deadline) {
 			if err := emitRetrying(round, target, step, attempt, maxAttempts, reason, emit); err != nil {
 				return false, false, err
 			}
@@ -380,6 +398,9 @@ func runCheckWithSkip(ctx context.Context, opRunner OperationRunner, agent contr
 				if err := emitFailureCause(ctx, opRunner, agent, round, target, failedStep, op, exec, runErr, emitCause); err != nil {
 					return false, false, err
 				}
+			}
+			if err := sleepCheckRetry(ctx, deadline, poll); err != nil {
+				return false, false, err
 			}
 			continue
 		}
@@ -417,6 +438,61 @@ func runCheckWithSkip(ctx context.Context, opRunner OperationRunner, agent contr
 		return false, false, nil
 	}
 	return false, false, nil
+}
+
+func checkExpectationDeadline(check Check, started time.Time) (time.Time, time.Duration) {
+	if !pollsExpectationUntilTimeout(check) || check.Timeout.Duration <= 0 {
+		return time.Time{}, 0
+	}
+	return started.Add(check.Timeout.Duration), checkExpectationPollInterval
+}
+
+func pollsExpectationUntilTimeout(check Check) bool {
+	switch check.Type {
+	case "ip_status", "wifi_status":
+		return true
+	default:
+		return false
+	}
+}
+
+func checkMaxAttempts(step StepSnapshot, check Check, poll time.Duration) int {
+	maxAttempts := operationMaxAttempts(step)
+	if poll <= 0 || check.Timeout.Duration <= 0 {
+		return maxAttempts
+	}
+	attempts := 1 + int(check.Timeout.Duration/poll)
+	if check.Timeout.Duration%poll != 0 {
+		attempts++
+	}
+	if attempts < maxAttempts {
+		return maxAttempts
+	}
+	return attempts
+}
+
+func checkRetryAvailable(attempt int, maxAttempts int, deadline time.Time) bool {
+	if attempt >= maxAttempts {
+		return false
+	}
+	if deadline.IsZero() {
+		return true
+	}
+	return time.Now().Before(deadline)
+}
+
+func sleepCheckRetry(ctx context.Context, deadline time.Time, poll time.Duration) error {
+	if deadline.IsZero() || poll <= 0 {
+		return nil
+	}
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return nil
+	}
+	if poll > remaining {
+		poll = remaining
+	}
+	return sleepContext(ctx, poll)
 }
 
 func runOperationStepWithSkip(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, step StepSnapshot, op command.Operation, skip *SkipController, emit func(Event) error) (runner.Result, bool, error) {
