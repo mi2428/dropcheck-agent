@@ -15,7 +15,11 @@ import io.dropcheck.agent.grpc.WifiHeSpatialReuseParameterSet
 import io.dropcheck.agent.grpc.WifiHeUoraParameterSet
 import io.dropcheck.agent.grpc.WifiInformationElement
 import io.dropcheck.agent.grpc.WifiMcsNssSupport
+import io.dropcheck.agent.grpc.WifiSecurityDetails
 
+private const val RSN_ELEMENT_ID = 48
+private const val EXTENDED_CAPABILITIES_ELEMENT_ID = 127
+private const val RSNXE_ELEMENT_ID = 244
 private const val EXTENSION_ELEMENT_ID = 255
 private const val HE_CAPABILITIES_ID_EXT = 35
 private const val HE_OPERATION_ID_EXT = 36
@@ -25,6 +29,7 @@ private const val HE_SPATIAL_REUSE_ID_EXT = 39
 private const val HE_6GHZ_CAPABILITIES_ID_EXT = 59
 private const val EHT_OPERATION_ID_EXT = 106
 private const val EHT_CAPABILITIES_ID_EXT = 108
+private const val EXTENDED_CAPABILITY_BEACON_PROTECTION_BIT = 84
 
 internal data class WifiInformationElementDecodes(
     val heCapabilities: WifiHeCapabilities? = null,
@@ -35,6 +40,7 @@ internal data class WifiInformationElementDecodes(
     val heMuEdcaParameterSet: WifiHeMuEdcaParameterSet? = null,
     val heSpatialReuseParameterSet: WifiHeSpatialReuseParameterSet? = null,
     val he6GhzCapabilities: WifiHe6GhzCapabilities? = null,
+    val securityDetails: WifiSecurityDetails? = null,
 )
 
 internal fun decodeWifiInformationElements(elements: List<WifiInformationElement>): WifiInformationElementDecodes {
@@ -55,11 +61,16 @@ internal fun decodeWifiInformationElements(elements: List<WifiInformationElement
         he6GhzCapabilities = elements.firstExtension(HE_6GHZ_CAPABILITIES_ID_EXT)?.let {
             parseHe6GhzCapabilities(it.bytes())
         },
+        securityDetails = parseWifiSecurityDetails(elements),
     )
 }
 
 private fun List<WifiInformationElement>.firstExtension(idExt: Int): WifiInformationElement? {
     return firstOrNull { it.id == EXTENSION_ELEMENT_ID && it.idExt == idExt }
+}
+
+private fun List<WifiInformationElement>.firstElement(id: Int): WifiInformationElement? {
+    return firstOrNull { it.id == id }
 }
 
 private fun WifiInformationElement.bytes(): ByteArray = hexToBytes(bytesHex)
@@ -294,6 +305,200 @@ private fun parseEhtOperation(bytes: ByteArray): WifiEhtOperation {
         builder.addWarnings("eht_disabled_subchannel_bitmap_without_operation_information")
     }
     return builder.build()
+}
+
+private fun parseWifiSecurityDetails(elements: List<WifiInformationElement>): WifiSecurityDetails? {
+    val rsn = elements.firstElement(RSN_ELEMENT_ID)?.bytes()
+    val rsnxe = elements.firstElement(RSNXE_ELEMENT_ID)?.bytes()
+    val extendedCapabilities = elements.firstElement(EXTENDED_CAPABILITIES_ELEMENT_ID)?.bytes()
+    if (rsn == null && rsnxe == null && extendedCapabilities == null) {
+        return null
+    }
+
+    val builder = WifiSecurityDetails.newBuilder()
+    rsn?.let { parseRsnElement(it, builder) }
+    rsnxe?.let { parseRsnxeElement(it, builder) }
+    extendedCapabilities?.let { parseExtendedCapabilitiesElement(it, builder) }
+
+    val partial = builder.build()
+    val gcmp256 = partial.groupDataCipher == "gcmp_256" ||
+        partial.pairwiseCiphersList.contains("gcmp_256")
+    val saeGdh = partial.akmSuitesList.contains("sae_gdh")
+    val ftSaeGdh = partial.akmSuitesList.contains("ft_sae_gdh")
+    builder
+        .setGcmp256(gcmp256)
+        .setSaeGdh(saeGdh)
+        .setFtSaeGdh(ftSaeGdh)
+        .setWifi7PersonalReady(partial.pmfRequired && gcmp256 && (saeGdh || ftSaeGdh) && partial.beaconProtection)
+    return builder.build()
+}
+
+private fun parseRsnElement(bytes: ByteArray, builder: WifiSecurityDetails.Builder) {
+    builder
+        .setRsnPresent(true)
+        .setRawRsnHex(bytes.toHex())
+
+    var offset = 0
+    fun requireBytes(length: Int, field: String): Boolean {
+        if (bytes.size >= offset + length) return true
+        builder.addWarnings("rsn_${field}_too_short bytes=${(bytes.size - offset).coerceAtLeast(0)} required=$length")
+        return false
+    }
+
+    if (!requireBytes(2, "version")) return
+    builder.rsnVersion = bytes.u16le(offset)
+    offset += 2
+
+    if (!requireBytes(4, "group_data_cipher")) return
+    builder.groupDataCipher = rsnCipherSuiteName(bytes, offset)
+    offset += 4
+
+    if (!requireBytes(2, "pairwise_cipher_count")) return
+    val pairwiseCount = bytes.u16le(offset)
+    offset += 2
+    for (index in 0 until pairwiseCount) {
+        if (!requireBytes(4, "pairwise_cipher_$index")) return
+        builder.addPairwiseCiphers(rsnCipherSuiteName(bytes, offset))
+        offset += 4
+    }
+
+    if (!requireBytes(2, "akm_count")) return
+    val akmCount = bytes.u16le(offset)
+    offset += 2
+    for (index in 0 until akmCount) {
+        if (!requireBytes(4, "akm_suite_$index")) return
+        builder.addAkmSuites(rsnAkmSuiteName(bytes, offset))
+        offset += 4
+    }
+
+    if (bytes.size < offset + 2) {
+        return
+    }
+    val capabilities = bytes.u16le(offset)
+    builder
+        .setRsnCapabilities(capabilities)
+        .setRsnCapabilitiesHex(capabilities.toU16Hex())
+        .setPmfRequired(capabilities and (1 shl 6) != 0)
+        .setPmfCapable(capabilities and (1 shl 7) != 0)
+    offset += 2
+
+    if (bytes.size < offset + 2) {
+        return
+    }
+    val pmkidCount = bytes.u16le(offset)
+    offset += 2
+    val pmkidBytes = pmkidCount * 16
+    if (bytes.size < offset + pmkidBytes) {
+        builder.addWarnings("rsn_pmkid_list_too_short bytes=${(bytes.size - offset).coerceAtLeast(0)} required=$pmkidBytes")
+        return
+    }
+    offset += pmkidBytes
+
+    if (bytes.size >= offset + 4) {
+        builder.groupManagementCipher = rsnCipherSuiteName(bytes, offset)
+    } else if (bytes.size > offset) {
+        builder.addWarnings("rsn_group_management_cipher_too_short bytes=${bytes.size - offset} required=4")
+    }
+}
+
+private fun parseRsnxeElement(bytes: ByteArray, builder: WifiSecurityDetails.Builder) {
+    builder
+        .setRsnxePresent(true)
+        .setRawRsnxeHex(bytes.toHex())
+        .addAllRsnxeCapabilities(rsnxeCapabilityNames(bytes))
+}
+
+private fun parseExtendedCapabilitiesElement(bytes: ByteArray, builder: WifiSecurityDetails.Builder) {
+    val capabilities = extendedCapabilityNames(bytes)
+    builder
+        .setExtendedCapabilitiesPresent(true)
+        .setRawExtendedCapabilitiesHex(bytes.toHex())
+        .addAllExtendedCapabilities(capabilities)
+        .setBeaconProtection(informationElementBit(bytes, EXTENDED_CAPABILITY_BEACON_PROTECTION_BIT))
+}
+
+private fun rsnCipherSuiteName(bytes: ByteArray, offset: Int): String {
+    val oui = suiteOui(bytes, offset)
+    val type = bytes[offset + 3].u8()
+    return if (oui == "000fac") {
+        when (type) {
+            0 -> "use_group"
+            1 -> "wep40"
+            2 -> "tkip"
+            4 -> "ccmp_128"
+            5 -> "wep104"
+            6 -> "bip_cmac_128"
+            7 -> "no_group_addressed"
+            8 -> "gcmp_128"
+            9 -> "gcmp_256"
+            10 -> "ccmp_256"
+            11 -> "bip_gmac_128"
+            12 -> "bip_gmac_256"
+            13 -> "bip_cmac_256"
+            else -> "rsn_cipher_000fac_$type"
+        }
+    } else {
+        "cipher_${oui}_$type"
+    }
+}
+
+private fun rsnAkmSuiteName(bytes: ByteArray, offset: Int): String {
+    val oui = suiteOui(bytes, offset)
+    val type = bytes[offset + 3].u8()
+    return if (oui == "000fac") {
+        when (type) {
+            1 -> "8021x"
+            2 -> "psk"
+            3 -> "ft_8021x"
+            4 -> "ft_psk"
+            5 -> "8021x_sha256"
+            6 -> "psk_sha256"
+            7 -> "tdls"
+            8 -> "sae"
+            9 -> "ft_sae"
+            11 -> "8021x_suite_b"
+            12 -> "8021x_suite_b_192"
+            18 -> "owe"
+            24 -> "sae_gdh"
+            25 -> "ft_sae_gdh"
+            else -> "rsn_akm_000fac_$type"
+        }
+    } else {
+        "akm_${oui}_$type"
+    }
+}
+
+private fun suiteOui(bytes: ByteArray, offset: Int): String {
+    return bytes.copyOfRange(offset, offset + 3).toHex()
+}
+
+private fun rsnxeCapabilityNames(bytes: ByteArray): List<String> = buildList {
+    if (informationElementBit(bytes, 4)) add("protected_twt")
+    if (informationElementBit(bytes, 5)) add("sae_h2e")
+    if (informationElementBit(bytes, 6)) add("sae_pk")
+    if (informationElementBit(bytes, 8)) add("secure_ltf")
+    if (informationElementBit(bytes, 9)) add("secure_rtt")
+    if (informationElementBit(bytes, 10)) add("urnm_mfpr_x20")
+    if (informationElementBit(bytes, 14)) add("spp_a_msdu")
+    if (informationElementBit(bytes, 15)) add("urnm_mfpr")
+    if (informationElementBit(bytes, 18)) add("kek_in_pasn")
+    if (informationElementBit(bytes, 21)) add("ssid_protection")
+    if (informationElementBit(bytes, 27)) add("assoc_frame_encryption")
+    if (informationElementBit(bytes, 28)) add("8021x_in_auth_frames")
+    if (informationElementBit(bytes, 29)) add("pmksa_caching_privacy")
+    if (informationElementBit(bytes, 34)) add("sae_pw_id_change")
+    if (informationElementBit(bytes, 36)) add("unauth_eppke")
+}
+
+private fun extendedCapabilityNames(bytes: ByteArray): List<String> = buildList {
+    if (informationElementBit(bytes, 19)) add("bss_transition")
+    if (informationElementBit(bytes, 72)) add("fils")
+    if (informationElementBit(bytes, 80)) add("complete_non_tx_bssid_profile")
+    if (informationElementBit(bytes, 81)) add("sae_password_identifier")
+    if (informationElementBit(bytes, 82)) add("sae_password_identifier_exclusively")
+    if (informationElementBit(bytes, EXTENDED_CAPABILITY_BEACON_PROTECTION_BIT)) add("beacon_protection")
+    if (informationElementBit(bytes, 88)) add("sae_pk_exclusively")
+    if (informationElementBit(bytes, 102)) add("known_sta_identification")
 }
 
 private fun parseHeMacCapabilities(mac: ByteArray): WifiHeMacCapabilities {
@@ -1072,6 +1277,13 @@ private fun ByteArray.u32le(offset: Int): Int {
 }
 
 private fun Int.toU16Hex(): String = "%04x".format(this and 0xffff)
+
+private fun informationElementBit(bytes: ByteArray, bit: Int): Boolean {
+    if (bit < 0) return false
+    val byteIndex = bit / 8
+    if (byteIndex >= bytes.size) return false
+    return bytes[byteIndex].u8() and (1 shl (bit % 8)) != 0
+}
 
 private fun Byte.u8(): Int = toInt() and 0xff
 

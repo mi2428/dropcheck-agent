@@ -224,6 +224,7 @@ class WifiProtoMapper(
         decodes.heMuEdcaParameterSet?.let { builder.setHeMuEdcaParameterSet(it) }
         decodes.heSpatialReuseParameterSet?.let { builder.setHeSpatialReuseParameterSet(it) }
         decodes.he6GhzCapabilities?.let { builder.setHe6GhzCapabilities(it) }
+        decodes.securityDetails?.let { builder.setSecurityDetails(it) }
     }
 
     private fun applyDecodedInformationElements(
@@ -238,6 +239,7 @@ class WifiProtoMapper(
         decodes.heMuEdcaParameterSet?.let { builder.setHeMuEdcaParameterSet(it) }
         decodes.heSpatialReuseParameterSet?.let { builder.setHeSpatialReuseParameterSet(it) }
         decodes.he6GhzCapabilities?.let { builder.setHe6GhzCapabilities(it) }
+        decodes.securityDetails?.let { builder.setSecurityDetails(it) }
     }
 
     private fun warnMloUnavailable(reason: String, vararg fields: Pair<String, Any?>) {

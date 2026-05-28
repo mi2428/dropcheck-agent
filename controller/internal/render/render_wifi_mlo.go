@@ -35,6 +35,7 @@ func renderWifiMLO(b *strings.Builder, diagnostics *controlpb.WifiDiagnostics) {
 
 	renderWifiMLOCurrentRelation(b, current, candidates)
 	renderWifiMLOConnected(b, current)
+	renderWifiMLOConnectedSecurity(b, current)
 	renderWifiMLOConnectedHE6GHzDetails(b, current)
 	renderWifiMLOConnectedEHT(b, current)
 	renderWifiMLOConnectedEHTDetails(b, current)
@@ -276,9 +277,47 @@ func renderWifiMLONearbyAPs(b *strings.Builder, groups []wifiMLOGroup, current *
 	}
 	wifiMLOWriteTable(b, columns, rows)
 	renderWifiMLOScanLinks(b, groups, current)
+	renderWifiMLOScanSecurityDetails(b, groups)
 	renderWifiMLOScanHE6GHzDetails(b, groups)
 	renderWifiMLOScanEHT(b, groups)
 	renderWifiMLOScanEHTDetails(b, groups)
+}
+
+func renderWifiMLOConnectedSecurity(b *strings.Builder, current *controlpb.WifiConnection) {
+	if current == nil || current.GetSecurityDetails() == nil {
+		return
+	}
+	writeSection(b, "Connected Wi-Fi Security")
+	renderWifiMLOSecurityDetails(b, "connection", current.GetSecurityDetails())
+}
+
+func renderWifiMLOScanSecurityDetails(b *strings.Builder, groups []wifiMLOGroup) {
+	results := []*controlpb.WifiScanResult{}
+	for _, group := range groups {
+		for _, result := range group.results {
+			if result.GetSecurityDetails() != nil {
+				results = append(results, result)
+			}
+		}
+	}
+	if len(results) == 0 {
+		return
+	}
+	writeSection(b, "Scan Wi-Fi 7 Security")
+	for i, result := range results {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		label := fmt.Sprintf("ap ssid=%s bssid=%s", empty(result.GetSsid(), "<hidden>"), empty(result.GetBssid(), "<unknown>"))
+		renderWifiMLOSecurityDetails(b, label, result.GetSecurityDetails())
+	}
+}
+
+func renderWifiMLOSecurityDetails(b *strings.Builder, label string, details *controlpb.WifiSecurityDetails) {
+	fmt.Fprintf(b, "  %s\n", label)
+	for _, line := range wifiSecuritySummaryLines(details) {
+		fmt.Fprintf(b, "    %s\n", line)
+	}
 }
 
 func renderWifiMLOConnectedHE6GHzDetails(b *strings.Builder, current *controlpb.WifiConnection) {

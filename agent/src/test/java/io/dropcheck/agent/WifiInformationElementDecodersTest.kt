@@ -222,6 +222,45 @@ class WifiInformationElementDecodersTest {
         assertTrue(eht.phy.mcs15Supported320Mhz)
     }
 
+    @Test
+    fun decodesWifi7SecurityInformationElements() {
+        val decodes = decodeWifiInformationElements(listOf(
+            element(48, "0100000fac090100000fac090200000fac18000fac19c0000000000fac0c"),
+            element(244, "200020"),
+            element(127, "0000080000000000000010"),
+        ))
+
+        val security = requireNotNull(decodes.securityDetails)
+        assertTrue(security.rsnPresent)
+        assertEquals(1, security.rsnVersion)
+        assertEquals("gcmp_256", security.groupDataCipher)
+        assertEquals(listOf("gcmp_256"), security.pairwiseCiphersList)
+        assertEquals(listOf("sae_gdh", "ft_sae_gdh"), security.akmSuitesList)
+        assertEquals("00c0", security.rsnCapabilitiesHex)
+        assertTrue(security.pmfCapable)
+        assertTrue(security.pmfRequired)
+        assertEquals("bip_gmac_256", security.groupManagementCipher)
+        assertTrue(security.gcmp256)
+        assertTrue(security.saeGdh)
+        assertTrue(security.ftSaeGdh)
+        assertTrue(security.rsnxePresent)
+        assertTrue(security.rsnxeCapabilitiesList.contains("sae_h2e"))
+        assertTrue(security.rsnxeCapabilitiesList.contains("ssid_protection"))
+        assertTrue(security.extendedCapabilitiesPresent)
+        assertTrue(security.extendedCapabilitiesList.contains("bss_transition"))
+        assertTrue(security.extendedCapabilitiesList.contains("beacon_protection"))
+        assertTrue(security.beaconProtection)
+        assertTrue(security.wifi7PersonalReady)
+    }
+
+    private fun element(id: Int, bytesHex: String): WifiInformationElement {
+        return WifiInformationElement.newBuilder()
+            .setId(id)
+            .setByteCount(bytesHex.length / 2)
+            .setBytesHex(bytesHex)
+            .build()
+    }
+
     private fun extension(idExt: Int, bytesHex: String): WifiInformationElement {
         return WifiInformationElement.newBuilder()
             .setId(255)

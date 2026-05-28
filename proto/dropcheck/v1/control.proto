@@ -560,6 +560,7 @@ message WifiConnection {
   WifiHeMuEdcaParameterSet he_mu_edca_parameter_set = 38;
   WifiHeSpatialReuseParameterSet he_spatial_reuse_parameter_set = 39;
   WifiHe6GhzCapabilities he_6ghz_capabilities = 40;
+  WifiSecurityDetails security_details = 41;
 }
 
 message IpStatus {
@@ -659,6 +660,7 @@ message WifiScanResult {
   WifiHeMuEdcaParameterSet he_mu_edca_parameter_set = 32;
   WifiHeSpatialReuseParameterSet he_spatial_reuse_parameter_set = 33;
   WifiHe6GhzCapabilities he_6ghz_capabilities = 34;
+  WifiSecurityDetails security_details = 35;
 }
 
 message MloLinkInfo {
@@ -681,6 +683,32 @@ message WifiInformationElement {
   int32 id_ext = 2;
   uint32 byte_count = 3;
   string bytes_hex = 4;
+}
+
+message WifiSecurityDetails {
+  bool rsn_present = 1;
+  uint32 rsn_version = 2;
+  string group_data_cipher = 3;
+  repeated string pairwise_ciphers = 4;
+  repeated string akm_suites = 5;
+  uint32 rsn_capabilities = 6;
+  string rsn_capabilities_hex = 7;
+  bool pmf_capable = 8;
+  bool pmf_required = 9;
+  string group_management_cipher = 10;
+  bool gcmp_256 = 11;
+  bool sae_gdh = 12;
+  bool ft_sae_gdh = 13;
+  bool wifi7_personal_ready = 14;
+  bool rsnxe_present = 15;
+  repeated string rsnxe_capabilities = 16;
+  bool extended_capabilities_present = 17;
+  repeated string extended_capabilities = 18;
+  bool beacon_protection = 19;
+  repeated string warnings = 20;
+  string raw_rsn_hex = 21;
+  string raw_rsnxe_hex = 22;
+  string raw_extended_capabilities_hex = 23;
 }
 
 message WifiMcsNssSupport {
