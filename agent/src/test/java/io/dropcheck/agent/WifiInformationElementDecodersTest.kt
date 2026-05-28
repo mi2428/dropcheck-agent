@@ -2,6 +2,9 @@ package io.dropcheck.agent
 
 import io.dropcheck.agent.grpc.WifiInformationElement
 import io.dropcheck.agent.grpc.WifiConnection
+import io.dropcheck.agent.grpc.WifiHeCapabilities
+import io.dropcheck.agent.grpc.WifiHeMacCapabilities
+import io.dropcheck.agent.grpc.WifiHePhyCapabilities
 import io.dropcheck.agent.grpc.WifiScan
 import io.dropcheck.agent.grpc.WifiScanResult
 import io.dropcheck.agent.grpc.WifiStatus
@@ -138,12 +141,19 @@ class WifiInformationElementDecodersTest {
         assertTrue(rendered.contains("uora"))
         assertTrue(rendered.contains("spatial_reuse"))
 
+        val puncturingHe = WifiHeCapabilities.newBuilder()
+            .setMac(WifiHeMacCapabilities.newBuilder()
+                .setPuncturedSounding(true))
+            .setPhy(WifiHePhyCapabilities.newBuilder()
+                .addPreamblePuncturingRx("preamble_puncturing_rx_80mhz_second_20mhz"))
+            .build()
         val mloRendered = AgentWifiMloRenderer.render(
             WifiStatus.newBuilder()
                 .setConnection(WifiConnection.newBuilder()
                     .setSsid("Lab")
                     .setBssid("aa:bb:cc:dd:ee:ff")
                     .setWifiStandard("802.11be")
+                    .setHeCapabilities(puncturingHe)
                     .setHe6GhzCapabilities(he6Ghz)
                     .setEhtCapabilities(eht)
                     .setEhtOperation(ehtOperation)
@@ -155,6 +165,7 @@ class WifiInformationElementDecodersTest {
                     .setBssid("aa:bb:cc:dd:ee:ff")
                     .setWifiStandard("802.11be")
                     .setApMloLinkId(-1)
+                    .setHeCapabilities(puncturingHe)
                     .setHe6GhzCapabilities(he6Ghz)
                     .setEhtCapabilities(eht)
                     .setEhtOperation(ehtOperation)
@@ -164,6 +175,11 @@ class WifiInformationElementDecodersTest {
         assertTrue(mloRendered.contains("Connected EHT Details"))
         assertTrue(mloRendered.contains("Connected HE 6GHz Details"))
         assertTrue(mloRendered.contains("Scan HE 6GHz Details"))
+        assertTrue(mloRendered.contains("Connected EHT Puncturing"))
+        assertTrue(mloRendered.contains("Scan EHT Puncturing"))
+        assertTrue(mloRendered.contains("he_preamble_puncturing_rx=preamble_puncturing_rx_80mhz_second_20mhz"))
+        assertTrue(mloRendered.contains("he_punctured_sounding=true"))
+        assertTrue(mloRendered.contains("eht_disabled_subchannel_bitmap=0x000a punctured=1,3"))
         assertTrue(mloRendered.contains("EHT_W"))
         assertTrue(mloRendered.contains("eht_width=320MHz"))
         assertTrue(mloRendered.contains("Scan EHT Details"))

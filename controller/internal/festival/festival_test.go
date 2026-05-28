@@ -132,7 +132,7 @@ func TestRunBuildsSupportedCheckOperations(t *testing.T) {
 						AffiliatedMLOLinkID(2).
 						Exists(),
 				),
-			festival.WiFiMLO().
+			festival.WiFiEHT().
 				Expect(
 					mlo.Connected().Present(),
 					mlo.Connected().APMLD().Known(),
@@ -178,7 +178,7 @@ func TestRunBuildsSupportedCheckOperations(t *testing.T) {
 		},
 	}, festival.WithRunner(fake, control.AgentInfo{ID: "agent-1"}))
 
-	want := []string{"wifi.connect", "ip.status", "wifi.status", "wifi.scan.fresh", "wifi.mlo", "wifi.capabilities", "path-mtu", "traceroute", "http", "download"}
+	want := []string{"wifi.connect", "ip.status", "wifi.status", "wifi.scan.fresh", "wifi.eht", "wifi.capabilities", "path-mtu", "traceroute", "http", "download"}
 	if !reflect.DeepEqual(fake.operations, want) {
 		t.Fatalf("operations = %#v, want %#v", fake.operations, want)
 	}
@@ -651,7 +651,7 @@ func fakeResult(name string) *controlpb.CommandResult {
 				}},
 			}},
 		}}
-	case "wifi.mlo":
+	case "wifi.eht":
 		result.Payload = &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{
 			Status:       fakeResult("wifi.status").GetWifiStatus(),
 			Scan:         fakeResult("wifi.scan").GetWifiScan(),

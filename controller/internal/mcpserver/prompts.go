@@ -23,14 +23,14 @@ func registerPrompts(server *mcp.Server) {
 	}, connectivityPrompt)
 
 	server.AddPrompt(&mcp.Prompt{
-		Name:        "dropcheck_mlo_investigation",
-		Title:       "Dropcheck MLO Investigation",
-		Description: "Investigate Wi-Fi 7 MLO state using fresh scans, MLO diagnostics, and adb snapshots.",
+		Name:        "dropcheck_eht_investigation",
+		Title:       "Dropcheck EHT Investigation",
+		Description: "Investigate Wi-Fi 7 EHT state using fresh scans, EHT diagnostics, and adb snapshots.",
 		Arguments: []*mcp.PromptArgument{
 			{Name: "target", Description: "Agent target, serial, or default", Required: false},
 			{Name: "essid", Description: "ESSID/SSID to focus on", Required: false},
 		},
-	}, mloInvestigationPrompt)
+	}, ehtInvestigationPrompt)
 
 	server.AddPrompt(&mcp.Prompt{
 		Name:        "dropcheck_noc_smoke_check",
@@ -60,7 +60,7 @@ Start or inspect the session first, list agents if the target is ambiguous, then
 Report the failed_step when dropcheck_run fails, and include the key structured fields from wifi.status, ip.status, ping, dns, and http results. Do not echo passphrases.`, essid, target, pingHost, dnsName, httpURL))
 }
 
-func mloInvestigationPrompt(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+func ehtInvestigationPrompt(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	args := req.Params.Arguments
 	target := defaultPromptArg(args["target"], "default")
 	essid := strings.TrimSpace(args["essid"])
@@ -68,11 +68,11 @@ func mloInvestigationPrompt(_ context.Context, req *mcp.GetPromptRequest) (*mcp.
 	if essid != "" {
 		focus = fmt.Sprintf("ESSID %q", essid)
 	}
-	return promptText("Investigate Dropcheck Wi-Fi MLO state.",
-		fmt.Sprintf(`Use Dropcheck MCP tools to investigate MLO for %s on target %q.
+	return promptText("Investigate Dropcheck Wi-Fi EHT state.",
+		fmt.Sprintf(`Use Dropcheck MCP tools to investigate EHT and MLO state for %s on target %q.
 
 Recommended sequence:
-1. dropcheck_wifi_mlo with fresh=true and timeout_ms=10000.
+1. dropcheck_wifi_eht with fresh=true and timeout_ms=10000.
 2. dropcheck_wifi_scan with fresh=true, band="all", timeout_ms=10000.
 3. dropcheck_wifi_scan_detail for the ESSID or BSSID when a focus target is known.
 4. dropcheck_adb_diagnostics with kind="cmd-wifi-status"; use kind="dumpsys-wifi" only when raw framework state is needed.

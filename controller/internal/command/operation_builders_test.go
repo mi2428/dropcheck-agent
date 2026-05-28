@@ -24,10 +24,10 @@ func TestInspectionOperationBuilders(t *testing.T) {
 			check:     func(cmd *controlpb.RunCommand) bool { return cmd.GetGetWifiDiagnostics() != nil },
 		},
 		{
-			name:      "wifi mlo",
-			op:        WifiMLOOperation(),
-			wantName:  "wifi.mlo",
-			wantLabel: "wifi mlo",
+			name:      "wifi eht",
+			op:        WifiEHTOperation(),
+			wantName:  "wifi.eht",
+			wantLabel: "wifi eht",
 			check:     func(cmd *controlpb.RunCommand) bool { return cmd.GetGetWifiDiagnostics() != nil },
 		},
 		{
@@ -82,47 +82,47 @@ func TestInspectionOperationBuilders(t *testing.T) {
 			if !tt.check(cmd) {
 				t.Fatalf("unexpected command payload = %#v", cmd.GetCommand())
 			}
-			if tt.wantName == "wifi.mlo" && options.WifiRenderMode != WifiRenderModeMLO {
-				t.Fatalf("wifi mlo render mode = %q, want %q", options.WifiRenderMode, WifiRenderModeMLO)
+			if tt.wantName == "wifi.eht" && options.WifiRenderMode != WifiRenderModeEHT {
+				t.Fatalf("wifi eht render mode = %q, want %q", options.WifiRenderMode, WifiRenderModeEHT)
 			}
 		})
 	}
 }
 
 func TestWifiOperationBuildersCarryControllerContract(t *testing.T) {
-	mloFresh, err := WifiMLOOperationWithOptions(WifiMLOOptions{Fresh: true, Timeout: "9000"})
+	mloFresh, err := WifiEHTOperationWithOptions(WifiEHTOptions{Fresh: true, Timeout: "9000"})
 	if err != nil {
-		t.Fatalf("WifiMLOOperationWithOptions() error = %v", err)
+		t.Fatalf("WifiEHTOperationWithOptions() error = %v", err)
 	}
 	mloFreshCmd, mloFreshOptions, err := BuildRunCommand(mloFresh)
 	if err != nil {
-		t.Fatalf("mlo fresh command: %v", err)
+		t.Fatalf("eht fresh command: %v", err)
 	}
 	if mloFreshCmd.GetGetWifiDiagnostics() == nil ||
-		mloFreshCmd.GetLabel() != "wifi mlo fresh --timeout 9000" ||
-		mloFreshOptions.WifiRenderMode != WifiRenderModeMLO ||
-		!mloFreshOptions.WifiMLOFreshScan ||
-		mloFreshOptions.WifiMLOFreshScanTimeoutMs != 9000 {
-		t.Fatalf("mlo fresh command=%#v options=%#v", mloFreshCmd, mloFreshOptions)
+		mloFreshCmd.GetLabel() != "wifi eht fresh --timeout 9000" ||
+		mloFreshOptions.WifiRenderMode != WifiRenderModeEHT ||
+		!mloFreshOptions.WifiEHTFreshScan ||
+		mloFreshOptions.WifiEHTFreshScanTimeoutMs != 9000 {
+		t.Fatalf("eht fresh command=%#v options=%#v", mloFreshCmd, mloFreshOptions)
 	}
-	if _, err := WifiMLOOperationWithOptions(WifiMLOOptions{Fresh: true, Timeout: "0"}); err == nil || !strings.Contains(err.Error(), "positive integer") {
-		t.Fatalf("WifiMLOOperationWithOptions(timeout=0) error = %v", err)
+	if _, err := WifiEHTOperationWithOptions(WifiEHTOptions{Fresh: true, Timeout: "0"}); err == nil || !strings.Contains(err.Error(), "positive integer") {
+		t.Fatalf("WifiEHTOperationWithOptions(timeout=0) error = %v", err)
 	}
-	mloFilter, err := WifiMLOOperationWithOptions(WifiMLOOptions{Fresh: true, Timeout: "9000", SSID: "temp-life26"})
+	mloFilter, err := WifiEHTOperationWithOptions(WifiEHTOptions{Fresh: true, Timeout: "9000", SSID: "temp-life26"})
 	if err != nil {
-		t.Fatalf("WifiMLOOperationWithOptions(ssid) error = %v", err)
+		t.Fatalf("WifiEHTOperationWithOptions(ssid) error = %v", err)
 	}
 	mloFilterCmd, mloFilterOptions, err := BuildRunCommand(mloFilter)
 	if err != nil {
-		t.Fatalf("mlo filtered command: %v", err)
+		t.Fatalf("eht filtered command: %v", err)
 	}
-	if mloFilterCmd.GetLabel() != "wifi mlo fresh --timeout 9000 ssid temp-life26" ||
-		mloFilterOptions.WifiMLOSSID != "temp-life26" ||
-		!mloFilterOptions.WifiMLOFreshScan {
-		t.Fatalf("mlo filtered command=%#v options=%#v", mloFilterCmd, mloFilterOptions)
+	if mloFilterCmd.GetLabel() != "wifi eht fresh --timeout 9000 ssid temp-life26" ||
+		mloFilterOptions.WifiEHTSSID != "temp-life26" ||
+		!mloFilterOptions.WifiEHTFreshScan {
+		t.Fatalf("eht filtered command=%#v options=%#v", mloFilterCmd, mloFilterOptions)
 	}
-	if _, err := WifiMLOOperationWithOptions(WifiMLOOptions{SSID: "Lab", BSSID: "aa:bb:cc:dd:ee:ff"}); err == nil {
-		t.Fatalf("WifiMLOOperationWithOptions(ssid+bssid) error = nil")
+	if _, err := WifiEHTOperationWithOptions(WifiEHTOptions{SSID: "Lab", BSSID: "aa:bb:cc:dd:ee:ff"}); err == nil {
+		t.Fatalf("WifiEHTOperationWithOptions(ssid+bssid) error = nil")
 	}
 
 	forget := WifiForgetOperation("Lab")

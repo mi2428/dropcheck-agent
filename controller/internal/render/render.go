@@ -107,7 +107,7 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 	case *controlpb.CommandResult_Wget:
 		renderWget(&b, payload.Wget)
 	case *controlpb.CommandResult_WifiDiagnostics:
-		if options.WifiRenderMode == command.WifiRenderModeMLO {
+		if options.WifiRenderMode == command.WifiRenderModeEHT {
 			renderWifiMLO(&b, payload.WifiDiagnostics, options)
 		} else {
 			renderWifiDiagnostics(&b, payload.WifiDiagnostics)

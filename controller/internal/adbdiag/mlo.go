@@ -76,7 +76,7 @@ func writeKVSection(b *strings.Builder, title string, rows ...kvRow) {
 	_ = tw.Flush()
 }
 
-// CollectMLO runs a short adb-only MLO supplement for MLO-focused Wi-Fi diagnostics.
+// CollectMLO runs a short adb-only MLO supplement for EHT-focused Wi-Fi diagnostics.
 //
 // It intentionally returns an empty summary instead of an error; adb support is
 // diagnostic-only and must not make the normal agent Wi-Fi status fail.
@@ -112,7 +112,7 @@ func ParseMLOSummary(text string) MLOSummary {
 	return summary
 }
 
-// RenderMLOSummary renders adb MLO data for inclusion in MLO-focused Wi-Fi diagnostics text.
+// RenderMLOSummary renders adb MLO data for inclusion in EHT-focused Wi-Fi diagnostics text.
 func RenderMLOSummary(summary MLOSummary) string {
 	if summary.Empty() {
 		return ""

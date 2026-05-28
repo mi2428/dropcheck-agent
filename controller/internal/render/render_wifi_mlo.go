@@ -33,7 +33,7 @@ func renderWifiMLO(b *strings.Builder, diagnostics *controlpb.WifiDiagnostics, o
 	if diagnostics == nil {
 		return
 	}
-	filter := wifiMLOFilter{ssid: options.WifiMLOSSID, bssid: options.WifiMLOBSSID}
+	filter := wifiMLOFilter{ssid: options.WifiEHTSSID, bssid: options.WifiEHTBSSID}
 	status := diagnostics.GetStatus()
 	current := filter.connection(wifiMLOCurrentConnection(status))
 	scan := diagnostics.GetScan()
@@ -47,6 +47,7 @@ func renderWifiMLO(b *strings.Builder, diagnostics *controlpb.WifiDiagnostics, o
 	renderWifiMLOConnectedHE6GHzDetails(b, current)
 	renderWifiMLOConnectedEHT(b, current)
 	renderWifiMLOConnectedEHTDetails(b, current)
+	renderWifiMLOConnectedEHTPuncturing(b, current)
 	renderWifiMLONetworks(b, diagnostics.GetNetworks(), filter)
 	renderWifiMLOScanSummary(b, scan, candidates, filter, len(scanResults))
 	renderWifiMLONearbyAPs(b, groups, current)
@@ -302,7 +303,7 @@ func renderWifiMLOScanSummary(b *strings.Builder, scan *controlpb.WifiScan, cand
 		kv("source", wifiMLOScanSource(fields)),
 		kv("results", wifiMLOFieldOrCount(fields, "scan_result_count", results)),
 		kv("total", wifiMLOFieldOrCount(fields, "scan_result_total_count", results)),
-		kv("mlo_candidates", len(candidates)),
+		kv("eht_candidates", len(candidates)),
 		kv("errors", errors),
 	}
 	if filter.active() {
@@ -327,7 +328,7 @@ func renderWifiMLOScanSummary(b *strings.Builder, scan *controlpb.WifiScan, cand
 			rows = append(rows, kv(key, value))
 		}
 	}
-	writeKVSection(b, "MLO Scan", rows...)
+	writeKVSection(b, "EHT Scan", rows...)
 }
 
 func wifiMLOScanSource(fields map[string]string) string {
@@ -340,9 +341,9 @@ func wifiMLOScanSource(fields map[string]string) string {
 }
 
 func renderWifiMLONearbyAPs(b *strings.Builder, groups []wifiMLOGroup, current *controlpb.WifiConnection) {
-	writeSection(b, "Nearby MLO APs")
+	writeSection(b, "Nearby EHT APs")
 	if len(groups) == 0 {
-		b.WriteString("  no MLO-capable scan results\n")
+		b.WriteString("  no EHT-capable scan results\n")
 		return
 	}
 	columns := []wifiMLOTableColumn{
@@ -373,6 +374,7 @@ func renderWifiMLONearbyAPs(b *strings.Builder, groups []wifiMLOGroup, current *
 	renderWifiMLOMultipleBSSIDDetails(b, groups)
 	renderWifiMLOScanHE6GHzDetails(b, groups)
 	renderWifiMLOScanEHT(b, groups)
+	renderWifiMLOScanEHTPuncturing(b, groups)
 	renderWifiMLOScanEHTDetails(b, groups)
 }
 
@@ -455,6 +457,47 @@ func renderWifiMLOScanEHT(b *strings.Builder, groups []wifiMLOGroup) {
 	for _, line := range lines {
 		fmt.Fprintf(b, "  %s\n", line)
 	}
+}
+
+func renderWifiMLOConnectedEHTPuncturing(b *strings.Builder, current *controlpb.WifiConnection) {
+	if current == nil || !wifiMLOHasEHTPuncturingContext(current.GetHeCapabilities(), current.GetEhtOperation()) {
+		return
+	}
+	writeSection(b, "Connected EHT Puncturing")
+	renderWifiMLOEHTPuncturing(b, "connection", current.GetHeCapabilities(), current.GetEhtOperation())
+}
+
+func renderWifiMLOScanEHTPuncturing(b *strings.Builder, groups []wifiMLOGroup) {
+	results := []*controlpb.WifiScanResult{}
+	for _, group := range groups {
+		for _, result := range group.results {
+			if wifiMLOHasEHTPuncturingContext(result.GetHeCapabilities(), result.GetEhtOperation()) {
+				results = append(results, result)
+			}
+		}
+	}
+	if len(results) == 0 {
+		return
+	}
+	writeSection(b, "Scan EHT Puncturing")
+	for i, result := range results {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		label := fmt.Sprintf("ap ssid=%s bssid=%s", empty(result.GetSsid(), "<hidden>"), empty(result.GetBssid(), "<unknown>"))
+		renderWifiMLOEHTPuncturing(b, label, result.GetHeCapabilities(), result.GetEhtOperation())
+	}
+}
+
+func renderWifiMLOEHTPuncturing(b *strings.Builder, label string, he *controlpb.WifiHeCapabilities, operation *controlpb.WifiEhtOperation) {
+	fmt.Fprintf(b, "  %s\n", label)
+	for _, line := range wifiMLOEHTPuncturingSummaryLines(he, operation) {
+		fmt.Fprintf(b, "    %s\n", line)
+	}
+}
+
+func wifiMLOHasEHTPuncturingContext(he *controlpb.WifiHeCapabilities, operation *controlpb.WifiEhtOperation) bool {
+	return he != nil || operation != nil
 }
 
 func renderWifiMLOScanEHTDetails(b *strings.Builder, groups []wifiMLOGroup) {
@@ -632,6 +675,43 @@ func wifiMLOEHTOperationSummaryLines(value *controlpb.WifiEhtOperation) []string
 	return lines
 }
 
+func wifiMLOEHTPuncturingSummaryLines(he *controlpb.WifiHeCapabilities, operation *controlpb.WifiEhtOperation) []string {
+	lines := []string{
+		"he_preamble_puncturing_rx=" + wifiMLOHEPreamblePuncturingRX(he),
+		"he_punctured_sounding=" + wifiMLOHEPuncturedSounding(he),
+		"eht_disabled_subchannel_bitmap=" + wifiMLOEHTDisabledSubchannelBitmap(operation),
+	}
+	return lines
+}
+
+func wifiMLOHEPreamblePuncturingRX(he *controlpb.WifiHeCapabilities) string {
+	if he == nil || he.GetPhy() == nil {
+		return "<unknown>"
+	}
+	return wifiMLOJoinStrings(he.GetPhy().GetPreamblePuncturingRx(), "<none>")
+}
+
+func wifiMLOHEPuncturedSounding(he *controlpb.WifiHeCapabilities) string {
+	if he == nil || he.GetMac() == nil {
+		return "<unknown>"
+	}
+	return fmt.Sprint(he.GetMac().GetPuncturedSounding())
+}
+
+func wifiMLOEHTDisabledSubchannelBitmap(operation *controlpb.WifiEhtOperation) string {
+	if operation == nil {
+		return "<unknown>"
+	}
+	if !operation.GetDisabledSubchannelBitmapPresent() && operation.GetDisabledSubchannelBitmap() == 0 {
+		return "absent"
+	}
+	bitmap := operation.GetDisabledSubchannelBitmapHex()
+	if bitmap == "" {
+		bitmap = fmt.Sprintf("%04x", operation.GetDisabledSubchannelBitmap())
+	}
+	return fmt.Sprintf("0x%s punctured=%s", bitmap, wifiMLOJoinUint32s(operation.GetDisabledSubchannelIndices(), "<none>"))
+}
+
 func wifiMLOWriteMCSNSSLines(b *strings.Builder, label string, values []*controlpb.WifiMcsNssSupport) {
 	type key struct {
 		standard  string
@@ -669,7 +749,7 @@ func renderWifiMLOScanLinks(b *strings.Builder, groups []wifiMLOGroup, current *
 	if len(groups) == 0 {
 		return
 	}
-	writeSection(b, "MLO Scan Links")
+	writeSection(b, "EHT Scan Links")
 	first := true
 	for _, group := range groups {
 		for _, result := range group.results {
@@ -787,7 +867,7 @@ func renderWifiMLODiagnostics(b *strings.Builder, status *controlpb.WifiStatus, 
 		warnings = append(warnings, "connected_mlo_present=false")
 	}
 	if len(candidates) == 0 {
-		warnings = append(warnings, "mlo_scan_results=0")
+		warnings = append(warnings, "eht_scan_results=0")
 	}
 	if current != nil && current.GetApMldMacAddress() != "" {
 		seen := false

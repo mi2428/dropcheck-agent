@@ -165,52 +165,52 @@ func (c WiFiStatusCheck) build() (step, error) {
 	return c.step(command.WifiStatusOperation()), nil
 }
 
-// WiFiMLOCheck configures an MLO-focused Wi-Fi diagnostics check.
-type WiFiMLOCheck struct {
+// WiFiEHTCheck configures an EHT-focused Wi-Fi diagnostics check.
+type WiFiEHTCheck struct {
 	checkBase
 }
 
-// WiFiMLO starts an MLO-focused Wi-Fi diagnostics check.
+// WiFiEHT starts an EHT-focused Wi-Fi diagnostics check.
 //
-// WiFiMLO evaluates the same diagnostic bundle as `show wifi mlo`: connected
-// MLO state, cached scan MLO candidates, device capability signals, and the
+// WiFiEHT evaluates the same diagnostic bundle as `show wifi eht`: connected
+// EHT state, cached scan MLO candidates, device capability signals, and the
 // relation between the connected AP MLD and visible scan results.
-func WiFiMLO() WiFiMLOCheck {
-	return WiFiMLOCheck{checkBase: checkBase{name: "wifi mlo"}}
+func WiFiEHT() WiFiEHTCheck {
+	return WiFiEHTCheck{checkBase: checkBase{name: "wifi eht"}}
 }
 
-// Expect attaches expectations to the Wi-Fi MLO check.
-func (c WiFiMLOCheck) Expect(expectations ...Expectation) WiFiMLOCheck {
+// Expect attaches expectations to the Wi-Fi EHT check.
+func (c WiFiEHTCheck) Expect(expectations ...Expectation) WiFiEHTCheck {
 	c.checkBase = c.withExpectations(expectations)
 	return c
 }
 
-// Repeat runs the Wi-Fi MLO check count times.
-func (c WiFiMLOCheck) Repeat(count uint32) WiFiMLOCheck {
+// Repeat runs the Wi-Fi EHT check count times.
+func (c WiFiEHTCheck) Repeat(count uint32) WiFiEHTCheck {
 	c.checkBase = c.withRepeat(count)
 	return c
 }
 
-// Retry reruns a failed Wi-Fi MLO check up to attempts times.
-func (c WiFiMLOCheck) Retry(attempts uint32, delay time.Duration) WiFiMLOCheck {
+// Retry reruns a failed Wi-Fi EHT check up to attempts times.
+func (c WiFiEHTCheck) Retry(attempts uint32, delay time.Duration) WiFiEHTCheck {
 	c.checkBase = c.withRetry(attempts, delay)
 	return c
 }
 
-// StableFor requires the Wi-Fi MLO check to keep passing for duration.
-func (c WiFiMLOCheck) StableFor(duration time.Duration) WiFiMLOCheck {
+// StableFor requires the Wi-Fi EHT check to keep passing for duration.
+func (c WiFiEHTCheck) StableFor(duration time.Duration) WiFiEHTCheck {
 	c.checkBase = c.withStableFor(duration)
 	return c
 }
 
 // StableInterval sets the sampling interval used by StableFor.
-func (c WiFiMLOCheck) StableInterval(interval time.Duration) WiFiMLOCheck {
+func (c WiFiEHTCheck) StableInterval(interval time.Duration) WiFiEHTCheck {
 	c.checkBase = c.withStableInterval(interval)
 	return c
 }
 
-func (c WiFiMLOCheck) build() (step, error) {
-	return c.step(command.WifiMLOOperation()), nil
+func (c WiFiEHTCheck) build() (step, error) {
+	return c.step(command.WifiEHTOperation()), nil
 }
 
 // WiFiScanCheck configures a Wi-Fi scan check.

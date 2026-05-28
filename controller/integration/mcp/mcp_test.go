@@ -312,7 +312,7 @@ func TestToolsListIncludesDropcheckOperations(t *testing.T) {
 		"dropcheck_wifi_cycle",
 		"dropcheck_wifi_disconnect",
 		"dropcheck_wifi_forget",
-		"dropcheck_wifi_mlo",
+		"dropcheck_wifi_eht",
 		"dropcheck_wifi_monitor",
 		"dropcheck_ping",
 		"dropcheck_adb_diagnostics",
@@ -493,14 +493,14 @@ func TestPromptsDescribeDropcheckWorkflows(t *testing.T) {
 	for _, prompt := range prompts.Prompts {
 		names = append(names, prompt.Name)
 	}
-	for _, name := range []string{"dropcheck_connectivity_check", "dropcheck_mlo_investigation", "dropcheck_noc_smoke_check"} {
+	for _, name := range []string{"dropcheck_connectivity_check", "dropcheck_eht_investigation", "dropcheck_noc_smoke_check"} {
 		if !slices.Contains(names, name) {
 			t.Fatalf("prompt %s not listed; got %v", name, names)
 		}
 	}
 
 	prompt, err := session.GetPrompt(context.Background(), &mcp.GetPromptParams{
-		Name: "dropcheck_mlo_investigation",
+		Name: "dropcheck_eht_investigation",
 		Arguments: map[string]string{
 			"target": "serial-1",
 			"essid":  "Lab",
@@ -513,7 +513,7 @@ func TestPromptsDescribeDropcheckWorkflows(t *testing.T) {
 		t.Fatalf("prompt messages=%d, want 1", len(prompt.Messages))
 	}
 	text := prompt.Messages[0].Content.(*mcp.TextContent).Text
-	for _, want := range []string{"dropcheck_wifi_mlo", "fresh=true", "dropcheck_adb_diagnostics", "Lab"} {
+	for _, want := range []string{"dropcheck_wifi_eht", "fresh=true", "dropcheck_adb_diagnostics", "Lab"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("prompt text missing %q: %s", want, text)
 		}
@@ -525,15 +525,15 @@ func TestFirstClassWifiToolsCoverShellOperations(t *testing.T) {
 	session, cleanup := connectMCP(t, backend)
 	defer cleanup()
 
-	if result, structured := callTool(t, session, "dropcheck_wifi_mlo", map[string]any{"target": "serial-1"}); result.IsError {
-		t.Fatalf("wifi mlo IsError=true structured=%v", structured)
+	if result, structured := callTool(t, session, "dropcheck_wifi_eht", map[string]any{"target": "serial-1"}); result.IsError {
+		t.Fatalf("wifi eht IsError=true structured=%v", structured)
 	}
-	if result, structured := callTool(t, session, "dropcheck_wifi_mlo", map[string]any{
+	if result, structured := callTool(t, session, "dropcheck_wifi_eht", map[string]any{
 		"target":     "serial-1",
 		"fresh":      true,
 		"timeout_ms": float64(9000),
 	}); result.IsError {
-		t.Fatalf("wifi mlo fresh IsError=true structured=%v", structured)
+		t.Fatalf("wifi eht fresh IsError=true structured=%v", structured)
 	}
 	if result, structured := callTool(t, session, "dropcheck_wifi_monitor", map[string]any{
 		"target":      "serial-1",
@@ -582,11 +582,11 @@ func TestFirstClassWifiToolsCoverShellOperations(t *testing.T) {
 	if len(backend.runs) != 6 {
 		t.Fatalf("runs=%d, want 6", len(backend.runs))
 	}
-	if backend.runs[0].op.Name != "wifi.mlo" {
-		t.Fatalf("mlo operation=%s", backend.runs[0].op.Name)
+	if backend.runs[0].op.Name != "wifi.eht" {
+		t.Fatalf("wifi eht operation=%s", backend.runs[0].op.Name)
 	}
-	if backend.runs[1].op.Name != "wifi.mlo" || !backend.runs[1].op.Options.WifiMLOFreshScan || backend.runs[1].op.Options.WifiMLOFreshScanTimeoutMs != 9000 {
-		t.Fatalf("mlo fresh operation=%s options=%#v", backend.runs[1].op.Name, backend.runs[1].op.Options)
+	if backend.runs[1].op.Name != "wifi.eht" || !backend.runs[1].op.Options.WifiEHTFreshScan || backend.runs[1].op.Options.WifiEHTFreshScanTimeoutMs != 9000 {
+		t.Fatalf("wifi eht fresh operation=%s options=%#v", backend.runs[1].op.Name, backend.runs[1].op.Options)
 	}
 	monitor := backend.runs[2].op.Command.GetMonitorWifi()
 	if monitor == nil || monitor.GetDurationMs() != 15000 || monitor.GetIntervalMs() != 500 {

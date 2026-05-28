@@ -5,6 +5,7 @@ import io.dropcheck.agent.grpc.MloLinkInfo
 import io.dropcheck.agent.grpc.WifiEhtCapabilities
 import io.dropcheck.agent.grpc.WifiEhtOperation
 import io.dropcheck.agent.grpc.WifiHe6GhzCapabilities
+import io.dropcheck.agent.grpc.WifiHeCapabilities
 import io.dropcheck.agent.grpc.WifiMcsNssSupport
 import io.dropcheck.agent.grpc.WifiCapabilities
 import io.dropcheck.agent.grpc.WifiConnection
@@ -25,7 +26,7 @@ internal data class AgentWifiMloContext(
     val scanCommandMessage: String = "",
 )
 
-/** MLO-focused renderer for the on-device shell. */
+/** EHT-focused renderer for the on-device shell. */
 internal object AgentWifiMloRenderer {
     fun render(status: WifiStatus, scan: WifiScan, context: AgentWifiMloContext = AgentWifiMloContext()): List<String> {
         val out = mutableListOf<String>()
@@ -41,6 +42,7 @@ internal object AgentWifiMloRenderer {
         renderConnectedHe6GhzDetails(out, current)
         renderConnectedEhtMultiLink(out, current)
         renderConnectedEhtDetails(out, current)
+        renderConnectedEhtPuncturing(out, current)
         renderScanSummary(out, scan, candidates, scanResults.size, filter, context)
         renderNearbyMlo(out, groups, current)
         renderWifi7DeviceReadiness(out, context)
@@ -92,12 +94,12 @@ internal object AgentWifiMloRenderer {
         context: AgentWifiMloContext,
     ) {
         val fields = scan.fieldsList.associate { it.key to it.value }
-        section(out, "MLO Scan")
+        section(out, "EHT Scan")
         val rows = mutableListOf(
             "source" to context.scanSource,
             "results" to fields["scan_result_count"].orEmpty().ifBlank { scan.resultsCount.toString() },
             "total" to fields["scan_result_total_count"].orEmpty().ifBlank { scan.resultsCount.toString() },
-            "mlo_candidates" to candidates.size.toString(),
+            "eht_candidates" to candidates.size.toString(),
             "errors" to scan.errorsCount.toString(),
         )
         if (filter.active) {
@@ -122,9 +124,9 @@ internal object AgentWifiMloRenderer {
     }
 
     private fun renderNearbyMlo(out: MutableList<String>, groups: List<MloGroup>, current: WifiConnection?) {
-        section(out, "Nearby MLO APs")
+        section(out, "Nearby EHT APs")
         if (groups.isEmpty()) {
-            out += "  no MLO-capable scan results"
+            out += "  no EHT-capable scan results"
             return
         }
         tableWithColumns(out,
@@ -155,6 +157,7 @@ internal object AgentWifiMloRenderer {
         renderScanMultipleBssidDetails(out, groups.flatMap { it.results })
         renderScanHe6GhzDetails(out, groups.flatMap { it.results })
         renderScanEhtMultiLink(out, groups.flatMap { it.results })
+        renderScanEhtPuncturing(out, groups.flatMap { it.results })
         renderScanEhtDetails(out, groups.flatMap { it.results })
     }
 
@@ -238,6 +241,43 @@ internal object AgentWifiMloRenderer {
         if (lines.isEmpty()) return
         section(out, "Scan EHT Multi-Link Elements")
         out += lines.map { "  $it" }
+    }
+
+    private fun renderConnectedEhtPuncturing(out: MutableList<String>, conn: WifiConnection?) {
+        if (conn == null || !conn.hasEhtPuncturingContext()) return
+        section(out, "Connected EHT Puncturing")
+        renderEhtPuncturing(
+            out,
+            "connection",
+            conn.heCapabilities.takeIf { conn.hasHeCapabilities() },
+            conn.ehtOperation.takeIf { conn.hasEhtOperation() },
+        )
+    }
+
+    private fun renderScanEhtPuncturing(out: MutableList<String>, results: List<WifiScanResult>) {
+        val puncturingResults = results.filter { it.hasEhtPuncturingContext() }
+        if (puncturingResults.isEmpty()) return
+        section(out, "Scan EHT Puncturing")
+        puncturingResults.forEachIndexed { index, result ->
+            if (index > 0) out += ""
+            val label = "ap ssid=${empty(result.ssid, "<hidden>")} bssid=${empty(result.bssid, "<unknown>")}"
+            renderEhtPuncturing(
+                out,
+                label,
+                result.heCapabilities.takeIf { result.hasHeCapabilities() },
+                result.ehtOperation.takeIf { result.hasEhtOperation() },
+            )
+        }
+    }
+
+    private fun renderEhtPuncturing(
+        out: MutableList<String>,
+        label: String,
+        he: WifiHeCapabilities?,
+        operation: WifiEhtOperation?,
+    ) {
+        out += "  $label"
+        ehtPuncturingSummaryLines(he, operation).forEach { out += "    $it" }
     }
 
     private fun renderScanEhtDetails(out: MutableList<String>, results: List<WifiScanResult>) {
@@ -337,6 +377,33 @@ internal object AgentWifiMloRenderer {
         }
     }
 
+    private fun ehtPuncturingSummaryLines(he: WifiHeCapabilities?, operation: WifiEhtOperation?): List<String> {
+        return listOf(
+            "he_preamble_puncturing_rx=${hePreamblePuncturingRx(he)}",
+            "he_punctured_sounding=${hePuncturedSounding(he)}",
+            "eht_disabled_subchannel_bitmap=${ehtDisabledSubchannelBitmap(operation)}",
+        )
+    }
+
+    private fun hePreamblePuncturingRx(he: WifiHeCapabilities?): String {
+        if (he == null || !he.hasPhy()) return "<unknown>"
+        return joined(he.phy.preamblePuncturingRxList, "<none>")
+    }
+
+    private fun hePuncturedSounding(he: WifiHeCapabilities?): String {
+        if (he == null || !he.hasMac()) return "<unknown>"
+        return he.mac.puncturedSounding.toString()
+    }
+
+    private fun ehtDisabledSubchannelBitmap(operation: WifiEhtOperation?): String {
+        if (operation == null) return "<unknown>"
+        if (!operation.disabledSubchannelBitmapPresent && operation.disabledSubchannelBitmap == 0) return "absent"
+        val bitmap = operation.disabledSubchannelBitmapHex.ifBlank {
+            operation.disabledSubchannelBitmap.toString(16).padStart(4, '0')
+        }
+        return "0x$bitmap punctured=${joined(operation.disabledSubchannelIndicesList.map { it.toString() })}"
+    }
+
     private fun mcsNssLines(label: String, values: List<WifiMcsNssSupport>): List<String> {
         return values
             .groupBy { Triple(it.bandwidth, it.mcsRange, it.standard) }
@@ -351,7 +418,7 @@ internal object AgentWifiMloRenderer {
 
     private fun renderScanLinks(out: MutableList<String>, groups: List<MloGroup>, current: WifiConnection?) {
         if (groups.isEmpty()) return
-        section(out, "MLO Scan Links")
+        section(out, "EHT Scan Links")
         groups.forEach { group ->
             group.results.forEach { result ->
                 renderScanLinkBlock(out, group, result, current)
@@ -396,7 +463,7 @@ internal object AgentWifiMloRenderer {
     }
 
     private fun blockGap(out: MutableList<String>) {
-        if (out.isNotEmpty() && out.last().isNotBlank() && out.last() != "MLO Scan Links") {
+        if (out.isNotEmpty() && out.last().isNotBlank() && out.last() != "EHT Scan Links") {
             out += ""
         }
     }
@@ -470,7 +537,7 @@ internal object AgentWifiMloRenderer {
             warnings += "connected_mlo_present=false"
         }
         if (candidates.isEmpty()) {
-            warnings += "mlo_scan_results=0"
+            warnings += "eht_scan_results=0"
         }
         if (current != null && current.apMldMacAddress.isNotBlank() && candidates.none { sameMld(current, it) }) {
             warnings += "connected_ap_mld_not_seen_in_scan"
@@ -695,6 +762,12 @@ internal object AgentWifiMloRenderer {
         if (operation.disabledSubchannelIndicesCount == 0) return "none"
         return operation.disabledSubchannelIndicesList.joinToString(",")
     }
+
+    private fun WifiConnection.hasEhtPuncturingContext(): Boolean =
+        hasHeCapabilities() || hasEhtOperation()
+
+    private fun WifiScanResult.hasEhtPuncturingContext(): Boolean =
+        hasHeCapabilities() || hasEhtOperation()
 
     private fun section(out: MutableList<String>, title: String) {
         if (out.isNotEmpty() && out.last().isNotBlank()) out += ""

@@ -348,11 +348,11 @@ E2E-346	CLI standalone run config ping	cli	dropcheck configure set standalone fe
 E2E-347	CLI standalone run config enable	cli	dropcheck configure set standalone festa cli-table enabled	ok	CLI enables the standalone run festa.
 E2E-348	CLI standalone run once save	cli	dropcheck request standalone run once --festa cli-table --save	ok	CLI standalone run once saves an archive and prints its run id.
 E2E-349	CLI standalone run detail	cli	dropcheck show standalone run <run-id>	ok	CLI standalone run detail fetches the saved archive by run id.
-E2E-350	Shell Wi-Fi MLO	shell	show wifi mlo	ok_or_clear	MLO-focused Wi-Fi diagnostics render without dispatch error.
-E2E-351	Shell Wi-Fi MLO fresh	shell	show wifi mlo fresh timeout 12000	ok_or_clear	MLO-focused Wi-Fi diagnostics can trigger a fresh scan.
-E2E-352	Parser Wi-Fi MLO fresh shorthand	shell-parser	show wifi mlo fresh 9000	ok	Wi-Fi MLO fresh timeout shorthand parses.
-E2E-353	Parser Wi-Fi MLO fresh duplicate timeout	shell-parser	show wifi mlo fresh timeout 100 timeout 200	error	Duplicate Wi-Fi MLO fresh timeout is rejected.
-E2E-354	CLI Wi-Fi MLO	cli	dropcheck show wifi mlo	ok_or_clear	MLO-focused Wi-Fi diagnostics render from the CLI.
+E2E-350	Shell Wi-Fi EHT	shell	show wifi eht	ok_or_clear	EHT-focused Wi-Fi diagnostics render without dispatch error.
+E2E-351	Shell Wi-Fi EHT fresh	shell	show wifi eht fresh timeout 12000	ok_or_clear	EHT-focused Wi-Fi diagnostics can trigger a fresh scan.
+E2E-352	Parser Wi-Fi EHT fresh shorthand	shell-parser	show wifi eht fresh 9000	ok	Wi-Fi EHT fresh timeout shorthand parses.
+E2E-353	Parser Wi-Fi EHT fresh duplicate timeout	shell-parser	show wifi eht fresh timeout 100 timeout 200	error	Duplicate Wi-Fi EHT fresh timeout is rejected.
+E2E-354	CLI Wi-Fi EHT	cli	dropcheck show wifi eht	ok_or_clear	EHT-focused Wi-Fi diagnostics render from the CLI.
 E2E-355	Shell config display set	shell	show config | display set	ok_or_clear	Config display set renders standalone set commands for copy-paste.
 E2E-356	Shell config display set match standalone	shell	show config | display set | match standalone	ok_or_clear	Display set output can be filtered with match.
 E2E-357	Parser pipe display set	shell-parser	show config | display set	ok	Config display set pipeline parses.

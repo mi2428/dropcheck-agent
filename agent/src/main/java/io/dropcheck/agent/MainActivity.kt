@@ -748,8 +748,8 @@ class MainActivity : Activity() {
                     ShellCommandResult(ok = false, lines = listOf("show wifi status failed: $message"))
                 }
             }
-            is AgentShellCommand.ShowWifiMlo -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
-                runWifiMloCommand(command)
+            is AgentShellCommand.ShowWifiEht -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
+                runWifiEhtCommand(command)
             }
             is AgentShellCommand.Ping -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
                 runPingCommand(command)
@@ -816,7 +816,7 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun runWifiMloCommand(command: AgentShellCommand.ShowWifiMlo): ShellCommandResult {
+    private fun runWifiEhtCommand(command: AgentShellCommand.ShowWifiEht): ShellCommandResult {
         val executor = CommandExecutor(applicationContext, agentShellLogger())
         val statusResult = executor.execute(
             RunCommand.newBuilder()
@@ -825,7 +825,7 @@ class MainActivity : Activity() {
         )
         if (!statusResult.hasWifiStatus()) {
             val message = statusResult.message.ifBlank { statusResult.status.name }
-            return ShellCommandResult(ok = false, lines = listOf("show wifi mlo failed: status unavailable: $message"))
+            return ShellCommandResult(ok = false, lines = listOf("show wifi eht failed: status unavailable: $message"))
         }
 
         val scanCommand = if (command.fresh) {
@@ -845,7 +845,7 @@ class MainActivity : Activity() {
         val scanResult = executor.execute(scanCommand)
         if (!scanResult.hasWifiScan()) {
             val message = scanResult.message.ifBlank { scanResult.status.name }
-            return ShellCommandResult(ok = false, lines = listOf("show wifi mlo failed: scan unavailable: $message"))
+            return ShellCommandResult(ok = false, lines = listOf("show wifi eht failed: scan unavailable: $message"))
         }
 
         val capabilitiesResult = executor.execute(
@@ -1019,10 +1019,10 @@ class MainActivity : Activity() {
                 "  ping HOST [count N] [size BYTES] [timeout MS]",
                 "  show use",
                 "  show version",
-                "  show wifi mlo",
-                "  show wifi mlo ssid SSID",
-                "  show wifi mlo bssid BSSID",
-                "  show wifi mlo fresh [timeout MS]",
+                "  show wifi eht",
+                "  show wifi eht ssid SSID",
+                "  show wifi eht bssid BSSID",
+                "  show wifi eht fresh [timeout MS]",
                 "  show wifi status",
                 "  traceroute HOST [max-hops N] [size BYTES] [timeout MS]",
                 "  use NAME",
@@ -1043,13 +1043,13 @@ class MainActivity : Activity() {
                 "    size is the ICMP payload size in bytes.",
             )
             "show" -> listOf(
-                "show: show (version|use|wifi status|wifi mlo)",
+                "show: show (version|use|wifi status|wifi eht)",
                 "    show use displays the Wi-Fi use override state and live targets.",
                 "    show version displays the app version embedded at build time.",
                 "    show wifi status displays local Wi-Fi and IP state.",
-                "    show wifi mlo displays connected and nearby MLO state.",
-                "    show wifi mlo ssid/bssid filters scan and current MLO output.",
-                "    show wifi mlo fresh requests a scan before rendering MLO state.",
+                "    show wifi eht displays connected and nearby EHT state.",
+                "    show wifi eht ssid/bssid filters scan and current EHT output.",
+                "    show wifi eht fresh requests a scan before rendering EHT state.",
             )
             "traceroute" -> listOf(
                 "traceroute: traceroute HOST [max-hops N] [size BYTES] [timeout MS]",

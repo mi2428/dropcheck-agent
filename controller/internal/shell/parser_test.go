@@ -81,9 +81,9 @@ func TestParseLineAgentCommandSurface(t *testing.T) {
 			},
 		},
 		{
-			name:      "show wifi mlo",
-			line:      "show wifi mlo",
-			operation: "wifi.mlo",
+			name:      "show wifi eht",
+			line:      "show wifi eht",
+			operation: "wifi.eht",
 			check: func(t *testing.T, cmd *controlpb.RunCommand) {
 				t.Helper()
 				if cmd.GetGetWifiDiagnostics() == nil {
@@ -92,35 +92,35 @@ func TestParseLineAgentCommandSurface(t *testing.T) {
 			},
 		},
 		{
-			name:      "show wifi mlo fresh",
-			line:      "show wifi mlo fresh timeout 9000",
-			operation: "wifi.mlo",
+			name:      "show wifi eht fresh",
+			line:      "show wifi eht fresh timeout 9000",
+			operation: "wifi.eht",
 			check: func(t *testing.T, cmd *controlpb.RunCommand) {
 				t.Helper()
-				if cmd.GetGetWifiDiagnostics() == nil || cmd.GetLabel() != "wifi mlo fresh --timeout 9000" {
-					t.Fatalf("wifi mlo fresh command = %#v", cmd)
+				if cmd.GetGetWifiDiagnostics() == nil || cmd.GetLabel() != "wifi eht fresh --timeout 9000" {
+					t.Fatalf("wifi eht fresh command = %#v", cmd)
 				}
 			},
 		},
 		{
-			name:      "show wifi mlo ssid",
-			line:      "show wifi mlo ssid temp-life26",
-			operation: "wifi.mlo",
+			name:      "show wifi eht ssid",
+			line:      "show wifi eht ssid temp-life26",
+			operation: "wifi.eht",
 			check: func(t *testing.T, cmd *controlpb.RunCommand) {
 				t.Helper()
-				if cmd.GetGetWifiDiagnostics() == nil || cmd.GetLabel() != "wifi mlo ssid temp-life26" {
-					t.Fatalf("wifi mlo ssid command = %#v", cmd)
+				if cmd.GetGetWifiDiagnostics() == nil || cmd.GetLabel() != "wifi eht ssid temp-life26" {
+					t.Fatalf("wifi eht ssid command = %#v", cmd)
 				}
 			},
 		},
 		{
-			name:      "show wifi mlo bssid",
-			line:      "show wifi mlo bssid aa:bb:cc:dd:ee:ff",
-			operation: "wifi.mlo",
+			name:      "show wifi eht bssid",
+			line:      "show wifi eht bssid aa:bb:cc:dd:ee:ff",
+			operation: "wifi.eht",
 			check: func(t *testing.T, cmd *controlpb.RunCommand) {
 				t.Helper()
-				if cmd.GetGetWifiDiagnostics() == nil || cmd.GetLabel() != "wifi mlo bssid aa:bb:cc:dd:ee:ff" {
-					t.Fatalf("wifi mlo bssid command = %#v", cmd)
+				if cmd.GetGetWifiDiagnostics() == nil || cmd.GetLabel() != "wifi eht bssid aa:bb:cc:dd:ee:ff" {
+					t.Fatalf("wifi eht bssid command = %#v", cmd)
 				}
 			},
 		},
@@ -382,6 +382,11 @@ func TestParseLineRejectsDeadAndInvalidCommandForms(t *testing.T) {
 			name: "ambiguous show wifi prefix",
 			line: "show wifi s",
 			want: "ambiguous show wifi command",
+		},
+		{
+			name: "removed show wifi mlo command",
+			line: "show wifi mlo",
+			want: "unknown show wifi command",
 		},
 		{
 			name:  "bad monitor duration",

@@ -54,12 +54,12 @@ class AgentWifiMloRendererTest {
             "Connected MLO",
             "ap_mld      02:00:00:00:00:01",
             "Associated MLO Links",
-            "MLO Scan",
-            "mlo_candidates",
-            "Nearby MLO APs",
+            "EHT Scan",
+            "eht_candidates",
+            "Nearby EHT APs",
             "*",
             "02:00:00:00:00:01",
-            "MLO Scan Links",
+            "EHT Scan Links",
             "[*] Lab",
             "ap_mld=02:00:00:00:00:01 link=2 bssid=aa:bb:cc:dd:ee:ff",
             "band=6ghz ch=5 freq=5975MHz width=80MHz rssi=-45dBm",
@@ -92,7 +92,7 @@ class AgentWifiMloRendererTest {
             assertTrue("rendered output missing $want:\n$out", out.contains(want))
         }
         assertTrue(out.indexOf("Current AP Relation") < out.indexOf("Connected MLO"))
-        assertTrue(out.indexOf("Connected MLO") < out.indexOf("MLO Scan"))
+        assertTrue(out.indexOf("Connected MLO") < out.indexOf("EHT Scan"))
         assertFalse(out.contains("MARK"))
         assertFalse(out.contains("Legacy"))
         assertFalse(out.contains("scan Lab"))
@@ -140,7 +140,7 @@ class AgentWifiMloRendererTest {
             "scan_command_status=STATUS_FAILED",
             "scan_command_message=fresh scan incomplete",
             "connected_mlo_present=false",
-            "mlo_scan_results=0",
+            "eht_scan_results=0",
         ).forEach { want ->
             assertTrue("rendered output missing $want:\n$out", out.contains(want))
         }
@@ -272,14 +272,14 @@ class AgentWifiMloRendererTest {
             "visible_links",
             "ap_mld      02:00:00:00:00:01",
             "ap_link_id  2",
-            "mlo_candidates  1",
+            "eht_candidates  1",
             "[*] Lab",
             "ap_mld=02:00:00:00:00:01 link=2 bssid=aa:bb:cc:dd:ee:ff",
             "Diagnostics / Warnings\n  none",
         ).forEach { want ->
             assertTrue("rendered output missing $want:\n$out", out.contains(want))
         }
-        assertFalse(out.contains("no MLO-capable scan results"))
+        assertFalse(out.contains("no EHT-capable scan results"))
         assertFalse(out.contains("scan_mlo_metadata_absent"))
     }
 
@@ -356,7 +356,7 @@ class AgentWifiMloRendererTest {
             .build()
 
         val lines = AgentWifiMloRenderer.render(status, scan)
-        val tableLines = lines.dropWhile { it != "Nearby MLO APs" }.drop(1).take(3)
+        val tableLines = lines.dropWhile { it != "Nearby EHT APs" }.drop(1).take(3)
         val out = lines.joinToString("\n")
 
         assertTrue("rendered output missing capped SSID:\n$out", tableLines.any { it.contains("...") })

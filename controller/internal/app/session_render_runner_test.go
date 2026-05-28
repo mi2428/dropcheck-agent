@@ -138,7 +138,7 @@ func TestRunOperationForAgentsDispatchesAndRendersResult(t *testing.T) {
 	}
 }
 
-func TestRunOperationForAgentsWifiMLOFreshScansBeforeDiagnostics(t *testing.T) {
+func TestRunOperationForAgentsWifiEHTFreshScansBeforeDiagnostics(t *testing.T) {
 	state, stream, cleanup := connectedShellStateWithStream(t)
 	defer cleanup()
 
@@ -186,9 +186,9 @@ func TestRunOperationForAgentsWifiMLOFreshScansBeforeDiagnostics(t *testing.T) {
 		}
 	}()
 
-	op, err := command.WifiMLOOperationWithOptions(command.WifiMLOOptions{Fresh: true, Timeout: "9000"})
+	op, err := command.WifiEHTOperationWithOptions(command.WifiEHTOptions{Fresh: true, Timeout: "9000"})
 	if err != nil {
-		t.Fatalf("WifiMLOOperationWithOptions() error = %v", err)
+		t.Fatalf("WifiEHTOperationWithOptions() error = %v", err)
 	}
 	out, err := captureStdout(t, func() error {
 		return runOperationForAgents(
@@ -213,7 +213,7 @@ func TestRunOperationForAgentsWifiMLOFreshScansBeforeDiagnostics(t *testing.T) {
 	if second.GetRunCommand().GetGetWifiDiagnostics() == nil {
 		t.Fatalf("second command = %#v, want wifi diagnostics", second.GetRunCommand())
 	}
-	for _, want := range []string{"MLO Scan", "source", "fresh", "fresh_scan_elapsed_ms", "123"} {
+	for _, want := range []string{"EHT Scan", "source", "fresh", "fresh_scan_elapsed_ms", "123"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("runOperationForAgents output = %q, missing %q", out, want)
 		}

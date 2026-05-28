@@ -59,7 +59,7 @@ func TestMCPServerCommandTransportComprehensiveLive(t *testing.T) {
 	check.readResource("dropcheck://session")
 	check.getPrompt("dropcheck_noc_smoke_check", map[string]string{"target": cfg.serial})
 	check.getPrompt("dropcheck_connectivity_check", map[string]string{"target": cfg.serial, "essid": cfg.ssid})
-	check.getPrompt("dropcheck_mlo_investigation", map[string]string{"target": cfg.serial, "essid": cfg.ssid})
+	check.getPrompt("dropcheck_eht_investigation", map[string]string{"target": cfg.serial, "essid": cfg.ssid})
 
 	check.call("dropcheck_session_start", map[string]any{
 		"adb_path":     cfg.adb,
@@ -97,7 +97,7 @@ func TestMCPServerCommandTransportComprehensiveLive(t *testing.T) {
 	check.call("dropcheck_wifi_status", targetArg(cfg.serial), 20*time.Second)
 	check.call("dropcheck_ip_status", targetArg(cfg.serial), 20*time.Second)
 	check.call("dropcheck_wifi_diagnostics", targetArg(cfg.serial), 30*time.Second)
-	check.call("dropcheck_wifi_mlo", map[string]any{"target": cfg.serial, "fresh": true, "timeout_ms": 10000}, 30*time.Second)
+	check.call("dropcheck_wifi_eht", map[string]any{"target": cfg.serial, "fresh": true, "timeout_ms": 10000}, 30*time.Second)
 	check.call("dropcheck_wifi_capabilities", targetArg(cfg.serial), 20*time.Second)
 	check.call("dropcheck_wifi_scan", map[string]any{"target": cfg.serial, "band": "all", "fresh": true, "timeout_ms": 10000}, 30*time.Second)
 	check.call("dropcheck_wifi_scan_detail", map[string]any{"target": cfg.serial, "scan_target": cfg.ssid, "band": "all"}, 20*time.Second)
@@ -527,7 +527,7 @@ func expectedComprehensiveMCPTools() []string {
 		"dropcheck_wifi_diagnostics",
 		"dropcheck_wifi_disconnect",
 		"dropcheck_wifi_forget",
-		"dropcheck_wifi_mlo",
+		"dropcheck_wifi_eht",
 		"dropcheck_wifi_monitor",
 		"dropcheck_wifi_reconnect",
 		"dropcheck_wifi_scan",
