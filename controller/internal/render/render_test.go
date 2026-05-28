@@ -1153,6 +1153,119 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 	}
 }
 
+func TestRenderWifiMLOFiltersScanAndConnection(t *testing.T) {
+	result := &controlpb.CommandResult{
+		Status: controlpb.CommandResult_STATUS_OK,
+		Payload: &controlpb.CommandResult_WifiDiagnostics{
+			WifiDiagnostics: &controlpb.WifiDiagnostics{
+				Status: &controlpb.WifiStatus{
+					Enabled: true,
+					State:   "enabled",
+					Connection: &controlpb.WifiConnection{
+						Ssid:            "Other",
+						Bssid:           "22:22:22:22:22:22",
+						WifiStandard:    "802.11be",
+						ApMldMacAddress: "02:00:00:00:00:02",
+						ApMloLinkId:     2,
+					},
+				},
+				Networks: []*controlpb.NetworkDiagnostics{{
+					NetworkId: "100",
+					IpStatus: &controlpb.IpStatus{
+						Wifi: &controlpb.WifiConnection{
+							Ssid:            "Lab",
+							Bssid:           "aa:bb:cc:dd:ee:ff",
+							WifiStandard:    "802.11be",
+							ApMldMacAddress: "02:00:00:00:00:01",
+							ApMloLinkId:     1,
+						},
+					},
+				}, {
+					NetworkId: "101",
+					IpStatus: &controlpb.IpStatus{
+						Wifi: &controlpb.WifiConnection{
+							Ssid:            "Other",
+							Bssid:           "22:22:22:22:22:22",
+							WifiStandard:    "802.11be",
+							ApMldMacAddress: "02:00:00:00:00:02",
+							ApMloLinkId:     2,
+						},
+					},
+				}},
+				Scan: &controlpb.WifiScan{
+					Results: []*controlpb.WifiScanResult{{
+						Ssid:            "Lab",
+						Bssid:           "aa:bb:cc:dd:ee:ff",
+						RssiDbm:         -45,
+						Band:            "6ghz",
+						FrequencyMhz:    5975,
+						WifiStandard:    "802.11be",
+						ApMldMacAddress: "02:00:00:00:00:01",
+						ApMloLinkId:     1,
+						AffiliatedMloLinks: []*controlpb.MloLinkInfo{{
+							LinkId:       2,
+							ApMacAddress: "aa:bb:cc:dd:ee:01",
+						}},
+					}, {
+						Ssid:            "Other",
+						Bssid:           "22:22:22:22:22:22",
+						RssiDbm:         -50,
+						Band:            "6ghz",
+						FrequencyMhz:    6055,
+						WifiStandard:    "802.11be",
+						ApMldMacAddress: "02:00:00:00:00:02",
+						ApMloLinkId:     2,
+					}},
+				},
+			},
+		},
+	}
+
+	out, err := CommandResult("agent", result, command.Options{
+		WifiRenderMode: command.WifiRenderModeMLO,
+		WifiMLOSSID:    "Lab",
+	}, pipeline.FormatText)
+	if err != nil {
+		t.Fatalf("CommandResult(ssid) error = %v", err)
+	}
+	for _, want := range []string{
+		"filter            ssid=Lab",
+		"filtered_results  1",
+		"Network MLO",
+		"Lab",
+		"aa:bb:cc:dd:ee:ff",
+		"no active Wi-Fi connection",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered output = %q, missing %q", out, want)
+		}
+	}
+	if strings.Contains(out, "22:22:22:22:22:22") {
+		t.Fatalf("rendered output = %q, unexpected filtered BSSID", out)
+	}
+
+	out, err = CommandResult("agent", result, command.Options{
+		WifiRenderMode: command.WifiRenderModeMLO,
+		WifiMLOBSSID:   "AA:BB:CC:DD:EE:01",
+	}, pipeline.FormatText)
+	if err != nil {
+		t.Fatalf("CommandResult(bssid) error = %v", err)
+	}
+	for _, want := range []string{
+		"filter            bssid=AA:BB:CC:DD:EE:01",
+		"filtered_results  1",
+		"aa:bb:cc:dd:ee:ff",
+		"[-] affiliated Lab",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered output = %q, missing %q", out, want)
+		}
+	}
+	if strings.Contains(out, "Other") || strings.Contains(out, "22:22:22:22:22:22") {
+		t.Fatalf("rendered output = %q, unexpected filtered network", out)
+	}
+}
+
 func TestRenderWifiMLODetailedEHTMultiLinkSubelements(t *testing.T) {
 	result := &controlpb.CommandResult{
 		Status: controlpb.CommandResult_STATUS_OK,

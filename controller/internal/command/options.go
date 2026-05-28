@@ -20,4 +20,8 @@ type Options struct {
 	WifiMLOFreshScan bool
 	// WifiMLOFreshScanTimeoutMs is the fresh-scan wait timeout in milliseconds.
 	WifiMLOFreshScanTimeoutMs uint32
+	// WifiMLOSSID filters the MLO render view to scan/current entries for one SSID.
+	WifiMLOSSID string
+	// WifiMLOBSSID filters the MLO render view to scan/current entries for one BSSID.
+	WifiMLOBSSID string
 }

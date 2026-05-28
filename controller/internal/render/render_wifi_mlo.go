@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/controlpb"
 )
 
@@ -23,14 +24,21 @@ type wifiMLOTableColumn struct {
 	maxWidth int
 }
 
-func renderWifiMLO(b *strings.Builder, diagnostics *controlpb.WifiDiagnostics) {
+type wifiMLOFilter struct {
+	ssid  string
+	bssid string
+}
+
+func renderWifiMLO(b *strings.Builder, diagnostics *controlpb.WifiDiagnostics, options command.Options) {
 	if diagnostics == nil {
 		return
 	}
+	filter := wifiMLOFilter{ssid: options.WifiMLOSSID, bssid: options.WifiMLOBSSID}
 	status := diagnostics.GetStatus()
-	current := wifiMLOCurrentConnection(status)
+	current := filter.connection(wifiMLOCurrentConnection(status))
 	scan := diagnostics.GetScan()
-	candidates := wifiMLOScanCandidates(scan.GetResults())
+	scanResults := filter.scanResults(scan.GetResults())
+	candidates := wifiMLOScanCandidates(scanResults)
 	groups := wifiMLOGroups(candidates)
 
 	renderWifiMLOCurrentRelation(b, current, candidates)
@@ -39,12 +47,87 @@ func renderWifiMLO(b *strings.Builder, diagnostics *controlpb.WifiDiagnostics) {
 	renderWifiMLOConnectedHE6GHzDetails(b, current)
 	renderWifiMLOConnectedEHT(b, current)
 	renderWifiMLOConnectedEHTDetails(b, current)
-	renderWifiMLONetworks(b, diagnostics.GetNetworks())
-	renderWifiMLOScanSummary(b, scan, candidates)
+	renderWifiMLONetworks(b, diagnostics.GetNetworks(), filter)
+	renderWifiMLOScanSummary(b, scan, candidates, filter, len(scanResults))
 	renderWifiMLONearbyAPs(b, groups, current)
 	renderWifiMLODeviceReadiness(b, diagnostics.GetCapabilities())
 	renderWifiMLOCapabilities(b, diagnostics.GetCapabilities())
 	renderWifiMLODiagnostics(b, status, diagnostics.GetCapabilities(), scan, current, candidates)
+}
+
+func (f wifiMLOFilter) active() bool {
+	return f.ssid != "" || f.bssid != ""
+}
+
+func (f wifiMLOFilter) label() string {
+	switch {
+	case f.ssid != "":
+		return "ssid=" + f.ssid
+	case f.bssid != "":
+		return "bssid=" + f.bssid
+	default:
+		return ""
+	}
+}
+
+func (f wifiMLOFilter) scanResults(results []*controlpb.WifiScanResult) []*controlpb.WifiScanResult {
+	if !f.active() {
+		return results
+	}
+	filtered := make([]*controlpb.WifiScanResult, 0, len(results))
+	for _, result := range results {
+		if f.matchesScan(result) {
+			filtered = append(filtered, result)
+		}
+	}
+	return filtered
+}
+
+func (f wifiMLOFilter) connection(conn *controlpb.WifiConnection) *controlpb.WifiConnection {
+	if conn == nil || !f.active() || f.matchesConnection(conn) {
+		return conn
+	}
+	return nil
+}
+
+func (f wifiMLOFilter) matchesScan(result *controlpb.WifiScanResult) bool {
+	if result == nil {
+		return false
+	}
+	if f.ssid != "" {
+		return result.GetSsid() == f.ssid
+	}
+	if f.bssid != "" {
+		if bssidEqual(result.GetBssid(), f.bssid) {
+			return true
+		}
+		for _, link := range result.GetAffiliatedMloLinks() {
+			if bssidEqual(link.GetApMacAddress(), f.bssid) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (f wifiMLOFilter) matchesConnection(conn *controlpb.WifiConnection) bool {
+	if conn == nil {
+		return false
+	}
+	if f.ssid != "" {
+		return conn.GetSsid() == f.ssid
+	}
+	if f.bssid != "" {
+		if bssidEqual(conn.GetBssid(), f.bssid) {
+			return true
+		}
+		for _, link := range append(conn.GetAssociatedMloLinks(), conn.GetAffiliatedMloLinks()...) {
+			if bssidEqual(link.GetApMacAddress(), f.bssid) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func wifiMLOCurrentConnection(status *controlpb.WifiStatus) *controlpb.WifiConnection {
@@ -166,10 +249,11 @@ func renderWifiMLOConnectedEHTDetails(b *strings.Builder, current *controlpb.Wif
 	renderWifiMLOEHTDetails(b, "connection", current.GetEhtCapabilities(), current.GetEhtOperation())
 }
 
-func renderWifiMLONetworks(b *strings.Builder, networks []*controlpb.NetworkDiagnostics) {
+func renderWifiMLONetworks(b *strings.Builder, networks []*controlpb.NetworkDiagnostics, filter wifiMLOFilter) {
 	rows := make([]*controlpb.NetworkDiagnostics, 0)
 	for _, network := range networks {
-		if wifiConnectionHasMLO(network.GetIpStatus().GetWifi()) {
+		wifi := network.GetIpStatus().GetWifi()
+		if wifiConnectionHasMLO(wifi) && (!filter.active() || filter.matchesConnection(wifi)) {
 			rows = append(rows, network)
 		}
 	}
@@ -206,7 +290,7 @@ func renderWifiMLONetworks(b *strings.Builder, networks []*controlpb.NetworkDiag
 	writeDisplayTable(b, columns, tableRows)
 }
 
-func renderWifiMLOScanSummary(b *strings.Builder, scan *controlpb.WifiScan, candidates []*controlpb.WifiScanResult) {
+func renderWifiMLOScanSummary(b *strings.Builder, scan *controlpb.WifiScan, candidates []*controlpb.WifiScanResult, filter wifiMLOFilter, filteredResults int) {
 	fields := wifiMLOFieldMap(scan.GetFields())
 	results := 0
 	errors := 0
@@ -220,6 +304,12 @@ func renderWifiMLOScanSummary(b *strings.Builder, scan *controlpb.WifiScan, cand
 		kv("total", wifiMLOFieldOrCount(fields, "scan_result_total_count", results)),
 		kv("mlo_candidates", len(candidates)),
 		kv("errors", errors),
+	}
+	if filter.active() {
+		rows = append(rows,
+			kv("filter", filter.label()),
+			kv("filtered_results", filteredResults),
+		)
 	}
 	for _, key := range []string{
 		"requested_band",

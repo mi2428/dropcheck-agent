@@ -195,7 +195,7 @@ func parseLinuxShowWifi(args []string) (command.Operation, error) {
 		return command.Operation{}, fmt.Errorf("usage: show wifi <status|diagnostics|mlo|scan|capabilities>")
 	}
 	switch args[0] {
-	case "status", "diagnostics", "mlo", "capabilities":
+	case "status", "diagnostics", "capabilities":
 		if len(args) != 1 {
 			return command.Operation{}, fmt.Errorf("usage: show wifi %s", args[0])
 		}
@@ -204,11 +204,11 @@ func parseLinuxShowWifi(args []string) (command.Operation, error) {
 			return command.WifiStatusOperation(), nil
 		case "diagnostics":
 			return command.WifiDiagnosticsOperation(), nil
-		case "mlo":
-			return command.WifiMLOOperation(), nil
 		default:
 			return command.WifiCapabilitiesOperation(), nil
 		}
+	case "mlo":
+		return parseLinuxWifiMLO(args[1:])
 	case "scan":
 		return parseLinuxWifiScan(args[1:])
 	default:
@@ -470,6 +470,57 @@ func parseLinuxWifi(args []string) (command.Operation, error) {
 	default:
 		return command.Operation{}, fmt.Errorf("unknown request wifi command %q", args[0])
 	}
+}
+
+func parseLinuxWifiMLO(args []string) (command.Operation, error) {
+	opts, err := parseDashOptions(args, map[string]dashOptionSpec{
+		"timeout": {value: true},
+		"ssid":    {value: true},
+		"bssid":   {value: true},
+	})
+	if err != nil {
+		return command.Operation{}, err
+	}
+	values := map[string]string{
+		"timeout": opts.value("timeout"),
+		"ssid":    opts.value("ssid"),
+		"bssid":   opts.value("bssid"),
+	}
+	fresh := false
+	pos := opts.positionals
+	for i := 0; i < len(pos); i++ {
+		switch pos[i] {
+		case "fresh":
+			if fresh {
+				return command.Operation{}, fmt.Errorf("fresh specified twice")
+			}
+			fresh = true
+		case "timeout", "ssid", "bssid":
+			if i+1 >= len(pos) {
+				return command.Operation{}, fmt.Errorf("%s requires a value", pos[i])
+			}
+			if values[pos[i]] != "" {
+				return command.Operation{}, fmt.Errorf("%s specified twice", pos[i])
+			}
+			values[pos[i]] = pos[i+1]
+			i++
+		default:
+			if fresh && values["timeout"] == "" && len(pos)-i == 1 {
+				values["timeout"] = pos[i]
+				continue
+			}
+			return command.Operation{}, fmt.Errorf("usage: show wifi mlo [fresh [timeout <ms>]] [ssid <ssid>|bssid <bssid>]")
+		}
+	}
+	if !fresh && values["timeout"] != "" {
+		return command.Operation{}, fmt.Errorf("--timeout is supported only with wifi mlo fresh")
+	}
+	return command.WifiMLOOperationWithOptions(command.WifiMLOOptions{
+		Fresh:   fresh,
+		Timeout: values["timeout"],
+		SSID:    values["ssid"],
+		BSSID:   values["bssid"],
+	})
 }
 
 func parseLinuxWifiScan(args []string) (command.Operation, error) {

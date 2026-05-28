@@ -859,6 +859,8 @@ class MainActivity : Activity() {
             sdkInt = Build.VERSION.SDK_INT,
             wifi7Supported = wifi7StandardSupported(),
             wifiCapabilities = capabilitiesResult.wifiCapabilities.takeIf { capabilitiesResult.hasWifiCapabilities() },
+            ssidFilter = command.ssid,
+            bssidFilter = command.bssid,
             scanCommandStatus = scanResult.status.name,
             scanCommandMessage = scanResult.message,
         )
@@ -1018,6 +1020,8 @@ class MainActivity : Activity() {
                 "  show use",
                 "  show version",
                 "  show wifi mlo",
+                "  show wifi mlo ssid SSID",
+                "  show wifi mlo bssid BSSID",
                 "  show wifi mlo fresh [timeout MS]",
                 "  show wifi status",
                 "  traceroute HOST [max-hops N] [size BYTES] [timeout MS]",
@@ -1044,6 +1048,7 @@ class MainActivity : Activity() {
                 "    show version displays the app version embedded at build time.",
                 "    show wifi status displays local Wi-Fi and IP state.",
                 "    show wifi mlo displays connected and nearby MLO state.",
+                "    show wifi mlo ssid/bssid filters scan and current MLO output.",
                 "    show wifi mlo fresh requests a scan before rendering MLO state.",
             )
             "traceroute" -> listOf(
