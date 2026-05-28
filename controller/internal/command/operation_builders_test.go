@@ -108,6 +108,22 @@ func TestWifiOperationBuildersCarryControllerContract(t *testing.T) {
 	if _, err := WifiMLOOperationWithOptions(WifiMLOOptions{Fresh: true, Timeout: "0"}); err == nil || !strings.Contains(err.Error(), "positive integer") {
 		t.Fatalf("WifiMLOOperationWithOptions(timeout=0) error = %v", err)
 	}
+	mloFilter, err := WifiMLOOperationWithOptions(WifiMLOOptions{Fresh: true, Timeout: "9000", SSID: "temp-life26"})
+	if err != nil {
+		t.Fatalf("WifiMLOOperationWithOptions(ssid) error = %v", err)
+	}
+	mloFilterCmd, mloFilterOptions, err := BuildRunCommand(mloFilter)
+	if err != nil {
+		t.Fatalf("mlo filtered command: %v", err)
+	}
+	if mloFilterCmd.GetLabel() != "wifi mlo fresh --timeout 9000 ssid temp-life26" ||
+		mloFilterOptions.WifiMLOSSID != "temp-life26" ||
+		!mloFilterOptions.WifiMLOFreshScan {
+		t.Fatalf("mlo filtered command=%#v options=%#v", mloFilterCmd, mloFilterOptions)
+	}
+	if _, err := WifiMLOOperationWithOptions(WifiMLOOptions{SSID: "Lab", BSSID: "aa:bb:cc:dd:ee:ff"}); err == nil {
+		t.Fatalf("WifiMLOOperationWithOptions(ssid+bssid) error = nil")
+	}
 
 	forget := WifiForgetOperation("Lab")
 	forgetCmd, _, err := BuildRunCommand(forget)

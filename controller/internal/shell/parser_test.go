@@ -103,6 +103,28 @@ func TestParseLineAgentCommandSurface(t *testing.T) {
 			},
 		},
 		{
+			name:      "show wifi mlo ssid",
+			line:      "show wifi mlo ssid temp-life26",
+			operation: "wifi.mlo",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				if cmd.GetGetWifiDiagnostics() == nil || cmd.GetLabel() != "wifi mlo ssid temp-life26" {
+					t.Fatalf("wifi mlo ssid command = %#v", cmd)
+				}
+			},
+		},
+		{
+			name:      "show wifi mlo bssid",
+			line:      "show wifi mlo bssid aa:bb:cc:dd:ee:ff",
+			operation: "wifi.mlo",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				if cmd.GetGetWifiDiagnostics() == nil || cmd.GetLabel() != "wifi mlo bssid aa:bb:cc:dd:ee:ff" {
+					t.Fatalf("wifi mlo bssid command = %#v", cmd)
+				}
+			},
+		},
+		{
 			name:      "show ip status",
 			line:      "show ip status",
 			operation: "ip.status",

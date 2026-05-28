@@ -70,6 +70,10 @@ type WifiMLOOptions struct {
 	Fresh bool
 	// Timeout is the fresh-scan wait timeout in milliseconds; empty uses the default.
 	Timeout string
+	// SSID filters the rendered MLO view to one SSID.
+	SSID string
+	// BSSID filters the rendered MLO view to one BSSID.
+	BSSID string
 }
 
 // PingOptions is the typed input for an ICMP ping operation.
@@ -137,6 +141,9 @@ func WifiMLOOperation() Operation {
 // When Fresh is set, the controller runs a fresh scan before the diagnostics
 // command and renders the MLO view with that scan payload.
 func WifiMLOOperationWithOptions(opts WifiMLOOptions) (Operation, error) {
+	if opts.SSID != "" && opts.BSSID != "" {
+		return Operation{}, errors.New("ssid and bssid filters cannot be used together")
+	}
 	options := Options{WifiRenderMode: WifiRenderModeMLO}
 	parts := []string{"wifi", "mlo"}
 	if opts.Fresh {
@@ -150,6 +157,14 @@ func WifiMLOOperationWithOptions(opts WifiMLOOptions) (Operation, error) {
 		appendValueOption(&parts, "--timeout", opts.Timeout)
 	} else if opts.Timeout != "" {
 		return Operation{}, errors.New("timeout is supported only with wifi mlo fresh")
+	}
+	if opts.SSID != "" {
+		options.WifiMLOSSID = opts.SSID
+		parts = append(parts, "ssid", opts.SSID)
+	}
+	if opts.BSSID != "" {
+		options.WifiMLOBSSID = opts.BSSID
+		parts = append(parts, "bssid", opts.BSSID)
 	}
 	return NewOperation("wifi.mlo", &controlpb.RunCommand{
 		Label:   strings.Join(parts, " "),

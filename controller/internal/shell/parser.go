@@ -536,16 +536,17 @@ func parseShellShowWifiMLO(args []string) (Command, error) {
 	if len(args) == 0 {
 		return agentShellCommand(command.WifiMLOOperation()), nil
 	}
-	first, err := resolveShellKeyword("show wifi mlo argument", args[0], []string{"fresh"})
-	if err != nil {
-		return Command{}, err
-	}
-	if first != "fresh" {
-		return Command{}, fmt.Errorf("usage: show wifi mlo [fresh [timeout <ms>]]")
-	}
 	values := map[string]string{}
-	for i := 1; i < len(args); i++ {
-		if key, err := resolveShellKeyword("show wifi mlo fresh option", args[i], []string{"timeout"}); err == nil {
+	fresh := false
+	for i := 0; i < len(args); i++ {
+		if key, err := resolveShellKeyword("show wifi mlo option", args[i], []string{"fresh", "timeout", "ssid", "bssid"}); err == nil {
+			if key == "fresh" {
+				if fresh {
+					return Command{}, fmt.Errorf("fresh specified twice")
+				}
+				fresh = true
+				continue
+			}
 			value, next, err := shellValue(args, i, key)
 			if err != nil {
 				return Command{}, err
@@ -556,14 +557,26 @@ func parseShellShowWifiMLO(args []string) (Command, error) {
 			i = next
 			continue
 		}
-		if len(args)-i != 1 {
-			return Command{}, fmt.Errorf("usage: show wifi mlo [fresh [timeout <ms>]]")
+		if fresh && values["timeout"] == "" && len(args)-i == 1 {
+			if err := setShellValue(values, "timeout", args[i]); err != nil {
+				return Command{}, err
+			}
+			continue
 		}
-		if err := setShellValue(values, "timeout", args[i]); err != nil {
-			return Command{}, err
-		}
+		return Command{}, fmt.Errorf("usage: show wifi mlo [fresh [timeout <ms>]] [ssid <ssid>|bssid <bssid>]")
 	}
-	op, err := command.WifiMLOOperationWithOptions(command.WifiMLOOptions{Fresh: true, Timeout: values["timeout"]})
+	if !fresh && values["timeout"] != "" {
+		return Command{}, fmt.Errorf("timeout is supported only with wifi mlo fresh")
+	}
+	if values["ssid"] != "" && values["bssid"] != "" {
+		return Command{}, fmt.Errorf("ssid and bssid filters cannot be used together")
+	}
+	op, err := command.WifiMLOOperationWithOptions(command.WifiMLOOptions{
+		Fresh:   fresh,
+		Timeout: values["timeout"],
+		SSID:    values["ssid"],
+		BSSID:   values["bssid"],
+	})
 	return agentShellCommand(op), err
 }
 

@@ -18,7 +18,7 @@ func writeShellHelp(w io.Writer) {
   show config [standalone]
   show wifi status
   show wifi diagnostics
-  show wifi mlo [fresh [timeout <ms>]]
+  show wifi mlo [fresh [timeout <ms>]] [ssid <ssid>|bssid <bssid>]
   show wifi scan [all|2.4ghz|5ghz|6ghz|60ghz]
   show wifi scan fresh [timeout <ms>] [all|2.4ghz|5ghz|6ghz|60ghz]
   show wifi scan detail [all|2.4ghz|5ghz|6ghz|60ghz] <ssid|bssid>
@@ -404,10 +404,18 @@ func helpEntriesForArgsInMode(args []string, mode Mode) []HelpEntry {
 			return []HelpEntry{{"fresh", "Trigger a fresh scan"}, {"detail", "Show detail for an SSID or BSSID"}, {"all", "All bands"}, {"2.4ghz", "2.4 GHz band"}, {"5ghz", "5 GHz band"}, {"6ghz", "6 GHz band"}, {"60ghz", "60 GHz band"}}
 		}
 		if len(args) == 3 && args[1] == "wifi" && args[2] == "mlo" {
-			return []HelpEntry{{"fresh", "Trigger a fresh scan before rendering MLO"}}
+			return []HelpEntry{
+				{"fresh", "Trigger a fresh scan before rendering MLO"},
+				{"ssid", "Filter MLO output by SSID"},
+				{"bssid", "Filter MLO output by BSSID or affiliated AP MAC"},
+			}
 		}
 		if len(args) == 4 && args[1] == "wifi" && args[2] == "mlo" && args[3] == "fresh" {
-			return []HelpEntry{{"timeout", "Fresh-scan timeout in milliseconds"}}
+			return []HelpEntry{
+				{"timeout", "Fresh-scan timeout in milliseconds"},
+				{"ssid", "Filter MLO output by SSID"},
+				{"bssid", "Filter MLO output by BSSID or affiliated AP MAC"},
+			}
 		}
 		if len(args) == 2 && args[1] == "standalone" {
 			return []HelpEntry{{"status", "Live standalone runner state"}, {"runs", "Stored run summaries"}, {"run", "Stored run archive"}}
@@ -1216,7 +1224,7 @@ func completionCandidatesForArgsInMode(args []string, mode Mode) []string {
 			return []string{"fresh", "detail", "all", "2.4ghz", "5ghz", "6ghz", "60ghz"}
 		}
 		if resolved[0] == "show" && resolved[1] == "wifi" && resolved[2] == "mlo" {
-			return []string{"fresh"}
+			return []string{"fresh", "ssid", "bssid"}
 		}
 		if resolved[0] == "show" && resolved[1] == "adb" && resolved[2] == "cmd" {
 			return []string{"wifi"}
@@ -1501,8 +1509,14 @@ func valueCompletionCandidatesForArgs(args []string) ([]string, bool) {
 		}
 		return nil, false
 	case len(args) >= 4 && args[0] == "show" && args[1] == "wifi" && args[2] == "mlo":
-		if args[3] == "fresh" && isResolvedKeyword("show wifi mlo fresh option", last, []string{"timeout"}) {
+		if isResolvedKeyword("show wifi mlo option", last, []string{"timeout"}) {
 			return []string{"<ms>"}, true
+		}
+		if isResolvedKeyword("show wifi mlo option", last, []string{"ssid"}) {
+			return []string{"<ssid>"}, true
+		}
+		if isResolvedKeyword("show wifi mlo option", last, []string{"bssid"}) {
+			return []string{"<bssid>"}, true
 		}
 		return nil, false
 	case len(args) >= 4 && args[0] == "sync" && args[1] == "standalone" && args[2] == "runs":
@@ -1660,15 +1674,18 @@ func showWifiScanCompletionCandidates(args []string) []string {
 
 func showWifiMLOCompletionCandidates(args []string) []string {
 	if len(args) == 0 {
-		return []string{"fresh"}
+		return []string{"fresh", "ssid", "bssid"}
 	}
-	first, err := resolveShellKeyword("show wifi mlo argument", args[0], []string{"fresh"})
-	if err != nil || first != "fresh" {
-		return nil
-	}
+	used := map[string]bool{}
 	timeoutUsed := false
-	for i := 1; i < len(args); i++ {
-		if key, err := resolveShellKeyword("show wifi mlo fresh option", args[i], []string{"timeout"}); err == nil {
+	freshUsed := false
+	for i := 0; i < len(args); i++ {
+		if key, err := resolveShellKeyword("show wifi mlo option", args[i], []string{"fresh", "timeout", "ssid", "bssid"}); err == nil {
+			used[key] = true
+			if key == "fresh" {
+				freshUsed = true
+				continue
+			}
 			timeoutUsed = key == "timeout"
 			if i+1 < len(args) {
 				i++
@@ -1677,10 +1694,17 @@ func showWifiMLOCompletionCandidates(args []string) []string {
 		}
 		timeoutUsed = true
 	}
-	if timeoutUsed {
-		return nil
+	out := []string{}
+	if !freshUsed {
+		out = append(out, "fresh")
 	}
-	return []string{"timeout"}
+	if freshUsed && !timeoutUsed && !used["timeout"] {
+		out = append(out, "timeout")
+	}
+	if !used["ssid"] && !used["bssid"] {
+		out = append(out, "ssid", "bssid")
+	}
+	return out
 }
 
 func showWifiScanFreshCompletionCandidates(args []string) []string {

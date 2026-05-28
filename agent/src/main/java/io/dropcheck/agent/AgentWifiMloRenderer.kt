@@ -19,6 +19,8 @@ internal data class AgentWifiMloContext(
     val sdkInt: Int = Build.VERSION.SDK_INT,
     val wifi7Supported: Boolean? = null,
     val wifiCapabilities: WifiCapabilities? = null,
+    val ssidFilter: String = "",
+    val bssidFilter: String = "",
     val scanCommandStatus: String = "",
     val scanCommandMessage: String = "",
 )
@@ -27,9 +29,11 @@ internal data class AgentWifiMloContext(
 internal object AgentWifiMloRenderer {
     fun render(status: WifiStatus, scan: WifiScan, context: AgentWifiMloContext = AgentWifiMloContext()): List<String> {
         val out = mutableListOf<String>()
-        val candidates = scan.resultsList.filter { isMloCapableCandidate(it) }
+        val filter = MloFilter(context.ssidFilter, context.bssidFilter)
+        val scanResults = filter.scanResults(scan.resultsList)
+        val candidates = scanResults.filter { isMloCapableCandidate(it) }
         val groups = mloGroups(candidates)
-        val current = activeWifiConnection(status)
+        val current = filter.connection(activeWifiConnection(status))
 
         renderCurrentRelation(out, current, candidates)
         renderConnectedMlo(out, current)
@@ -37,7 +41,7 @@ internal object AgentWifiMloRenderer {
         renderConnectedHe6GhzDetails(out, current)
         renderConnectedEhtMultiLink(out, current)
         renderConnectedEhtDetails(out, current)
-        renderScanSummary(out, scan, candidates, context)
+        renderScanSummary(out, scan, candidates, scanResults.size, filter, context)
         renderNearbyMlo(out, groups, current)
         renderWifi7DeviceReadiness(out, context)
         renderDiagnostics(out, status, scan, current, candidates, context)
@@ -83,6 +87,8 @@ internal object AgentWifiMloRenderer {
         out: MutableList<String>,
         scan: WifiScan,
         candidates: List<WifiScanResult>,
+        filteredResults: Int,
+        filter: MloFilter,
         context: AgentWifiMloContext,
     ) {
         val fields = scan.fieldsList.associate { it.key to it.value }
@@ -94,6 +100,10 @@ internal object AgentWifiMloRenderer {
             "mlo_candidates" to candidates.size.toString(),
             "errors" to scan.errorsCount.toString(),
         )
+        if (filter.active) {
+            rows += "filter" to filter.label
+            rows += "filtered_results" to filteredResults.toString()
+        }
         listOf(
             "requested_band",
             "wifi_enabled",
@@ -860,6 +870,44 @@ internal object AgentWifiMloRenderer {
         }.filter { it.isNotBlank() }.distinct()
         val security: List<String> = results.map { security(it) }.filter { it.isNotBlank() }.distinct()
         val standards: List<String> = results.map { it.wifiStandard }.filter { it.isNotBlank() }.distinct()
+    }
+
+    private data class MloFilter(val ssid: String = "", val bssid: String = "") {
+        val active: Boolean = ssid.isNotBlank() || bssid.isNotBlank()
+        val label: String = when {
+            ssid.isNotBlank() -> "ssid=$ssid"
+            bssid.isNotBlank() -> "bssid=$bssid"
+            else -> ""
+        }
+
+        fun scanResults(results: List<WifiScanResult>): List<WifiScanResult> {
+            if (!active) return results
+            return results.filter { matches(it) }
+        }
+
+        fun connection(conn: WifiConnection?): WifiConnection? {
+            if (conn == null || !active || matches(conn)) return conn
+            return null
+        }
+
+        private fun matches(result: WifiScanResult): Boolean {
+            if (ssid.isNotBlank()) return result.ssid == ssid
+            if (bssid.isNotBlank()) {
+                return result.bssid.equals(bssid, ignoreCase = true) ||
+                    result.affiliatedMloLinksList.any { it.apMacAddress.equals(bssid, ignoreCase = true) }
+            }
+            return true
+        }
+
+        private fun matches(conn: WifiConnection): Boolean {
+            if (ssid.isNotBlank()) return conn.ssid == ssid
+            if (bssid.isNotBlank()) {
+                return conn.bssid.equals(bssid, ignoreCase = true) ||
+                    conn.associatedMloLinksList.any { it.apMacAddress.equals(bssid, ignoreCase = true) } ||
+                    conn.affiliatedMloLinksList.any { it.apMacAddress.equals(bssid, ignoreCase = true) }
+            }
+            return true
+        }
     }
 
     private data class TableColumn(val header: String, val maxWidth: Int = Int.MAX_VALUE)

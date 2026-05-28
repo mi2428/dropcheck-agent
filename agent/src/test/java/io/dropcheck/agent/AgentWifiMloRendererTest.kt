@@ -147,6 +147,55 @@ class AgentWifiMloRendererTest {
     }
 
     @Test
+    fun filtersScanAndConnectionOutput() {
+        val status = WifiStatus.newBuilder()
+            .setEnabled(true)
+            .setState("enabled")
+            .setConnection(mloScanResult("Other", "22:22:22:22:22:22", -50, "02:00:00:00:00:02", 2).let {
+                WifiConnection.newBuilder()
+                    .setSsid(it.ssid)
+                    .setBssid(it.bssid)
+                    .setWifiStandard(it.wifiStandard)
+                    .setApMldMacAddress(it.apMldMacAddress)
+                    .setApMloLinkId(it.apMloLinkId)
+                    .build()
+            })
+            .build()
+        val scan = WifiScan.newBuilder()
+            .addResults(mloScanResult("Lab", "aa:bb:cc:dd:ee:ff", -45, "02:00:00:00:00:01", 1))
+            .addResults(mloScanResult("Other", "22:22:22:22:22:22", -50, "02:00:00:00:00:02", 2))
+            .build()
+
+        val out = AgentWifiMloRenderer.render(
+            status,
+            scan,
+            AgentWifiMloContext(ssidFilter = "Lab"),
+        ).joinToString("\n")
+
+        listOf(
+            "filter            ssid=Lab",
+            "filtered_results  1",
+            "Lab",
+            "aa:bb:cc:dd:ee:ff",
+            "no active Wi-Fi connection",
+        ).forEach { want ->
+            assertTrue("rendered output missing $want:\n$out", out.contains(want))
+        }
+        assertFalse(out.contains("Other"))
+        assertFalse(out.contains("22:22:22:22:22:22"))
+
+        val bssidOut = AgentWifiMloRenderer.render(
+            status,
+            scan,
+            AgentWifiMloContext(bssidFilter = "aa:bb:cc:dd:ee:ff"),
+        ).joinToString("\n")
+
+        assertTrue("rendered output missing bssid filter:\n$bssidOut", bssidOut.contains("filter            bssid=aa:bb:cc:dd:ee:ff"))
+        assertTrue("rendered output missing affiliated match:\n$bssidOut", bssidOut.contains("[-] affiliated Lab"))
+        assertFalse(bssidOut.contains("Other"))
+    }
+
+    @Test
     fun rendersDetailedEhtMultiLinkSubelements() {
         val status = WifiStatus.newBuilder()
             .setEnabled(true)

@@ -121,6 +121,18 @@ func TestParseShellCommands(t *testing.T) {
 			label: "wifi mlo fresh --timeout 9000",
 		},
 		{
+			name:  "show wifi mlo ssid",
+			line:  "show wifi mlo ssid temp-life26",
+			kind:  shellAgentCommand,
+			label: "wifi mlo ssid temp-life26",
+		},
+		{
+			name:  "show wifi mlo bssid",
+			line:  "show wifi mlo bssid aa:bb:cc:dd:ee:ff",
+			kind:  shellAgentCommand,
+			label: "wifi mlo bssid aa:bb:cc:dd:ee:ff",
+		},
+		{
 			name:  "show ip status",
 			line:  "show ip status",
 			kind:  shellAgentCommand,
@@ -628,8 +640,8 @@ func TestShellHelpAndCompletion(t *testing.T) {
 	for _, entry := range help {
 		tokens = append(tokens, entry.token)
 	}
-	if !slices.Equal(tokens, []string{"fresh"}) {
-		t.Fatalf("show wifi mlo help tokens = %#v, want fresh", tokens)
+	if !slices.Equal(tokens, []string{"fresh", "ssid", "bssid"}) {
+		t.Fatalf("show wifi mlo help tokens = %#v, want fresh/ssid/bssid", tokens)
 	}
 
 	completions := completeShellLineForTest("show wi", nil)
@@ -1134,11 +1146,11 @@ func TestShellOptionCompletion(t *testing.T) {
 		},
 		{
 			line: "show wifi mlo ",
-			want: []string{"fresh"},
+			want: []string{"fresh", "ssid", "bssid"},
 		},
 		{
 			line: "show wifi mlo fresh ",
-			want: []string{"timeout"},
+			want: []string{"timeout", "ssid", "bssid"},
 		},
 		{
 			line: "show wifi scan detail Lab ",
