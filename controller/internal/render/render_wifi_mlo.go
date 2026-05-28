@@ -42,6 +42,7 @@ func renderWifiMLO(b *strings.Builder, diagnostics *controlpb.WifiDiagnostics) {
 	renderWifiMLONetworks(b, diagnostics.GetNetworks())
 	renderWifiMLOScanSummary(b, scan, candidates)
 	renderWifiMLONearbyAPs(b, groups, current)
+	renderWifiMLODeviceReadiness(b, diagnostics.GetCapabilities())
 	renderWifiMLOCapabilities(b, diagnostics.GetCapabilities())
 	renderWifiMLODiagnostics(b, status, diagnostics.GetCapabilities(), scan, current, candidates)
 }
@@ -278,6 +279,8 @@ func renderWifiMLONearbyAPs(b *strings.Builder, groups []wifiMLOGroup, current *
 	wifiMLOWriteTable(b, columns, rows)
 	renderWifiMLOScanLinks(b, groups, current)
 	renderWifiMLOScanSecurityDetails(b, groups)
+	renderWifiMLORNRDetails(b, groups)
+	renderWifiMLOMultipleBSSIDDetails(b, groups)
 	renderWifiMLOScanHE6GHzDetails(b, groups)
 	renderWifiMLOScanEHT(b, groups)
 	renderWifiMLOScanEHTDetails(b, groups)
@@ -604,6 +607,8 @@ func renderWifiMLOScanLinkBlock(b *strings.Builder, group wifiMLOGroup, result *
 		wifiMLOScanEHTOperationSuffix(result),
 		result.GetRssiDbm(),
 	)
+	fmt.Fprintf(b, "  %s\n", wifiMLOInformationElementChecklist(result))
+	fmt.Fprintf(b, "  %s\n", wifiMLOScanSDKFlags(result))
 }
 
 func renderWifiMLOAffiliatedLinkBlock(b *strings.Builder, group wifiMLOGroup, result *controlpb.WifiScanResult, link *controlpb.MloLinkInfo, current *controlpb.WifiConnection) {

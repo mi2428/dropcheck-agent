@@ -48,6 +48,7 @@ import android.widget.TextView
 import io.dropcheck.agent.grpc.CommandLog
 import io.dropcheck.agent.grpc.CommandResult
 import io.dropcheck.agent.grpc.GetFreshWifiScan
+import io.dropcheck.agent.grpc.GetWifiCapabilities
 import io.dropcheck.agent.grpc.GetWifiScan
 import io.dropcheck.agent.grpc.GetWifiStatus
 import io.dropcheck.agent.grpc.Ping
@@ -847,10 +848,17 @@ class MainActivity : Activity() {
             return ShellCommandResult(ok = false, lines = listOf("show wifi mlo failed: scan unavailable: $message"))
         }
 
+        val capabilitiesResult = executor.execute(
+            RunCommand.newBuilder()
+                .setGetWifiCapabilities(GetWifiCapabilities.getDefaultInstance())
+                .build(),
+        )
+
         val context = AgentWifiMloContext(
             scanSource = if (command.fresh) "fresh" else "cached",
             sdkInt = Build.VERSION.SDK_INT,
             wifi7Supported = wifi7StandardSupported(),
+            wifiCapabilities = capabilitiesResult.wifiCapabilities.takeIf { capabilitiesResult.hasWifiCapabilities() },
             scanCommandStatus = scanResult.status.name,
             scanCommandMessage = scanResult.message,
         )

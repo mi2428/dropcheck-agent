@@ -1484,6 +1484,7 @@ func wifiSecurityDetailRows(value *controlpb.WifiSecurityDetails) []kvRow {
 	}
 	rows = append(rows, kv("wifi7", fmt.Sprintf("gcmp256=%t sae_gdh=%t ft_sae_gdh=%t beacon_protection=%t personal_ready=%t",
 		value.GetGcmp_256(), value.GetSaeGdh(), value.GetFtSaeGdh(), value.GetBeaconProtection(), value.GetWifi7PersonalReady())))
+	rows = append(rows, kv("wifi7_strict", wifiSecurityStrictSummary(value)))
 	if value.GetRsnxePresent() {
 		rows = append(rows, kv("rsnxe", strings.Join(value.GetRsnxeCapabilities(), ",")))
 	}
@@ -1507,6 +1508,7 @@ func wifiSecuritySummaryLines(value *controlpb.WifiSecurityDetails) []string {
 	}
 	lines = append(lines, fmt.Sprintf("wifi7 gcmp256=%t sae_gdh=%t ft_sae_gdh=%t beacon_protection=%t personal_ready=%t",
 		value.GetGcmp_256(), value.GetSaeGdh(), value.GetFtSaeGdh(), value.GetBeaconProtection(), value.GetWifi7PersonalReady()))
+	lines = append(lines, "wifi7_strict "+wifiSecurityStrictSummary(value))
 	if value.GetRsnxePresent() {
 		lines = append(lines, "rsnxe "+wifiMLOJoinStrings(value.GetRsnxeCapabilities(), "<none>"))
 	}
@@ -1517,6 +1519,45 @@ func wifiSecuritySummaryLines(value *controlpb.WifiSecurityDetails) []string {
 		lines = append(lines, "warnings "+strings.Join(value.GetWarnings(), ","))
 	}
 	return lines
+}
+
+func wifiSecurityStrictSummary(value *controlpb.WifiSecurityDetails) string {
+	pairwiseOnly := len(value.GetPairwiseCiphers()) > 0 && wifiSecurityAllIn(value.GetPairwiseCiphers(), map[string]bool{"gcmp_256": true})
+	akmGdhOnly := len(value.GetAkmSuites()) > 0 && wifiSecurityAllIn(value.GetAkmSuites(), map[string]bool{
+		"sae_gdh":    true,
+		"ft_sae_gdh": true,
+	})
+	fallback := []string{}
+	for _, cipher := range value.GetPairwiseCiphers() {
+		if cipher != "gcmp_256" {
+			fallback = append(fallback, cipher)
+		}
+	}
+	for _, akm := range value.GetAkmSuites() {
+		if akm != "sae_gdh" && akm != "ft_sae_gdh" {
+			fallback = append(fallback, akm)
+		}
+	}
+	groupMgmt256 := value.GetGroupManagementCipher() == "bip_gmac_256" || value.GetGroupManagementCipher() == "bip_cmac_256"
+	strictReady := value.GetPmfRequired() && pairwiseOnly && akmGdhOnly && value.GetBeaconProtection()
+	return fmt.Sprintf(
+		"pairwise_gcmp256_only=%t akm_gdh_only=%t group_data_gcmp256=%t group_mgmt_256=%t fallback=%s strict_ready=%t",
+		pairwiseOnly,
+		akmGdhOnly,
+		value.GetGroupDataCipher() == "gcmp_256",
+		groupMgmt256,
+		wifiMLOJoinStrings(fallback, "<none>"),
+		strictReady,
+	)
+}
+
+func wifiSecurityAllIn(values []string, allowed map[string]bool) bool {
+	for _, value := range values {
+		if !allowed[value] {
+			return false
+		}
+	}
+	return true
 }
 
 func wifiDetailedCapabilityRows(conn *controlpb.WifiConnection) []kvRow {

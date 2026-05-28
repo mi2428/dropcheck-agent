@@ -170,6 +170,12 @@ internal fun formatEhtMultiLinkElements(
                     if (profile.bodyHex.isNotBlank()) append(" body=0x${profile.bodyHex.hexPreview()}")
                 }
             }
+            securityDetailsFromProfileElements(perSta.profileElements)?.let { security ->
+                lines += "  profile_security link_id=${perSta.linkId}"
+                wifiMloSecuritySummaryLines(security).forEach { line ->
+                    lines += "    $line"
+                }
+            }
             if (perSta.profileElementsTruncated && perSta.profileElements.isEmpty() && perSta.profileHex.isNotBlank()) {
                 lines += "  profile_unparsed link_id=${perSta.linkId} bytes=${perSta.profileByteCount} body=0x${perSta.profileHex.hexPreview()}"
             }
@@ -388,7 +394,7 @@ private fun parseVendorSpecificSubelement(data: ByteArray): EhtVendorSpecificSub
     )
 }
 
-private fun parseProfileInformationElements(data: ByteArray): Pair<List<EhtProfileInformationElement>, Boolean> {
+internal fun parseProfileInformationElements(data: ByteArray): Pair<List<EhtProfileInformationElement>, Boolean> {
     if (data.isEmpty()) return emptyList<EhtProfileInformationElement>() to false
     val elements = mutableListOf<EhtProfileInformationElement>()
     var offset = 0
@@ -471,6 +477,7 @@ private fun profileInformationElementName(id: Int, idExt: Int?): String {
             106 -> "eht_operation"
             107 -> "eht_multi_link"
             108 -> "eht_capabilities"
+            56 -> "non_inheritance"
             null -> "extension"
             else -> "extension_$idExt"
         }
@@ -486,6 +493,7 @@ private fun profileInformationElementName(id: Int, idExt: Int?): String {
         35 -> "tpc_report"
         45 -> "ht_capabilities"
         48 -> "rsn"
+        244 -> "rsnxe"
         50 -> "extended_supported_rates"
         61 -> "ht_operation"
         70 -> "radio_measurement_11k"
