@@ -10,6 +10,7 @@ import io.dropcheck.agent.grpc.WifiConnection
 import io.dropcheck.agent.grpc.WifiInformationElement
 import io.dropcheck.agent.grpc.WifiScan
 import io.dropcheck.agent.grpc.WifiScanResult
+import io.dropcheck.agent.grpc.WifiSecurityDetails
 import io.dropcheck.agent.grpc.WifiStatus
 
 internal data class AgentWifiMloContext(
@@ -30,6 +31,7 @@ internal object AgentWifiMloRenderer {
 
         renderCurrentRelation(out, current, candidates)
         renderConnectedMlo(out, current)
+        renderConnectedSecurityDetails(out, current)
         renderConnectedHe6GhzDetails(out, current)
         renderConnectedEhtMultiLink(out, current)
         renderConnectedEhtDetails(out, current)
@@ -135,9 +137,44 @@ internal object AgentWifiMloRenderer {
             },
         )
         renderScanLinks(out, groups, current)
+        renderScanSecurityDetails(out, groups.flatMap { it.results })
         renderScanHe6GhzDetails(out, groups.flatMap { it.results })
         renderScanEhtMultiLink(out, groups.flatMap { it.results })
         renderScanEhtDetails(out, groups.flatMap { it.results })
+    }
+
+    private fun renderConnectedSecurityDetails(out: MutableList<String>, conn: WifiConnection?) {
+        if (conn == null || !conn.hasSecurityDetails()) return
+        section(out, "Connected Wi-Fi Security")
+        renderSecurityDetails(out, "connection", conn.securityDetails)
+    }
+
+    private fun renderScanSecurityDetails(out: MutableList<String>, results: List<WifiScanResult>) {
+        val securityResults = results.filter { it.hasSecurityDetails() }
+        if (securityResults.isEmpty()) return
+        section(out, "Scan Wi-Fi 7 Security")
+        securityResults.forEachIndexed { index, result ->
+            if (index > 0) out += ""
+            val label = "ap ssid=${empty(result.ssid, "<hidden>")} bssid=${empty(result.bssid, "<unknown>")}"
+            renderSecurityDetails(out, label, result.securityDetails)
+        }
+    }
+
+    private fun renderSecurityDetails(out: MutableList<String>, label: String, value: WifiSecurityDetails) {
+        out += "  $label"
+        securitySummaryLines(value).forEach { line -> out += "    $line" }
+    }
+
+    private fun securitySummaryLines(value: WifiSecurityDetails): List<String> = buildList {
+        if (value.rsnPresent) {
+            add("rsn version=${value.rsnVersion} group=${empty(value.groupDataCipher, "<unknown>")} pairwise=${joined(value.pairwiseCiphersList)}")
+            add("akm ${joined(value.akmSuitesList)}")
+            add("pmf capable=${value.pmfCapable} required=${value.pmfRequired} group_mgmt=${empty(value.groupManagementCipher, "<none>")}")
+        }
+        add("wifi7 gcmp256=${value.gcmp256} sae_gdh=${value.saeGdh} ft_sae_gdh=${value.ftSaeGdh} beacon_protection=${value.beaconProtection} personal_ready=${value.wifi7PersonalReady}")
+        if (value.rsnxePresent) add("rsnxe ${joined(value.rsnxeCapabilitiesList)}")
+        if (value.extendedCapabilitiesPresent) add("extended ${joined(value.extendedCapabilitiesList)}")
+        if (value.warningsCount > 0) add("warnings ${value.warningsList.joinToString(",")}")
     }
 
     private fun renderConnectedHe6GhzDetails(out: MutableList<String>, conn: WifiConnection?) {

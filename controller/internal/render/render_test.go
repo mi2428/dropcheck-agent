@@ -1003,6 +1003,7 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 							RssiDbm:      -45,
 							ApMacAddress: "aa:bb:cc:dd:ee:ff",
 						}},
+						SecurityDetails: wifi7SecurityDetailsTestValue(),
 					},
 				},
 				Capabilities: &controlpb.WifiCapabilities{
@@ -1040,6 +1041,7 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 						He_6GhzCapabilities: he6GhzCapabilitiesTestValue(),
 						EhtCapabilities:     ehtCapabilitiesTestValue(),
 						EhtOperation:        ehtOperationTestValue(),
+						SecurityDetails:     wifi7SecurityDetailsTestValue(),
 						AffiliatedMloLinks: []*controlpb.MloLinkInfo{{
 							LinkId:       1,
 							State:        "idle",
@@ -1089,6 +1091,12 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 		"Scan EHT Multi-Link Elements",
 		"Connected HE 6GHz Details",
 		"Scan HE 6GHz Details",
+		"Connected Wi-Fi Security",
+		"Scan Wi-Fi 7 Security",
+		"gcmp256=true",
+		"sae_gdh=true",
+		"beacon_protection=true",
+		"personal_ready=true",
 		"Connected EHT Details",
 		"max_mpdu=7991",
 		"max_ampdu=262143",
@@ -1350,6 +1358,33 @@ func he6GhzCapabilitiesTestValue() *controlpb.WifiHe6GhzCapabilities {
 		RxAntennaPatternConsistency: true,
 		TxAntennaPatternConsistency: true,
 		Features:                    []string{"max_mpdu_length_bytes=11454", "max_ampdu_length_bytes=262143"},
+	}
+}
+
+func wifi7SecurityDetailsTestValue() *controlpb.WifiSecurityDetails {
+	return &controlpb.WifiSecurityDetails{
+		RsnPresent:                  true,
+		RsnVersion:                  1,
+		GroupDataCipher:             "gcmp_256",
+		PairwiseCiphers:             []string{"gcmp_256"},
+		AkmSuites:                   []string{"sae_gdh", "ft_sae_gdh"},
+		RsnCapabilities:             0x00c0,
+		RsnCapabilitiesHex:          "00c0",
+		PmfCapable:                  true,
+		PmfRequired:                 true,
+		GroupManagementCipher:       "bip_gmac_256",
+		Gcmp_256:                    true,
+		SaeGdh:                      true,
+		FtSaeGdh:                    true,
+		Wifi7PersonalReady:          true,
+		RsnxePresent:                true,
+		RsnxeCapabilities:           []string{"sae_h2e", "ssid_protection"},
+		ExtendedCapabilitiesPresent: true,
+		ExtendedCapabilities:        []string{"bss_transition", "beacon_protection"},
+		BeaconProtection:            true,
+		RawRsnHex:                   "0100000fac090100000fac090200000fac18000fac19c0000000000fac0c",
+		RawRsnxeHex:                 "200020",
+		RawExtendedCapabilitiesHex:  "0000080000000000000010",
 	}
 }
 

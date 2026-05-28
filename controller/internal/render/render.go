@@ -440,6 +440,7 @@ func renderWifiConnection(b *strings.Builder, conn *controlpb.WifiConnection) {
 		kv("detailed", empty(conn.GetDetailedState(), "unknown")),
 	)
 	renderWifiConnectionCapabilities(b, conn)
+	renderWifiSecurityDetails(b, conn.GetSecurityDetails())
 	renderWifiConnectionDetailedCapabilities(b, conn)
 }
 
@@ -582,7 +583,11 @@ func newWifiAPCapabilitySummary(elements []*controlpb.WifiInformationElement) wi
 		case 127:
 			if informationElementBit(element, 19) {
 				add(bucketRoaming, "11v_bss_transition")
-			} else {
+			}
+			if informationElementBit(element, 84) {
+				add(bucketSecurity, "beacon_protection")
+			}
+			if !informationElementBit(element, 19) && !informationElementBit(element, 84) {
 				add(bucketOther, informationElementName(element))
 			}
 		case 191:
@@ -595,6 +600,8 @@ func newWifiAPCapabilitySummary(elements []*controlpb.WifiInformationElement) wi
 			add(bucketRoaming, "reduced_neighbor_report")
 		case 221:
 			summary.vendorIE++
+		case 244:
+			add(bucketSecurity, "rsn_extension")
 		case 255:
 			switch element.GetIdExt() {
 			case 35:
@@ -1208,6 +1215,7 @@ func renderScanResults(b *strings.Builder, results []*controlpb.WifiScanResult) 
 	}
 	writeDisplayTable(b, columns, rows)
 	renderScanMLOLinks(b, results)
+	renderScanSecurityDetails(b, results)
 }
 
 func scanConnectionCapabilityFlags(result *controlpb.WifiScanResult) []string {
@@ -1262,6 +1270,29 @@ func renderScanMLOLinks(b *strings.Builder, results []*controlpb.WifiScanResult)
 		}
 	}
 	writeDisplayTable(b, columns, rows)
+}
+
+func renderScanSecurityDetails(b *strings.Builder, results []*controlpb.WifiScanResult) {
+	securityResults := make([]*controlpb.WifiScanResult, 0)
+	for _, result := range results {
+		if result.GetSecurityDetails() != nil {
+			securityResults = append(securityResults, result)
+		}
+	}
+	if len(securityResults) == 0 {
+		return
+	}
+	writeSection(b, "Scan Wi-Fi Security Details")
+	for i, result := range securityResults {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		label := fmt.Sprintf("ap ssid=%s bssid=%s", empty(result.GetSsid(), "<hidden>"), empty(result.GetBssid(), "<unknown>"))
+		fmt.Fprintf(b, "  %s\n", label)
+		for _, line := range wifiSecuritySummaryLines(result.GetSecurityDetails()) {
+			fmt.Fprintf(b, "    %s\n", line)
+		}
+	}
 }
 
 func connectionInformationElementCapabilityNames(elements []*controlpb.WifiInformationElement) []string {
@@ -1369,6 +1400,8 @@ func informationElementName(element *controlpb.WifiInformationElement) string {
 		return "reduced_neighbor_report"
 	case 221:
 		return "vendor_specific"
+	case 244:
+		return "rsn_extension"
 	default:
 		return fmt.Sprintf("unknown_%d", element.GetId())
 	}
@@ -1422,6 +1455,68 @@ func renderWifiConnectionDetailedCapabilities(b *strings.Builder, conn *controlp
 		return
 	}
 	writeKVSection(b, "HE/EHT Details", rows...)
+}
+
+func renderWifiSecurityDetails(b *strings.Builder, details *controlpb.WifiSecurityDetails) {
+	if details == nil {
+		return
+	}
+	rows := wifiSecurityDetailRows(details)
+	if len(rows) == 0 {
+		return
+	}
+	writeKVSection(b, "Wi-Fi Security Details", rows...)
+}
+
+func wifiSecurityDetailRows(value *controlpb.WifiSecurityDetails) []kvRow {
+	rows := []kvRow{}
+	if value.GetRsnPresent() {
+		rows = append(rows,
+			kv("rsn", fmt.Sprintf("version=%d capabilities=0x%s", value.GetRsnVersion(), value.GetRsnCapabilitiesHex())),
+			kv("group_data", value.GetGroupDataCipher()),
+			kv("pairwise", strings.Join(value.GetPairwiseCiphers(), ",")),
+			kv("akm", strings.Join(value.GetAkmSuites(), ",")),
+			kv("pmf", fmt.Sprintf("capable=%t required=%t", value.GetPmfCapable(), value.GetPmfRequired())),
+		)
+		if value.GetGroupManagementCipher() != "" {
+			rows = append(rows, kv("group_mgmt", value.GetGroupManagementCipher()))
+		}
+	}
+	rows = append(rows, kv("wifi7", fmt.Sprintf("gcmp256=%t sae_gdh=%t ft_sae_gdh=%t beacon_protection=%t personal_ready=%t",
+		value.GetGcmp_256(), value.GetSaeGdh(), value.GetFtSaeGdh(), value.GetBeaconProtection(), value.GetWifi7PersonalReady())))
+	if value.GetRsnxePresent() {
+		rows = append(rows, kv("rsnxe", strings.Join(value.GetRsnxeCapabilities(), ",")))
+	}
+	if value.GetExtendedCapabilitiesPresent() {
+		rows = append(rows, kv("extended", strings.Join(value.GetExtendedCapabilities(), ",")))
+	}
+	if len(value.GetWarnings()) > 0 {
+		rows = append(rows, kv("warnings", multiLineValue(value.GetWarnings())))
+	}
+	return nonEmptyKVRows(rows)
+}
+
+func wifiSecuritySummaryLines(value *controlpb.WifiSecurityDetails) []string {
+	lines := []string{}
+	if value.GetRsnPresent() {
+		lines = append(lines,
+			fmt.Sprintf("rsn version=%d group=%s pairwise=%s", value.GetRsnVersion(), empty(value.GetGroupDataCipher(), "<unknown>"), wifiMLOJoinStrings(value.GetPairwiseCiphers(), "<none>")),
+			fmt.Sprintf("akm %s", wifiMLOJoinStrings(value.GetAkmSuites(), "<none>")),
+			fmt.Sprintf("pmf capable=%t required=%t group_mgmt=%s", value.GetPmfCapable(), value.GetPmfRequired(), empty(value.GetGroupManagementCipher(), "<none>")),
+		)
+	}
+	lines = append(lines, fmt.Sprintf("wifi7 gcmp256=%t sae_gdh=%t ft_sae_gdh=%t beacon_protection=%t personal_ready=%t",
+		value.GetGcmp_256(), value.GetSaeGdh(), value.GetFtSaeGdh(), value.GetBeaconProtection(), value.GetWifi7PersonalReady()))
+	if value.GetRsnxePresent() {
+		lines = append(lines, "rsnxe "+wifiMLOJoinStrings(value.GetRsnxeCapabilities(), "<none>"))
+	}
+	if value.GetExtendedCapabilitiesPresent() {
+		lines = append(lines, "extended "+wifiMLOJoinStrings(value.GetExtendedCapabilities(), "<none>"))
+	}
+	if len(value.GetWarnings()) > 0 {
+		lines = append(lines, "warnings "+strings.Join(value.GetWarnings(), ","))
+	}
+	return lines
 }
 
 func wifiDetailedCapabilityRows(conn *controlpb.WifiConnection) []kvRow {

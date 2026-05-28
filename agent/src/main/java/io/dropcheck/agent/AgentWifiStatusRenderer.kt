@@ -12,6 +12,7 @@ import io.dropcheck.agent.grpc.WifiHeSpatialReuseParameterSet
 import io.dropcheck.agent.grpc.WifiHeUoraParameterSet
 import io.dropcheck.agent.grpc.WifiInformationElement
 import io.dropcheck.agent.grpc.WifiMcsNssSupport
+import io.dropcheck.agent.grpc.WifiSecurityDetails
 import io.dropcheck.agent.grpc.WifiStatus
 
 /** Text renderer used by the on-device shell for `show wifi status`. */
@@ -86,6 +87,7 @@ internal object AgentWifiStatusRenderer {
             "detailed" to empty(conn.detailedState, "unknown"),
         )
         renderAPCapabilities(out, conn)
+        renderWifiSecurityDetails(out, conn)
         renderDetailedWifiCapabilities(out, conn)
     }
 
@@ -166,16 +168,14 @@ internal object AgentWifiStatusRenderer {
                 70 -> summary.roaming += "11k"
                 107 -> summary.network += "interworking"
                 111 -> summary.network += "roaming_consortium"
-                127 -> if (informationElementBit(element, 19)) {
-                    summary.roaming += "11v_bss_transition"
-                } else {
-                    summary.other += informationElementName(element)
+                127 -> {
+                    if (informationElementBit(element, 19)) summary.roaming += "11v_bss_transition"
+                    if (informationElementBit(element, 84)) summary.security += "beacon_protection"
+                    if (!informationElementBit(element, 19) && !informationElementBit(element, 84)) {
+                        summary.other += informationElementName(element)
+                    }
                 }
-                191 -> summary.phy += "vht"
-                192 -> summary.operation += "vht_operation"
-                195 -> summary.radio += "tx_power_envelope"
-                201 -> summary.roaming += "reduced_neighbor_report"
-                221 -> summary.vendorIe++
+                244 -> summary.security += "rsn_extension"
                 255 -> when (element.idExt) {
                     35 -> summary.phy += "he"
                     36 -> summary.operation += "he_operation"
@@ -200,6 +200,31 @@ internal object AgentWifiStatusRenderer {
         val rx = conn.maxSupportedRxLinkSpeedMbps
         if (tx <= 0 && rx <= 0) return null
         return "tx=${tx}Mbps rx=${rx}Mbps"
+    }
+
+    private fun renderWifiSecurityDetails(out: MutableList<String>, conn: WifiConnection) {
+        if (!conn.hasSecurityDetails()) return
+        val rows = wifiSecurityDetailRows(conn.securityDetails)
+        if (rows.isEmpty()) return
+        section(out, "Wi-Fi Security Details")
+        kv(out, *rows.toTypedArray())
+    }
+
+    private fun wifiSecurityDetailRows(value: WifiSecurityDetails): List<Pair<String, String>> {
+        return buildList {
+            if (value.rsnPresent) {
+                add("rsn" to "version=${value.rsnVersion} capabilities=0x${value.rsnCapabilitiesHex}")
+                add("group_data" to value.groupDataCipher)
+                add("pairwise" to joined(value.pairwiseCiphersList))
+                add("akm" to joined(value.akmSuitesList))
+                add("pmf" to "capable=${value.pmfCapable} required=${value.pmfRequired}")
+                if (value.groupManagementCipher.isNotBlank()) add("group_mgmt" to value.groupManagementCipher)
+            }
+            add("wifi7" to "gcmp256=${value.gcmp256} sae_gdh=${value.saeGdh} ft_sae_gdh=${value.ftSaeGdh} beacon_protection=${value.beaconProtection} personal_ready=${value.wifi7PersonalReady}")
+            if (value.rsnxePresent) add("rsnxe" to joined(value.rsnxeCapabilitiesList))
+            if (value.extendedCapabilitiesPresent) add("extended" to joined(value.extendedCapabilitiesList))
+            if (value.warningsCount > 0) add("warnings" to multiLineValue(value.warningsList))
+        }.filter { it.second.isNotBlank() }
     }
 
     private fun informationElementName(element: WifiInformationElement): String {
@@ -233,6 +258,7 @@ internal object AgentWifiStatusRenderer {
             195 -> "tx_power_envelope"
             201 -> "reduced_neighbor_report"
             221 -> "vendor_specific"
+            244 -> "rsn_extension"
             else -> "unknown_${element.id}"
         }
     }
