@@ -1007,8 +1007,10 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 					},
 				},
 				Capabilities: &controlpb.WifiCapabilities{
-					SupportedStandards: []string{"802.11ax", "802.11be"},
-					SupportedFeatures:  []string{"tid_to_link_mapping_negotiation"},
+					SupportedBands:         []string{"6GHz"},
+					SupportedStandards:     []string{"802.11ax", "802.11be"},
+					SupportedSecurityModes: []string{"wpa3_sae", "wpa3_sae_h2e", "wpa3_sae_public_key", "owe"},
+					SupportedFeatures:      []string{"tid_to_link_mapping_negotiation", "dual_band_simultaneous", "sta_concurrency_multi_internet"},
 				},
 				Networks: []*controlpb.NetworkDiagnostics{{
 					NetworkId: "100",
@@ -1026,17 +1028,24 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 				Scan: &controlpb.WifiScan{
 					Fields: []*controlpb.DiagnosticField{{Key: "scan_result_count", Value: "1"}},
 					Results: []*controlpb.WifiScanResult{{
-						Ssid:            "Lab",
-						Bssid:           "aa:bb:cc:dd:ee:ff",
-						RssiDbm:         -45,
-						Band:            "6ghz",
-						FrequencyMhz:    5975,
-						ChannelWidth:    "CHANNEL_WIDTH_80MHZ",
-						WifiStandard:    "802.11be",
-						ApMldMacAddress: "02:00:00:00:00:01",
-						ApMloLinkId:     2,
+						Ssid:                           "Lab",
+						Bssid:                          "aa:bb:cc:dd:ee:ff",
+						RssiDbm:                        -45,
+						Band:                           "6ghz",
+						FrequencyMhz:                   5975,
+						ChannelWidth:                   "CHANNEL_WIDTH_80MHZ",
+						WifiStandard:                   "802.11be",
+						Responder_80211Mc:              true,
+						Responder_80211AzNtb:           true,
+						RangingFrameProtectionRequired: true,
+						SecureHeLtfSupported:           true,
+						TwtResponder:                   true,
+						ApMldMacAddress:                "02:00:00:00:00:01",
+						ApMloLinkId:                    2,
 						InformationElements: []*controlpb.WifiInformationElement{
 							ehtMultiLinkTestIE(),
+							rnrTestIE(),
+							multipleBSSIDTestIE(),
 						},
 						He_6GhzCapabilities: he6GhzCapabilitiesTestValue(),
 						EhtCapabilities:     ehtCapabilitiesTestValue(),
@@ -1097,6 +1106,19 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 		"sae_gdh=true",
 		"beacon_protection=true",
 		"personal_ready=true",
+		"wifi7_strict pairwise_gcmp256_only=true akm_gdh_only=true group_data_gcmp256=true group_mgmt_256=true fallback=<none> strict_ready=true",
+		"ie rsn=false rsnxe=false ext_cap=false rnr=true mbssid=true noninherit=false eht_mle=true ap_mld=true link_id=true",
+		"sdk_flags twt=true 11az_ntb=true ranging_prot=true secure_he_ltf=true 11mc=true",
+		"Scan RNR Details",
+		"mld ap_mld_id=7 link_id=2",
+		"Scan Multiple BSSID Details",
+		"profile #1",
+		"noninherit=ids:48/ext:106",
+		"profile_security #1",
+		"Wi-Fi 7 Device Readiness",
+		"band_6ghz",
+		"wpa3_sae_h2e",
+		"dual_band_simultaneous",
 		"Connected EHT Details",
 		"max_mpdu=7991",
 		"max_ampdu=262143",
@@ -1342,6 +1364,22 @@ func detailedEHTMultiLinkTestIE() *controlpb.WifiInformationElement {
 		IdExt:     107,
 		ByteCount: 53,
 		BytesHex:  "3000090200000000010207001672090c020000000002640001030500034c6162ff036afe080102ff046c010203dd060011220799aa",
+	}
+}
+
+func rnrTestIE() *controlpb.WifiInformationElement {
+	return &controlpb.WifiInformationElement{
+		Id:        201,
+		ByteCount: 20,
+		BytesHex:  "001083050aaabbccddeeff112233448015073210",
+	}
+}
+
+func multipleBSSIDTestIE() *controlpb.WifiInformationElement {
+	return &controlpb.WifiInformationElement{
+		Id:        71,
+		ByteCount: 55,
+		BytesHex:  "02003400034c61625502040353023412ff05380130016a301e0100000fac090100000fac090200000fac18000fac19c0000000000fac0c",
 	}
 }
 

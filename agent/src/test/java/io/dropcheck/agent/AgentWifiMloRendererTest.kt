@@ -2,6 +2,7 @@ package io.dropcheck.agent
 
 import io.dropcheck.agent.grpc.DiagnosticField
 import io.dropcheck.agent.grpc.MloLinkInfo
+import io.dropcheck.agent.grpc.WifiCapabilities
 import io.dropcheck.agent.grpc.WifiConnection
 import io.dropcheck.agent.grpc.WifiScan
 import io.dropcheck.agent.grpc.WifiScanResult
@@ -22,7 +23,15 @@ class AgentWifiMloRendererTest {
         val scan = WifiScan.newBuilder()
             .addFields(field("scan_result_count", "3"))
             .addFields(field("scan_result_total_count", "4"))
-            .addResults(mloScanResult("Lab", "aa:bb:cc:dd:ee:ff", -45, "02:00:00:00:00:01", 2))
+            .addResults(mloScanResult("Lab", "aa:bb:cc:dd:ee:ff", -45, "02:00:00:00:00:01", 2).toBuilder()
+                .setResponder80211Mc(true)
+                .setResponder80211AzNtb(true)
+                .setRangingFrameProtectionRequired(true)
+                .setSecureHeLtfSupported(true)
+                .setTwtResponder(true)
+                .addInformationElements(rnrIe())
+                .addInformationElements(multipleBssidIe())
+                .build())
             .addResults(mloScanResult("Lab", "aa:bb:cc:dd:ee:01", -55, "02:00:00:00:00:01", 1))
             .addResults(WifiScanResult.newBuilder()
                 .setSsid("Legacy")
@@ -38,7 +47,7 @@ class AgentWifiMloRendererTest {
         val out = AgentWifiMloRenderer.render(
             status,
             scan,
-            AgentWifiMloContext(scanSource = "cached", sdkInt = 36, wifi7Supported = true),
+            AgentWifiMloContext(scanSource = "cached", sdkInt = 36, wifi7Supported = true, wifiCapabilities = wifiCapabilities()),
         ).joinToString("\n")
 
         listOf(
@@ -54,7 +63,15 @@ class AgentWifiMloRendererTest {
             "[*] Lab",
             "ap_mld=02:00:00:00:00:01 link=2 bssid=aa:bb:cc:dd:ee:ff",
             "band=6ghz ch=5 freq=5975MHz width=80MHz rssi=-45dBm",
+            "ie rsn=false rsnxe=false ext_cap=false rnr=true mbssid=true noninherit=false eht_mle=true ap_mld=true link_id=true",
+            "sdk_flags twt=true 11az_ntb=true ranging_prot=true secure_he_ltf=true 11mc=true",
             "[+] affiliated Lab",
+            "Scan RNR Details",
+            "mld ap_mld_id=7 link_id=2",
+            "Scan Multiple BSSID Details",
+            "profile #1",
+            "noninherit=ids:48/ext:106",
+            "profile_security #1",
             "Connected EHT Multi-Link Elements",
             "ml_control raw=0x0030 type=basic(0) presence=link_id_info,bss_parameters_change_count bytes=28",
             "common_info len=9 mld_mac=02:00:00:00:00:01 link_id=2 bss_param_change_count=7",
@@ -65,6 +82,10 @@ class AgentWifiMloRendererTest {
             "Current AP Relation",
             "same_mld_results",
             "visible_links",
+            "Wi-Fi 7 Device Readiness",
+            "band_6ghz",
+            "wpa3_sae_h2e",
+            "dual_band_simultaneous",
             "Diagnostics / Warnings",
             "none",
         ).forEach { want ->
@@ -360,6 +381,36 @@ class AgentWifiMloRendererTest {
             .setIdExt(107)
             .setByteCount(53)
             .setBytesHex("3000090200000000010207001672090c020000000002640001030500034c6162ff036afe080102ff046c010203dd060011220799aa")
+            .build()
+    }
+
+    private fun rnrIe(): io.dropcheck.agent.grpc.WifiInformationElement {
+        return io.dropcheck.agent.grpc.WifiInformationElement.newBuilder()
+            .setId(201)
+            .setByteCount(20)
+            .setBytesHex("001083050aaabbccddeeff112233448015073210")
+            .build()
+    }
+
+    private fun multipleBssidIe(): io.dropcheck.agent.grpc.WifiInformationElement {
+        return io.dropcheck.agent.grpc.WifiInformationElement.newBuilder()
+            .setId(71)
+            .setByteCount(55)
+            .setBytesHex("02003400034c61625502040353023412ff05380130016a301e0100000fac090100000fac090200000fac18000fac19c0000000000fac0c")
+            .build()
+    }
+
+    private fun wifiCapabilities(): WifiCapabilities {
+        return WifiCapabilities.newBuilder()
+            .addSupportedBands("6GHz")
+            .addSupportedStandards("802.11be")
+            .addSupportedSecurityModes("wpa3_sae")
+            .addSupportedSecurityModes("wpa3_sae_h2e")
+            .addSupportedSecurityModes("wpa3_sae_public_key")
+            .addSupportedSecurityModes("owe")
+            .addSupportedFeatures("tid_to_link_mapping_negotiation")
+            .addSupportedFeatures("dual_band_simultaneous")
+            .addSupportedFeatures("sta_concurrency_multi_internet")
             .build()
     }
 

@@ -307,7 +307,7 @@ private fun parseEhtOperation(bytes: ByteArray): WifiEhtOperation {
     return builder.build()
 }
 
-private fun parseWifiSecurityDetails(elements: List<WifiInformationElement>): WifiSecurityDetails? {
+internal fun parseWifiSecurityDetails(elements: List<WifiInformationElement>): WifiSecurityDetails? {
     val rsn = elements.firstElement(RSN_ELEMENT_ID)?.bytes()
     val rsnxe = elements.firstElement(RSNXE_ELEMENT_ID)?.bytes()
     val extendedCapabilities = elements.firstElement(EXTENDED_CAPABILITIES_ELEMENT_ID)?.bytes()

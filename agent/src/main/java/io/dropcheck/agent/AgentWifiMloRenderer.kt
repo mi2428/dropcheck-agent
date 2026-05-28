@@ -6,6 +6,7 @@ import io.dropcheck.agent.grpc.WifiEhtCapabilities
 import io.dropcheck.agent.grpc.WifiEhtOperation
 import io.dropcheck.agent.grpc.WifiHe6GhzCapabilities
 import io.dropcheck.agent.grpc.WifiMcsNssSupport
+import io.dropcheck.agent.grpc.WifiCapabilities
 import io.dropcheck.agent.grpc.WifiConnection
 import io.dropcheck.agent.grpc.WifiInformationElement
 import io.dropcheck.agent.grpc.WifiScan
@@ -17,6 +18,7 @@ internal data class AgentWifiMloContext(
     val scanSource: String = "cached",
     val sdkInt: Int = Build.VERSION.SDK_INT,
     val wifi7Supported: Boolean? = null,
+    val wifiCapabilities: WifiCapabilities? = null,
     val scanCommandStatus: String = "",
     val scanCommandMessage: String = "",
 )
@@ -37,6 +39,7 @@ internal object AgentWifiMloRenderer {
         renderConnectedEhtDetails(out, current)
         renderScanSummary(out, scan, candidates, context)
         renderNearbyMlo(out, groups, current)
+        renderWifi7DeviceReadiness(out, context)
         renderDiagnostics(out, status, scan, current, candidates, context)
         return out
     }
@@ -138,6 +141,8 @@ internal object AgentWifiMloRenderer {
         )
         renderScanLinks(out, groups, current)
         renderScanSecurityDetails(out, groups.flatMap { it.results })
+        renderScanRnrDetails(out, groups.flatMap { it.results })
+        renderScanMultipleBssidDetails(out, groups.flatMap { it.results })
         renderScanHe6GhzDetails(out, groups.flatMap { it.results })
         renderScanEhtMultiLink(out, groups.flatMap { it.results })
         renderScanEhtDetails(out, groups.flatMap { it.results })
@@ -162,19 +167,39 @@ internal object AgentWifiMloRenderer {
 
     private fun renderSecurityDetails(out: MutableList<String>, label: String, value: WifiSecurityDetails) {
         out += "  $label"
-        securitySummaryLines(value).forEach { line -> out += "    $line" }
+        wifiMloSecuritySummaryLines(value).forEach { line -> out += "    $line" }
     }
 
-    private fun securitySummaryLines(value: WifiSecurityDetails): List<String> = buildList {
-        if (value.rsnPresent) {
-            add("rsn version=${value.rsnVersion} group=${empty(value.groupDataCipher, "<unknown>")} pairwise=${joined(value.pairwiseCiphersList)}")
-            add("akm ${joined(value.akmSuitesList)}")
-            add("pmf capable=${value.pmfCapable} required=${value.pmfRequired} group_mgmt=${empty(value.groupManagementCipher, "<none>")}")
+    private fun renderScanRnrDetails(out: MutableList<String>, results: List<WifiScanResult>) {
+        val lines = results.flatMap { result ->
+            formatWifiMloRnrDetails(
+                "ap ssid=${empty(result.ssid, "<hidden>")} bssid=${empty(result.bssid, "<unknown>")}",
+                result.informationElementsList,
+            )
         }
-        add("wifi7 gcmp256=${value.gcmp256} sae_gdh=${value.saeGdh} ft_sae_gdh=${value.ftSaeGdh} beacon_protection=${value.beaconProtection} personal_ready=${value.wifi7PersonalReady}")
-        if (value.rsnxePresent) add("rsnxe ${joined(value.rsnxeCapabilitiesList)}")
-        if (value.extendedCapabilitiesPresent) add("extended ${joined(value.extendedCapabilitiesList)}")
-        if (value.warningsCount > 0) add("warnings ${value.warningsList.joinToString(",")}")
+        if (lines.isEmpty()) return
+        section(out, "Scan RNR Details")
+        out += lines.map { "  $it" }
+    }
+
+    private fun renderScanMultipleBssidDetails(out: MutableList<String>, results: List<WifiScanResult>) {
+        val lines = results.flatMap { result ->
+            formatWifiMloMultipleBssidDetails(
+                "ap ssid=${empty(result.ssid, "<hidden>")} bssid=${empty(result.bssid, "<unknown>")}",
+                result.informationElementsList,
+            )
+        }
+        if (lines.isEmpty()) return
+        section(out, "Scan Multiple BSSID Details")
+        out += lines.map { "  $it" }
+    }
+
+    private fun renderWifi7DeviceReadiness(out: MutableList<String>, context: AgentWifiMloContext) {
+        val rows = wifi7DeviceReadinessRows(context.wifiCapabilities, context.wifi7Supported)
+            .filter { it.second.isNotBlank() }
+        if (rows.isEmpty()) return
+        section(out, "Wi-Fi 7 Device Readiness")
+        kv(out, rows)
     }
 
     private fun renderConnectedHe6GhzDetails(out: MutableList<String>, conn: WifiConnection?) {
@@ -337,6 +362,8 @@ internal object AgentWifiMloRenderer {
         blockTitle(out, resultMark(group, result, current), empty(result.ssid, "<hidden>"))
         out += "  ap_mld=${group.displayMld} link=${scanLinkID(result)} bssid=${empty(result.bssid, "<unknown>")}"
         out += "  band=${empty(result.band, wifiBandFromFrequency(result.frequencyMhz))} ch=${wifiChannelFromFrequency(result.frequencyMhz)} freq=${result.frequencyMhz}MHz width=${empty(formatWifiChannelWidth(result.channelWidth), "<unknown>")}${scanEhtOperationSuffix(result)} rssi=${result.rssiDbm}dBm"
+        out += "  ${wifiMloInformationElementChecklist(result)}"
+        out += "  ${wifiMloScanSdkFlags(result)}"
     }
 
     private fun renderAffiliatedLinkBlock(

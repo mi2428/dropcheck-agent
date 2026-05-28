@@ -256,6 +256,12 @@ func formatEHTMultiLinkElements(label string, elements []ehtMultiLinkElement) []
 				}
 				lines = append(lines, "  "+strings.Join(profileParts, " "))
 			}
+			if security := wifiSecurityDetailsFromProfileElements(perSTA.profileElements); security != nil {
+				lines = append(lines, fmt.Sprintf("  profile_security link_id=%d", perSTA.linkID))
+				for _, line := range wifiSecuritySummaryLines(security) {
+					lines = append(lines, "    "+line)
+				}
+			}
 			if perSTA.profileElementsTruncated && len(perSTA.profileElements) == 0 && perSTA.profileHex != "" {
 				lines = append(lines, fmt.Sprintf("  profile_unparsed link_id=%d bytes=%d body=0x%s", perSTA.linkID, perSTA.profileByteCount, hexPreview(perSTA.profileHex, 32)))
 			}
@@ -701,6 +707,8 @@ func profileInformationElementName(id int, idExt *int) string {
 			return "eht_multi_link"
 		case 108:
 			return "eht_capabilities"
+		case 56:
+			return "non_inheritance"
 		default:
 			return fmt.Sprintf("extension_%d", *idExt)
 		}
@@ -736,6 +744,8 @@ func profileInformationElementName(id int, idExt *int) string {
 		return "overlapping_bss_scan_parameters"
 	case 127:
 		return "extended_capabilities"
+	case 244:
+		return "rsnxe"
 	case 191:
 		return "vht_capabilities"
 	case 192:
