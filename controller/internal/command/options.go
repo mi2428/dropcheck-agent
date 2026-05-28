@@ -1,8 +1,8 @@
 package command
 
 const (
-	// WifiRenderModeMLO renders WifiDiagnostics as an MLO-focused summary.
-	WifiRenderModeMLO = "mlo"
+	// WifiRenderModeEHT renders WifiDiagnostics as an EHT-focused summary.
+	WifiRenderModeEHT = "eht"
 )
 
 // Options describes controller-local behavior attached to an Operation.
@@ -16,12 +16,12 @@ type Options struct {
 	TracerouteRequiredHops []string
 	// WifiRenderMode selects a controller-only Wi-Fi diagnostics presentation.
 	WifiRenderMode string
-	// WifiMLOFreshScan requests a fresh Wi-Fi scan before rendering MLO output.
-	WifiMLOFreshScan bool
-	// WifiMLOFreshScanTimeoutMs is the fresh-scan wait timeout in milliseconds.
-	WifiMLOFreshScanTimeoutMs uint32
-	// WifiMLOSSID filters the MLO render view to scan/current entries for one SSID.
-	WifiMLOSSID string
-	// WifiMLOBSSID filters the MLO render view to scan/current entries for one BSSID.
-	WifiMLOBSSID string
+	// WifiEHTFreshScan requests a fresh Wi-Fi scan before rendering EHT output.
+	WifiEHTFreshScan bool
+	// WifiEHTFreshScanTimeoutMs is the fresh-scan wait timeout in milliseconds.
+	WifiEHTFreshScanTimeoutMs uint32
+	// WifiEHTSSID filters the EHT render view to scan/current entries for one SSID.
+	WifiEHTSSID string
+	// WifiEHTBSSID filters the EHT render view to scan/current entries for one BSSID.
+	WifiEHTBSSID string
 }

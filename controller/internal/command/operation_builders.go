@@ -64,15 +64,15 @@ type WifiExpectationOptions struct {
 	Timeout string
 }
 
-// WifiMLOOptions is the typed input for the MLO-focused Wi-Fi diagnostics view.
-type WifiMLOOptions struct {
-	// Fresh triggers an immediate Wi-Fi scan before rendering the MLO view.
+// WifiEHTOptions is the typed input for the EHT-focused Wi-Fi diagnostics view.
+type WifiEHTOptions struct {
+	// Fresh triggers an immediate Wi-Fi scan before rendering the EHT view.
 	Fresh bool
 	// Timeout is the fresh-scan wait timeout in milliseconds; empty uses the default.
 	Timeout string
-	// SSID filters the rendered MLO view to one SSID.
+	// SSID filters the rendered EHT view to one SSID.
 	SSID string
-	// BSSID filters the rendered MLO view to one BSSID.
+	// BSSID filters the rendered EHT view to one BSSID.
 	BSSID string
 }
 
@@ -130,43 +130,43 @@ func WifiDiagnosticsOperation() Operation {
 	}, Options{})
 }
 
-// WifiMLOOperation builds an MLO-focused Wi-Fi diagnostics inspection operation.
-func WifiMLOOperation() Operation {
-	op, _ := WifiMLOOperationWithOptions(WifiMLOOptions{})
+// WifiEHTOperation builds an EHT-focused Wi-Fi diagnostics inspection operation.
+func WifiEHTOperation() Operation {
+	op, _ := WifiEHTOperationWithOptions(WifiEHTOptions{})
 	return op
 }
 
-// WifiMLOOperationWithOptions builds an MLO-focused Wi-Fi diagnostics operation.
+// WifiEHTOperationWithOptions builds an EHT-focused Wi-Fi diagnostics operation.
 //
 // When Fresh is set, the controller runs a fresh scan before the diagnostics
-// command and renders the MLO view with that scan payload.
-func WifiMLOOperationWithOptions(opts WifiMLOOptions) (Operation, error) {
+// command and renders the EHT view with that scan payload.
+func WifiEHTOperationWithOptions(opts WifiEHTOptions) (Operation, error) {
 	if opts.SSID != "" && opts.BSSID != "" {
 		return Operation{}, errors.New("ssid and bssid filters cannot be used together")
 	}
-	options := Options{WifiRenderMode: WifiRenderModeMLO}
-	parts := []string{"wifi", "mlo"}
+	options := Options{WifiRenderMode: WifiRenderModeEHT}
+	parts := []string{"wifi", "eht"}
 	if opts.Fresh {
 		timeoutMs, err := parseOptionalUint32(opts.Timeout, "timeout", 10000)
 		if err != nil {
 			return Operation{}, err
 		}
-		options.WifiMLOFreshScan = true
-		options.WifiMLOFreshScanTimeoutMs = timeoutMs
+		options.WifiEHTFreshScan = true
+		options.WifiEHTFreshScanTimeoutMs = timeoutMs
 		parts = append(parts, "fresh")
 		appendValueOption(&parts, "--timeout", opts.Timeout)
 	} else if opts.Timeout != "" {
-		return Operation{}, errors.New("timeout is supported only with wifi mlo fresh")
+		return Operation{}, errors.New("timeout is supported only with wifi eht fresh")
 	}
 	if opts.SSID != "" {
-		options.WifiMLOSSID = opts.SSID
+		options.WifiEHTSSID = opts.SSID
 		parts = append(parts, "ssid", opts.SSID)
 	}
 	if opts.BSSID != "" {
-		options.WifiMLOBSSID = opts.BSSID
+		options.WifiEHTBSSID = opts.BSSID
 		parts = append(parts, "bssid", opts.BSSID)
 	}
-	return NewOperation("wifi.mlo", &controlpb.RunCommand{
+	return NewOperation("wifi.eht", &controlpb.RunCommand{
 		Label:   strings.Join(parts, " "),
 		Command: &controlpb.RunCommand_GetWifiDiagnostics{GetWifiDiagnostics: &controlpb.GetWifiDiagnostics{}},
 	}, options), nil

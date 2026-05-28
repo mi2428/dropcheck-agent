@@ -501,9 +501,9 @@ func parseShellShowStandalone(args []string) (Command, error) {
 
 func parseShellShowWifi(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: show wifi <status|diagnostics|mlo|scan|capabilities>")
+		return Command{}, fmt.Errorf("usage: show wifi <status|diagnostics|eht|scan|capabilities>")
 	}
-	name, err := resolveShellKeyword("show wifi command", args[0], []string{"status", "diagnostics", "mlo", "scan", "capabilities"})
+	name, err := resolveShellKeyword("show wifi command", args[0], []string{"status", "diagnostics", "eht", "scan", "capabilities"})
 	if err != nil {
 		return Command{}, err
 	}
@@ -518,8 +518,8 @@ func parseShellShowWifi(args []string) (Command, error) {
 			return Command{}, fmt.Errorf("usage: show wifi diagnostics")
 		}
 		return agentShellCommand(command.WifiDiagnosticsOperation()), nil
-	case "mlo":
-		return parseShellShowWifiMLO(args[1:])
+	case "eht":
+		return parseShellShowWifiEHT(args[1:])
 	case "capabilities":
 		if len(args) != 1 {
 			return Command{}, fmt.Errorf("usage: show wifi capabilities")
@@ -532,14 +532,14 @@ func parseShellShowWifi(args []string) (Command, error) {
 	}
 }
 
-func parseShellShowWifiMLO(args []string) (Command, error) {
+func parseShellShowWifiEHT(args []string) (Command, error) {
 	if len(args) == 0 {
-		return agentShellCommand(command.WifiMLOOperation()), nil
+		return agentShellCommand(command.WifiEHTOperation()), nil
 	}
 	values := map[string]string{}
 	fresh := false
 	for i := 0; i < len(args); i++ {
-		if key, err := resolveShellKeyword("show wifi mlo option", args[i], []string{"fresh", "timeout", "ssid", "bssid"}); err == nil {
+		if key, err := resolveShellKeyword("show wifi eht option", args[i], []string{"fresh", "timeout", "ssid", "bssid"}); err == nil {
 			if key == "fresh" {
 				if fresh {
 					return Command{}, fmt.Errorf("fresh specified twice")
@@ -563,15 +563,15 @@ func parseShellShowWifiMLO(args []string) (Command, error) {
 			}
 			continue
 		}
-		return Command{}, fmt.Errorf("usage: show wifi mlo [fresh [timeout <ms>]] [ssid <ssid>|bssid <bssid>]")
+		return Command{}, fmt.Errorf("usage: show wifi eht [fresh [timeout <ms>]] [ssid <ssid>|bssid <bssid>]")
 	}
 	if !fresh && values["timeout"] != "" {
-		return Command{}, fmt.Errorf("timeout is supported only with wifi mlo fresh")
+		return Command{}, fmt.Errorf("timeout is supported only with wifi eht fresh")
 	}
 	if values["ssid"] != "" && values["bssid"] != "" {
 		return Command{}, fmt.Errorf("ssid and bssid filters cannot be used together")
 	}
-	op, err := command.WifiMLOOperationWithOptions(command.WifiMLOOptions{
+	op, err := command.WifiEHTOperationWithOptions(command.WifiEHTOptions{
 		Fresh:   fresh,
 		Timeout: values["timeout"],
 		SSID:    values["ssid"],

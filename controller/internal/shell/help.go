@@ -18,7 +18,7 @@ func writeShellHelp(w io.Writer) {
   show config [standalone]
   show wifi status
   show wifi diagnostics
-  show wifi mlo [fresh [timeout <ms>]] [ssid <ssid>|bssid <bssid>]
+  show wifi eht [fresh [timeout <ms>]] [ssid <ssid>|bssid <bssid>]
   show wifi scan [all|2.4ghz|5ghz|6ghz|60ghz]
   show wifi scan fresh [timeout <ms>] [all|2.4ghz|5ghz|6ghz|60ghz]
   show wifi scan detail [all|2.4ghz|5ghz|6ghz|60ghz] <ssid|bssid>
@@ -299,7 +299,7 @@ func resolveContextKeywordInMode(index int, previous []string, value string, mod
 			return resolveShellKeyword("show config command", value, []string{"standalone"})
 		}
 		if previous[0] == "show" && previous[1] == "wifi" {
-			return resolveShellKeyword("show wifi command", value, []string{"status", "diagnostics", "mlo", "scan", "capabilities"})
+			return resolveShellKeyword("show wifi command", value, []string{"status", "diagnostics", "eht", "scan", "capabilities"})
 		}
 		if previous[0] == "show" && previous[1] == "ip" {
 			return resolveShellKeyword("show ip command", value, []string{"status"})
@@ -395,7 +395,7 @@ func helpEntriesForArgsInMode(args []string, mode Mode) []HelpEntry {
 			return []HelpEntry{{"standalone", "Standalone configuration subtree"}}
 		}
 		if len(args) == 2 && args[1] == "wifi" {
-			return []HelpEntry{{"status", "Current Wi-Fi connection and IP state"}, {"diagnostics", "Wi-Fi status, capabilities, networks, and scan"}, {"mlo", "Connected and nearby MLO state"}, {"scan", "Cached or fresh scan results"}, {"capabilities", "Device Wi-Fi capabilities"}}
+			return []HelpEntry{{"status", "Current Wi-Fi connection and IP state"}, {"diagnostics", "Wi-Fi status, capabilities, networks, and scan"}, {"eht", "Connected and nearby EHT state"}, {"scan", "Cached or fresh scan results"}, {"capabilities", "Device Wi-Fi capabilities"}}
 		}
 		if len(args) == 2 && args[1] == "ip" {
 			return []HelpEntry{{"status", "IP addresses, routes, DNS, and validation state"}}
@@ -403,18 +403,18 @@ func helpEntriesForArgsInMode(args []string, mode Mode) []HelpEntry {
 		if len(args) == 3 && args[1] == "wifi" && args[2] == "scan" {
 			return []HelpEntry{{"fresh", "Trigger a fresh scan"}, {"detail", "Show detail for an SSID or BSSID"}, {"all", "All bands"}, {"2.4ghz", "2.4 GHz band"}, {"5ghz", "5 GHz band"}, {"6ghz", "6 GHz band"}, {"60ghz", "60 GHz band"}}
 		}
-		if len(args) == 3 && args[1] == "wifi" && args[2] == "mlo" {
+		if len(args) == 3 && args[1] == "wifi" && args[2] == "eht" {
 			return []HelpEntry{
-				{"fresh", "Trigger a fresh scan before rendering MLO"},
-				{"ssid", "Filter MLO output by SSID"},
-				{"bssid", "Filter MLO output by BSSID or affiliated AP MAC"},
+				{"fresh", "Trigger a fresh scan before rendering EHT"},
+				{"ssid", "Filter EHT output by SSID"},
+				{"bssid", "Filter EHT output by BSSID or affiliated AP MAC"},
 			}
 		}
-		if len(args) == 4 && args[1] == "wifi" && args[2] == "mlo" && args[3] == "fresh" {
+		if len(args) == 4 && args[1] == "wifi" && args[2] == "eht" && args[3] == "fresh" {
 			return []HelpEntry{
 				{"timeout", "Fresh-scan timeout in milliseconds"},
-				{"ssid", "Filter MLO output by SSID"},
-				{"bssid", "Filter MLO output by BSSID or affiliated AP MAC"},
+				{"ssid", "Filter EHT output by SSID"},
+				{"bssid", "Filter EHT output by BSSID or affiliated AP MAC"},
 			}
 		}
 		if len(args) == 2 && args[1] == "standalone" {
@@ -1202,7 +1202,7 @@ func completionCandidatesForArgsInMode(args []string, mode Mode) []string {
 			return []string{"standalone"}
 		}
 		if resolved[0] == "show" && resolved[1] == "wifi" {
-			return []string{"status", "diagnostics", "mlo", "scan", "capabilities"}
+			return []string{"status", "diagnostics", "eht", "scan", "capabilities"}
 		}
 		if resolved[0] == "show" && resolved[1] == "ip" {
 			return []string{"status"}
@@ -1223,7 +1223,7 @@ func completionCandidatesForArgsInMode(args []string, mode Mode) []string {
 		if resolved[0] == "show" && resolved[1] == "wifi" && resolved[2] == "scan" {
 			return []string{"fresh", "detail", "all", "2.4ghz", "5ghz", "6ghz", "60ghz"}
 		}
-		if resolved[0] == "show" && resolved[1] == "wifi" && resolved[2] == "mlo" {
+		if resolved[0] == "show" && resolved[1] == "wifi" && resolved[2] == "eht" {
 			return []string{"fresh", "ssid", "bssid"}
 		}
 		if resolved[0] == "show" && resolved[1] == "adb" && resolved[2] == "cmd" {
@@ -1252,8 +1252,8 @@ func completionCandidatesForArgsInMode(args []string, mode Mode) []string {
 		switch {
 		case len(resolved) >= 3 && resolved[0] == "show" && resolved[1] == "wifi" && resolved[2] == "scan":
 			return showWifiScanCompletionCandidates(resolved[3:])
-		case len(resolved) >= 3 && resolved[0] == "show" && resolved[1] == "wifi" && resolved[2] == "mlo":
-			return showWifiMLOCompletionCandidates(resolved[3:])
+		case len(resolved) >= 3 && resolved[0] == "show" && resolved[1] == "wifi" && resolved[2] == "eht":
+			return showWifiEHTCompletionCandidates(resolved[3:])
 		case len(resolved) == 4 && resolved[0] == "show" && resolved[1] == "adb" && resolved[2] == "cmd" && resolved[3] == "wifi":
 			return []string{"status"}
 		case len(resolved) == 4 && resolved[0] == "show" && resolved[1] == "adb" && resolved[2] == "dumpsys" && resolved[3] == "connectivity":
@@ -1508,14 +1508,14 @@ func valueCompletionCandidatesForArgs(args []string) ([]string, bool) {
 			return []string{"<ms>"}, true
 		}
 		return nil, false
-	case len(args) >= 4 && args[0] == "show" && args[1] == "wifi" && args[2] == "mlo":
-		if isResolvedKeyword("show wifi mlo option", last, []string{"timeout"}) {
+	case len(args) >= 4 && args[0] == "show" && args[1] == "wifi" && args[2] == "eht":
+		if isResolvedKeyword("show wifi eht option", last, []string{"timeout"}) {
 			return []string{"<ms>"}, true
 		}
-		if isResolvedKeyword("show wifi mlo option", last, []string{"ssid"}) {
+		if isResolvedKeyword("show wifi eht option", last, []string{"ssid"}) {
 			return []string{"<ssid>"}, true
 		}
-		if isResolvedKeyword("show wifi mlo option", last, []string{"bssid"}) {
+		if isResolvedKeyword("show wifi eht option", last, []string{"bssid"}) {
 			return []string{"<bssid>"}, true
 		}
 		return nil, false
@@ -1672,7 +1672,7 @@ func showWifiScanCompletionCandidates(args []string) []string {
 	}
 }
 
-func showWifiMLOCompletionCandidates(args []string) []string {
+func showWifiEHTCompletionCandidates(args []string) []string {
 	if len(args) == 0 {
 		return []string{"fresh", "ssid", "bssid"}
 	}
@@ -1680,7 +1680,7 @@ func showWifiMLOCompletionCandidates(args []string) []string {
 	timeoutUsed := false
 	freshUsed := false
 	for i := 0; i < len(args); i++ {
-		if key, err := resolveShellKeyword("show wifi mlo option", args[i], []string{"fresh", "timeout", "ssid", "bssid"}); err == nil {
+		if key, err := resolveShellKeyword("show wifi eht option", args[i], []string{"fresh", "timeout", "ssid", "bssid"}); err == nil {
 			used[key] = true
 			if key == "fresh" {
 				freshUsed = true

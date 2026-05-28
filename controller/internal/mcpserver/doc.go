@@ -10,7 +10,7 @@
 // host-side adb diagnostics, standalone configuration and archives, and the
 // higher-level dropcheck_run workflow. It also exposes session and agent
 // resources, standalone resource templates, and prompts that guide common
-// connectivity, MLO, and NOC smoke-check workflows.
+// connectivity, EHT, and NOC smoke-check workflows.
 //
 // Tools that need Wi-Fi credentials accept either passphrase or passphrase_env.
 // Prefer passphrase_env in MCP clients so secrets stay in the server process

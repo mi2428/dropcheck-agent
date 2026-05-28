@@ -100,8 +100,8 @@ func TestParseAgentCommandSurface(t *testing.T) {
 			},
 		},
 		{
-			name: "wifi mlo",
-			args: []string{"show", "wifi", "mlo"},
+			name: "wifi eht",
+			args: []string{"show", "wifi", "eht"},
 			check: func(t *testing.T, run *controlpb.RunCommand) {
 				t.Helper()
 				if run.GetGetWifiDiagnostics() == nil {
@@ -110,65 +110,65 @@ func TestParseAgentCommandSurface(t *testing.T) {
 			},
 			checkOptions: func(t *testing.T, options cmdop.Options) {
 				t.Helper()
-				if options.WifiRenderMode != cmdop.WifiRenderModeMLO {
-					t.Fatalf("wifi render mode = %q, want %q", options.WifiRenderMode, cmdop.WifiRenderModeMLO)
+				if options.WifiRenderMode != cmdop.WifiRenderModeEHT {
+					t.Fatalf("wifi render mode = %q, want %q", options.WifiRenderMode, cmdop.WifiRenderModeEHT)
 				}
 			},
 		},
 		{
-			name: "wifi mlo ssid",
-			args: []string{"show", "wifi", "mlo", "ssid", "temp-life26"},
+			name: "wifi eht ssid",
+			args: []string{"show", "wifi", "eht", "ssid", "temp-life26"},
 			check: func(t *testing.T, run *controlpb.RunCommand) {
 				t.Helper()
 				if run.GetGetWifiDiagnostics() == nil {
 					t.Fatalf("command = %T, want GetWifiDiagnostics", run.GetCommand())
 				}
-				if run.GetLabel() != "wifi mlo ssid temp-life26" {
-					t.Fatalf("label = %q, want wifi mlo ssid temp-life26", run.GetLabel())
+				if run.GetLabel() != "wifi eht ssid temp-life26" {
+					t.Fatalf("label = %q, want wifi eht ssid temp-life26", run.GetLabel())
 				}
 			},
 			checkOptions: func(t *testing.T, options cmdop.Options) {
 				t.Helper()
-				if options.WifiMLOSSID != "temp-life26" {
-					t.Fatalf("ssid filter = %q, want temp-life26", options.WifiMLOSSID)
+				if options.WifiEHTSSID != "temp-life26" {
+					t.Fatalf("ssid filter = %q, want temp-life26", options.WifiEHTSSID)
 				}
 			},
 		},
 		{
-			name: "wifi mlo bssid",
-			args: []string{"show", "wifi", "mlo", "--bssid", "aa:bb:cc:dd:ee:ff"},
+			name: "wifi eht bssid",
+			args: []string{"show", "wifi", "eht", "--bssid", "aa:bb:cc:dd:ee:ff"},
 			check: func(t *testing.T, run *controlpb.RunCommand) {
 				t.Helper()
 				if run.GetGetWifiDiagnostics() == nil {
 					t.Fatalf("command = %T, want GetWifiDiagnostics", run.GetCommand())
 				}
-				if run.GetLabel() != "wifi mlo bssid aa:bb:cc:dd:ee:ff" {
-					t.Fatalf("label = %q, want wifi mlo bssid aa:bb:cc:dd:ee:ff", run.GetLabel())
+				if run.GetLabel() != "wifi eht bssid aa:bb:cc:dd:ee:ff" {
+					t.Fatalf("label = %q, want wifi eht bssid aa:bb:cc:dd:ee:ff", run.GetLabel())
 				}
 			},
 			checkOptions: func(t *testing.T, options cmdop.Options) {
 				t.Helper()
-				if options.WifiMLOBSSID != "aa:bb:cc:dd:ee:ff" {
-					t.Fatalf("bssid filter = %q, want aa:bb:cc:dd:ee:ff", options.WifiMLOBSSID)
+				if options.WifiEHTBSSID != "aa:bb:cc:dd:ee:ff" {
+					t.Fatalf("bssid filter = %q, want aa:bb:cc:dd:ee:ff", options.WifiEHTBSSID)
 				}
 			},
 		},
 		{
-			name: "wifi mlo fresh ssid",
-			args: []string{"show", "wifi", "mlo", "fresh", "--timeout", "9000", "--ssid", "temp-life26"},
+			name: "wifi eht fresh ssid",
+			args: []string{"show", "wifi", "eht", "fresh", "--timeout", "9000", "--ssid", "temp-life26"},
 			check: func(t *testing.T, run *controlpb.RunCommand) {
 				t.Helper()
 				if run.GetGetWifiDiagnostics() == nil {
 					t.Fatalf("command = %T, want GetWifiDiagnostics", run.GetCommand())
 				}
-				if run.GetLabel() != "wifi mlo fresh --timeout 9000 ssid temp-life26" {
-					t.Fatalf("label = %q, want wifi mlo fresh --timeout 9000 ssid temp-life26", run.GetLabel())
+				if run.GetLabel() != "wifi eht fresh --timeout 9000 ssid temp-life26" {
+					t.Fatalf("label = %q, want wifi eht fresh --timeout 9000 ssid temp-life26", run.GetLabel())
 				}
 			},
 			checkOptions: func(t *testing.T, options cmdop.Options) {
 				t.Helper()
-				if options.WifiMLOSSID != "temp-life26" || !options.WifiMLOFreshScan || options.WifiMLOFreshScanTimeoutMs != 9000 {
-					t.Fatalf("wifi mlo options = %#v", options)
+				if options.WifiEHTSSID != "temp-life26" || !options.WifiEHTFreshScan || options.WifiEHTFreshScanTimeoutMs != 9000 {
+					t.Fatalf("wifi eht options = %#v", options)
 				}
 			},
 		},
@@ -545,6 +545,7 @@ func TestParseAgentCommandSurface(t *testing.T) {
 func TestParseRejectsInvalidCLICommands(t *testing.T) {
 	tests := [][]string{
 		{"show", "ip"},
+		{"show", "wifi", "mlo"},
 		{"show", "wifi", "scan", "--timeout", "8000"},
 		{"request", "wifi", "connect", "Lab"},
 		{"request", "dns", "example.com", "--type", "A", "--type", "AAAA"},

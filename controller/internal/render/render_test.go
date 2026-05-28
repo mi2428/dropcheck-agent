@@ -992,6 +992,7 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 						InformationElements: []*controlpb.WifiInformationElement{
 							ehtMultiLinkTestIE(),
 						},
+						HeCapabilities:      heCapabilitiesTestValue(),
 						He_6GhzCapabilities: he6GhzCapabilitiesTestValue(),
 						EhtCapabilities:     ehtCapabilitiesTestValue(),
 						EhtOperation:        ehtOperationTestValue(),
@@ -1047,6 +1048,7 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 							rnrTestIE(),
 							multipleBSSIDTestIE(),
 						},
+						HeCapabilities:      heCapabilitiesTestValue(),
 						He_6GhzCapabilities: he6GhzCapabilitiesTestValue(),
 						EhtCapabilities:     ehtCapabilitiesTestValue(),
 						EhtOperation:        ehtOperationTestValue(),
@@ -1073,18 +1075,18 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 		},
 	}
 
-	out, err := CommandResult("agent", result, command.Options{WifiRenderMode: command.WifiRenderModeMLO}, pipeline.FormatText)
+	out, err := CommandResult("agent", result, command.Options{WifiRenderMode: command.WifiRenderModeEHT}, pipeline.FormatText)
 	if err != nil {
 		t.Fatalf("CommandResult() error = %v", err)
 	}
 	for _, want := range []string{
 		"Current AP Relation",
 		"Connected MLO",
-		"MLO Scan",
-		"Nearby MLO APs",
+		"EHT Scan",
+		"Nearby EHT APs",
 		"EHT_W",
 		"PUNCT",
-		"MLO Scan Links",
+		"EHT Scan Links",
 		"Network MLO",
 		"MLO Capability Signals",
 		"[*] Lab",
@@ -1098,6 +1100,11 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 		"sta_info_len=12 sta_mac=02:00:00:00:00:02 beacon_interval_tu=100",
 		"dtim=1/3",
 		"Scan EHT Multi-Link Elements",
+		"Connected EHT Puncturing",
+		"Scan EHT Puncturing",
+		"he_preamble_puncturing_rx=preamble_puncturing_rx_80mhz_second_20mhz",
+		"he_punctured_sounding=true",
+		"eht_disabled_subchannel_bitmap=0x000a punctured=1,3",
 		"Connected HE 6GHz Details",
 		"Scan HE 6GHz Details",
 		"Connected Wi-Fi Security",
@@ -1222,8 +1229,8 @@ func TestRenderWifiMLOFiltersScanAndConnection(t *testing.T) {
 	}
 
 	out, err := CommandResult("agent", result, command.Options{
-		WifiRenderMode: command.WifiRenderModeMLO,
-		WifiMLOSSID:    "Lab",
+		WifiRenderMode: command.WifiRenderModeEHT,
+		WifiEHTSSID:    "Lab",
 	}, pipeline.FormatText)
 	if err != nil {
 		t.Fatalf("CommandResult(ssid) error = %v", err)
@@ -1245,8 +1252,8 @@ func TestRenderWifiMLOFiltersScanAndConnection(t *testing.T) {
 	}
 
 	out, err = CommandResult("agent", result, command.Options{
-		WifiRenderMode: command.WifiRenderModeMLO,
-		WifiMLOBSSID:   "AA:BB:CC:DD:EE:01",
+		WifiRenderMode: command.WifiRenderModeEHT,
+		WifiEHTBSSID:   "AA:BB:CC:DD:EE:01",
 	}, pipeline.FormatText)
 	if err != nil {
 		t.Fatalf("CommandResult(bssid) error = %v", err)
@@ -1293,7 +1300,7 @@ func TestRenderWifiMLODetailedEHTMultiLinkSubelements(t *testing.T) {
 		},
 	}
 
-	out, err := CommandResult("agent", result, command.Options{WifiRenderMode: command.WifiRenderModeMLO}, pipeline.FormatText)
+	out, err := CommandResult("agent", result, command.Options{WifiRenderMode: command.WifiRenderModeEHT}, pipeline.FormatText)
 	if err != nil {
 		t.Fatalf("CommandResult() error = %v", err)
 	}
@@ -1348,7 +1355,7 @@ func TestRenderWifiMLOUsesEHTMultiLinkElementFallback(t *testing.T) {
 		},
 	}
 
-	out, err := CommandResult("agent", result, command.Options{WifiRenderMode: command.WifiRenderModeMLO}, pipeline.FormatText)
+	out, err := CommandResult("agent", result, command.Options{WifiRenderMode: command.WifiRenderModeEHT}, pipeline.FormatText)
 	if err != nil {
 		t.Fatalf("CommandResult() error = %v", err)
 	}
@@ -1360,7 +1367,7 @@ func TestRenderWifiMLOUsesEHTMultiLinkElementFallback(t *testing.T) {
 		"ap_mld",
 		"02:00:00:00:00:01",
 		"ap_link_id",
-		"mlo_candidates",
+		"eht_candidates",
 		"[*] Lab",
 		"ap_mld=02:00:00:00:00:01 link=2 bssid=aa:bb:cc:dd:ee:ff",
 		"Diagnostics / Warnings\n  none",
@@ -1370,7 +1377,7 @@ func TestRenderWifiMLOUsesEHTMultiLinkElementFallback(t *testing.T) {
 		}
 	}
 	for _, unwanted := range []string{
-		"no MLO-capable scan results",
+		"no EHT-capable scan results",
 		"scan_mlo_metadata_absent",
 	} {
 		if strings.Contains(out, unwanted) {
@@ -1423,7 +1430,7 @@ func TestRenderWifiMLOHidesPlaceholderConnectionAndCapsNearbyTable(t *testing.T)
 		},
 	}
 
-	out, err := CommandResult("agent", result, command.Options{WifiRenderMode: command.WifiRenderModeMLO}, pipeline.FormatText)
+	out, err := CommandResult("agent", result, command.Options{WifiRenderMode: command.WifiRenderModeEHT}, pipeline.FormatText)
 	if err != nil {
 		t.Fatalf("CommandResult() error = %v", err)
 	}
@@ -1444,7 +1451,7 @@ func TestRenderWifiMLOHidesPlaceholderConnectionAndCapsNearbyTable(t *testing.T)
 
 	lines := strings.Split(out, "\n")
 	for i, line := range lines {
-		if line != "Nearby MLO APs" {
+		if line != "Nearby EHT APs" {
 			continue
 		}
 		for _, tableLine := range lines[i+1:] {
@@ -1582,6 +1589,17 @@ func ehtCapabilitiesTestValue() *controlpb.WifiEhtCapabilities {
 		PpeNssCount:          2,
 		PpeRuIndices:         []string{"242-tone", "4x996-tone"},
 		PpeThresholdsHex:     "f10102030405060708",
+	}
+}
+
+func heCapabilitiesTestValue() *controlpb.WifiHeCapabilities {
+	return &controlpb.WifiHeCapabilities{
+		Mac: &controlpb.WifiHeMacCapabilities{
+			PuncturedSounding: true,
+		},
+		Phy: &controlpb.WifiHePhyCapabilities{
+			PreamblePuncturingRx: []string{"preamble_puncturing_rx_80mhz_second_20mhz"},
+		},
 	}
 }
 

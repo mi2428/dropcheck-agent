@@ -21,7 +21,7 @@ func TestShouldCollectADBMLOSupplement(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "wifi status skips adb mlo supplement",
+			name: "wifi status skips adb EHT supplement",
 			result: &controlpb.CommandResult{
 				Payload: &controlpb.CommandResult_WifiStatus{
 					WifiStatus: &controlpb.WifiStatus{},
@@ -39,13 +39,13 @@ func TestShouldCollectADBMLOSupplement(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "wifi diagnostics in mlo render mode",
+			name: "wifi diagnostics in EHT render mode",
 			result: &controlpb.CommandResult{
 				Payload: &controlpb.CommandResult_WifiDiagnostics{
 					WifiDiagnostics: &controlpb.WifiDiagnostics{},
 				},
 			},
-			options: commandOptions{WifiRenderMode: command.WifiRenderModeMLO},
+			options: commandOptions{WifiRenderMode: command.WifiRenderModeEHT},
 			want:    true,
 		},
 		{

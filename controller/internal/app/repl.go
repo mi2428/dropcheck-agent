@@ -554,8 +554,8 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 	}
 
 	var freshScan *controlpb.WifiScan
-	if options.WifiMLOFreshScan {
-		freshScan, err = runWifiMLOFreshScan(ctx, state, agent, options)
+	if options.WifiEHTFreshScan {
+		freshScan, err = runWifiEHTFreshScan(ctx, state, agent, options)
 	}
 	var result *controlpb.CommandResult
 	if err == nil {
@@ -563,7 +563,7 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 		result, err = state.server.Run(runCtx, agent.ID, commandID, cmd)
 		cancel()
 		if err == nil {
-			applyWifiMLOFreshScan(result, freshScan)
+			applyWifiEHTFreshScan(result, freshScan)
 		}
 	}
 	supplements := commandResultSupplements{}
@@ -611,32 +611,32 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 	return nil
 }
 
-func runWifiMLOFreshScan(ctx context.Context, state *shellState, agent control.AgentInfo, options commandOptions) (*controlpb.WifiScan, error) {
+func runWifiEHTFreshScan(ctx context.Context, state *shellState, agent control.AgentInfo, options commandOptions) (*controlpb.WifiScan, error) {
 	commandID, err := control.RandomHex(8)
 	if err != nil {
 		return nil, err
 	}
 	cmd := &controlpb.RunCommand{
-		Label: "wifi mlo fresh scan",
+		Label: "wifi eht fresh scan",
 		Command: &controlpb.RunCommand_GetFreshWifiScan{GetFreshWifiScan: &controlpb.GetFreshWifiScan{
 			Band:      controlpb.WifiBand_WIFI_BAND_ALL,
-			TimeoutMs: options.WifiMLOFreshScanTimeoutMs,
+			TimeoutMs: options.WifiEHTFreshScanTimeoutMs,
 		}},
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeoutFor(cmd))
 	result, err := state.server.Run(runCtx, agent.ID, commandID, cmd)
 	cancel()
 	if err != nil {
-		return nil, fmt.Errorf("wifi mlo fresh scan: %w", err)
+		return nil, fmt.Errorf("wifi eht fresh scan: %w", err)
 	}
 	scan := result.GetWifiScan()
 	if scan == nil {
-		return nil, fmt.Errorf("wifi mlo fresh scan: agent returned %s without wifi scan", resultPayloadLabel(result))
+		return nil, fmt.Errorf("wifi eht fresh scan: agent returned %s without wifi scan", resultPayloadLabel(result))
 	}
 	return scan, nil
 }
 
-func applyWifiMLOFreshScan(result *controlpb.CommandResult, freshScan *controlpb.WifiScan) {
+func applyWifiEHTFreshScan(result *controlpb.CommandResult, freshScan *controlpb.WifiScan) {
 	if freshScan == nil {
 		return
 	}

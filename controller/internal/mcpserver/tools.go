@@ -40,9 +40,9 @@ type wifiScanArgs struct {
 	TimeoutMS uint32 `json:"timeout_ms,omitempty" jsonschema:"fresh scan timeout in milliseconds"`
 }
 
-type wifiMLOArgs struct {
+type wifiEHTArgs struct {
 	Target    string `json:"target,omitempty" jsonschema:"agent target; omit when one agent is connected"`
-	Fresh     bool   `json:"fresh,omitempty" jsonschema:"request a fresh Android scan before reading MLO diagnostics"`
+	Fresh     bool   `json:"fresh,omitempty" jsonschema:"request a fresh Android scan before reading EHT diagnostics"`
 	TimeoutMS uint32 `json:"timeout_ms,omitempty" jsonschema:"fresh scan timeout in milliseconds; valid only when fresh is true"`
 }
 
@@ -250,8 +250,8 @@ func registerTools(server *mcp.Server, backend Backend) {
 	addOperationTool[targetArgs](server, backend, "dropcheck_wifi_diagnostics", "Read Wi-Fi diagnostics, configured network diagnostics, and scan data.", annotations(true, nil, true), func(in targetArgs) (string, dropcmd.Operation, error) {
 		return in.Target, dropcmd.WifiDiagnosticsOperation(), nil
 	})
-	addOperationTool[wifiMLOArgs](server, backend, "dropcheck_wifi_mlo", "Read MLO-focused Wi-Fi diagnostics, optionally after a fresh scan.", annotations(true, nil, true), func(in wifiMLOArgs) (string, dropcmd.Operation, error) {
-		op, err := dropcmd.WifiMLOOperationWithOptions(dropcmd.WifiMLOOptions{Fresh: in.Fresh, Timeout: millis(in.TimeoutMS)})
+	addOperationTool[wifiEHTArgs](server, backend, "dropcheck_wifi_eht", "Read EHT-focused Wi-Fi diagnostics, optionally after a fresh scan.", annotations(true, nil, true), func(in wifiEHTArgs) (string, dropcmd.Operation, error) {
+		op, err := dropcmd.WifiEHTOperationWithOptions(dropcmd.WifiEHTOptions{Fresh: in.Fresh, Timeout: millis(in.TimeoutMS)})
 		return in.Target, op, err
 	})
 	addOperationTool[targetArgs](server, backend, "dropcheck_wifi_capabilities", "Read device Wi-Fi capability diagnostics.", annotations(true, nil, true), func(in targetArgs) (string, dropcmd.Operation, error) {

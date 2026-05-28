@@ -132,7 +132,7 @@ $ make build TARGET=controller
 
 `dist/dropcheck` supports:
 
-- **Wi-Fi and IP inspection:** `wifi status`, `wifi diagnostics`, `wifi mlo`, `wifi scan`, `wifi capabilities`, and `ip status`.
+- **Wi-Fi and IP inspection:** `wifi status`, `wifi diagnostics`, `wifi eht`, `wifi scan`, `wifi capabilities`, and `ip status`.
 - **Wi-Fi control:** `connect`, `disconnect`, `forget`, `wait connected`, `assert`, `reconnect`, and `cycle`.
 - **Network probes from the handset:** `ping`, `traceroute`, `path-mtu`, `global-ip`, `dns`, `http`, and `download`.
 
@@ -154,7 +154,7 @@ press '?' for context help, or type 'help' for commands
 R5CT12345# show wifi ?
   status                   Current Wi-Fi connection and IP state
   diagnostics              Wi-Fi status, capabilities, networks, and scan
-  mlo                      Connected and nearby MLO state
+  eht                      Connected and nearby EHT state
   scan                     Cached or fresh scan results
   capabilities             Device Wi-Fi capabilities
 R5CT12345# show wifi status | match "^  (ssid|bssid|band|validated)[[:space:]]"
@@ -332,7 +332,7 @@ dropcheck_wifi_cycle
 dropcheck_wifi_diagnostics
 dropcheck_wifi_disconnect
 dropcheck_wifi_forget
-dropcheck_wifi_mlo
+dropcheck_wifi_eht
 dropcheck_wifi_monitor
 dropcheck_wifi_reconnect
 dropcheck_wifi_scan
@@ -341,7 +341,7 @@ dropcheck_wifi_status
 dropcheck_wifi_wait_connected
 ```
 
-It also exposes `dropcheck://session` and `dropcheck://agents` resources; standalone resource templates for config, status, runs, and one run archive; and prompts for connectivity, MLO investigation, and NOC smoke checks.
+It also exposes `dropcheck://session` and `dropcheck://agents` resources; standalone resource templates for config, status, runs, and one run archive; and prompts for connectivity, EHT investigation, and NOC smoke checks.
 
 The comprehensive MCP live test starts `dropcheck-mcp` through MCP CommandTransport and drives a real Android agent over ADB. It connects, disconnects, forgets Wi-Fi, edits standalone config, runs saved standalone archives, and clears synced archives, so run it only against a dedicated Device Owner test handset.
 
@@ -433,7 +433,7 @@ $ controller/dist/dropcheck --serial R5CT12345 configure set standalone upload v
 Festival tests are Go tests that connect to a requested Wi-Fi target, wait for the expected link state, run typed checks, and fail with normal Go test output.
 The DSL supports retries and stable checks, and it can also evaluate saved standalone archives without a connected Android agent.
 
-Available check builders include Wi-Fi status, MLO diagnostics, scan and scan-detail, Wi-Fi capabilities, IP status, ping, DNS, HTTP, download, traceroute, path MTU, and global IP.
+Available check builders include Wi-Fi status, EHT diagnostics, scan and scan-detail, Wi-Fi capabilities, IP status, ping, DNS, HTTP, download, traceroute, path MTU, and global IP.
 
 ```go
 //go:build festival
