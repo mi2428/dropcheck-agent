@@ -39,6 +39,7 @@ type ehtMultiLinkCommonInfo struct {
 	emlCapabilitiesHex                string
 	mldCapabilitiesAndOperationsHex   string
 	apMLDID                           *int
+	extendedMLDCapabilitiesHex        string
 }
 
 type ehtMultiLinkSubelement struct {
@@ -157,7 +158,11 @@ func formatEHTMultiLinkElements(label string, elements []ehtMultiLinkElement) []
 			if common.apMLDID != nil {
 				parts = append(parts, fmt.Sprintf("ap_mld_id=%d", *common.apMLDID))
 			}
+			if common.extendedMLDCapabilitiesHex != "" {
+				parts = append(parts, "ext_mld_capabilities=0x"+common.extendedMLDCapabilitiesHex)
+			}
 			lines = append(lines, "  "+strings.Join(parts, " "))
+			lines = append(lines, multiLinkCommonCapabilityLines(common)...)
 		}
 		for _, subelement := range element.subelements {
 			truncated := ""
@@ -226,6 +231,7 @@ func formatEHTMultiLinkElements(label string, elements []ehtMultiLinkElement) []
 			}
 			if perSTA.nstrLinkPairHex != "" {
 				parts = append(parts, "nstr_link_pair=0x"+perSTA.nstrLinkPairHex)
+				parts = append(parts, "nstr_bitmap_bits="+bitmapBitsFromHex(perSTA.nstrLinkPairHex))
 			}
 			if perSTA.bssParametersChangeCount != nil {
 				parts = append(parts, fmt.Sprintf("bss_param_change_count=%d", *perSTA.bssParametersChangeCount))
@@ -261,6 +267,9 @@ func formatEHTMultiLinkElements(label string, elements []ehtMultiLinkElement) []
 				for _, line := range wifiSecuritySummaryLines(security) {
 					lines = append(lines, "    "+line)
 				}
+			}
+			for _, line := range wifiMLOProfileDecodeLines(fmt.Sprintf("profile_decode link_id=%d", perSTA.linkID), perSTA.profileElements) {
+				lines = append(lines, "  "+line)
 			}
 			if perSTA.profileElementsTruncated && len(perSTA.profileElements) == 0 && perSTA.profileHex != "" {
 				lines = append(lines, fmt.Sprintf("  profile_unparsed link_id=%d bytes=%d body=0x%s", perSTA.linkID, perSTA.profileByteCount, hexPreview(perSTA.profileHex, 32)))
@@ -453,6 +462,12 @@ func parseBasicCommonInfo(bytes []byte, commonStart int, commonEnd int, control 
 	var apMLDID *int
 	if hasBit(control, 9) {
 		apMLDID = readU8Ptr(bytes, offset, commonEnd, &truncated)
+		offset++
+	}
+	extendedMLDCaps := ""
+	if hasBit(control, 10) {
+		extendedMLDCaps = readHex(bytes, offset, 2, commonEnd, &truncated)
+		offset += 2
 	}
 	return ehtMultiLinkCommonInfo{
 		length:                            commonLength,
@@ -463,6 +478,7 @@ func parseBasicCommonInfo(bytes []byte, commonStart int, commonEnd int, control 
 		emlCapabilitiesHex:                eml,
 		mldCapabilitiesAndOperationsHex:   mldCaps,
 		apMLDID:                           apMLDID,
+		extendedMLDCapabilitiesHex:        extendedMLDCaps,
 	}, truncated
 }
 
@@ -621,6 +637,9 @@ func basicMultiLinkPresence(control int) []string {
 	if hasBit(control, 9) {
 		presence = append(presence, "ap_mld_id")
 	}
+	if hasBit(control, 10) {
+		presence = append(presence, "extended_mld_capabilities_and_operations")
+	}
 	return presence
 }
 
@@ -759,6 +778,458 @@ func profileInformationElementName(id int, idExt *int) string {
 	}
 }
 
+func multiLinkCommonCapabilityLines(common *ehtMultiLinkCommonInfo) []string {
+	lines := []string{}
+	if value, ok := u16HexValue(common.mediumSynchronizationDelayInfoHex); ok {
+		lines = append(lines, fmt.Sprintf("  medium_sync raw=0x%s duration=%d ofdm_ed_threshold=%d max_txop=%d",
+			common.mediumSynchronizationDelayInfoHex,
+			value&0x00ff,
+			(value>>8)&0x0f,
+			(value>>12)&0x0f,
+		))
+	}
+	if value, ok := u16HexValue(common.emlCapabilitiesHex); ok {
+		flags := []string{}
+		if value&0x0001 != 0 {
+			flags = append(flags, "emlsr")
+		}
+		if value&0x0080 != 0 {
+			flags = append(flags, "emlmr")
+		}
+		reserved := value & 0x8700
+		suffix := ""
+		if reserved != 0 {
+			suffix = fmt.Sprintf(" reserved=0x%04x", reserved)
+		}
+		lines = append(lines, fmt.Sprintf("  eml raw=0x%s flags=%s emlsr_padding_delay=%d emlsr_transition_delay=%d transition_timeout=%d%s",
+			common.emlCapabilitiesHex,
+			joinedOrNone(flags),
+			(value&0x000e)>>1,
+			(value&0x0070)>>4,
+			(value&0x7800)>>11,
+			suffix,
+		))
+	}
+	if value, ok := u16HexValue(common.mldCapabilitiesAndOperationsHex); ok {
+		flags := []string{}
+		if value&0x0010 != 0 {
+			flags = append(flags, "srs")
+		}
+		if value&0x1000 != 0 {
+			flags = append(flags, "aar")
+		}
+		if value&0x2000 != 0 {
+			flags = append(flags, "link_reconfig")
+		}
+		if value&0x4000 != 0 {
+			flags = append(flags, "aligned_twt")
+		}
+		tidToLink := []string{}
+		if value&0x0020 != 0 {
+			tidToLink = append(tidToLink, "all_to_all")
+		}
+		if value&0x0040 != 0 {
+			tidToLink = append(tidToLink, "all_to_one")
+		}
+		suffix := ""
+		if value&0x8000 != 0 {
+			suffix = " reserved=0x8000"
+		}
+		lines = append(lines, fmt.Sprintf("  mld raw=0x%s flags=%s max_sim_links_code=%d tid_to_link=%s ap_mld_type=%d freq_sep_for_str_code=%d%s",
+			common.mldCapabilitiesAndOperationsHex,
+			joinedOrNone(flags),
+			value&0x000f,
+			joinedOrNone(tidToLink),
+			(value&0x0080)>>7,
+			(value&0x0f80)>>7,
+			suffix,
+		))
+	}
+	if value, ok := u16HexValue(common.extendedMLDCapabilitiesHex); ok {
+		flags := []string{}
+		if value&0x0001 != 0 {
+			flags = append(flags, "op_param_update")
+		}
+		if value&0x0020 != 0 {
+			flags = append(flags, "nstr_update")
+		}
+		if value&0x0040 != 0 {
+			flags = append(flags, "emlsr_enabled_one_link")
+		}
+		if value&0x0080 != 0 {
+			flags = append(flags, "btm_mld_recommendation_multi_ap")
+		}
+		suffix := ""
+		if value&0xff00 != 0 {
+			suffix = fmt.Sprintf(" reserved=0x%04x", value&0xff00)
+		}
+		lines = append(lines, fmt.Sprintf("  ext_mld raw=0x%s flags=%s recommended_max_links_code=%d%s",
+			common.extendedMLDCapabilitiesHex,
+			joinedOrNone(flags),
+			(value&0x001e)>>1,
+			suffix,
+		))
+	}
+	return lines
+}
+
+func profileElementsAsWifiInformationElements(elements []ehtProfileInformationElement) []*controlpb.WifiInformationElement {
+	converted := make([]*controlpb.WifiInformationElement, 0, len(elements))
+	for _, element := range elements {
+		body, err := hex.DecodeString(element.bodyHex)
+		if err != nil {
+			continue
+		}
+		item := &controlpb.WifiInformationElement{Id: int32(element.id)}
+		if element.id == ehtMultiLinkElementID && element.idExt != nil {
+			if len(body) == 0 {
+				continue
+			}
+			item.IdExt = int32(*element.idExt)
+			item.ByteCount = uint32(max(0, element.actualLength-1))
+			item.BytesHex = hex.EncodeToString(body[1:])
+		} else {
+			item.ByteCount = uint32(element.actualLength)
+			item.BytesHex = element.bodyHex
+		}
+		converted = append(converted, item)
+	}
+	return converted
+}
+
+func wifiMLOProfileDecodeLines(label string, elements []ehtProfileInformationElement) []string {
+	converted := profileElementsAsWifiInformationElements(elements)
+	mles := parseEHTMultiLinkElements(converted)
+	lines := []string{}
+	for _, element := range elements {
+		switch {
+		case element.id == ehtMultiLinkElementID && element.idExt != nil && *element.idExt == 36:
+			lines = append(lines, profileHEOperationLines(element.bodyHex)...)
+		case element.id == ehtMultiLinkElementID && element.idExt != nil && *element.idExt == 39:
+			lines = append(lines, profileHESpatialReuseLines(element.bodyHex)...)
+		case element.id == ehtMultiLinkElementID && element.idExt != nil && *element.idExt == 59:
+			lines = append(lines, profileHE6GHzLines(element.bodyHex)...)
+		case element.id == ehtMultiLinkElementID && element.idExt != nil && *element.idExt == 106:
+			lines = append(lines, profileEHTOperationLines(element.bodyHex)...)
+		case element.id == ehtMultiLinkElementID && element.idExt != nil && *element.idExt == 107:
+			// The parsed summary below covers Multi-Link elements.
+		case element.id == ehtMultiLinkElementID && element.idExt != nil && *element.idExt == 108:
+			lines = append(lines, profileEHTCapabilitiesLines(element.bodyHex)...)
+		}
+	}
+	if len(mles) > 0 {
+		mld := ""
+		linkIDs := []string{}
+		for _, mle := range mles {
+			if mld == "" && mle.commonInfo != nil {
+				mld = mle.commonInfo.mldMACAddress
+			}
+			if mle.commonInfo != nil && mle.commonInfo.linkID != nil {
+				linkIDs = append(linkIDs, fmt.Sprint(*mle.commonInfo.linkID))
+			}
+			for _, subelement := range mle.subelements {
+				if subelement.perSTAProfile != nil {
+					linkIDs = append(linkIDs, fmt.Sprint(subelement.perSTAProfile.linkID))
+				}
+			}
+		}
+		lines = append(lines, fmt.Sprintf("eht_mle count=%d ap_mld=%s link_ids=%s", len(mles), empty(mld, "<unknown>"), wifiMLOJoinStrings(linkIDs, "<none>")))
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	out := []string{label}
+	for _, line := range lines {
+		out = append(out, "  "+line)
+	}
+	return out
+}
+
+func profileHEOperationLines(bodyHex string) []string {
+	body, ok := extensionBodyPayload(bodyHex)
+	if !ok || len(body) < 6 {
+		return []string{fmt.Sprintf("he_operation_warnings he_operation_too_short bytes=%d required=6", len(body))}
+	}
+	parameters := int(u32le(body, 0))
+	lines := []string{
+		fmt.Sprintf("he_operation bss_color=%d disabled=%t flags=%s",
+			(parameters>>24)&0x3f,
+			parameters&0x80000000 != 0,
+			wifiMLOJoinStrings(heOperationFlagNames(parameters), "<none>"),
+		),
+	}
+	offset := 6
+	if parameters&0x00004000 != 0 {
+		offset += 3
+	}
+	if parameters&0x00008000 != 0 {
+		offset++
+	}
+	if parameters&0x00020000 != 0 {
+		if len(body) < offset+5 {
+			lines = append(lines, fmt.Sprintf("he_operation_warnings he_6ghz_operation_too_short bytes=%d required=5", max(0, len(body)-offset)))
+		} else {
+			control := int(body[offset+1])
+			lines = append(lines, fmt.Sprintf("he_operation_6ghz width=%s primary=%d ccfs0=%d ccfs1=%d",
+				he6GHzChannelWidthName(control&0x03),
+				body[offset],
+				body[offset+2],
+				body[offset+3],
+			))
+		}
+	}
+	return lines
+}
+
+func profileHESpatialReuseLines(bodyHex string) []string {
+	body, ok := extensionBodyPayload(bodyHex)
+	if !ok || len(body) == 0 {
+		return []string{fmt.Sprintf("spatial_reuse_warnings he_spatial_reuse_too_short bytes=%d required=1", len(body))}
+	}
+	return []string{fmt.Sprintf("spatial_reuse control=0x%x flags=%s", body[0], wifiMLOJoinStrings(heSpatialReuseFlagNames(int(body[0])), "<none>"))}
+}
+
+func profileHE6GHzLines(bodyHex string) []string {
+	body, ok := extensionBodyPayload(bodyHex)
+	if !ok || len(body) < 2 {
+		return []string{fmt.Sprintf("he_6ghz_warnings he_6ghz_capabilities_too_short bytes=%d required=2", len(body))}
+	}
+	capabilities := u16le(body, 0)
+	return []string{fmt.Sprintf("he_6ghz max_mpdu=%d max_ampdu=%d smps=%s",
+		maxMPDULengthBytes((capabilities>>6)&0x03),
+		maxAMPDULengthBytes((capabilities>>3)&0x07),
+		heSMPowerSaveName((capabilities>>9)&0x03),
+	)}
+}
+
+func profileEHTOperationLines(bodyHex string) []string {
+	body, ok := extensionBodyPayload(bodyHex)
+	if !ok || len(body) < 5 {
+		return []string{fmt.Sprintf("eht_operation_warnings eht_operation_too_short bytes=%d required=5", len(body))}
+	}
+	parameters := int(body[0])
+	line := fmt.Sprintf("eht_operation op_info=%t width=%s flags=%s",
+		parameters&0x01 != 0,
+		"<unknown>",
+		wifiMLOJoinStrings(ehtOperationFlagNames(parameters), "<none>"),
+	)
+	lines := []string{line}
+	offset := 5
+	if parameters&0x01 != 0 && len(body) >= offset+3 {
+		control := int(body[offset])
+		lines[0] = fmt.Sprintf("eht_operation op_info=true width=%s flags=%s",
+			ehtChannelWidthName(control&0x07),
+			wifiMLOJoinStrings(ehtOperationFlagNames(parameters), "<none>"),
+		)
+		offset += 3
+		if parameters&0x02 != 0 && len(body) >= offset+2 {
+			bitmap := u16le(body, offset)
+			lines = append(lines, fmt.Sprintf("eht_operation disabled=0x%04x punctured=%s", bitmap, disabledSubchannelIndicesSummary(bitmap, control&0x07)))
+		}
+	}
+	return lines
+}
+
+func profileEHTCapabilitiesLines(bodyHex string) []string {
+	body, ok := extensionBodyPayload(bodyHex)
+	if !ok || len(body) < 11 {
+		return []string{fmt.Sprintf("eht_capabilities_warnings eht_capabilities_too_short bytes=%d required=11", len(body))}
+	}
+	mac := body[:2]
+	phy := body[2:11]
+	features := []string{}
+	if mac[0]&0x02 != 0 {
+		features = append(features, "om_control")
+	}
+	if mac[0]&0x10 != 0 {
+		features = append(features, "restricted_twt")
+	}
+	if phy[0]&0x02 != 0 {
+		features = append(features, "320mhz_in_6ghz")
+	}
+	if phy[4]&0x02 != 0 {
+		features = append(features, "psr_spatial_reuse")
+	}
+	if phy[6]&0x80 != 0 {
+		features = append(features, "eht_duplicate_6ghz")
+	}
+	if phy[8]&0x02 != 0 {
+		features = append(features, "rx_4096qam_wider_bw_dl_ofdma")
+	}
+	return []string{"eht_capabilities features=" + wifiMLOJoinStrings(features, "<none>")}
+}
+
+func extensionBodyPayload(bodyHex string) ([]byte, bool) {
+	body, err := hex.DecodeString(bodyHex)
+	if err != nil || len(body) == 0 {
+		return nil, false
+	}
+	return body[1:], true
+}
+
+func heOperationFlagNames(parameters int) []string {
+	flags := []string{fmt.Sprintf("default_pe_duration=%d", parameters&0x07), fmt.Sprintf("rts_threshold=%d", (parameters>>4)&0x03ff)}
+	if parameters&0x00000008 != 0 {
+		flags = append(flags, "twt_required")
+	}
+	if parameters&0x00004000 != 0 {
+		flags = append(flags, "vht_operation_info_present")
+	}
+	if parameters&0x00008000 != 0 {
+		flags = append(flags, "co_hosted_bss")
+	}
+	if parameters&0x00010000 != 0 {
+		flags = append(flags, "er_su_disable")
+	}
+	if parameters&0x00020000 != 0 {
+		flags = append(flags, "6ghz_operation_info_present")
+	}
+	if parameters&0x40000000 != 0 {
+		flags = append(flags, "partial_bss_color")
+	}
+	if parameters&0x80000000 != 0 {
+		flags = append(flags, "bss_color_disabled")
+	}
+	return flags
+}
+
+func ehtOperationFlagNames(parameters int) []string {
+	flags := []string{}
+	if parameters&0x01 != 0 {
+		flags = append(flags, "operation_information_present")
+	}
+	if parameters&0x02 != 0 {
+		flags = append(flags, "disabled_subchannel_bitmap_present")
+	}
+	if parameters&0x04 != 0 {
+		flags = append(flags, "eht_default_pe_duration")
+	}
+	if parameters&0x08 != 0 {
+		flags = append(flags, "group_addressed_bu_indication_limit")
+	}
+	flags = append(flags, fmt.Sprintf("group_addressed_bu_indication_exponent=%d", (parameters>>4)&0x03))
+	if parameters&0x40 != 0 {
+		flags = append(flags, "mcs15_disabled")
+	}
+	return flags
+}
+
+func heSpatialReuseFlagNames(control int) []string {
+	flags := []string{}
+	if control&0x01 != 0 {
+		flags = append(flags, "psr_disallowed")
+	}
+	if control&0x02 != 0 {
+		flags = append(flags, "non_srg_obss_pd_sr_disallowed")
+	}
+	if control&0x04 != 0 {
+		flags = append(flags, "non_srg_obss_pd_max_offset_present")
+	}
+	if control&0x08 != 0 {
+		flags = append(flags, "srg_information_present")
+	}
+	if control&0x10 != 0 {
+		flags = append(flags, "hesiga_spatial_reuse_value15_allowed")
+	}
+	return flags
+}
+
+func he6GHzChannelWidthName(code int) string {
+	switch code {
+	case 0:
+		return "20MHz"
+	case 1:
+		return "40MHz"
+	case 2:
+		return "80MHz"
+	case 3:
+		return "160MHz/80+80MHz"
+	default:
+		return "<unknown>"
+	}
+}
+
+func ehtChannelWidthName(code int) string {
+	switch code {
+	case 0:
+		return "20MHz"
+	case 1:
+		return "40MHz"
+	case 2:
+		return "80MHz"
+	case 3:
+		return "160MHz"
+	case 4:
+		return "320MHz"
+	default:
+		return fmt.Sprintf("reserved_%d", code)
+	}
+}
+
+func disabledSubchannelIndicesSummary(bitmap int, _ int) string {
+	indices := []string{}
+	for i := 0; i < 16; i++ {
+		if bitmap&(1<<i) != 0 {
+			indices = append(indices, fmt.Sprint(i))
+		}
+	}
+	return wifiMLOJoinStrings(indices, "<none>")
+}
+
+func maxAMPDULengthBytes(exponent int) int {
+	return (1 << (13 + exponent)) - 1
+}
+
+func maxMPDULengthBytes(code int) int {
+	switch code {
+	case 0:
+		return 3895
+	case 1:
+		return 7991
+	case 2:
+		return 11454
+	default:
+		return 0
+	}
+}
+
+func heSMPowerSaveName(code int) string {
+	switch code {
+	case 0:
+		return "static"
+	case 1:
+		return "dynamic"
+	case 3:
+		return "disabled"
+	default:
+		return "reserved"
+	}
+}
+
+func u16HexValue(value string) (int, bool) {
+	bytes, err := hex.DecodeString(value)
+	if err != nil || len(bytes) < 2 {
+		return 0, false
+	}
+	return u16le(bytes, 0), true
+}
+
+func bitmapBitsFromHex(value string) string {
+	bytes, err := hex.DecodeString(value)
+	if err != nil {
+		return "<none>"
+	}
+	bits := []string{}
+	for byteIndex, b := range bytes {
+		for bit := 0; bit < 8; bit++ {
+			if int(b)&(1<<bit) != 0 {
+				bits = append(bits, fmt.Sprint(byteIndex*8+bit))
+			}
+		}
+	}
+	return wifiMLOJoinStrings(bits, "<none>")
+}
+
 func readMAC(bytes []byte, offset int, limit int) string {
 	if offset+6 > limit || offset+6 > len(bytes) {
 		return ""
@@ -798,6 +1269,13 @@ func readU16Ptr(bytes []byte, offset int, limit int, truncated *bool) *int {
 
 func u16le(bytes []byte, offset int) int {
 	return int(bytes[offset]) | int(bytes[offset+1])<<8
+}
+
+func u32le(bytes []byte, offset int) uint32 {
+	return uint32(bytes[offset]) |
+		uint32(bytes[offset+1])<<8 |
+		uint32(bytes[offset+2])<<16 |
+		uint32(bytes[offset+3])<<24
 }
 
 func hasBit(value int, bit int) bool {

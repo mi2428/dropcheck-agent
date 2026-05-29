@@ -995,10 +995,12 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 							extendedCapabilitiesBssTransitionTestIE(),
 							mobilityDomainTestIE(),
 						},
-						HeCapabilities:      heCapabilitiesTestValue(),
-						He_6GhzCapabilities: he6GhzCapabilitiesTestValue(),
-						EhtCapabilities:     ehtCapabilitiesTestValue(),
-						EhtOperation:        ehtOperationTestValue(),
+						HeCapabilities:             heCapabilitiesTestValue(),
+						HeOperation:                heOperationTestValue(),
+						HeSpatialReuseParameterSet: heSpatialReuseTestValue(),
+						He_6GhzCapabilities:        he6GhzCapabilitiesTestValue(),
+						EhtCapabilities:            ehtCapabilitiesTestValue(),
+						EhtOperation:               ehtOperationTestValue(),
 						AssociatedMloLinks: []*controlpb.MloLinkInfo{{
 							LinkId:       2,
 							State:        "active",
@@ -1054,11 +1056,13 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 							mobilityDomainTestIE(),
 							multipleBSSIDTestIE(),
 						},
-						HeCapabilities:      heCapabilitiesTestValue(),
-						He_6GhzCapabilities: he6GhzCapabilitiesTestValue(),
-						EhtCapabilities:     ehtCapabilitiesTestValue(),
-						EhtOperation:        ehtOperationTestValue(),
-						SecurityDetails:     wifi7SecurityDetailsTestValue(),
+						HeCapabilities:             heCapabilitiesTestValue(),
+						HeOperation:                heOperationTestValue(),
+						HeSpatialReuseParameterSet: heSpatialReuseTestValue(),
+						He_6GhzCapabilities:        he6GhzCapabilitiesTestValue(),
+						EhtCapabilities:            ehtCapabilitiesTestValue(),
+						EhtOperation:               ehtOperationTestValue(),
+						SecurityDetails:            wifi7SecurityDetailsTestValue(),
 						AffiliatedMloLinks: []*controlpb.MloLinkInfo{{
 							LinkId:       1,
 							State:        "idle",
@@ -1100,8 +1104,12 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 		"band=6ghz ch=5 freq=5975MHz width=80MHz eht_width=320MHz puncture=1,3 rssi=-45dBm",
 		"[+] affiliated Lab",
 		"Connected EHT Multi-Link Elements",
-		"ml_control raw=0x0030 type=basic(0) presence=link_id_info,bss_parameters_change_count bytes=28",
-		"common_info len=9 mld_mac=02:00:00:00:00:01 link_id=2 bss_param_change_count=7",
+		"ml_control raw=0x07f0 type=basic(0) presence=link_id_info,bss_parameters_change_count,medium_synchronization_delay,eml_capabilities,mld_capabilities_and_operations,ap_mld_id,extended_mld_capabilities_and_operations bytes=37",
+		"common_info len=18 mld_mac=02:00:00:00:00:01 link_id=2 bss_param_change_count=7 medium_sync_delay=0x1032 eml_capabilities=0x8f08 mld_capabilities=0x3370 ap_mld_id=5 ext_mld_capabilities=0x6100",
+		"medium_sync raw=0x1032 duration=16 ofdm_ed_threshold=2 max_txop=3",
+		"eml raw=0x8f08 flags=emlsr,emlmr",
+		"mld raw=0x3370 flags=srs,aar,link_reconfig,aligned_twt",
+		"ext_mld raw=0x6100 flags=op_param_update,nstr_update,emlsr_enabled_one_link",
 		"per_link link_id=2 control=0x0972 complete=true",
 		"sta_info_len=12 sta_mac=02:00:00:00:00:02 beacon_interval_tu=100",
 		"dtim=1/3",
@@ -1124,6 +1132,16 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 		"summary 11k=true 11v_bss_transition=true 11r=true ft_akm=ft_sae_gdh rnr=false",
 		"Scan Roaming / Transition",
 		"summary 11k=true 11v_bss_transition=true 11r=true ft_akm=ft_sae_gdh rnr=true",
+		"Connected BSS Coloring",
+		"Scan BSS Coloring",
+		"he_operation bss_color=17 disabled=false partial=true",
+		"srg_bss_color_bitmap=0x0102030405060708",
+		"COLOR",
+		"17(part)",
+		"Connected HE Details",
+		"Scan HE Details",
+		"he_mac flags twt_responder,om_control,punctured_sounding",
+		"he features twt_responder,punctured_sounding",
 		"ie rsn=false rsnxe=false ext_cap=true rnr=true mbssid=true noninherit=false eht_mle=true ap_mld=true link_id=true",
 		"sdk_flags twt=true 11az_ntb=true ranging_prot=true secure_he_ltf=true 11mc=true",
 		"Scan RNR Details",
@@ -1139,8 +1157,12 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 		"dual_band_simultaneous",
 		"Connected EHT Details",
 		"max_mpdu=7991",
+		"triggered_txop_mode1",
+		"scs_traffic_description",
+		"eht features 320mhz_in_6ghz,rx_4096qam_wider_dl_ofdma",
 		"max_ampdu=262143",
 		"320mhz=true",
+		"oper flags disabled_subchannel_bitmap_present,mcs15_disabled",
 		"width_mhz=320",
 		"disabled=0x000a",
 		"punctured=1,3",
@@ -1321,6 +1343,9 @@ func TestRenderWifiMLODetailedEHTMultiLinkSubelements(t *testing.T) {
 		"profile_ie link_id=2 id=0 name=ssid len=3 actual=3 body=0x4c6162",
 		"profile_ie link_id=2 id=255 ext=106 name=eht_operation len=3 actual=3 body=0x6a0102",
 		"profile_ie link_id=2 id=255 ext=108 name=eht_capabilities len=4 actual=4 body=0x6c010203",
+		"profile_decode link_id=2",
+		"eht_operation_warnings eht_operation_too_short bytes=2 required=5",
+		"eht_capabilities_warnings eht_capabilities_too_short bytes=3 required=11",
 		"subelement id=221 name=vendor_specific len=6 actual=6",
 		"vendor oui=00:11:22 type=7 payload_bytes=2 payload=0x99aa",
 	} {
@@ -1484,8 +1509,8 @@ func ehtMultiLinkTestIE() *controlpb.WifiInformationElement {
 	return &controlpb.WifiInformationElement{
 		Id:        255,
 		IdExt:     107,
-		ByteCount: 28,
-		BytesHex:  "3000090200000000010207000f72090c0200000000026400010305dd",
+		ByteCount: 37,
+		BytesHex:  "f00712020000000001020710328f083370056100000f72090c0200000000026400010305dd",
 	}
 }
 
@@ -1585,9 +1610,12 @@ func ehtCapabilitiesTestValue() *controlpb.WifiEhtCapabilities {
 	return &controlpb.WifiEhtCapabilities{
 		MacCapabilitiesHex: "774e",
 		PhyCapabilitiesHex: "f61fffffff7ff8ff03",
+		Features:           []string{"320mhz_in_6ghz", "rx_4096qam_wider_dl_ofdma"},
 		Mac: &controlpb.WifiEhtMacCapabilities{
 			EpcsPriorityAccess:            true,
 			OmControl:                     true,
+			TriggeredTxopSharingMode1:     true,
+			ScsTrafficDescription:         true,
 			RestrictedTwt:                 true,
 			MaxMpduLengthBytes:            7991,
 			LinkAdaptation:                "no_feedback",
@@ -1629,12 +1657,42 @@ func ehtCapabilitiesTestValue() *controlpb.WifiEhtCapabilities {
 
 func heCapabilitiesTestValue() *controlpb.WifiHeCapabilities {
 	return &controlpb.WifiHeCapabilities{
+		Features: []string{"twt_responder", "punctured_sounding"},
 		Mac: &controlpb.WifiHeMacCapabilities{
+			TwtResponder:      true,
+			OmControl:         true,
 			PuncturedSounding: true,
 		},
 		Phy: &controlpb.WifiHePhyCapabilities{
-			PreamblePuncturingRx: []string{"preamble_puncturing_rx_80mhz_second_20mhz"},
+			ChannelWidthSet:       []string{"40_80mhz_in_5ghz"},
+			PreamblePuncturingRx:  []string{"preamble_puncturing_rx_80mhz_second_20mhz"},
+			DcmMaxConstellationTx: "bpsk",
+			DcmMaxNssTx:           1,
+			DcmMaxConstellationRx: "qpsk",
+			DcmMaxNssRx:           2,
+			SuBeamformer:          true,
+			SrpBasedSpatialReuse:  true,
+			NominalPacketPadding:  "16us",
 		},
+	}
+}
+
+func heOperationTestValue() *controlpb.WifiHeOperation {
+	return &controlpb.WifiHeOperation{
+		BssColor:         17,
+		BssColorDisabled: false,
+		Flags:            []string{"partial_bss_color"},
+	}
+}
+
+func heSpatialReuseTestValue() *controlpb.WifiHeSpatialReuseParameterSet {
+	return &controlpb.WifiHeSpatialReuseParameterSet{
+		SrControl:                0x08,
+		Flags:                    []string{"srg_information_present"},
+		SrgObssPdMinOffset:       20,
+		SrgObssPdMaxOffset:       30,
+		SrgBssColorBitmapHex:     "0102030405060708",
+		SrgPartialBssidBitmapHex: "1112131415161718",
 	}
 }
 

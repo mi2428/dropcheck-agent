@@ -31,6 +31,7 @@ internal data class EhtMultiLinkCommonInfo(
     val emlCapabilitiesHex: String,
     val mldCapabilitiesAndOperationsHex: String,
     val apMldId: Int?,
+    val extendedMldCapabilitiesAndOperationsHex: String,
 )
 
 internal data class EhtMultiLinkSubelement(
@@ -117,7 +118,9 @@ internal fun formatEhtMultiLinkElements(
                 if (common.emlCapabilitiesHex.isNotBlank()) append(" eml_capabilities=0x${common.emlCapabilitiesHex}")
                 if (common.mldCapabilitiesAndOperationsHex.isNotBlank()) append(" mld_capabilities=0x${common.mldCapabilitiesAndOperationsHex}")
                 common.apMldId?.let { append(" ap_mld_id=$it") }
+                if (common.extendedMldCapabilitiesAndOperationsHex.isNotBlank()) append(" ext_mld_capabilities=0x${common.extendedMldCapabilitiesAndOperationsHex}")
             }
+            lines += multiLinkCommonCapabilityLines(common)
         }
         element.subelements.forEach { subelement ->
             lines += buildString {
@@ -155,7 +158,10 @@ internal fun formatEhtMultiLinkElements(
                 if (perSta.dtimCount != null || perSta.dtimPeriod != null) {
                     append(" dtim=${perSta.dtimCount ?: "?"}/${perSta.dtimPeriod ?: "?"}")
                 }
-                if (perSta.nstrLinkPairHex.isNotBlank()) append(" nstr_link_pair=0x${perSta.nstrLinkPairHex}")
+                if (perSta.nstrLinkPairHex.isNotBlank()) {
+                    append(" nstr_link_pair=0x${perSta.nstrLinkPairHex}")
+                    append(" nstr_bitmap_bits=${bitmapBitsFromHex(perSta.nstrLinkPairHex)}")
+                }
                 perSta.bssParametersChangeCount?.let { append(" bss_param_change_count=$it") }
                 append(" profile_bytes=${perSta.profileByteCount}")
                 if (perSta.truncated) append(" truncated=true")
@@ -176,6 +182,8 @@ internal fun formatEhtMultiLinkElements(
                     lines += "    $line"
                 }
             }
+            val profileLines = wifiMloProfileDecodeLines("profile_decode link_id=${perSta.linkId}", perSta.profileElements)
+            lines += profileLines.map { "  $it" }
             if (perSta.profileElementsTruncated && perSta.profileElements.isEmpty() && perSta.profileHex.isNotBlank()) {
                 lines += "  profile_unparsed link_id=${perSta.linkId} bytes=${perSta.profileByteCount} body=0x${perSta.profileHex.hexPreview()}"
             }
@@ -202,7 +210,7 @@ private fun parseEhtMultiLinkElement(bytes: ByteArray, fallbackByteCount: Int): 
             commonInfo = parsed.first
             truncated = truncated || parsed.second
         } else {
-            commonInfo = EhtMultiLinkCommonInfo(commonLength, "", null, null, "", "", "", null)
+            commonInfo = EhtMultiLinkCommonInfo(commonLength, "", null, null, "", "", "", null, "")
         }
         offset = commonEnd
     }
@@ -309,7 +317,8 @@ private fun parseBasicCommonInfo(
     val eml = if (control.hasFlag(7)) readHex(bytes, offset, 2, commonEnd).also { if (it.isBlank()) truncated = true }.also { offset += 2 } else ""
     val mldCaps = if (control.hasFlag(8)) readHex(bytes, offset, 2, commonEnd).also { if (it.isBlank()) truncated = true }.also { offset += 2 } else ""
     val apMldId = if (control.hasFlag(9)) readU8(bytes, offset++, commonEnd).also { if (it == null) truncated = true } else null
-    return EhtMultiLinkCommonInfo(commonLength, mldMac, linkId, bssChangeCount, mediumSync, eml, mldCaps, apMldId) to truncated
+    val extendedMldCaps = if (control.hasFlag(10)) readHex(bytes, offset, 2, commonEnd).also { if (it.isBlank()) truncated = true }.also { offset += 2 } else ""
+    return EhtMultiLinkCommonInfo(commonLength, mldMac, linkId, bssChangeCount, mediumSync, eml, mldCaps, apMldId, extendedMldCaps) to truncated
 }
 
 private fun parsePerStaProfile(data: ByteArray, alreadyTruncated: Boolean): EhtPerStaProfile? {
@@ -434,6 +443,7 @@ private fun basicMultiLinkPresence(control: Int): List<String> = buildList {
     if (control.hasFlag(7)) add("eml_capabilities")
     if (control.hasFlag(8)) add("mld_capabilities_and_operations")
     if (control.hasFlag(9)) add("ap_mld_id")
+    if (control.hasFlag(10)) add("extended_mld_capabilities_and_operations")
 }
 
 private fun perStaProfileFlags(control: Int): List<String> = buildList {
@@ -506,6 +516,145 @@ private fun profileInformationElementName(id: Int, idExt: Int?): String {
         else -> "element_$id"
     }
 }
+
+private fun multiLinkCommonCapabilityLines(common: EhtMultiLinkCommonInfo): List<String> = buildList {
+    mediumSyncDelayValue(common.mediumSynchronizationDelayInfoHex)?.let { value ->
+        add("  medium_sync raw=0x${common.mediumSynchronizationDelayInfoHex} duration=${value and 0x00ff} ofdm_ed_threshold=${(value ushr 8) and 0x0f} max_txop=${(value ushr 12) and 0x0f}")
+    }
+    u16HexValue(common.emlCapabilitiesHex)?.let { value ->
+        val flags = listOfNotNull(
+            "emlsr".takeIf { value and 0x0001 != 0 },
+            "emlmr".takeIf { value and 0x0080 != 0 },
+        )
+        val reserved = value and 0x8700
+        add("  eml raw=0x${common.emlCapabilitiesHex} flags=${flags.joinedOrNone()} emlsr_padding_delay=${(value and 0x000e) ushr 1} emlsr_transition_delay=${(value and 0x0070) ushr 4} transition_timeout=${(value and 0x7800) ushr 11}${if (reserved != 0) " reserved=0x${reserved.toHex16()}" else ""}")
+    }
+    u16HexValue(common.mldCapabilitiesAndOperationsHex)?.let { value ->
+        val flags = listOfNotNull(
+            "srs".takeIf { value and 0x0010 != 0 },
+            "aar".takeIf { value and 0x1000 != 0 },
+            "link_reconfig".takeIf { value and 0x2000 != 0 },
+            "aligned_twt".takeIf { value and 0x4000 != 0 },
+        )
+        val tidToLink = listOfNotNull(
+            "all_to_all".takeIf { value and 0x0020 != 0 },
+            "all_to_one".takeIf { value and 0x0040 != 0 },
+        )
+        val reserved = value and 0x8000
+        add("  mld raw=0x${common.mldCapabilitiesAndOperationsHex} flags=${flags.joinedOrNone()} max_sim_links_code=${value and 0x000f} tid_to_link=${tidToLink.joinedOrNone()} ap_mld_type=${(value and 0x0080) ushr 7} freq_sep_for_str_code=${(value and 0x0f80) ushr 7}${if (reserved != 0) " reserved=0x${reserved.toHex16()}" else ""}")
+    }
+    u16HexValue(common.extendedMldCapabilitiesAndOperationsHex)?.let { value ->
+        val flags = listOfNotNull(
+            "op_param_update".takeIf { value and 0x0001 != 0 },
+            "nstr_update".takeIf { value and 0x0020 != 0 },
+            "emlsr_enabled_one_link".takeIf { value and 0x0040 != 0 },
+            "btm_mld_recommendation_multi_ap".takeIf { value and 0x0080 != 0 },
+        )
+        val reserved = value and 0xff00
+        add("  ext_mld raw=0x${common.extendedMldCapabilitiesAndOperationsHex} flags=${flags.joinedOrNone()} recommended_max_links_code=${(value and 0x001e) ushr 1}${if (reserved != 0) " reserved=0x${reserved.toHex16()}" else ""}")
+    }
+}
+
+internal fun profileInformationElementsAsWifiInformationElements(
+    elements: List<EhtProfileInformationElement>,
+): List<WifiInformationElement> {
+    return elements.mapNotNull { element ->
+        val body = hexToBytes(element.bodyHex)
+        if (element.id == EHT_MULTI_LINK_ELEMENT_ID && element.idExt != null) {
+            if (body.isEmpty()) return@mapNotNull null
+            WifiInformationElement.newBuilder()
+                .setId(element.id)
+                .setIdExt(element.idExt)
+                .setByteCount((element.actualLength - 1).coerceAtLeast(0))
+                .setBytesHex(body.copyOfRange(1, body.size).toHex())
+                .build()
+        } else {
+            WifiInformationElement.newBuilder()
+                .setId(element.id)
+                .setByteCount(element.actualLength)
+                .setBytesHex(element.bodyHex)
+                .build()
+        }
+    }
+}
+
+internal fun wifiMloProfileDecodeLines(label: String, elements: List<EhtProfileInformationElement>): List<String> {
+    val converted = profileInformationElementsAsWifiInformationElements(elements)
+    val decodes = decodeWifiInformationElements(converted)
+    val mles = parseEhtMultiLinkElements(converted)
+    if (decodes.heCapabilities == null &&
+        decodes.heOperation == null &&
+        decodes.ehtCapabilities == null &&
+        decodes.ehtOperation == null &&
+        decodes.heSpatialReuseParameterSet == null &&
+        decodes.he6GhzCapabilities == null &&
+        mles.isEmpty()
+    ) {
+        return emptyList()
+    }
+    return buildList {
+        add(label)
+        decodes.heOperation?.let { operation ->
+            add("  he_operation bss_color=${operation.bssColor} disabled=${operation.bssColorDisabled} flags=${operation.flagsList.joinedOrNone()}")
+            if (operation.channelWidth.isNotBlank()) {
+                add("  he_operation_6ghz width=${operation.channelWidth} primary=${operation.primaryChannel} ccfs0=${operation.centerFreqSegment0} ccfs1=${operation.centerFreqSegment1}")
+            }
+            if (operation.warningsCount > 0) add("  he_operation_warnings ${operation.warningsList.joinToString(",")}")
+        }
+        decodes.heSpatialReuseParameterSet?.let { spatialReuse ->
+            add("  spatial_reuse control=0x${spatialReuse.srControl.toString(16)} flags=${spatialReuse.flagsList.joinedOrNone()}")
+        }
+        decodes.heCapabilities?.let { capabilities ->
+            add("  he_capabilities features=${capabilities.featuresList.joinedOrNone()}")
+            if (capabilities.warningsCount > 0) add("  he_capabilities_warnings ${capabilities.warningsList.joinToString(",")}")
+        }
+        decodes.he6GhzCapabilities?.let { capabilities ->
+            add("  he_6ghz max_mpdu=${capabilities.maxMpduLengthBytes} max_ampdu=${capabilities.maxAmpduLengthBytes} smps=${capabilities.smPowerSave}")
+        }
+        decodes.ehtOperation?.let { operation ->
+            val punctured = if (operation.disabledSubchannelBitmapPresent || operation.disabledSubchannelBitmap != 0) {
+                " disabled=0x${operation.disabledSubchannelBitmapHex.ifBlank { operation.disabledSubchannelBitmap.toString(16).padStart(4, '0') }} punctured=${operation.disabledSubchannelIndicesList.map { it.toString() }.joinedOrNone()}"
+            } else {
+                ""
+            }
+            add("  eht_operation op_info=${operation.operationInformationPresent} width=${empty(operation.channelWidth, "<unknown>")} flags=${operation.flagsList.joinedOrNone()}$punctured")
+            if (operation.warningsCount > 0) add("  eht_operation_warnings ${operation.warningsList.joinToString(",")}")
+        }
+        decodes.ehtCapabilities?.let { capabilities ->
+            add("  eht_capabilities features=${capabilities.featuresList.joinedOrNone()}")
+            if (capabilities.warningsCount > 0) add("  eht_capabilities_warnings ${capabilities.warningsList.joinToString(",")}")
+        }
+        if (mles.isNotEmpty()) {
+            val mld = mles.firstNotNullOfOrNull { it.commonInfo?.mldMacAddress?.takeIf(String::isNotBlank) }.orEmpty()
+            val linkIds = mles.flatMap { element ->
+                listOfNotNull(element.commonInfo?.linkId) + element.subelements.mapNotNull { it.perStaProfile?.linkId }
+            }
+            add("  eht_mle count=${mles.size} ap_mld=${empty(mld, "<unknown>")} link_ids=${linkIds.map { it.toString() }.joinedOrNone()}")
+        }
+    }
+}
+
+private fun mediumSyncDelayValue(hex: String): Int? = u16HexValue(hex)
+
+private fun u16HexValue(hex: String): Int? {
+    val bytes = hexToBytes(hex)
+    if (bytes.size < 2) return null
+    return bytes.u16le(0)
+}
+
+private fun bitmapBitsFromHex(hex: String): String {
+    val bytes = hexToBytes(hex)
+    val bits = mutableListOf<String>()
+    bytes.forEachIndexed { byteIndex, byte ->
+        val value = byte.u8()
+        for (bit in 0 until 8) {
+            if (value and (1 shl bit) != 0) bits += (byteIndex * 8 + bit).toString()
+        }
+    }
+    return bits.joinedOrNone()
+}
+
+private fun empty(value: String, fallback: String): String = value.ifBlank { fallback }
 
 private fun readMac(bytes: ByteArray, offset: Int, limit: Int): String {
     if (offset + 6 > limit || offset + 6 > bytes.size) return ""

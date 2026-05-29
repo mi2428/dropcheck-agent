@@ -338,6 +338,9 @@ internal fun formatWifiMloMultipleBssidDetails(label: String, elements: List<Wif
                     add("  profile_security #${profile.index}")
                     wifiMloSecuritySummaryLines(security).forEach { line -> add("    $line") }
                 }
+                wifiMloProfileDecodeLines("profile_decode #${profile.index}", profile.elements).forEach { line ->
+                    add("  $line")
+                }
             }
         }
     }

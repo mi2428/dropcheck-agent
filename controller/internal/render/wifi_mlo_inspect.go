@@ -539,6 +539,9 @@ func formatWifiMLOMultipleBSSIDDetails(label string, elements []*controlpb.WifiI
 					lines = append(lines, "    "+line)
 				}
 			}
+			for _, line := range wifiMLOProfileDecodeLines(fmt.Sprintf("profile_decode #%d", profile.index), profile.elements) {
+				lines = append(lines, "  "+line)
+			}
 		}
 	}
 	return lines
