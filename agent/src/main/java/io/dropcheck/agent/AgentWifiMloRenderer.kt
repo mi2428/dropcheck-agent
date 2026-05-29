@@ -6,6 +6,10 @@ import io.dropcheck.agent.grpc.WifiEhtCapabilities
 import io.dropcheck.agent.grpc.WifiEhtOperation
 import io.dropcheck.agent.grpc.WifiHe6GhzCapabilities
 import io.dropcheck.agent.grpc.WifiHeCapabilities
+import io.dropcheck.agent.grpc.WifiHeMuEdcaParameterSet
+import io.dropcheck.agent.grpc.WifiHeOperation
+import io.dropcheck.agent.grpc.WifiHeSpatialReuseParameterSet
+import io.dropcheck.agent.grpc.WifiHeUoraParameterSet
 import io.dropcheck.agent.grpc.WifiMcsNssSupport
 import io.dropcheck.agent.grpc.WifiCapabilities
 import io.dropcheck.agent.grpc.WifiConnection
@@ -40,6 +44,8 @@ internal object AgentWifiMloRenderer {
         renderConnectedMlo(out, current)
         renderConnectedSecurityDetails(out, current)
         renderConnectedRoamingDetails(out, current)
+        renderConnectedBssColoring(out, current)
+        renderConnectedHeDetails(out, current)
         renderConnectedHe6GhzDetails(out, current)
         renderConnectedEhtMultiLink(out, current)
         renderConnectedEhtDetails(out, current)
@@ -138,6 +144,7 @@ internal object AgentWifiMloRenderer {
                 TableColumn("RSSI", 4),
                 TableColumn("SEC", 7),
                 TableColumn("STANDARD", 8),
+                TableColumn("COLOR", 8),
                 TableColumn("EHT_W", 9),
                 TableColumn("PUNCT", 7),
             ),
@@ -148,6 +155,7 @@ internal object AgentWifiMloRenderer {
                     group.bestRssi.toString(),
                     joined(group.security, "-"),
                     joined(group.standards, "-"),
+                    groupBssColors(group),
                     groupEhtOperationWidths(group),
                     groupEhtOperationPuncturing(group),
                 )
@@ -156,8 +164,10 @@ internal object AgentWifiMloRenderer {
         renderScanLinks(out, groups, current)
         renderScanSecurityDetails(out, groups.flatMap { it.results })
         renderScanRoamingDetails(out, groups.flatMap { it.results })
+        renderScanBssColoring(out, groups.flatMap { it.results })
         renderScanRnrDetails(out, groups.flatMap { it.results })
         renderScanMultipleBssidDetails(out, groups.flatMap { it.results })
+        renderScanHeDetails(out, groups.flatMap { it.results })
         renderScanHe6GhzDetails(out, groups.flatMap { it.results })
         renderScanEhtMultiLink(out, groups.flatMap { it.results })
         renderScanEhtPuncturing(out, groups.flatMap { it.results })
@@ -217,6 +227,43 @@ internal object AgentWifiMloRenderer {
             out += "  $label"
             lines.forEach { line -> out += "    $line" }
         }
+    }
+
+    private fun renderConnectedBssColoring(out: MutableList<String>, conn: WifiConnection?) {
+        if (conn == null || !conn.hasBssColoringContext()) return
+        section(out, "Connected BSS Coloring")
+        renderBssColoring(
+            out,
+            "connection",
+            conn.heOperation.takeIf { conn.hasHeOperation() },
+            conn.heSpatialReuseParameterSet.takeIf { conn.hasHeSpatialReuseParameterSet() },
+        )
+    }
+
+    private fun renderScanBssColoring(out: MutableList<String>, results: List<WifiScanResult>) {
+        val colorResults = results.filter { it.hasBssColoringContext() }
+        if (colorResults.isEmpty()) return
+        section(out, "Scan BSS Coloring")
+        colorResults.forEachIndexed { index, result ->
+            if (index > 0) out += ""
+            val label = "ap ssid=${empty(result.ssid, "<hidden>")} bssid=${empty(result.bssid, "<unknown>")}"
+            renderBssColoring(
+                out,
+                label,
+                result.heOperation.takeIf { result.hasHeOperation() },
+                result.heSpatialReuseParameterSet.takeIf { result.hasHeSpatialReuseParameterSet() },
+            )
+        }
+    }
+
+    private fun renderBssColoring(
+        out: MutableList<String>,
+        label: String,
+        operation: WifiHeOperation?,
+        spatialReuse: WifiHeSpatialReuseParameterSet?,
+    ) {
+        out += "  $label"
+        bssColoringSummaryLines(operation, spatialReuse).forEach { out += "    $it" }
     }
 
     private fun renderScanRnrDetails(out: MutableList<String>, results: List<WifiScanResult>) {
@@ -279,6 +326,108 @@ internal object AgentWifiMloRenderer {
             section(out, "MLO Capability Errors")
             capabilities.errorsList.forEach { out += "  $it" }
         }
+    }
+
+    private fun renderConnectedHeDetails(out: MutableList<String>, conn: WifiConnection?) {
+        if (conn == null || !conn.hasHeDetails()) return
+        section(out, "Connected HE Details")
+        renderHeDetails(
+            out,
+            "connection",
+            conn.heCapabilities.takeIf { conn.hasHeCapabilities() },
+            conn.heOperation.takeIf { conn.hasHeOperation() },
+            conn.heUoraParameterSet.takeIf { conn.hasHeUoraParameterSet() },
+            conn.heMuEdcaParameterSet.takeIf { conn.hasHeMuEdcaParameterSet() },
+        )
+    }
+
+    private fun renderScanHeDetails(out: MutableList<String>, results: List<WifiScanResult>) {
+        val heResults = results.filter { it.hasHeDetails() }
+        if (heResults.isEmpty()) return
+        section(out, "Scan HE Details")
+        heResults.forEachIndexed { index, result ->
+            if (index > 0) out += ""
+            val label = "ap ssid=${empty(result.ssid, "<hidden>")} bssid=${empty(result.bssid, "<unknown>")}"
+            renderHeDetails(
+                out,
+                label,
+                result.heCapabilities.takeIf { result.hasHeCapabilities() },
+                result.heOperation.takeIf { result.hasHeOperation() },
+                result.heUoraParameterSet.takeIf { result.hasHeUoraParameterSet() },
+                result.heMuEdcaParameterSet.takeIf { result.hasHeMuEdcaParameterSet() },
+            )
+        }
+    }
+
+    private fun renderHeDetails(
+        out: MutableList<String>,
+        label: String,
+        capabilities: WifiHeCapabilities?,
+        operation: WifiHeOperation?,
+        uora: WifiHeUoraParameterSet?,
+        muEdca: WifiHeMuEdcaParameterSet?,
+    ) {
+        out += "  $label"
+        capabilities?.let { cap ->
+            if (cap.hasMac()) out += heMacSummaryLines(cap).map { "    $it" }
+            if (cap.hasPhy()) out += hePhySummaryLines(cap).map { "    $it" }
+            if (cap.featuresCount > 0) out += wrappedListLines("he features", cap.featuresList, "<none>").map { "    $it" }
+            if (cap.mcsNssCount > 0) out += mcsNssLines("he_mcs_nss", cap.mcsNssList).map { "    $it" }
+            if (cap.ppeThresholdsPresent) {
+                out += "    he_ppe nss=${cap.ppeNssCount} ru=${joined(cap.ppeRuIndicesList)} hex=0x${cap.ppeThresholdsHex}"
+            }
+            if (cap.warningsCount > 0) out += "    he_cap_warnings ${cap.warningsList.joinToString(",")}"
+        }
+        operation?.let { oper ->
+            out += heOperationSummaryLines(oper).map { "    $it" }
+        }
+        uora?.let { value ->
+            out += "    he_uora eocw_min=${value.eocwMin} eocw_max=${value.eocwMax}"
+            if (value.warningsCount > 0) out += "    he_uora_warnings ${value.warningsList.joinToString(",")}"
+        }
+        muEdca?.let { value ->
+            out += "    he_mu_edca qos_info=0x${value.qosInfo.toString(16)}"
+            value.acList.forEach { ac ->
+                out += "    he_mu_edca_ac ${ac.ac} aci=${ac.aci} aifsn=${ac.aifsn} acm=${ac.acm} ecw=${ac.ecwMin}/${ac.ecwMax} timer=${ac.timer}"
+            }
+            if (value.warningsCount > 0) out += "    he_mu_edca_warnings ${value.warningsList.joinToString(",")}"
+        }
+    }
+
+    private fun heMacSummaryLines(value: WifiHeCapabilities): List<String> {
+        val mac = value.mac
+        val flags = listOfNotNull(
+            "twt_requester".takeIf { mac.twtRequester },
+            "twt_responder".takeIf { mac.twtResponder },
+            "om_control".takeIf { mac.omControl },
+            "ofdma_ra".takeIf { mac.ofdmaRandomAccess },
+            "srp_responder".takeIf { mac.srpResponder },
+            "ul_2x996".takeIf { mac.ul2X996ToneRu },
+            "punctured_sounding".takeIf { mac.puncturedSounding },
+            "ht_vht_trigger_rx".takeIf { mac.htVhtTriggerFrameRx },
+        )
+        return listOf(
+            "he_mac link_adapt=${empty(mac.linkAdaptation, "<unknown>")} max_ampdu_ext=${mac.maxAmpduLengthExponentExtension} multi_tid_rx_qos=${mac.multiTidAggregationRxQos} multi_tid_tx_qos=${mac.multiTidAggregationTxQos}",
+        ) + wrappedListLines("he_mac flags", flags, "<none>")
+    }
+
+    private fun hePhySummaryLines(value: WifiHeCapabilities): List<String> {
+        val phy = value.phy
+        return listOf(
+            "he_phy widths=${joined(phy.channelWidthSetList)} puncture_rx=${joined(phy.preamblePuncturingRxList)} dcm_tx=${empty(phy.dcmMaxConstellationTx, "<unknown>")}/nss${phy.dcmMaxNssTx} dcm_rx=${empty(phy.dcmMaxConstellationRx, "<unknown>")}/nss${phy.dcmMaxNssRx}",
+            "he_phy bf su_bfer=${phy.suBeamformer} su_bfee=${phy.suBeamformee} mu_bfer=${phy.muBeamformer} bfee_sts<=80=${phy.beamformeeStsUnder80Mhz} bfee_sts>80=${phy.beamformeeStsAbove80Mhz}",
+            "he_phy spatial_reuse=${phy.srpBasedSpatialReuse} partial_bw_dl_mu_mimo=${phy.partialBwDlMuMimo} max_nc=${phy.maxNc} padding=${empty(phy.nominalPacketPadding, "<unknown>")}",
+        )
+    }
+
+    private fun heOperationSummaryLines(value: WifiHeOperation): List<String> = buildList {
+        add("he_oper params=0x${value.parameters.toString(16)} basic_mcs_nss=0x${value.basicMcsNssSetHex} bss_color=${value.bssColor} disabled=${value.bssColorDisabled}")
+        addAll(wrappedListLines("he_oper flags", value.flagsList, "<none>"))
+        if (value.channelWidth.isNotBlank() || value.primaryChannel != 0 || value.centerFreqSegment0 != 0 || value.centerFreqSegment1 != 0) {
+            add("he_oper_6ghz width=${empty(value.channelWidth, "<unknown>")} primary=${value.primaryChannel} ccfs0=${value.centerFreqSegment0} ccfs1=${value.centerFreqSegment1}")
+        }
+        if (value.truncated) add("he_oper_truncated=true")
+        if (value.warningsCount > 0) add("he_oper_warnings ${value.warningsList.joinToString(",")}")
     }
 
     private fun renderConnectedHe6GhzDetails(out: MutableList<String>, conn: WifiConnection?) {
@@ -367,6 +516,7 @@ internal object AgentWifiMloRenderer {
         capabilities?.let { cap ->
             if (cap.hasMac()) out += ehtMacSummaryLines(cap).map { "    $it" }
             if (cap.hasPhy()) out += ehtPhySummaryLines(cap).map { "    $it" }
+            if (cap.featuresCount > 0) out += wrappedListLines("eht features", cap.featuresList, "<none>").map { "    $it" }
             if (cap.mcsNssCount > 0) out += mcsNssLines("mcs_nss", cap.mcsNssList).map { "    $it" }
             if (cap.ppeThresholdsPresent) {
                 out += "    ppe nss=${cap.ppeNssCount} ru=${joined(cap.ppeRuIndicesList)} hex=0x${cap.ppeThresholdsHex}"
@@ -385,7 +535,10 @@ internal object AgentWifiMloRenderer {
         val flags = listOfNotNull(
             "epcs".takeIf { mac.epcsPriorityAccess },
             "om_control".takeIf { mac.omControl },
+            "triggered_txop_mode1".takeIf { mac.triggeredTxopSharingMode1 },
+            "triggered_txop_mode2".takeIf { mac.triggeredTxopSharingMode2 },
             "restricted_twt".takeIf { mac.restrictedTwt },
+            "scs_traffic_description".takeIf { mac.scsTrafficDescription },
             "trs".takeIf { mac.ehtTrs },
             "txop_return".takeIf { mac.txopReturn },
             "two_bqrs".takeIf { mac.twoBqrs },
@@ -438,6 +591,7 @@ internal object AgentWifiMloRenderer {
     private fun ehtOperationSummaryLines(value: WifiEhtOperation): List<String> = buildList {
         add("oper op_info=${value.operationInformationPresent} width=${empty(value.channelWidth, "<unknown>")} width_mhz=${value.channelWidthMhz} code=${value.channelWidthCode}")
         add("oper ccfs0=${value.centerFreqSegment0} ccfs1=${value.centerFreqSegment1} mcs15_disabled=${value.mcs15Disabled} group_bu_exp=${value.groupAddressedBuIndicationExponent}")
+        addAll(wrappedListLines("oper flags", value.flagsList, "<none>"))
         if (value.disabledSubchannelBitmapPresent || value.disabledSubchannelBitmap != 0) {
             add("oper disabled=0x${empty(value.disabledSubchannelBitmapHex, value.disabledSubchannelBitmap.toString(16))} punctured=${joined(value.disabledSubchannelIndicesList.map { it.toString() })}")
         }
@@ -694,6 +848,12 @@ internal object AgentWifiMloRenderer {
 
     private fun WifiScanResult.hasEhtDetails(): Boolean = hasEhtCapabilities() || hasEhtOperation()
 
+    private fun WifiConnection.hasHeDetails(): Boolean =
+        hasHeCapabilities() || hasHeOperation() || hasHeUoraParameterSet() || hasHeMuEdcaParameterSet()
+
+    private fun WifiScanResult.hasHeDetails(): Boolean =
+        hasHeCapabilities() || hasHeOperation() || hasHeUoraParameterSet() || hasHeMuEdcaParameterSet()
+
     private fun connectionHasMlo(conn: WifiConnection): Boolean {
         return conn.apMldMacAddress.isNotBlank() ||
             conn.affiliatedMloLinksCount > 0 ||
@@ -806,6 +966,21 @@ internal object AgentWifiMloRenderer {
         return joined(group.results.map { scanEhtOperationPuncturing(it) }, "-")
     }
 
+    private fun groupBssColors(group: MloGroup): String {
+        return joined(group.results.map { result ->
+            heOperationBssColorValue(if (result.hasHeOperation()) result.heOperation else null)
+        }, "-")
+    }
+
+    private fun heOperationBssColorValue(operation: WifiHeOperation?): String {
+        if (operation == null) return ""
+        return when {
+            operation.bssColorDisabled -> "${operation.bssColor}(off)"
+            operation.flagsList.contains("partial_bss_color") -> "${operation.bssColor}(part)"
+            else -> operation.bssColor.toString()
+        }
+    }
+
     private fun scanEhtOperationSuffix(result: WifiScanResult): String {
         val width = scanEhtOperationWidth(result)
         val puncturing = scanEhtOperationPuncturing(result)
@@ -834,6 +1009,33 @@ internal object AgentWifiMloRenderer {
 
     private fun WifiScanResult.hasEhtPuncturingContext(): Boolean =
         hasHeCapabilities() || hasEhtOperation()
+
+    private fun WifiConnection.hasBssColoringContext(): Boolean =
+        hasHeOperation() || hasHeSpatialReuseParameterSet()
+
+    private fun WifiScanResult.hasBssColoringContext(): Boolean =
+        hasHeOperation() || hasHeSpatialReuseParameterSet()
+
+    private fun bssColoringSummaryLines(
+        operation: WifiHeOperation?,
+        spatialReuse: WifiHeSpatialReuseParameterSet?,
+    ): List<String> = buildList {
+        operation?.let { oper ->
+            add("he_operation bss_color=${oper.bssColor} disabled=${oper.bssColorDisabled} partial=${oper.flagsList.contains("partial_bss_color")}")
+            if (oper.warningsCount > 0) add("he_operation_warnings ${oper.warningsList.joinToString(",")}")
+        }
+        spatialReuse?.let { sr ->
+            add("spatial_reuse control=0x${sr.srControl.toString(16)} flags=${joined(sr.flagsList)}")
+            if (sr.nonSrgObssPdMaxOffset != 0) add("non_srg_obss_pd_max_offset=${sr.nonSrgObssPdMaxOffset}")
+            if (sr.srgObssPdMinOffset != 0 || sr.srgObssPdMaxOffset != 0) {
+                add("srg_obss_pd=${sr.srgObssPdMinOffset}/${sr.srgObssPdMaxOffset}")
+            }
+            if (sr.srgBssColorBitmapHex.isNotBlank()) add("srg_bss_color_bitmap=0x${sr.srgBssColorBitmapHex}")
+            if (sr.srgPartialBssidBitmapHex.isNotBlank()) add("srg_partial_bssid_bitmap=0x${sr.srgPartialBssidBitmapHex}")
+            if (sr.truncated) add("spatial_reuse_truncated=true")
+            if (sr.warningsCount > 0) add("spatial_reuse_warnings ${sr.warningsList.joinToString(",")}")
+        }
+    }
 
     private fun section(out: MutableList<String>, title: String) {
         if (out.isNotEmpty() && out.last().isNotBlank()) out += ""

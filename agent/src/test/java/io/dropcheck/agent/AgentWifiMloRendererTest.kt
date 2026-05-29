@@ -4,6 +4,15 @@ import io.dropcheck.agent.grpc.DiagnosticField
 import io.dropcheck.agent.grpc.MloLinkInfo
 import io.dropcheck.agent.grpc.WifiCapabilities
 import io.dropcheck.agent.grpc.WifiConnection
+import io.dropcheck.agent.grpc.WifiEhtCapabilities
+import io.dropcheck.agent.grpc.WifiEhtMacCapabilities
+import io.dropcheck.agent.grpc.WifiEhtOperation
+import io.dropcheck.agent.grpc.WifiEhtPhyCapabilities
+import io.dropcheck.agent.grpc.WifiHeCapabilities
+import io.dropcheck.agent.grpc.WifiHeMacCapabilities
+import io.dropcheck.agent.grpc.WifiHeOperation
+import io.dropcheck.agent.grpc.WifiHePhyCapabilities
+import io.dropcheck.agent.grpc.WifiHeSpatialReuseParameterSet
 import io.dropcheck.agent.grpc.WifiScan
 import io.dropcheck.agent.grpc.WifiScanResult
 import io.dropcheck.agent.grpc.WifiStatus
@@ -65,13 +74,29 @@ class AgentWifiMloRendererTest {
             "EHT Scan Links",
             "[*] Lab",
             "ap_mld=02:00:00:00:00:01 link=2 bssid=aa:bb:cc:dd:ee:ff",
-            "band=6ghz ch=5 freq=5975MHz width=80MHz rssi=-45dBm",
+            "band=6ghz ch=5 freq=5975MHz width=80MHz eht_width=320MHz puncture=1,3 rssi=-45dBm",
             "ie rsn=false rsnxe=false ext_cap=true rnr=true mbssid=true noninherit=false eht_mle=true ap_mld=true link_id=true",
             "sdk_flags twt=true 11az_ntb=true ranging_prot=true secure_he_ltf=true 11mc=true",
             "[+] affiliated Lab",
             "Connected Roaming / Transition",
             "summary 11k=true 11v_bss_transition=true 11r=true ft_akm=<none> rnr=true",
             "Scan Roaming / Transition",
+            "Connected BSS Coloring",
+            "Scan BSS Coloring",
+            "he_operation bss_color=17 disabled=false partial=true",
+            "srg_bss_color_bitmap=0x0102030405060708",
+            "COLOR",
+            "17(part)",
+            "Connected HE Details",
+            "Scan HE Details",
+            "he_mac flags twt_responder,om_control,punctured_sounding",
+            "he features twt_responder,punctured_sounding",
+            "Connected EHT Details",
+            "Scan EHT Details",
+            "mac flags om_control,triggered_txop_mode1,scs_traffic_description",
+            "eht features 320mhz_in_6ghz,rx_4096qam_wider_dl_ofdma",
+            "oper flags operation_information_present",
+            "oper flags disabled_subchannel_bitmap_present",
             "Scan RNR Details",
             "rnr band=6ghz width=80MHz channel=5 freq=5975MHz op_class=133",
             "mld ap_mld_id=7 link_id=2",
@@ -80,8 +105,12 @@ class AgentWifiMloRendererTest {
             "noninherit=ids:48/ext:106",
             "profile_security #1",
             "Connected EHT Multi-Link Elements",
-            "ml_control raw=0x0030 type=basic(0) presence=link_id_info,bss_parameters_change_count bytes=28",
-            "common_info len=9 mld_mac=02:00:00:00:00:01 link_id=2 bss_param_change_count=7",
+            "ml_control raw=0x07f0 type=basic(0) presence=link_id_info,bss_parameters_change_count,medium_synchronization_delay,eml_capabilities,mld_capabilities_and_operations,ap_mld_id,extended_mld_capabilities_and_operations bytes=37",
+            "common_info len=18 mld_mac=02:00:00:00:00:01 link_id=2 bss_param_change_count=7 medium_sync_delay=0x1032 eml_capabilities=0x8f08 mld_capabilities=0x3370 ap_mld_id=5 ext_mld_capabilities=0x6100",
+            "medium_sync raw=0x1032 duration=16 ofdm_ed_threshold=2 max_txop=3",
+            "eml raw=0x8f08 flags=emlsr,emlmr",
+            "mld raw=0x3370 flags=srs,aar,link_reconfig,aligned_twt",
+            "ext_mld raw=0x6100 flags=op_param_update,nstr_update,emlsr_enabled_one_link",
             "per_link link_id=2 control=0x0972 complete=true",
             "sta_info_len=12 sta_mac=02:00:00:00:00:02 beacon_interval_tu=100",
             "dtim=1/3",
@@ -235,6 +264,9 @@ class AgentWifiMloRendererTest {
             "profile_ie link_id=2 id=0 name=ssid len=3 actual=3 body=0x4c6162",
             "profile_ie link_id=2 id=255 ext=106 name=eht_operation len=3 actual=3 body=0x6a0102",
             "profile_ie link_id=2 id=255 ext=108 name=eht_capabilities len=4 actual=4 body=0x6c010203",
+            "profile_decode link_id=2",
+            "eht_operation_warnings eht_operation_too_short bytes=2 required=5",
+            "eht_capabilities_warnings eht_capabilities_too_short bytes=3 required=11",
             "subelement id=221 name=vendor_specific len=6 actual=6",
             "vendor oui=00:11:22 type=7 payload_bytes=2 payload=0x99aa",
         ).forEach { want ->
@@ -386,6 +418,11 @@ class AgentWifiMloRendererTest {
             .setApMloLinkId(2)
             .addAssociatedMloLinks(mloLink(2, "active", "6ghz", 5, -45))
             .addAffiliatedMloLinks(mloLink(1, "idle", "5ghz", 44, -55))
+            .setHeCapabilities(heCapabilities())
+            .setHeOperation(heOperation())
+            .setHeSpatialReuseParameterSet(heSpatialReuse())
+            .setEhtCapabilities(ehtCapabilities())
+            .setEhtOperation(ehtOperation())
             .addInformationElements(ehtMultiLinkIe())
             .addInformationElements(rnrIe())
             .addInformationElements(rmEnabledCapabilitiesIe())
@@ -406,6 +443,11 @@ class AgentWifiMloRendererTest {
             .setApMldMacAddress(mld)
             .setApMloLinkId(linkId)
             .addSecurityTypes("wpa3_sae")
+            .setHeCapabilities(heCapabilities())
+            .setHeOperation(heOperation())
+            .setHeSpatialReuseParameterSet(heSpatialReuse())
+            .setEhtCapabilities(ehtCapabilities())
+            .setEhtOperation(ehtOperation())
             .addAffiliatedMloLinks(mloLink(1, "idle", "5ghz", 44, -55))
             .addAffiliatedMloLinks(mloLink(2, "active", "6ghz", 5, rssi))
             .addInformationElements(ehtMultiLinkIe())
@@ -431,12 +473,94 @@ class AgentWifiMloRendererTest {
             .build()
     }
 
+    private fun heOperation(): WifiHeOperation {
+        return WifiHeOperation.newBuilder()
+            .setParameters(0x40000000)
+            .setBasicMcsNssSetHex("ffff")
+            .setBssColor(17)
+            .setBssColorDisabled(false)
+            .addFlags("partial_bss_color")
+            .build()
+    }
+
+    private fun heCapabilities(): WifiHeCapabilities {
+        return WifiHeCapabilities.newBuilder()
+            .setMac(WifiHeMacCapabilities.newBuilder()
+                .setTwtResponder(true)
+                .setOmControl(true)
+                .setPuncturedSounding(true))
+            .setPhy(WifiHePhyCapabilities.newBuilder()
+                .addChannelWidthSet("40_80mhz_in_5ghz")
+                .addPreamblePuncturingRx("preamble_puncturing_rx_80mhz_second_20mhz")
+                .setDcmMaxConstellationTx("bpsk")
+                .setDcmMaxNssTx(1)
+                .setDcmMaxConstellationRx("qpsk")
+                .setDcmMaxNssRx(2)
+                .setSuBeamformer(true)
+                .setSrpBasedSpatialReuse(true)
+                .setNominalPacketPadding("16us"))
+            .addFeatures("twt_responder")
+            .addFeatures("punctured_sounding")
+            .build()
+    }
+
+    private fun ehtCapabilities(): WifiEhtCapabilities {
+        return WifiEhtCapabilities.newBuilder()
+            .setMac(WifiEhtMacCapabilities.newBuilder()
+                .setOmControl(true)
+                .setTriggeredTxopSharingMode1(true)
+                .setScsTrafficDescription(true)
+                .setMaxMpduLengthBytes(7991)
+                .setLinkAdaptation("no_feedback"))
+            .setPhy(WifiEhtPhyCapabilities.newBuilder()
+                .setSupports320MhzIn6Ghz(true)
+                .setSupports242ToneRuGt20Mhz(true)
+                .setMaxSupportedEhtLtf(3)
+                .setExtraEhtLtfSupported(true)
+                .setPsrSpatialReuse(true)
+                .setRx4096QamWiderBwDlOfdma(true)
+                .setCommonNominalPacketPadding("16us"))
+            .addFeatures("320mhz_in_6ghz")
+            .addFeatures("rx_4096qam_wider_dl_ofdma")
+            .build()
+    }
+
+    private fun ehtOperation(): WifiEhtOperation {
+        return WifiEhtOperation.newBuilder()
+            .setParameters(0x03)
+            .addFlags("operation_information_present")
+            .addFlags("disabled_subchannel_bitmap_present")
+            .setOperationInformationPresent(true)
+            .setDisabledSubchannelBitmapPresent(true)
+            .setChannelWidth("320MHz")
+            .setChannelWidthMhz(320)
+            .setChannelWidthCode(4)
+            .setCenterFreqSegment0(31)
+            .setCenterFreqSegment1(63)
+            .setDisabledSubchannelBitmap(0x0a)
+            .setDisabledSubchannelBitmapHex("000a")
+            .addDisabledSubchannelIndices(1)
+            .addDisabledSubchannelIndices(3)
+            .build()
+    }
+
+    private fun heSpatialReuse(): WifiHeSpatialReuseParameterSet {
+        return WifiHeSpatialReuseParameterSet.newBuilder()
+            .setSrControl(0x08)
+            .addFlags("srg_information_present")
+            .setSrgObssPdMinOffset(20)
+            .setSrgObssPdMaxOffset(30)
+            .setSrgBssColorBitmapHex("0102030405060708")
+            .setSrgPartialBssidBitmapHex("1112131415161718")
+            .build()
+    }
+
     private fun ehtMultiLinkIe(): io.dropcheck.agent.grpc.WifiInformationElement {
         return io.dropcheck.agent.grpc.WifiInformationElement.newBuilder()
             .setId(255)
             .setIdExt(107)
-            .setByteCount(28)
-            .setBytesHex("3000090200000000010207000f72090c0200000000026400010305dd")
+            .setByteCount(37)
+            .setBytesHex("f00712020000000001020710328f083370056100000f72090c0200000000026400010305dd")
             .build()
     }
 
