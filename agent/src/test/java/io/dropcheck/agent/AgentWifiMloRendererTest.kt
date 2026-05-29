@@ -67,6 +67,7 @@ class AgentWifiMloRendererTest {
             "sdk_flags twt=true 11az_ntb=true ranging_prot=true secure_he_ltf=true 11mc=true",
             "[+] affiliated Lab",
             "Scan RNR Details",
+            "rnr band=6ghz width=80MHz channel=5 freq=5975MHz op_class=133",
             "mld ap_mld_id=7 link_id=2",
             "Scan Multiple BSSID Details",
             "profile #1",
@@ -437,7 +438,7 @@ class AgentWifiMloRendererTest {
         return io.dropcheck.agent.grpc.WifiInformationElement.newBuilder()
             .setId(201)
             .setByteCount(20)
-            .setBytesHex("001083050aaabbccddeeff112233448015073210")
+            .setBytesHex("001085050aaabbccddeeff112233448015073210")
             .build()
     }
 
