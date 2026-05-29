@@ -134,6 +134,48 @@ func wifiMLOScanSDKFlags(result *controlpb.WifiScanResult) string {
 	)
 }
 
+func wifiMLORoamingSummaryLines(elements []*controlpb.WifiInformationElement, security *controlpb.WifiSecurityDetails) []string {
+	flags := newWifiAPCapabilitySummary(elements).roaming
+	if security != nil && wifiMLOContainsValue(security.GetExtendedCapabilities(), "bss_transition") {
+		flags = append(flags, "11v_bss_transition")
+	}
+	flags = wifiMLOUniqueStrings(flags)
+	ftAKMs := wifiMLOFTAKMS(security)
+	if len(flags) == 0 && len(ftAKMs) == 0 {
+		return nil
+	}
+	has11K := wifiMLOContainsValue(flags, "11k")
+	has11V := wifiMLOContainsValue(flags, "11v_bss_transition")
+	has11R := wifiMLOContainsValue(flags, "11r") ||
+		wifiMLOContainsValue(flags, "fast_bss_transition") ||
+		len(ftAKMs) > 0
+	hasRNR := wifiMLOContainsValue(flags, "reduced_neighbor_report")
+	return []string{
+		fmt.Sprintf(
+			"summary 11k=%t 11v_bss_transition=%t 11r=%t ft_akm=%s rnr=%t",
+			has11K,
+			has11V,
+			has11R,
+			wifiMLOJoinStrings(ftAKMs, "<none>"),
+			hasRNR,
+		),
+		"flags " + wifiMLOJoinStrings(flags, "<none>"),
+	}
+}
+
+func wifiMLOFTAKMS(security *controlpb.WifiSecurityDetails) []string {
+	if security == nil {
+		return nil
+	}
+	values := []string{}
+	for _, akm := range security.GetAkmSuites() {
+		if strings.HasPrefix(strings.ToLower(akm), "ft_") {
+			values = append(values, akm)
+		}
+	}
+	return wifiMLOUniqueStrings(values)
+}
+
 func wifiMLOHasInformationElement(elements []*controlpb.WifiInformationElement, id int32, idExt *int) bool {
 	for _, element := range elements {
 		if element.GetId() != id {

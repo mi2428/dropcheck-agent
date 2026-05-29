@@ -30,6 +30,9 @@ class AgentWifiMloRendererTest {
                 .setSecureHeLtfSupported(true)
                 .setTwtResponder(true)
                 .addInformationElements(rnrIe())
+                .addInformationElements(rmEnabledCapabilitiesIe())
+                .addInformationElements(extendedCapabilitiesBssTransitionIe())
+                .addInformationElements(mobilityDomainIe())
                 .addInformationElements(multipleBssidIe())
                 .build())
             .addResults(mloScanResult("Lab", "aa:bb:cc:dd:ee:01", -55, "02:00:00:00:00:01", 1))
@@ -63,9 +66,12 @@ class AgentWifiMloRendererTest {
             "[*] Lab",
             "ap_mld=02:00:00:00:00:01 link=2 bssid=aa:bb:cc:dd:ee:ff",
             "band=6ghz ch=5 freq=5975MHz width=80MHz rssi=-45dBm",
-            "ie rsn=false rsnxe=false ext_cap=false rnr=true mbssid=true noninherit=false eht_mle=true ap_mld=true link_id=true",
+            "ie rsn=false rsnxe=false ext_cap=true rnr=true mbssid=true noninherit=false eht_mle=true ap_mld=true link_id=true",
             "sdk_flags twt=true 11az_ntb=true ranging_prot=true secure_he_ltf=true 11mc=true",
             "[+] affiliated Lab",
+            "Connected Roaming / Transition",
+            "summary 11k=true 11v_bss_transition=true 11r=true ft_akm=<none> rnr=true",
+            "Scan Roaming / Transition",
             "Scan RNR Details",
             "rnr band=6ghz width=80MHz channel=5 freq=5975MHz op_class=133",
             "mld ap_mld_id=7 link_id=2",
@@ -87,6 +93,8 @@ class AgentWifiMloRendererTest {
             "band_6ghz",
             "wpa3_sae_h2e",
             "dual_band_simultaneous",
+            "MLO Capability Signals",
+            "mlo_features",
             "Diagnostics / Warnings",
             "none",
         ).forEach { want ->
@@ -379,6 +387,10 @@ class AgentWifiMloRendererTest {
             .addAssociatedMloLinks(mloLink(2, "active", "6ghz", 5, -45))
             .addAffiliatedMloLinks(mloLink(1, "idle", "5ghz", 44, -55))
             .addInformationElements(ehtMultiLinkIe())
+            .addInformationElements(rnrIe())
+            .addInformationElements(rmEnabledCapabilitiesIe())
+            .addInformationElements(extendedCapabilitiesBssTransitionIe())
+            .addInformationElements(mobilityDomainIe())
             .build()
     }
 
@@ -397,6 +409,9 @@ class AgentWifiMloRendererTest {
             .addAffiliatedMloLinks(mloLink(1, "idle", "5ghz", 44, -55))
             .addAffiliatedMloLinks(mloLink(2, "active", "6ghz", 5, rssi))
             .addInformationElements(ehtMultiLinkIe())
+            .addInformationElements(rmEnabledCapabilitiesIe())
+            .addInformationElements(extendedCapabilitiesBssTransitionIe())
+            .addInformationElements(mobilityDomainIe())
             .build()
     }
 
@@ -439,6 +454,30 @@ class AgentWifiMloRendererTest {
             .setId(201)
             .setByteCount(20)
             .setBytesHex("001085050aaabbccddeeff112233448015073210")
+            .build()
+    }
+
+    private fun rmEnabledCapabilitiesIe(): io.dropcheck.agent.grpc.WifiInformationElement {
+        return io.dropcheck.agent.grpc.WifiInformationElement.newBuilder()
+            .setId(70)
+            .setByteCount(5)
+            .setBytesHex("0000000000")
+            .build()
+    }
+
+    private fun extendedCapabilitiesBssTransitionIe(): io.dropcheck.agent.grpc.WifiInformationElement {
+        return io.dropcheck.agent.grpc.WifiInformationElement.newBuilder()
+            .setId(127)
+            .setByteCount(3)
+            .setBytesHex("000008")
+            .build()
+    }
+
+    private fun mobilityDomainIe(): io.dropcheck.agent.grpc.WifiInformationElement {
+        return io.dropcheck.agent.grpc.WifiInformationElement.newBuilder()
+            .setId(54)
+            .setByteCount(3)
+            .setBytesHex("010203")
             .build()
     }
 

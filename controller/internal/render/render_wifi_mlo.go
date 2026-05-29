@@ -44,6 +44,7 @@ func renderWifiMLO(b *strings.Builder, diagnostics *controlpb.WifiDiagnostics, o
 	renderWifiMLOCurrentRelation(b, current, candidates)
 	renderWifiMLOConnected(b, current)
 	renderWifiMLOConnectedSecurity(b, current)
+	renderWifiMLOConnectedRoaming(b, current)
 	renderWifiMLOConnectedHE6GHzDetails(b, current)
 	renderWifiMLOConnectedEHT(b, current)
 	renderWifiMLOConnectedEHTDetails(b, current)
@@ -370,6 +371,7 @@ func renderWifiMLONearbyAPs(b *strings.Builder, groups []wifiMLOGroup, current *
 	wifiMLOWriteTable(b, columns, rows)
 	renderWifiMLOScanLinks(b, groups, current)
 	renderWifiMLOScanSecurityDetails(b, groups)
+	renderWifiMLOScanRoamingDetails(b, groups)
 	renderWifiMLORNRDetails(b, groups)
 	renderWifiMLOMultipleBSSIDDetails(b, groups)
 	renderWifiMLOScanHE6GHzDetails(b, groups)
@@ -384,6 +386,21 @@ func renderWifiMLOConnectedSecurity(b *strings.Builder, current *controlpb.WifiC
 	}
 	writeSection(b, "Connected Wi-Fi Security")
 	renderWifiMLOSecurityDetails(b, "connection", current.GetSecurityDetails())
+}
+
+func renderWifiMLOConnectedRoaming(b *strings.Builder, current *controlpb.WifiConnection) {
+	if current == nil {
+		return
+	}
+	lines := wifiMLORoamingSummaryLines(current.GetInformationElements(), current.GetSecurityDetails())
+	if len(lines) == 0 {
+		return
+	}
+	writeSection(b, "Connected Roaming / Transition")
+	fmt.Fprintf(b, "  connection\n")
+	for _, line := range lines {
+		fmt.Fprintf(b, "    %s\n", line)
+	}
 }
 
 func renderWifiMLOScanSecurityDetails(b *strings.Builder, groups []wifiMLOGroup) {
@@ -405,6 +422,39 @@ func renderWifiMLOScanSecurityDetails(b *strings.Builder, groups []wifiMLOGroup)
 		}
 		label := fmt.Sprintf("ap ssid=%s bssid=%s", empty(result.GetSsid(), "<hidden>"), empty(result.GetBssid(), "<unknown>"))
 		renderWifiMLOSecurityDetails(b, label, result.GetSecurityDetails())
+	}
+}
+
+func renderWifiMLOScanRoamingDetails(b *strings.Builder, groups []wifiMLOGroup) {
+	type entry struct {
+		label string
+		lines []string
+	}
+	entries := []entry{}
+	for _, group := range groups {
+		for _, result := range group.results {
+			lines := wifiMLORoamingSummaryLines(result.GetInformationElements(), result.GetSecurityDetails())
+			if len(lines) == 0 {
+				continue
+			}
+			entries = append(entries, entry{
+				label: fmt.Sprintf("ap ssid=%s bssid=%s", empty(result.GetSsid(), "<hidden>"), empty(result.GetBssid(), "<unknown>")),
+				lines: lines,
+			})
+		}
+	}
+	if len(entries) == 0 {
+		return
+	}
+	writeSection(b, "Scan Roaming / Transition")
+	for i, entry := range entries {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		fmt.Fprintf(b, "  %s\n", entry.label)
+		for _, line := range entry.lines {
+			fmt.Fprintf(b, "    %s\n", line)
+		}
 	}
 }
 
