@@ -39,6 +39,7 @@ internal object AgentWifiMloRenderer {
         renderCurrentRelation(out, current, candidates)
         renderConnectedMlo(out, current)
         renderConnectedSecurityDetails(out, current)
+        renderConnectedRoamingDetails(out, current)
         renderConnectedHe6GhzDetails(out, current)
         renderConnectedEhtMultiLink(out, current)
         renderConnectedEhtDetails(out, current)
@@ -46,6 +47,7 @@ internal object AgentWifiMloRenderer {
         renderScanSummary(out, scan, candidates, scanResults.size, filter, context)
         renderNearbyMlo(out, groups, current)
         renderWifi7DeviceReadiness(out, context)
+        renderWifiMloCapabilities(out, context)
         renderDiagnostics(out, status, scan, current, candidates, context)
         return out
     }
@@ -153,6 +155,7 @@ internal object AgentWifiMloRenderer {
         )
         renderScanLinks(out, groups, current)
         renderScanSecurityDetails(out, groups.flatMap { it.results })
+        renderScanRoamingDetails(out, groups.flatMap { it.results })
         renderScanRnrDetails(out, groups.flatMap { it.results })
         renderScanMultipleBssidDetails(out, groups.flatMap { it.results })
         renderScanHe6GhzDetails(out, groups.flatMap { it.results })
@@ -181,6 +184,39 @@ internal object AgentWifiMloRenderer {
     private fun renderSecurityDetails(out: MutableList<String>, label: String, value: WifiSecurityDetails) {
         out += "  $label"
         wifiMloSecuritySummaryLines(value).forEach { line -> out += "    $line" }
+    }
+
+    private fun renderConnectedRoamingDetails(out: MutableList<String>, conn: WifiConnection?) {
+        if (conn == null) return
+        val lines = wifiMloRoamingSummaryLines(
+            conn.informationElementsList,
+            conn.securityDetails.takeIf { conn.hasSecurityDetails() },
+        )
+        if (lines.isEmpty()) return
+        section(out, "Connected Roaming / Transition")
+        out += "  connection"
+        lines.forEach { line -> out += "    $line" }
+    }
+
+    private fun renderScanRoamingDetails(out: MutableList<String>, results: List<WifiScanResult>) {
+        val entries = results.mapNotNull { result ->
+            val lines = wifiMloRoamingSummaryLines(
+                result.informationElementsList,
+                result.securityDetails.takeIf { result.hasSecurityDetails() },
+            )
+            if (lines.isEmpty()) {
+                null
+            } else {
+                "ap ssid=${empty(result.ssid, "<hidden>")} bssid=${empty(result.bssid, "<unknown>")}" to lines
+            }
+        }
+        if (entries.isEmpty()) return
+        section(out, "Scan Roaming / Transition")
+        entries.forEachIndexed { index, (label, lines) ->
+            if (index > 0) out += ""
+            out += "  $label"
+            lines.forEach { line -> out += "    $line" }
+        }
     }
 
     private fun renderScanRnrDetails(out: MutableList<String>, results: List<WifiScanResult>) {
@@ -213,6 +249,36 @@ internal object AgentWifiMloRenderer {
         if (rows.isEmpty()) return
         section(out, "Wi-Fi 7 Device Readiness")
         kv(out, rows)
+    }
+
+    private fun renderWifiMloCapabilities(out: MutableList<String>, context: AgentWifiMloContext) {
+        val capabilities = context.wifiCapabilities ?: return
+        val rows = mutableListOf<Pair<String, String>>()
+        if (capabilities.supportedStandardsCount > 0) {
+            rows += "supported_standards" to capabilities.supportedStandardsList.joinToString(",")
+        }
+        if (capabilities.unsupportedStandardsCount > 0) {
+            rows += "unsupported_standards" to capabilities.unsupportedStandardsList.joinToString(",")
+        }
+        val features = wifiMloRelevantStrings(capabilities.supportedFeaturesList + capabilities.unsupportedFeaturesList)
+        if (features.isNotEmpty()) rows += "mlo_features" to features.joinToString(",")
+
+        val fieldRows = capabilities.fieldsList
+            .filter { wifiMloRelevantText(it.key) || wifiMloRelevantText(it.value) }
+            .map { it.key to it.value }
+
+        if (rows.isNotEmpty()) {
+            section(out, "MLO Capability Signals")
+            kv(out, rows)
+        }
+        if (fieldRows.isNotEmpty()) {
+            section(out, "MLO Capability Fields")
+            kv(out, fieldRows)
+        }
+        if (capabilities.errorsCount > 0) {
+            section(out, "MLO Capability Errors")
+            capabilities.errorsList.forEach { out += "  $it" }
+        }
     }
 
     private fun renderConnectedHe6GhzDetails(out: MutableList<String>, conn: WifiConnection?) {
@@ -880,6 +946,16 @@ internal object AgentWifiMloRenderer {
 
     private fun joined(values: Iterable<String>, emptyValue: String = "<none>"): String {
         return values.filter { it.isNotBlank() }.distinct().joinToString(",").ifBlank { emptyValue }
+    }
+
+    private fun wifiMloRelevantStrings(values: Iterable<String>): List<String> {
+        return values.filter { wifiMloRelevantText(it) }.distinct()
+    }
+
+    private fun wifiMloRelevantText(value: String): Boolean {
+        val lower = value.lowercase()
+        return listOf("mlo", "mld", "multi-link", "tid_to_link", "tid-to-link", "802.11be", "wifi_7", "wifi7", "wi-fi 7")
+            .any { lower.contains(it) }
     }
 
     private fun wrappedListLines(label: String, values: Iterable<String>, emptyValue: String): List<String> {

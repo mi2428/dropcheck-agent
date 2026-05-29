@@ -63,6 +63,44 @@ internal fun wifiMloScanSdkFlags(result: WifiScanResult): String {
         "ranging_prot=${result.rangingFrameProtectionRequired} secure_he_ltf=${result.secureHeLtfSupported} 11mc=${result.responder80211Mc}"
 }
 
+internal fun wifiMloRoamingSummaryLines(
+    elements: List<WifiInformationElement>,
+    security: WifiSecurityDetails?,
+): List<String> {
+    val flags = (roamingFlags(elements) + listOfNotNull(
+        "11v_bss_transition".takeIf {
+            security?.extendedCapabilitiesList?.any { capability -> capability.equals("bss_transition", ignoreCase = true) } == true
+        },
+    )).distinct()
+    val ftAkms = security?.akmSuitesList
+        ?.filter { it.startsWith("ft_", ignoreCase = true) }
+        ?.distinct()
+        .orEmpty()
+    if (flags.isEmpty() && ftAkms.isEmpty()) return emptyList()
+    val has11k = flags.any { it.equals("11k", ignoreCase = true) }
+    val has11v = flags.any { it.equals("11v_bss_transition", ignoreCase = true) }
+    val has11r = flags.any { it.equals("11r", ignoreCase = true) } ||
+        flags.any { it.equals("fast_bss_transition", ignoreCase = true) } ||
+        ftAkms.isNotEmpty()
+    val hasRnr = flags.any { it.equals("reduced_neighbor_report", ignoreCase = true) }
+    return listOf(
+        "summary 11k=$has11k 11v_bss_transition=$has11v 11r=$has11r ft_akm=${joined(ftAkms)} rnr=$hasRnr",
+        "flags ${joined(flags)}",
+    )
+}
+
+private fun roamingFlags(elements: List<WifiInformationElement>): List<String> = buildList {
+    elements.forEach { element ->
+        when (element.id) {
+            54 -> add("11r")
+            55 -> add("fast_bss_transition")
+            70 -> add("11k")
+            127 -> if (informationElementBitLocal(element, 19)) add("11v_bss_transition")
+            RNR_ELEMENT_ID -> add("reduced_neighbor_report")
+        }
+    }
+}
+
 internal fun wifiMloSecuritySummaryLines(value: WifiSecurityDetails): List<String> = buildList {
     if (value.rsnPresent) {
         add("rsn version=${value.rsnVersion} group=${empty(value.groupDataCipher, "<unknown>")} pairwise=${joined(value.pairwiseCiphersList)}")
@@ -402,6 +440,14 @@ private fun parseNonInheritance(bodyHex: String): Pair<List<Int>, List<Int>> {
 
 private fun List<WifiInformationElement>.hasElement(id: Int, idExt: Int? = null): Boolean =
     any { it.id == id && (idExt == null || it.idExt == idExt) }
+
+private fun informationElementBitLocal(element: WifiInformationElement, bit: Int): Boolean {
+    if (bit < 0) return false
+    val bytes = hexToBytesLocal(element.bytesHex)
+    val byteIndex = bit / 8
+    if (byteIndex >= bytes.size) return false
+    return bytes[byteIndex].u8Local() and (1 shl (bit % 8)) != 0
+}
 
 private fun mloMldMacFromElements(elements: List<WifiInformationElement>): String =
     parseEhtMultiLinkElements(elements)

@@ -991,6 +991,9 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 						ApMloLinkId:     2,
 						InformationElements: []*controlpb.WifiInformationElement{
 							ehtMultiLinkTestIE(),
+							rmEnabledCapabilitiesTestIE(),
+							extendedCapabilitiesBssTransitionTestIE(),
+							mobilityDomainTestIE(),
 						},
 						HeCapabilities:      heCapabilitiesTestValue(),
 						He_6GhzCapabilities: he6GhzCapabilitiesTestValue(),
@@ -1046,6 +1049,9 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 						InformationElements: []*controlpb.WifiInformationElement{
 							ehtMultiLinkTestIE(),
 							rnrTestIE(),
+							rmEnabledCapabilitiesTestIE(),
+							extendedCapabilitiesBssTransitionTestIE(),
+							mobilityDomainTestIE(),
 							multipleBSSIDTestIE(),
 						},
 						HeCapabilities:      heCapabilitiesTestValue(),
@@ -1114,7 +1120,11 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 		"beacon_protection=true",
 		"personal_ready=true",
 		"wifi7_strict pairwise_gcmp256_only=true akm_gdh_only=true group_data_gcmp256=true group_mgmt_256=true fallback=<none> strict_ready=true",
-		"ie rsn=false rsnxe=false ext_cap=false rnr=true mbssid=true noninherit=false eht_mle=true ap_mld=true link_id=true",
+		"Connected Roaming / Transition",
+		"summary 11k=true 11v_bss_transition=true 11r=true ft_akm=ft_sae_gdh rnr=false",
+		"Scan Roaming / Transition",
+		"summary 11k=true 11v_bss_transition=true 11r=true ft_akm=ft_sae_gdh rnr=true",
+		"ie rsn=false rsnxe=false ext_cap=true rnr=true mbssid=true noninherit=false eht_mle=true ap_mld=true link_id=true",
 		"sdk_flags twt=true 11az_ntb=true ranging_prot=true secure_he_ltf=true 11mc=true",
 		"Scan RNR Details",
 		"rnr band=6ghz width=80MHz channel=5 freq=5975MHz op_class=133",
@@ -1493,6 +1503,30 @@ func rnrTestIE() *controlpb.WifiInformationElement {
 		Id:        201,
 		ByteCount: 20,
 		BytesHex:  "001085050aaabbccddeeff112233448015073210",
+	}
+}
+
+func rmEnabledCapabilitiesTestIE() *controlpb.WifiInformationElement {
+	return &controlpb.WifiInformationElement{
+		Id:        70,
+		ByteCount: 5,
+		BytesHex:  "0000000000",
+	}
+}
+
+func extendedCapabilitiesBssTransitionTestIE() *controlpb.WifiInformationElement {
+	return &controlpb.WifiInformationElement{
+		Id:        127,
+		ByteCount: 3,
+		BytesHex:  "000008",
+	}
+}
+
+func mobilityDomainTestIE() *controlpb.WifiInformationElement {
+	return &controlpb.WifiInformationElement{
+		Id:        54,
+		ByteCount: 3,
+		BytesHex:  "010203",
 	}
 }
 
