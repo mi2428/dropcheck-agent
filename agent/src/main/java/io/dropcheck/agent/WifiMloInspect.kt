@@ -111,7 +111,9 @@ internal fun formatWifiMloRnrDetails(label: String, elements: List<WifiInformati
         add(label)
         neighbors.forEach { neighbor ->
             val truncated = if (neighbor.truncated) " truncated=true" else ""
-            add("  rnr op_class=${neighbor.operatingClass} channel=${neighbor.channel} type=${neighbor.type} " +
+            val resolved = rnrResolvedChannel(neighbor.operatingClass, neighbor.channel)
+            add("  rnr band=${resolved.band} width=${resolved.width} channel=${neighbor.channel} freq=${resolved.frequency} " +
+                "op_class=${neighbor.operatingClass} type=${neighbor.type} " +
                 "filtered=${neighbor.filtered} info_len=${neighbor.infoLength} count=${neighbor.count} " +
                 "flags=${joined(rnrFieldFlags(neighbor.infoLength))} raw=0x${neighbor.headerRaw.toHex16()}$truncated")
             neighbor.tbtts.forEach { tbtt ->
@@ -128,6 +130,49 @@ internal fun formatWifiMloRnrDetails(label: String, elements: List<WifiInformati
                 add("  ${parts.joinToString(" ")}")
             }
         }
+    }
+}
+
+private fun rnrResolvedChannel(opClass: Int, channel: Int): RnrResolvedChannel {
+    val operatingClass = rnrOperatingClassLabel(opClass)
+    val frequencyMhz = rnrFrequencyMhz(opClass, channel)
+    return RnrResolvedChannel(
+        band = empty(operatingClass.band, "<unknown>"),
+        width = empty(operatingClass.width, "<unknown>"),
+        frequency = if (frequencyMhz > 0) "${frequencyMhz}MHz" else "<unknown>",
+    )
+}
+
+private fun rnrOperatingClassLabel(opClass: Int): RnrOperatingClass = when (opClass) {
+    81, 82 -> RnrOperatingClass(band = "2.4ghz", width = "20MHz")
+    83, 84 -> RnrOperatingClass(band = "2.4ghz", width = "40MHz")
+    115, 118, 121, 124, 125 -> RnrOperatingClass(band = "5ghz", width = "20MHz")
+    116, 117, 119, 120, 122, 123, 126, 127 -> RnrOperatingClass(band = "5ghz", width = "40MHz")
+    128 -> RnrOperatingClass(band = "5ghz", width = "80MHz")
+    129 -> RnrOperatingClass(band = "5ghz", width = "160MHz")
+    130 -> RnrOperatingClass(band = "5ghz", width = "80+80MHz")
+    131, 136 -> RnrOperatingClass(band = "6ghz", width = "20MHz")
+    132 -> RnrOperatingClass(band = "6ghz", width = "40MHz")
+    133 -> RnrOperatingClass(band = "6ghz", width = "80MHz")
+    134 -> RnrOperatingClass(band = "6ghz", width = "160MHz")
+    135 -> RnrOperatingClass(band = "6ghz", width = "80+80MHz")
+    137 -> RnrOperatingClass(band = "6ghz", width = "320MHz")
+    180 -> RnrOperatingClass(band = "60ghz", width = "2160MHz")
+    181 -> RnrOperatingClass(band = "60ghz", width = "4320MHz")
+    182 -> RnrOperatingClass(band = "60ghz", width = "6480MHz")
+    183 -> RnrOperatingClass(band = "60ghz", width = "8640MHz")
+    else -> RnrOperatingClass()
+}
+
+private fun rnrFrequencyMhz(opClass: Int, channel: Int): Int {
+    return when {
+        opClass in 81..84 && channel == 14 -> 2484
+        opClass in 81..84 && channel in 1..13 -> 2407 + channel * 5
+        opClass in 115..130 && channel in 1..200 -> 5000 + channel * 5
+        opClass == 136 && channel == 2 -> 5935
+        opClass in 131..137 && channel in 1..233 -> 5950 + channel * 5
+        opClass in 180..183 && channel in 1..27 -> 56160 + channel * 2160
+        else -> 0
     }
 }
 
@@ -408,6 +453,17 @@ private data class RnrNeighbor(
     val channel: Int,
     val tbtts: List<RnrTbtt>,
     val truncated: Boolean,
+)
+
+private data class RnrOperatingClass(
+    val band: String = "",
+    val width: String = "",
+)
+
+private data class RnrResolvedChannel(
+    val band: String,
+    val width: String,
+    val frequency: String,
 )
 
 private data class RnrTbtt(

@@ -29,6 +29,11 @@ type wifiMLORNRNeighbor struct {
 	truncated      bool
 }
 
+type wifiMLORNROperatingClass struct {
+	band  string
+	width string
+}
+
 type wifiMLORNRtbtt struct {
 	offset        int
 	bssid         string
@@ -169,9 +174,13 @@ func formatWifiMLORNRDetails(label string, elements []*controlpb.WifiInformation
 		if neighbor.truncated {
 			truncated = " truncated=true"
 		}
-		lines = append(lines, fmt.Sprintf("  rnr op_class=%d channel=%d type=%d filtered=%t info_len=%d count=%d flags=%s raw=0x%04x%s",
-			neighbor.operatingClass,
+		resolved := wifiMLORNRResolvedChannel(neighbor.operatingClass, neighbor.channel)
+		lines = append(lines, fmt.Sprintf("  rnr band=%s width=%s channel=%d freq=%s op_class=%d type=%d filtered=%t info_len=%d count=%d flags=%s raw=0x%04x%s",
+			resolved.band,
+			resolved.width,
 			neighbor.channel,
+			resolved.frequency,
+			neighbor.operatingClass,
 			neighbor.typ,
 			neighbor.filtered,
 			neighbor.infoLength,
@@ -215,6 +224,96 @@ func formatWifiMLORNRDetails(label string, elements []*controlpb.WifiInformation
 		}
 	}
 	return lines
+}
+
+type wifiMLORNRResolvedChannelLabel struct {
+	band      string
+	width     string
+	frequency string
+}
+
+func wifiMLORNRResolvedChannel(opClass, channel int) wifiMLORNRResolvedChannelLabel {
+	class := wifiMLORNROperatingClassLabel(opClass)
+	freqMHz := wifiMLORNRFrequencyMHz(opClass, channel)
+	frequency := "<unknown>"
+	if freqMHz > 0 {
+		frequency = fmt.Sprintf("%dMHz", freqMHz)
+	}
+	return wifiMLORNRResolvedChannelLabel{
+		band:      empty(class.band, "<unknown>"),
+		width:     empty(class.width, "<unknown>"),
+		frequency: frequency,
+	}
+}
+
+func wifiMLORNROperatingClassLabel(opClass int) wifiMLORNROperatingClass {
+	switch opClass {
+	case 81, 82:
+		return wifiMLORNROperatingClass{band: "2.4ghz", width: "20MHz"}
+	case 83, 84:
+		return wifiMLORNROperatingClass{band: "2.4ghz", width: "40MHz"}
+	case 115, 118, 121, 124, 125:
+		return wifiMLORNROperatingClass{band: "5ghz", width: "20MHz"}
+	case 116, 117, 119, 120, 122, 123, 126, 127:
+		return wifiMLORNROperatingClass{band: "5ghz", width: "40MHz"}
+	case 128:
+		return wifiMLORNROperatingClass{band: "5ghz", width: "80MHz"}
+	case 129:
+		return wifiMLORNROperatingClass{band: "5ghz", width: "160MHz"}
+	case 130:
+		return wifiMLORNROperatingClass{band: "5ghz", width: "80+80MHz"}
+	case 131, 136:
+		return wifiMLORNROperatingClass{band: "6ghz", width: "20MHz"}
+	case 132:
+		return wifiMLORNROperatingClass{band: "6ghz", width: "40MHz"}
+	case 133:
+		return wifiMLORNROperatingClass{band: "6ghz", width: "80MHz"}
+	case 134:
+		return wifiMLORNROperatingClass{band: "6ghz", width: "160MHz"}
+	case 135:
+		return wifiMLORNROperatingClass{band: "6ghz", width: "80+80MHz"}
+	case 137:
+		return wifiMLORNROperatingClass{band: "6ghz", width: "320MHz"}
+	case 180:
+		return wifiMLORNROperatingClass{band: "60ghz", width: "2160MHz"}
+	case 181:
+		return wifiMLORNROperatingClass{band: "60ghz", width: "4320MHz"}
+	case 182:
+		return wifiMLORNROperatingClass{band: "60ghz", width: "6480MHz"}
+	case 183:
+		return wifiMLORNROperatingClass{band: "60ghz", width: "8640MHz"}
+	default:
+		return wifiMLORNROperatingClass{}
+	}
+}
+
+func wifiMLORNRFrequencyMHz(opClass, channel int) int {
+	switch {
+	case opClass >= 81 && opClass <= 84:
+		if channel == 14 {
+			return 2484
+		}
+		if channel >= 1 && channel <= 13 {
+			return 2407 + channel*5
+		}
+	case opClass >= 115 && opClass <= 130:
+		if channel > 0 && channel <= 200 {
+			return 5000 + channel*5
+		}
+	case opClass == 136:
+		if channel == 2 {
+			return 5935
+		}
+	case opClass >= 131 && opClass <= 137:
+		if channel >= 1 && channel <= 233 {
+			return 5950 + channel*5
+		}
+	case opClass >= 180 && opClass <= 183:
+		if channel >= 1 && channel <= 27 {
+			return 56160 + channel*2160
+		}
+	}
+	return 0
 }
 
 func parseWifiMLORNRNeighbors(elements []*controlpb.WifiInformationElement) []wifiMLORNRNeighbor {

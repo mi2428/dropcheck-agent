@@ -1117,6 +1117,7 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 		"ie rsn=false rsnxe=false ext_cap=false rnr=true mbssid=true noninherit=false eht_mle=true ap_mld=true link_id=true",
 		"sdk_flags twt=true 11az_ntb=true ranging_prot=true secure_he_ltf=true 11mc=true",
 		"Scan RNR Details",
+		"rnr band=6ghz width=80MHz channel=5 freq=5975MHz op_class=133",
 		"mld ap_mld_id=7 link_id=2",
 		"Scan Multiple BSSID Details",
 		"profile #1",
@@ -1491,7 +1492,7 @@ func rnrTestIE() *controlpb.WifiInformationElement {
 	return &controlpb.WifiInformationElement{
 		Id:        201,
 		ByteCount: 20,
-		BytesHex:  "001083050aaabbccddeeff112233448015073210",
+		BytesHex:  "001085050aaabbccddeeff112233448015073210",
 	}
 }
 
