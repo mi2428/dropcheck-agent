@@ -77,7 +77,8 @@ class AgentWifiMloRendererTest {
             "band=6ghz ch=5 freq=5975MHz width=80MHz eht_width=320MHz puncture=1,3 rssi=-45dBm",
             "ie rsn=false rsnxe=false ext_cap=true rnr=true mbssid=true noninherit=false eht_mle=true ap_mld=true link_id=true",
             "sdk_flags twt=true 11az_ntb=true ranging_prot=true secure_he_ltf=true 11mc=true",
-            "[+] affiliated Lab",
+            "  affiliated_links",
+            "    [+] link=1 ap_mac=02:00:00:00:00:01",
             "Connected Roaming / Transition",
             "summary 11k=true 11v_bss_transition=true 11r=true ft_akm=<none> rnr=true",
             "Scan Roaming / Transition",
@@ -229,7 +230,8 @@ class AgentWifiMloRendererTest {
         ).joinToString("\n")
 
         assertTrue("rendered output missing bssid filter:\n$bssidOut", bssidOut.contains("filter            bssid=aa:bb:cc:dd:ee:ff"))
-        assertTrue("rendered output missing affiliated match:\n$bssidOut", bssidOut.contains("[-] affiliated Lab"))
+        assertTrue("rendered output missing affiliated links heading:\n$bssidOut", bssidOut.contains("  affiliated_links"))
+        assertTrue("rendered output missing affiliated match:\n$bssidOut", bssidOut.contains("    [-] link=1 ap_mac=02:00:00:00:00:01"))
         assertFalse(bssidOut.contains("Other"))
     }
 
@@ -405,6 +407,8 @@ class AgentWifiMloRendererTest {
             assertTrue("table line too wide (${line.length}): $line\n$out", line.length <= 80)
         }
         assertTrue(out.contains("scan_mlo_metadata_absent 11be_results=2 ap_mld=0 link_id=0"))
+        assertTrue(out.contains("EHT Scan Links"))
+        assertFalse(out.contains("[-] 獅子丸新百合ヶ丘店"))
     }
 
     private fun mloConnection(): WifiConnection {
