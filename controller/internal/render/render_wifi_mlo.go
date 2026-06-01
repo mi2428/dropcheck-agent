@@ -1075,10 +1075,7 @@ func renderWifiMLOScanLinks(b *strings.Builder, groups []wifiMLOGroup, current *
 			}
 			first = false
 			renderWifiMLOScanLinkBlock(b, group, result, current)
-			for _, link := range result.GetAffiliatedMloLinks() {
-				b.WriteByte('\n')
-				renderWifiMLOAffiliatedLinkBlock(b, group, result, link, current)
-			}
+			renderWifiMLOAffiliatedLinkBlocks(b, group, result, current)
 		}
 	}
 }
@@ -1098,11 +1095,19 @@ func renderWifiMLOScanLinkBlock(b *strings.Builder, group wifiMLOGroup, result *
 	fmt.Fprintf(b, "  %s\n", wifiMLOScanSDKFlags(result))
 }
 
+func renderWifiMLOAffiliatedLinkBlocks(b *strings.Builder, group wifiMLOGroup, result *controlpb.WifiScanResult, current *controlpb.WifiConnection) {
+	if len(result.GetAffiliatedMloLinks()) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "  affiliated_links\n")
+	for _, link := range result.GetAffiliatedMloLinks() {
+		renderWifiMLOAffiliatedLinkBlock(b, group, result, link, current)
+	}
+}
+
 func renderWifiMLOAffiliatedLinkBlock(b *strings.Builder, group wifiMLOGroup, result *controlpb.WifiScanResult, link *controlpb.MloLinkInfo, current *controlpb.WifiConnection) {
-	fmt.Fprintf(b, "[%s] affiliated %s\n", wifiMLOBlockMark(wifiMLOLinkMark(group, link, current)), empty(result.GetSsid(), "<hidden>"))
-	fmt.Fprintf(b, "  ap_mld=%s\n", group.displayMLD)
-	fmt.Fprintf(b, "  link=%d parent_bssid=%s\n", link.GetLinkId(), empty(result.GetBssid(), "<unknown>"))
-	fmt.Fprintf(b, "  band=%s ch=%d state=%s rssi=%ddBm tx=%d rx=%d max_tx=%d max_rx=%d ap_mac=%s\n", empty(link.GetBand(), "<unknown>"), link.GetChannel(), empty(link.GetState(), "<unknown>"), link.GetRssiDbm(), link.GetTxLinkSpeedMbps(), link.GetRxLinkSpeedMbps(), link.GetMaxSupportedTxLinkSpeedMbps(), link.GetMaxSupportedRxLinkSpeedMbps(), empty(link.GetApMacAddress(), "<unknown>"))
+	fmt.Fprintf(b, "    [%s] link=%d ap_mac=%s\n", wifiMLOBlockMark(wifiMLOLinkMark(group, link, current)), link.GetLinkId(), empty(link.GetApMacAddress(), "<unknown>"))
+	fmt.Fprintf(b, "      band=%s ch=%d state=%s rssi=%ddBm tx=%d rx=%d max_tx=%d max_rx=%d parent_bssid=%s\n", empty(link.GetBand(), "<unknown>"), link.GetChannel(), empty(link.GetState(), "<unknown>"), link.GetRssiDbm(), link.GetTxLinkSpeedMbps(), link.GetRxLinkSpeedMbps(), link.GetMaxSupportedTxLinkSpeedMbps(), link.GetMaxSupportedRxLinkSpeedMbps(), empty(result.GetBssid(), "<unknown>"))
 }
 
 func renderWifiMLOCapabilities(b *strings.Builder, capabilities *controlpb.WifiCapabilities) {
@@ -1379,7 +1384,10 @@ func bssidEqual(left string, right string) bool {
 
 func wifiMLOResultMark(group wifiMLOGroup, result *controlpb.WifiScanResult, current *controlpb.WifiConnection) string {
 	if current == nil {
-		return "-"
+		if wifiMLOScanHasMetadata(result) {
+			return "-"
+		}
+		return ""
 	}
 	if bssidEqual(result.GetBssid(), current.GetBssid()) {
 		return "*"
@@ -1389,7 +1397,10 @@ func wifiMLOResultMark(group wifiMLOGroup, result *controlpb.WifiScanResult, cur
 			return "+"
 		}
 	}
-	return "-"
+	if wifiMLOScanHasMetadata(result) {
+		return "-"
+	}
+	return ""
 }
 
 func wifiMLOLinkMark(group wifiMLOGroup, link *controlpb.MloLinkInfo, current *controlpb.WifiConnection) string {

@@ -642,9 +642,7 @@ internal object AgentWifiMloRenderer {
         groups.forEach { group ->
             group.results.forEach { result ->
                 renderScanLinkBlock(out, group, result, current)
-                result.affiliatedMloLinksList.forEach { link ->
-                    renderAffiliatedLinkBlock(out, group, result, link, current)
-                }
+                renderAffiliatedLinkBlocks(out, group, result, current)
             }
         }
     }
@@ -663,6 +661,19 @@ internal object AgentWifiMloRenderer {
         out += "  ${wifiMloScanSdkFlags(result)}"
     }
 
+    private fun renderAffiliatedLinkBlocks(
+        out: MutableList<String>,
+        group: MloGroup,
+        result: WifiScanResult,
+        current: WifiConnection?,
+    ) {
+        if (result.affiliatedMloLinksCount == 0) return
+        out += "  affiliated_links"
+        result.affiliatedMloLinksList.forEach { link ->
+            renderAffiliatedLinkBlock(out, group, result, link, current)
+        }
+    }
+
     private fun renderAffiliatedLinkBlock(
         out: MutableList<String>,
         group: MloGroup,
@@ -670,16 +681,16 @@ internal object AgentWifiMloRenderer {
         link: MloLinkInfo,
         current: WifiConnection?,
     ) {
-        blockGap(out)
-        blockTitle(out, linkMark(group, link, current), "affiliated ${empty(result.ssid, "<hidden>")}")
-        out += "  ap_mld=${group.displayMld}"
-        out += "  link=${link.linkId} parent_bssid=${empty(result.bssid, "<unknown>")}"
-        out += "  band=${empty(link.band, "<unknown>")} ch=${link.channel} state=${empty(link.state, "<unknown>")} rssi=${link.rssiDbm}dBm tx=${link.txLinkSpeedMbps} rx=${link.rxLinkSpeedMbps} max_tx=${link.maxSupportedTxLinkSpeedMbps} max_rx=${link.maxSupportedRxLinkSpeedMbps} ap_mac=${empty(link.apMacAddress, "<unknown>")}"
+        out += "    [${blockMarker(linkMark(group, link, current))}] link=${link.linkId} ap_mac=${empty(link.apMacAddress, "<unknown>")}"
+        out += "      band=${empty(link.band, "<unknown>")} ch=${link.channel} state=${empty(link.state, "<unknown>")} rssi=${link.rssiDbm}dBm tx=${link.txLinkSpeedMbps} rx=${link.rxLinkSpeedMbps} max_tx=${link.maxSupportedTxLinkSpeedMbps} max_rx=${link.maxSupportedRxLinkSpeedMbps} parent_bssid=${empty(result.bssid, "<unknown>")}"
     }
 
     private fun blockTitle(out: MutableList<String>, mark: String, label: String) {
-        val prefix = mark.ifBlank { " " }
-        out += "[$prefix] $label"
+        out += "[${blockMarker(mark)}] $label"
+    }
+
+    private fun blockMarker(mark: String): String {
+        return mark.ifBlank { " " }
     }
 
     private fun blockGap(out: MutableList<String>) {
@@ -874,11 +885,12 @@ internal object AgentWifiMloRenderer {
     }
 
     private fun resultMark(group: MloGroup, result: WifiScanResult, current: WifiConnection?): String {
-        if (current == null) return "-"
+        if (current == null) return if (result.hasMloScanMetadata()) "-" else ""
         return when {
             bssidEquals(result.bssid, current.bssid) -> "*"
             group.results.any { sameMld(current, it) } -> "+"
-            else -> "-"
+            result.hasMloScanMetadata() -> "-"
+            else -> ""
         }
     }
 

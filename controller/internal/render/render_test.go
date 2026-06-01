@@ -1098,12 +1098,13 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 		"PUNCT",
 		"EHT Scan Links",
 		"Network MLO",
-		"MLO Capability Signals",
-		"[*] Lab",
-		"ap_mld=02:00:00:00:00:01 link=2 bssid=aa:bb:cc:dd:ee:ff",
-		"band=6ghz ch=5 freq=5975MHz width=80MHz eht_width=320MHz puncture=1,3 rssi=-45dBm",
-		"[+] affiliated Lab",
-		"Connected EHT Multi-Link Elements",
+			"MLO Capability Signals",
+			"[*] Lab",
+			"ap_mld=02:00:00:00:00:01 link=2 bssid=aa:bb:cc:dd:ee:ff",
+			"band=6ghz ch=5 freq=5975MHz width=80MHz eht_width=320MHz puncture=1,3 rssi=-45dBm",
+			"  affiliated_links",
+			"    [+] link=1 ap_mac=aa:bb:cc:dd:ee:01",
+			"Connected EHT Multi-Link Elements",
 		"ml_control raw=0x07f0 type=basic(0) presence=link_id_info,bss_parameters_change_count,medium_synchronization_delay,eml_capabilities,mld_capabilities_and_operations,ap_mld_id,extended_mld_capabilities_and_operations bytes=37",
 		"common_info len=18 mld_mac=02:00:00:00:00:01 link_id=2 bss_param_change_count=7 medium_sync_delay=0x1032 eml_capabilities=0x8f08 mld_capabilities=0x3370 ap_mld_id=5 ext_mld_capabilities=0x6100",
 		"medium_sync raw=0x1032 duration=16 ofdm_ed_threshold=2 max_txop=3",
@@ -1295,7 +1296,8 @@ func TestRenderWifiMLOFiltersScanAndConnection(t *testing.T) {
 		"filter            bssid=AA:BB:CC:DD:EE:01",
 		"filtered_results  1",
 		"aa:bb:cc:dd:ee:ff",
-		"[-] affiliated Lab",
+		"  affiliated_links",
+		"    [-] link=2 ap_mac=aa:bb:cc:dd:ee:01",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("rendered output = %q, missing %q", out, want)
@@ -1474,10 +1476,14 @@ func TestRenderWifiMLOHidesPlaceholderConnectionAndCapsNearbyTable(t *testing.T)
 		"Current AP Relation\n  no active Wi-Fi connection",
 		"Connected MLO\n  no active Wi-Fi connection",
 		"scan_mlo_metadata_absent 11be_results=2 ap_mld=0 link_id=0",
+		"EHT Scan Links",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("rendered output = %q, missing %q", out, want)
 		}
+	}
+	if strings.Contains(out, "[-] 獅子丸新百合ヶ丘店") {
+		t.Fatalf("rendered output = %q, unexpected metadata-absent MLO marker", out)
 	}
 	for _, unwanted := range []string{"<unknown ssid>", "802.11ax"} {
 		if strings.Contains(out, unwanted) {
