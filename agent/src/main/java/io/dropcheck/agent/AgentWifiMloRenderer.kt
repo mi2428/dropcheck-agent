@@ -678,7 +678,7 @@ internal object AgentWifiMloRenderer {
     }
 
     private fun blockTitle(out: MutableList<String>, mark: String, label: String) {
-        val prefix = mark.ifBlank { "-" }
+        val prefix = mark.ifBlank { " " }
         out += "[$prefix] $label"
     }
 
@@ -874,20 +874,20 @@ internal object AgentWifiMloRenderer {
     }
 
     private fun resultMark(group: MloGroup, result: WifiScanResult, current: WifiConnection?): String {
-        if (current == null) return ""
+        if (current == null) return "-"
         return when {
             bssidEquals(result.bssid, current.bssid) -> "*"
             group.results.any { sameMld(current, it) } -> "+"
-            else -> ""
+            else -> "-"
         }
     }
 
     private fun linkMark(group: MloGroup, link: MloLinkInfo, current: WifiConnection?): String {
-        if (current == null) return ""
+        if (current == null) return "-"
         return when {
             bssidEquals(link.apMacAddress, current.bssid) -> "*"
             group.results.any { sameMld(current, it) } -> "+"
-            else -> ""
+            else -> "-"
         }
     }
 

@@ -1379,7 +1379,7 @@ func bssidEqual(left string, right string) bool {
 
 func wifiMLOResultMark(group wifiMLOGroup, result *controlpb.WifiScanResult, current *controlpb.WifiConnection) string {
 	if current == nil {
-		return ""
+		return "-"
 	}
 	if bssidEqual(result.GetBssid(), current.GetBssid()) {
 		return "*"
@@ -1389,12 +1389,12 @@ func wifiMLOResultMark(group wifiMLOGroup, result *controlpb.WifiScanResult, cur
 			return "+"
 		}
 	}
-	return ""
+	return "-"
 }
 
 func wifiMLOLinkMark(group wifiMLOGroup, link *controlpb.MloLinkInfo, current *controlpb.WifiConnection) string {
 	if current == nil {
-		return ""
+		return "-"
 	}
 	if bssidEqual(link.GetApMacAddress(), current.GetBssid()) {
 		return "*"
@@ -1404,12 +1404,12 @@ func wifiMLOLinkMark(group wifiMLOGroup, link *controlpb.MloLinkInfo, current *c
 			return "+"
 		}
 	}
-	return ""
+	return "-"
 }
 
 func wifiMLOBlockMark(mark string) string {
 	if mark == "" {
-		return "-"
+		return " "
 	}
 	return mark
 }
