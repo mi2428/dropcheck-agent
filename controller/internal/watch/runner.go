@@ -393,6 +393,11 @@ func runCheck(ctx context.Context, opRunner OperationRunner, agent control.Agent
 }
 
 func runCheckWithSkip(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, check Check, skip *SkipController, emit func(Event) error) (bool, bool, error) {
+	resolvedCheck, err := resolveCheckForTarget(check, target)
+	if err != nil {
+		return false, false, err
+	}
+	check = resolvedCheck
 	if isGatewayPingCheck(check) {
 		return runGatewayPingCheckWithSkip(ctx, opRunner, agent, round, target, check, skip, emit)
 	}
