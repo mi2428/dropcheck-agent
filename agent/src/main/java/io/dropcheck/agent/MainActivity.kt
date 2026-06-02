@@ -31,7 +31,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
-import android.view.ViewTreeObserver
+import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
@@ -39,10 +39,13 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputConnectionWrapper
 import android.view.inputmethod.InputMethodManager
+import android.widget.AbsListView
+import android.widget.BaseAdapter
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ListView
 import android.widget.ScrollView
 import android.widget.TextView
 import io.dropcheck.agent.grpc.CommandLog
@@ -104,8 +107,8 @@ internal fun terminalDisplayText(line: String): String {
  * shell for lab-only Wi-Fi target switching.
  */
 class MainActivity : Activity() {
-    private lateinit var logView: TextView
-    private lateinit var scroll: ScrollView
+    private lateinit var logList: ListView
+    private lateinit var logAdapter: LogListAdapter
     private lateinit var root: FrameLayout
     private lateinit var shellScroll: ScrollView
     private lateinit var shellContent: LinearLayout
@@ -146,7 +149,8 @@ class MainActivity : Activity() {
 
     private val displayLineLengths = ArrayDeque<Int>()
     private var displayLogChars = 0
-    private var logStartIndex = 0
+    private val logLines = ArrayList<DisplayLogLine>()
+    private var nextLogLineId = 1L
     private val autoScroll = TerminalAutoScrollState()
     private val autoScrollSlopPx: Int by lazy {
         (TerminalDisplayPolicy.AUTO_SCROLL_SLOP_DP * resources.displayMetrics.density).toInt()
@@ -161,6 +165,17 @@ class MainActivity : Activity() {
     private val shellExecutor = Executors.newSingleThreadExecutor()
     private val shellTranscript = ArrayDeque<ShellTranscriptLine>()
     private var shellTranscriptSeeded = false
+
+    private data class DisplayLogLine(
+        val id: Long,
+        val text: CharSequence,
+        val displayLength: Int,
+    )
+
+    private data class LogListAnchor(
+        val listPosition: Int,
+        val top: Int,
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -180,33 +195,21 @@ class MainActivity : Activity() {
             if (tail.isNotBlank()) {
                 appendColored("-- terminal.log tail --\n")
             }
-            logStartIndex = length
-        }
-
-        logView = TextView(this).apply {
-            setTextColor(AgentLogStyle.TEXT_COLOR)
-            setBackgroundColor(Color.BLACK)
-            typeface = Typeface.MONOSPACE
-            textSize = TERMINAL_TEXT_SIZE_SP
-            includeFontPadding = false
-            setLineSpacing(0f, 1.05f)
-            setPadding(0, 0, 0, 0)
-            setHorizontallyScrolling(false)
-            breakStrategy = LineBreaker.BREAK_STRATEGY_SIMPLE
-            hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NONE
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                lineBreakWordStyle = LineBreakConfig.LINE_BREAK_WORD_STYLE_NONE
-            }
-            excludeFromContentCapture()
-            setText(initialText, TextView.BufferType.SPANNABLE)
         }
         if (tail.isNotBlank()) {
-            tail.lineSequence().forEach { appendLogLine(it, followBottom = false) }
+            tail.lineSequence().forEach { seedLogLine(it) }
         }
-        scroll = ScrollView(this).apply {
+        logAdapter = LogListAdapter()
+        logList = ListView(this).apply {
             setBackgroundColor(Color.BLACK)
-            isFillViewport = true
-            addView(logView)
+            divider = ColorDrawable(Color.TRANSPARENT)
+            dividerHeight = 0
+            isVerticalScrollBarEnabled = true
+            isFastScrollEnabled = false
+            clipToPadding = false
+            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+            addHeaderView(logHeaderView(initialText), null, false)
+            adapter = logAdapter
             setOnTouchListener { view, event ->
                 captureSwipeStart(event)
                 when (event.actionMasked) {
@@ -215,7 +218,7 @@ class MainActivity : Activity() {
                     }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                         post {
-                            autoScroll.onUserScrollEnd(isScrolledToBottom())
+                            autoScroll.onUserScrollEnd(isLogListAtBottom())
                             if (autoScroll.isFollowingTail) requestScrollToBottom()
                         }
                     }
@@ -228,13 +231,14 @@ class MainActivity : Activity() {
                 }
                 false
             }
-            setOnScrollChangeListener { _, _, _, _, _ ->
-                val atBottom = isScrolledToBottom()
-                autoScroll.onScrollChanged(atBottom)
-                if (atBottom && trimDisplayIfNeeded().removedLines > 0) {
-                    requestScrollToBottom()
+            setOnScrollListener(object : AbsListView.OnScrollListener {
+                override fun onScrollStateChanged(view: AbsListView?, scrollState: Int) = Unit
+
+                override fun onScroll(view: AbsListView?, firstVisibleItem: Int, visibleItemCount: Int, totalItemCount: Int) {
+                    autoScroll.onScrollChanged(isLogListAtBottom())
                 }
-            }
+            })
+            excludeFromContentCapture()
         }
         shellScroll = shellScreen().apply {
             visibility = View.GONE
@@ -243,7 +247,7 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.BLACK)
             isFocusableInTouchMode = true
             excludeFromContentCapture()
-            addView(scroll, matchParentLayout())
+            addView(logList, matchParentLayout())
             addView(shellScroll, matchParentLayout())
             addView(statusIconRow(), statusIconLayout())
         }
@@ -336,34 +340,95 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 
+    private inner class LogListAdapter : BaseAdapter() {
+        override fun getCount(): Int = logLines.size
+
+        override fun getItem(position: Int): DisplayLogLine = logLines[position]
+
+        override fun getItemId(position: Int): Long = logLines[position].id
+
+        override fun hasStableIds(): Boolean = true
+
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+            val view = (convertView as? TextView) ?: logTextView()
+            view.text = getItem(position).text
+            return view
+        }
+    }
+
+    private fun logTextView(): TextView {
+        return TextView(this).apply {
+            setTextColor(AgentLogStyle.TEXT_COLOR)
+            setBackgroundColor(Color.BLACK)
+            typeface = Typeface.MONOSPACE
+            textSize = TERMINAL_TEXT_SIZE_SP
+            includeFontPadding = false
+            setLineSpacing(0f, 1.05f)
+            setPadding(0, 0, 0, 0)
+            setHorizontallyScrolling(false)
+            breakStrategy = LineBreaker.BREAK_STRATEGY_SIMPLE
+            hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NONE
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                lineBreakWordStyle = LineBreakConfig.LINE_BREAK_WORD_STYLE_NONE
+            }
+            excludeFromContentCapture()
+        }
+    }
+
+    private fun logHeaderView(text: CharSequence): TextView {
+        return logTextView().apply {
+            setText(text, TextView.BufferType.SPANNABLE)
+            isClickable = false
+            isFocusable = false
+        }
+    }
+
     /** Appends one terminal line and trims the view to a bounded size. */
     private fun append(line: String) {
         syncStatusIcons()
         appendLogLine(line, followBottom = shouldFollowLogTail())
     }
 
-    private fun appendLogLine(line: String, followBottom: Boolean) {
-        val preservedScrollY = if (!followBottom && ::scroll.isInitialized) scroll.scrollY else null
-        val displayLine = boundedLine(line)
+    private fun seedLogLine(line: String) {
+        val displayLine = buildDisplayLogLine(line)
+        logLines += displayLine
+        displayLineLengths.addLast(displayLine.displayLength)
+        displayLogChars += displayLine.displayLength
+        trimDisplayIfNeeded()
+    }
+
+    private fun buildDisplayLogLine(line: String): DisplayLogLine {
+        val displayLine = TerminalDisplayPolicy.boundedLine(line, appendNewline = false)
         val terminalLine = terminalDisplayText(displayLine)
-        logView.append(colored(displayLine, terminalLine))
-        displayLineLengths.addLast(terminalLine.length)
-        displayLogChars += terminalLine.length
+        return DisplayLogLine(
+            id = nextLogLineId++,
+            text = colored(displayLine, terminalLine),
+            displayLength = terminalLine.length,
+        )
+    }
+
+    private fun appendLogLine(line: String, followBottom: Boolean) {
+        val anchor = if (!followBottom && ::logList.isInitialized && !autoScroll.isFollowingTail) {
+            captureLogListAnchor()
+        } else {
+            null
+        }
+        val displayLine = buildDisplayLogLine(line)
+        logLines += displayLine
+        displayLineLengths.addLast(displayLine.displayLength)
+        displayLogChars += displayLine.displayLength
         val trim = trimDisplayIfNeeded()
+        logAdapter.notifyDataSetChanged()
         if (followBottom) {
             autoScroll.resumeFollowingTail()
             requestScrollToBottom()
-        } else if (preservedScrollY != null && trim.removedHeightPx > 0) {
-            scroll.post {
-                if (!autoScroll.isFollowingTail) {
-                    scroll.scrollTo(0, (preservedScrollY - trim.removedHeightPx).coerceAtLeast(0).coerceAtMost(bottomScrollY()))
-                }
-            }
+        } else if (anchor != null && trim.removedLines > 0) {
+            restoreLogListAnchor(anchor, trim.removedLines)
         }
     }
 
     private fun shouldFollowLogTail(): Boolean {
-        return autoScroll.shouldFollowTail(!::scroll.isInitialized || isScrolledToBottom())
+        return autoScroll.shouldFollowTail(!::logList.isInitialized || isLogListAtBottom())
     }
 
     private fun ensureWifiLocationPermissions() {
@@ -407,88 +472,67 @@ class MainActivity : Activity() {
         startActivity(intent)
     }
 
-    private data class TrimResult(
-        val removedLines: Int = 0,
-        val removedHeightPx: Int = 0,
-    )
+    private data class TrimResult(val removedLines: Int = 0)
 
     private fun trimDisplayIfNeeded(): TrimResult {
         val trimPlan = TerminalDisplayPolicy.trimPlan(displayLineLengths, displayLogChars)
         if (trimPlan.linesToRemove == 0 || trimPlan.charsToRemove == 0) return TrimResult()
-        val text = mutableDisplayText()
-        val start = logStartIndex.coerceAtMost(text.length)
-        val end = (start + trimPlan.charsToRemove).coerceAtMost(text.length)
-        val removedHeightPx = trimmedHeightPx(text, start, end)
-        if (end > start) {
-            text.delete(start, end)
-        }
         repeat(trimPlan.linesToRemove) {
             if (displayLineLengths.isNotEmpty()) {
                 displayLineLengths.removeFirst()
             }
+            if (logLines.isNotEmpty()) {
+                logLines.removeAt(0)
+            }
         }
         displayLogChars = (displayLogChars - trimPlan.charsToRemove).coerceAtLeast(0)
-        return TrimResult(
-            removedLines = trimPlan.linesToRemove,
-            removedHeightPx = removedHeightPx,
+        return TrimResult(removedLines = trimPlan.linesToRemove)
+    }
+
+    private fun captureLogListAnchor(): LogListAnchor? {
+        val firstChild = logList.getChildAt(0) ?: return null
+        return LogListAnchor(
+            listPosition = logList.firstVisiblePosition,
+            top = firstChild.top,
         )
     }
 
-    private fun trimmedHeightPx(text: CharSequence, start: Int, end: Int): Int {
-        val layout = logView.layout ?: return 0
-        if (start >= end || start >= text.length) return 0
-        val safeStart = start.coerceIn(0, text.length - 1)
-        val safeEndOffset = (end - 1).coerceIn(safeStart, text.length - 1)
-        val startLine = layout.getLineForOffset(safeStart)
-        val endLine = layout.getLineForOffset(safeEndOffset)
-        return (layout.getLineBottom(endLine) - layout.getLineTop(startLine)).coerceAtLeast(0)
-    }
-
-    private fun mutableDisplayText(): SpannableStringBuilder {
-        val current = logView.text
-        if (current is SpannableStringBuilder) return current
-
-        return SpannableStringBuilder(current).also {
-            logView.setText(it, TextView.BufferType.SPANNABLE)
+    private fun restoreLogListAnchor(anchor: LogListAnchor, removedLines: Int) {
+        if (!::logList.isInitialized || logList.count == 0) return
+        val headerCount = logList.headerViewsCount
+        val restoredPosition = if (anchor.listPosition < headerCount) {
+            anchor.listPosition
+        } else {
+            (anchor.listPosition - removedLines).coerceAtLeast(headerCount)
         }
+        logList.setSelectionFromTop(restoredPosition.coerceAtMost(logList.count - 1), anchor.top)
     }
 
-    private fun boundedLine(line: String): String {
-        return TerminalDisplayPolicy.boundedLine(line, appendNewline = true)
-    }
-
-    private fun isScrolledToBottom(): Boolean {
-        val distanceToBottom = bottomScrollY() - scroll.scrollY
+    private fun isLogListAtBottom(): Boolean {
+        if (!::logList.isInitialized || logList.count == 0) return true
+        if (logList.canScrollList(1)) return false
+        val lastChild = logList.getChildAt(logList.childCount - 1) ?: return true
+        val distanceToBottom = lastChild.bottom - (logList.height - logList.listPaddingBottom)
         return distanceToBottom <= autoScrollSlopPx
     }
 
     private fun requestScrollToBottom() {
-        if (!::scroll.isInitialized || !autoScroll.markScrollToBottomPending()) return
+        if (!::logList.isInitialized || !autoScroll.markScrollToBottomPending()) return
 
-        val observer = scroll.viewTreeObserver
-        observer.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
-            override fun onPreDraw(): Boolean {
-                val currentObserver = scroll.viewTreeObserver
-                if (observer.isAlive) {
-                    observer.removeOnPreDrawListener(this)
-                } else if (currentObserver.isAlive) {
-                    currentObserver.removeOnPreDrawListener(this)
-                }
-                autoScroll.finishScrollToBottomPending()
+        logList.post {
+            if (!::logList.isInitialized) return@post
+            try {
                 if (autoScroll.isFollowingTail) scrollToBottomNow()
-                return true
+            } finally {
+                autoScroll.finishScrollToBottomPending()
             }
-        })
-        scroll.invalidate()
+        }
     }
 
     private fun scrollToBottomNow() {
-        scroll.scrollTo(0, bottomScrollY())
-    }
-
-    private fun bottomScrollY(): Int {
-        val child = scroll.getChildAt(0) ?: return 0
-        return (child.bottom - scroll.height).coerceAtLeast(0)
+        if (logList.count > 0) {
+            logList.setSelection(logList.count - 1)
+        }
     }
 
     private fun SpannableStringBuilder.appendColored(line: String) {
@@ -1195,7 +1239,7 @@ class MainActivity : Activity() {
         shellVisible = true
         renderShell()
         shellScroll.visibility = View.VISIBLE
-        scroll.visibility = View.GONE
+        logList.visibility = View.GONE
         scrollShellToInput()
         focusShellInput()
         resetIdleDimTimer()
@@ -1218,7 +1262,7 @@ class MainActivity : Activity() {
         shellVisible = false
         hideShellInputIme()
         shellScroll.visibility = View.GONE
-        scroll.visibility = View.VISIBLE
+        logList.visibility = View.VISIBLE
         requestScrollToBottom()
         resetIdleDimTimer()
     }
