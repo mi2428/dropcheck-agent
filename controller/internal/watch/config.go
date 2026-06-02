@@ -11,12 +11,13 @@ import (
 
 // Config is the YAML surface consumed by `dropcheck watch -c`.
 type Config struct {
-	Version       int            `yaml:"version"`
-	Name          string         `yaml:"name"`
-	RoundInterval Duration       `yaml:"round_interval"`
-	Defaults      TargetDefaults `yaml:"defaults"`
-	Targets       []Target       `yaml:"targets"`
-	Checks        []Check        `yaml:"checks"`
+	Version       int               `yaml:"version"`
+	Name          string            `yaml:"name"`
+	RoundInterval Duration          `yaml:"round_interval"`
+	Vars          map[string]string `yaml:"vars"`
+	Defaults      TargetDefaults    `yaml:"defaults"`
+	Targets       []Target          `yaml:"targets"`
+	Checks        []Check           `yaml:"checks"`
 }
 
 // TargetDefaults contains YAML defaults applied to every configured target.
@@ -37,23 +38,24 @@ type TargetDefaults struct {
 
 // Target describes one Wi-Fi association target in a watch plan.
 type Target struct {
-	Name             string   `yaml:"name"`
-	ShortName        string   `yaml:"short_name"`
-	Agent            string   `yaml:"agent"`
-	SSID             string   `yaml:"ssid"`
-	BSSID            string   `yaml:"bssid"`
-	Band             string   `yaml:"band"`
-	Passphrase       string   `yaml:"passphrase"`
-	PassphraseEnv    string   `yaml:"passphrase_env"`
-	Security         string   `yaml:"security"`
-	MacRandomization string   `yaml:"mac_randomization"`
-	MacRotation      string   `yaml:"mac_rotation"`
-	ConnectTimeout   Duration `yaml:"connect_timeout"`
-	WaitTimeout      Duration `yaml:"wait_timeout"`
-	RequireIP        *bool    `yaml:"require_ip"`
-	RequireValidated *bool    `yaml:"require_validated"`
-	DisconnectAfter  *bool    `yaml:"disconnect_after"`
-	ForgetAfter      *bool    `yaml:"forget_after"`
+	Name             string            `yaml:"name"`
+	ShortName        string            `yaml:"short_name"`
+	Agent            string            `yaml:"agent"`
+	SSID             string            `yaml:"ssid"`
+	BSSID            string            `yaml:"bssid"`
+	Band             string            `yaml:"band"`
+	Vars             map[string]string `yaml:"vars"`
+	Passphrase       string            `yaml:"passphrase"`
+	PassphraseEnv    string            `yaml:"passphrase_env"`
+	Security         string            `yaml:"security"`
+	MacRandomization string            `yaml:"mac_randomization"`
+	MacRotation      string            `yaml:"mac_rotation"`
+	ConnectTimeout   Duration          `yaml:"connect_timeout"`
+	WaitTimeout      Duration          `yaml:"wait_timeout"`
+	RequireIP        *bool             `yaml:"require_ip"`
+	RequireValidated *bool             `yaml:"require_validated"`
+	DisconnectAfter  *bool             `yaml:"disconnect_after"`
+	ForgetAfter      *bool             `yaml:"forget_after"`
 }
 
 // Check describes one probe to run after a target is connected and ready.
@@ -114,6 +116,7 @@ func (cfg Config) Plan() (Plan, error) {
 	targets := make([]Target, 0, len(cfg.Targets))
 	for i, target := range cfg.Targets {
 		target = applyTargetDefaults(target, cfg.Defaults)
+		target = applyConfigVars(target, cfg.Vars)
 		if strings.TrimSpace(target.SSID) == "" {
 			return Plan{}, fmt.Errorf("targets[%d] must set ssid", i)
 		}
@@ -125,7 +128,11 @@ func (cfg Config) Plan() (Plan, error) {
 		}
 		target.ShortName = strings.TrimSpace(target.ShortName)
 		target.Agent = strings.TrimSpace(target.Agent)
-		targets = append(targets, target)
+		resolvedTarget, err := resolveTargetVars(target)
+		if err != nil {
+			return Plan{}, fmt.Errorf("targets[%d] vars: %w", i, err)
+		}
+		targets = append(targets, resolvedTarget)
 	}
 	checks := make([]Check, 0, len(cfg.Checks))
 	for i, check := range cfg.Checks {
@@ -142,6 +149,13 @@ func (cfg Config) Plan() (Plan, error) {
 		}
 		check.compiledExpect = matchers
 		checks = append(checks, check)
+	}
+	for _, target := range targets {
+		for j, check := range checks {
+			if _, err := resolveCheckForTarget(check, target); err != nil {
+				return Plan{}, fmt.Errorf("checks[%d] %s target %q: %w", j, check.DisplayName(), target.DisplayName(), err)
+			}
+		}
 	}
 	return Plan{
 		Name:          firstNonEmpty(cfg.Name, "dropcheck-watch"),
@@ -188,6 +202,33 @@ func applyTargetDefaults(target Target, defaults TargetDefaults) Target {
 	if target.ForgetAfter == nil {
 		target.ForgetAfter = defaults.ForgetAfter
 	}
+	return target
+}
+
+func applyConfigVars(target Target, defaults map[string]string) Target {
+	if len(defaults) == 0 && len(target.Vars) == 0 {
+		return target
+	}
+	merged := make(map[string]string, len(defaults)+len(target.Vars))
+	for key, value := range defaults {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		merged[key] = strings.TrimSpace(value)
+	}
+	for key, value := range target.Vars {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		merged[key] = strings.TrimSpace(value)
+	}
+	if len(merged) == 0 {
+		target.Vars = nil
+		return target
+	}
+	target.Vars = merged
 	return target
 }
 

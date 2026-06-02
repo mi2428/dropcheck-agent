@@ -142,6 +142,29 @@ func (r *gatewayPingRunner) Run(_ context.Context, _ control.AgentInfo, op comma
 	}
 }
 
+type pingHostRunner struct {
+	t    *testing.T
+	host string
+}
+
+func (r *pingHostRunner) Run(_ context.Context, _ control.AgentInfo, op command.Operation) (runner.Result, error) {
+	if op.Name != "ping" {
+		r.t.Fatalf("unexpected operation %q", op.Name)
+	}
+	ping := op.Command.GetPing()
+	r.host = ping.GetHost()
+	count := ping.GetCount()
+	return runner.Result{Result: &controlpb.CommandResult{
+		Status: controlpb.CommandResult_STATUS_OK,
+		Payload: &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{
+			Host:        r.host,
+			Count:       count,
+			Transmitted: count,
+			Received:    count,
+		}},
+	}}, nil
+}
+
 type okRunner struct{}
 
 func (okRunner) Run(context.Context, control.AgentInfo, command.Operation) (runner.Result, error) {
@@ -438,6 +461,73 @@ func TestRunCheckGatewayPingUsesDefaultGateway(t *testing.T) {
 	finished, ok := lastEvent(events, EventStepFinished)
 	if !ok || finished.Step.Type != "gateway_ping" || finished.Step.Operation != "gateway.ping" || finished.Status != "ok" {
 		t.Fatalf("gateway ping finished event = %#v", finished)
+	}
+}
+
+func TestRunCheckResolvesTargetVarsInHost(t *testing.T) {
+	runner := &pingHostRunner{t: t}
+	ok, err := runCheck(
+		context.Background(),
+		runner,
+		control.AgentInfo{ID: "agent-a"},
+		13,
+		Target{
+			Name: "hp1",
+			SSID: "hp1",
+			Vars: map[string]string{"gateway_ipv4": "10.20.0.1"},
+		},
+		Check{
+			Name:  "Ping GW IPv4",
+			Type:  "ping",
+			Host:  "${gateway_ipv4}",
+			Count: 2,
+		},
+		func(Event) error { return nil },
+	)
+	if err != nil {
+		t.Fatalf("runCheck() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("runCheck() ok = false, want true")
+	}
+	if runner.host != "10.20.0.1" {
+		t.Fatalf("ping host = %q, want resolved target var", runner.host)
+	}
+}
+
+func TestRunCheckResolvesTargetVarsInExpectations(t *testing.T) {
+	runner := &sequenceResultRunner{results: []*controlpb.CommandResult{
+		{
+			Status: controlpb.CommandResult_STATUS_OK,
+			Payload: &controlpb.CommandResult_IpStatus{IpStatus: &controlpb.IpStatus{
+				Addresses: []string{"10.20.1.12/20"},
+			}},
+		},
+	}}
+	ok, err := runCheck(
+		context.Background(),
+		runner,
+		control.AgentInfo{ID: "agent-a"},
+		14,
+		Target{
+			Name: "hp1",
+			SSID: "hp1",
+			Vars: map[string]string{"ipv4_cidr": "10.20.0.0/20"},
+		},
+		Check{
+			Name: "IP Provisioning",
+			Type: "ip_status",
+			Expect: map[string]any{
+				"ipv4_addresses": map[string]any{"cidr": "${ipv4_cidr}"},
+			},
+		},
+		func(Event) error { return nil },
+	)
+	if err != nil {
+		t.Fatalf("runCheck() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("runCheck() ok = false, want true")
 	}
 }
 

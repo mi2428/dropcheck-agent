@@ -69,6 +69,113 @@ checks:
 	}
 }
 
+func TestLoadFileAllowsTargetVarsInChecks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "watch.yml")
+	data := []byte(`version: 1
+name: lab-watch
+vars:
+  dns_server_min: ">=1"
+  legacy_gateway_ipv4: 10.20.128.1
+  legacy_ipv4_cidr: 10.20.128.0/20
+targets:
+  - name: hp1-legacy
+    ssid: hp1-legacy
+    vars:
+      gateway_ipv4: "${legacy_gateway_ipv4}"
+      ipv4_cidr: "${legacy_ipv4_cidr}"
+checks:
+  - name: IP Provisioning
+    type: ip_status
+    expect:
+      dns_server_count: "${dns_server_min}"
+      ipv4_addresses:
+        cidr: "${ipv4_cidr}"
+  - name: Ping GW IPv4
+    type: ping
+    host: "${gateway_ipv4}"
+`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile() error = %v", err)
+	}
+	if got := plan.Targets[0].Vars["gateway_ipv4"]; got != "10.20.128.1" {
+		t.Fatalf("target vars not resolved: gateway_ipv4=%q", got)
+	}
+	if got := plan.Targets[0].Vars["dns_server_min"]; got != ">=1" {
+		t.Fatalf("top-level vars not merged: dns_server_min=%q", got)
+	}
+	if got := plan.Targets[0].Vars["ipv4_cidr"]; got != "10.20.128.0/20" {
+		t.Fatalf("target alias missing: ipv4_cidr=%q", got)
+	}
+}
+
+func TestLoadFileRejectsTargetVarCycles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "watch.yml")
+	data := []byte(`version: 1
+targets:
+  - name: hp1
+    ssid: hp1
+    vars:
+      gateway_ipv4: "${legacy_gateway_ipv4}"
+      legacy_gateway_ipv4: "${gateway_ipv4}"
+checks:
+  - name: Ping GW IPv4
+    type: ping
+    host: "${gateway_ipv4}"
+`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadFile(path)
+	if err == nil || !strings.Contains(err.Error(), `target variable cycle at "gateway_ipv4"`) {
+		t.Fatalf("LoadFile() error = %v, want target variable cycle", err)
+	}
+}
+
+func TestLoadFileRejectsUnknownTargetVarsInChecks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "watch.yml")
+	data := []byte(`version: 1
+targets:
+  - name: hp1
+    ssid: hp1
+checks:
+  - name: Ping GW IPv4
+    type: ping
+    host: "${gateway_ipv4}"
+`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadFile(path)
+	if err == nil || !strings.Contains(err.Error(), `unknown target variable "gateway_ipv4"`) {
+		t.Fatalf("LoadFile() error = %v, want unknown target variable", err)
+	}
+}
+
+func TestApplyConfigVarsMergesTopLevelAndTargetOverrides(t *testing.T) {
+	target := applyConfigVars(Target{
+		Vars: map[string]string{
+			"gateway_ipv4": "10.20.0.1",
+			"ipv4_cidr":    "10.20.0.0/20",
+		},
+	}, map[string]string{
+		"gateway_ipv4":   "10.20.0.254",
+		"dns_server_min": ">=1",
+	})
+	if got := target.Vars["gateway_ipv4"]; got != "10.20.0.1" {
+		t.Fatalf("gateway_ipv4 = %q, want target override", got)
+	}
+	if got := target.Vars["dns_server_min"]; got != ">=1" {
+		t.Fatalf("dns_server_min = %q, want merged top-level var", got)
+	}
+	if got := target.Vars["ipv4_cidr"]; got != "10.20.0.0/20" {
+		t.Fatalf("ipv4_cidr = %q, want target value", got)
+	}
+}
+
 func TestExampleWatchConfigLoads(t *testing.T) {
 	plan, err := LoadFile(filepath.Join("..", "..", "..", "examples", "watch.yml"))
 	if err != nil {
