@@ -78,17 +78,38 @@ internal object WifiConnectorPolicy {
         candidates: List<ScanSecurityCandidate>,
         ssid: String,
         band: WifiBand,
+        security: ConnectWifi.Security,
     ): String {
         if (requested.isNotBlank()) return requested
         if (band == WifiBand.WIFI_BAND_UNSPECIFIED || band == WifiBand.WIFI_BAND_ALL) return ""
-        return candidates
+        val bandMatches = candidates
             .filter { it.ssid == ssid }
             .filter { it.bssid.isNotBlank() }
             .filter { frequencyMatchesWifiBand(it.frequencyMhz, band) }
             .sortedByDescending { it.levelDbm }
+        return bandMatches
+            .asSequence()
+            .filter { candidateSupportsSecurity(it.capabilities, security) }
+            .map { it.bssid }
             .firstOrNull()
-            ?.bssid
-            .orEmpty()
+            ?: bandMatches
+                .firstOrNull()
+                ?.bssid
+                .orEmpty()
+    }
+
+    private fun candidateSupportsSecurity(capabilities: String, security: ConnectWifi.Security): Boolean {
+        if (security == ConnectWifi.Security.SECURITY_UNSPECIFIED) return true
+        val upper = capabilities.uppercase(Locale.US)
+        val hasSae = upper.contains("SAE")
+        val hasPsk = upper.contains("PSK")
+        return when (security) {
+            ConnectWifi.Security.SECURITY_WPA2_PSK -> hasPsk
+            ConnectWifi.Security.SECURITY_WPA3_SAE -> hasSae
+            ConnectWifi.Security.SECURITY_WPA2_WPA3_TRANSITION -> hasPsk && hasSae
+            ConnectWifi.Security.SECURITY_UNSPECIFIED -> true
+            ConnectWifi.Security.UNRECOGNIZED -> false
+        }
     }
 
     /**

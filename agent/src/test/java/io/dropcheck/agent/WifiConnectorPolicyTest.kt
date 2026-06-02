@@ -154,6 +154,7 @@ class WifiConnectorPolicyTest {
                 candidates = candidates,
                 ssid = "Lab",
                 band = WifiBand.WIFI_BAND_2_4_GHZ,
+                security = ConnectWifi.Security.SECURITY_UNSPECIFIED,
             ),
         )
     }
@@ -167,6 +168,7 @@ class WifiConnectorPolicyTest {
                 candidates = emptyList(),
                 ssid = "Lab",
                 band = WifiBand.WIFI_BAND_2_4_GHZ,
+                security = ConnectWifi.Security.SECURITY_UNSPECIFIED,
             ),
         )
     }
@@ -190,6 +192,38 @@ class WifiConnectorPolicyTest {
                 candidates = candidates,
                 ssid = "Lab",
                 band = WifiBand.WIFI_BAND_ALL,
+                security = ConnectWifi.Security.SECURITY_UNSPECIFIED,
+            ),
+        )
+    }
+
+    @Test
+    fun prefersBandPinnedBssidThatMatchesRequestedSecurity() {
+        val candidates = listOf(
+            WifiConnectorPolicy.ScanSecurityCandidate(
+                ssid = "Lab",
+                bssid = "00:00:00:00:00:01",
+                capabilities = "[RSN-SAE-CCMP][ESS]",
+                frequencyMhz = 5200,
+                levelDbm = -35,
+            ),
+            WifiConnectorPolicy.ScanSecurityCandidate(
+                ssid = "Lab",
+                bssid = "00:00:00:00:00:02",
+                capabilities = "[RSN-PSK-CCMP][ESS]",
+                frequencyMhz = 5220,
+                levelDbm = -45,
+            ),
+        )
+
+        assertEquals(
+            "00:00:00:00:00:02",
+            WifiConnectorPolicy.resolveConnectBssid(
+                requested = "",
+                candidates = candidates,
+                ssid = "Lab",
+                band = WifiBand.WIFI_BAND_5_GHZ,
+                security = ConnectWifi.Security.SECURITY_WPA2_PSK,
             ),
         )
     }

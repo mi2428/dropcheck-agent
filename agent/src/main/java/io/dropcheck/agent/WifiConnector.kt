@@ -61,6 +61,7 @@ class WifiConnector(
             candidates = securityCandidates,
             ssid = ssid,
             band = command.band,
+            security = command.security,
         )
         val resolvedSecurity = WifiConnectorPolicy.resolveConnectSecurity(
             requested = command.security,
