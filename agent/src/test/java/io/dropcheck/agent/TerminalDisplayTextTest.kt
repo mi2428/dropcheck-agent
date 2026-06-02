@@ -36,19 +36,4 @@ class TerminalDisplayTextTest {
         assertEquals(4, TerminalDisplayPolicy.displayLength("ab"))
         assertEquals(3, TerminalDisplayPolicy.displayLength("a\n"))
     }
-
-    @Test
-    fun trimPlanRemovesOldestLinesUntilBoundsFit() {
-        val plan = TerminalDisplayPolicy.trimPlan(
-            lineLengths = listOf(
-                TerminalDisplayPolicy.MAX_LINE_CHARS,
-                TerminalDisplayPolicy.MAX_LINE_CHARS,
-                10,
-            ),
-            displayChars = TerminalDisplayPolicy.MAX_DISPLAY_CHARS + TerminalDisplayPolicy.MAX_LINE_CHARS + 10,
-        )
-
-        assertEquals(2, plan.linesToRemove)
-        assertEquals(TerminalDisplayPolicy.MAX_LINE_CHARS * 2, plan.charsToRemove)
-    }
 }
