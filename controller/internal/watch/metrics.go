@@ -148,6 +148,7 @@ func addWifiStatusMetrics(metrics map[string]Value, status *controlpb.WifiStatus
 	metrics["associated_mlo_link_count"] = intValue(int64(len(conn.GetAssociatedMloLinks())))
 	metrics["affiliated_mlo_link_count"] = intValue(int64(len(conn.GetAffiliatedMloLinks())))
 	metrics["channel_width"] = stringValue(conn.GetChannelWidth())
+	addWifiSecurityFeatureMetrics(metrics, []string{conn.GetSecurityType()}, conn.GetSecurityDetails(), wifiConnectionHasMLO(conn))
 }
 
 func addIPStatusMetrics(metrics map[string]Value, status *controlpb.IpStatus) {
@@ -452,6 +453,168 @@ func addWifiScanDetailMetrics(metrics map[string]Value, detail *controlpb.WifiSc
 	metrics["standard"] = stringValue(first.GetWifiStandard())
 	metrics["security"] = stringValue(strings.Join(first.GetSecurityTypes(), ","))
 	metrics["channel_width"] = stringValue(first.GetChannelWidth())
+	addWifiSecurityFeatureMetrics(metrics, first.GetSecurityTypes(), first.GetSecurityDetails(), wifiScanHasMLO(first))
+}
+
+func addWifiSecurityFeatureMetrics(metrics map[string]Value, securityTypes []string, details *controlpb.WifiSecurityDetails, mlo bool) {
+	securityTypes = normalizeMetricTokens(securityTypes)
+	if len(securityTypes) > 0 {
+		metrics["security_types"] = stringListValue(securityTypes)
+	}
+	setFeatureMetric(metrics, "mlo", mlo)
+	setFeatureMetric(metrics, "security-details-present", details != nil)
+
+	akmSuites := []string(nil)
+	if details != nil {
+		akmSuites = normalizeMetricTokens(details.GetAkmSuites())
+	}
+	authTokens := append([]string(nil), securityTypes...)
+	authTokens = append(authTokens, akmSuites...)
+	psk := containsMetricToken(authTokens, "psk", "ft_psk", "psk_sha256")
+	sae := containsMetricToken(authTokens, "sae", "ft_sae", "sae_gdh", "ft_sae_gdh")
+	setFeatureMetric(metrics, "psk", psk)
+	setFeatureMetric(metrics, "sae", sae)
+	setFeatureMetric(metrics, "owe", containsMetricToken(authTokens, "owe"))
+	setFeatureMetric(metrics, "transition", psk && sae)
+
+	if details == nil {
+		return
+	}
+
+	pairwise := normalizeMetricTokens(details.GetPairwiseCiphers())
+	rsnxe := normalizeMetricTokens(details.GetRsnxeCapabilities())
+	extended := normalizeMetricTokens(details.GetExtendedCapabilities())
+	if len(akmSuites) > 0 {
+		metrics["security_akm_suites"] = stringListValue(akmSuites)
+	}
+	if len(pairwise) > 0 {
+		metrics["security_pairwise_ciphers"] = stringListValue(pairwise)
+	}
+	if len(rsnxe) > 0 {
+		metrics["security_rsnxe_capabilities"] = stringListValue(rsnxe)
+	}
+	if len(extended) > 0 {
+		metrics["security_extended_capabilities"] = stringListValue(extended)
+	}
+	if warnings := cleanStringValues(details.GetWarnings()); len(warnings) > 0 {
+		metrics["security_warnings"] = stringListValue(warnings)
+	}
+	metrics["group_data_cipher"] = stringValue(strings.TrimSpace(details.GetGroupDataCipher()))
+	metrics["group_management_cipher"] = stringValue(strings.TrimSpace(details.GetGroupManagementCipher()))
+
+	setFeatureMetric(metrics, "rsn-present", details.GetRsnPresent())
+	setFeatureMetric(metrics, "rsnxe-present", details.GetRsnxePresent())
+	setFeatureMetric(metrics, "pmf-capable", details.GetPmfCapable())
+	setFeatureMetric(metrics, "pmf-required", details.GetPmfRequired())
+	setFeatureMetric(metrics, "gcmp-256", details.GetGcmp_256())
+	setFeatureMetric(metrics, "ft-sae", containsMetricToken(akmSuites, "ft_sae"))
+	setFeatureMetric(metrics, "sae-gdh", details.GetSaeGdh() || containsMetricToken(akmSuites, "sae_gdh"))
+	setFeatureMetric(metrics, "ft-sae-gdh", details.GetFtSaeGdh() || containsMetricToken(akmSuites, "ft_sae_gdh"))
+	setFeatureMetric(metrics, "wifi7-personal-ready", details.GetWifi7PersonalReady())
+	setFeatureMetric(metrics, "sae-h2e", containsMetricToken(rsnxe, "sae_h2e"))
+	setFeatureMetric(metrics, "h2e", containsMetricToken(rsnxe, "sae_h2e"))
+	saePublicKey := containsMetricToken(rsnxe, "sae_pk", "sae_pk_exclusively")
+	setFeatureMetric(metrics, "sae-public-key", saePublicKey)
+	setFeatureMetric(metrics, "sae-public-key-exclusive", containsMetricToken(rsnxe, "sae_pk_exclusively"))
+	setFeatureMetric(metrics, "ssid-protection", containsMetricToken(rsnxe, "ssid_protection"))
+	setFeatureMetric(metrics, "beacon-protection", details.GetBeaconProtection())
+	setFeatureMetric(metrics, "bss-transition", containsMetricToken(extended, "bss_transition"))
+}
+
+func normalizeMetricTokens(values []string) []string {
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value == "" {
+			continue
+		}
+		normalized = append(normalized, value)
+	}
+	return uniqueStrings(normalized)
+}
+
+func containsMetricToken(values []string, wants ...string) bool {
+	if len(values) == 0 || len(wants) == 0 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		seen[strings.ToLower(strings.TrimSpace(value))] = struct{}{}
+	}
+	for _, want := range wants {
+		if _, ok := seen[strings.ToLower(strings.TrimSpace(want))]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func setFeatureMetric(metrics map[string]Value, name string, value bool) {
+	metrics[name] = boolValue(value)
+	if alias := strings.ReplaceAll(name, "-", "_"); alias != name {
+		metrics[alias] = boolValue(value)
+	}
+}
+
+func wifiConnectionHasMLO(conn *controlpb.WifiConnection) bool {
+	if conn == nil {
+		return false
+	}
+	return conn.GetApMldMacAddress() != "" ||
+		len(conn.GetAffiliatedMloLinks()) > 0 ||
+		len(conn.GetAssociatedMloLinks()) > 0 ||
+		wifiHasMLOInformationElement(conn.GetInformationElements()) ||
+		(strings.EqualFold(conn.GetWifiStandard(), "802.11be") && conn.GetApMloLinkId() >= 0)
+}
+
+func wifiScanHasMLO(result *controlpb.WifiScanResult) bool {
+	if result == nil {
+		return false
+	}
+	hasMetadata := result.GetApMloLinkId() >= 0 ||
+		result.GetApMldMacAddress() != "" ||
+		len(result.GetAffiliatedMloLinks()) > 0 ||
+		wifiHasMLOInformationElement(result.GetInformationElements())
+	if !hasMetadata {
+		return false
+	}
+	switch normalizeWifiScanStandard(result.GetWifiStandard()) {
+	case "", "unknown", "be":
+		return true
+	default:
+		return false
+	}
+}
+
+func wifiHasMLOInformationElement(elements []*controlpb.WifiInformationElement) bool {
+	for _, element := range elements {
+		if element.GetId() == 255 && element.GetIdExt() == 107 {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeWifiScanStandard(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "", "<unknown>", "-", "?":
+		return ""
+	case "unknown":
+		return "unknown"
+	case "802.11be", "11be", "wifi_standard_11be", "standard_11be":
+		return "be"
+	}
+	normalized = strings.TrimPrefix(normalized, "wifi_standard_")
+	normalized = strings.TrimPrefix(normalized, "standard_")
+	normalized = strings.TrimPrefix(normalized, "ieee80211")
+	normalized = strings.TrimPrefix(normalized, ".")
+	switch normalized {
+	case "be", "11be":
+		return "be"
+	default:
+		return normalized
+	}
 }
 
 func hasDefaultRoute(routes []string) bool {

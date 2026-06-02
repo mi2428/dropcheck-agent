@@ -168,6 +168,10 @@ func compileStringMatcher(metric string, value string) (Matcher, error) {
 	if value == "" {
 		return Matcher{Metric: metric, Op: "==", Want: ""}, nil
 	}
+	switch strings.ToLower(value) {
+	case "dontcare", "don'tcare", "any", "either":
+		return Matcher{Metric: metric, Op: "dontcare"}, nil
+	}
 	for _, op := range []string{">=", "<=", "!=", "==", ">", "<"} {
 		if after, ok := strings.CutPrefix(value, op); ok {
 			return Matcher{Metric: metric, Op: op, Want: strings.TrimSpace(after)}, nil
@@ -185,6 +189,9 @@ func compileStringMatcher(metric string, value string) (Matcher, error) {
 func evaluateMatchers(target Target, check Check, metrics map[string]Value) []Finding {
 	var findings []Finding
 	for _, matcher := range check.compiledExpect {
+		if matcher.Op == "dontcare" {
+			continue
+		}
 		observed, ok := metrics[matcher.Metric]
 		if matcher.Op == "present" {
 			if !ok || observed.String() == "" {
@@ -205,6 +212,8 @@ func evaluateMatchers(target Target, check Check, metrics map[string]Value) []Fi
 
 func (m Matcher) matches(observed Value) bool {
 	switch m.Op {
+	case "dontcare":
+		return true
 	case "contains":
 		return strings.Contains(observed.String(), m.Want)
 	case "contains_values":

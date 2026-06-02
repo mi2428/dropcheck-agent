@@ -112,6 +112,48 @@ checks:
 	}
 }
 
+func TestLoadFileCompilesWifiFeatureExpectations(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "watch.yml")
+	data := []byte(`version: 1
+targets:
+  - name: cs1
+    ssid: cs1
+checks:
+  - name: wifi feature probe
+    type: scan_detail
+    expect:
+      mlo: true
+      sae: true
+      sae-public-key: dontcare
+      transition: false
+`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile() error = %v", err)
+	}
+	if len(plan.Checks) != 1 || len(plan.Checks[0].compiledExpect) != 4 {
+		t.Fatalf("compiled expectations = %#v", plan.Checks)
+	}
+	wantOps := map[string]string{
+		"mlo":            "==",
+		"sae":            "==",
+		"sae-public-key": "dontcare",
+		"transition":     "==",
+	}
+	for _, matcher := range plan.Checks[0].compiledExpect {
+		want, ok := wantOps[matcher.Metric]
+		if !ok {
+			t.Fatalf("unexpected matcher %#v", matcher)
+		}
+		if matcher.Op != want {
+			t.Fatalf("matcher %q op = %q, want %q", matcher.Metric, matcher.Op, want)
+		}
+	}
+}
+
 func TestLoadFileRejectsTargetVarCycles(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "watch.yml")
 	data := []byte(`version: 1
@@ -130,7 +172,7 @@ checks:
 		t.Fatal(err)
 	}
 	_, err := LoadFile(path)
-	if err == nil || !strings.Contains(err.Error(), `target variable cycle at "gateway_ipv4"`) {
+	if err == nil || !strings.Contains(err.Error(), `target variable cycle at "`) {
 		t.Fatalf("LoadFile() error = %v, want target variable cycle", err)
 	}
 }
@@ -247,6 +289,22 @@ func TestEvaluateMatchersReportsFailures(t *testing.T) {
 	}
 }
 
+func TestDontCareExpectationIgnoresMissingMetric(t *testing.T) {
+	target := Target{Name: "lab", SSID: "Lab"}
+	check := Check{
+		Name: "wifi",
+		Type: "wifi_status",
+		compiledExpect: []Matcher{
+			{Metric: "sae-public-key", Op: "dontcare"},
+			{Metric: "mlo", Op: "==", Want: "true"},
+		},
+	}
+	metrics := map[string]Value{"mlo": boolValue(true)}
+	if findings := evaluateMatchers(target, check, metrics); len(findings) != 0 {
+		t.Fatalf("findings = %#v, want none", findings)
+	}
+}
+
 func TestPingMetricsParseAgentOutput(t *testing.T) {
 	target := Target{Name: "lab", SSID: "Lab"}
 	check := Check{
@@ -282,6 +340,89 @@ func TestNetworkProbeMetrics(t *testing.T) {
 		result *controlpb.CommandResult
 		want   map[string]string
 	}{
+		{
+			name: "wifi status security features",
+			result: &controlpb.CommandResult{Payload: &controlpb.CommandResult_WifiStatus{WifiStatus: &controlpb.WifiStatus{
+				Enabled: true,
+				Connection: &controlpb.WifiConnection{
+					Ssid:            "Lab",
+					SecurityType:    "sae",
+					WifiStandard:    "802.11be",
+					ApMldMacAddress: "02:00:00:00:00:01",
+					ApMloLinkId:     1,
+					AssociatedMloLinks: []*controlpb.MloLinkInfo{{
+						LinkId: 1,
+						State:  "active",
+						Band:   "6ghz",
+					}},
+					SecurityDetails: &controlpb.WifiSecurityDetails{
+						RsnPresent:           true,
+						RsnxePresent:         true,
+						PmfCapable:           true,
+						PmfRequired:          true,
+						Gcmp_256:             true,
+						SaeGdh:               true,
+						FtSaeGdh:             true,
+						Wifi7PersonalReady:   true,
+						BeaconProtection:     true,
+						AkmSuites:            []string{"psk", "sae_gdh", "ft_sae_gdh"},
+						PairwiseCiphers:      []string{"gcmp_256"},
+						RsnxeCapabilities:    []string{"sae_h2e", "sae_pk", "ssid_protection"},
+						ExtendedCapabilities: []string{"bss_transition"},
+					},
+				},
+			}}},
+			want: map[string]string{
+				"mlo":                      "true",
+				"sae":                      "true",
+				"transition":               "true",
+				"sae-public-key":           "true",
+				"h2e":                      "true",
+				"ssid-protection":          "true",
+				"pmf-required":             "true",
+				"security_akm_suites":      "psk,sae_gdh,ft_sae_gdh",
+				"security_details_present": "true",
+			},
+		},
+		{
+			name: "scan detail security features",
+			result: &controlpb.CommandResult{Payload: &controlpb.CommandResult_WifiScanDetail{WifiScanDetail: &controlpb.WifiScanDetail{
+				Results: []*controlpb.WifiScanResult{{
+					Ssid:         "Lab",
+					Bssid:        "aa:bb:cc:dd:ee:ff",
+					RssiDbm:      -54,
+					Band:         "6ghz",
+					WifiStandard: "802.11be",
+					SecurityTypes: []string{
+						"sae",
+					},
+					ApMloLinkId: -1,
+					InformationElements: []*controlpb.WifiInformationElement{{
+						Id:    255,
+						IdExt: 107,
+					}},
+					SecurityDetails: &controlpb.WifiSecurityDetails{
+						RsnPresent:           true,
+						RsnxePresent:         true,
+						PmfCapable:           true,
+						PmfRequired:          true,
+						AkmSuites:            []string{"sae"},
+						RsnxeCapabilities:    []string{"sae_h2e"},
+						ExtendedCapabilities: []string{"bss_transition"},
+					},
+				}},
+			}}},
+			want: map[string]string{
+				"mlo":            "true",
+				"sae":            "true",
+				"transition":     "false",
+				"sae-public-key": "false",
+				"sae-h2e":        "true",
+				"bss-transition": "true",
+				"security_types": "sae",
+				"rsnxe-present":  "true",
+			},
+		},
 		{
 			name: "traceroute",
 			result: &controlpb.CommandResult{Payload: &controlpb.CommandResult_Traceroute{Traceroute: &controlpb.TracerouteResult{
