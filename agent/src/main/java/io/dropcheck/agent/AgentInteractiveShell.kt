@@ -1,7 +1,7 @@
 package io.dropcheck.agent
 
 /** Commands supported by the on-device interactive shell. */
-private const val SHOW_WIFI_EHT_USAGE = "usage: show wifi eht [fresh [timeout MS]] [ssid SSID|bssid BSSID]"
+private const val SHOW_WIFI_EHT_USAGE = "usage: show wifi eht [brief] [fresh [timeout MS]] [ssid SSID|bssid BSSID]"
 
 internal sealed class AgentShellCommand {
     data object Noop : AgentShellCommand()
@@ -11,6 +11,7 @@ internal sealed class AgentShellCommand {
     data object ShowVersion : AgentShellCommand()
     data object ShowWifiStatus : AgentShellCommand()
     data class ShowWifiEht(
+        val brief: Boolean = false,
         val fresh: Boolean = false,
         val timeoutMs: Int = 0,
         val ssid: String = "",
@@ -76,13 +77,19 @@ internal object AgentShellParser {
 
     private fun parseShowWifiEht(args: List<String>): AgentShellCommand {
         if (args.isEmpty()) return AgentShellCommand.ShowWifiEht()
+        var brief = false
         var fresh = false
         var timeoutMs = 0
         var ssid = ""
         var bssid = ""
         var index = 0
         while (index < args.size) {
-            when (resolveKeyword(args[index], listOf("fresh", "timeout", "ssid", "bssid"))) {
+            when (resolveKeyword(args[index], listOf("brief", "fresh", "timeout", "ssid", "bssid"))) {
+                "brief" -> {
+                    if (brief) return AgentShellCommand.Invalid("brief specified twice")
+                    brief = true
+                    index++
+                }
                 "fresh" -> {
                     if (fresh) return AgentShellCommand.Invalid("fresh specified twice")
                     fresh = true
@@ -122,7 +129,7 @@ internal object AgentShellParser {
         }
         if (!fresh && timeoutMs > 0) return AgentShellCommand.Invalid("timeout is supported only with show wifi eht fresh")
         if (ssid.isNotBlank() && bssid.isNotBlank()) return AgentShellCommand.Invalid("ssid and bssid filters cannot be used together")
-        return AgentShellCommand.ShowWifiEht(fresh = fresh, timeoutMs = timeoutMs, ssid = ssid, bssid = bssid)
+        return AgentShellCommand.ShowWifiEht(brief = brief, fresh = fresh, timeoutMs = timeoutMs, ssid = ssid, bssid = bssid)
     }
 
     private fun parsePing(args: List<String>): AgentShellCommand {
@@ -181,12 +188,16 @@ internal object AgentShellParser {
 
     private fun resolveKeyword(value: String, options: List<String>): String? {
         if (value.isBlank()) return null
-        return options.firstOrNull { it.startsWith(value) }
+        options.firstOrNull { it == value }?.let { return it }
+        val matches = options.filter { it.startsWith(value) }
+        return matches.singleOrNull()
     }
 
     private fun resolveCommandName(value: String): String? {
         if (value.isBlank()) return null
-        return commandNames.firstOrNull { it.startsWith(value) }
+        commandNames.firstOrNull { it == value }?.let { return it }
+        val matches = commandNames.filter { it.startsWith(value) }
+        return matches.singleOrNull()
     }
 
     private fun splitWords(line: String): Result<List<String>> {

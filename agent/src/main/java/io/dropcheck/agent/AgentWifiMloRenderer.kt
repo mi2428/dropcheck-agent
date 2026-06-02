@@ -20,6 +20,7 @@ import io.dropcheck.agent.grpc.WifiSecurityDetails
 import io.dropcheck.agent.grpc.WifiStatus
 
 internal data class AgentWifiMloContext(
+    val brief: Boolean = false,
     val scanSource: String = "cached",
     val sdkInt: Int = Build.VERSION.SDK_INT,
     val wifi7Supported: Boolean? = null,
@@ -39,6 +40,10 @@ internal object AgentWifiMloRenderer {
         val candidates = scanResults.filter { isMloCapableCandidate(it) }
         val groups = mloGroups(candidates)
         val current = filter.connection(activeWifiConnection(status))
+        if (context.brief) {
+            renderBrief(out, scan, candidates, groups, current, filter, context)
+            return out
+        }
 
         renderCurrentRelation(out, current, candidates)
         renderConnectedMlo(out, current)
@@ -56,6 +61,19 @@ internal object AgentWifiMloRenderer {
         renderWifiMloCapabilities(out, context)
         renderDiagnostics(out, status, scan, current, candidates, context)
         return out
+    }
+
+    private fun renderBrief(
+        out: MutableList<String>,
+        scan: WifiScan,
+        candidates: List<WifiScanResult>,
+        groups: List<MloGroup>,
+        current: WifiConnection?,
+        filter: MloFilter,
+        context: AgentWifiMloContext,
+    ) {
+        renderScanSummary(out, scan, candidates, filter.scanResults(scan.resultsList).size, filter, context)
+        renderNearbyMloBrief(out, groups, current)
     }
 
     private fun renderConnectedMlo(out: MutableList<String>, conn: WifiConnection?) {
@@ -137,6 +155,71 @@ internal object AgentWifiMloRenderer {
             out += "  no EHT-capable scan results"
             return
         }
+        renderNearbyMloTable(out, groups)
+        renderScanLinks(out, groups, current)
+        renderScanSecurityDetails(out, groups.flatMap { it.results })
+        renderScanRoamingDetails(out, groups.flatMap { it.results })
+        renderScanBssColoring(out, groups.flatMap { it.results })
+        renderScanRnrDetails(out, groups.flatMap { it.results })
+        renderScanMultipleBssidDetails(out, groups.flatMap { it.results })
+        renderScanHeDetails(out, groups.flatMap { it.results })
+        renderScanHe6GhzDetails(out, groups.flatMap { it.results })
+        renderScanEhtMultiLink(out, groups.flatMap { it.results })
+        renderScanEhtPuncturing(out, groups.flatMap { it.results })
+        renderScanEhtDetails(out, groups.flatMap { it.results })
+    }
+
+    private fun renderNearbyMloBrief(out: MutableList<String>, groups: List<MloGroup>, current: WifiConnection?) {
+        section(out, "Nearby EHT MLDs")
+        if (groups.isEmpty()) {
+            out += "  no EHT-capable scan results"
+            return
+        }
+        tableWithColumns(out,
+            listOf(
+                TableColumn("ITEM"),
+                TableColumn("MLD", 17),
+                TableColumn("BAND", 6),
+                TableColumn("RSSI", 4),
+                TableColumn("SEC", 7),
+                TableColumn("STD", 4),
+                TableColumn("CLR", 5),
+                TableColumn("EHT", 9),
+                TableColumn("ADDR", 17),
+            ),
+            groups.flatMap { group ->
+                buildList {
+                    add(listOf(
+                        joined(group.results.map { empty(it.ssid, "<hidden>") }),
+                        briefCell(group.displayMld),
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                    ))
+                    val links = briefLinkRows(group, current)
+                    links.forEachIndexed { index, link ->
+                        add(listOf(
+                            briefNodeLabel(index, links.size, link.mark, link.linkId),
+                            "",
+                            link.band,
+                            link.rssi,
+                            link.security,
+                            link.standard,
+                            link.color,
+                            link.eht,
+                            link.addr,
+                        ))
+                    }
+                }
+            },
+        )
+    }
+
+    private fun renderNearbyMloTable(out: MutableList<String>, groups: List<MloGroup>) {
         tableWithColumns(out,
             listOf(
                 TableColumn("SSID", 14),
@@ -161,17 +244,6 @@ internal object AgentWifiMloRenderer {
                 )
             },
         )
-        renderScanLinks(out, groups, current)
-        renderScanSecurityDetails(out, groups.flatMap { it.results })
-        renderScanRoamingDetails(out, groups.flatMap { it.results })
-        renderScanBssColoring(out, groups.flatMap { it.results })
-        renderScanRnrDetails(out, groups.flatMap { it.results })
-        renderScanMultipleBssidDetails(out, groups.flatMap { it.results })
-        renderScanHeDetails(out, groups.flatMap { it.results })
-        renderScanHe6GhzDetails(out, groups.flatMap { it.results })
-        renderScanEhtMultiLink(out, groups.flatMap { it.results })
-        renderScanEhtPuncturing(out, groups.flatMap { it.results })
-        renderScanEhtDetails(out, groups.flatMap { it.results })
     }
 
     private fun renderConnectedSecurityDetails(out: MutableList<String>, conn: WifiConnection?) {
@@ -655,7 +727,7 @@ internal object AgentWifiMloRenderer {
     ) {
         blockGap(out)
         blockTitle(out, resultMark(group, result, current), empty(result.ssid, "<hidden>"))
-        out += "  ap_mld=${group.displayMld} link=${scanLinkID(result)} bssid=${empty(result.bssid, "<unknown>")}"
+        out += "  type=ap ap_mld=${group.displayMld} link=${scanLinkID(result)} bssid=${empty(result.bssid, "<unknown>")}"
         out += "  band=${empty(result.band, wifiBandFromFrequency(result.frequencyMhz))} ch=${wifiChannelFromFrequency(result.frequencyMhz)} freq=${result.frequencyMhz}MHz width=${empty(formatWifiChannelWidth(result.channelWidth), "<unknown>")}${scanEhtOperationSuffix(result)} rssi=${result.rssiDbm}dBm"
         out += "  ${wifiMloInformationElementChecklist(result)}"
         out += "  ${wifiMloScanSdkFlags(result)}"
@@ -681,7 +753,7 @@ internal object AgentWifiMloRenderer {
         link: MloLinkInfo,
         current: WifiConnection?,
     ) {
-        out += "    [${blockMarker(linkMark(group, link, current))}] link=${link.linkId} ap_mac=${empty(link.apMacAddress, "<unknown>")}"
+        out += "    [${blockMarker(linkMark(group, link, current))}] type=aff link=${link.linkId} ap_mac=${empty(link.apMacAddress, "<unknown>")}"
         out += "      band=${empty(link.band, "<unknown>")} ch=${link.channel} state=${empty(link.state, "<unknown>")} rssi=${link.rssiDbm}dBm tx=${link.txLinkSpeedMbps} rx=${link.rxLinkSpeedMbps} max_tx=${link.maxSupportedTxLinkSpeedMbps} max_rx=${link.maxSupportedRxLinkSpeedMbps} parent_bssid=${empty(result.bssid, "<unknown>")}"
     }
 
@@ -697,6 +769,175 @@ internal object AgentWifiMloRenderer {
         if (out.isNotEmpty() && out.last().isNotBlank() && out.last() != "EHT Scan Links") {
             out += ""
         }
+    }
+
+    private fun briefCell(value: String): String {
+        return when (value.trim()) {
+            "", "<unknown>", "<none>" -> "?"
+            else -> value
+        }
+    }
+
+    private fun briefMarker(mark: String): String {
+        return "[${blockMarker(mark)}]"
+    }
+
+    private fun briefNodeLabel(index: Int, total: Int, mark: String, linkId: String): String {
+        val branch = if (index == total - 1) "`--" else "|--"
+        return "$branch ${briefMarker(mark)} ${if (linkId.isBlank()) "?" else linkId}"
+    }
+
+    private fun briefLinkID(link: MloLinkInfo): String {
+        return if (link.linkId >= 0) link.linkId.toString() else "?"
+    }
+
+    private fun briefLinkId(result: WifiScanResult): Int? {
+        if (result.apMloLinkId >= 0) return result.apMloLinkId
+        return mloCurrentLinkIdFromElements(result.informationElementsList)
+    }
+
+    private fun briefMarkRank(mark: String): Int {
+        return when (mark.trim()) {
+            "*" -> 3
+            "+" -> 2
+            "-" -> 1
+            else -> 0
+        }
+    }
+
+    private fun briefBand(value: String): String {
+        return when (value.trim().lowercase()) {
+            "2.4ghz", "2ghz", "2.4g", "2g" -> "2G"
+            "5ghz", "5g" -> "5G"
+            "6ghz", "6g" -> "6G"
+            "60ghz", "60g" -> "60G"
+            else -> briefCell(value)
+        }
+    }
+
+    private fun briefSecurity(value: String): String {
+        return when (value.trim().lowercase()) {
+            "", "<unknown>", "<none>", "-", "?" -> "?"
+            "wpa3_sae", "sae" -> "sae"
+            "wpa2_psk", "psk" -> "psk"
+            "owe" -> "owe"
+            "open" -> "open"
+            else -> when {
+                value.contains("SAE", ignoreCase = true) -> "sae"
+                value.contains("PSK", ignoreCase = true) -> "psk"
+                value.contains("OWE", ignoreCase = true) -> "owe"
+                else -> briefCell(value.lowercase())
+            }
+        }
+    }
+
+    private fun briefStandard(value: String): String {
+        val trimmed = value.trim().lowercase()
+        if (trimmed.isBlank() || trimmed == "<unknown>" || trimmed == "-" || trimmed == "?" || trimmed == "unknown") {
+            return "?"
+        }
+        return if (trimmed.startsWith("802.11")) trimmed.removePrefix("802.11").ifBlank { "?" } else trimmed
+    }
+
+    private fun briefColor(value: String): String {
+        val trimmed = value.trim()
+        return when {
+            trimmed.isBlank() || trimmed == "<unknown>" || trimmed == "<none>" || trimmed == "-" || trimmed == "?" -> "?"
+            trimmed.endsWith("(part)") -> trimmed.removeSuffix("(part)") + "p"
+            trimmed.endsWith("(off)") -> trimmed.removeSuffix("(off)") + "off"
+            else -> trimmed
+        }
+    }
+
+    private fun briefEht(result: WifiScanResult?): String {
+        if (result == null) return "-"
+        val width = briefCell(scanEhtOperationWidth(result)).removeSuffix("MHz")
+        var puncturing = briefCell(scanEhtOperationPuncturing(result))
+        if (puncturing == "none") puncturing = "-"
+        return "$width/$puncturing"
+    }
+
+    private fun briefLinkRows(group: MloGroup, current: WifiConnection?): List<BriefLinkRow> {
+        val rows = mutableListOf<BriefLinkRow>()
+        group.results.forEach { result ->
+            upsertBriefLinkRow(rows, briefScanRow(group, result, current))
+            result.affiliatedMloLinksList.forEach { link ->
+                upsertBriefLinkRow(rows, briefAffiliatedRow(group, link, current))
+            }
+        }
+        return rows.sortedWith(
+            compareByDescending<BriefLinkRow> { briefMarkRank(it.mark) }
+                .thenByDescending { it.sortLink != null }
+                .thenBy { it.sortLink ?: Int.MAX_VALUE }
+                .thenByDescending { it.hasScan }
+                .thenBy { it.addr.lowercase() },
+        )
+    }
+
+    private fun upsertBriefLinkRow(rows: MutableList<BriefLinkRow>, candidate: BriefLinkRow) {
+        val index = rows.indexOfFirst { left ->
+            (left.sortLink != null && candidate.sortLink != null && left.sortLink == candidate.sortLink) ||
+                (left.addr.isNotBlank() && candidate.addr.isNotBlank() && left.addr.equals(candidate.addr, ignoreCase = true))
+        }
+        if (index < 0) {
+            rows += candidate
+            return
+        }
+        rows[index] = mergeBriefLinkRows(rows[index], candidate)
+    }
+
+    private fun mergeBriefLinkRows(current: BriefLinkRow, candidate: BriefLinkRow): BriefLinkRow {
+        var preferred = current
+        var secondary = candidate
+        if (candidate.hasScan && !current.hasScan) {
+            preferred = candidate
+            secondary = current
+        }
+        return preferred.copy(
+            mark = if (briefMarkRank(secondary.mark) > briefMarkRank(preferred.mark)) secondary.mark else preferred.mark,
+            linkId = if (preferred.linkId == "?" && secondary.linkId != "?") secondary.linkId else preferred.linkId,
+            band = if (preferred.band == "?" && secondary.band != "?") secondary.band else preferred.band,
+            rssi = if (preferred.rssi == "?" && secondary.rssi != "?") secondary.rssi else preferred.rssi,
+            security = if ((preferred.security.isBlank() || preferred.security == "-") && secondary.security.isNotBlank()) secondary.security else preferred.security,
+            standard = if ((preferred.standard.isBlank() || preferred.standard == "-") && secondary.standard.isNotBlank()) secondary.standard else preferred.standard,
+            color = if ((preferred.color.isBlank() || preferred.color == "-") && secondary.color.isNotBlank()) secondary.color else preferred.color,
+            eht = if ((preferred.eht.isBlank() || preferred.eht == "-") && secondary.eht.isNotBlank()) secondary.eht else preferred.eht,
+            addr = if ((preferred.addr.isBlank() || preferred.addr == "?") && secondary.addr.isNotBlank()) secondary.addr else preferred.addr,
+            sortLink = preferred.sortLink ?: secondary.sortLink,
+            hasScan = preferred.hasScan || secondary.hasScan,
+        )
+    }
+
+    private fun briefScanRow(group: MloGroup, result: WifiScanResult, current: WifiConnection?): BriefLinkRow {
+        return BriefLinkRow(
+            mark = resultMark(group, result, current),
+            linkId = briefCell(scanLinkID(result)),
+            band = briefBand(empty(result.band, wifiBandFromFrequency(result.frequencyMhz))),
+            rssi = result.rssiDbm.toString(),
+            security = briefSecurity(security(result)),
+            standard = briefStandard(result.wifiStandard),
+            color = briefColor(heOperationBssColorValue(if (result.hasHeOperation()) result.heOperation else null)),
+            eht = briefEht(result),
+            addr = briefCell(result.bssid),
+            sortLink = briefLinkId(result),
+            hasScan = true,
+        )
+    }
+
+    private fun briefAffiliatedRow(group: MloGroup, link: MloLinkInfo, current: WifiConnection?): BriefLinkRow {
+        return BriefLinkRow(
+            mark = linkMark(group, link, current),
+            linkId = briefLinkID(link),
+            band = briefBand(link.band),
+            rssi = link.rssiDbm.toString(),
+            security = "-",
+            standard = "-",
+            color = "-",
+            eht = "-",
+            addr = briefCell(link.apMacAddress),
+            sortLink = link.linkId.takeIf { it >= 0 },
+            hasScan = false,
+        )
     }
 
     private fun renderCurrentRelation(out: MutableList<String>, current: WifiConnection?, candidates: List<WifiScanResult>) {
@@ -1234,6 +1475,20 @@ internal object AgentWifiMloRenderer {
         val security: List<String> = results.map { security(it) }.filter { it.isNotBlank() }.distinct()
         val standards: List<String> = results.map { it.wifiStandard }.filter { it.isNotBlank() }.distinct()
     }
+
+    private data class BriefLinkRow(
+        val mark: String,
+        val linkId: String,
+        val band: String,
+        val rssi: String,
+        val security: String,
+        val standard: String,
+        val color: String,
+        val eht: String,
+        val addr: String,
+        val sortLink: Int? = null,
+        val hasScan: Boolean = false,
+    )
 
     private data class MloFilter(val ssid: String = "", val bssid: String = "") {
         val active: Boolean = ssid.isNotBlank() || bssid.isNotBlank()
