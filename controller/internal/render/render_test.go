@@ -908,6 +908,51 @@ func TestRenderWifiScanShowsMLOFields(t *testing.T) {
 	}
 }
 
+func TestRenderWifiScanBriefOmitsVerboseSections(t *testing.T) {
+	result := &controlpb.CommandResult{
+		Status: controlpb.CommandResult_STATUS_OK,
+		Payload: &controlpb.CommandResult_WifiScan{
+			WifiScan: &controlpb.WifiScan{
+				Fields: []*controlpb.DiagnosticField{{Key: "requested_band", Value: "all"}},
+				Results: []*controlpb.WifiScanResult{{
+					Ssid:            "Lab",
+					Bssid:           "aa:bb:cc:dd:ee:ff",
+					RssiDbm:         -48,
+					Band:            "6ghz",
+					FrequencyMhz:    5975,
+					WifiStandard:    "802.11be",
+					ApMldMacAddress: "02:00:00:00:00:01",
+					ApMloLinkId:     2,
+					SecurityDetails: wifi7SecurityDetailsTestValue(),
+					AffiliatedMloLinks: []*controlpb.MloLinkInfo{{
+						LinkId:       1,
+						State:        "idle",
+						Band:         "5ghz",
+						Channel:      44,
+						RssiDbm:      -55,
+						ApMacAddress: "aa:bb:cc:dd:ee:01",
+					}},
+				}},
+			},
+		},
+	}
+
+	out, err := CommandResult("agent", result, command.Options{WifiScanBrief: true}, pipeline.FormatText)
+	if err != nil {
+		t.Fatalf("CommandResult() error = %v", err)
+	}
+	for _, want := range []string{"Wi-Fi Scan", "SSID", "AP_MLD", "AFFILIATED", "Lab"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered output = %q, missing %q", out, want)
+		}
+	}
+	for _, unwanted := range []string{"Scan Affiliated MLO Links", "Scan Wi-Fi Security Details"} {
+		if strings.Contains(out, unwanted) {
+			t.Fatalf("rendered output = %q, unexpected %q", out, unwanted)
+		}
+	}
+}
+
 func TestRenderWifiScanAlignsFullWidthSSID(t *testing.T) {
 	result := &controlpb.CommandResult{
 		Status: controlpb.CommandResult_STATUS_OK,
@@ -957,6 +1002,90 @@ func TestRenderWifiScanAlignsFullWidthSSID(t *testing.T) {
 	}
 }
 
+func TestRenderWifiScanGroupsSSIDAndSortsByRSSI(t *testing.T) {
+	result := &controlpb.CommandResult{
+		Status: controlpb.CommandResult_STATUS_OK,
+		Payload: &controlpb.CommandResult_WifiScan{
+			WifiScan: &controlpb.WifiScan{
+				Results: []*controlpb.WifiScanResult{{
+					Ssid:         "Office",
+					Bssid:        "11:11:11:11:11:02",
+					RssiDbm:      -65,
+					Band:         "5ghz",
+					FrequencyMhz: 5200,
+					WifiStandard: "802.11ax",
+				}, {
+					Ssid:         "Lab",
+					Bssid:        "22:22:22:22:22:02",
+					RssiDbm:      -70,
+					Band:         "6ghz",
+					FrequencyMhz: 6055,
+					WifiStandard: "802.11be",
+				}, {
+					Ssid:         "Cafe",
+					Bssid:        "33:33:33:33:33:01",
+					RssiDbm:      -40,
+					Band:         "6ghz",
+					FrequencyMhz: 5975,
+					WifiStandard: "802.11be",
+				}, {
+					Ssid:         "Lab",
+					Bssid:        "22:22:22:22:22:01",
+					RssiDbm:      -50,
+					Band:         "5ghz",
+					FrequencyMhz: 5180,
+					WifiStandard: "802.11ax",
+				}, {
+					Ssid:         "Office",
+					Bssid:        "11:11:11:11:11:01",
+					RssiDbm:      -55,
+					Band:         "2.4ghz",
+					FrequencyMhz: 2412,
+					WifiStandard: "802.11ax",
+				}},
+			},
+		},
+	}
+
+	tests := []struct {
+		name    string
+		options command.Options
+	}{
+		{name: "default"},
+		{name: "brief", options: command.Options{WifiScanBrief: true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := CommandResult("agent", result, tt.options, pipeline.FormatText)
+			if err != nil {
+				t.Fatalf("CommandResult() error = %v", err)
+			}
+			rows := scanTableRows(out)
+			wantOrder := []string{
+				"33:33:33:33:33:01",
+				"22:22:22:22:22:01",
+				"22:22:22:22:22:02",
+				"11:11:11:11:11:01",
+				"11:11:11:11:11:02",
+			}
+			if len(rows) < len(wantOrder) {
+				t.Fatalf("scan table rows = %#v, want at least %d rows\n%s", rows, len(wantOrder), out)
+			}
+			lastIndex := -1
+			for _, bssid := range wantOrder {
+				index := indexOfRowContaining(rows, bssid)
+				if index < 0 {
+					t.Fatalf("scan table missing row for %s:\n%s", bssid, out)
+				}
+				if index <= lastIndex {
+					t.Fatalf("scan row order wrong for %s rows=%#v\n%s", bssid, rows, out)
+				}
+				lastIndex = index
+			}
+		})
+	}
+}
+
 func renderedLineContaining(out string, needle string) string {
 	for line := range strings.SplitSeq(out, "\n") {
 		if strings.Contains(line, needle) {
@@ -972,6 +1101,37 @@ func displayColumn(line string, needle string) int {
 		return -1
 	}
 	return displayWidth(before)
+}
+
+func scanTableRows(out string) []string {
+	lines := strings.Split(out, "\n")
+	header := -1
+	for i, line := range lines {
+		if strings.Contains(line, "SSID") && strings.Contains(line, "BSSID") && strings.Contains(line, "AFFILIATED") {
+			header = i
+			break
+		}
+	}
+	if header < 0 {
+		return nil
+	}
+	rows := []string{}
+	for _, line := range lines[header+1:] {
+		if line == "" {
+			break
+		}
+		rows = append(rows, line)
+	}
+	return rows
+}
+
+func indexOfRowContaining(rows []string, needle string) int {
+	for i, row := range rows {
+		if strings.Contains(row, needle) {
+			return i
+		}
+	}
+	return -1
 }
 
 func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
@@ -1098,13 +1258,13 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 		"PUNCT",
 		"EHT Scan Links",
 		"Network MLO",
-			"MLO Capability Signals",
-			"[*] Lab",
-			"ap_mld=02:00:00:00:00:01 link=2 bssid=aa:bb:cc:dd:ee:ff",
-			"band=6ghz ch=5 freq=5975MHz width=80MHz eht_width=320MHz puncture=1,3 rssi=-45dBm",
-			"  affiliated_links",
-			"    [+] link=1 ap_mac=aa:bb:cc:dd:ee:01",
-			"Connected EHT Multi-Link Elements",
+		"MLO Capability Signals",
+		"[*] Lab",
+		"type=ap ap_mld=02:00:00:00:00:01 link=2 bssid=aa:bb:cc:dd:ee:ff",
+		"band=6ghz ch=5 freq=5975MHz width=80MHz eht_width=320MHz puncture=1,3 rssi=-45dBm",
+		"  affiliated_links",
+		"    [+] type=aff link=1 ap_mac=aa:bb:cc:dd:ee:01",
+		"Connected EHT Multi-Link Elements",
 		"ml_control raw=0x07f0 type=basic(0) presence=link_id_info,bss_parameters_change_count,medium_synchronization_delay,eml_capabilities,mld_capabilities_and_operations,ap_mld_id,extended_mld_capabilities_and_operations bytes=37",
 		"common_info len=18 mld_mac=02:00:00:00:00:01 link_id=2 bss_param_change_count=7 medium_sync_delay=0x1032 eml_capabilities=0x8f08 mld_capabilities=0x3370 ap_mld_id=5 ext_mld_capabilities=0x6100",
 		"medium_sync raw=0x1032 duration=16 ofdm_ed_threshold=2 max_txop=3",
@@ -1191,6 +1351,152 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 	}
 	if strings.Contains(out, "Legacy") {
 		t.Fatalf("rendered output = %q, unexpected non-MLO AP", out)
+	}
+}
+
+func TestRenderWifiScanBriefMLOFiltersAndExpandsAffiliatedLinks(t *testing.T) {
+	result := &controlpb.CommandResult{
+		Status: controlpb.CommandResult_STATUS_OK,
+		Payload: &controlpb.CommandResult_WifiScan{
+			WifiScan: &controlpb.WifiScan{
+				Fields: []*controlpb.DiagnosticField{{Key: "requested_band", Value: "all"}},
+				Results: []*controlpb.WifiScanResult{{
+					Ssid:            "Lab",
+					Bssid:           "aa:bb:cc:dd:ee:ff",
+					RssiDbm:         -45,
+					Band:            "6ghz",
+					FrequencyMhz:    5975,
+					WifiStandard:    "802.11be",
+					ApMldMacAddress: "02:00:00:00:00:01",
+					ApMloLinkId:     2,
+					AffiliatedMloLinks: []*controlpb.MloLinkInfo{{
+						LinkId:       1,
+						State:        "idle",
+						Band:         "5ghz",
+						Channel:      44,
+						RssiDbm:      -55,
+						ApMacAddress: "aa:bb:cc:dd:ee:01",
+					}},
+				}, {
+					Ssid:         "GhostBE",
+					Bssid:        "11:22:33:44:55:66",
+					RssiDbm:      -60,
+					Band:         "6ghz",
+					FrequencyMhz: 6055,
+					WifiStandard: "802.11be",
+					ApMloLinkId:  -1,
+				}, {
+					Ssid:            "LegacyMLO",
+					Bssid:           "22:33:44:55:66:77",
+					RssiDbm:         -65,
+					Band:            "5ghz",
+					FrequencyMhz:    5180,
+					WifiStandard:    "802.11ax",
+					ApMldMacAddress: "03:00:00:00:00:01",
+					ApMloLinkId:     -1,
+				}},
+			},
+		},
+	}
+
+	out, err := CommandResult("agent", result, command.Options{WifiScanBrief: true, WifiScanMLO: true}, pipeline.FormatText)
+	if err != nil {
+		t.Fatalf("CommandResult() error = %v", err)
+	}
+	for _, want := range []string{"Wi-Fi Scan", "SSID", "BSSID", "AP_MLD", "AFFILIATED", "Lab", "aa:bb:cc:dd:ee:ff", "aa:bb:cc:dd:ee:01", "affiliated_link,idle"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered output = %q, missing %q", out, want)
+		}
+	}
+	for _, unwanted := range []string{"GhostBE", "LegacyMLO", "Scan Affiliated MLO Links", "Scan Wi-Fi Security Details"} {
+		if strings.Contains(out, unwanted) {
+			t.Fatalf("rendered output = %q, unexpected %q", out, unwanted)
+		}
+	}
+	if count := strings.Count(out, "Lab"); count != 2 {
+		t.Fatalf("rendered output expected parent and affiliated Lab rows, got %d:\n%s", count, out)
+	}
+	affiliatedLine := renderedLineContaining(out, "aa:bb:cc:dd:ee:01")
+	if affiliatedLine == "" {
+		t.Fatalf("rendered output missing affiliated line:\n%s", out)
+	}
+	fields := strings.Fields(affiliatedLine)
+	if len(fields) < 3 || fields[2] != "-" {
+		t.Fatalf("affiliated line RSSI = %q, want -\n%s", affiliatedLine, out)
+	}
+	for _, tt := range []struct {
+		key  string
+		want string
+	}{
+		{key: "mlo_results", want: "1"},
+		{key: "affiliated_rows", want: "1"},
+		{key: "display_rows", want: "2"},
+		{key: "scan_results", want: "3"},
+		{key: "scan_total", want: "3"},
+	} {
+		line := renderedLineContaining(out, tt.key)
+		if line == "" {
+			t.Fatalf("rendered output missing summary line %q:\n%s", tt.key, out)
+		}
+		summaryFields := strings.Fields(line)
+		if len(summaryFields) == 0 || summaryFields[len(summaryFields)-1] != tt.want {
+			t.Fatalf("summary line %q = %q, want value %q\n%s", tt.key, line, tt.want, out)
+		}
+	}
+}
+
+func TestRenderWifiScanBriefMLOIncludesUnknownStandardWithMetadata(t *testing.T) {
+	result := &controlpb.CommandResult{
+		Status: controlpb.CommandResult_STATUS_OK,
+		Payload: &controlpb.CommandResult_WifiScan{
+			WifiScan: &controlpb.WifiScan{
+				Fields: []*controlpb.DiagnosticField{{Key: "requested_band", Value: "all"}},
+				Results: []*controlpb.WifiScanResult{{
+					Ssid:            "Meraki",
+					Bssid:           "6e:ef:9d:c4:8e:70",
+					RssiDbm:         -68,
+					Band:            "6ghz",
+					FrequencyMhz:    6295,
+					WifiStandard:    "unknown",
+					SecurityTypes:   []string{"sae"},
+					ApMldMacAddress: "6e:ef:bd:c4:8e:71",
+					ApMloLinkId:     2,
+					AffiliatedMloLinks: []*controlpb.MloLinkInfo{{
+						LinkId:       1,
+						State:        "idle",
+						Band:         "5ghz",
+						Channel:      149,
+						RssiDbm:      -70,
+						ApMacAddress: "6e:ef:9d:c4:8e:60",
+					}},
+					InformationElements: []*controlpb.WifiInformationElement{
+						ehtMultiLinkTestIE(),
+					},
+				}, {
+					Ssid:            "LegacyMLO",
+					Bssid:           "22:33:44:55:66:77",
+					RssiDbm:         -65,
+					Band:            "5ghz",
+					FrequencyMhz:    5180,
+					WifiStandard:    "802.11ax",
+					ApMldMacAddress: "03:00:00:00:00:01",
+					ApMloLinkId:     1,
+				}},
+			},
+		},
+	}
+
+	out, err := CommandResult("agent", result, command.Options{WifiScanBrief: true, WifiScanMLO: true}, pipeline.FormatText)
+	if err != nil {
+		t.Fatalf("CommandResult() error = %v", err)
+	}
+	for _, want := range []string{"Meraki", "6e:ef:9d:c4:8e:70", "6e:ef:9d:c4:8e:60", "mlo_results      1", "display_rows     2"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered output = %q, missing %q", out, want)
+		}
+	}
+	if strings.Contains(out, "LegacyMLO") {
+		t.Fatalf("rendered output = %q, unexpected LegacyMLO", out)
 	}
 }
 
@@ -1297,7 +1603,7 @@ func TestRenderWifiMLOFiltersScanAndConnection(t *testing.T) {
 		"filtered_results  1",
 		"aa:bb:cc:dd:ee:ff",
 		"  affiliated_links",
-		"    [-] link=2 ap_mac=aa:bb:cc:dd:ee:01",
+		"    [-] type=aff link=2 ap_mac=aa:bb:cc:dd:ee:01",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("rendered output = %q, missing %q", out, want)

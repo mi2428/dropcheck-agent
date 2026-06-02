@@ -19,8 +19,8 @@ func writeShellHelp(w io.Writer) {
   show wifi status
   show wifi diagnostics
   show wifi eht [fresh [timeout <ms>]] [ssid <ssid>|bssid <bssid>]
-  show wifi scan [all|2.4ghz|5ghz|6ghz|60ghz]
-  show wifi scan fresh [timeout <ms>] [all|2.4ghz|5ghz|6ghz|60ghz]
+  show wifi scan [brief [mlo]] [all|2.4ghz|5ghz|6ghz|60ghz]
+  show wifi scan fresh [brief [mlo]] [timeout <ms>] [all|2.4ghz|5ghz|6ghz|60ghz]
   show wifi scan detail [all|2.4ghz|5ghz|6ghz|60ghz] <ssid|bssid>
   show wifi capabilities
   show ip status
@@ -400,8 +400,8 @@ func helpEntriesForArgsInMode(args []string, mode Mode) []HelpEntry {
 		if len(args) == 2 && args[1] == "ip" {
 			return []HelpEntry{{"status", "IP addresses, routes, DNS, and validation state"}}
 		}
-		if len(args) == 3 && args[1] == "wifi" && args[2] == "scan" {
-			return []HelpEntry{{"fresh", "Trigger a fresh scan"}, {"detail", "Show detail for an SSID or BSSID"}, {"all", "All bands"}, {"2.4ghz", "2.4 GHz band"}, {"5ghz", "5 GHz band"}, {"6ghz", "6 GHz band"}, {"60ghz", "60 GHz band"}}
+		if len(args) >= 3 && args[1] == "wifi" && args[2] == "scan" {
+			return showWifiScanHelpEntries(args[3:])
 		}
 		if len(args) == 3 && args[1] == "wifi" && args[2] == "eht" {
 			return []HelpEntry{
@@ -1221,10 +1221,10 @@ func completionCandidatesForArgsInMode(args []string, mode Mode) []string {
 		}
 	case 3:
 		if resolved[0] == "show" && resolved[1] == "wifi" && resolved[2] == "scan" {
-			return []string{"fresh", "detail", "all", "2.4ghz", "5ghz", "6ghz", "60ghz"}
+			return []string{"brief", "fresh", "detail", "all", "2.4ghz", "5ghz", "6ghz", "60ghz"}
 		}
 		if resolved[0] == "show" && resolved[1] == "wifi" && resolved[2] == "eht" {
-			return []string{"fresh", "ssid", "bssid"}
+			return []string{"brief", "fresh", "ssid", "bssid"}
 		}
 		if resolved[0] == "show" && resolved[1] == "adb" && resolved[2] == "cmd" {
 			return []string{"wifi"}
@@ -1647,9 +1647,9 @@ func dnsTypeValues() []string {
 
 func showWifiScanCompletionCandidates(args []string) []string {
 	if len(args) == 0 {
-		return append([]string{"fresh", "detail"}, wifiBandValues()...)
+		return append([]string{"brief", "fresh", "detail"}, wifiBandValues()...)
 	}
-	first, err := resolveShellKeyword("show wifi scan argument", args[0], append([]string{"fresh", "detail"}, wifiBandValues()...))
+	first, err := resolveShellKeyword("show wifi scan argument", args[0], append([]string{"brief", "fresh", "detail", "mlo"}, wifiBandValues()...))
 	if err != nil {
 		return nil
 	}
@@ -1668,8 +1668,56 @@ func showWifiScanCompletionCandidates(args []string) []string {
 			return nil
 		}
 	default:
-		return nil
+		briefUsed := false
+		bandUsed := false
+		mloUsed := false
+		for _, arg := range args {
+			if key, err := resolveShellKeyword("show wifi scan option", arg, []string{"brief", "mlo"}); err == nil {
+				if key == "brief" {
+					briefUsed = true
+				}
+				if key == "mlo" {
+					mloUsed = true
+				}
+				continue
+			}
+			if _, err := resolveShellKeyword("wifi band", arg, wifiBandValues()); err == nil {
+				bandUsed = true
+			}
+		}
+		var candidates []string
+		if !briefUsed {
+			candidates = append(candidates, "brief")
+		}
+		if briefUsed && !mloUsed {
+			candidates = append(candidates, "mlo")
+		}
+		if !bandUsed {
+			candidates = append(candidates, wifiBandValues()...)
+		}
+		return candidates
 	}
+}
+
+func showWifiScanHelpEntries(args []string) []HelpEntry {
+	entries := helpEntriesForCompletionCandidates(showWifiScanCompletionCandidates(args), map[string]string{
+		"brief":        "Hide scan detail sections; add mlo to show only 11be MLO rows with inline affiliated links",
+		"fresh":        "Trigger a fresh scan",
+		"detail":       "Show detail for an SSID or BSSID",
+		"mlo":          "Only with brief: show 11be MLO scan rows and affiliated links inline",
+		"timeout":      "Fresh-scan timeout in milliseconds",
+		"all":          "All bands",
+		"2.4ghz":       "2.4 GHz band",
+		"5ghz":         "5 GHz band",
+		"6ghz":         "6 GHz band",
+		"60ghz":        "60 GHz band",
+		"<ssid|bssid>": "SSID or BSSID target",
+	})
+	terminal := terminalHelpEntriesForArgsInMode(append([]string{"show", "wifi", "scan"}, args...), ModeOperational)
+	if len(entries) == 0 {
+		return terminal
+	}
+	return append(entries, terminal...)
 }
 
 func showWifiEHTCompletionCandidates(args []string) []string {
@@ -1710,8 +1758,18 @@ func showWifiEHTCompletionCandidates(args []string) []string {
 func showWifiScanFreshCompletionCandidates(args []string) []string {
 	timeoutUsed := false
 	bandUsed := false
+	briefUsed := false
+	mloUsed := false
 	for i := 0; i < len(args); i++ {
-		if key, err := resolveShellKeyword("show wifi scan fresh option", args[i], []string{"timeout"}); err == nil {
+		if key, err := resolveShellKeyword("show wifi scan fresh option", args[i], []string{"brief", "mlo", "timeout"}); err == nil {
+			if key == "brief" {
+				briefUsed = true
+				continue
+			}
+			if key == "mlo" {
+				mloUsed = true
+				continue
+			}
 			timeoutUsed = key == "timeout"
 			if i+1 < len(args) {
 				i++
@@ -1723,6 +1781,12 @@ func showWifiScanFreshCompletionCandidates(args []string) []string {
 		}
 	}
 	var candidates []string
+	if !briefUsed {
+		candidates = append(candidates, "brief")
+	}
+	if briefUsed && !mloUsed {
+		candidates = append(candidates, "mlo")
+	}
 	if !timeoutUsed {
 		candidates = append(candidates, "timeout")
 	}

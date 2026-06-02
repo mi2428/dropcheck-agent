@@ -202,18 +202,33 @@ func WifiForgetOperation(target string) Operation {
 //
 // bandValue accepts the same user-facing band tokens as other Wi-Fi builders.
 func WifiScanOperation(bandValue string) (Operation, error) {
+	return WifiScanOperationWithBrief(bandValue, false, false)
+}
+
+// WifiScanOperationWithBrief builds a cached Wi-Fi scan operation with optional
+// compact rendering and MLO-only filtering.
+func WifiScanOperationWithBrief(bandValue string, brief bool, mlo bool) (Operation, error) {
+	if mlo && !brief {
+		return Operation{}, errors.New("mlo is supported only with wifi scan brief")
+	}
 	band, err := parseWifiBand(bandValue)
 	if err != nil {
 		return Operation{}, err
 	}
 	parts := []string{"wifi", "scan"}
+	if brief {
+		parts = append(parts, "brief")
+	}
+	if mlo {
+		parts = append(parts, "mlo")
+	}
 	if bandValue != "" {
 		parts = append(parts, bandValue)
 	}
 	return NewOperation("wifi.scan", &controlpb.RunCommand{
 		Label:   strings.Join(parts, " "),
 		Command: &controlpb.RunCommand_GetWifiScan{GetWifiScan: &controlpb.GetWifiScan{Band: band}},
-	}, Options{}), nil
+	}, Options{WifiScanBrief: brief, WifiScanMLO: mlo}), nil
 }
 
 // WifiFreshScanOperation builds a Wi-Fi scan that actively waits for fresh
@@ -221,6 +236,15 @@ func WifiScanOperation(bandValue string) (Operation, error) {
 //
 // timeoutValue is in milliseconds. Empty band and timeout values use defaults.
 func WifiFreshScanOperation(bandValue string, timeoutValue string) (Operation, error) {
+	return WifiFreshScanOperationWithBrief(bandValue, timeoutValue, false, false)
+}
+
+// WifiFreshScanOperationWithBrief builds a fresh Wi-Fi scan operation with
+// optional compact rendering and MLO-only filtering.
+func WifiFreshScanOperationWithBrief(bandValue string, timeoutValue string, brief bool, mlo bool) (Operation, error) {
+	if mlo && !brief {
+		return Operation{}, errors.New("mlo is supported only with wifi scan brief")
+	}
 	band, err := parseWifiBand(bandValue)
 	if err != nil {
 		return Operation{}, err
@@ -230,6 +254,12 @@ func WifiFreshScanOperation(bandValue string, timeoutValue string) (Operation, e
 		return Operation{}, err
 	}
 	parts := []string{"wifi", "scan", "fresh"}
+	if brief {
+		parts = append(parts, "brief")
+	}
+	if mlo {
+		parts = append(parts, "mlo")
+	}
 	if bandValue != "" {
 		parts = append(parts, bandValue)
 	}
@@ -237,7 +267,7 @@ func WifiFreshScanOperation(bandValue string, timeoutValue string) (Operation, e
 	return NewOperation("wifi.scan.fresh", &controlpb.RunCommand{
 		Label:   strings.Join(parts, " "),
 		Command: &controlpb.RunCommand_GetFreshWifiScan{GetFreshWifiScan: &controlpb.GetFreshWifiScan{Band: band, TimeoutMs: timeoutMs}},
-	}, Options{}), nil
+	}, Options{WifiScanBrief: brief, WifiScanMLO: mlo}), nil
 }
 
 // WifiScanDetailOperation builds an operation that returns detailed scan data

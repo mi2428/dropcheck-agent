@@ -585,7 +585,7 @@ func parseShellShowWifiScan(args []string) (Command, error) {
 		op, err := command.WifiScanOperation("")
 		return agentShellCommand(op), err
 	}
-	first, err := resolveShellKeyword("show wifi scan argument", args[0], append([]string{"fresh", "detail"}, wifiBandValues()...))
+	first, err := resolveShellKeyword("show wifi scan argument", args[0], append([]string{"brief", "fresh", "detail", "mlo"}, wifiBandValues()...))
 	if err != nil {
 		return Command{}, err
 	}
@@ -593,8 +593,24 @@ func parseShellShowWifiScan(args []string) (Command, error) {
 	case "fresh":
 		var band string
 		values := map[string]string{}
+		brief := false
+		mlo := false
 		for i := 1; i < len(args); i++ {
-			if key, err := resolveShellKeyword("show wifi scan fresh option", args[i], []string{"timeout"}); err == nil {
+			if key, err := resolveShellKeyword("show wifi scan fresh option", args[i], []string{"brief", "mlo", "timeout"}); err == nil {
+				if key == "brief" {
+					if brief {
+						return Command{}, fmt.Errorf("brief specified twice")
+					}
+					brief = true
+					continue
+				}
+				if key == "mlo" {
+					if mlo {
+						return Command{}, fmt.Errorf("mlo specified twice")
+					}
+					mlo = true
+					continue
+				}
 				value, next, err := shellValue(args, i, key)
 				if err != nil {
 					return Command{}, err
@@ -614,7 +630,10 @@ func parseShellShowWifiScan(args []string) (Command, error) {
 			}
 			band = value
 		}
-		op, err := command.WifiFreshScanOperation(band, values["timeout"])
+		if mlo && !brief {
+			return Command{}, fmt.Errorf("mlo is supported only with wifi scan brief")
+		}
+		op, err := command.WifiFreshScanOperationWithBrief(band, values["timeout"], brief, mlo)
 		return agentShellCommand(op), err
 	case "detail":
 		if len(args) < 2 || len(args) > 3 {
@@ -637,10 +656,38 @@ func parseShellShowWifiScan(args []string) (Command, error) {
 		op, err := command.WifiScanDetailOperation(target, band)
 		return agentShellCommand(op), err
 	default:
-		if len(args) != 1 {
-			return Command{}, fmt.Errorf("usage: show wifi scan [all|2.4ghz|5ghz|6ghz|60ghz]")
+		var band string
+		brief := false
+		mlo := false
+		for _, arg := range args {
+			if key, err := resolveShellKeyword("show wifi scan option", arg, []string{"brief", "mlo"}); err == nil {
+				switch key {
+				case "brief":
+					if brief {
+						return Command{}, fmt.Errorf("brief specified twice")
+					}
+					brief = true
+				case "mlo":
+					if mlo {
+						return Command{}, fmt.Errorf("mlo specified twice")
+					}
+					mlo = true
+				}
+				continue
+			}
+			value, err := resolveShellKeyword("wifi band", arg, wifiBandValues())
+			if err != nil {
+				return Command{}, fmt.Errorf("usage: show wifi scan [brief [mlo]] [all|2.4ghz|5ghz|6ghz|60ghz]")
+			}
+			if band != "" {
+				return Command{}, fmt.Errorf("wifi scan band specified twice")
+			}
+			band = value
 		}
-		op, err := command.WifiScanOperation(first)
+		if mlo && !brief {
+			return Command{}, fmt.Errorf("mlo is supported only with wifi scan brief")
+		}
+		op, err := command.WifiScanOperationWithBrief(band, brief, mlo)
 		return agentShellCommand(op), err
 	}
 }

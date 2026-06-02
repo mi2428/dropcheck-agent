@@ -145,6 +145,18 @@ func TestParseShellCommands(t *testing.T) {
 			label: "wifi scan fresh 5ghz --timeout 9000",
 		},
 		{
+			name:  "show wifi scan brief",
+			line:  "show wifi scan brief 5ghz",
+			kind:  shellAgentCommand,
+			label: "wifi scan brief 5ghz",
+		},
+		{
+			name:  "show wifi scan brief mlo",
+			line:  "show wifi scan brief mlo 5ghz",
+			kind:  shellAgentCommand,
+			label: "wifi scan brief mlo 5ghz",
+		},
+		{
 			name: "show adb diagnostics full",
 			line: "show adb diagnostics full",
 			kind: shellADBDiagnostics,
@@ -644,6 +656,31 @@ func TestShellHelpAndCompletion(t *testing.T) {
 		t.Fatalf("show wifi eht help tokens = %#v, want fresh/ssid/bssid", tokens)
 	}
 
+	help = shellHelpEntriesForTest("show wifi scan ?")
+	tokens = tokens[:0]
+	for _, entry := range help {
+		tokens = append(tokens, entry.token)
+	}
+	for _, want := range []string{"brief", "fresh", "detail", "all", "2.4ghz", "5ghz", "6ghz", "60ghz", "<cr>"} {
+		if !slices.Contains(tokens, want) {
+			t.Fatalf("show wifi scan help tokens = %#v, missing %q", tokens, want)
+		}
+	}
+	if slices.Contains(tokens, "mlo") {
+		t.Fatalf("show wifi scan help tokens = %#v, unexpectedly included mlo", tokens)
+	}
+
+	help = shellHelpEntriesForTest("show wifi scan brief ?")
+	tokens = tokens[:0]
+	for _, entry := range help {
+		tokens = append(tokens, entry.token)
+	}
+	for _, want := range []string{"mlo", "all", "2.4ghz", "5ghz", "6ghz", "60ghz", "<cr>"} {
+		if !slices.Contains(tokens, want) {
+			t.Fatalf("show wifi scan brief help tokens = %#v, missing %q", tokens, want)
+		}
+	}
+
 	completions := completeShellLineForTest("show wi", nil)
 	if !slices.Contains(completions, "show wifi") {
 		t.Fatalf("completions = %#v, missing show wifi", completions)
@@ -1141,8 +1178,12 @@ func TestShellOptionCompletion(t *testing.T) {
 		want []string
 	}{
 		{
+			line: "show wifi scan ",
+			want: []string{"brief", "fresh", "detail", "all", "2.4ghz", "5ghz", "6ghz", "60ghz"},
+		},
+		{
 			line: "show wifi scan fresh ",
-			want: []string{"all", "2.4ghz", "5ghz", "6ghz", "60ghz", "timeout"},
+			want: []string{"brief", "all", "2.4ghz", "5ghz", "6ghz", "60ghz", "timeout"},
 		},
 		{
 			line: "show wifi eht ",
@@ -1151,6 +1192,14 @@ func TestShellOptionCompletion(t *testing.T) {
 		{
 			line: "show wifi eht fresh ",
 			want: []string{"timeout", "ssid", "bssid"},
+		},
+		{
+			line: "show wifi scan brief ",
+			want: []string{"mlo", "all", "2.4ghz", "5ghz", "6ghz", "60ghz"},
+		},
+		{
+			line: "show wifi scan fresh brief ",
+			want: []string{"mlo", "all", "2.4ghz", "5ghz", "6ghz", "60ghz", "timeout"},
 		},
 		{
 			line: "show wifi scan detail Lab ",
@@ -1487,6 +1536,16 @@ func TestParseLinuxCommands(t *testing.T) {
 			name:  "wifi scan fresh flags",
 			args:  []string{"show", "wifi", "scan", "fresh", "--band", "5ghz", "--timeout", "9000"},
 			label: "wifi scan fresh 5ghz --timeout 9000",
+		},
+		{
+			name:  "wifi scan brief flags",
+			args:  []string{"show", "wifi", "scan", "fresh", "--brief", "--band", "5ghz", "--timeout", "9000"},
+			label: "wifi scan fresh brief 5ghz --timeout 9000",
+		},
+		{
+			name:  "wifi scan brief mlo flags",
+			args:  []string{"show", "wifi", "scan", "fresh", "--brief", "--mlo", "--band", "5ghz", "--timeout", "9000"},
+			label: "wifi scan fresh brief mlo 5ghz --timeout 9000",
 		},
 		{
 			name:  "ip status",

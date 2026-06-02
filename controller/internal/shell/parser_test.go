@@ -148,6 +148,30 @@ func TestParseLineAgentCommandSurface(t *testing.T) {
 			},
 		},
 		{
+			name:      "show wifi brief scan",
+			line:      "show wifi scan brief 5ghz",
+			operation: "wifi.scan",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				scan := cmd.GetGetWifiScan()
+				if scan == nil || scan.GetBand() != controlpb.WifiBand_WIFI_BAND_5_GHZ || cmd.GetLabel() != "wifi scan brief 5ghz" {
+					t.Fatalf("brief scan = %#v", cmd)
+				}
+			},
+		},
+		{
+			name:      "show wifi brief mlo scan",
+			line:      "show wifi scan brief mlo 5ghz",
+			operation: "wifi.scan",
+			check: func(t *testing.T, cmd *controlpb.RunCommand) {
+				t.Helper()
+				scan := cmd.GetGetWifiScan()
+				if scan == nil || scan.GetBand() != controlpb.WifiBand_WIFI_BAND_5_GHZ || cmd.GetLabel() != "wifi scan brief mlo 5ghz" {
+					t.Fatalf("brief mlo scan = %#v", cmd)
+				}
+			},
+		},
+		{
 			name:      "configure standalone",
 			line:      "set standalone enabled",
 			parse:     ParseConfigureLine,
@@ -387,6 +411,16 @@ func TestParseLineRejectsDeadAndInvalidCommandForms(t *testing.T) {
 			name: "removed show wifi mlo command",
 			line: "show wifi mlo",
 			want: "unknown show wifi command",
+		},
+		{
+			name: "removed show wifi eht brief command",
+			line: "show wifi eht brief",
+			want: "usage: show wifi eht [fresh [timeout <ms>]] [ssid <ssid>|bssid <bssid>]",
+		},
+		{
+			name: "show wifi scan mlo requires brief",
+			line: "show wifi scan mlo",
+			want: "mlo is supported only with wifi scan brief",
 		},
 		{
 			name:  "bad monitor duration",

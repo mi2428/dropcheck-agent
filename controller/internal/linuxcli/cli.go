@@ -525,6 +525,8 @@ func parseLinuxWifiEHT(args []string) (command.Operation, error) {
 
 func parseLinuxWifiScan(args []string) (command.Operation, error) {
 	opts, err := parseDashOptions(args, map[string]dashOptionSpec{
+		"brief":   {},
+		"mlo":     {},
 		"band":    {value: true},
 		"timeout": {value: true},
 	})
@@ -536,20 +538,46 @@ func parseLinuxWifiScan(args []string) (command.Operation, error) {
 		if opts.value("timeout") != "" {
 			return command.Operation{}, fmt.Errorf("--timeout is supported only with wifi scan fresh")
 		}
-		return command.WifiScanOperation(opts.value("band"))
+		if opts.flags["mlo"] && !opts.flags["brief"] {
+			return command.Operation{}, fmt.Errorf("mlo is supported only with wifi scan brief")
+		}
+		return command.WifiScanOperationWithBrief(opts.value("band"), opts.flags["brief"], opts.flags["mlo"])
 	}
 	switch pos[0] {
 	case "fresh":
 		band := opts.value("band")
-		if opts.value("band") != "" {
-		} else if len(pos) >= 2 {
-			band = pos[1]
+		brief := opts.flags["brief"]
+		mlo := opts.flags["mlo"]
+		for _, arg := range pos[1:] {
+			switch arg {
+			case "brief":
+				if brief {
+					return command.Operation{}, fmt.Errorf("brief specified twice")
+				}
+				brief = true
+			case "mlo":
+				if mlo {
+					return command.Operation{}, fmt.Errorf("mlo specified twice")
+				}
+				mlo = true
+			default:
+				if band != "" {
+					return command.Operation{}, fmt.Errorf("wifi scan fresh band specified twice")
+				}
+				band = arg
+			}
 		}
-		if len(pos) > 2 {
-			return command.Operation{}, fmt.Errorf("usage: show wifi scan fresh [band] [--timeout ms]")
+		if mlo && !brief {
+			return command.Operation{}, fmt.Errorf("mlo is supported only with wifi scan brief")
 		}
-		return command.WifiFreshScanOperation(band, opts.value("timeout"))
+		return command.WifiFreshScanOperationWithBrief(band, opts.value("timeout"), brief, mlo)
 	case "detail":
+		if opts.flags["brief"] {
+			return command.Operation{}, fmt.Errorf("--brief is not supported with wifi scan detail")
+		}
+		if opts.flags["mlo"] {
+			return command.Operation{}, fmt.Errorf("--mlo is supported only with wifi scan brief")
+		}
 		if opts.value("timeout") != "" {
 			return command.Operation{}, fmt.Errorf("--timeout is supported only with wifi scan fresh")
 		}
@@ -569,13 +597,32 @@ func parseLinuxWifiScan(args []string) (command.Operation, error) {
 		if opts.value("timeout") != "" {
 			return command.Operation{}, fmt.Errorf("--timeout is supported only with wifi scan fresh")
 		}
-		if len(pos) > 1 {
-			return command.Operation{}, fmt.Errorf("usage: show wifi scan [band]")
+		band := opts.value("band")
+		brief := opts.flags["brief"]
+		mlo := opts.flags["mlo"]
+		for _, arg := range pos {
+			switch arg {
+			case "brief":
+				if brief {
+					return command.Operation{}, fmt.Errorf("brief specified twice")
+				}
+				brief = true
+			case "mlo":
+				if mlo {
+					return command.Operation{}, fmt.Errorf("mlo specified twice")
+				}
+				mlo = true
+			default:
+				if band != "" {
+					return command.Operation{}, fmt.Errorf("show wifi scan band specified twice")
+				}
+				band = arg
+			}
 		}
-		if opts.value("band") != "" {
-			return command.Operation{}, fmt.Errorf("show wifi scan band specified twice")
+		if mlo && !brief {
+			return command.Operation{}, fmt.Errorf("mlo is supported only with wifi scan brief")
 		}
-		return command.WifiScanOperation(pos[0])
+		return command.WifiScanOperationWithBrief(band, brief, mlo)
 	}
 }
 
