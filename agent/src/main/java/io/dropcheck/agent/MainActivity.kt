@@ -231,7 +231,7 @@ class MainActivity : Activity() {
             setOnScrollChangeListener { _, _, _, _, _ ->
                 val atBottom = isScrolledToBottom()
                 autoScroll.onScrollChanged(atBottom)
-                if (atBottom && trimDisplayIfNeeded() > 0) {
+                if (atBottom && trimDisplayIfNeeded().removedLines > 0) {
                     requestScrollToBottom()
                 }
             }
@@ -343,18 +343,22 @@ class MainActivity : Activity() {
     }
 
     private fun appendLogLine(line: String, followBottom: Boolean) {
+        val preservedScrollY = if (!followBottom && ::scroll.isInitialized) scroll.scrollY else null
         val displayLine = boundedLine(line)
         val terminalLine = terminalDisplayText(displayLine)
         logView.append(colored(displayLine, terminalLine))
         displayLineLengths.addLast(terminalLine.length)
         displayLogChars += terminalLine.length
-        if (TerminalDisplayPolicy.shouldTrimDisplay(followBottom, ::scroll.isInitialized)) {
-            // Do not trim above the viewport while the user is reading scrollback.
-            trimDisplayIfNeeded()
-        }
+        val trim = trimDisplayIfNeeded()
         if (followBottom) {
             autoScroll.resumeFollowingTail()
             requestScrollToBottom()
+        } else if (preservedScrollY != null && trim.removedHeightPx > 0) {
+            scroll.post {
+                if (!autoScroll.isFollowingTail) {
+                    scroll.scrollTo(0, (preservedScrollY - trim.removedHeightPx).coerceAtLeast(0).coerceAtMost(bottomScrollY()))
+                }
+            }
         }
     }
 
@@ -403,29 +407,41 @@ class MainActivity : Activity() {
         startActivity(intent)
     }
 
-    private fun trimDisplayIfNeeded(): Int {
-        if (
-            displayLineLengths.size <= TerminalDisplayPolicy.MAX_DISPLAY_LINES &&
-            displayLogChars <= TerminalDisplayPolicy.MAX_DISPLAY_CHARS
-        ) return 0
+    private data class TrimResult(
+        val removedLines: Int = 0,
+        val removedHeightPx: Int = 0,
+    )
 
+    private fun trimDisplayIfNeeded(): TrimResult {
+        val trimPlan = TerminalDisplayPolicy.trimPlan(displayLineLengths, displayLogChars)
+        if (trimPlan.linesToRemove == 0 || trimPlan.charsToRemove == 0) return TrimResult()
         val text = mutableDisplayText()
-        var removedLines = 0
-        while (
-            displayLineLengths.isNotEmpty() &&
-            (displayLineLengths.size > TerminalDisplayPolicy.MAX_DISPLAY_LINES ||
-                displayLogChars > TerminalDisplayPolicy.MAX_DISPLAY_CHARS)
-        ) {
-            val charsToRemove = displayLineLengths.removeFirst()
-            removedLines += 1
-            val start = logStartIndex.coerceAtMost(text.length)
-            val end = (start + charsToRemove).coerceAtMost(text.length)
-            if (end > start) {
-                text.delete(start, end)
-            }
-            displayLogChars = (displayLogChars - charsToRemove).coerceAtLeast(0)
+        val start = logStartIndex.coerceAtMost(text.length)
+        val end = (start + trimPlan.charsToRemove).coerceAtMost(text.length)
+        val removedHeightPx = trimmedHeightPx(text, start, end)
+        if (end > start) {
+            text.delete(start, end)
         }
-        return removedLines
+        repeat(trimPlan.linesToRemove) {
+            if (displayLineLengths.isNotEmpty()) {
+                displayLineLengths.removeFirst()
+            }
+        }
+        displayLogChars = (displayLogChars - trimPlan.charsToRemove).coerceAtLeast(0)
+        return TrimResult(
+            removedLines = trimPlan.linesToRemove,
+            removedHeightPx = removedHeightPx,
+        )
+    }
+
+    private fun trimmedHeightPx(text: CharSequence, start: Int, end: Int): Int {
+        val layout = logView.layout ?: return 0
+        if (start >= end || start >= text.length) return 0
+        val safeStart = start.coerceIn(0, text.length - 1)
+        val safeEndOffset = (end - 1).coerceIn(safeStart, text.length - 1)
+        val startLine = layout.getLineForOffset(safeStart)
+        val endLine = layout.getLineForOffset(safeEndOffset)
+        return (layout.getLineBottom(endLine) - layout.getLineTop(startLine)).coerceAtLeast(0)
     }
 
     private fun mutableDisplayText(): SpannableStringBuilder {

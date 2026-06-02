@@ -38,9 +38,17 @@ class TerminalDisplayTextTest {
     }
 
     @Test
-    fun trimDisplayOnlyWhenFollowingTailOrBeforeScrollViewInit() {
-        assertEquals(true, TerminalDisplayPolicy.shouldTrimDisplay(followBottom = true, scrollInitialized = true))
-        assertEquals(true, TerminalDisplayPolicy.shouldTrimDisplay(followBottom = false, scrollInitialized = false))
-        assertEquals(false, TerminalDisplayPolicy.shouldTrimDisplay(followBottom = false, scrollInitialized = true))
+    fun trimPlanRemovesOldestLinesUntilBoundsFit() {
+        val plan = TerminalDisplayPolicy.trimPlan(
+            lineLengths = listOf(
+                TerminalDisplayPolicy.MAX_LINE_CHARS,
+                TerminalDisplayPolicy.MAX_LINE_CHARS,
+                10,
+            ),
+            displayChars = TerminalDisplayPolicy.MAX_DISPLAY_CHARS + TerminalDisplayPolicy.MAX_LINE_CHARS + 10,
+        )
+
+        assertEquals(2, plan.linesToRemove)
+        assertEquals(TerminalDisplayPolicy.MAX_LINE_CHARS * 2, plan.charsToRemove)
     }
 }
