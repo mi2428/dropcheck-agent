@@ -124,6 +124,12 @@ func TestWifiOperationBuildersCarryControllerContract(t *testing.T) {
 	if _, err := WifiEHTOperationWithOptions(WifiEHTOptions{SSID: "Lab", BSSID: "aa:bb:cc:dd:ee:ff"}); err == nil {
 		t.Fatalf("WifiEHTOperationWithOptions(ssid+bssid) error = nil")
 	}
+	if _, err := WifiScanOperationWithBrief("6ghz", false, true); err == nil || !strings.Contains(err.Error(), "wifi scan brief") {
+		t.Fatalf("WifiScanOperationWithBrief(mlo without brief) error = %v", err)
+	}
+	if _, err := WifiFreshScanOperationWithBrief("6ghz", "9000", false, true); err == nil || !strings.Contains(err.Error(), "wifi scan brief") {
+		t.Fatalf("WifiFreshScanOperationWithBrief(mlo without brief) error = %v", err)
+	}
 
 	forget := WifiForgetOperation("Lab")
 	forgetCmd, _, err := BuildRunCommand(forget)
@@ -144,6 +150,64 @@ func TestWifiOperationBuildersCarryControllerContract(t *testing.T) {
 	}
 	if scanCmd.GetGetWifiScan().GetBand() != controlpb.WifiBand_WIFI_BAND_5_GHZ {
 		t.Fatalf("scan band = %v", scanCmd.GetGetWifiScan().GetBand())
+	}
+	scanBrief, err := WifiScanOperationWithBrief("6ghz", true, false)
+	if err != nil {
+		t.Fatalf("WifiScanOperationWithBrief() error = %v", err)
+	}
+	scanBriefCmd, scanBriefOptions, err := BuildRunCommand(scanBrief)
+	if err != nil {
+		t.Fatalf("scan brief command: %v", err)
+	}
+	if scanBriefCmd.GetLabel() != "wifi scan brief 6ghz" ||
+		scanBriefCmd.GetGetWifiScan().GetBand() != controlpb.WifiBand_WIFI_BAND_6_GHZ ||
+		!scanBriefOptions.WifiScanBrief ||
+		scanBriefOptions.WifiScanMLO {
+		t.Fatalf("scan brief command=%#v options=%#v", scanBriefCmd, scanBriefOptions)
+	}
+	scanMLOBrief, err := WifiScanOperationWithBrief("6ghz", true, true)
+	if err != nil {
+		t.Fatalf("WifiScanOperationWithBrief(mlo) error = %v", err)
+	}
+	scanMLOBriefCmd, scanMLOBriefOptions, err := BuildRunCommand(scanMLOBrief)
+	if err != nil {
+		t.Fatalf("scan mlo brief command: %v", err)
+	}
+	if scanMLOBriefCmd.GetLabel() != "wifi scan brief mlo 6ghz" ||
+		scanMLOBriefCmd.GetGetWifiScan().GetBand() != controlpb.WifiBand_WIFI_BAND_6_GHZ ||
+		!scanMLOBriefOptions.WifiScanBrief ||
+		!scanMLOBriefOptions.WifiScanMLO {
+		t.Fatalf("scan mlo brief command=%#v options=%#v", scanMLOBriefCmd, scanMLOBriefOptions)
+	}
+	freshScanBrief, err := WifiFreshScanOperationWithBrief("6ghz", "9000", true, false)
+	if err != nil {
+		t.Fatalf("WifiFreshScanOperationWithBrief() error = %v", err)
+	}
+	freshScanBriefCmd, freshScanBriefOptions, err := BuildRunCommand(freshScanBrief)
+	if err != nil {
+		t.Fatalf("fresh scan brief command: %v", err)
+	}
+	if freshScanBriefCmd.GetLabel() != "wifi scan fresh brief 6ghz --timeout 9000" ||
+		freshScanBriefCmd.GetGetFreshWifiScan().GetBand() != controlpb.WifiBand_WIFI_BAND_6_GHZ ||
+		freshScanBriefCmd.GetGetFreshWifiScan().GetTimeoutMs() != 9000 ||
+		!freshScanBriefOptions.WifiScanBrief ||
+		freshScanBriefOptions.WifiScanMLO {
+		t.Fatalf("fresh scan brief command=%#v options=%#v", freshScanBriefCmd, freshScanBriefOptions)
+	}
+	freshScanMLOBrief, err := WifiFreshScanOperationWithBrief("6ghz", "9000", true, true)
+	if err != nil {
+		t.Fatalf("WifiFreshScanOperationWithBrief(mlo) error = %v", err)
+	}
+	freshScanMLOBriefCmd, freshScanMLOBriefOptions, err := BuildRunCommand(freshScanMLOBrief)
+	if err != nil {
+		t.Fatalf("fresh scan mlo brief command: %v", err)
+	}
+	if freshScanMLOBriefCmd.GetLabel() != "wifi scan fresh brief mlo 6ghz --timeout 9000" ||
+		freshScanMLOBriefCmd.GetGetFreshWifiScan().GetBand() != controlpb.WifiBand_WIFI_BAND_6_GHZ ||
+		freshScanMLOBriefCmd.GetGetFreshWifiScan().GetTimeoutMs() != 9000 ||
+		!freshScanMLOBriefOptions.WifiScanBrief ||
+		!freshScanMLOBriefOptions.WifiScanMLO {
+		t.Fatalf("fresh scan mlo brief command=%#v options=%#v", freshScanMLOBriefCmd, freshScanMLOBriefOptions)
 	}
 
 	detail, err := WifiScanDetailOperation("Lab", "all")

@@ -16,6 +16,10 @@ type Options struct {
 	TracerouteRequiredHops []string
 	// WifiRenderMode selects a controller-only Wi-Fi diagnostics presentation.
 	WifiRenderMode string
+	// WifiScanBrief renders Wi-Fi scan output without verbose detail sections.
+	WifiScanBrief bool
+	// WifiScanMLO restricts Wi-Fi scan brief output to 11be MLO rows and renders affiliated links inline.
+	WifiScanMLO bool
 	// WifiEHTFreshScan requests a fresh Wi-Fi scan before rendering EHT output.
 	WifiEHTFreshScan bool
 	// WifiEHTFreshScanTimeoutMs is the fresh-scan wait timeout in milliseconds.

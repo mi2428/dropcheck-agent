@@ -113,7 +113,7 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 			renderWifiDiagnostics(&b, payload.WifiDiagnostics)
 		}
 	case *controlpb.CommandResult_WifiScan:
-		renderWifiScan(&b, payload.WifiScan)
+		renderWifiScan(&b, payload.WifiScan, options)
 	case *controlpb.CommandResult_WifiCapabilities:
 		renderWifiCapabilities(&b, payload.WifiCapabilities)
 	case *controlpb.CommandResult_WifiOperation:
@@ -123,7 +123,7 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 	case *controlpb.CommandResult_WifiMonitor:
 		renderWifiMonitor(&b, payload.WifiMonitor)
 	case *controlpb.CommandResult_WifiScanDetail:
-		renderWifiScanDetail(&b, payload.WifiScanDetail)
+		renderWifiScanDetail(&b, payload.WifiScanDetail, options)
 	case *controlpb.CommandResult_WifiCycle:
 		renderWifiCycle(&b, payload.WifiCycle)
 	case *controlpb.CommandResult_StandaloneConfig:
@@ -1103,22 +1103,51 @@ func renderWifiDiagnostics(b *strings.Builder, diagnostics *controlpb.WifiDiagno
 		_ = tw.Flush()
 	}
 	if diagnostics.GetScan() != nil {
-		renderWifiScan(b, diagnostics.GetScan())
+		renderWifiScan(b, diagnostics.GetScan(), command.Options{})
 	}
 }
 
-func renderWifiScan(b *strings.Builder, scan *controlpb.WifiScan) {
+func renderWifiScan(b *strings.Builder, scan *controlpb.WifiScan, options command.Options) {
 	if scan == nil {
 		return
 	}
-	writeKVSection(b, "Wi-Fi Scan", wifiScanSummaryRows(scan)...)
+	writeKVSection(b, "Wi-Fi Scan", wifiScanSummaryRows(scan, options)...)
 	writeBlankLine(b)
-	renderScanResults(b, scan.GetResults())
+	renderScanResults(b, scan.GetResults(), options.WifiScanBrief, options.WifiScanMLO)
 	renderErrors(b, scan.GetErrors())
 }
 
-func wifiScanSummaryRows(scan *controlpb.WifiScan) []kvRow {
+func wifiScanSummaryRows(scan *controlpb.WifiScan, options command.Options) []kvRow {
 	fields := diagnosticFieldMap(scan.GetFields())
+	if options.WifiScanMLO {
+		mloResults, affiliatedRows, displayRows := wifiScanMLOSummaryCounts(scan.GetResults())
+		rows := []kvRow{
+			kv("requested_band", fields["requested_band"]),
+			kv("mlo_results", mloResults),
+			kv("affiliated_rows", affiliatedRows),
+			kv("display_rows", displayRows),
+			kv("scan_results", firstNonBlank(fields["scan_result_count"], strconv.Itoa(len(scan.GetResults())))),
+			kv("scan_total", firstNonBlank(fields["scan_result_total_count"], strconv.Itoa(len(scan.GetResults())))),
+			kv("errors", len(scan.GetErrors())),
+		}
+		for _, key := range []string{
+			"wifi_enabled",
+			"wifi_state",
+			"scan_always_available",
+			"scan_throttle_enabled",
+			"fresh_scan_receiver_registered",
+			"fresh_scan_start_scan",
+			"fresh_scan_broadcast_received",
+			"fresh_scan_results_updated",
+			"fresh_scan_wait_completed",
+			"fresh_scan_elapsed_ms",
+		} {
+			if value := fields[key]; value != "" {
+				rows = append(rows, kv(key, value))
+			}
+		}
+		return rows
+	}
 	rows := []kvRow{
 		kv("requested_band", fields["requested_band"]),
 		kv("results", firstNonBlank(fields["scan_result_count"], strconv.Itoa(len(scan.GetResults())))),
@@ -1144,7 +1173,20 @@ func wifiScanSummaryRows(scan *controlpb.WifiScan) []kvRow {
 	return rows
 }
 
-func renderWifiScanDetail(b *strings.Builder, detail *controlpb.WifiScanDetail) {
+func wifiScanMLOSummaryCounts(results []*controlpb.WifiScanResult) (mloResults int, affiliatedRows int, displayRows int) {
+	for _, result := range results {
+		if wifiScanMLOCapableResult(result) {
+			mloResults++
+		}
+	}
+	displayRows = len(scanDisplayRows(results, true))
+	if displayRows > mloResults {
+		affiliatedRows = displayRows - mloResults
+	}
+	return mloResults, affiliatedRows, displayRows
+}
+
+func renderWifiScanDetail(b *strings.Builder, detail *controlpb.WifiScanDetail, options command.Options) {
 	if detail == nil {
 		return
 	}
@@ -1155,7 +1197,7 @@ func renderWifiScanDetail(b *strings.Builder, detail *controlpb.WifiScanDetail) 
 		kv("requested_band", diagnosticFieldMap(detail.GetFields())["requested_band"]),
 	)
 	writeBlankLine(b)
-	renderScanResults(b, detail.GetResults())
+	renderScanResults(b, detail.GetResults(), options.WifiScanBrief, false)
 	renderErrors(b, detail.GetErrors())
 }
 
@@ -1179,8 +1221,9 @@ func firstNonBlank(values ...string) string {
 	return ""
 }
 
-func renderScanResults(b *strings.Builder, results []*controlpb.WifiScanResult) {
-	if len(results) == 0 {
+func renderScanResults(b *strings.Builder, results []*controlpb.WifiScanResult, brief bool, mloOnly bool) {
+	rows := scanDisplayRows(results, mloOnly)
+	if len(rows) == 0 {
 		b.WriteString("  no results\n")
 		return
 	}
@@ -1197,25 +1240,195 @@ func renderScanResults(b *strings.Builder, results []*controlpb.WifiScanResult) 
 		{header: "AP_LINK"},
 		{header: "AFFILIATED"},
 	}
-	rows := make([][]string, 0, len(results))
-	for _, result := range results {
-		rows = append(rows, []string{
-			empty(result.GetSsid(), "<hidden>"),
-			empty(result.GetBssid(), "unknown"),
-			strconv.Itoa(int(result.GetRssiDbm())),
-			empty(result.GetBand(), wifiBandFromFrequency(result.GetFrequencyMhz())),
-			strconv.Itoa(int(result.GetFrequencyMhz())),
-			empty(result.GetWifiStandard(), "-"),
-			empty(strings.Join(result.GetSecurityTypes(), ","), empty(result.GetCapabilities(), "-")),
-			empty(strings.Join(scanConnectionCapabilityFlags(result), ","), "-"),
-			empty(wifiMLOScanMLDMAC(result), "<none>"),
-			scanMLOLinkID(result),
-			strconv.Itoa(len(result.GetAffiliatedMloLinks())),
-		})
-	}
 	writeDisplayTable(b, columns, rows)
+	if brief || mloOnly {
+		return
+	}
 	renderScanMLOLinks(b, results)
 	renderScanSecurityDetails(b, results)
+}
+
+func scanDisplayRows(results []*controlpb.WifiScanResult, mloOnly bool) [][]string {
+	rows := make([][]string, 0, len(results))
+	for _, group := range scanResultGroups(results, mloOnly) {
+		for _, result := range group.results {
+			rows = append(rows, scanResultDisplayRow(result))
+			if !mloOnly {
+				continue
+			}
+			for _, link := range sortedAffiliatedLinks(result.GetAffiliatedMloLinks()) {
+				if scanAffiliatedLinkMatchesResult(result, link) {
+					continue
+				}
+				rows = append(rows, scanAffiliatedLinkDisplayRow(result, link))
+			}
+		}
+	}
+	return rows
+}
+
+type scanResultGroup struct {
+	ssid     string
+	bestRSSI int32
+	results  []*controlpb.WifiScanResult
+}
+
+func scanResultGroups(results []*controlpb.WifiScanResult, mloOnly bool) []scanResultGroup {
+	groupMap := make(map[string]*scanResultGroup)
+	for _, result := range results {
+		if mloOnly && !wifiScanMLOCapableResult(result) {
+			continue
+		}
+		ssid := scanDisplaySSID(result)
+		group := groupMap[ssid]
+		if group == nil {
+			group = &scanResultGroup{ssid: ssid}
+			groupMap[ssid] = group
+		}
+		group.results = append(group.results, result)
+		if len(group.results) == 1 || result.GetRssiDbm() > group.bestRSSI {
+			group.bestRSSI = result.GetRssiDbm()
+		}
+	}
+	groups := make([]scanResultGroup, 0, len(groupMap))
+	for _, group := range groupMap {
+		sort.SliceStable(group.results, func(i, j int) bool {
+			return lessScanResult(group.results[i], group.results[j])
+		})
+		groups = append(groups, *group)
+	}
+	sort.SliceStable(groups, func(i, j int) bool {
+		if groups[i].bestRSSI != groups[j].bestRSSI {
+			return groups[i].bestRSSI > groups[j].bestRSSI
+		}
+		leftSSID := strings.ToLower(groups[i].ssid)
+		rightSSID := strings.ToLower(groups[j].ssid)
+		if leftSSID != rightSSID {
+			return leftSSID < rightSSID
+		}
+		return groups[i].ssid < groups[j].ssid
+	})
+	return groups
+}
+
+func lessScanResult(left *controlpb.WifiScanResult, right *controlpb.WifiScanResult) bool {
+	if left.GetRssiDbm() != right.GetRssiDbm() {
+		return left.GetRssiDbm() > right.GetRssiDbm()
+	}
+	leftBSSID := strings.ToLower(empty(left.GetBssid(), "unknown"))
+	rightBSSID := strings.ToLower(empty(right.GetBssid(), "unknown"))
+	if leftBSSID != rightBSSID {
+		return leftBSSID < rightBSSID
+	}
+	if left.GetFrequencyMhz() != right.GetFrequencyMhz() {
+		return left.GetFrequencyMhz() < right.GetFrequencyMhz()
+	}
+	return strings.ToLower(empty(left.GetBand(), wifiBandFromFrequency(left.GetFrequencyMhz()))) <
+		strings.ToLower(empty(right.GetBand(), wifiBandFromFrequency(right.GetFrequencyMhz())))
+}
+
+func scanDisplaySSID(result *controlpb.WifiScanResult) string {
+	return empty(result.GetSsid(), "<hidden>")
+}
+
+func sortedAffiliatedLinks(links []*controlpb.MloLinkInfo) []*controlpb.MloLinkInfo {
+	sorted := append([]*controlpb.MloLinkInfo(nil), links...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		if sorted[i].GetRssiDbm() != sorted[j].GetRssiDbm() {
+			return sorted[i].GetRssiDbm() > sorted[j].GetRssiDbm()
+		}
+		leftMAC := strings.ToLower(empty(sorted[i].GetApMacAddress(), "unknown"))
+		rightMAC := strings.ToLower(empty(sorted[j].GetApMacAddress(), "unknown"))
+		if leftMAC != rightMAC {
+			return leftMAC < rightMAC
+		}
+		return sorted[i].GetLinkId() < sorted[j].GetLinkId()
+	})
+	return sorted
+}
+
+func scanResultDisplayRow(result *controlpb.WifiScanResult) []string {
+	return []string{
+		empty(result.GetSsid(), "<hidden>"),
+		empty(result.GetBssid(), "unknown"),
+		strconv.Itoa(int(result.GetRssiDbm())),
+		empty(result.GetBand(), wifiBandFromFrequency(result.GetFrequencyMhz())),
+		strconv.Itoa(int(result.GetFrequencyMhz())),
+		empty(result.GetWifiStandard(), "-"),
+		empty(strings.Join(result.GetSecurityTypes(), ","), empty(result.GetCapabilities(), "-")),
+		empty(strings.Join(scanConnectionCapabilityFlags(result), ","), "-"),
+		empty(wifiMLOScanMLDMAC(result), "<none>"),
+		scanMLOLinkID(result),
+		strconv.Itoa(len(result.GetAffiliatedMloLinks())),
+	}
+}
+
+func scanAffiliatedLinkDisplayRow(result *controlpb.WifiScanResult, link *controlpb.MloLinkInfo) []string {
+	flags := []string{"affiliated_link"}
+	if state := strings.TrimSpace(link.GetState()); state != "" {
+		flags = append(flags, state)
+	}
+	return []string{
+		empty(result.GetSsid(), "<hidden>"),
+		empty(link.GetApMacAddress(), "unknown"),
+		"-",
+		empty(link.GetBand(), "unknown"),
+		"-",
+		empty(result.GetWifiStandard(), "-"),
+		"-",
+		strings.Join(flags, ","),
+		empty(wifiMLOScanMLDMAC(result), "<none>"),
+		mloLinkID(link.GetLinkId()),
+		"link",
+	}
+}
+
+func scanAffiliatedLinkMatchesResult(result *controlpb.WifiScanResult, link *controlpb.MloLinkInfo) bool {
+	return bssidEqual(link.GetApMacAddress(), result.GetBssid()) && link.GetLinkId() == result.GetApMloLinkId()
+}
+
+func wifiScanMLOCapableResult(result *controlpb.WifiScanResult) bool {
+	return result != nil &&
+		wifiMLOScanHasMetadata(result) &&
+		wifiScanMLOAllowedStandard(result.GetWifiStandard())
+}
+
+func wifiScanMLOAllowedStandard(value string) bool {
+	switch wifiScanNormalizedStandard(value) {
+	case "", "unknown", "be":
+		return true
+	default:
+		return false
+	}
+}
+
+func wifiScanNormalizedStandard(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "", "<unknown>", "-", "?":
+		return ""
+	case "unknown":
+		return "unknown"
+	}
+	normalized = strings.TrimPrefix(normalized, "wifi_standard_")
+	normalized = strings.TrimPrefix(normalized, "standard_")
+	normalized = strings.TrimPrefix(normalized, "ieee80211")
+	normalized = strings.TrimPrefix(normalized, "ieee802.11")
+	normalized = strings.TrimPrefix(normalized, "802.11")
+	normalized = strings.TrimPrefix(normalized, "11")
+	normalized = strings.TrimPrefix(normalized, "wifi ")
+	normalized = strings.TrimPrefix(normalized, "wi-fi ")
+	normalized = strings.ReplaceAll(normalized, " ", "")
+	switch normalized {
+	case "", "<unknown>", "-", "?":
+		return ""
+	case "unknown":
+		return "unknown"
+	case "7", "eht":
+		return "be"
+	default:
+		return normalized
+	}
 }
 
 func scanConnectionCapabilityFlags(result *controlpb.WifiScanResult) []string {

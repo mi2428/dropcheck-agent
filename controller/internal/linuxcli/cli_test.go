@@ -187,6 +187,52 @@ func TestParseAgentCommandSurface(t *testing.T) {
 			},
 		},
 		{
+			name: "fresh wifi scan brief",
+			args: []string{"show", "wifi", "scan", "fresh", "brief", "5ghz", "--timeout", "8000"},
+			check: func(t *testing.T, run *controlpb.RunCommand) {
+				t.Helper()
+				scan := run.GetGetFreshWifiScan()
+				if scan == nil {
+					t.Fatalf("command = %T, want GetFreshWifiScan", run.GetCommand())
+				}
+				if run.GetLabel() != "wifi scan fresh brief 5ghz --timeout 8000" {
+					t.Fatalf("label = %q, want wifi scan fresh brief 5ghz --timeout 8000", run.GetLabel())
+				}
+				if scan.GetBand() != controlpb.WifiBand_WIFI_BAND_5_GHZ || scan.GetTimeoutMs() != 8000 {
+					t.Fatalf("fresh scan brief = %#v", scan)
+				}
+			},
+			checkOptions: func(t *testing.T, options cmdop.Options) {
+				t.Helper()
+				if !options.WifiScanBrief || options.WifiScanMLO {
+					t.Fatalf("wifi scan brief options = %#v", options)
+				}
+			},
+		},
+		{
+			name: "fresh wifi scan brief mlo",
+			args: []string{"show", "wifi", "scan", "fresh", "brief", "mlo", "5ghz", "--timeout", "8000"},
+			check: func(t *testing.T, run *controlpb.RunCommand) {
+				t.Helper()
+				scan := run.GetGetFreshWifiScan()
+				if scan == nil {
+					t.Fatalf("command = %T, want GetFreshWifiScan", run.GetCommand())
+				}
+				if run.GetLabel() != "wifi scan fresh brief mlo 5ghz --timeout 8000" {
+					t.Fatalf("label = %q, want wifi scan fresh brief mlo 5ghz --timeout 8000", run.GetLabel())
+				}
+				if scan.GetBand() != controlpb.WifiBand_WIFI_BAND_5_GHZ || scan.GetTimeoutMs() != 8000 {
+					t.Fatalf("fresh scan brief mlo = %#v", scan)
+				}
+			},
+			checkOptions: func(t *testing.T, options cmdop.Options) {
+				t.Helper()
+				if !options.WifiScanBrief || !options.WifiScanMLO {
+					t.Fatalf("wifi scan brief mlo options = %#v", options)
+				}
+			},
+		},
+		{
 			name: "standalone runs",
 			args: []string{"show", "standalone", "runs", "--limit", "5", "--synced"},
 			check: func(t *testing.T, run *controlpb.RunCommand) {
@@ -546,7 +592,9 @@ func TestParseRejectsInvalidCLICommands(t *testing.T) {
 	tests := [][]string{
 		{"show", "ip"},
 		{"show", "wifi", "mlo"},
+		{"show", "wifi", "eht", "brief"},
 		{"show", "wifi", "scan", "--timeout", "8000"},
+		{"show", "wifi", "scan", "mlo"},
 		{"request", "wifi", "connect", "Lab"},
 		{"request", "dns", "example.com", "--type", "A", "--type", "AAAA"},
 		{"sync", "standalone", "runs", "--mark-synced", "--keep-unsynced"},
