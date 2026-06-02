@@ -212,16 +212,16 @@ func TestCheckStatusShowsCurrentRoundPendingBeforeHistory(t *testing.T) {
 
 	m.apply(watch.Event{Kind: watch.EventRoundStarted, Round: 2, Status: "running"})
 	checkStatus := stripANSI(m.checkStatusView(72, 4))
-	if !strings.Contains(checkStatus, "WAIT") || strings.Contains(checkStatus, "PASS") {
-		t.Fatalf("new round should show pending current-round check instead of stale history:\n%s", checkStatus)
+	if !strings.Contains(checkStatus, "PASS") || strings.Contains(checkStatus, "WAIT") {
+		t.Fatalf("new round should keep the stale passing result until the next connect update arrives:\n%s", checkStatus)
 	}
 	cell := m.checkStatusTargetCell("connect", target, []watch.AgentSnapshot{{}})
-	if cell.Status != "pending" || cell.Stale {
-		t.Fatalf("new round checkStatus cell = %#v, want current pending", cell)
+	if cell.Status != "ok" || !cell.Stale {
+		t.Fatalf("new round checkStatus cell = %#v, want stale passing result", cell)
 	}
 }
 
-func TestCheckStatusFutureTargetsDoNotShowHistoricalPassDuringRound(t *testing.T) {
+func TestCheckStatusFutureTargetsKeepHistoricalPassDuringRound(t *testing.T) {
 	events := make(chan watch.Event)
 	targets := []watch.Target{
 		{Name: "cs21(5G)", ShortName: "C21_5", SSID: "Lab"},
@@ -248,12 +248,12 @@ func TestCheckStatusFutureTargetsDoNotShowHistoricalPassDuringRound(t *testing.T
 	})
 
 	cell := m.checkStatusTargetCell("connect", future, []watch.AgentSnapshot{{}})
-	if cell.Status != "pending" || cell.Stale {
-		t.Fatalf("future current-round target should stay pending instead of showing stale pass: %#v", cell)
+	if cell.Status != "ok" || !cell.Stale {
+		t.Fatalf("future current-round target should keep showing stale pass until a fresh result arrives: %#v", cell)
 	}
 	checkStatus := stripANSI(m.checkStatusView(72, 3))
-	if strings.Contains(checkStatus, "PASS") {
-		t.Fatalf("future current-round target should not render historical PASS:\n%s", checkStatus)
+	if !strings.Contains(checkStatus, "PASS") {
+		t.Fatalf("future current-round target should render historical PASS:\n%s", checkStatus)
 	}
 }
 
@@ -950,11 +950,11 @@ func TestCheckStatusShowsPendingInsteadOfPreviousFailureOnNextRound(t *testing.T
 
 	m.apply(watch.Event{Kind: watch.EventRoundStarted, Round: 2, Status: "running"})
 	checkStatus := stripANSI(m.checkStatusView(72, 4))
-	if !strings.Contains(checkStatus, "WAIT") || strings.Contains(checkStatus, "FAIL") {
-		t.Fatalf("new round should show pending current-round check instead of stale failure:\n%s", checkStatus)
+	if !strings.Contains(checkStatus, "FAIL") || strings.Contains(checkStatus, "WAIT") {
+		t.Fatalf("new round should keep the stale failed result until the next ping update arrives:\n%s", checkStatus)
 	}
 	cell := m.checkStatusTargetCell("ping cloudflare", target, []watch.AgentSnapshot{{}})
-	if cell.Status != "pending" || cell.Stale {
-		t.Fatalf("new round checkStatus cell = %#v, want current pending", cell)
+	if cell.Status != "failed" || !cell.Stale {
+		t.Fatalf("new round checkStatus cell = %#v, want stale failed result", cell)
 	}
 }

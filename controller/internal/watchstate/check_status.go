@@ -257,7 +257,7 @@ func (s State) CheckStatusTargetCell(check string, target watch.TargetSnapshot, 
 }
 
 // CheckStatusAgentResult returns the current round state for configured targets
-// and uses stale history only when no current target state exists.
+// and falls back to stale history until the current round emits this check.
 func (s State) CheckStatusAgentResult(agent watch.AgentSnapshot, target watch.TargetSnapshot, check string) CheckStatusAgentResult {
 	if status, ok := s.CurrentCheckStatus(agent, target, check); ok {
 		return CheckStatusAgentResult{Status: status}
@@ -304,6 +304,10 @@ func (s State) HistoricalCheckStatus(agent watch.AgentSnapshot, target watch.Tar
 }
 
 // CurrentCheckStatus returns status from the current round target/step state.
+//
+// Returning "not found" when the target exists but has not emitted this step in
+// the current round lets the dashboard retain the most recent completed result
+// until fresh data for that check arrives.
 func (s State) CurrentCheckStatus(agent watch.AgentSnapshot, target watch.TargetSnapshot, check string) (string, bool) {
 	for _, state := range s.Targets {
 		if !SameAgent(state.Agent, agent) || CheckStatusTargetKey(state.Target) != CheckStatusTargetKey(target) {
@@ -319,7 +323,7 @@ func (s State) CurrentCheckStatus(agent watch.AgentSnapshot, target watch.Target
 			}
 			return status, true
 		}
-		return "pending", true
+		return "", false
 	}
 	return "", false
 }

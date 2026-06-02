@@ -7,7 +7,7 @@ import (
 	"dropcheck/controller/internal/watch"
 )
 
-func TestCheckStatusTargetCellUsesPendingCurrentStateBeforeHistory(t *testing.T) {
+func TestCheckStatusTargetCellKeepsHistoricalResultUntilCurrentStepArrives(t *testing.T) {
 	now := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	agentA := watch.AgentSnapshot{Name: "agent-a"}
 	agentB := watch.AgentSnapshot{Name: "agent-b"}
@@ -37,8 +37,8 @@ func TestCheckStatusTargetCellUsesPendingCurrentStateBeforeHistory(t *testing.T)
 	}
 
 	cell := state.CheckStatusTargetCell("ping", target, []watch.AgentSnapshot{agentA, agentB})
-	if cell.Status != "pending" || cell.Count != 0 || cell.Failed != 0 || cell.Total != 2 || cell.Stale {
-		t.Fatalf("current pending aggregate = %#v, want pending result across two agents", cell)
+	if cell.Status != "failed" || cell.Count != 1 || cell.Failed != 1 || cell.Total != 2 || !cell.Stale {
+		t.Fatalf("stale aggregate = %#v, want historical failed result across two agents", cell)
 	}
 }
 

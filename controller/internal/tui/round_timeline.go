@@ -79,19 +79,12 @@ func (m model) roundTimelineRoundRange(visibleRounds int) (uint64, uint64) {
 	if endRound == 0 {
 		return 0, 0
 	}
-	if m.roundTimelineCurrentRoundOnly() {
-		return m.Round, m.Round
-	}
 	visibleRounds = max(1, visibleRounds)
 	startRound := uint64(1)
 	if endRound > uint64(visibleRounds) {
 		startRound = endRound - uint64(visibleRounds) + 1
 	}
 	return startRound, endRound
-}
-
-func (m model) roundTimelineCurrentRoundOnly() bool {
-	return m.Round > 0 && normalizeStatus(m.RoundStatus) == "running"
 }
 
 func (m model) roundTimelineVisibleRounds(width int) int {
@@ -237,9 +230,6 @@ func (m model) roundTimelineTargetTile(target watch.TargetSnapshot, width int, l
 func (m model) roundTimelinePlotWidth(maxWidth int) int {
 	if maxWidth <= 0 {
 		return 0
-	}
-	if m.roundTimelineCurrentRoundOnly() {
-		return 1
 	}
 	latest := int(m.latestRound())
 	if latest <= 0 {
