@@ -8,6 +8,10 @@ internal object TerminalDisplayPolicy {
     const val MAX_LINE_CHARS = 8_000
     const val AUTO_SCROLL_SLOP_DP = 2
 
+    fun shouldTrimDisplay(followBottom: Boolean, scrollInitialized: Boolean): Boolean {
+        return followBottom || !scrollInitialized
+    }
+
     fun boundedLine(line: String, appendNewline: Boolean): String {
         val displayLine = if (appendNewline) {
             if (line.endsWith("\n")) line else "$line\n"

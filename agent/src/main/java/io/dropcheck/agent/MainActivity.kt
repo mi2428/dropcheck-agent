@@ -343,22 +343,18 @@ class MainActivity : Activity() {
     }
 
     private fun appendLogLine(line: String, followBottom: Boolean) {
-        val preservedScrollY = if (!followBottom && ::scroll.isInitialized) scroll.scrollY else null
         val displayLine = boundedLine(line)
         val terminalLine = terminalDisplayText(displayLine)
         logView.append(colored(displayLine, terminalLine))
         displayLineLengths.addLast(terminalLine.length)
         displayLogChars += terminalLine.length
-        trimDisplayIfNeeded()
+        if (TerminalDisplayPolicy.shouldTrimDisplay(followBottom, ::scroll.isInitialized)) {
+            // Do not trim above the viewport while the user is reading scrollback.
+            trimDisplayIfNeeded()
+        }
         if (followBottom) {
             autoScroll.resumeFollowingTail()
             requestScrollToBottom()
-        } else if (preservedScrollY != null) {
-            scroll.post {
-                if (!autoScroll.isFollowingTail) {
-                    scroll.scrollTo(0, preservedScrollY.coerceAtMost(bottomScrollY()))
-                }
-            }
         }
     }
 

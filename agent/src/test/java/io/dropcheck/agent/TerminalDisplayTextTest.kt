@@ -36,4 +36,11 @@ class TerminalDisplayTextTest {
         assertEquals(4, TerminalDisplayPolicy.displayLength("ab"))
         assertEquals(3, TerminalDisplayPolicy.displayLength("a\n"))
     }
+
+    @Test
+    fun trimDisplayOnlyWhenFollowingTailOrBeforeScrollViewInit() {
+        assertEquals(true, TerminalDisplayPolicy.shouldTrimDisplay(followBottom = true, scrollInitialized = true))
+        assertEquals(true, TerminalDisplayPolicy.shouldTrimDisplay(followBottom = false, scrollInitialized = false))
+        assertEquals(false, TerminalDisplayPolicy.shouldTrimDisplay(followBottom = false, scrollInitialized = true))
+    }
 }
