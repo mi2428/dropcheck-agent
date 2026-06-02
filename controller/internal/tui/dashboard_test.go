@@ -199,7 +199,7 @@ func TestRoundTimelineConnectFailureXRequiresAllAgents(t *testing.T) {
 	}
 }
 
-func TestRoundTimelineRunningRoundIgnoresPreviousRoundFutureTargets(t *testing.T) {
+func TestRoundTimelineRunningRoundKeepsPreviousRoundHistory(t *testing.T) {
 	events := make(chan watch.Event)
 	targets := []watch.Target{
 		{Name: "cs12(5G)", ShortName: "C12_5", SSID: "Lab"},
@@ -234,20 +234,20 @@ func TestRoundTimelineRunningRoundIgnoresPreviousRoundFutureTargets(t *testing.T
 	}
 	futureBuckets, _, _ := m.targetRoundHistory(future, 1)
 	if futureBuckets[0].Seen {
-		t.Fatalf("future target should not mark previous-round pass while current round is running: %#v", futureBuckets[0])
+		t.Fatalf("one-column history should still show only the latest round bucket: %#v", futureBuckets[0])
 	}
 	timeline := stripANSI(m.roundTimelineView(96, 3))
-	for _, want := range []string{"span=2..2", "ok=1"} {
+	for _, want := range []string{"span=1..2", "ok=2"} {
 		if !strings.Contains(timeline, want) {
-			t.Fatalf("running round timeline should be scoped to current round, missing %q:\n%s", want, timeline)
+			t.Fatalf("running round timeline should keep previous-round history, missing %q:\n%s", want, timeline)
 		}
 	}
-	if strings.Contains(timeline, "ok=2") {
-		t.Fatalf("running round timeline should not count previous-round outcomes:\n%s", timeline)
+	if strings.Contains(timeline, "span=2..2") {
+		t.Fatalf("running round timeline should not collapse to the current round only:\n%s", timeline)
 	}
 }
 
-func TestRunningRoundDashboardDoesNotProjectPreviousPassesIntoFutureGroups(t *testing.T) {
+func TestRunningRoundDashboardKeepsPreviousPassesVisible(t *testing.T) {
 	events := make(chan watch.Event)
 	agents := []watch.AgentSnapshot{
 		{ID: "pixel-7a", Name: "Pixel 7a"},
@@ -319,16 +319,16 @@ func TestRunningRoundDashboardDoesNotProjectPreviousPassesIntoFutureGroups(t *te
 	for _, target := range futureTargets {
 		buckets, _, _ := m.targetRoundHistory(target, 1)
 		if buckets[0].Seen {
-			t.Fatalf("future target should not project previous-round pass into current round: target=%s bucket=%#v", target.Name, buckets[0])
+			t.Fatalf("one-column history should still show only the latest round bucket: target=%s bucket=%#v", target.Name, buckets[0])
 		}
 		cell := m.checkStatusTargetCell("connect", target, []watch.AgentSnapshot{agents[0], agents[1]})
-		if cell.Status != "pending" || cell.Stale {
-			t.Fatalf("future target check status should stay current-round pending: target=%s cell=%#v", target.Name, cell)
+		if cell.Status != "ok" || !cell.Stale {
+			t.Fatalf("future target check status should keep stale historical pass: target=%s cell=%#v", target.Name, cell)
 		}
 	}
 	timeline := stripANSI(m.roundTimelineView(160, 4))
-	if !strings.Contains(timeline, "span=2..2") || !strings.Contains(timeline, "ok=0") {
-		t.Fatalf("running timeline should be scoped to unfinished current round only:\n%s", timeline)
+	if !strings.Contains(timeline, "span=1..2") || !strings.Contains(timeline, "ok=6") {
+		t.Fatalf("running timeline should keep previous-round pass history:\n%s", timeline)
 	}
 }
 
