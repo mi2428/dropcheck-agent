@@ -855,6 +855,7 @@ class MainActivity : Activity() {
         )
 
         val context = AgentWifiMloContext(
+            brief = command.brief,
             scanSource = if (command.fresh) "fresh" else "cached",
             sdkInt = Build.VERSION.SDK_INT,
             wifi7Supported = wifi7StandardSupported(),
@@ -1020,6 +1021,7 @@ class MainActivity : Activity() {
                 "  show use",
                 "  show version",
                 "  show wifi eht",
+                "  show wifi eht brief",
                 "  show wifi eht ssid SSID",
                 "  show wifi eht bssid BSSID",
                 "  show wifi eht fresh [timeout MS]",
@@ -1048,6 +1050,7 @@ class MainActivity : Activity() {
                 "    show version displays the app version embedded at build time.",
                 "    show wifi status displays local Wi-Fi and IP state.",
                 "    show wifi eht displays connected and nearby EHT state.",
+                "    show wifi eht brief displays a compact nearby EHT MLD tree.",
                 "    show wifi eht ssid/bssid filters scan and current EHT output.",
                 "    show wifi eht fresh requests a scan before rendering EHT state.",
             )

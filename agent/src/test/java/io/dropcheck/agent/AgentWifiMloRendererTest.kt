@@ -73,12 +73,12 @@ class AgentWifiMloRendererTest {
             "02:00:00:00:00:01",
             "EHT Scan Links",
             "[*] Lab",
-            "ap_mld=02:00:00:00:00:01 link=2 bssid=aa:bb:cc:dd:ee:ff",
+            "type=ap ap_mld=02:00:00:00:00:01 link=2 bssid=aa:bb:cc:dd:ee:ff",
             "band=6ghz ch=5 freq=5975MHz width=80MHz eht_width=320MHz puncture=1,3 rssi=-45dBm",
             "ie rsn=false rsnxe=false ext_cap=true rnr=true mbssid=true noninherit=false eht_mle=true ap_mld=true link_id=true",
             "sdk_flags twt=true 11az_ntb=true ranging_prot=true secure_he_ltf=true 11mc=true",
             "  affiliated_links",
-            "    [+] link=1 ap_mac=02:00:00:00:00:01",
+            "    [+] type=aff link=1 ap_mac=02:00:00:00:00:01",
             "Connected Roaming / Transition",
             "summary 11k=true 11v_bss_transition=true 11r=true ft_akm=<none> rnr=true",
             "Scan Roaming / Transition",
@@ -136,6 +136,52 @@ class AgentWifiMloRendererTest {
         assertFalse(out.contains("Legacy"))
         assertFalse(out.contains("scan Lab"))
         assertFalse(out.contains("connected_ap_mld_not_seen_in_scan"))
+    }
+
+    @Test
+    fun rendersBriefNearbyTables() {
+        val longSsid = "Lab-SSID-That-Should-Not-Truncate"
+        val status = WifiStatus.newBuilder()
+            .setEnabled(true)
+            .setState("enabled")
+            .setConnection(mloConnection())
+            .build()
+        val scan = WifiScan.newBuilder()
+            .addFields(field("scan_result_count", "2"))
+            .addFields(field("scan_result_total_count", "2"))
+            .addResults(mloScanResult(longSsid, "aa:bb:cc:dd:ee:ff", -45, "02:00:00:00:00:01", 2))
+            .addResults(mloScanResult(longSsid, "aa:bb:cc:dd:ee:01", -55, "02:00:00:00:00:01", 1))
+            .build()
+
+        val lines = AgentWifiMloRenderer.render(
+            status,
+            scan,
+            AgentWifiMloContext(brief = true, scanSource = "fresh"),
+        )
+        val out = lines.joinToString("\n")
+
+        assertTrue(out.contains("EHT Scan"))
+        assertTrue(out.contains("Nearby EHT MLDs"))
+        assertFalse(out.contains("Nearby EHT Links"))
+        assertFalse(out.contains("Nearby EHT APs / Links"))
+        assertTrue("missing full SSID in brief table:\n$out", out.contains(longSsid))
+        val tableHeaderIndex = lines.indexOf("Nearby EHT MLDs")
+        assertTrue("missing Nearby EHT MLDs header:\n$out", tableHeaderIndex >= 0 && tableHeaderIndex + 1 < lines.size)
+        assertTrue(
+            "missing MLD tree header:\n$out",
+            lines[tableHeaderIndex + 1].contains("ITEM") &&
+                lines[tableHeaderIndex + 1].contains("MLD") &&
+                lines[tableHeaderIndex + 1].contains("EHT"),
+        )
+        val tableRows = lines.drop(tableHeaderIndex + 2).takeWhile { it.isNotBlank() }
+        assertTrue("missing parent MLD row:\n$out", tableRows.any { it.contains(longSsid) && it.contains("02:00:00:00:00:01") })
+        assertTrue("missing current link row:\n$out", tableRows.any { it.contains("[*] 2") })
+        assertTrue("missing peer link row:\n$out", tableRows.any { it.contains("[+] 1") })
+        assertTrue("unexpected link row count:\n$out", tableRows.count { it.contains("[*]") || it.contains("[+]") || it.contains("[-]") } == 2)
+        assertFalse(out.contains("Current AP Relation"))
+        assertFalse(out.contains("Connected MLO"))
+        assertFalse(out.contains("EHT Scan Links"))
+        assertFalse(out.contains("Diagnostics / Warnings"))
     }
 
     @Test
@@ -231,7 +277,7 @@ class AgentWifiMloRendererTest {
 
         assertTrue("rendered output missing bssid filter:\n$bssidOut", bssidOut.contains("filter            bssid=aa:bb:cc:dd:ee:ff"))
         assertTrue("rendered output missing affiliated links heading:\n$bssidOut", bssidOut.contains("  affiliated_links"))
-        assertTrue("rendered output missing affiliated match:\n$bssidOut", bssidOut.contains("    [-] link=1 ap_mac=02:00:00:00:00:01"))
+        assertTrue("rendered output missing affiliated match:\n$bssidOut", bssidOut.contains("    [-] type=aff link=1 ap_mac=02:00:00:00:00:01"))
         assertFalse(bssidOut.contains("Other"))
     }
 
