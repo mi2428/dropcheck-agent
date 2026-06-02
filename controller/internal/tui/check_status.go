@@ -85,10 +85,13 @@ func checkStatusTableLayout(width int, checks []string, targets []watch.TargetSn
 	labelWidth := clamp(maxCheckStatusLabelWidth(checks), 5, min(27, max(5, width*3/8)))
 	available := max(1, width-labelWidth-1)
 	fullMinCellWidth := 9
+	fullMaxCellWidth := 12
 	fullVisible := checkStatusVisibleTargetCount(available, len(targets), fullMinCellWidth)
-	shortMode := fullVisible < len(targets) && allCheckStatusTargetsHaveShortName(targets)
+	fullCellWidth := clamp((available-max(0, fullVisible-1))/fullVisible, fullMinCellWidth, fullMaxCellWidth)
+	shortMode := allCheckStatusTargetsHaveShortName(targets) &&
+		(fullVisible < len(targets) || checkStatusTargetLabelsNeedCompaction(targets, fullCellWidth))
 	minCellWidth := fullMinCellWidth
-	maxCellWidth := 12
+	maxCellWidth := fullMaxCellWidth
 	if shortMode {
 		minCellWidth = maxCheckStatusShortCellWidth(targets, agents)
 		maxCellWidth = max(minCellWidth, 10)
@@ -128,6 +131,18 @@ func allCheckStatusTargetsHaveShortName(targets []watch.TargetSnapshot) bool {
 		}
 	}
 	return true
+}
+
+func checkStatusTargetLabelsNeedCompaction(targets []watch.TargetSnapshot, width int) bool {
+	if width <= 0 {
+		return false
+	}
+	for _, target := range targets {
+		if lipgloss.Width(checkStatusTargetLabel(target)) > width {
+			return true
+		}
+	}
+	return false
 }
 
 func (m model) checkStatusVisibleTargets(targets []watch.TargetSnapshot, layout checkStatusLayout) []watch.TargetSnapshot {

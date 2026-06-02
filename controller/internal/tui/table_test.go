@@ -147,6 +147,32 @@ func TestCheckStatusCheckColumnCanGrowByHalf(t *testing.T) {
 	}
 }
 
+func TestCheckStatusPrefersShortNamesWhenFullLabelsWouldCompact(t *testing.T) {
+	checks := []string{"Connect"}
+	targets := []watch.TargetSnapshot{
+		{Name: "cs10-legacy", ShortName: "C10L"},
+		{Name: "cs11-legacy", ShortName: "C11L"},
+		{Name: "cs12-legacy", ShortName: "C12L"},
+		{Name: "cs13-legacy", ShortName: "C13L"},
+		{Name: "cs14-legacy", ShortName: "C14L"},
+		{Name: "cs15-legacy", ShortName: "C15L"},
+		{Name: "cs16-legacy", ShortName: "C16L"},
+		{Name: "cs17-legacy", ShortName: "C17L"},
+		{Name: "cs18-legacy", ShortName: "C18L"},
+		{Name: "cs19-legacy", ShortName: "C19L"},
+	}
+
+	layout := checkStatusTableLayout(125, checks, targets, nil)
+	if !layout.ShortMode {
+		t.Fatalf("layout should prefer short names when full labels would be compacted: %#v", layout)
+	}
+	for _, target := range targets {
+		if got := checkStatusHeaderLabel(target, layout); got != target.ShortName {
+			t.Fatalf("header label for %q = %q, want short name %q", target.Name, got, target.ShortName)
+		}
+	}
+}
+
 func TestInitialRenderWithoutMeasurementsIsStable(t *testing.T) {
 	events := make(chan watch.Event)
 	agents := []watch.AgentSnapshot{
