@@ -807,6 +807,9 @@ func networkRows(status *controlpb.IpStatus, options ipRenderOptions) []kvRow {
 	if len(status.GetRoutes()) > 0 {
 		rows = append(rows, kv("routes", multiLineValue(status.GetRoutes())))
 	}
+	if values := diagnosticFieldsForDetail(status.GetIpv6Ra()); len(values) > 0 {
+		rows = append(rows, kv("ipv6_ra", multiLineValue(values)))
+	}
 	if len(status.GetDnsServers()) > 0 {
 		rows = append(rows, kv("dns", multiLineValue(status.GetDnsServers())))
 	}
@@ -823,6 +826,25 @@ func networkRows(status *controlpb.IpStatus, options ipRenderOptions) []kvRow {
 		rows = append(rows, kv("wake_on_lan", true))
 	}
 	return rows
+}
+
+func diagnosticFieldsForDetail(values []*controlpb.DiagnosticField) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, field := range values {
+		if field == nil {
+			continue
+		}
+		key := strings.TrimSpace(field.GetKey())
+		value := strings.TrimSpace(field.GetValue())
+		if key == "" || value == "" {
+			continue
+		}
+		out = append(out, key+"="+value)
+	}
+	return out
 }
 
 func multiLineValue(values []string) string {

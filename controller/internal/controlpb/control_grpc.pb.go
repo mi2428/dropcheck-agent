@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.3.0
 // - protoc             v7.35.0
-// source: dropcheck/v1/control.proto
+// source: control.proto
 
 package controlpb
 
@@ -137,5 +137,5 @@ var DropcheckControl_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "dropcheck/v1/control.proto",
+	Metadata: "control.proto",
 }

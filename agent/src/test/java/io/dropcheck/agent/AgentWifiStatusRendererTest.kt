@@ -3,6 +3,7 @@ package io.dropcheck.agent
 import io.dropcheck.agent.grpc.IpStatus
 import io.dropcheck.agent.grpc.MloLinkInfo
 import io.dropcheck.agent.grpc.WifiConnection
+import io.dropcheck.agent.grpc.DiagnosticField
 import io.dropcheck.agent.grpc.WifiInformationElement
 import io.dropcheck.agent.grpc.WifiStatus
 import org.junit.Assert.assertFalse
@@ -90,6 +91,10 @@ class AgentWifiStatusRendererTest {
                 .setDhcpServer("192.0.2.254")
                 .addRoutes("0.0.0.0/0 -> 192.0.2.1 wlan0")
                 .addRoutes("192.0.2.0/24 -> 0.0.0.0 wlan0")
+                .addIpv6Ra(DiagnosticField.newBuilder().setKey("default_route").setValue("missing").build())
+                .addIpv6Ra(DiagnosticField.newBuilder().setKey("accept_ra").setValue("2").build())
+                .addIpv6Ra(DiagnosticField.newBuilder().setKey("accept_ra_defrtr").setValue("1").build())
+                .addIpv6Ra(DiagnosticField.newBuilder().setKey("accept_ra_min_lft").setValue("180").build())
                 .setDomains("local")
                 .setPrivateDnsActive(true)
                 .build())
@@ -121,6 +126,7 @@ class AgentWifiStatusRendererTest {
             "dhcp_server   192.0.2.254",
             "private_dns   active=true server=none",
             "routes\n    0.0.0.0/0 -> 192.0.2.1 wlan0\n    192.0.2.0/24 -> 0.0.0.0 wlan0",
+            "ipv6_ra\n    default_route=missing\n    accept_ra=2\n    accept_ra_defrtr=1\n    accept_ra_min_lft=180",
             "domains",
             "local",
             "wlan0",
@@ -128,8 +134,10 @@ class AgentWifiStatusRendererTest {
             assertTrue("rendered output missing $want:\n$out", out.contains(want))
         }
         assertTrue(
-            "network rows are not ordered routes -> dns -> domains:\n$out",
+            "network rows are not ordered routes -> ipv6_ra -> dns -> domains:\n$out",
             out.indexOf("\n  routes") < out.indexOf("\n  dns") &&
+                out.indexOf("\n  routes") < out.indexOf("\n  ipv6_ra") &&
+                out.indexOf("\n  ipv6_ra") < out.indexOf("\n  dns") &&
                 out.indexOf("\n  dns") < out.indexOf("\n  domains"),
         )
         listOf(

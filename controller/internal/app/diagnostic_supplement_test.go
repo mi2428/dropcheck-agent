@@ -64,6 +64,45 @@ func TestShouldCollectADBMLOSupplement(t *testing.T) {
 	}
 }
 
+func TestShouldCollectADBIPv6RASupplement(t *testing.T) {
+	tests := []struct {
+		name   string
+		result *controlpb.CommandResult
+		want   bool
+	}{
+		{
+			name: "nil result",
+			want: false,
+		},
+		{
+			name: "wifi status",
+			result: &controlpb.CommandResult{
+				Payload: &controlpb.CommandResult_WifiStatus{
+					WifiStatus: &controlpb.WifiStatus{},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "wifi diagnostics",
+			result: &controlpb.CommandResult{
+				Payload: &controlpb.CommandResult_WifiDiagnostics{
+					WifiDiagnostics: &controlpb.WifiDiagnostics{},
+				},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldCollectADBIPv6RASupplement(tt.result); got != tt.want {
+				t.Fatalf("shouldCollectADBIPv6RASupplement() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCollectCommandResultSupplementsSkipsNonTextOutput(t *testing.T) {
 	result := &controlpb.CommandResult{
 		Payload: &controlpb.CommandResult_WifiStatus{

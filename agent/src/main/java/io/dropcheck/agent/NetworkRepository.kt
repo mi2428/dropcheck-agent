@@ -28,6 +28,7 @@ import io.dropcheck.agent.grpc.WifiMonitorResult
 import io.dropcheck.agent.grpc.WifiScan
 import io.dropcheck.agent.grpc.WifiScanDetail
 import io.dropcheck.agent.grpc.WifiStatus
+import java.io.File
 import java.net.NetworkInterface
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
@@ -42,6 +43,43 @@ internal fun effectiveLinkMtu(
     if (linkMtu > 0) return linkMtu
     val name = interfaceName?.takeIf { it.isNotBlank() } ?: return 0
     return runCatching { interfaceMtu(name) }.getOrNull()?.takeIf { it > 0 } ?: 0
+}
+
+private val IPV6_RA_SYSCTLS = listOf(
+    "accept_ra",
+    "accept_ra_defrtr",
+    "accept_ra_pinfo",
+    "accept_ra_rtr_pref",
+    "accept_ra_min_lft",
+    "accept_ra_min_hop_limit",
+    "accept_ra_from_local",
+)
+
+internal data class Ipv6DefaultRouteSummary(
+    val present: Boolean,
+    val gateways: List<String>,
+)
+
+internal fun summarizeIpv6DefaultRoutes(routes: List<String>): Ipv6DefaultRouteSummary {
+    var present = false
+    val gateways = linkedSetOf<String>()
+    routes.forEach { raw ->
+        val route = raw.trim()
+        if (route.isBlank()) return@forEach
+        val gateway = when {
+            route.contains("->") -> route.substringAfter("->").trim().substringBefore(' ').trim()
+            route.contains("via ") -> route.substringAfter("via ").trim().substringBefore(' ').trim()
+            else -> ""
+        }
+        val isIpv6Default = route.startsWith("::/0") ||
+            (route.startsWith("default") && (gateway == "::" || gateway.contains(":")))
+        if (!isIpv6Default) return@forEach
+        present = true
+        if (gateway.isNotBlank() && gateway != "::") {
+            gateways += gateway
+        }
+    }
+    return Ipv6DefaultRouteSummary(present = present, gateways = gateways.toList())
 }
 
 @Suppress("DEPRECATION")
@@ -616,7 +654,8 @@ class NetworkRepository(
             builder.addAllAddresses(link.linkAddresses.map { it.toString() })
             builder.addAllDnsServers(link.dnsServers.mapNotNull { it.hostAddress })
             builder.dhcpServer = link.dhcpServerAddress?.hostAddress.orEmpty()
-            builder.addAllRoutes(link.routes.map { it.toString() })
+            val routeStrings = link.routes.map { it.toString() }
+            builder.addAllRoutes(routeStrings)
             builder.domains = link.domains.orEmpty()
             builder.httpProxy = link.httpProxy?.toString().orEmpty()
             builder.nat64Prefix = link.nat64Prefix?.toString().orEmpty()
@@ -624,6 +663,7 @@ class NetworkRepository(
             builder.privateDnsServerName = link.privateDnsServerName.orEmpty()
             builder.wakeOnLanSupported = link.isWakeOnLanSupported
             builder.rawLinkProperties = link.toString()
+            builder.addAllIpv6Ra(ipv6RaFields(link.interfaceName.orEmpty(), routeStrings))
         }
         val built = builder.build()
         logger.debug("ipStatus network=${built.networkId} transports=${built.transportsList.joinToString(",")} capabilities=${built.capabilitiesList.joinToString(",")} iface=${built.interfaceName.ifBlank { "none" }} mtu=${built.mtu} addresses=${built.addressesList.joinToString(",")} dns=${built.dnsServersList.joinToString(",")} dhcp=${built.dhcpServer.ifBlank { "none" }} routes=${built.routesCount} validated=${built.validated} internet=${built.internet} down_kbps=${built.downstreamKbps} up_kbps=${built.upstreamKbps} signal=${built.signalStrength}")
@@ -691,6 +731,34 @@ class NetworkRepository(
 
     private fun interfaceMtu(interfaceName: String): Int? {
         return NetworkInterface.getByName(interfaceName)?.mtu
+    }
+
+    private fun ipv6RaFields(interfaceName: String, routes: List<String>): List<DiagnosticField> {
+        val iface = interfaceName.trim()
+        if (iface.isBlank()) return emptyList()
+        val summary = summarizeIpv6DefaultRoutes(routes)
+        val fields = mutableListOf(
+            diagnosticField("default_route", if (summary.present) "present" else "missing"),
+        )
+        if (summary.gateways.isNotEmpty()) {
+            fields += diagnosticField("default_gateways", summary.gateways.joinToString("\n"))
+        }
+        IPV6_RA_SYSCTLS.forEach { name ->
+            readIpv6Sysctl(iface, name)?.let { value ->
+                fields += diagnosticField(name, value)
+            }
+        }
+        return fields
+    }
+
+    private fun readIpv6Sysctl(interfaceName: String, key: String): String? {
+        val path = "/proc/sys/net/ipv6/conf/$interfaceName/$key"
+        return runCatching { File(path).readText().trim() }
+            .onFailure {
+                logger.debug("ipv6 RA sysctl unavailable iface=$interfaceName key=$key error=${errorSummary(it)}")
+            }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
     }
 
     private fun statusSignature(status: WifiStatus): String {
