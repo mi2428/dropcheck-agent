@@ -106,13 +106,48 @@ func TestRenderIPv6RASummary(t *testing.T) {
 		"missing",
 		"accept_ra_min_lft",
 		"180",
+		"advertisements",
 		"ra_1",
-		"router_lifetime=0s",
-		"valid=7200s",
-		"preferred=3600s",
+		"router_lifetime",
+		"0s",
+		"prefix_1",
+		"valid_lifetime",
+		"7200s",
+		"preferred_lifetime",
+		"3600s",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("rendered output = %q, missing %q", out, want)
 		}
 	}
+	for _, unwanted := range []string{
+		"src=fe80::2132:3",
+		"router_lifetime=0s",
+		"prefixes=",
+	} {
+		if strings.Contains(out, unwanted) {
+			t.Fatalf("rendered output = %q, unexpectedly contains %q", out, unwanted)
+		}
+	}
+	srcLine := findLineContaining(out, "fe80::2132:3")
+	prefixLine := findLineContaining(out, "2001:3e8:e:2132::/64")
+	validLine := findLineContaining(out, "7200s")
+	if srcLine == "" || prefixLine == "" || validLine == "" {
+		t.Fatalf("rendered output = %q, missing alignment lines", out)
+	}
+	srcValueColumn := strings.Index(srcLine, "fe80::2132:3")
+	prefixValueColumn := strings.Index(prefixLine, "2001:3e8:e:2132::/64")
+	validValueColumn := strings.Index(validLine, "7200s")
+	if srcValueColumn != prefixValueColumn || srcValueColumn != validValueColumn {
+		t.Fatalf("value columns differ: src=%d prefix=%d valid=%d in output %q", srcValueColumn, prefixValueColumn, validValueColumn, out)
+	}
+}
+
+func findLineContaining(text string, needle string) string {
+	for _, line := range strings.Split(text, "\n") {
+		if strings.Contains(line, needle) {
+			return line
+		}
+	}
+	return ""
 }

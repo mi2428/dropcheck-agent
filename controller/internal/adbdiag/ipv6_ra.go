@@ -8,7 +8,6 @@ import (
 	"net/netip"
 	"sort"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"dropcheck/controller/internal/adb"
@@ -57,6 +56,13 @@ type IPv6RAPrefix struct {
 	Prefix            string
 	ValidLifetime     string
 	PreferredLifetime string
+}
+
+type ipv6RARenderLine struct {
+	heading string
+	indent  string
+	label   string
+	value   string
 }
 
 // CollectIPv6RA reads interface-local IPv6 RA knobs and default-route state via adb.
@@ -115,30 +121,21 @@ func RenderIPv6RASummary(summary IPv6RASummary) string {
 		return ""
 	}
 	var b strings.Builder
+	lines := []ipv6RARenderLine{
+		ipv6RAKVLine("  ", "interface", summary.Interface),
+		ipv6RAKVLine("  ", "default_route", summary.DefaultRoute),
+		ipv6RAKVLine("  ", "default_gateways", strings.Join(summary.DefaultGateways, ",")),
+		ipv6RAKVLine("  ", "accept_ra", summary.AcceptRA),
+		ipv6RAKVLine("  ", "accept_ra_defrtr", summary.AcceptRADefrtr),
+		ipv6RAKVLine("  ", "accept_ra_pinfo", summary.AcceptRAPinfo),
+		ipv6RAKVLine("  ", "accept_ra_rtr_pref", summary.AcceptRARtrPref),
+		ipv6RAKVLine("  ", "accept_ra_min_lft", summary.AcceptRAMinLft),
+		ipv6RAKVLine("  ", "accept_ra_min_hop_limit", summary.AcceptRAMinHopLft),
+		ipv6RAKVLine("  ", "accept_ra_from_local", summary.AcceptRAFromLocal),
+	}
+	lines = append(lines, buildIPv6RAAdvertisementLines(summary.Advertisements)...)
 	b.WriteString("ADB IPv6 RA\n")
-	tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
-	rows := []kvRow{
-		kv("interface", summary.Interface),
-		kv("default_route", summary.DefaultRoute),
-		kv("default_gateways", strings.Join(summary.DefaultGateways, ",")),
-		kv("accept_ra", summary.AcceptRA),
-		kv("accept_ra_defrtr", summary.AcceptRADefrtr),
-		kv("accept_ra_pinfo", summary.AcceptRAPinfo),
-		kv("accept_ra_rtr_pref", summary.AcceptRARtrPref),
-		kv("accept_ra_min_lft", summary.AcceptRAMinLft),
-		kv("accept_ra_min_hop_limit", summary.AcceptRAMinHopLft),
-		kv("accept_ra_from_local", summary.AcceptRAFromLocal),
-	}
-	for i, ad := range summary.Advertisements {
-		rows = append(rows, kv(fmt.Sprintf("ra_%d", i+1), renderIPv6RAAdvertisement(ad)))
-	}
-	for _, row := range rows {
-		if row.label == "" || row.value == "" {
-			continue
-		}
-		_, _ = fmt.Fprintf(tw, "  %s\t%s\n", row.label, row.value)
-	}
-	_ = tw.Flush()
+	renderIPv6RALines(&b, lines)
 	return b.String()
 }
 
@@ -406,46 +403,6 @@ func dedupeIPv6RAPrefixes(values []IPv6RAPrefix) []IPv6RAPrefix {
 	return out
 }
 
-func renderIPv6RAAdvertisement(ad IPv6RAAdvertisement) string {
-	if ad.Source == "" && len(ad.Prefixes) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, 8)
-	if ad.Source != "" {
-		parts = append(parts, "src="+ad.Source)
-	}
-	if ad.Destination != "" {
-		parts = append(parts, "dst="+ad.Destination)
-	}
-	if ad.RouterLifetime != "" {
-		parts = append(parts, "router_lifetime="+ad.RouterLifetime)
-	}
-	if ad.LastSeen != "" {
-		parts = append(parts, "last_seen="+ad.LastSeen)
-	}
-	if ad.HopLimit != 0 {
-		parts = append(parts, fmt.Sprintf("hop_limit=%d", ad.HopLimit))
-	}
-	if ad.FlagsHex != "" {
-		parts = append(parts, "flags="+ad.FlagsHex)
-	}
-	if len(ad.Prefixes) > 0 {
-		prefixes := make([]string, 0, len(ad.Prefixes))
-		for _, prefix := range ad.Prefixes {
-			item := prefix.Prefix
-			if prefix.ValidLifetime != "" {
-				item += " valid=" + prefix.ValidLifetime
-			}
-			if prefix.PreferredLifetime != "" {
-				item += " preferred=" + prefix.PreferredLifetime
-			}
-			prefixes = append(prefixes, item)
-		}
-		parts = append(parts, "prefixes="+strings.Join(prefixes, " | "))
-	}
-	return strings.Join(parts, " ")
-}
-
 func upsertIPv6RAAdvertisement(values []IPv6RAAdvertisement, item IPv6RAAdvertisement) []IPv6RAAdvertisement {
 	if item.Source == "" && item.Destination == "" && len(item.Prefixes) == 0 {
 		return values
@@ -486,4 +443,74 @@ func (ad *IPv6RAAdvertisement) merge(other IPv6RAAdvertisement) {
 
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+}
+
+func buildIPv6RAAdvertisementLines(values []IPv6RAAdvertisement) []ipv6RARenderLine {
+	if len(values) == 0 {
+		return nil
+	}
+	lines := []ipv6RARenderLine{{heading: "  advertisements"}}
+	for i, ad := range values {
+		lines = append(lines, ipv6RARenderLine{heading: fmt.Sprintf("    ra_%d", i+1)})
+		lines = append(lines,
+			ipv6RAKVLine("      ", "src", ad.Source),
+			ipv6RAKVLine("      ", "dst", ad.Destination),
+			ipv6RAKVLine("      ", "router_lifetime", ad.RouterLifetime),
+			ipv6RAKVLine("      ", "last_seen", ad.LastSeen),
+			ipv6RAKVLine("      ", "hop_limit", emptyUint8(ad.HopLimit)),
+			ipv6RAKVLine("      ", "flags", ad.FlagsHex),
+		)
+		if len(ad.Prefixes) == 0 {
+			continue
+		}
+		lines = append(lines, ipv6RARenderLine{heading: "      prefixes"})
+		for j, prefix := range ad.Prefixes {
+			lines = append(lines, ipv6RARenderLine{heading: fmt.Sprintf("        prefix_%d", j+1)})
+			lines = append(lines,
+				ipv6RAKVLine("          ", "prefix", prefix.Prefix),
+				ipv6RAKVLine("          ", "valid_lifetime", prefix.ValidLifetime),
+				ipv6RAKVLine("          ", "preferred_lifetime", prefix.PreferredLifetime),
+			)
+		}
+	}
+	return lines
+}
+
+func renderIPv6RALines(b *strings.Builder, lines []ipv6RARenderLine) {
+	maxPrefixWidth := 0
+	for _, line := range lines {
+		if line.label == "" || line.value == "" {
+			continue
+		}
+		width := len(line.indent) + len(line.label)
+		if width > maxPrefixWidth {
+			maxPrefixWidth = width
+		}
+	}
+	for _, line := range lines {
+		if line.heading != "" {
+			_, _ = fmt.Fprintln(b, line.heading)
+			continue
+		}
+		if line.label == "" || line.value == "" {
+			continue
+		}
+		prefix := line.indent + line.label
+		padding := maxPrefixWidth - len(prefix) + 2
+		if padding < 2 {
+			padding = 2
+		}
+		_, _ = fmt.Fprintf(b, "%s%s%s\n", prefix, strings.Repeat(" ", padding), line.value)
+	}
+}
+
+func ipv6RAKVLine(indent string, label string, value string) ipv6RARenderLine {
+	return ipv6RARenderLine{indent: indent, label: label, value: value}
+}
+
+func emptyUint8(value uint8) string {
+	if value == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d", value)
 }
