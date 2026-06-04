@@ -594,6 +594,7 @@ message IpStatus {
   string private_dns_server_name = 25;
   bool wake_on_lan_supported = 26;
   string raw_link_properties = 27;
+  repeated DiagnosticField ipv6_ra = 28;
 }
 
 message WifiDiagnostics {

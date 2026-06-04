@@ -463,17 +463,23 @@ func TestRenderWifiStatusShowsCapabilities(t *testing.T) {
 					}},
 				},
 				IpStatus: &controlpb.IpStatus{
-					NetworkId:        "102",
-					Transports:       []string{"wifi"},
-					Capabilities:     []string{"internet", "validated", "not_roaming", "not_metered"},
-					DownstreamKbps:   1200000,
-					UpstreamKbps:     600000,
-					SignalStrength:   -52,
-					RawCapabilities:  "raw_caps",
-					Addresses:        []string{"192.0.2.10/24", "2001:db8::10/64", "2001:db8::11/64"},
-					DnsServers:       []string{"192.0.2.1", "1.1.1.1"},
-					DhcpServer:       "192.0.2.254",
-					Routes:           []string{"0.0.0.0/0 -> 192.0.2.1 wlan0", "192.0.2.0/24 -> 0.0.0.0 wlan0"},
+					NetworkId:       "102",
+					Transports:      []string{"wifi"},
+					Capabilities:    []string{"internet", "validated", "not_roaming", "not_metered"},
+					DownstreamKbps:  1200000,
+					UpstreamKbps:    600000,
+					SignalStrength:  -52,
+					RawCapabilities: "raw_caps",
+					Addresses:       []string{"192.0.2.10/24", "2001:db8::10/64", "2001:db8::11/64"},
+					DnsServers:      []string{"192.0.2.1", "1.1.1.1"},
+					DhcpServer:      "192.0.2.254",
+					Routes:          []string{"0.0.0.0/0 -> 192.0.2.1 wlan0", "192.0.2.0/24 -> 0.0.0.0 wlan0"},
+					Ipv6Ra: []*controlpb.DiagnosticField{
+						{Key: "default_route", Value: "missing"},
+						{Key: "accept_ra", Value: "2"},
+						{Key: "accept_ra_defrtr", Value: "1"},
+						{Key: "accept_ra_min_lft", Value: "180"},
+					},
 					Domains:          "local",
 					PrivateDnsActive: true,
 				},
@@ -521,14 +527,16 @@ func TestRenderWifiStatusShowsCapabilities(t *testing.T) {
 		"routes",
 		"0.0.0.0/0 -> 192.0.2.1 wlan0",
 		"routes\n    0.0.0.0/0 -> 192.0.2.1 wlan0\n    192.0.2.0/24 -> 0.0.0.0 wlan0",
+		"ipv6_ra\n    default_route=missing\n    accept_ra=2\n    accept_ra_defrtr=1\n    accept_ra_min_lft=180",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("rendered output = %q, missing %q", out, want)
 		}
 	}
-	if strings.Index(out, "\n  routes") >= strings.Index(out, "\n  dns") ||
+	if strings.Index(out, "\n  routes") >= strings.Index(out, "\n  ipv6_ra") ||
+		strings.Index(out, "\n  ipv6_ra") >= strings.Index(out, "\n  dns") ||
 		strings.Index(out, "\n  dns") >= strings.Index(out, "\n  domains") {
-		t.Fatalf("network rows are not ordered routes -> dns -> domains:\n%s", out)
+		t.Fatalf("network rows are not ordered routes -> ipv6_ra -> dns -> domains:\n%s", out)
 	}
 	for _, unwanted := range []string{
 		"Connection Capabilities",

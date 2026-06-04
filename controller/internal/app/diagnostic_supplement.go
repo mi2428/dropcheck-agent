@@ -21,10 +21,20 @@ func collectCommandResultSupplements(ctx context.Context, state *shellState, age
 		return commandResultSupplements{}
 	}
 	var supplements commandResultSupplements
+	if shouldCollectADBIPv6RASupplement(result) {
+		supplements.addText(collectADBIPv6RASupplement(ctx, state, agent, result))
+	}
 	if shouldCollectADBMLOSupplement(result, options) {
 		supplements.addText(collectADBMLOSupplement(ctx, state, agent))
 	}
 	return supplements
+}
+
+func shouldCollectADBIPv6RASupplement(result *controlpb.CommandResult) bool {
+	if result == nil {
+		return false
+	}
+	return result.GetWifiStatus() != nil
 }
 
 func shouldCollectADBMLOSupplement(result *controlpb.CommandResult, options commandOptions) bool {
@@ -32,6 +42,26 @@ func shouldCollectADBMLOSupplement(result *controlpb.CommandResult, options comm
 		return false
 	}
 	return options.WifiRenderMode == command.WifiRenderModeEHT && result.GetWifiDiagnostics() != nil
+}
+
+func collectADBIPv6RASupplement(ctx context.Context, state *shellState, agent control.AgentInfo, result *controlpb.CommandResult) string {
+	if agent.Hello == nil || result == nil {
+		return ""
+	}
+	serial := agent.Hello.GetAdbSerial()
+	if serial == "" {
+		return ""
+	}
+	iface := result.GetWifiStatus().GetIpStatus().GetInterfaceName()
+	if iface == "" {
+		return ""
+	}
+	summary := adbdiag.CollectIPv6RA(ctx, adb.Client{
+		Path:    state.adbPath,
+		Serial:  serial,
+		Timeout: 8 * time.Second,
+	}, iface)
+	return adbdiag.RenderIPv6RASummary(summary)
 }
 
 func collectADBMLOSupplement(ctx context.Context, state *shellState, agent control.AgentInfo) string {

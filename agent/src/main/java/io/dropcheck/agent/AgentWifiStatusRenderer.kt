@@ -480,12 +480,22 @@ internal object AgentWifiStatusRenderer {
         if (ipv6.isNotEmpty()) rows += "ipv6" to multiLineValue(ipv6)
         if (addresses.isNotEmpty()) rows += "addresses" to multiLineValue(addresses)
         if (status.routesList.isNotEmpty()) rows += "routes" to multiLineValue(status.routesList)
+        val ipv6Ra = ipv6RaDetailRows(status.ipv6RaList)
+        if (ipv6Ra.isNotEmpty()) rows += "ipv6_ra" to multiLineValue(ipv6Ra)
         if (status.dnsServersList.isNotEmpty()) rows += "dns" to multiLineValue(status.dnsServersList)
         if (status.domains.isNotBlank()) rows += "domains" to status.domains
         if (status.httpProxy.isNotBlank()) rows += "http_proxy" to status.httpProxy
         if (status.nat64Prefix.isNotBlank()) rows += "nat64_prefix" to status.nat64Prefix
         if (status.wakeOnLanSupported) rows += "wake_on_lan" to "true"
         return rows
+    }
+
+    private fun ipv6RaDetailRows(values: List<io.dropcheck.agent.grpc.DiagnosticField>): List<String> {
+        return values.mapNotNull { field ->
+            val key = field.key.trim()
+            val value = field.value.trim()
+            if (key.isBlank() || value.isBlank()) null else "$key=$value"
+        }
     }
 
     private fun multiLineValue(values: List<String>): String {

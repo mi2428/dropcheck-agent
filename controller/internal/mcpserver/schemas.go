@@ -197,6 +197,13 @@ func wifiConnectionSchema() map[string]any {
 	})
 }
 
+func diagnosticFieldSchema() map[string]any {
+	return objectSchema(map[string]any{
+		"key":   stringSchema(),
+		"value": stringSchema(),
+	})
+}
+
 func ipStatusSchema() map[string]any {
 	return objectSchema(map[string]any{
 		"network_id":              stringSchema(),
@@ -216,6 +223,7 @@ func ipStatusSchema() map[string]any {
 		"signal_strength":         integerSchema(),
 		"private_dns_active":      booleanSchema(),
 		"private_dns_server_name": stringSchema(),
+		"ipv6_ra":                 arraySchema(diagnosticFieldSchema()),
 	})
 }
 
