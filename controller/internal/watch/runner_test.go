@@ -143,8 +143,9 @@ func (r *gatewayPingRunner) Run(_ context.Context, _ control.AgentInfo, op comma
 }
 
 type pingHostRunner struct {
-	t    *testing.T
-	host string
+	t      *testing.T
+	host   string
+	family controlpb.IpFamily
 }
 
 func (r *pingHostRunner) Run(_ context.Context, _ control.AgentInfo, op command.Operation) (runner.Result, error) {
@@ -153,6 +154,7 @@ func (r *pingHostRunner) Run(_ context.Context, _ control.AgentInfo, op command.
 	}
 	ping := op.Command.GetPing()
 	r.host = ping.GetHost()
+	r.family = ping.GetFamily()
 	count := ping.GetCount()
 	return runner.Result{Result: &controlpb.CommandResult{
 		Status: controlpb.CommandResult_STATUS_OK,
@@ -477,10 +479,11 @@ func TestRunCheckResolvesTargetVarsInHost(t *testing.T) {
 			Vars: map[string]string{"gateway_ipv4": "10.20.0.1"},
 		},
 		Check{
-			Name:  "Ping GW IPv4",
-			Type:  "ping",
-			Host:  "${gateway_ipv4}",
-			Count: 2,
+			Name:   "Ping GW IPv4",
+			Type:   "ping",
+			Host:   "${gateway_ipv4}",
+			Family: "ipv6",
+			Count:  2,
 		},
 		func(Event) error { return nil },
 	)
@@ -492,6 +495,9 @@ func TestRunCheckResolvesTargetVarsInHost(t *testing.T) {
 	}
 	if runner.host != "10.20.0.1" {
 		t.Fatalf("ping host = %q, want resolved target var", runner.host)
+	}
+	if runner.family != controlpb.IpFamily_IP_FAMILY_IPV6 {
+		t.Fatalf("ping family = %s, want %s", runner.family, controlpb.IpFamily_IP_FAMILY_IPV6)
 	}
 }
 

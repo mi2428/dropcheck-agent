@@ -228,6 +228,7 @@ message Ping {
   uint32 timeout_ms = 3;
   NetworkSelector selector = 4;
   uint32 size_bytes = 5;
+  IpFamily family = 6;
 }
 
 message Traceroute {
@@ -236,6 +237,7 @@ message Traceroute {
   uint32 timeout_ms = 3;
   NetworkSelector selector = 4;
   uint32 size_bytes = 5;
+  IpFamily family = 6;
 }
 
 // PathMtu discovers the largest IP packet size that reaches host without
@@ -246,6 +248,7 @@ message PathMtu {
   NetworkSelector selector = 3;
   uint32 min_mtu_bytes = 4;
   uint32 max_mtu_bytes = 5;
+  IpFamily family = 6;
 }
 
 message GlobalIp {

@@ -84,6 +84,8 @@ type PingOptions struct {
 	Count string
 	// Size is the payload size in bytes; empty lets the agent choose.
 	Size string
+	// Family optionally pins the probe to ipv4 or ipv6; empty leaves selection to the agent.
+	Family string
 	// Timeout is the operation timeout in milliseconds.
 	Timeout string
 }
@@ -98,6 +100,8 @@ type TracerouteOptions struct {
 	Via []string
 	// Size is the probe payload size in bytes; empty lets the agent choose.
 	Size string
+	// Family optionally pins the probe to ipv4 or ipv6; empty leaves selection to the agent.
+	Family string
 	// Timeout is the operation timeout in milliseconds.
 	Timeout string
 }
@@ -110,6 +114,8 @@ type PathMTUOptions struct {
 	MinMTU string
 	// MaxMTU optionally sets the upper search bound in bytes.
 	MaxMTU string
+	// Family optionally pins the probe to ipv4 or ipv6; empty leaves selection to the agent.
+	Family string
 	// Timeout is the operation timeout in milliseconds.
 	Timeout string
 }
@@ -466,14 +472,19 @@ func PingOperation(opts PingOptions) (Operation, error) {
 	if timeoutMs == 0 {
 		timeoutMs = count*2000 + 3000
 	}
+	family, err := parseOptionalProbeFamily(opts.Family)
+	if err != nil {
+		return Operation{}, err
+	}
 	parts := []string{"ping", opts.Host}
 	appendRawValue(&parts, opts.Count)
 	appendValueOption(&parts, "--size", opts.Size)
+	appendValueOption(&parts, "--family", opts.Family)
 	appendValueOption(&parts, "--timeout", opts.Timeout)
 	return NewOperation("ping", &controlpb.RunCommand{
 		Label: strings.Join(parts, " "),
 		Command: &controlpb.RunCommand_Ping{Ping: &controlpb.Ping{
-			Host: opts.Host, Count: count, SizeBytes: size, TimeoutMs: timeoutMs, Selector: &controlpb.NetworkSelector{},
+			Host: opts.Host, Count: count, SizeBytes: size, Family: family, TimeoutMs: timeoutMs, Selector: &controlpb.NetworkSelector{},
 		}},
 	}, Options{}), nil
 }
@@ -495,17 +506,22 @@ func TracerouteOperation(opts TracerouteOptions) (Operation, error) {
 	if err != nil {
 		return Operation{}, err
 	}
+	family, err := parseOptionalProbeFamily(opts.Family)
+	if err != nil {
+		return Operation{}, err
+	}
 	parts := []string{"traceroute", opts.Host}
 	appendRawValue(&parts, opts.MaxHops)
 	for _, via := range opts.Via {
 		appendValueOption(&parts, "--via", via)
 	}
 	appendValueOption(&parts, "--size", opts.Size)
+	appendValueOption(&parts, "--family", opts.Family)
 	appendValueOption(&parts, "--timeout", opts.Timeout)
 	return NewOperation("traceroute", &controlpb.RunCommand{
 		Label: strings.Join(parts, " "),
 		Command: &controlpb.RunCommand_Traceroute{Traceroute: &controlpb.Traceroute{
-			Host: opts.Host, MaxHops: maxHops, SizeBytes: size, TimeoutMs: timeoutMs, Selector: &controlpb.NetworkSelector{},
+			Host: opts.Host, MaxHops: maxHops, SizeBytes: size, Family: family, TimeoutMs: timeoutMs, Selector: &controlpb.NetworkSelector{},
 		}},
 	}, Options{TracerouteRequiredHops: append([]string(nil), opts.Via...)}), nil
 }
@@ -527,14 +543,19 @@ func PathMTUOperation(opts PathMTUOptions) (Operation, error) {
 	if err != nil {
 		return Operation{}, err
 	}
+	family, err := parseOptionalProbeFamily(opts.Family)
+	if err != nil {
+		return Operation{}, err
+	}
 	parts := []string{"path-mtu", opts.Host}
 	appendValueOption(&parts, "--min-mtu", opts.MinMTU)
 	appendValueOption(&parts, "--max-mtu", opts.MaxMTU)
+	appendValueOption(&parts, "--family", opts.Family)
 	appendValueOption(&parts, "--timeout", opts.Timeout)
 	return NewOperation("path-mtu", &controlpb.RunCommand{
 		Label: strings.Join(parts, " "),
 		Command: &controlpb.RunCommand_PathMtu{PathMtu: &controlpb.PathMtu{
-			Host: opts.Host, MinMtuBytes: minMTU, MaxMtuBytes: maxMTU, TimeoutMs: timeoutMs, Selector: &controlpb.NetworkSelector{},
+			Host: opts.Host, MinMtuBytes: minMTU, MaxMtuBytes: maxMTU, Family: family, TimeoutMs: timeoutMs, Selector: &controlpb.NetworkSelector{},
 		}},
 	}, Options{}), nil
 }
