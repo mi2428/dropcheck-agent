@@ -1,6 +1,8 @@
 package linuxcli
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -585,6 +587,48 @@ func TestParseAgentCommandSurface(t *testing.T) {
 				tt.checkOptions(t, opts)
 			}
 		})
+	}
+}
+
+func TestParseStandaloneLiveWatch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "seed.yml")
+	if err := os.WriteFile(path, []byte(strings.TrimSpace(`
+version: 1
+name: seed
+targets:
+  - name: cs1
+    ssid: cs1
+checks:
+  - type: ping
+    host: 1.1.1.1
+`)+"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(%s) error = %v", path, err)
+	}
+
+	cmd, err := Parse([]string{"configure", "set", "standalone", "live", "watch", path})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cmd.Kind != AgentCommand {
+		t.Fatalf("kind = %v, want AgentCommand", cmd.Kind)
+	}
+	run, _, err := cmdop.BuildRunCommand(cmd.Operation)
+	if err != nil {
+		t.Fatalf("BuildRunCommand() error = %v", err)
+	}
+	edit := run.GetEditStandaloneConfig()
+	if edit == nil {
+		t.Fatalf("command = %T, want EditStandaloneConfig", run.GetCommand())
+	}
+	edits := edit.GetEdits()
+	if len(edits) != 2 {
+		t.Fatalf("edits = %#v, want delete+set", edits)
+	}
+	if edits[0].GetAction() != controlpb.StandaloneEdit_ACTION_DELETE || strings.Join(edits[0].GetPath(), "/") != "festa/live" {
+		t.Fatalf("delete edit = %#v", edits[0])
+	}
+	if strings.Join(edits[1].GetPath(), "/") != "festa/live/wifi/cs1/match/essid" || edits[1].GetValue() != "cs1" {
+		t.Fatalf("seed edit = %#v", edits[1])
 	}
 }
 

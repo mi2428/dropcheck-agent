@@ -5,6 +5,7 @@ import (
 
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/pipeline"
+	"dropcheck/controller/internal/standaloneseed"
 )
 
 // CommandKind identifies the action parsed from an interactive shell line.
@@ -709,6 +710,15 @@ func parseShellSet(args []string) (Command, error) {
 }
 
 func parseShellSetStandalone(args []string) (Command, error) {
+	if len(args) > 0 {
+		name, err := resolveShellKeyword("set standalone command", args[0], []string{"live"})
+		if err == nil && name == "live" {
+			op, matched, err := standaloneseed.OperationFromSetArgs(append([]string{name}, args[1:]...))
+			if matched || err != nil {
+				return agentShellCommand(op), err
+			}
+		}
+	}
 	edits, err := command.StandaloneSetEdits(args)
 	if err != nil {
 		return Command{}, err

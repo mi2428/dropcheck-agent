@@ -1,9 +1,12 @@
 package shell
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/controlpb"
 )
 
@@ -58,6 +61,41 @@ func TestParseLineLocalCommandSurface(t *testing.T) {
 	}
 	if !adbDiag.Pipeline.DisplayJSON() {
 		t.Fatalf("adb diagnostics pipeline should request JSON display")
+	}
+}
+
+func TestParseConfigureLineStandaloneLiveWatch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "seed.yml")
+	if err := os.WriteFile(path, []byte(strings.TrimSpace(`
+version: 1
+name: seed
+targets:
+  - name: cs1
+    ssid: cs1
+checks:
+  - type: ping
+    host: 1.1.1.1
+`)+"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(%s) error = %v", path, err)
+	}
+
+	cmd, err := ParseConfigureLine("set standalone live watch " + path)
+	if err != nil {
+		t.Fatalf("ParseConfigureLine() error = %v", err)
+	}
+	if cmd.Kind != AgentCommand {
+		t.Fatalf("kind = %v, want AgentCommand", cmd.Kind)
+	}
+	run, _, err := command.BuildRunCommand(cmd.Operation)
+	if err != nil {
+		t.Fatalf("BuildRunCommand() error = %v", err)
+	}
+	edit := run.GetEditStandaloneConfig()
+	if edit == nil {
+		t.Fatalf("command = %T, want EditStandaloneConfig", run.GetCommand())
+	}
+	if got := strings.Join(edit.GetEdits()[1].GetPath(), "/"); got != "festa/live/wifi/cs1/match/essid" {
+		t.Fatalf("seed path = %q, want festa/live/wifi/cs1/match/essid", got)
 	}
 }
 

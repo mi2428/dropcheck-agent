@@ -2,6 +2,8 @@ package app
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -463,6 +465,36 @@ func TestParseShellStandaloneCommands(t *testing.T) {
 		strings.Join(edits[3].GetPath(), "/") != "festa/smoke/check/cloudflare/timeout_ms" ||
 		edits[3].GetValue() != "8000" {
 		t.Fatalf("named ping check edits = %#v", edits)
+	}
+
+	seedPath := filepath.Join(t.TempDir(), "live-seed.yml")
+	if err := os.WriteFile(seedPath, []byte(strings.TrimSpace(`
+version: 1
+name: live-seed
+targets:
+  - name: cs1
+    ssid: cs1
+checks:
+  - type: ping
+    host: 1.1.1.1
+`)+"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(%s) error = %v", seedPath, err)
+	}
+	liveSeed, err := parseShellLineForTest("config> set standalone live watch " + seedPath)
+	if err != nil {
+		t.Fatalf("set standalone live watch: %v", err)
+	}
+	cmd, _, err = buildRunCommand(liveSeed.operation)
+	if err != nil {
+		t.Fatalf("build live watch command: %v", err)
+	}
+	edits = cmd.GetEditStandaloneConfig().GetEdits()
+	if len(edits) != 2 ||
+		edits[0].GetAction() != controlpb.StandaloneEdit_ACTION_DELETE ||
+		strings.Join(edits[0].GetPath(), "/") != "festa/live" ||
+		strings.Join(edits[1].GetPath(), "/") != "festa/live/wifi/cs1/match/essid" ||
+		edits[1].GetValue() != "cs1" {
+		t.Fatalf("live watch edits = %#v", edits)
 	}
 
 	delWifi, err := parseShellLineForTest("config> delete standalone festa smoke wifi mgmt")
@@ -1222,6 +1254,14 @@ func TestShellOptionCompletion(t *testing.T) {
 			want: []string{"auto", "none", "persistent", "non-persistent"},
 		},
 		{
+			line: "config> set standalone ",
+			want: []string{"enabled", "disabled", "retention", "max-size", "live", "upload", "festa"},
+		},
+		{
+			line: "config> set standalone live ",
+			want: []string{"watch"},
+		},
+		{
 			line: "config> set standalone festa smoke ",
 			want: []string{"enabled", "disabled", "interval", "wifi", "check"},
 		},
@@ -1358,6 +1398,10 @@ func TestConfigureStandaloneDeepHelp(t *testing.T) {
 		unexpected []string
 	}{
 		{
+			line: "config> set standalone live ?",
+			want: []string{"watch"},
+		},
+		{
 			line: "config> set standalone festa ?",
 			want: []string{"<name>"},
 		},
@@ -1456,6 +1500,7 @@ func TestShellPlaceholderCompletionHints(t *testing.T) {
 		{line: "request> global-ip timeout ", want: "<ms>"},
 		{line: "request> http expected-status ", want: "<code>"},
 		{line: "request> download timeout ", want: "<ms>"},
+		{line: "config> set standalone live watch ", want: "<path>"},
 		{line: "config> set standalone festa smoke interval ", want: "<duration>"},
 		{line: "config> set standalone festa smoke wifi mgmt match essid ", want: "<essid>"},
 		{line: "config> set standalone festa smoke check ", want: "<name>"},
