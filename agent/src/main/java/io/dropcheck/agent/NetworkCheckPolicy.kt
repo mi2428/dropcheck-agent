@@ -56,8 +56,36 @@ internal object NetworkCheckPolicy {
     }
 
     /** Android exposes separate ping binaries for IPv4 and IPv6. */
-    fun pingBinary(host: String): String {
-        return if (host.contains(":")) "/system/bin/ping6" else "/system/bin/ping"
+    fun pingBinary(family: IpFamily): String {
+        return if (family == IpFamily.IP_FAMILY_IPV6) "/system/bin/ping6" else "/system/bin/ping"
+    }
+
+    /**
+     * Chooses a probe family from the literal host, resolver results, and currently usable source addresses.
+     *
+     * Hostname probes prefer IPv6 when the target resolves AAAA and the selected
+     * network already has a usable IPv6 source address. Otherwise they fall back
+     * to the best currently usable family so dual-stack hostnames do not depend
+     * on punctuation in the original host string.
+     */
+    fun probeFamily(host: String, addresses: List<String>, resolved: List<InetAddress>): IpFamily {
+        parseIpLiteral(host)?.let { literal ->
+            return addressFamily(literal) ?: IpFamily.IP_FAMILY_IPV4
+        }
+        val sourceFamilies = usableSourceFamilies(addresses)
+        val hasSourceV4 = IpFamily.IP_FAMILY_IPV4 in sourceFamilies
+        val hasSourceV6 = IpFamily.IP_FAMILY_IPV6 in sourceFamilies
+        val resolvedFamilies = resolved.mapNotNull(::addressFamily).toSet()
+        val hasResolvedV4 = IpFamily.IP_FAMILY_IPV4 in resolvedFamilies
+        val hasResolvedV6 = IpFamily.IP_FAMILY_IPV6 in resolvedFamilies
+        return when {
+            hasSourceV6 && hasResolvedV6 -> IpFamily.IP_FAMILY_IPV6
+            hasSourceV4 && hasResolvedV4 -> IpFamily.IP_FAMILY_IPV4
+            hasResolvedV6 && !hasResolvedV4 -> IpFamily.IP_FAMILY_IPV6
+            hasResolvedV4 && !hasResolvedV6 -> IpFamily.IP_FAMILY_IPV4
+            hasSourceV6 && !hasSourceV4 -> IpFamily.IP_FAMILY_IPV6
+            else -> IpFamily.IP_FAMILY_IPV4
+        }
     }
 
     /**
@@ -68,17 +96,24 @@ internal object NetworkCheckPolicy {
      * the selected network's address family while preserving interface names in
      * the result payload.
      */
-    fun pingBindTarget(interfaceName: String, addresses: List<String>, host: String): String {
-        return sourceAddressForHost(addresses, host) ?: interfaceName
+    fun pingBindTarget(interfaceName: String, addresses: List<String>, family: IpFamily): String {
+        return sourceAddressForFamily(addresses, family) ?: interfaceName
     }
 
-    fun sourceAddressForHost(addresses: List<String>, host: String): String? {
-        val ipv6 = host.contains(":")
+    fun sourceAddressForFamily(addresses: List<String>, family: IpFamily): String? {
         return addresses.firstNotNullOfOrNull { raw ->
             val candidate = raw.substringBefore('/').substringBefore('%').trim()
             val parsed = runCatching { InetAddress.getByName(candidate) }.getOrNull() ?: return@firstNotNullOfOrNull null
-            val matches = if (ipv6) parsed is Inet6Address else parsed is Inet4Address
-            if (matches && isUsableSourceAddress(parsed)) candidate else null
+            if (addressMatchesFamily(parsed, family) && isUsableSourceAddress(parsed)) candidate else null
+        }
+    }
+
+    private fun usableSourceFamilies(addresses: List<String>): Set<IpFamily> {
+        return addresses.mapNotNullTo(linkedSetOf()) { raw ->
+            val candidate = raw.substringBefore('/').substringBefore('%').trim()
+            val parsed = runCatching { InetAddress.getByName(candidate) }.getOrNull() ?: return@mapNotNullTo null
+            if (!isUsableSourceAddress(parsed)) return@mapNotNullTo null
+            addressFamily(parsed)
         }
     }
 
@@ -165,8 +200,8 @@ internal object NetworkCheckPolicy {
     }
 
     /** PMTU is an IP packet size; ping -s takes only ICMP payload, so header overhead is subtracted later. */
-    fun pathMtuOverheadBytes(host: String): Int {
-        return if (host.contains(":")) IPV6_PING_OVERHEAD_BYTES else IPV4_PING_OVERHEAD_BYTES
+    fun pathMtuOverheadBytes(family: IpFamily): Int {
+        return if (family == IpFamily.IP_FAMILY_IPV6) IPV6_PING_OVERHEAD_BYTES else IPV4_PING_OVERHEAD_BYTES
     }
 
     /** Convert target IP MTU to ping payload bytes: IPv4 overhead is 20+8, IPv6 overhead is 40+8. */
@@ -226,6 +261,14 @@ internal object NetworkCheckPolicy {
             IpFamily.IP_FAMILY_IPV4 -> address is Inet4Address
             IpFamily.IP_FAMILY_IPV6 -> address is Inet6Address
             else -> true
+        }
+    }
+
+    fun addressFamily(address: InetAddress): IpFamily? {
+        return when (address) {
+            is Inet4Address -> IpFamily.IP_FAMILY_IPV4
+            is Inet6Address -> IpFamily.IP_FAMILY_IPV6
+            else -> null
         }
     }
 

@@ -96,6 +96,13 @@ func parseIPFamily(value string) (controlpb.IpFamily, error) {
 	}
 }
 
+func parseOptionalProbeFamily(value string) (controlpb.IpFamily, error) {
+	if strings.TrimSpace(value) == "" {
+		return controlpb.IpFamily_IP_FAMILY_UNSPECIFIED, nil
+	}
+	return parseIPFamily(value)
+}
+
 func normalizeIPFamily(value string) (string, error) {
 	switch family, err := parseIPFamily(value); {
 	case err != nil:

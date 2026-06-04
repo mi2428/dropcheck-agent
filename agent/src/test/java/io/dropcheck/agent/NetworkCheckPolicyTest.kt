@@ -17,8 +17,8 @@ class NetworkCheckPolicyTest {
         assertEquals(3, count)
         assertEquals(9000, NetworkCheckPolicy.pingTimeoutMs(0, count))
         assertEquals(1234, NetworkCheckPolicy.pingTimeoutMs(1234, count))
-        assertEquals("/system/bin/ping", NetworkCheckPolicy.pingBinary("example.com"))
-        assertEquals("/system/bin/ping6", NetworkCheckPolicy.pingBinary("2001:db8::1"))
+        assertEquals("/system/bin/ping", NetworkCheckPolicy.pingBinary(IpFamily.IP_FAMILY_IPV4))
+        assertEquals("/system/bin/ping6", NetworkCheckPolicy.pingBinary(IpFamily.IP_FAMILY_IPV6))
         assertEquals(
             listOf("/system/bin/ping", "-I", "wlan0", "-s", "128", "-i", "0.2", "-W", "1", "-c", "3", "example.com"),
             NetworkCheckPolicy.pingArgs("/system/bin/ping", "wlan0", 128, 3, "example.com"),
@@ -30,18 +30,41 @@ class NetworkCheckPolicyTest {
     }
 
     @Test
-    fun selectsPingSourceAddressForTargetFamily() {
+    fun selectsProbeFamilyAndSourceAddress() {
         val addresses = listOf(
             "fe80::1234%wlan0/64",
             "192.168.22.91/22",
             "240d:1a:beef::123/64",
         )
+        val dualStackResolved = listOf(
+            InetAddress.getByName("1.1.1.1"),
+            InetAddress.getByName("2606:4700:4700::1111"),
+        )
+        val ipv6OnlyAddresses = listOf(
+            "fe80::1234%wlan0/64",
+            "240d:1a:beef::123/64",
+        )
 
-        assertEquals("192.168.22.91", NetworkCheckPolicy.sourceAddressForHost(addresses, "1.1.1.1"))
-        assertEquals("192.168.22.91", NetworkCheckPolicy.sourceAddressForHost(addresses, "example.com"))
-        assertEquals("240d:1a:beef::123", NetworkCheckPolicy.sourceAddressForHost(addresses, "2606:4700:4700::1111"))
-        assertEquals("192.168.22.91", NetworkCheckPolicy.pingBindTarget("wlan0", addresses, "8.8.8.8"))
-        assertEquals("wlan0", NetworkCheckPolicy.pingBindTarget("wlan0", listOf("fe80::1234%wlan0/64"), "8.8.8.8"))
+        assertEquals(
+            IpFamily.IP_FAMILY_IPV6,
+            NetworkCheckPolicy.probeFamily("one.one.one.one", addresses, dualStackResolved),
+        )
+        assertEquals(
+            IpFamily.IP_FAMILY_IPV4,
+            NetworkCheckPolicy.probeFamily("one.one.one.one", listOf("192.168.22.91/22"), dualStackResolved),
+        )
+        assertEquals(
+            IpFamily.IP_FAMILY_IPV6,
+            NetworkCheckPolicy.probeFamily("one.one.one.one", ipv6OnlyAddresses, dualStackResolved),
+        )
+        assertEquals(
+            IpFamily.IP_FAMILY_IPV6,
+            NetworkCheckPolicy.probeFamily("2001:db8::1", addresses, emptyList()),
+        )
+        assertEquals("192.168.22.91", NetworkCheckPolicy.sourceAddressForFamily(addresses, IpFamily.IP_FAMILY_IPV4))
+        assertEquals("240d:1a:beef::123", NetworkCheckPolicy.sourceAddressForFamily(addresses, IpFamily.IP_FAMILY_IPV6))
+        assertEquals("192.168.22.91", NetworkCheckPolicy.pingBindTarget("wlan0", addresses, IpFamily.IP_FAMILY_IPV4))
+        assertEquals("wlan0", NetworkCheckPolicy.pingBindTarget("wlan0", listOf("fe80::1234%wlan0/64"), IpFamily.IP_FAMILY_IPV4))
     }
 
     @Test
@@ -115,8 +138,8 @@ class NetworkCheckPolicyTest {
         assertEquals(1400, NetworkCheckPolicy.pathMtuMaxBytes(0, interfaceMtu = 1400, minMtu = 576))
         assertEquals(1500, NetworkCheckPolicy.pathMtuMaxBytes(0, interfaceMtu = 0, minMtu = 576))
         assertEquals(1280, NetworkCheckPolicy.pathMtuMaxBytes(1200, interfaceMtu = 0, minMtu = 1280))
-        assertEquals(NetworkCheckPolicy.IPV4_PING_OVERHEAD_BYTES, NetworkCheckPolicy.pathMtuOverheadBytes("8.8.8.8"))
-        assertEquals(NetworkCheckPolicy.IPV6_PING_OVERHEAD_BYTES, NetworkCheckPolicy.pathMtuOverheadBytes("2001:db8::1"))
+        assertEquals(NetworkCheckPolicy.IPV4_PING_OVERHEAD_BYTES, NetworkCheckPolicy.pathMtuOverheadBytes(IpFamily.IP_FAMILY_IPV4))
+        assertEquals(NetworkCheckPolicy.IPV6_PING_OVERHEAD_BYTES, NetworkCheckPolicy.pathMtuOverheadBytes(IpFamily.IP_FAMILY_IPV6))
         assertEquals(1472, NetworkCheckPolicy.pathMtuPayloadBytes(1500, NetworkCheckPolicy.IPV4_PING_OVERHEAD_BYTES))
         assertEquals(
             listOf("/system/bin/ping", "-I", "wlan0", "-M", "do", "-s", "1472", "-i", "0.2", "-c", "1", "-W", "2", "example.com"),

@@ -1021,13 +1021,13 @@ func checkOperation(check Check, target Target) (command.Operation, error) {
 		return command.IPStatusOperation(), nil
 	case "ping":
 		host := firstNonEmpty(check.Host, "1.1.1.1")
-		return command.PingOperation(command.PingOptions{Host: host, Count: number(check.Count), Size: number(check.SizeBytes), Timeout: durationMillis(check.Timeout)})
+		return command.PingOperation(command.PingOptions{Host: host, Count: number(check.Count), Size: number(check.SizeBytes), Family: check.Family, Timeout: durationMillis(check.Timeout)})
 	case "traceroute":
 		host := firstNonEmpty(check.Host, "1.1.1.1")
-		return command.TracerouteOperation(command.TracerouteOptions{Host: host, MaxHops: number(check.MaxHops), Size: number(check.SizeBytes), Timeout: durationMillis(check.Timeout)})
+		return command.TracerouteOperation(command.TracerouteOptions{Host: host, MaxHops: number(check.MaxHops), Size: number(check.SizeBytes), Family: check.Family, Timeout: durationMillis(check.Timeout)})
 	case "path_mtu":
 		host := firstNonEmpty(check.Host, "1.1.1.1")
-		return command.PathMTUOperation(command.PathMTUOptions{Host: host, MinMTU: number(check.MinMTU), MaxMTU: number(check.MaxMTU), Timeout: durationMillis(check.Timeout)})
+		return command.PathMTUOperation(command.PathMTUOptions{Host: host, MinMTU: number(check.MinMTU), MaxMTU: number(check.MaxMTU), Family: check.Family, Timeout: durationMillis(check.Timeout)})
 	case "dns":
 		query := firstNonEmpty(check.Query, check.Host, "example.com")
 		return command.DNSOperation(query, check.Record, durationMillis(check.Timeout))

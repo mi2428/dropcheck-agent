@@ -612,14 +612,33 @@ func TestCompileStructuredExpectationsRejectsUnknownMode(t *testing.T) {
 
 func TestCheckOperationSupportsExtendedProbeTypes(t *testing.T) {
 	target := Target{SSID: "Lab"}
-	checks := []Check{
-		{Type: "traceroute", Host: "1.1.1.1", MaxHops: 8},
-		{Type: "path_mtu", Host: "1.1.1.1", MinMTU: 1280, MaxMTU: 1500},
-		{Type: "download", URL: "http://1.1.1.1/cdn-cgi/trace"},
+	cases := []struct {
+		check      Check
+		wantFamily controlpb.IpFamily
+	}{
+		{check: Check{Type: "ping", Host: "one.one.one.one", Family: "ipv6"}, wantFamily: controlpb.IpFamily_IP_FAMILY_IPV6},
+		{check: Check{Type: "traceroute", Host: "one.one.one.one", MaxHops: 8, Family: "ipv4"}, wantFamily: controlpb.IpFamily_IP_FAMILY_IPV4},
+		{check: Check{Type: "path_mtu", Host: "one.one.one.one", MinMTU: 1280, MaxMTU: 1500, Family: "ipv6"}, wantFamily: controlpb.IpFamily_IP_FAMILY_IPV6},
+		{check: Check{Type: "download", URL: "http://1.1.1.1/cdn-cgi/trace"}},
 	}
-	for _, check := range checks {
-		if _, err := checkOperation(check, target); err != nil {
-			t.Fatalf("checkOperation(%s) error = %v", check.Type, err)
+	for _, tc := range cases {
+		op, err := checkOperation(tc.check, target)
+		if err != nil {
+			t.Fatalf("checkOperation(%s) error = %v", tc.check.Type, err)
+		}
+		switch tc.check.Type {
+		case "ping":
+			if got := op.Command.GetPing().GetFamily(); got != tc.wantFamily {
+				t.Fatalf("ping family = %s, want %s", got, tc.wantFamily)
+			}
+		case "traceroute":
+			if got := op.Command.GetTraceroute().GetFamily(); got != tc.wantFamily {
+				t.Fatalf("traceroute family = %s, want %s", got, tc.wantFamily)
+			}
+		case "path_mtu":
+			if got := op.Command.GetPathMtu().GetFamily(); got != tc.wantFamily {
+				t.Fatalf("path-mtu family = %s, want %s", got, tc.wantFamily)
+			}
 		}
 	}
 }

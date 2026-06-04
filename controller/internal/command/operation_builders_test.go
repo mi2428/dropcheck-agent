@@ -282,7 +282,7 @@ func TestWifiOperationBuildersCarryControllerContract(t *testing.T) {
 }
 
 func TestNetworkProbeOperationBuildersCarryDefaultsAndNormalization(t *testing.T) {
-	ping, err := PingOperation(PingOptions{Host: "1.1.1.1", Count: "2", Size: "64"})
+	ping, err := PingOperation(PingOptions{Host: "one.one.one.one", Count: "2", Size: "64", Family: "ipv6"})
 	if err != nil {
 		t.Fatalf("PingOperation() error = %v", err)
 	}
@@ -290,8 +290,37 @@ func TestNetworkProbeOperationBuildersCarryDefaultsAndNormalization(t *testing.T
 	if err != nil {
 		t.Fatalf("ping command: %v", err)
 	}
-	if pingCmd.GetPing().GetTimeoutMs() != 7000 || pingCmd.GetPing().GetSizeBytes() != 64 {
+	if pingCmd.GetPing().GetTimeoutMs() != 7000 ||
+		pingCmd.GetPing().GetSizeBytes() != 64 ||
+		pingCmd.GetPing().GetFamily() != controlpb.IpFamily_IP_FAMILY_IPV6 {
 		t.Fatalf("ping = %#v", pingCmd.GetPing())
+	}
+
+	trace, err := TracerouteOperation(TracerouteOptions{Host: "one.one.one.one", MaxHops: "4", Family: "ipv4"})
+	if err != nil {
+		t.Fatalf("TracerouteOperation() error = %v", err)
+	}
+	traceCmd, _, err := BuildRunCommand(trace)
+	if err != nil {
+		t.Fatalf("traceroute command: %v", err)
+	}
+	if traceCmd.GetTraceroute().GetMaxHops() != 4 ||
+		traceCmd.GetTraceroute().GetFamily() != controlpb.IpFamily_IP_FAMILY_IPV4 {
+		t.Fatalf("traceroute = %#v", traceCmd.GetTraceroute())
+	}
+
+	pathMTU, err := PathMTUOperation(PathMTUOptions{Host: "one.one.one.one", MinMTU: "1280", MaxMTU: "1500", Family: "ipv6"})
+	if err != nil {
+		t.Fatalf("PathMTUOperation() error = %v", err)
+	}
+	pathCmd, _, err := BuildRunCommand(pathMTU)
+	if err != nil {
+		t.Fatalf("path-mtu command: %v", err)
+	}
+	if pathCmd.GetPathMtu().GetMinMtuBytes() != 1280 ||
+		pathCmd.GetPathMtu().GetMaxMtuBytes() != 1500 ||
+		pathCmd.GetPathMtu().GetFamily() != controlpb.IpFamily_IP_FAMILY_IPV6 {
+		t.Fatalf("path-mtu = %#v", pathCmd.GetPathMtu())
 	}
 
 	globalIP, err := GlobalIPOperation("ipv4", "9000")

@@ -95,23 +95,26 @@ class NetworkCheckExecutor(
         ) + command.logFields())
         val network = networks.waitForNetwork(command.selector, 0)
             ?: return failed("wifi network not available for ping")
-        val ip = waitForProbeSourceIpStatus(network, command.host, timeoutMs, "ping")
+        val target = resolveProbeTarget(network, command.host, command.family, networks.ipStatus(network).addressesList, timeoutMs)
+        val ip = waitForProbeSourceIpStatus(network, target.family, timeoutMs, "ping")
         val iface = ip.interfaceName
-        val bindTarget = NetworkCheckPolicy.pingBindTarget(iface, ip.addressesList, command.host)
-        logger.debug("ping network selected network=${ip.networkId} transports=${ip.transportsList.joinToString(",")} iface=$iface bind_target=${bindTarget.ifBlank { "default" }} addresses=${ip.addressesList.joinToString(",")}")
+        val bindTarget = NetworkCheckPolicy.pingBindTarget(iface, ip.addressesList, target.family)
+        logger.debug("ping network selected network=${ip.networkId} transports=${ip.transportsList.joinToString(",")} iface=$iface family=${target.family.name} destination=${target.destination} bind_target=${bindTarget.ifBlank { "default" }} addresses=${ip.addressesList.joinToString(",")}")
         logger.debugEvent("network.selected", listOf(
             "probe" to "ping",
             "network_id" to ip.networkId,
             "transports" to ip.transportsList,
             "iface" to iface,
+            "probe_family" to target.family.name,
+            "destination" to target.destination,
             "bind_target" to bindTarget,
             "addresses" to ip.addressesList,
             "dns_servers" to ip.dnsServersList,
             "validated" to ip.validated,
             "internet" to ip.internet,
         ))
-        val binary = NetworkCheckPolicy.pingBinary(command.host)
-        val args = NetworkCheckPolicy.pingArgs(binary, bindTarget, command.sizeBytes, count, command.host)
+        val binary = NetworkCheckPolicy.pingBinary(target.family)
+        val args = NetworkCheckPolicy.pingArgs(binary, bindTarget, command.sizeBytes, count, target.destination)
         logger.execEvent("probe.exec", listOf(
             "probe" to "ping",
             "command_line" to args.joinToString(" "),
@@ -124,6 +127,7 @@ class NetworkCheckExecutor(
             "argv" to args,
             "command_line" to args.joinToString(" "),
             "host" to command.host,
+            "destination" to target.destination,
             "iface" to iface.ifBlank { "default" },
             "bind_target" to bindTarget.ifBlank { "default" },
             "timeout_ms" to timeoutMs,
@@ -141,6 +145,7 @@ class NetworkCheckExecutor(
             "probe" to "ping",
             "binary" to binary,
             "host" to command.host,
+            "destination" to target.destination,
             "finished" to run.finished,
             "exit_code" to run.exitCode,
             "elapsed_ms" to elapsedMs,
@@ -190,32 +195,36 @@ class NetworkCheckExecutor(
         ) + command.logFields())
         val network = networks.waitForNetwork(command.selector, 0)
             ?: return failed("wifi network not available for traceroute")
-        val ip = waitForProbeSourceIpStatus(network, command.host, timeoutMs, "traceroute")
+        val target = resolveProbeTarget(network, command.host, command.family, networks.ipStatus(network).addressesList, timeoutMs)
+        val ip = waitForProbeSourceIpStatus(network, target.family, timeoutMs, "traceroute")
         val iface = ip.interfaceName
-        val pingBindTarget = NetworkCheckPolicy.pingBindTarget(iface, ip.addressesList, command.host)
+        val pingBindTarget = NetworkCheckPolicy.pingBindTarget(iface, ip.addressesList, target.family)
         logger.debugEvent("network.selected", listOf(
             "probe" to "traceroute",
             "network_id" to ip.networkId,
             "transports" to ip.transportsList,
             "iface" to iface,
+            "probe_family" to target.family.name,
+            "destination" to target.destination,
             "ping_bind_target" to pingBindTarget,
             "addresses" to ip.addressesList,
             "dns_servers" to ip.dnsServersList,
             "validated" to ip.validated,
             "internet" to ip.internet,
         ))
-        val commandArgs = tracerouteArgs(command.host, maxHops, command.sizeBytes, iface)
+        val commandArgs = tracerouteArgs(target.destination, maxHops, command.sizeBytes, iface)
         if (commandArgs == null) {
             logger.warn("traceroute binary not available host=${command.host} iface=${iface.ifBlank { "default" }}; running ping TTL fallback")
             logger.warnEvent("network.probe.fallback", listOf(
                 "probe" to "traceroute",
                 "fallback" to "ping_ttl",
                 "host" to command.host,
+                "destination" to target.destination,
                 "iface" to iface.ifBlank { "default" },
                 "max_hops" to maxHops,
                 "timeout_ms" to timeoutMs,
             ))
-            return tracerouteWithPing(command, maxHops, timeoutMs, iface, pingBindTarget, network)
+            return tracerouteWithPing(command, target, maxHops, timeoutMs, iface, pingBindTarget, network)
         }
         logger.execEvent("probe.exec", listOf(
             "probe" to "traceroute",
@@ -228,6 +237,7 @@ class NetworkCheckExecutor(
             "argv" to commandArgs,
             "command_line" to commandArgs.joinToString(" "),
             "host" to command.host,
+            "destination" to target.destination,
             "iface" to iface.ifBlank { "default" },
             "timeout_ms" to timeoutMs,
         ))
@@ -256,6 +266,7 @@ class NetworkCheckExecutor(
             "probe" to "traceroute",
             "binary" to commandArgs.firstOrNull().orEmpty(),
             "host" to command.host,
+            "destination" to target.destination,
             "finished" to run.finished,
             "exit_code" to run.exitCode,
             "elapsed_ms" to elapsedMs,
@@ -286,27 +297,31 @@ class NetworkCheckExecutor(
             command.timeoutMs,
             NetworkCheckPolicy.DEFAULT_PATH_MTU_TIMEOUT_MS,
         )
-        val ipv6 = command.host.contains(":")
-        val overheadBytes = NetworkCheckPolicy.pathMtuOverheadBytes(command.host)
         logger.debug("path mtu parameters host=${command.host} min_mtu=${command.minMtuBytes} max_mtu=${command.maxMtuBytes} timeout_ms=$timeoutMs selector_ssid=${command.selector.ssid.ifBlank { "*" }}")
+        val network = networks.waitForNetwork(command.selector, 0)
+            ?: return failed("wifi network not available for path mtu")
+        val target = resolveProbeTarget(network, command.host, command.family, networks.ipStatus(network).addressesList, timeoutMs)
+        val overheadBytes = NetworkCheckPolicy.pathMtuOverheadBytes(target.family)
         logger.debugEvent("network.probe.request", listOf(
             "probe" to "path_mtu",
             "effective_timeout_ms" to timeoutMs,
+            "probe_family" to target.family.name,
+            "destination" to target.destination,
             "ip_overhead_bytes" to overheadBytes,
         ) + command.logFields())
-        val network = networks.waitForNetwork(command.selector, 0)
-            ?: return failed("wifi network not available for path mtu")
-        val ip = waitForProbeSourceIpStatus(network, command.host, timeoutMs, "path_mtu")
+        val ip = waitForProbeSourceIpStatus(network, target.family, timeoutMs, "path_mtu")
         val iface = ip.interfaceName
-        val bindTarget = NetworkCheckPolicy.pingBindTarget(iface, ip.addressesList, command.host)
-        val minMtu = NetworkCheckPolicy.pathMtuMinBytes(command.minMtuBytes, ipv6)
+        val bindTarget = NetworkCheckPolicy.pingBindTarget(iface, ip.addressesList, target.family)
+        val minMtu = NetworkCheckPolicy.pathMtuMinBytes(command.minMtuBytes, target.family == IpFamily.IP_FAMILY_IPV6)
         val maxMtu = NetworkCheckPolicy.pathMtuMaxBytes(command.maxMtuBytes, ip.mtu, minMtu)
-        val binary = NetworkCheckPolicy.pingBinary(command.host)
+        val binary = NetworkCheckPolicy.pingBinary(target.family)
         logger.debugEvent("network.selected", listOf(
             "probe" to "path_mtu",
             "network_id" to ip.networkId,
             "transports" to ip.transportsList,
             "iface" to iface,
+            "probe_family" to target.family.name,
+            "destination" to target.destination,
             "bind_target" to bindTarget,
             "addresses" to ip.addressesList,
             "dns_servers" to ip.dnsServersList,
@@ -325,7 +340,7 @@ class NetworkCheckExecutor(
         var error = ""
 
         // Validate the lower bound first; binary search is meaningful only if the floor can pass.
-        val firstProbe = runPathMtuProbe(network, command.host, minMtu, overheadBytes, binary, iface, bindTarget, timeoutMs, started)
+        val firstProbe = runPathMtuProbe(network, target.destination, minMtu, overheadBytes, binary, iface, bindTarget, timeoutMs, started)
         probes += firstProbe
         if (!firstProbe.passed) {
             error = "minimum_mtu_failed"
@@ -341,7 +356,7 @@ class NetworkCheckExecutor(
                 }
                 // Bias upward so adjacent low/high values converge and low remains the best passing MTU.
                 val mid = low + (high - low + 1) / 2
-                val probe = runPathMtuProbe(network, command.host, mid, overheadBytes, binary, iface, bindTarget, remainingMs, started)
+                val probe = runPathMtuProbe(network, target.destination, mid, overheadBytes, binary, iface, bindTarget, remainingMs, started)
                 probes += probe
                 if (probe.passed) {
                     low = mid
@@ -476,13 +491,16 @@ class NetworkCheckExecutor(
             .build()
     }
 
-    private fun tracerouteWithPing(command: Traceroute, maxHops: Int, timeoutMs: Int, iface: String, bindTarget: String, network: Network): CommandResult {
+    private fun tracerouteWithPing(command: Traceroute, target: ProbeTarget, maxHops: Int, timeoutMs: Int, iface: String, bindTarget: String, network: Network): CommandResult {
         val started = System.nanoTime()
-        val binary = NetworkCheckPolicy.pingBinary(command.host)
+        val binary = NetworkCheckPolicy.pingBinary(target.family)
         val output = StringBuilder()
         output.append("traceroute to ")
             .append(command.host)
-            .append(", ")
+        if (target.destination != command.host) {
+            output.append(" (").append(target.destination).append(")")
+        }
+        output.append(", ")
             .append(maxHops)
             .append(" hops max")
         if (command.sizeBytes > 0) {
@@ -509,7 +527,7 @@ class NetworkCheckExecutor(
                 sizeBytes = command.sizeBytes,
                 ttl = ttl,
                 waitSeconds = waitSeconds,
-                host = command.host,
+                host = target.destination,
             )
             logger.execDebugEvent("probe.exec", listOf(
                 "probe" to "traceroute",
@@ -525,6 +543,7 @@ class NetworkCheckExecutor(
                 "argv" to args,
                 "command_line" to args.joinToString(" "),
                 "host" to command.host,
+                "destination" to target.destination,
                 "iface" to iface.ifBlank { "default" },
                 "bind_target" to bindTarget.ifBlank { "default" },
                 "timeout_ms" to hopTimeoutMs,
@@ -535,7 +554,7 @@ class NetworkCheckExecutor(
                 runProcess(args, hopTimeoutMs)
             }
             val hopElapsedMs = Duration.ofNanos(System.nanoTime() - hopStarted).toMillis()
-            val probe = parsePingTraceProbe(run.output, command.host, hopElapsedMs)
+            val probe = parsePingTraceProbe(run.output, target.destination, hopElapsedMs)
             if (!probe.timedOut && (probe.address.isNotBlank() || probe.host.isNotBlank())) {
                 observedHop = true
             }
@@ -543,6 +562,7 @@ class NetworkCheckExecutor(
                 "probe" to "traceroute_ping_ttl",
                 "ttl" to ttl,
                 "host" to command.host,
+                "destination" to target.destination,
                 "finished" to run.finished,
                 "exit_code" to run.exitCode,
                 "elapsed_ms" to hopElapsedMs,
@@ -976,14 +996,71 @@ class NetworkCheckExecutor(
         }.getOrDefault(false)
     }
 
-    private fun waitForProbeSourceIpStatus(
+    private fun resolveProbeTarget(
         network: Network,
         host: String,
+        requestedFamily: IpFamily,
+        sourceAddresses: List<String>,
+        timeoutMs: Int,
+    ): ProbeTarget {
+        val requested = requestedProbeFamily(requestedFamily)
+        val literal = NetworkCheckPolicy.parseIpLiteral(host)
+        val resolved = if (literal != null) {
+            listOf(literal)
+        } else {
+            val resolveTimeoutMs = timeoutMs
+                .coerceAtMost(PROBE_RESOLVE_TIMEOUT_MS)
+                .coerceAtLeast(1)
+            val aLookup = resolveDnsQtype(network, host, DnsRecordType.DNS_RECORD_TYPE_A, resolveTimeoutMs)
+            val aaaaLookup = resolveDnsQtype(network, host, DnsRecordType.DNS_RECORD_TYPE_AAAA, resolveTimeoutMs)
+            val resolvedAddresses = aLookup.addresses + aaaaLookup.addresses
+            if (resolvedAddresses.isEmpty()) {
+                val errors = listOf(aLookup.error, aaaaLookup.error).filter { it.isNotBlank() }
+                if (errors.isNotEmpty()) {
+                    logger.warn("probe target resolve failed host=$host errors=${errors.joinToString(";")}")
+                }
+            }
+            resolvedAddresses
+        }
+        if (literal != null && requested != null && !NetworkCheckPolicy.addressMatchesFamily(literal, requested)) {
+            logger.warn("probe family mismatch host=$host requested=${requested.name} literal=${literal.hostAddress}")
+        }
+        if (requested != null && resolved.isNotEmpty() && resolved.none { NetworkCheckPolicy.addressMatchesFamily(it, requested) }) {
+            logger.warn("probe target missing requested family host=$host requested=${requested.name} resolved=${resolved.joinToString(",") { it.hostAddress.orEmpty() }}")
+        }
+        val family = requested ?: NetworkCheckPolicy.probeFamily(host, sourceAddresses, resolved)
+        val destination = resolved.firstOrNull { NetworkCheckPolicy.addressMatchesFamily(it, family) }
+            ?.hostAddress
+            .orEmpty()
+            .ifBlank { host }
+        logger.debug("probe target resolved host=$host requested_family=${requestedFamily.name} family=${family.name} destination=$destination resolved=${resolved.joinToString(",") { it.hostAddress.orEmpty() }}")
+        logger.debugEvent("network.probe.resolve", listOf(
+            "host" to host,
+            "requested_family" to requestedFamily.name,
+            "probe_family" to family.name,
+            "destination" to destination,
+            "source_addresses" to sourceAddresses,
+            "resolved_addresses" to resolved.map { it.hostAddress.orEmpty() },
+        ))
+        return ProbeTarget(destination = destination, family = family)
+    }
+
+    private fun requestedProbeFamily(family: IpFamily): IpFamily? {
+        return when (family) {
+            IpFamily.IP_FAMILY_IPV4,
+            IpFamily.IP_FAMILY_IPV6 -> family
+            else -> null
+        }
+    }
+
+    private fun waitForProbeSourceIpStatus(
+        network: Network,
+        family: IpFamily,
         timeoutMs: Int,
         probe: String,
     ): IpStatus {
         var ip = networks.ipStatus(network)
-        if (NetworkCheckPolicy.sourceAddressForHost(ip.addressesList, host) != null) {
+        if (NetworkCheckPolicy.sourceAddressForFamily(ip.addressesList, family) != null) {
             return ip
         }
         val waitMs = timeoutMs.coerceAtMost(PROBE_SOURCE_ADDRESS_WAIT_MS)
@@ -992,7 +1069,7 @@ class NetworkCheckExecutor(
         }
         val started = System.nanoTime()
         var attempts = 0
-        logger.debug("waiting for $probe source address host=$host iface=${ip.interfaceName.ifBlank { "default" }} addresses=${ip.addressesList.joinToString(",")} wait_ms=$waitMs")
+        logger.debug("waiting for $probe source address family=${family.name} iface=${ip.interfaceName.ifBlank { "default" }} addresses=${ip.addressesList.joinToString(",")} wait_ms=$waitMs")
         while (remainingTimeoutMs(waitMs, started) > 0) {
             throwIfInterrupted()
             val sleepMs = remainingTimeoutMs(waitMs, started)
@@ -1001,14 +1078,14 @@ class NetworkCheckExecutor(
             Thread.sleep(sleepMs.toLong())
             attempts += 1
             ip = networks.ipStatus(network)
-            val source = NetworkCheckPolicy.sourceAddressForHost(ip.addressesList, host)
+            val source = NetworkCheckPolicy.sourceAddressForFamily(ip.addressesList, family)
             if (source != null) {
                 val elapsedMs = Duration.ofNanos(System.nanoTime() - started).toMillis()
-                logger.debug("source address ready probe=$probe host=$host source=$source iface=${ip.interfaceName.ifBlank { "default" }} wait_elapsed_ms=$elapsedMs attempts=$attempts")
+                logger.debug("source address ready probe=$probe family=${family.name} source=$source iface=${ip.interfaceName.ifBlank { "default" }} wait_elapsed_ms=$elapsedMs attempts=$attempts")
                 return ip
             }
         }
-        logger.warn("source address unavailable probe=$probe host=$host iface=${ip.interfaceName.ifBlank { "default" }} addresses=${ip.addressesList.joinToString(",")} wait_ms=$waitMs; using interface bind")
+        logger.warn("source address unavailable probe=$probe family=${family.name} iface=${ip.interfaceName.ifBlank { "default" }} addresses=${ip.addressesList.joinToString(",")} wait_ms=$waitMs; using interface bind")
         return ip
     }
 
@@ -1333,6 +1410,11 @@ class NetworkCheckExecutor(
         val timedOut: Boolean = false,
     )
 
+    private data class ProbeTarget(
+        val destination: String,
+        val family: IpFamily,
+    )
+
     private data class HttpResponse(
         val status: Int,
         val body: String,
@@ -1343,6 +1425,7 @@ class NetworkCheckExecutor(
         private const val PATH_MTU_PROBE_TIMEOUT_MS = 500
         private const val PROBE_SOURCE_ADDRESS_WAIT_MS = 5_000
         private const val PROBE_SOURCE_ADDRESS_POLL_MS = 250
+        private const val PROBE_RESOLVE_TIMEOUT_MS = 2_000
         private const val GLOBAL_IP_SERVICE_HOST = "ifconfig.me"
         private const val GLOBAL_IP_SERVICE_PATH = "/ip"
         private const val GLOBAL_IP_SERVICE_PORT = 80

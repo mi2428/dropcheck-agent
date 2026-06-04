@@ -304,6 +304,7 @@ internal fun Ping.logFields(): List<Pair<String, Any?>> = buildList {
     add("count" to count)
     add("timeout_ms" to timeoutMs)
     add("size_bytes" to sizeBytes)
+    add("family" to family.name)
     addAll(selector.logFields())
 }
 
@@ -312,6 +313,7 @@ internal fun Traceroute.logFields(): List<Pair<String, Any?>> = buildList {
     add("max_hops" to maxHops)
     add("timeout_ms" to timeoutMs)
     add("size_bytes" to sizeBytes)
+    add("family" to family.name)
     addAll(selector.logFields())
 }
 
@@ -320,6 +322,7 @@ internal fun PathMtu.logFields(): List<Pair<String, Any?>> = buildList {
     add("timeout_ms" to timeoutMs)
     add("min_mtu_bytes" to minMtuBytes)
     add("max_mtu_bytes" to maxMtuBytes)
+    add("family" to family.name)
     addAll(selector.logFields())
 }
 
