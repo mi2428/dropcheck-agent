@@ -42,6 +42,7 @@ configure mode:
   set standalone disabled
   set standalone retention <duration>
   set standalone max-size <bytes>
+  set standalone live watch <file> [<file>...]
   set standalone upload to <url>
   set standalone upload via wifi essid <essid> passphrase <psk> [security <auto|wpa2|wpa3|transition>]
   set standalone festa <name> enabled
@@ -337,7 +338,7 @@ func resolveConfigureContextKeyword(index int, previous []string, value string) 
 		}
 	case 2:
 		if previous[0] == "set" && previous[1] == "standalone" {
-			return resolveShellKeyword("set standalone command", value, []string{"enabled", "disabled", "retention", "max-size", "upload", "festa"})
+			return resolveShellKeyword("set standalone command", value, []string{"enabled", "disabled", "retention", "max-size", "live", "upload", "festa"})
 		}
 		if previous[0] == "delete" && previous[1] == "standalone" {
 			return resolveShellKeyword("delete standalone command", value, []string{"upload", "festa"})
@@ -507,6 +508,8 @@ func setStandaloneHelpEntries(args []string) []HelpEntry {
 		"disabled":          "Stop persistent checks",
 		"retention":         "Synced-result retention such as 7d",
 		"max-size":          "Store budget such as 512m",
+		"live":              "Seed shell use targets",
+		"watch":             "Load Wi-Fi targets from watch config files",
 		"upload":            "Upload target and management Wi-Fi",
 		"to":                "Upload endpoint URL",
 		"via":               "Upload network selector",
@@ -536,6 +539,7 @@ func setStandaloneHelpEntries(args []string) []HelpEntry {
 		"expected-status":   "Expected HTTP status code",
 		"<name>":            "Name to create or edit",
 		"<url>":             "URL value",
+		"<path>":            "Path to a watch config file",
 		"<essid>":           "SSID value",
 		"<bssid>":           "BSSID value",
 		"<passphrase>":      "Passphrase value",
@@ -1304,7 +1308,7 @@ func configureCompletionCandidatesForArgs(args []string) []string {
 		}
 	case 2:
 		if resolved[0] == "set" && resolved[1] == "standalone" {
-			return []string{"enabled", "disabled", "retention", "max-size", "upload", "festa"}
+			return []string{"enabled", "disabled", "retention", "max-size", "live", "upload", "festa"}
 		}
 		if resolved[0] == "delete" && resolved[1] == "standalone" {
 			return []string{"upload", "festa"}
@@ -1924,9 +1928,13 @@ func wifiExpectationCompletionCandidates(args []string, allowPositionalSSID bool
 
 func setStandaloneCompletionCandidates(args []string) []string {
 	if len(args) == 0 {
-		return []string{"enabled", "disabled", "retention", "max-size", "upload", "festa"}
+		return []string{"enabled", "disabled", "retention", "max-size", "live", "upload", "festa"}
 	}
 	switch {
+	case args[0] == "live" && len(args) == 1:
+		return []string{"watch"}
+	case args[0] == "live" && len(args) >= 2 && args[1] == "watch":
+		return []string{"<path>"}
 	case args[0] == "upload" && len(args) == 1:
 		return []string{"to", "via"}
 	case args[0] == "upload" && len(args) == 2 && args[1] == "to":
@@ -1963,7 +1971,7 @@ func setStandaloneCompletionCandidates(args []string) []string {
 	if state.pending != nil {
 		return optionValueCandidates(*state.pending)
 	}
-	return optionAndPositionalCandidates(state, options, 1, "upload", "festa")
+	return optionAndPositionalCandidates(state, options, 1, "live", "upload", "festa")
 }
 
 func setStandaloneFestaCompletionCandidates(args []string) []string {
@@ -2116,6 +2124,8 @@ func setStandaloneValueCompletionCandidates(last string) ([]string, bool) {
 		return []string{"<url>"}, true
 	case isResolvedKeyword("set standalone option", last, []string{"to"}):
 		return []string{"<url>"}, true
+	case isResolvedKeyword("set standalone option", last, []string{"watch"}):
+		return []string{"<path>"}, true
 	case isResolvedKeyword("set standalone option", last, []string{"count"}):
 		return []string{"<n>"}, true
 	case isResolvedKeyword("set standalone option", last, []string{"expected-status"}):

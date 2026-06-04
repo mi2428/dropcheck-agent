@@ -6,6 +6,7 @@ import (
 
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/pipeline"
+	"dropcheck/controller/internal/standaloneseed"
 )
 
 // Options contains dropcheck CLI flags that affect dispatch and presentation.
@@ -222,6 +223,9 @@ func parseSet(args []string) (Command, error) {
 	}
 	if args[0] != "standalone" {
 		return Command{}, fmt.Errorf("usage: set standalone <command>")
+	}
+	if op, matched, err := standaloneseed.OperationFromSetArgs(args[1:]); matched || err != nil {
+		return Command{Kind: AgentCommand, Operation: op}, err
 	}
 	edits, err := command.StandaloneSetEdits(args[1:])
 	if err != nil {
