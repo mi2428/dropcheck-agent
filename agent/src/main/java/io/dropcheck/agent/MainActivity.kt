@@ -48,7 +48,7 @@ import android.widget.TextView
 import io.dropcheck.agent.grpc.CommandLog
 import io.dropcheck.agent.grpc.CommandResult
 import io.dropcheck.agent.grpc.GetFreshWifiScan
-import io.dropcheck.agent.grpc.GetWifiCapabilities
+import io.dropcheck.agent.grpc.GetWifiDiagnostics
 import io.dropcheck.agent.grpc.GetWifiScan
 import io.dropcheck.agent.grpc.GetWifiStatus
 import io.dropcheck.agent.grpc.Ping
@@ -701,8 +701,14 @@ class MainActivity : Activity() {
                         .setGetWifiStatus(GetWifiStatus.getDefaultInstance())
                         .build(),
                 )
-                if (result.status == CommandResult.Status.STATUS_OK && result.hasWifiStatus()) {
-                    ShellCommandResult(ok = true, lines = AgentWifiStatusRenderer.render(result.wifiStatus))
+                if (result.hasWifiStatus()) {
+                    ShellCommandResult(
+                        ok = result.status == CommandResult.Status.STATUS_OK,
+                        lines = AgentShellTextFormatter.formatStructuredResult(
+                            result,
+                            AgentWifiStatusRenderer.render(result.wifiStatus),
+                        ),
+                    )
                 } else {
                     val message = result.message.ifBlank { result.status.name }
                     ShellCommandResult(ok = false, lines = listOf("show wifi status failed: $message"))
@@ -710,6 +716,9 @@ class MainActivity : Activity() {
             }
             is AgentShellCommand.ShowWifiEht -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
                 runWifiEhtCommand(command)
+            }
+            is AgentShellCommand.ShowWifiScan -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
+                runWifiScanCommand(command)
             }
             is AgentShellCommand.Ping -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
                 runPingCommand(command)
@@ -778,57 +787,111 @@ class MainActivity : Activity() {
 
     private fun runWifiEhtCommand(command: AgentShellCommand.ShowWifiEht): ShellCommandResult {
         val executor = CommandExecutor(applicationContext, agentShellLogger())
-        val statusResult = executor.execute(
-            RunCommand.newBuilder()
-                .setGetWifiStatus(GetWifiStatus.getDefaultInstance())
-                .build(),
-        )
-        if (!statusResult.hasWifiStatus()) {
-            val message = statusResult.message.ifBlank { statusResult.status.name }
-            return ShellCommandResult(ok = false, lines = listOf("show wifi eht failed: status unavailable: $message"))
+        if (command.brief && command.ssid.isBlank() && command.bssid.isBlank()) {
+            return runWifiScanCommand(
+                AgentShellCommand.ShowWifiScan(
+                    brief = true,
+                    mlo = true,
+                    fresh = command.fresh,
+                    timeoutMs = command.timeoutMs,
+                ),
+            )
         }
-
-        val scanCommand = if (command.fresh) {
+        val freshScanResult = if (command.fresh) {
             val scan = GetFreshWifiScan.newBuilder()
                 .setBand(WifiBand.WIFI_BAND_ALL)
             if (command.timeoutMs > 0) scan.timeoutMs = command.timeoutMs
-            RunCommand.newBuilder()
-                .setGetFreshWifiScan(scan.build())
-                .build()
-        } else {
-            RunCommand.newBuilder()
-                .setGetWifiScan(GetWifiScan.newBuilder()
-                    .setBand(WifiBand.WIFI_BAND_ALL)
-                    .build())
-                .build()
-        }
-        val scanResult = executor.execute(scanCommand)
-        if (!scanResult.hasWifiScan()) {
-            val message = scanResult.message.ifBlank { scanResult.status.name }
+            executor.execute(
+                RunCommand.newBuilder()
+                    .setGetFreshWifiScan(scan.build())
+                    .build(),
+            )
+        } else null
+        if (freshScanResult != null && !freshScanResult.hasWifiScan()) {
+            val message = freshScanResult.message.ifBlank { freshScanResult.status.name }
             return ShellCommandResult(ok = false, lines = listOf("show wifi eht failed: scan unavailable: $message"))
         }
 
-        val capabilitiesResult = executor.execute(
+        val diagnosticsResult = executor.execute(
             RunCommand.newBuilder()
-                .setGetWifiCapabilities(GetWifiCapabilities.getDefaultInstance())
-                .build(),
+                .setGetWifiDiagnostics(GetWifiDiagnostics.getDefaultInstance())
+                .build()
         )
+        if (!diagnosticsResult.hasWifiDiagnostics()) {
+            val message = diagnosticsResult.message.ifBlank { diagnosticsResult.status.name }
+            return ShellCommandResult(ok = false, lines = listOf("show wifi eht failed: diagnostics unavailable: $message"))
+        }
+        val diagnostics = diagnosticsResult.wifiDiagnostics
+        if (!diagnostics.hasStatus()) {
+            val message = diagnosticsResult.message.ifBlank { diagnosticsResult.status.name }
+            return ShellCommandResult(ok = false, lines = listOf("show wifi eht failed: status unavailable: $message"))
+        }
+        val scan = freshScanResult?.wifiScan ?: diagnostics.scan
 
         val context = AgentWifiMloContext(
             brief = command.brief,
-            scanSource = if (command.fresh) "fresh" else "cached",
+            scanSource = if (command.fresh) "fresh" else "diagnostics",
             sdkInt = Build.VERSION.SDK_INT,
             wifi7Supported = wifi7StandardSupported(),
-            wifiCapabilities = capabilitiesResult.wifiCapabilities.takeIf { capabilitiesResult.hasWifiCapabilities() },
+            wifiCapabilities = diagnostics.capabilities.takeIf { diagnostics.hasCapabilities() },
             ssidFilter = command.ssid,
             bssidFilter = command.bssid,
-            scanCommandStatus = scanResult.status.name,
-            scanCommandMessage = scanResult.message,
+            scanCommandStatus = freshScanResult?.status?.name.orEmpty(),
+            scanCommandMessage = freshScanResult?.message.orEmpty(),
         )
         return ShellCommandResult(
-            ok = statusResult.status == CommandResult.Status.STATUS_OK,
-            lines = AgentWifiMloRenderer.render(statusResult.wifiStatus, scanResult.wifiScan, context),
+            ok = diagnosticsResult.status == CommandResult.Status.STATUS_OK,
+            lines = AgentShellTextFormatter.formatStructuredResult(
+                diagnosticsResult,
+                AgentWifiMloRenderer.render(diagnostics.status, scan, context),
+            ),
         )
+    }
+
+    private fun runWifiScanCommand(command: AgentShellCommand.ShowWifiScan): ShellCommandResult {
+        val executor = CommandExecutor(applicationContext, agentShellLogger())
+        val band = wifiBandForShell(command.band)
+        val result = if (command.fresh) {
+            val scan = GetFreshWifiScan.newBuilder().setBand(band)
+            if (command.timeoutMs > 0) scan.timeoutMs = command.timeoutMs
+            executor.execute(
+                RunCommand.newBuilder()
+                    .setGetFreshWifiScan(scan.build())
+                    .build(),
+            )
+        } else {
+            executor.execute(
+                RunCommand.newBuilder()
+                    .setGetWifiScan(GetWifiScan.newBuilder().setBand(band).build())
+                    .build(),
+            )
+        }
+        if (!result.hasWifiScan()) {
+            val message = result.message.ifBlank { result.status.name }
+            val label = if (command.fresh) "show wifi scan fresh" else "show wifi scan"
+            return ShellCommandResult(ok = false, lines = listOf("$label failed: $message"))
+        }
+        return ShellCommandResult(
+            ok = result.status == CommandResult.Status.STATUS_OK,
+            lines = AgentShellTextFormatter.formatStructuredResult(
+                result,
+                AgentWifiScanRenderer.render(
+                    result.wifiScan,
+                    AgentWifiScanContext(brief = command.brief, mloOnly = command.mlo),
+                ),
+            ),
+        )
+    }
+
+    private fun wifiBandForShell(value: String): WifiBand {
+        return when (value.lowercase()) {
+            "", "all" -> WifiBand.WIFI_BAND_ALL
+            "2.4ghz" -> WifiBand.WIFI_BAND_2_4_GHZ
+            "5ghz" -> WifiBand.WIFI_BAND_5_GHZ
+            "6ghz" -> WifiBand.WIFI_BAND_6_GHZ
+            "60ghz" -> WifiBand.WIFI_BAND_60_GHZ
+            else -> WifiBand.WIFI_BAND_ALL
+        }
     }
 
     private fun wifi7StandardSupported(): Boolean? {
@@ -981,10 +1044,11 @@ class MainActivity : Activity() {
                 "  show use",
                 "  show version",
                 "  show wifi eht",
-                "  show wifi eht brief",
+                "  show wifi eht fresh [timeout MS]",
                 "  show wifi eht ssid SSID",
                 "  show wifi eht bssid BSSID",
-                "  show wifi eht fresh [timeout MS]",
+                "  show wifi scan [brief [mlo]] [all|2.4ghz|5ghz|6ghz|60ghz]",
+                "  show wifi scan fresh [brief [mlo]] [timeout MS] [all|2.4ghz|5ghz|6ghz|60ghz]",
                 "  show wifi status",
                 "  traceroute HOST [max-hops N] [size BYTES] [timeout MS]",
                 "  use NAME",
@@ -1005,14 +1069,15 @@ class MainActivity : Activity() {
                 "    size is the ICMP payload size in bytes.",
             )
             "show" -> listOf(
-                "show: show (version|use|wifi status|wifi eht)",
+                "show: show (version|use|wifi status|wifi eht|wifi scan)",
                 "    show use displays the Wi-Fi use override state and live targets.",
                 "    show version displays the app version embedded at build time.",
                 "    show wifi status displays local Wi-Fi and IP state.",
                 "    show wifi eht displays connected and nearby EHT state.",
-                "    show wifi eht brief displays a compact nearby EHT MLD tree.",
-                "    show wifi eht ssid/bssid filters scan and current EHT output.",
                 "    show wifi eht fresh requests a scan before rendering EHT state.",
+                "    show wifi eht ssid/bssid filters scan and current EHT output.",
+                "    show wifi scan brief mlo matches the controller's compact MLO scan view.",
+                "    show wifi scan fresh brief mlo runs a fresh scan before that view.",
             )
             "traceroute" -> listOf(
                 "traceroute: traceroute HOST [max-hops N] [size BYTES] [timeout MS]",
