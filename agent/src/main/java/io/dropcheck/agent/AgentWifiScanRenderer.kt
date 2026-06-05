@@ -64,6 +64,10 @@ internal object AgentWifiScanRenderer {
     }
 
     private fun renderScanResults(out: MutableList<String>, results: List<WifiScanResult>, context: AgentWifiScanContext) {
+        if (context.brief) {
+            renderCompactScanResults(out, results, context)
+            return
+        }
         val layout = layoutFor(context)
         val rows = displayRows(results, context.mloOnly, layout)
         if (rows.isEmpty()) {
@@ -71,6 +75,104 @@ internal object AgentWifiScanRenderer {
             return
         }
         table(out, columnsFor(layout), rows.map { it.values })
+    }
+
+    private fun renderCompactScanResults(out: MutableList<String>, results: List<WifiScanResult>, context: AgentWifiScanContext) {
+        val groups = resultGroups(results, context.mloOnly)
+        if (groups.isEmpty()) {
+            out += "  no results"
+            return
+        }
+        if (context.mloOnly) {
+            renderCompactMloGroups(out, groups)
+        } else {
+            renderCompactBriefGroups(out, groups)
+        }
+    }
+
+    private fun renderCompactBriefGroups(out: MutableList<String>, groups: List<ResultGroup>) {
+        groups.forEachIndexed { groupIndex, group ->
+            if (groupIndex > 0) out += ""
+            out += "  ${group.ssid}"
+            table(out, briefScanColumns(), group.results.map(::briefScanTableRow))
+        }
+    }
+
+    private fun renderCompactMloGroups(out: MutableList<String>, groups: List<ResultGroup>) {
+        groups.forEachIndexed { groupIndex, group ->
+            if (groupIndex > 0) out += ""
+            out += "  ${group.ssid}"
+            group.results.firstNotNullOfOrNull { scanMldMac(it).takeIf(String::isNotBlank) }?.let { out += "    mld  $it" }
+            table(out, briefMloColumns(), compactMloRows(group.results).map { it.values })
+        }
+    }
+
+    private fun compactMloRows(results: List<WifiScanResult>): List<CompactMloRow> {
+        val rows = mutableListOf<SortableCompactMloRow>()
+        results.forEach { result ->
+            rows += SortableCompactMloRow(
+                row = compactMloScanRow(result),
+                bandOrder = bandOrder(result.band, result.frequencyMhz),
+                isAffiliated = false,
+                rssi = result.rssiDbm,
+                bssid = empty(result.bssid, "unknown").lowercase(),
+            )
+        }
+        results.forEach { result ->
+            sortedAffiliatedLinks(result.affiliatedMloLinksList).forEach { link ->
+                if (affiliatedLinkMatchesResult(result, link)) return@forEach
+                rows += SortableCompactMloRow(
+                    row = compactMloAffiliatedRow(link),
+                    bandOrder = bandOrder(link.band, 0),
+                    isAffiliated = true,
+                    rssi = link.rssiDbm,
+                    bssid = empty(link.apMacAddress, "unknown").lowercase(),
+                )
+            }
+        }
+        return rows.sortedWith(
+            compareBy<SortableCompactMloRow> { it.isAffiliated }
+                .thenBy { it.bandOrder }
+                .thenComparator { left, right ->
+                    if (!left.isAffiliated && left.rssi != right.rssi) {
+                        return@thenComparator right.rssi.compareTo(left.rssi)
+                    }
+                    if (left.bssid != right.bssid) return@thenComparator left.bssid.compareTo(right.bssid)
+                    right.rssi.compareTo(left.rssi)
+                },
+        ).map { it.row }
+    }
+
+    private fun compactMloScanRow(result: WifiScanResult): CompactMloRow {
+        return CompactMloRow(
+            values = listOf(
+                "s",
+                briefLinkIdValue(scanLinkId(result)),
+                result.rssiDbm.toString(),
+                compactBand(result.band, result.frequencyMhz),
+                briefChannelCell(result.frequencyMhz),
+                compactStandard(result.wifiStandard),
+                compactSecurity(security(result)),
+                briefFlagsCell(result),
+                empty(result.bssid, "unknown"),
+            ),
+        )
+    }
+
+    private fun compactMloAffiliatedRow(link: MloLinkInfo): CompactMloRow {
+        return CompactMloRow(
+            values = listOf(
+                "a",
+                briefLinkIdValue(mloLinkId(link.linkId)),
+                link.rssiDbm.takeIf { it != 0 }?.toString() ?: "?",
+                compactBand(link.band, 0),
+                briefChannelNumber(link.channel),
+                "-",
+                "-",
+                briefStateCell(link.state),
+                empty(link.apMacAddress, "unknown"),
+            ),
+        )
     }
 
     private fun renderErrors(out: MutableList<String>, errors: List<String>) {
@@ -290,15 +392,19 @@ internal object AgentWifiScanRenderer {
     }
 
     private fun securityFeatureCell(details: WifiSecurityDetails?): String {
-        if (details == null) return "-"
-        val flags = mutableListOf<String>()
-        if (details.gcmp256) flags += "gcmp256"
-        if (details.saeGdh) flags += "sae-gdh"
-        if (details.ftSaeGdh) flags += "ft-sae-gdh"
-        if (details.rsnxeCapabilitiesList.contains("sae_h2e")) flags += "h2e"
-        if (details.rsnxeCapabilitiesList.contains("ssid_protection")) flags += "ssid-prot"
-        if (details.beaconProtection) flags += "beacon-prot"
-        return flags.joinToString(",").ifBlank { "-" }
+        return securityFeatureFlags(details).joinToString(",").ifBlank { "-" }
+    }
+
+    private fun securityFeatureFlags(details: WifiSecurityDetails?): List<String> {
+        if (details == null) return emptyList()
+        return buildList {
+            if (details.gcmp256) add("gcmp256")
+            if (details.saeGdh) add("sae-gdh")
+            if (details.ftSaeGdh) add("ft-sae-gdh")
+            if (details.rsnxeCapabilitiesList.contains("sae_h2e")) add("h2e")
+            if (details.rsnxeCapabilitiesList.contains("ssid_protection")) add("ssid-prot")
+            if (details.beaconProtection) add("beacon-prot")
+        }
     }
 
     private fun connectionCapabilityFlags(result: WifiScanResult): List<String> {
@@ -349,6 +455,139 @@ internal object AgentWifiScanRenderer {
             explicitMlo || result.wifiStandard.equals("802.11be", ignoreCase = true) -> "<unknown>"
             else -> "<none>"
         }
+    }
+
+    private fun security(result: WifiScanResult): String {
+        return result.securityTypesList.filter(String::isNotBlank).joinToString(",").ifBlank { empty(result.capabilities, "-") }
+    }
+
+    private fun compactBand(band: String, frequencyMhz: Int): String {
+        return when (empty(band, bandNameForFrequency(frequencyMhz)).trim().lowercase()) {
+            "2.4ghz", "2ghz", "2.4g", "2g" -> "2G"
+            "5ghz", "5g" -> "5G"
+            "6ghz", "6g" -> "6G"
+            "60ghz", "60g" -> "60G"
+            else -> "?"
+        }
+    }
+
+    private fun compactStandard(value: String): String {
+        return normalizedStandard(value).ifBlank { "?" }
+    }
+
+    private fun compactSecurity(value: String): String {
+        return when (value.trim().lowercase()) {
+            "", "<unknown>", "<none>", "-", "?" -> "?"
+            "wpa3_sae", "sae" -> "sae"
+            "wpa2_psk", "psk" -> "psk"
+            "owe" -> "owe"
+            "open" -> "opn"
+            else -> when {
+                value.contains("SAE", ignoreCase = true) -> "sae"
+                value.contains("PSK", ignoreCase = true) -> "psk"
+                value.contains("OWE", ignoreCase = true) -> "owe"
+                value.contains("OPEN", ignoreCase = true) -> "opn"
+                else -> value.lowercase()
+            }
+        }
+    }
+
+    private fun briefScanColumns(): List<TableColumn> {
+        return listOf(
+            TableColumn("RSSI", 4),
+            TableColumn("B", 2),
+            TableColumn("CH", 3),
+            TableColumn("ST", 3),
+            TableColumn("SEC", 3),
+            TableColumn("MLO", 6),
+            TableColumn("FL", 10),
+            TableColumn("MAC", 17),
+        )
+    }
+
+    private fun briefMloColumns(): List<TableColumn> {
+        return listOf(
+            TableColumn("K", 1),
+            TableColumn("L", 2),
+            TableColumn("RSSI", 4),
+            TableColumn("B", 2),
+            TableColumn("CH", 3),
+            TableColumn("ST", 3),
+            TableColumn("SEC", 3),
+            TableColumn("FL", 10),
+            TableColumn("MAC", 17),
+        )
+    }
+
+    private fun briefScanTableRow(result: WifiScanResult): List<String> {
+        return listOf(
+            result.rssiDbm.toString(),
+            compactBand(result.band, result.frequencyMhz),
+            briefChannelCell(result.frequencyMhz),
+            compactStandard(result.wifiStandard),
+            compactSecurity(security(result)),
+            briefMloCell(result),
+            briefFlagsCell(result),
+            empty(result.bssid, "unknown"),
+        )
+    }
+
+    private fun briefMloCell(result: WifiScanResult): String {
+        if (!hasMloScanMetadata(result) && !result.wifiStandard.equals("802.11be", ignoreCase = true)) {
+            return "-"
+        }
+        val link = "l${briefLinkIdValue(scanLinkId(result))}"
+        val affiliated = result.affiliatedMloLinksCount.takeIf { it > 0 }?.let { "+$it" }.orEmpty()
+        return link + affiliated
+    }
+
+    private fun briefFlagsCell(result: WifiScanResult): String {
+        return connectionCapabilityFlags(result)
+            .map(::briefFlagToken)
+            .joinToString(",")
+            .ifBlank { "-" }
+    }
+
+    private fun briefFlagToken(value: String): String {
+        return when (value) {
+            "interworking" -> "iw"
+            "roaming_consortium" -> "rc"
+            else -> value
+        }
+    }
+
+    private fun briefLinkIdValue(value: String): String {
+        return when (value.trim()) {
+            "", "<unknown>", "<none>", "?" -> "?"
+            else -> value
+        }
+    }
+
+    private fun briefChannelCell(frequencyMhz: Int): String {
+        return wifiChannelFromFrequency(frequencyMhz).takeIf { it != "unknown" } ?: "?"
+    }
+
+    private fun briefChannelNumber(channel: Int): String {
+        return if (channel > 0) channel.toString() else "?"
+    }
+
+    private fun briefStateCell(value: String): String {
+        return when (value.trim().lowercase()) {
+            "", "<unknown>", "<none>", "-", "?" -> "-"
+            "unassociated" -> "ua"
+            else -> value.lowercase()
+        }
+    }
+
+    private fun wifiChannelFromFrequency(freq: Int): String {
+        val channel = when {
+            freq == 2484 -> 14
+            freq in 2412..2472 -> (freq - 2407) / 5
+            freq in 5000..5895 -> (freq - 5000) / 5
+            freq in 5955..7115 -> (freq - 5950) / 5
+            else -> 0
+        }
+        return if (channel == 0) "unknown" else channel.toString()
     }
 
     private fun mloLinkId(id: Int): String = if (id < 0) "<none>" else id.toString()
@@ -472,6 +711,18 @@ internal object AgentWifiScanRenderer {
         val row: DisplayRow,
         val bandOrder: Int,
         val isLink: Boolean,
+        val rssi: Int,
+        val bssid: String,
+    )
+
+    private data class CompactMloRow(
+        val values: List<String>,
+    )
+
+    private data class SortableCompactMloRow(
+        val row: CompactMloRow,
+        val bandOrder: Int,
+        val isAffiliated: Boolean,
         val rssi: Int,
         val bssid: String,
     )

@@ -175,48 +175,10 @@ internal object AgentWifiMloRenderer {
             out += "  no EHT-capable scan results"
             return
         }
-        tableWithColumns(out,
-            listOf(
-                TableColumn("ITEM"),
-                TableColumn("MLD", 17),
-                TableColumn("BAND", 6),
-                TableColumn("RSSI", 4),
-                TableColumn("SEC", 7),
-                TableColumn("STD", 4),
-                TableColumn("CLR", 5),
-                TableColumn("EHT", 9),
-                TableColumn("ADDR", 17),
-            ),
-            groups.flatMap { group ->
-                buildList {
-                    add(listOf(
-                        joined(group.results.map { empty(it.ssid, "<hidden>") }),
-                        briefCell(group.displayMld),
-                        "",
-                        "",
-                        "",
-                        "",
-                        "",
-                        "",
-                        "",
-                    ))
-                    val links = briefLinkRows(group, current)
-                    links.forEachIndexed { index, link ->
-                        add(listOf(
-                            briefNodeLabel(index, links.size, link.mark, link.linkId),
-                            "",
-                            link.band,
-                            link.rssi,
-                            link.security,
-                            link.standard,
-                            link.color,
-                            link.eht,
-                            link.addr,
-                        ))
-                    }
-                }
-            },
-        )
+        groups.forEachIndexed { index, group ->
+            if (index > 0) out += ""
+            renderBriefNearbyMloGroupTable(out, group, current)
+        }
     }
 
     private fun renderNearbyMloTable(out: MutableList<String>, groups: List<MloGroup>) {
@@ -857,6 +819,45 @@ internal object AgentWifiMloRenderer {
         return "$width/$puncturing"
     }
 
+    private fun renderBriefNearbyMloGroupTable(out: MutableList<String>, group: MloGroup, current: WifiConnection?) {
+        out += "  ${joined(group.results.map { empty(it.ssid, "<hidden>") })}"
+        out += "    mld  ${briefCell(group.displayMld)}"
+        tableWithColumns(out,
+            listOf(
+                TableColumn("M", 1),
+                TableColumn("L", 2),
+                TableColumn("RSSI", 4),
+                TableColumn("B", 2),
+                TableColumn("FL", 6),
+                TableColumn("ST", 3),
+                TableColumn("SEC", 3),
+                TableColumn("EHT", 7),
+                TableColumn("MAC", 17),
+            ),
+            briefLinkRows(group, current).map { link ->
+                listOf(
+                    link.mark.ifBlank { " " },
+                    link.linkId,
+                    link.rssi,
+                    link.band,
+                    briefStateCell(link.state),
+                    link.standard,
+                    link.security,
+                    link.eht,
+                    link.addr,
+                )
+            },
+        )
+    }
+
+    private fun briefStateCell(value: String): String {
+        return when (value.trim().lowercase()) {
+            "", "<unknown>", "<none>", "-", "?" -> "-"
+            "unassociated" -> "ua"
+            else -> value.lowercase()
+        }
+    }
+
     private fun briefLinkRows(group: MloGroup, current: WifiConnection?): List<BriefLinkRow> {
         val rows = mutableListOf<BriefLinkRow>()
         group.results.forEach { result ->
@@ -898,6 +899,7 @@ internal object AgentWifiMloRenderer {
             linkId = if (preferred.linkId == "?" && secondary.linkId != "?") secondary.linkId else preferred.linkId,
             band = if (preferred.band == "?" && secondary.band != "?") secondary.band else preferred.band,
             rssi = if (preferred.rssi == "?" && secondary.rssi != "?") secondary.rssi else preferred.rssi,
+            state = if ((preferred.state.isBlank() || preferred.state == "?") && secondary.state.isNotBlank()) secondary.state else preferred.state,
             security = if ((preferred.security.isBlank() || preferred.security == "-") && secondary.security.isNotBlank()) secondary.security else preferred.security,
             standard = if ((preferred.standard.isBlank() || preferred.standard == "-") && secondary.standard.isNotBlank()) secondary.standard else preferred.standard,
             color = if ((preferred.color.isBlank() || preferred.color == "-") && secondary.color.isNotBlank()) secondary.color else preferred.color,
@@ -914,6 +916,7 @@ internal object AgentWifiMloRenderer {
             linkId = briefCell(scanLinkID(result)),
             band = briefBand(empty(result.band, wifiBandFromFrequency(result.frequencyMhz))),
             rssi = result.rssiDbm.toString(),
+            state = "",
             security = briefSecurity(security(result)),
             standard = briefStandard(result.wifiStandard),
             color = briefColor(heOperationBssColorValue(if (result.hasHeOperation()) result.heOperation else null)),
@@ -929,7 +932,8 @@ internal object AgentWifiMloRenderer {
             mark = linkMark(group, link, current),
             linkId = briefLinkID(link),
             band = briefBand(link.band),
-            rssi = link.rssiDbm.toString(),
+            rssi = link.rssiDbm.takeIf { it != 0 }?.toString() ?: "?",
+            state = briefCell(link.state),
             security = "-",
             standard = "-",
             color = "-",
@@ -1481,6 +1485,7 @@ internal object AgentWifiMloRenderer {
         val linkId: String,
         val band: String,
         val rssi: String,
+        val state: String,
         val security: String,
         val standard: String,
         val color: String,

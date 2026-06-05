@@ -12,7 +12,7 @@ import org.junit.Test
 
 class AgentWifiScanRendererTest {
     @Test
-    fun rendersControllerStyleBriefMloScan() {
+    fun rendersBriefMloTableScan() {
         val scan = WifiScan.newBuilder()
             .addFields(field("requested_band", "6GHz"))
             .addFields(field("scan_result_count", "3"))
@@ -94,16 +94,13 @@ class AgentWifiScanRendererTest {
 
         for (want in listOf(
             "Wi-Fi Scan",
-            "SSID  BSSID",
-            "SEC_FEATURES",
-            "FLAGS",
-            "AP_MLD",
             "Lab",
+            "mld  02:00:00:00:00:01",
+            "K  L  RSSI  B   CH  ST  SEC  FL",
+            "s  2  -45   6G  69  be  sae  11k,11v...",
+            "a  1  ?     5G  ?   -   -    ua",
             "aa:bb:cc:dd:ee:ff",
             "aa:bb:cc:dd:ee:01",
-            "gcmp256,sae-gdh,ft-sae-gdh,h2e,ssid-prot,beacon-prot",
-            "11k,11v,mlo,rnr",
-            "affiliated_link,unassociated",
         )) {
             assertTrue("rendered output missing $want:\n$out", out.contains(want))
         }
@@ -122,7 +119,74 @@ class AgentWifiScanRendererTest {
             assertTrue("summary row $key missing value $value:\n$out", line!!.contains(value))
         }
 
-        for (unwanted in listOf("STANDARD", "AP_LINK", "AFFILIATED", "GhostBE", "LegacyMLO")) {
+        for (unwanted in listOf("SSID  BSSID", "STANDARD", "AP_LINK", "AFFILIATED", "GhostBE", "LegacyMLO", "flags  ", "sec    ")) {
+            assertFalse("rendered output included $unwanted:\n$out", out.contains(unwanted))
+        }
+    }
+
+    @Test
+    fun rendersBriefScanTablesForMobileWidth() {
+        val scan = WifiScan.newBuilder()
+            .addFields(field("requested_band", "all"))
+            .addFields(field("scan_result_count", "2"))
+            .addFields(field("scan_result_total_count", "2"))
+            .addResults(
+                WifiScanResult.newBuilder()
+                    .setSsid("Lab")
+                    .setBssid("aa:bb:cc:dd:ee:ff")
+                    .setRssiDbm(-45)
+                    .setBand("6GHz")
+                    .setFrequencyMhz(6295)
+                    .setWifiStandard("802.11be")
+                    .addSecurityTypes("sae")
+                    .setApMldMacAddress("02:00:00:00:00:01")
+                    .setApMloLinkId(2)
+                    .addAffiliatedMloLinks(
+                        MloLinkInfo.newBuilder()
+                            .setLinkId(1)
+                            .setBand("5GHz")
+                            .setApMacAddress("aa:bb:cc:dd:ee:01")
+                            .build(),
+                    )
+                    .setSecurityDetails(
+                        WifiSecurityDetails.newBuilder()
+                            .setGcmp256(true)
+                            .setBeaconProtection(true)
+                            .build(),
+                    )
+                    .addInformationElements(ie(70, bytesHex = ""))
+                    .addInformationElements(ie(255, idExt = 107, bytesHex = "beef"))
+                    .build(),
+            )
+            .addResults(
+                WifiScanResult.newBuilder()
+                    .setSsid("Guest")
+                    .setBssid("11:22:33:44:55:66")
+                    .setRssiDbm(-62)
+                    .setBand("2.4GHz")
+                    .setFrequencyMhz(2462)
+                    .setWifiStandard("802.11ax")
+                    .addSecurityTypes("psk")
+                    .build(),
+            )
+            .build()
+
+        val out = AgentWifiScanRenderer.render(
+            scan,
+            AgentWifiScanContext(brief = true),
+        ).joinToString("\n")
+
+        for (want in listOf(
+            "Wi-Fi Scan",
+            "Lab",
+            "Guest",
+            "RSSI  B   CH  ST  SEC  MLO",
+            "-45   6G  69  be  sae  l2+1  11k,mlo  aa:bb:cc:dd:ee:ff",
+            "-62   2G  11  ax  psk  -    -   11:22:33:44:55:66",
+        )) {
+            assertTrue("rendered output missing $want:\n$out", out.contains(want))
+        }
+        for (unwanted in listOf("bssid  ", "mlo    ", "flags  ", "sec    ", "STANDARD", "SEC_FEATURES", "AP_LINK", "AFFILIATED")) {
             assertFalse("rendered output included $unwanted:\n$out", out.contains(unwanted))
         }
     }

@@ -1076,8 +1076,8 @@ class MainActivity : Activity() {
                 "    show wifi eht displays connected and nearby EHT state.",
                 "    show wifi eht fresh requests a scan before rendering EHT state.",
                 "    show wifi eht ssid/bssid filters scan and current EHT output.",
-                "    show wifi scan brief mlo matches the controller's compact MLO scan view.",
-                "    show wifi scan fresh brief mlo runs a fresh scan before that view.",
+                "    show wifi scan brief mlo renders a narrow mobile-friendly MLO table.",
+                "    show wifi scan fresh brief mlo runs a fresh scan before that table view.",
             )
             "traceroute" -> listOf(
                 "traceroute: traceroute HOST [max-hops N] [size BYTES] [timeout MS]",

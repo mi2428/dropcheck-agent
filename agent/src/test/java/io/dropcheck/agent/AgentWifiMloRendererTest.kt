@@ -139,7 +139,7 @@ class AgentWifiMloRendererTest {
     }
 
     @Test
-    fun rendersBriefNearbyTables() {
+    fun rendersBriefNearbyBlocks() {
         val longSsid = "Lab-SSID-That-Should-Not-Truncate"
         val status = WifiStatus.newBuilder()
             .setEnabled(true)
@@ -165,19 +165,12 @@ class AgentWifiMloRendererTest {
         assertFalse(out.contains("Nearby EHT Links"))
         assertFalse(out.contains("Nearby EHT APs / Links"))
         assertTrue("missing full SSID in brief table:\n$out", out.contains(longSsid))
-        val tableHeaderIndex = lines.indexOf("Nearby EHT MLDs")
-        assertTrue("missing Nearby EHT MLDs header:\n$out", tableHeaderIndex >= 0 && tableHeaderIndex + 1 < lines.size)
-        assertTrue(
-            "missing MLD tree header:\n$out",
-            lines[tableHeaderIndex + 1].contains("ITEM") &&
-                lines[tableHeaderIndex + 1].contains("MLD") &&
-                lines[tableHeaderIndex + 1].contains("EHT"),
-        )
-        val tableRows = lines.drop(tableHeaderIndex + 2).takeWhile { it.isNotBlank() }
-        assertTrue("missing parent MLD row:\n$out", tableRows.any { it.contains(longSsid) && it.contains("02:00:00:00:00:01") })
-        assertTrue("missing current link row:\n$out", tableRows.any { it.contains("[*] 2") })
-        assertTrue("missing peer link row:\n$out", tableRows.any { it.contains("[+] 1") })
-        assertTrue("unexpected link row count:\n$out", tableRows.count { it.contains("[*]") || it.contains("[+]") || it.contains("[-]") } == 2)
+        assertTrue("missing group heading:\n$out", out.contains("  $longSsid"))
+        assertTrue("missing MLD line:\n$out", out.contains("    mld  02:00:00:00:00:01"))
+        assertTrue("missing brief table header:\n$out", out.contains("M  L  RSSI  B   FL") && out.contains("EHT") && out.contains("MAC"))
+        assertTrue("missing current link row:\n$out", out.contains("*  2  -45   6G  active  be  sae  320/1,3"))
+        assertTrue("missing peer link row:\n$out", out.contains("+  1  -55   6G  idle") && out.contains("aa:bb:cc:dd:ee:01"))
+        assertFalse("rendered output still contains the old brief block format:\n$out", out.contains("data   clr") || out.contains("ITEM") || out.contains("ADDR"))
         assertFalse(out.contains("Current AP Relation"))
         assertFalse(out.contains("Connected MLO"))
         assertFalse(out.contains("EHT Scan Links"))
