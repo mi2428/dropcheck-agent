@@ -145,6 +145,9 @@ $ controller/dist/dropcheck --serial R5CT12345 show wifi scan fresh all --timeou
 $ controller/dist/dropcheck --serial R5CT12345 request ping 1.1.1.1 --count 5
 ```
 
+In text mode, `show wifi status` appends controller-side ADB IPv6 RA diagnostics when the selected handset is reachable over ADB.
+That `ADB IPv6 RA` block shows `accept_ra*`, IPv6 default-route presence, and decoded router advertisements with `router_lifetime`, `valid_lifetime`, and `preferred_lifetime`, which is useful when SLAAC addresses appear but IPv6 internet access or the default router is missing.
+
 A short interactive session, with verbose startup lines omitted and network values shown as examples:
 
 ```console
@@ -277,7 +280,8 @@ checks:
         mode: at_least
   - name: ping cloudflare
     type: ping
-    host: 1.1.1.1
+    host: one.one.one.one
+    family: ipv4
     count: 5
     expect:
       received: 5
@@ -292,6 +296,9 @@ checks:
           - 1.0.0.1
           - 1.1.1.1
 ```
+
+For `ping`, `traceroute`, and `path_mtu`, `family: ipv4` or `family: ipv6` pins a dual-stack hostname probe to one address family.
+Leave `family` unset when the agent should auto-select based on DNS answers and usable source addresses.
 
 ### MCP server
 
