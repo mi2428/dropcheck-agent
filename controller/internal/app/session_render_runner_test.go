@@ -138,6 +138,59 @@ func TestRunOperationForAgentsDispatchesAndRendersResult(t *testing.T) {
 	}
 }
 
+func TestRunOperationForAgentsSeparatesMultiAgentTextOutput(t *testing.T) {
+	state, streamA, cleanupA := connectedShellStateWithStream(t)
+	defer cleanupA()
+
+	streamB, cleanupB := connectAdditionalTestAgent(t, state.server, "session-b", "agent-b", "45240DLAQ007HG", 36)
+	defer cleanupB()
+
+	agentA, err := state.server.ResolveAgent("agent-a")
+	if err != nil {
+		t.Fatalf("ResolveAgent(agent-a) error = %v", err)
+	}
+	agentB, err := state.server.ResolveAgent("agent-b")
+	if err != nil {
+		t.Fatalf("ResolveAgent(agent-b) error = %v", err)
+	}
+
+	respondToPingCommand(streamA, 4)
+	respondToPingCommand(streamB, 7)
+
+	op, err := command.PingOperation(command.PingOptions{Host: "example.test", Count: "1"})
+	if err != nil {
+		t.Fatalf("PingOperation() error = %v", err)
+	}
+
+	out, err := captureStdout(t, func() error {
+		return runOperationForAgents(
+			context.Background(),
+			state,
+			[]control.AgentInfo{agentA, agentB},
+			op,
+			commandOutputOptions{},
+		)
+	})
+	if err != nil {
+		t.Fatalf("runOperationForAgents() error = %v", err)
+	}
+
+	for _, want := range []string{
+		"Agent: R5CT12345\nLatency: 4ms",
+		"Agent: 45240DLAQ007HG\nLatency: 7ms",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("runOperationForAgents output = %q, missing %q", out, want)
+		}
+	}
+	if strings.Count(out, "Agent: ") != 2 {
+		t.Fatalf("runOperationForAgents output = %q, want 2 agent headers", out)
+	}
+	if !strings.Contains(out, "\n\nAgent: ") {
+		t.Fatalf("runOperationForAgents output did not separate agent blocks:\n%s", out)
+	}
+}
+
 func TestRunOperationForAgentsWifiEHTFreshScansBeforeDiagnostics(t *testing.T) {
 	state, stream, cleanup := connectedShellStateWithStream(t)
 	defer cleanup()
@@ -226,6 +279,50 @@ func TestRunOperationForAgentsWifiEHTFreshScansBeforeDiagnostics(t *testing.T) {
 func connectedShellState(t *testing.T) (*shellState, func()) {
 	state, _, cleanup := connectedShellStateWithStream(t)
 	return state, cleanup
+}
+
+func connectAdditionalTestAgent(t *testing.T, server *control.Server, sessionID string, agentID string, serial string, sdk int32) (*testControlSessionStream, func()) {
+	t.Helper()
+	wantAgents := len(server.Agents()) + 1
+	stream := newTestControlSessionStream()
+	stream.recv <- &controlpb.AgentFrame{
+		SessionId: sessionID,
+		Body: &controlpb.AgentFrame_Hello{Hello: &controlpb.AgentHello{
+			Token:             "token",
+			ControllerAgentId: agentID,
+			AdbSerial:         serial,
+			AppVersion:        "debug",
+			Device: &controlpb.DeviceInfo{
+				Manufacturer: "Acme",
+				Model:        "Pixel",
+				Sdk:          sdk,
+			},
+		}},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- server.Session(stream)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := server.WaitAgents(ctx, wantAgents); err != nil {
+		t.Fatalf("WaitAgents() error = %v", err)
+	}
+
+	cleanup := func() {
+		stream.close()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("Session() error = %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for Session cleanup")
+		}
+	}
+	return stream, cleanup
 }
 
 func connectedShellStateWithStream(t *testing.T) (*shellState, *testControlSessionStream, func()) {
@@ -331,6 +428,31 @@ func receiveTestControllerFrame(t *testing.T, ch <-chan *controlpb.ControllerFra
 		t.Fatalf("timed out waiting for controller frame")
 		return nil
 	}
+}
+
+func respondToPingCommand(stream *testControlSessionStream, elapsedMs int64) {
+	go func() {
+		for frame := range stream.sent {
+			ping := frame.GetRunCommand().GetPing()
+			if ping == nil {
+				continue
+			}
+			stream.recv <- &controlpb.AgentFrame{
+				CommandId: frame.GetCommandId(),
+				Body: &controlpb.AgentFrame_Result{Result: &controlpb.CommandResult{
+					Status: controlpb.CommandResult_STATUS_OK,
+					Payload: &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{
+						Host:      ping.GetHost(),
+						Count:     ping.GetCount(),
+						ElapsedMs: elapsedMs,
+						Output: "1 packets transmitted, 1 packets received, 0% packet loss\n" +
+							"rtt min/avg/max/mdev = 1.000/1.500/2.000/0.100 ms\n",
+					}},
+				}},
+			}
+			return
+		}
+	}()
 }
 
 func captureStdout(t *testing.T, run func() error) (string, error) {

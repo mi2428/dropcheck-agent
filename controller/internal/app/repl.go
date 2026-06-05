@@ -356,6 +356,25 @@ type commandOutputOptions struct {
 	strict             bool
 }
 
+func separateTextBlock(out string, printedAny bool) string {
+	if out == "" {
+		return out
+	}
+	var b strings.Builder
+	if printedAny {
+		b.WriteByte('\n')
+	}
+	b.WriteString(out)
+	if !strings.HasSuffix(out, "\n") {
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func agentTextBlock(agent string, out string, printedAny bool) string {
+	return separateTextBlock(fmt.Sprintf("Agent: %s\n%s", agent, out), printedAny)
+}
+
 func runOperationForAgents(ctx context.Context, state *shellState, agents []control.AgentInfo, op Operation, output commandOutputOptions) error {
 	if len(agents) == 0 {
 		fmt.Fprintln(os.Stderr, "no Android agents connected")
@@ -377,6 +396,7 @@ func runOperationForAgents(ctx context.Context, state *shellState, agents []cont
 	}
 
 	var outputMu sync.Mutex
+	var printedAny bool
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(agents))
 	for _, agent := range agents {
@@ -385,7 +405,7 @@ func runOperationForAgents(ctx context.Context, state *shellState, agents []cont
 		// broadcast execution isolated across agents.
 		agentCmd := proto.Clone(cmd).(*controlpb.RunCommand)
 		wg.Go(func() {
-			if err := runCommandForAgent(ctx, state, agent, agentCmd, options, output, &outputMu); err != nil {
+			if err := runCommandForAgent(ctx, state, agent, agentCmd, options, output, &outputMu, &printedAny); err != nil {
 				errCh <- err
 			}
 		})
@@ -410,11 +430,12 @@ func runADBDiagnosticsForAgents(ctx context.Context, state *shellState, agents [
 	}
 
 	var outputMu sync.Mutex
+	var printedAny bool
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(agents))
 	for _, agent := range agents {
 		wg.Go(func() {
-			if err := runADBDiagnosticsForAgent(ctx, state, agent, kind, output, &outputMu); err != nil {
+			if err := runADBDiagnosticsForAgent(ctx, state, agent, kind, output, &outputMu, &printedAny); err != nil {
 				errCh <- err
 			}
 		})
@@ -429,7 +450,7 @@ func runADBDiagnosticsForAgents(ctx context.Context, state *shellState, agents [
 	return nil
 }
 
-func runADBDiagnosticsForAgent(ctx context.Context, state *shellState, agent control.AgentInfo, kind string, output commandOutputOptions, outputMu *sync.Mutex) error {
+func runADBDiagnosticsForAgent(ctx context.Context, state *shellState, agent control.AgentInfo, kind string, output commandOutputOptions, outputMu *sync.Mutex, printedAny *bool) error {
 	serial := agent.Hello.GetAdbSerial()
 	if serial == "" {
 		outputMu.Lock()
@@ -455,7 +476,13 @@ func runADBDiagnosticsForAgent(ctx context.Context, state *shellState, agent con
 	if err != nil {
 		return err
 	}
+	if output.format == outputText {
+		out = separateTextBlock(out, *printedAny)
+	}
 	fmt.Print(out)
+	if output.format == outputText {
+		*printedAny = true
+	}
 	return nil
 }
 
@@ -468,6 +495,7 @@ func runConfigForAgents(ctx context.Context, state *shellState, agents []control
 		output.format = outputText
 	}
 	includeAgentHeader := len(agents) > 1
+	var printedAny bool
 	for _, agent := range agents {
 		view, err := fetchConfigView(ctx, state, agent, scope)
 		if err != nil {
@@ -483,7 +511,7 @@ func runConfigForAgents(ctx context.Context, state *shellState, agents []control
 		} else {
 			out, err = renderConfig(view, output.format)
 			if err == nil && includeAgentHeader && output.format == outputText {
-				out = fmt.Sprintf("Agent: %s\n%s", agentDisplayName(agent), out)
+				out = agentTextBlock(agentDisplayName(agent), out, printedAny)
 			}
 		}
 		if err != nil {
@@ -493,7 +521,13 @@ func runConfigForAgents(ctx context.Context, state *shellState, agents []control
 		if err != nil {
 			return err
 		}
+		if output.format == outputText && !includeAgentHeader {
+			out = separateTextBlock(out, printedAny)
+		}
 		fmt.Print(out)
+		if output.format == outputText {
+			printedAny = true
+		}
 	}
 	return nil
 }
@@ -547,7 +581,7 @@ func resultStatusLabel(status controlpb.CommandResult_Status) string {
 	}
 }
 
-func runCommandForAgent(ctx context.Context, state *shellState, agent control.AgentInfo, cmd *controlpb.RunCommand, options commandOptions, output commandOutputOptions, outputMu *sync.Mutex) error {
+func runCommandForAgent(ctx context.Context, state *shellState, agent control.AgentInfo, cmd *controlpb.RunCommand, options commandOptions, output commandOutputOptions, outputMu *sync.Mutex, printedAny *bool) error {
 	commandID, err := control.RandomHex(8)
 	if err != nil {
 		return err
@@ -585,7 +619,13 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 		if renderErr != nil {
 			return renderErr
 		}
+		if output.includeAgentHeader && output.format == outputText {
+			out = separateTextBlock(out, *printedAny)
+		}
 		fmt.Print(out)
+		if output.format == outputText {
+			*printedAny = true
+		}
 		return nil
 	}
 	var out string
@@ -597,7 +637,7 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 			out = supplements.appendToText(out)
 		}
 		if err == nil && output.includeAgentHeader && output.format == outputText {
-			out = fmt.Sprintf("Agent: %s\n%s", agentDisplayName(agent), out)
+			out = agentTextBlock(agentDisplayName(agent), out, *printedAny)
 		}
 	}
 	if err != nil {
@@ -607,7 +647,13 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 	if err != nil {
 		return err
 	}
+	if output.format == outputText && !output.includeAgentHeader {
+		out = separateTextBlock(out, *printedAny)
+	}
 	fmt.Print(out)
+	if output.format == outputText {
+		*printedAny = true
+	}
 	return nil
 }
 
