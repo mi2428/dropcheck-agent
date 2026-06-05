@@ -92,6 +92,7 @@ class AgentWifiStatusRendererTest {
                 .addRoutes("0.0.0.0/0 -> 192.0.2.1 wlan0")
                 .addRoutes("192.0.2.0/24 -> 0.0.0.0 wlan0")
                 .addIpv6Ra(DiagnosticField.newBuilder().setKey("default_route").setValue("missing").build())
+                .addIpv6Ra(DiagnosticField.newBuilder().setKey("default_gateways").setValue("fe80::1\nfe80::2").build())
                 .addIpv6Ra(DiagnosticField.newBuilder().setKey("accept_ra").setValue("2").build())
                 .addIpv6Ra(DiagnosticField.newBuilder().setKey("accept_ra_defrtr").setValue("1").build())
                 .addIpv6Ra(DiagnosticField.newBuilder().setKey("accept_ra_min_lft").setValue("180").build())
@@ -126,19 +127,25 @@ class AgentWifiStatusRendererTest {
             "dhcp_server   192.0.2.254",
             "private_dns   active=true server=none",
             "routes\n    0.0.0.0/0 -> 192.0.2.1 wlan0\n    192.0.2.0/24 -> 0.0.0.0 wlan0",
-            "ipv6_ra\n    default_route=missing\n    accept_ra=2\n    accept_ra_defrtr=1\n    accept_ra_min_lft=180",
             "domains",
             "local",
             "wlan0",
+            "IPv6 RA",
+            "default_route",
+            "missing",
+            "default_gateways",
+            "fe80::1",
+            "fe80::2",
+            "accept_ra",
+            "accept_ra_defrtr",
+            "accept_ra_min_lft",
+            "180",
         ).forEach { want ->
             assertTrue("rendered output missing $want:\n$out", out.contains(want))
         }
         assertTrue(
-            "network rows are not ordered routes -> ipv6_ra -> dns -> domains:\n$out",
-            out.indexOf("\n  routes") < out.indexOf("\n  dns") &&
-                out.indexOf("\n  routes") < out.indexOf("\n  ipv6_ra") &&
-                out.indexOf("\n  ipv6_ra") < out.indexOf("\n  dns") &&
-                out.indexOf("\n  dns") < out.indexOf("\n  domains"),
+            "sections are not ordered Network -> IPv6 RA:\n$out",
+            out.indexOf("\nNetwork") < out.indexOf("\nIPv6 RA"),
         )
         listOf(
             "Connection Capabilities",
@@ -157,6 +164,7 @@ class AgentWifiStatusRendererTest {
             "not_metered,not_roaming",
             "192.0.2.1,1.1.1.1",
             "0.0.0.0/0 -> 192.0.2.1 wlan0 | 192.0.2.0/24 -> 0.0.0.0 wlan0",
+            "ipv6_ra",
             "11k,11r,11v_bss_transition",
             "security=wpa3",
             "signal_strength",
