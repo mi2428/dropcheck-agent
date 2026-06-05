@@ -1,7 +1,10 @@
 package io.dropcheck.agent
 
 /** Commands supported by the on-device interactive shell. */
-private const val SHOW_WIFI_EHT_USAGE = "usage: show wifi eht [brief] [fresh [timeout MS]] [ssid SSID|bssid BSSID]"
+private const val SHOW_WIFI_EHT_USAGE = "usage: show wifi eht [fresh [timeout MS]] [ssid SSID|bssid BSSID]"
+private const val SHOW_WIFI_SCAN_USAGE = "usage: show wifi scan [brief [mlo]] [all|2.4ghz|5ghz|6ghz|60ghz]"
+private const val SHOW_WIFI_SCAN_FRESH_USAGE = "usage: show wifi scan fresh [brief [mlo]] [timeout MS] [all|2.4ghz|5ghz|6ghz|60ghz]"
+private val WIFI_SCAN_BANDS = listOf("all", "2.4ghz", "5ghz", "6ghz", "60ghz")
 
 internal sealed class AgentShellCommand {
     data object Noop : AgentShellCommand()
@@ -16,6 +19,13 @@ internal sealed class AgentShellCommand {
         val timeoutMs: Int = 0,
         val ssid: String = "",
         val bssid: String = "",
+    ) : AgentShellCommand()
+    data class ShowWifiScan(
+        val brief: Boolean = false,
+        val mlo: Boolean = false,
+        val fresh: Boolean = false,
+        val timeoutMs: Int = 0,
+        val band: String = "",
     ) : AgentShellCommand()
     data class Ping(val host: String, val count: Int = 0, val sizeBytes: Int = 0, val timeoutMs: Int = 0) : AgentShellCommand()
     data class Traceroute(val host: String, val maxHops: Int = 0, val sizeBytes: Int = 0, val timeoutMs: Int = 0) : AgentShellCommand()
@@ -59,24 +69,78 @@ internal object AgentShellParser {
         return when {
             tokens.size == 2 && "version".startsWith(tokens[1]) -> AgentShellCommand.ShowVersion
             tokens.size == 2 && "use".startsWith(tokens[1]) -> AgentShellCommand.ShowUse
-            tokens.size == 2 && "wifi".startsWith(tokens[1]) -> AgentShellCommand.Invalid("usage: show wifi (status|eht)")
+            tokens.size == 2 && "wifi".startsWith(tokens[1]) -> AgentShellCommand.Invalid("usage: show wifi (status|eht|scan)")
             tokens.size >= 3 && "wifi".startsWith(tokens[1]) -> parseShowWifi(tokens.drop(2))
-            else -> AgentShellCommand.Invalid("usage: show (version|use|wifi status|wifi eht)")
+            else -> AgentShellCommand.Invalid("usage: show (version|use|wifi status|wifi eht|wifi scan)")
         }
     }
 
     private fun parseShowWifi(tokens: List<String>): AgentShellCommand {
-        return when (resolveKeyword(tokens.first(), listOf("status", "eht"))) {
+        return when (resolveKeyword(tokens.first(), listOf("status", "eht", "scan"))) {
             "status" -> {
                 if (tokens.size == 1) AgentShellCommand.ShowWifiStatus else AgentShellCommand.Invalid("usage: show wifi status")
             }
             "eht" -> parseShowWifiEht(tokens.drop(1))
-            else -> AgentShellCommand.Invalid("usage: show wifi (status|eht)")
+            "scan" -> parseShowWifiScan(tokens.drop(1))
+            else -> AgentShellCommand.Invalid("usage: show wifi (status|eht|scan)")
         }
     }
 
     private fun parseShowWifiEht(args: List<String>): AgentShellCommand {
         if (args.isEmpty()) return AgentShellCommand.ShowWifiEht()
+        if (resolveKeyword(args.first(), listOf("brief")) == "brief") {
+            return parseLegacyShowWifiEhtBrief(args)
+        }
+        var fresh = false
+        var timeoutMs = 0
+        var ssid = ""
+        var bssid = ""
+        var index = 0
+        while (index < args.size) {
+            when (resolveKeyword(args[index], listOf("fresh", "timeout", "ssid", "bssid"))) {
+                "fresh" -> {
+                    if (fresh) return AgentShellCommand.Invalid("fresh specified twice")
+                    fresh = true
+                    index++
+                }
+                "timeout" -> {
+                    if (index + 1 >= args.size) return AgentShellCommand.Invalid(SHOW_WIFI_EHT_USAGE)
+                    if (timeoutMs > 0) return AgentShellCommand.Invalid("timeout specified twice")
+                    timeoutMs = args[index + 1].toIntOrNull()
+                        ?: return AgentShellCommand.Invalid("timeout must be a positive integer")
+                    if (timeoutMs <= 0) return AgentShellCommand.Invalid("timeout must be a positive integer")
+                    index += 2
+                }
+                "ssid" -> {
+                    if (index + 1 >= args.size) return AgentShellCommand.Invalid(SHOW_WIFI_EHT_USAGE)
+                    if (ssid.isNotBlank()) return AgentShellCommand.Invalid("ssid specified twice")
+                    ssid = args[index + 1]
+                    index += 2
+                }
+                "bssid" -> {
+                    if (index + 1 >= args.size) return AgentShellCommand.Invalid(SHOW_WIFI_EHT_USAGE)
+                    if (bssid.isNotBlank()) return AgentShellCommand.Invalid("bssid specified twice")
+                    bssid = args[index + 1]
+                    index += 2
+                }
+                else -> {
+                    if (fresh && timeoutMs == 0 && args.size - index == 1) {
+                        timeoutMs = args[index].toIntOrNull()
+                            ?: return AgentShellCommand.Invalid(SHOW_WIFI_EHT_USAGE)
+                        if (timeoutMs <= 0) return AgentShellCommand.Invalid("timeout must be a positive integer")
+                        index++
+                    } else {
+                        return AgentShellCommand.Invalid(SHOW_WIFI_EHT_USAGE)
+                    }
+                }
+            }
+        }
+        if (!fresh && timeoutMs > 0) return AgentShellCommand.Invalid("timeout is supported only with show wifi eht fresh")
+        if (ssid.isNotBlank() && bssid.isNotBlank()) return AgentShellCommand.Invalid("ssid and bssid filters cannot be used together")
+        return AgentShellCommand.ShowWifiEht(fresh = fresh, timeoutMs = timeoutMs, ssid = ssid, bssid = bssid)
+    }
+
+    private fun parseLegacyShowWifiEhtBrief(args: List<String>): AgentShellCommand {
         var brief = false
         var fresh = false
         var timeoutMs = 0
@@ -130,6 +194,84 @@ internal object AgentShellParser {
         if (!fresh && timeoutMs > 0) return AgentShellCommand.Invalid("timeout is supported only with show wifi eht fresh")
         if (ssid.isNotBlank() && bssid.isNotBlank()) return AgentShellCommand.Invalid("ssid and bssid filters cannot be used together")
         return AgentShellCommand.ShowWifiEht(brief = brief, fresh = fresh, timeoutMs = timeoutMs, ssid = ssid, bssid = bssid)
+    }
+
+    private fun parseShowWifiScan(args: List<String>): AgentShellCommand {
+        if (args.isEmpty()) return AgentShellCommand.ShowWifiScan()
+        val first = resolveKeyword(args.first(), listOf("brief", "fresh", "mlo") + WIFI_SCAN_BANDS)
+            ?: return AgentShellCommand.Invalid(SHOW_WIFI_SCAN_USAGE)
+        return if (first == "fresh") parseFreshWifiScan(args.drop(1)) else parseWifiScanArgs(args)
+    }
+
+    private fun parseFreshWifiScan(args: List<String>): AgentShellCommand {
+        var brief = false
+        var mlo = false
+        var timeoutMs = 0
+        var band = ""
+        var index = 0
+        while (index < args.size) {
+            when (resolveKeyword(args[index], listOf("brief", "mlo", "timeout") + WIFI_SCAN_BANDS)) {
+                "brief" -> {
+                    if (brief) return AgentShellCommand.Invalid("brief specified twice")
+                    brief = true
+                    index++
+                }
+                "mlo" -> {
+                    if (mlo) return AgentShellCommand.Invalid("mlo specified twice")
+                    mlo = true
+                    index++
+                }
+                "timeout" -> {
+                    if (index + 1 >= args.size) return AgentShellCommand.Invalid(SHOW_WIFI_SCAN_FRESH_USAGE)
+                    if (timeoutMs > 0) return AgentShellCommand.Invalid("timeout specified twice")
+                    timeoutMs = args[index + 1].toIntOrNull()
+                        ?: return AgentShellCommand.Invalid("timeout must be a positive integer")
+                    if (timeoutMs <= 0) return AgentShellCommand.Invalid("timeout must be a positive integer")
+                    index += 2
+                }
+                null -> return AgentShellCommand.Invalid(SHOW_WIFI_SCAN_FRESH_USAGE)
+                else -> {
+                    val value = resolveKeyword(args[index], WIFI_SCAN_BANDS)
+                        ?: return AgentShellCommand.Invalid(SHOW_WIFI_SCAN_FRESH_USAGE)
+                    if (band.isNotBlank()) return AgentShellCommand.Invalid("wifi scan fresh band specified twice")
+                    band = value
+                    index++
+                }
+            }
+        }
+        if (mlo && !brief) return AgentShellCommand.Invalid("mlo is supported only with wifi scan brief")
+        return AgentShellCommand.ShowWifiScan(brief = brief, mlo = mlo, fresh = true, timeoutMs = timeoutMs, band = band)
+    }
+
+    private fun parseWifiScanArgs(args: List<String>): AgentShellCommand {
+        var brief = false
+        var mlo = false
+        var band = ""
+        var index = 0
+        while (index < args.size) {
+            when (resolveKeyword(args[index], listOf("brief", "mlo") + WIFI_SCAN_BANDS)) {
+                "brief" -> {
+                    if (brief) return AgentShellCommand.Invalid("brief specified twice")
+                    brief = true
+                    index++
+                }
+                "mlo" -> {
+                    if (mlo) return AgentShellCommand.Invalid("mlo specified twice")
+                    mlo = true
+                    index++
+                }
+                null -> return AgentShellCommand.Invalid(SHOW_WIFI_SCAN_USAGE)
+                else -> {
+                    val value = resolveKeyword(args[index], WIFI_SCAN_BANDS)
+                        ?: return AgentShellCommand.Invalid(SHOW_WIFI_SCAN_USAGE)
+                    if (band.isNotBlank()) return AgentShellCommand.Invalid("wifi scan band specified twice")
+                    band = value
+                    index++
+                }
+            }
+        }
+        if (mlo && !brief) return AgentShellCommand.Invalid("mlo is supported only with wifi scan brief")
+        return AgentShellCommand.ShowWifiScan(brief = brief, mlo = mlo, band = band)
     }
 
     private fun parsePing(args: List<String>): AgentShellCommand {
