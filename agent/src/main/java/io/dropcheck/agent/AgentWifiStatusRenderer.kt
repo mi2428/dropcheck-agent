@@ -31,6 +31,7 @@ internal object AgentWifiStatusRenderer {
         if (connection != null) renderConnection(out, connection)
         if (status.hasIpStatus()) {
             renderIPStatus(out, status.ipStatus, connection)
+            renderIPv6Ra(out, status.ipStatus.ipv6RaList)
         } else if (connection != null) {
             val rows = connectionNetworkRows(connection)
             if (rows.isNotEmpty()) {
@@ -480,8 +481,6 @@ internal object AgentWifiStatusRenderer {
         if (ipv6.isNotEmpty()) rows += "ipv6" to multiLineValue(ipv6)
         if (addresses.isNotEmpty()) rows += "addresses" to multiLineValue(addresses)
         if (status.routesList.isNotEmpty()) rows += "routes" to multiLineValue(status.routesList)
-        val ipv6Ra = ipv6RaDetailRows(status.ipv6RaList)
-        if (ipv6Ra.isNotEmpty()) rows += "ipv6_ra" to multiLineValue(ipv6Ra)
         if (status.dnsServersList.isNotEmpty()) rows += "dns" to multiLineValue(status.dnsServersList)
         if (status.domains.isNotBlank()) rows += "domains" to status.domains
         if (status.httpProxy.isNotBlank()) rows += "http_proxy" to status.httpProxy
@@ -490,12 +489,37 @@ internal object AgentWifiStatusRenderer {
         return rows
     }
 
-    private fun ipv6RaDetailRows(values: List<io.dropcheck.agent.grpc.DiagnosticField>): List<String> {
-        return values.mapNotNull { field ->
+    private fun renderIPv6Ra(out: MutableList<String>, values: List<io.dropcheck.agent.grpc.DiagnosticField>) {
+        val rows = ipv6RaDetailRows(values)
+        if (rows.isEmpty()) return
+        section(out, "IPv6 RA")
+        kv(out, *rows.toTypedArray())
+    }
+
+    private fun ipv6RaDetailRows(values: List<io.dropcheck.agent.grpc.DiagnosticField>): List<Pair<String, String>> {
+        val preferredOrder = listOf(
+            "default_route",
+            "default_gateways",
+            "accept_ra",
+            "accept_ra_defrtr",
+            "accept_ra_pinfo",
+            "accept_ra_rtr_pref",
+            "accept_ra_min_lft",
+            "accept_ra_min_hop_limit",
+            "accept_ra_from_local",
+        ).withIndex().associate { it.value to it.index }
+        return values.mapIndexedNotNull { index, field ->
             val key = field.key.trim()
             val value = field.value.trim()
-            if (key.isBlank() || value.isBlank()) null else "$key=$value"
-        }
+            if (key.isBlank() || value.isBlank()) {
+                null
+            } else {
+                IndexedValue(index, key to value)
+            }
+        }.sortedWith(
+            compareBy<IndexedValue<Pair<String, String>>> { preferredOrder[it.value.first] ?: preferredOrder.size + it.index }
+                .thenBy { it.index },
+        ).map { it.value }
     }
 
     private fun multiLineValue(values: List<String>): String {
