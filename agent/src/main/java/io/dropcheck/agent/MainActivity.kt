@@ -723,6 +723,9 @@ class MainActivity : Activity() {
             is AgentShellCommand.Ping -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
                 runPingCommand(command)
             }
+            is AgentShellCommand.SetDefaultPassphrase -> runShellCommand(focusAfterComplete = focusAfterSubmit) {
+                StandaloneWifiUseController(applicationContext).setDefaultPassphrase(command.passphrase)
+            }
             is AgentShellCommand.Traceroute -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
                 runTracerouteCommand(command)
             }
@@ -1041,6 +1044,7 @@ class MainActivity : Activity() {
                 "  clear use",
                 "  help [NAME]",
                 "  ping HOST [count N] [size BYTES] [timeout MS]",
+                "  set default pass-phrase PASSPHRASE",
                 "  show use",
                 "  show version",
                 "  show wifi eht",
@@ -1068,9 +1072,14 @@ class MainActivity : Activity() {
                 "    Run ICMP ping over the active Wi-Fi network.",
                 "    size is the ICMP payload size in bytes.",
             )
+            "set" -> listOf(
+                "set: set default pass-phrase PASSPHRASE",
+                "    Store the default PSK used by direct 'use SSID' connections.",
+                "    Use an empty quoted string to clear it.",
+            )
             "show" -> listOf(
                 "show: show (version|use|wifi status|wifi eht|wifi scan)",
-                "    show use displays the Wi-Fi use override state and live targets.",
+                "    show use displays the Wi-Fi use override state, direct-SSID mode, and live targets.",
                 "    show version displays the app version embedded at build time.",
                 "    show wifi status displays local Wi-Fi and IP state.",
                 "    show wifi eht displays connected and nearby EHT state.",
@@ -1086,7 +1095,8 @@ class MainActivity : Activity() {
             )
             "use" -> listOf(
                 "use: use NAME",
-                "    Connect to the live Wi-Fi target NAME.",
+                "    When a default pass-phrase is set, NAME is treated as the SSID directly.",
+                "    Otherwise NAME resolves the live Wi-Fi target registered under standalone festa live.",
             )
             else -> listOf("dropcheck: help: no help topics match '$topic'")
         }
