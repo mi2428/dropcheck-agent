@@ -184,6 +184,7 @@ $ make install SERIAL=R5CT12345
 
 The agent executes controller requests, records structured local logs, renders widgets, and can run a small on-device shell.
 Its `use NAME` command connects to Wi-Fi targets configured under the standalone `live` festa, which is useful when a handset is in the field without the controller attached.
+When the on-device shell has `set default pass-phrase <psk>` configured, `use NAME` instead treats `NAME` as the SSID directly and connects with that PSK.
 Seed that `live` festa from watch configs when you want `use` to follow the current event SSID set:
 
 ```console

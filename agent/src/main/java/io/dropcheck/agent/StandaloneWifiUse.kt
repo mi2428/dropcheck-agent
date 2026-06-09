@@ -10,7 +10,7 @@ import io.dropcheck.agent.grpc.RunCommand
 import io.dropcheck.agent.grpc.StandaloneConfig
 import io.dropcheck.agent.grpc.StandaloneWifiGroup
 
-/** Pure helpers for using Wi-Fi targets registered under `standalone festa live`. */
+/** Pure helpers for `use` targets resolved from `standalone festa live` or shell defaults. */
 internal object StandaloneWifiUsePolicy {
     const val LIVE_FESTA_NAME = "live"
     const val DEFAULT_USE_TIMEOUT_MS = 35_000
@@ -32,6 +32,17 @@ internal object StandaloneWifiUsePolicy {
 
     fun selectLiveWifi(config: StandaloneConfig, name: String): StandaloneWifiGroup? {
         return liveFesta(config)?.wifiGroupsList?.firstOrNull { it.name.equals(name, ignoreCase = true) }
+    }
+
+    fun selectUseWifi(config: StandaloneConfig, name: String, defaults: StandaloneUseDefaults): StandaloneWifiGroup? {
+        if (defaults.defaultPassphrase.isNotEmpty()) {
+            return StandaloneWifiGroup.newBuilder()
+                .setName(name)
+                .setEssid(name)
+                .setPassphrase(defaults.defaultPassphrase)
+                .build()
+        }
+        return selectLiveWifi(config, name)
     }
 
     fun connectCommand(group: StandaloneWifiGroup, essid: String): RunCommand {
@@ -78,6 +89,10 @@ internal data class StandaloneUseState(
     val previousStandaloneEnabled: Boolean,
 )
 
+internal data class StandaloneUseDefaults(
+    val defaultPassphrase: String = "",
+)
+
 /** Keeps repeated `use` commands from overwriting the original standalone state. */
 internal object StandaloneUseStatePolicy {
     fun beginUse(wifiName: String, currentStandaloneEnabled: Boolean, active: StandaloneUseState?): StandaloneUseState {
@@ -121,16 +136,42 @@ internal class StandaloneUseStateStore(context: Context) {
     }
 }
 
+/** Persists shell-only defaults used by direct `use <ssid>` connections. */
+internal class StandaloneUseDefaultsStore(context: Context) {
+    private val prefs = context.applicationContext.getSharedPreferences("standalone-use-defaults", Context.MODE_PRIVATE)
+
+    fun load(): StandaloneUseDefaults {
+        return StandaloneUseDefaults(
+            defaultPassphrase = prefs.getString(KEY_DEFAULT_PASSPHRASE, "").orEmpty(),
+        )
+    }
+
+    fun setDefaultPassphrase(passphrase: String) {
+        prefs.edit().apply {
+            if (passphrase.isEmpty()) {
+                remove(KEY_DEFAULT_PASSPHRASE)
+            } else {
+                putString(KEY_DEFAULT_PASSPHRASE, passphrase)
+            }
+        }.apply()
+    }
+
+    private companion object {
+        const val KEY_DEFAULT_PASSPHRASE = "default_passphrase"
+    }
+}
+
 internal data class StandaloneUseResult(
     val ok: Boolean,
     val message: String,
 )
 
-/** Executes the on-device shell `use` workflow against the persisted standalone config. */
+/** Executes the on-device shell `use` workflow against the persisted standalone config and shell defaults. */
 internal class StandaloneWifiUseController(context: Context) {
     private val appContext = context.applicationContext
     private val configStore = StandaloneConfigStore(appContext)
     private val useStore = StandaloneUseStateStore(appContext)
+    private val defaultsStore = StandaloneUseDefaultsStore(appContext)
 
     fun liveWifiNames(): List<String> = StandaloneWifiUsePolicy.liveWifiNames(configStore.load())
 
@@ -143,17 +184,30 @@ internal class StandaloneWifiUseController(context: Context) {
     fun statusText(): String {
         val config = configStore.load()
         val state = useStore.load()
+        val defaults = defaultsStore.load()
         val standalone = if (config.enabled) "enabled" else "disabled"
+        val mode = if (defaults.defaultPassphrase.isNotEmpty()) "direct-ssid" else "live-festa"
+        val defaultPassphrase = if (defaults.defaultPassphrase.isNotEmpty()) "present" else "unset"
         return if (state == null) {
-            "use=none standalone=$standalone"
+            "use=none standalone=$standalone mode=$mode default_passphrase=$defaultPassphrase"
         } else {
-            "use=${state.wifiName} standalone=$standalone restore=${if (state.previousStandaloneEnabled) "enabled" else "disabled"}"
+            "use=${state.wifiName} standalone=$standalone restore=${if (state.previousStandaloneEnabled) "enabled" else "disabled"} mode=$mode default_passphrase=$defaultPassphrase"
+        }
+    }
+
+    fun setDefaultPassphrase(passphrase: String): StandaloneUseResult {
+        defaultsStore.setDefaultPassphrase(passphrase)
+        return if (passphrase.isEmpty()) {
+            StandaloneUseResult(true, "default pass-phrase cleared")
+        } else {
+            StandaloneUseResult(true, "default pass-phrase updated")
         }
     }
 
     fun use(name: String): StandaloneUseResult {
         val config = configStore.load()
-        val group = StandaloneWifiUsePolicy.selectLiveWifi(config, name)
+        val defaults = defaultsStore.load()
+        val group = StandaloneWifiUsePolicy.selectUseWifi(config, name, defaults)
             ?: return StandaloneUseResult(false, "use $name failed: standalone festa live wifi $name not found")
         val essid = resolveEssid(group)
         if (essid.isBlank()) {

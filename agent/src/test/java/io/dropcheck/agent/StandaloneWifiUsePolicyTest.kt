@@ -29,9 +29,37 @@ class StandaloneWifiUsePolicyTest {
             StandaloneWifiUsePolicy.liveWifiListLines(config),
         )
         assertEquals("cs1", StandaloneWifiUsePolicy.selectLiveWifi(config, "ap1")?.essid)
+        assertEquals("cs1", StandaloneWifiUsePolicy.selectUseWifi(config, "ap1", StandaloneUseDefaults())?.essid)
         assertEquals("cs1", StandaloneWifiUsePolicy.selectLiveWifi(config, "AP1")?.essid)
         assertNull(StandaloneWifiUsePolicy.selectLiveWifi(config, "ap"))
         assertNull(StandaloneWifiUsePolicy.selectLiveWifi(config, "missing"))
+    }
+
+    @Test
+    fun prefersDirectEssidWhenDefaultPassphraseConfigured() {
+        val config = StandaloneConfig.newBuilder()
+            .addFestas(StandaloneFesta.newBuilder()
+                .setName("live")
+                .addWifiGroups(StandaloneWifiGroup.newBuilder()
+                    .setName("cs1")
+                    .setEssid("registered-cs1")
+                    .setPassphrase("registered-secret")
+                    .setSecurity(ConnectWifi.Security.SECURITY_WPA3_SAE)))
+            .build()
+
+        val group = StandaloneWifiUsePolicy.selectUseWifi(
+            config = config,
+            name = "cs1",
+            defaults = StandaloneUseDefaults(defaultPassphrase = "hogehoge"),
+        )
+
+        assertNotNull(group)
+        assertEquals("cs1", group?.name)
+        assertEquals("cs1", group?.essid)
+        assertEquals("hogehoge", group?.passphrase)
+        assertEquals(ConnectWifi.Security.SECURITY_UNSPECIFIED, group?.security)
+        assertEquals("", group?.bssid)
+        assertEquals(WifiBand.WIFI_BAND_UNSPECIFIED, group?.band)
     }
 
     @Test
