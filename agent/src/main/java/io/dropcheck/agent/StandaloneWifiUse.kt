@@ -7,42 +7,100 @@ import io.dropcheck.agent.grpc.CommandLog
 import io.dropcheck.agent.grpc.CommandResult
 import io.dropcheck.agent.grpc.ConnectWifi
 import io.dropcheck.agent.grpc.RunCommand
-import io.dropcheck.agent.grpc.StandaloneConfig
 import io.dropcheck.agent.grpc.StandaloneWifiGroup
 
-/** Pure helpers for `use` targets resolved from `standalone festa live` or shell defaults. */
+/** Pure helpers for synthetic `use` Wi-Fi targets built from shell defaults. */
 internal object StandaloneWifiUsePolicy {
-    const val LIVE_FESTA_NAME = "live"
     const val DEFAULT_USE_TIMEOUT_MS = 35_000
 
-    fun liveWifiNames(config: StandaloneConfig): List<String> {
-        return liveFesta(config)?.wifiGroupsList
-            .orEmpty()
-            .mapNotNull { it.name.takeIf(String::isNotBlank) }
-    }
+    /*
+     * DEAD CODE (2026-06-10): `use NAME` no longer resolves `standalone festa live`.
+     * Keep the old live-festa helpers commented so we can restore them quickly if field
+     * workflow changes back from SSID-only `use`.
+     *
+     * const val LIVE_FESTA_NAME = "live"
+     *
+     * fun liveWifiNames(config: StandaloneConfig): List<String> {
+     *     return liveFesta(config)?.wifiGroupsList
+     *         .orEmpty()
+     *         .mapNotNull { it.name.takeIf(String::isNotBlank) }
+     * }
+     *
+     * fun liveWifiListLines(config: StandaloneConfig): List<String> {
+     *     return liveFesta(config)?.wifiGroupsList
+     *         .orEmpty()
+     *         .mapNotNull { group ->
+     *             val name = group.name.takeIf(String::isNotBlank) ?: return@mapNotNull null
+     *             "$name ${wifiMatchText(group)}"
+     *         }
+     * }
+     *
+     * fun liveWifiBannerText(config: StandaloneConfig, defaults: StandaloneUseDefaults): String? {
+     *     val names = liveWifiNames(config)
+     *     if (names.isEmpty()) return null
+     *     return if (defaults.defaultPassphrase.isNotEmpty()) {
+     *         "live_targets=${names.joinToString(" ")} inactive=direct-ssid"
+     *     } else {
+     *         "live_wifi=${names.joinToString(" ")}"
+     *     }
+     * }
+     *
+     * fun liveWifiStatusLines(config: StandaloneConfig, defaults: StandaloneUseDefaults): List<String> {
+     *     val targets = liveWifiListLines(config)
+     *     if (targets.isEmpty()) return listOf("no standalone festa live wifi entries")
+     *     return if (defaults.defaultPassphrase.isNotEmpty()) {
+     *         listOf("standalone festa live targets inactive while default_passphrase=present") + targets
+     *     } else {
+     *         targets
+     *     }
+     * }
+     *
+     * fun selectLiveWifi(config: StandaloneConfig, name: String): StandaloneWifiGroup? {
+     *     return liveFesta(config)?.wifiGroupsList?.firstOrNull { it.name.equals(name, ignoreCase = true) }
+     * }
+     *
+     * fun selectUseWifi(config: StandaloneConfig, name: String, defaults: StandaloneUseDefaults): StandaloneWifiGroup? {
+     *     if (defaults.defaultPassphrase.isNotEmpty()) {
+     *         return StandaloneWifiGroup.newBuilder()
+     *             .setName(name)
+     *             .setEssid(name)
+     *             .setPassphrase(defaults.defaultPassphrase)
+     *             .build()
+     *     }
+     *     return selectLiveWifi(config, name)
+     * }
+     *
+     * private fun wifiMatchText(group: StandaloneWifiGroup): String {
+     *     return when {
+     *         group.essid.isNotBlank() -> "match essid ${quote(group.essid)}"
+     *         group.bssid.isNotBlank() -> "match bssid ${group.bssid}"
+     *         else -> "match <unset>"
+     *     }
+     * }
+     *
+     * private fun quote(value: String): String {
+     *     return buildString {
+     *         append('"')
+     *         for (ch in value) {
+     *             when (ch) {
+     *                 '\\' -> append("\\\\")
+     *                 '"' -> append("\\\"")
+     *                 else -> append(ch)
+     *             }
+     *         }
+     *         append('"')
+     *     }
+     * }
+     *
+     * private fun liveFesta(config: StandaloneConfig) = config.festasList.firstOrNull { it.name == LIVE_FESTA_NAME }
+     */
 
-    fun liveWifiListLines(config: StandaloneConfig): List<String> {
-        return liveFesta(config)?.wifiGroupsList
-            .orEmpty()
-            .mapNotNull { group ->
-                val name = group.name.takeIf(String::isNotBlank) ?: return@mapNotNull null
-                "$name ${wifiMatchText(group)}"
-            }
-    }
-
-    fun selectLiveWifi(config: StandaloneConfig, name: String): StandaloneWifiGroup? {
-        return liveFesta(config)?.wifiGroupsList?.firstOrNull { it.name.equals(name, ignoreCase = true) }
-    }
-
-    fun selectUseWifi(config: StandaloneConfig, name: String, defaults: StandaloneUseDefaults): StandaloneWifiGroup? {
-        if (defaults.defaultPassphrase.isNotEmpty()) {
-            return StandaloneWifiGroup.newBuilder()
-                .setName(name)
-                .setEssid(name)
-                .setPassphrase(defaults.defaultPassphrase)
-                .build()
-        }
-        return selectLiveWifi(config, name)
+    fun selectUseWifi(name: String, defaults: StandaloneUseDefaults): StandaloneWifiGroup {
+        return StandaloneWifiGroup.newBuilder()
+            .setName(name)
+            .setEssid(name)
+            .setPassphrase(defaults.defaultPassphrase)
+            .build()
     }
 
     fun connectCommand(group: StandaloneWifiGroup, essid: String): RunCommand {
@@ -58,30 +116,6 @@ internal object StandaloneWifiUsePolicy {
                 .setTimeoutMs(group.timeoutMs.takeIf { it > 0 } ?: DEFAULT_USE_TIMEOUT_MS))
             .build()
     }
-
-    private fun wifiMatchText(group: StandaloneWifiGroup): String {
-        return when {
-            group.essid.isNotBlank() -> "match essid ${quote(group.essid)}"
-            group.bssid.isNotBlank() -> "match bssid ${group.bssid}"
-            else -> "match <unset>"
-        }
-    }
-
-    private fun quote(value: String): String {
-        return buildString {
-            append('"')
-            for (ch in value) {
-                when (ch) {
-                    '\\' -> append("\\\\")
-                    '"' -> append("\\\"")
-                    else -> append(ch)
-                }
-            }
-            append('"')
-        }
-    }
-
-    private fun liveFesta(config: StandaloneConfig) = config.festasList.firstOrNull { it.name == LIVE_FESTA_NAME }
 }
 
 internal data class StandaloneUseState(
@@ -173,42 +207,61 @@ internal class StandaloneWifiUseController(context: Context) {
     private val useStore = StandaloneUseStateStore(appContext)
     private val defaultsStore = StandaloneUseDefaultsStore(appContext)
 
-    fun liveWifiNames(): List<String> = StandaloneWifiUsePolicy.liveWifiNames(configStore.load())
-
-    fun liveWifiListText(): List<String> {
-        val targets = StandaloneWifiUsePolicy.liveWifiListLines(configStore.load())
-        if (targets.isEmpty()) return listOf("no standalone festa live wifi entries")
-        return targets
-    }
+    /*
+     * DEAD CODE (2026-06-10): live-festa wrapper methods disabled with SSID-only `use`.
+     *
+     * fun liveWifiNames(): List<String> = StandaloneWifiUsePolicy.liveWifiNames(configStore.load())
+     *
+     * fun liveWifiBannerText(): String? {
+     *     val config = configStore.load()
+     *     val defaults = defaultsStore.load()
+     *     return StandaloneWifiUsePolicy.liveWifiBannerText(config, defaults)
+     * }
+     *
+     * fun liveWifiListText(): List<String> {
+     *     val config = configStore.load()
+     *     val defaults = defaultsStore.load()
+     *     return StandaloneWifiUsePolicy.liveWifiStatusLines(config, defaults)
+     * }
+     */
 
     fun statusText(): String {
         val config = configStore.load()
         val state = useStore.load()
         val defaults = defaultsStore.load()
         val standalone = if (config.enabled) "enabled" else "disabled"
-        val mode = if (defaults.defaultPassphrase.isNotEmpty()) "direct-ssid" else "live-festa"
         val defaultPassphrase = if (defaults.defaultPassphrase.isNotEmpty()) "present" else "unset"
+
+        /*
+         * DEAD CODE (2026-06-10): previous mode label when live-festa fallback was active.
+         * val mode = if (defaults.defaultPassphrase.isNotEmpty()) "direct-ssid" else "live-festa"
+         */
         return if (state == null) {
-            "use=none standalone=$standalone mode=$mode default_passphrase=$defaultPassphrase"
+            "use=none standalone=$standalone mode=ssid default_passphrase=$defaultPassphrase"
         } else {
-            "use=${state.wifiName} standalone=$standalone restore=${if (state.previousStandaloneEnabled) "enabled" else "disabled"} mode=$mode default_passphrase=$defaultPassphrase"
+            "use=${state.wifiName} standalone=$standalone restore=${if (state.previousStandaloneEnabled) "enabled" else "disabled"} mode=ssid default_passphrase=$defaultPassphrase"
         }
     }
 
     fun setDefaultPassphrase(passphrase: String): StandaloneUseResult {
         defaultsStore.setDefaultPassphrase(passphrase)
         return if (passphrase.isEmpty()) {
-            StandaloneUseResult(true, "default pass-phrase cleared")
+            StandaloneUseResult(true, "default passphrase cleared")
         } else {
-            StandaloneUseResult(true, "default pass-phrase updated")
+            StandaloneUseResult(true, "default passphrase updated")
         }
     }
 
     fun use(name: String): StandaloneUseResult {
         val config = configStore.load()
         val defaults = defaultsStore.load()
-        val group = StandaloneWifiUsePolicy.selectUseWifi(config, name, defaults)
-            ?: return StandaloneUseResult(false, "use $name failed: standalone festa live wifi $name not found")
+
+        /*
+         * DEAD CODE (2026-06-10): previous live-festa lookup path.
+         * val group = StandaloneWifiUsePolicy.selectUseWifi(config, name, defaults)
+         *     ?: return StandaloneUseResult(false, "use $name failed: standalone festa live wifi $name not found")
+         */
+        val group = StandaloneWifiUsePolicy.selectUseWifi(name, defaults)
         val essid = resolveEssid(group)
         if (essid.isBlank()) {
             return StandaloneUseResult(false, "use $name failed: wifi requires essid or scan-visible bssid")

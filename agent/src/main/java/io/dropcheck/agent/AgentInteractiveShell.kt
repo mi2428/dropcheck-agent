@@ -4,7 +4,7 @@ package io.dropcheck.agent
 private const val SHOW_WIFI_EHT_USAGE = "usage: show wifi eht [fresh [timeout MS]] [ssid SSID|bssid BSSID]"
 private const val SHOW_WIFI_SCAN_USAGE = "usage: show wifi scan [brief [mlo]] [all|2.4ghz|5ghz|6ghz|60ghz]"
 private const val SHOW_WIFI_SCAN_FRESH_USAGE = "usage: show wifi scan fresh [brief [mlo]] [timeout MS] [all|2.4ghz|5ghz|6ghz|60ghz]"
-private const val SET_DEFAULT_PASSPHRASE_USAGE = "usage: set default pass-phrase PASSPHRASE"
+private const val SET_DEFAULT_PASSPHRASE_USAGE = "usage: set default passphrase PASSPHRASE"
 private val WIFI_SCAN_BANDS = listOf("all", "2.4ghz", "5ghz", "6ghz", "60ghz")
 
 internal sealed class AgentShellCommand {
@@ -73,12 +73,9 @@ internal object AgentShellParser {
         if (resolveKeyword(tokens[1], listOf("default")) != "default") {
             return AgentShellCommand.Invalid(SET_DEFAULT_PASSPHRASE_USAGE)
         }
-        val field = when {
-            tokens[2] == "passphrase" -> "pass-phrase"
-            "pass-phrase".startsWith(tokens[2]) -> "pass-phrase"
-            else -> null
+        if (resolveKeyword(tokens[2], listOf("passphrase")) != "passphrase") {
+            return AgentShellCommand.Invalid(SET_DEFAULT_PASSPHRASE_USAGE)
         }
-        if (field != "pass-phrase") return AgentShellCommand.Invalid(SET_DEFAULT_PASSPHRASE_USAGE)
         return AgentShellCommand.SetDefaultPassphrase(tokens[3])
     }
 

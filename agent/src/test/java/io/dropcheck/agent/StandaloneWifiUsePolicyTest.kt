@@ -1,54 +1,32 @@
 package io.dropcheck.agent
 
 import io.dropcheck.agent.grpc.ConnectWifi
-import io.dropcheck.agent.grpc.StandaloneConfig
-import io.dropcheck.agent.grpc.StandaloneFesta
 import io.dropcheck.agent.grpc.StandaloneWifiGroup
 import io.dropcheck.agent.grpc.WifiBand
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 class StandaloneWifiUsePolicyTest {
     @Test
-    fun selectsOnlyWifiGroupsFromLiveFesta() {
-        val config = StandaloneConfig.newBuilder()
-            .addFestas(StandaloneFesta.newBuilder()
-                .setName("smoke")
-                .addWifiGroups(StandaloneWifiGroup.newBuilder().setName("ap1").setEssid("wrong")))
-            .addFestas(StandaloneFesta.newBuilder()
-                .setName("live")
-                .addWifiGroups(StandaloneWifiGroup.newBuilder().setName("ap1").setEssid("cs1"))
-                .addWifiGroups(StandaloneWifiGroup.newBuilder().setName("ap2").setEssid("cs2")))
-            .build()
-
-        assertEquals(listOf("ap1", "ap2"), StandaloneWifiUsePolicy.liveWifiNames(config))
-        assertEquals(
-            listOf("ap1 match essid \"cs1\"", "ap2 match essid \"cs2\""),
-            StandaloneWifiUsePolicy.liveWifiListLines(config),
+    fun treatsUseTargetAsSsidWithoutDefaultPassphrase() {
+        val group = StandaloneWifiUsePolicy.selectUseWifi(
+            name = "2026shownet",
+            defaults = StandaloneUseDefaults(),
         )
-        assertEquals("cs1", StandaloneWifiUsePolicy.selectLiveWifi(config, "ap1")?.essid)
-        assertEquals("cs1", StandaloneWifiUsePolicy.selectUseWifi(config, "ap1", StandaloneUseDefaults())?.essid)
-        assertEquals("cs1", StandaloneWifiUsePolicy.selectLiveWifi(config, "AP1")?.essid)
-        assertNull(StandaloneWifiUsePolicy.selectLiveWifi(config, "ap"))
-        assertNull(StandaloneWifiUsePolicy.selectLiveWifi(config, "missing"))
+
+        assertNotNull(group)
+        assertEquals("2026shownet", group.name)
+        assertEquals("2026shownet", group.essid)
+        assertEquals("", group.passphrase)
+        assertEquals(ConnectWifi.Security.SECURITY_UNSPECIFIED, group.security)
+        assertEquals("", group.bssid)
+        assertEquals(WifiBand.WIFI_BAND_UNSPECIFIED, group.band)
     }
 
     @Test
-    fun prefersDirectEssidWhenDefaultPassphraseConfigured() {
-        val config = StandaloneConfig.newBuilder()
-            .addFestas(StandaloneFesta.newBuilder()
-                .setName("live")
-                .addWifiGroups(StandaloneWifiGroup.newBuilder()
-                    .setName("cs1")
-                    .setEssid("registered-cs1")
-                    .setPassphrase("registered-secret")
-                    .setSecurity(ConnectWifi.Security.SECURITY_WPA3_SAE)))
-            .build()
-
+    fun usesDefaultPassphraseForDirectSsidConnections() {
         val group = StandaloneWifiUsePolicy.selectUseWifi(
-            config = config,
             name = "cs1",
             defaults = StandaloneUseDefaults(defaultPassphrase = "hogehoge"),
         )
@@ -60,34 +38,6 @@ class StandaloneWifiUsePolicyTest {
         assertEquals(ConnectWifi.Security.SECURITY_UNSPECIFIED, group?.security)
         assertEquals("", group?.bssid)
         assertEquals(WifiBand.WIFI_BAND_UNSPECIFIED, group?.band)
-    }
-
-    @Test
-    fun listsLiveWifiTargetsWithoutSecrets() {
-        val config = StandaloneConfig.newBuilder()
-            .addFestas(StandaloneFesta.newBuilder()
-                .setName("live")
-                .addWifiGroups(StandaloneWifiGroup.newBuilder()
-                    .setName("quoted")
-                    .setEssid("cs \"main\"")
-                    .setPassphrase("secret"))
-                .addWifiGroups(StandaloneWifiGroup.newBuilder()
-                    .setName("by-bssid")
-                    .setBssid("aa:bb:cc:dd:ee:ff")
-                    .setPassphrase("secret"))
-                .addWifiGroups(StandaloneWifiGroup.newBuilder()
-                    .setName("unset")
-                    .setPassphrase("secret")))
-            .build()
-
-        assertEquals(
-            listOf(
-                "quoted match essid \"cs \\\"main\\\"\"",
-                "by-bssid match bssid aa:bb:cc:dd:ee:ff",
-                "unset match <unset>",
-            ),
-            StandaloneWifiUsePolicy.liveWifiListLines(config),
-        )
     }
 
     @Test
