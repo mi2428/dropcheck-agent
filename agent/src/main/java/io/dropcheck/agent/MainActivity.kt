@@ -590,10 +590,13 @@ class MainActivity : Activity() {
         }
         addShellView(shellText("dropcheck shell", AgentLogStyle.TEXT_COLOR))
         addShellView(shellText("mode=idle runtime=${standaloneRunningLabel()} ${useController.statusText()}", AgentLogStyle.TEXT_COLOR))
-        val liveNames = useController.liveWifiNames()
-        if (liveNames.isNotEmpty()) {
-            addShellView(shellText("live_wifi=${liveNames.joinToString(" ")}", AgentLogStyle.TEXT_COLOR))
-        }
+        /*
+         * DEAD CODE (2026-06-10): live-festa banner disabled with SSID-only `use`.
+         * val liveWifiBanner = useController.liveWifiBannerText()
+         * if (liveWifiBanner != null) {
+         *     addShellView(shellText(liveWifiBanner, AgentLogStyle.TEXT_COLOR))
+         * }
+         */
         addShellView(shellSpacer(8))
         shellTranscript.takeLast(SHELL_TRANSCRIPT_MAX_LINES).forEach {
             addShellView(shellText(it.text, it.color))
@@ -690,7 +693,14 @@ class MainActivity : Activity() {
             }
             AgentShellCommand.ShowUse -> {
                 val useController = StandaloneWifiUseController(applicationContext)
-                appendShellLines(listOf(useController.statusText()) + useController.liveWifiListText(), focusInput = focusAfterSubmit)
+                /*
+                 * DEAD CODE (2026-06-10): previous live-festa detail output.
+                 * appendShellLines(
+                 *     listOf(useController.statusText()) + useController.liveWifiListText(),
+                 *     focusInput = focusAfterSubmit,
+                 * )
+                 */
+                appendShellLine(useController.statusText(), focusInput = focusAfterSubmit)
             }
             AgentShellCommand.ShowVersion -> {
                 appendShellLine("version ${BuildConfig.VERSION_NAME}", focusInput = focusAfterSubmit)
@@ -1044,7 +1054,7 @@ class MainActivity : Activity() {
                 "  clear use",
                 "  help [NAME]",
                 "  ping HOST [count N] [size BYTES] [timeout MS]",
-                "  set default pass-phrase PASSPHRASE",
+                "  set default passphrase PASSPHRASE",
                 "  show use",
                 "  show version",
                 "  show wifi eht",
@@ -1073,13 +1083,13 @@ class MainActivity : Activity() {
                 "    size is the ICMP payload size in bytes.",
             )
             "set" -> listOf(
-                "set: set default pass-phrase PASSPHRASE",
+                "set: set default passphrase PASSPHRASE",
                 "    Store the default PSK used by direct 'use SSID' connections.",
                 "    Use an empty quoted string to clear it.",
             )
             "show" -> listOf(
                 "show: show (version|use|wifi status|wifi eht|wifi scan)",
-                "    show use displays the Wi-Fi use override state, direct-SSID mode, and live targets.",
+                "    show use displays the Wi-Fi use override state for SSID-based use commands.",
                 "    show version displays the app version embedded at build time.",
                 "    show wifi status displays local Wi-Fi and IP state.",
                 "    show wifi eht displays connected and nearby EHT state.",
@@ -1095,8 +1105,8 @@ class MainActivity : Activity() {
             )
             "use" -> listOf(
                 "use: use NAME",
-                "    When a default pass-phrase is set, NAME is treated as the SSID directly.",
-                "    Otherwise NAME resolves the live Wi-Fi target registered under standalone festa live.",
+                "    NAME is always treated as the SSID directly.",
+                "    When a default passphrase is set, it is used as the PSK for that SSID.",
             )
             else -> listOf("dropcheck: help: no help topics match '$topic'")
         }
