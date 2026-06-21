@@ -1,4 +1,4 @@
-// Package tui renders live watch events as a Bubble Tea terminal dashboard.
+// Package tui renders Controller TUI watch events as a Bubble Tea terminal dashboard.
 //
 // The package owns terminal concerns: key handling, focus and cursor state,
 // responsive panel layout, lipgloss styling, and modal/detail composition.

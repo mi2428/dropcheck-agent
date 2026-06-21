@@ -1,6 +1,6 @@
 package io.dropcheck.agent
 
-/** Commands supported by the on-device interactive shell. */
+/** Commands supported by Agent Shell. */
 private const val SHOW_WIFI_EHT_USAGE = "usage: show wifi eht [fresh [timeout MS]] [ssid SSID|bssid BSSID]"
 private const val SHOW_WIFI_SCAN_USAGE = "usage: show wifi scan [brief [mlo]] [all|2.4ghz|5ghz|6ghz|60ghz]"
 private const val SHOW_WIFI_SCAN_FRESH_USAGE = "usage: show wifi scan fresh [brief [mlo]] [timeout MS] [all|2.4ghz|5ghz|6ghz|60ghz]"
@@ -30,7 +30,7 @@ internal sealed class AgentShellCommand {
     data class Invalid(val message: String) : AgentShellCommand()
 }
 
-/** Parser for the small on-device shell command surface. */
+/** Parser for the Agent Shell command surface. */
 internal object AgentShellParser {
     private val commandNames = listOf("help", "ping", "show", "traceroute")
 

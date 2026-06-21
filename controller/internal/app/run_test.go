@@ -33,7 +33,7 @@ func TestTopLevelHelpIncludesFlagsCommandsAndExamples(t *testing.T) {
 		t.Fatalf("topLevelHelp() contains tab indentation:\n%s", help)
 	}
 	for _, want := range []string{
-		"  shell                                 start the interactive controller shell",
+		"  shell                                 start the Controller Shell",
 		"  --format text|json                    output format for one-shot commands",
 		"  request ping <host> [options]         run ICMP ping",
 	} {

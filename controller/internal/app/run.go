@@ -22,9 +22,9 @@ type helpRow struct {
 
 // Run executes the dropcheck controller application for args.
 //
-// args must not include argv[0]. Run handles top-level flags, chooses shell or
-// one-shot CLI mode, starts the required control session, and returns any
-// user-facing error to the executable wrapper.
+// args must not include argv[0]. Run handles top-level flags, chooses
+// Controller Shell, Controller TUI, or one-shot CLI mode, starts the required
+// control session, and returns any user-facing error to the executable wrapper.
 func Run(args []string) error {
 	if len(args) == 1 && (args[0] == "--version" || args[0] == "-version") {
 		fmt.Println(version.Version)
@@ -69,8 +69,8 @@ func writeTopLevelHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "Commands:")
 	writeHelpRows(w, []helpRow{
-		{"shell", "start the interactive controller shell"},
-		{"watch -c CONFIG.yml", "run continuous E2E Wi-Fi checks with a live TUI"},
+		{"shell", "start the Controller Shell"},
+		{"watch -c CONFIG.yml", "start the Controller TUI for continuous E2E Wi-Fi checks"},
 		{"show devices", "list connected Android agents"},
 		{"show config [standalone]", "print agent configuration"},
 		{"show wifi <topic>", "show Wi-Fi status and diagnostics"},

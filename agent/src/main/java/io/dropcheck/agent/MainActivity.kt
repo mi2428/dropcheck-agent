@@ -573,9 +573,9 @@ class MainActivity : Activity() {
         fun addShellView(view: View) {
             shellContent.addView(view)
         }
-        addShellView(shellText("dropcheck shell", AgentLogStyle.TEXT_COLOR))
+        addShellView(shellText("Agent Shell", AgentLogStyle.TEXT_COLOR))
         val controllerState = if (ControllerSessionRuntimeState.heartbeatConnected()) "connected" else "idle"
-        addShellView(shellText("mode=interactive controller=$controllerState", AgentLogStyle.TEXT_COLOR))
+        addShellView(shellText("surface=agent-shell controller=$controllerState", AgentLogStyle.TEXT_COLOR))
         addShellView(shellSpacer(8))
         shellTranscript.takeLast(SHELL_TRANSCRIPT_MAX_LINES).forEach {
             addShellView(shellText(it.text, it.color))
@@ -994,7 +994,7 @@ class MainActivity : Activity() {
     private fun shellHelpLines(topic: String): List<String> {
         return when (topic) {
             "" -> listOf(
-                "Shell builtins:",
+                "Agent Shell builtins:",
                 "  help [NAME]",
                 "  ping HOST [count N] [size BYTES] [timeout MS]",
                 "  show version",
@@ -1011,7 +1011,7 @@ class MainActivity : Activity() {
             )
             "help" -> listOf(
                 "help: help [NAME]",
-                "    Display information about shell builtins.",
+                "    Display information about Agent Shell builtins.",
             )
             "ping" -> listOf(
                 "ping: ping HOST [count N] [size BYTES] [timeout MS]",

@@ -8,7 +8,7 @@ import (
 	"dropcheck/controller/internal/standaloneseed"
 )
 
-// CommandKind identifies the action parsed from an interactive shell line.
+// CommandKind identifies the action parsed from a Controller Shell line.
 type CommandKind int
 
 const (
@@ -25,11 +25,11 @@ const (
 	shellStandaloneSync
 )
 
-// Mode identifies the parser context for the interactive shell.
+// Mode identifies the parser context for the Controller Shell.
 type Mode int
 
 const (
-	// ModeOperational is the default top-level shell mode.
+	// ModeOperational is the default top-level Controller Shell mode.
 	ModeOperational Mode = iota
 	// ModeConfigure edits persistent Agent App configuration.
 	ModeConfigure
@@ -37,7 +37,7 @@ const (
 	ModeRequest
 )
 
-// Command is the parsed representation of one interactive shell command.
+// Command is the parsed representation of one Controller Shell command.
 type Command struct {
 	// Kind selects the shell action to perform.
 	Kind CommandKind
@@ -99,7 +99,7 @@ var shellOperationalParseKeywords = appendShellKeywords(shellTopKeywords, []stri
 var shellConfigureKeywords = []string{"show", "set", "delete", "run", "help", "exit", "quit"}
 var shellRequestKeywords = appendShellKeywords(shellRequestCommandKeywords, []string{"help", "exit", "quit"})
 
-// ParseLine parses a complete interactive shell line, including pipelines.
+// ParseLine parses a complete Controller Shell line, including pipelines.
 //
 // The returned Command keeps RawCommand separate from Pipeline so callers can
 // render or execute the command and then apply output filters.
@@ -107,13 +107,13 @@ func ParseLine(line string) (Command, error) {
 	return parseShellLine(line)
 }
 
-// ParseRequestLine parses a complete interactive shell line inside request
+// ParseRequestLine parses a complete Controller Shell line inside request
 // mode, including pipelines.
 func ParseRequestLine(line string) (Command, error) {
 	return parseShellLineInMode(line, ModeRequest)
 }
 
-// ParseConfigureLine parses a complete interactive shell line inside configure
+// ParseConfigureLine parses a complete Controller Shell line inside configure
 // mode, including pipelines.
 func ParseConfigureLine(line string) (Command, error) {
 	return parseShellLineInMode(line, ModeConfigure)
