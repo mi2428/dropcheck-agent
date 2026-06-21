@@ -4,16 +4,12 @@ package io.dropcheck.agent
 private const val SHOW_WIFI_EHT_USAGE = "usage: show wifi eht [fresh [timeout MS]] [ssid SSID|bssid BSSID]"
 private const val SHOW_WIFI_SCAN_USAGE = "usage: show wifi scan [brief [mlo]] [all|2.4ghz|5ghz|6ghz|60ghz]"
 private const val SHOW_WIFI_SCAN_FRESH_USAGE = "usage: show wifi scan fresh [brief [mlo]] [timeout MS] [all|2.4ghz|5ghz|6ghz|60ghz]"
-private const val SET_DEFAULT_PASSPHRASE_USAGE = "usage: set default passphrase PASSPHRASE"
 private val WIFI_SCAN_BANDS = listOf("all", "2.4ghz", "5ghz", "6ghz", "60ghz")
 
 internal sealed class AgentShellCommand {
     data object Noop : AgentShellCommand()
     data class Help(val topic: String = "") : AgentShellCommand()
-    data object ClearUse : AgentShellCommand()
-    data object ShowUse : AgentShellCommand()
     data object ShowVersion : AgentShellCommand()
-    data class SetDefaultPassphrase(val passphrase: String) : AgentShellCommand()
     data object ShowWifiStatus : AgentShellCommand()
     data class ShowWifiEht(
         val brief: Boolean = false,
@@ -31,13 +27,12 @@ internal sealed class AgentShellCommand {
     ) : AgentShellCommand()
     data class Ping(val host: String, val count: Int = 0, val sizeBytes: Int = 0, val timeoutMs: Int = 0) : AgentShellCommand()
     data class Traceroute(val host: String, val maxHops: Int = 0, val sizeBytes: Int = 0, val timeoutMs: Int = 0) : AgentShellCommand()
-    data class Use(val name: String) : AgentShellCommand()
     data class Invalid(val message: String) : AgentShellCommand()
 }
 
 /** Parser for the small on-device shell command surface. */
 internal object AgentShellParser {
-    private val commandNames = listOf("clear", "help", "ping", "set", "show", "traceroute", "use")
+    private val commandNames = listOf("help", "ping", "show", "traceroute")
 
     fun parse(line: String): AgentShellCommand {
         val tokens = splitWords(line).getOrElse { return AgentShellCommand.Invalid(it.message ?: "invalid command") }
@@ -52,40 +47,19 @@ internal object AgentShellParser {
                     AgentShellCommand.Invalid("usage: help [NAME]")
                 }
             }
-            "clear" -> {
-                if (tokens.size == 2 && "use".startsWith(tokens[1])) {
-                    AgentShellCommand.ClearUse
-                } else {
-                    AgentShellCommand.Invalid("usage: clear use")
-                }
-            }
             "ping" -> parsePing(tokens.drop(1))
-            "set" -> parseSet(tokens)
             "show" -> parseShow(tokens)
             "traceroute" -> parseTraceroute(tokens.drop(1))
-            "use" -> if (tokens.size == 2) AgentShellCommand.Use(tokens[1]) else AgentShellCommand.Invalid("usage: use NAME")
             else -> AgentShellCommand.Invalid("${tokens.first()}: command not found")
         }
-    }
-
-    private fun parseSet(tokens: List<String>): AgentShellCommand {
-        if (tokens.size != 4) return AgentShellCommand.Invalid(SET_DEFAULT_PASSPHRASE_USAGE)
-        if (resolveKeyword(tokens[1], listOf("default")) != "default") {
-            return AgentShellCommand.Invalid(SET_DEFAULT_PASSPHRASE_USAGE)
-        }
-        if (resolveKeyword(tokens[2], listOf("passphrase")) != "passphrase") {
-            return AgentShellCommand.Invalid(SET_DEFAULT_PASSPHRASE_USAGE)
-        }
-        return AgentShellCommand.SetDefaultPassphrase(tokens[3])
     }
 
     private fun parseShow(tokens: List<String>): AgentShellCommand {
         return when {
             tokens.size == 2 && "version".startsWith(tokens[1]) -> AgentShellCommand.ShowVersion
-            tokens.size == 2 && "use".startsWith(tokens[1]) -> AgentShellCommand.ShowUse
             tokens.size == 2 && "wifi".startsWith(tokens[1]) -> AgentShellCommand.Invalid("usage: show wifi (status|eht|scan)")
             tokens.size >= 3 && "wifi".startsWith(tokens[1]) -> parseShowWifi(tokens.drop(2))
-            else -> AgentShellCommand.Invalid("usage: show (version|use|wifi status|wifi eht|wifi scan)")
+            else -> AgentShellCommand.Invalid("usage: show (version|wifi status|wifi eht|wifi scan)")
         }
     }
 

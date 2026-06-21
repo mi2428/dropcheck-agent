@@ -8,21 +8,15 @@ import io.dropcheck.agent.grpc.ConnectWifiResult
 import io.dropcheck.agent.grpc.CycleWifi
 import io.dropcheck.agent.grpc.DiagnosticField
 import io.dropcheck.agent.grpc.ForgetWifi
-import io.dropcheck.agent.grpc.ClearStandaloneRuns
-import io.dropcheck.agent.grpc.EditStandaloneConfig
 import io.dropcheck.agent.grpc.GetFreshWifiScan
-import io.dropcheck.agent.grpc.GetStandaloneRun
 import io.dropcheck.agent.grpc.GetWifiScan
 import io.dropcheck.agent.grpc.GetWifiScanDetail
 import io.dropcheck.agent.grpc.HttpCheck
-import io.dropcheck.agent.grpc.ListStandaloneRuns
 import io.dropcheck.agent.grpc.MonitorWifi
 import io.dropcheck.agent.grpc.NetworkSelector
 import io.dropcheck.agent.grpc.Ping
 import io.dropcheck.agent.grpc.ReconnectWifi
 import io.dropcheck.agent.grpc.RunCommand
-import io.dropcheck.agent.grpc.RunStandaloneOnce
-import io.dropcheck.agent.grpc.StandaloneStatus
 import io.dropcheck.agent.grpc.WaitWifiConnected
 import io.dropcheck.agent.grpc.WifiAssertResult
 import io.dropcheck.agent.grpc.WifiBand
@@ -88,13 +82,13 @@ class CommandExecutor(
             RunCommand.CommandCase.WGET -> networkChecks.download(command.wget)
             RunCommand.CommandCase.RESOLVE_DNS -> networkChecks.dns(command.resolveDns)
             RunCommand.CommandCase.HTTP_CHECK -> networkChecks.http(command.httpCheck)
-            RunCommand.CommandCase.EDIT_STANDALONE_CONFIG -> editStandaloneConfig(command.editStandaloneConfig)
-            RunCommand.CommandCase.GET_STANDALONE_CONFIG -> getStandaloneConfig()
-            RunCommand.CommandCase.GET_STANDALONE_STATUS -> getStandaloneStatus()
-            RunCommand.CommandCase.LIST_STANDALONE_RUNS -> listStandaloneRuns(command.listStandaloneRuns)
-            RunCommand.CommandCase.GET_STANDALONE_RUN -> getStandaloneRun(command.getStandaloneRun)
-            RunCommand.CommandCase.CLEAR_STANDALONE_RUNS -> clearStandaloneRuns(command.clearStandaloneRuns)
-            RunCommand.CommandCase.RUN_STANDALONE_ONCE -> runStandaloneOnce(command.runStandaloneOnce)
+            RunCommand.CommandCase.EDIT_STANDALONE_CONFIG,
+            RunCommand.CommandCase.GET_STANDALONE_CONFIG,
+            RunCommand.CommandCase.GET_STANDALONE_STATUS,
+            RunCommand.CommandCase.LIST_STANDALONE_RUNS,
+            RunCommand.CommandCase.GET_STANDALONE_RUN,
+            RunCommand.CommandCase.CLEAR_STANDALONE_RUNS,
+            RunCommand.CommandCase.RUN_STANDALONE_ONCE -> unsupportedStandalone(command.commandCase)
             RunCommand.CommandCase.COMMAND_NOT_SET -> failed("command is not set")
         }
         val elapsedMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis()
@@ -108,95 +102,8 @@ class CommandExecutor(
         return timedResult
     }
 
-    private fun editStandaloneConfig(command: EditStandaloneConfig): CommandResult {
-        val store = StandaloneConfigStore(context)
-        val result = StandaloneConfigEditor.apply(store.load(), command.editsList)
-        if (result.error != null) return failed(result.error)
-        store.save(result.config)
-        AgentService.requestStandaloneRefresh(context)
-        logger.info("standalone config updated enabled=${result.config.enabled} festas=${result.config.festasCount}")
-        return CommandResult.newBuilder()
-            .setStatus(CommandResult.Status.STATUS_OK)
-            .setMessage("standalone config updated")
-            .setStandaloneConfig(result.config)
-            .build()
-    }
-
-    private fun getStandaloneConfig(): CommandResult {
-        val config = StandaloneConfigStore(context).load()
-        return CommandResult.newBuilder()
-            .setStatus(CommandResult.Status.STATUS_OK)
-            .setStandaloneConfig(config)
-            .build()
-    }
-
-    private fun getStandaloneStatus(): CommandResult {
-        val store = StandaloneResultStore(context)
-        val stats = store.stats()
-        val config = StandaloneConfigStore(context).load()
-        val status = StandaloneStatus.newBuilder()
-            .setEnabled(config.enabled)
-            .setRunning(StandaloneRuntimeState.running.get())
-            .setCurrentRunId(StandaloneRuntimeState.currentRunId.get())
-            .setStoredRuns(stats.storedRuns)
-            .setUnsyncedRuns(stats.unsyncedRuns)
-            .setStoredBytes(stats.storedBytes)
-            .setMessage(StandaloneRuntimeState.message.get())
-        stats.last?.let {
-            status
-                .setLastRunId(it.runId)
-                .setLastStartedUnixMs(it.startedUnixMs)
-                .setLastFinishedUnixMs(it.finishedUnixMs)
-        }
-        return CommandResult.newBuilder()
-            .setStatus(CommandResult.Status.STATUS_OK)
-            .setStandaloneStatus(status)
-            .build()
-    }
-
-    private fun listStandaloneRuns(command: ListStandaloneRuns): CommandResult {
-        val runs = StandaloneResultStore(context).list(
-            includeSynced = command.includeSynced,
-            limit = command.limit.toInt(),
-        )
-        return CommandResult.newBuilder()
-            .setStatus(CommandResult.Status.STATUS_OK)
-            .setStandaloneRuns(runs)
-            .build()
-    }
-
-    private fun getStandaloneRun(command: GetStandaloneRun): CommandResult {
-        val store = StandaloneResultStore(context)
-        val archive = if (command.markSynced) store.markSynced(command.runId) else store.load(command.runId)
-        if (archive == null) {
-            return failed("standalone run not found: ${command.runId}")
-        }
-        return CommandResult.newBuilder()
-            .setStatus(CommandResult.Status.STATUS_OK)
-            .setStandaloneRun(archive)
-            .build()
-    }
-
-    private fun clearStandaloneRuns(command: ClearStandaloneRuns): CommandResult {
-        val result = StandaloneResultStore(context).clear(command.syncedOnly, command.all)
-        return CommandResult.newBuilder()
-            .setStatus(CommandResult.Status.STATUS_OK)
-            .setStandaloneClear(result)
-            .build()
-    }
-
-    private fun runStandaloneOnce(command: RunStandaloneOnce): CommandResult {
-        val runner = StandaloneRunner(context)
-        val archive = try {
-            runner.runOnce(command.festa, save = command.save)
-        } finally {
-            runner.shutdown()
-        }
-        return CommandResult.newBuilder()
-            .setStatus(if (archive.summary.failedStepCount == 0) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
-            .setMessage(archive.summary.message)
-            .setStandaloneRun(archive)
-            .build()
+    private fun unsupportedStandalone(commandCase: RunCommand.CommandCase): CommandResult {
+        return failed("legacy controller command is not supported by the Android agent (${commandCase.name})")
     }
 
     private fun wifiStatus(): CommandResult {

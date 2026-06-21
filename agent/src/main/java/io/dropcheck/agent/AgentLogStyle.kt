@@ -5,13 +5,11 @@ internal object AgentLogStyle {
     const val TEXT_COLOR = -0x1 // #FFFFFFFF
     const val WARN_COLOR = -0x29f6 // #FFFFD60A
     const val ERROR_COLOR = -0xadae // #FFFF5252
-    const val COMMAND_FAILED_COLOR = -0x6b00 // #FFFF9500
     const val ACTIVE_PROBE_COLOR = -0x4800d6 // #FFB7FF2A
 
     fun colorForLine(line: String): Int {
         return when {
             isLevel(line, "ERROR") -> ERROR_COLOR
-            isStandaloneCommandFailureLine(line) -> COMMAND_FAILED_COLOR
             isLevel(line, "WARN") -> WARN_COLOR
             isExecLine(line) -> ACTIVE_PROBE_COLOR
             else -> TEXT_COLOR
@@ -20,12 +18,6 @@ internal object AgentLogStyle {
 
     internal fun isExecLine(line: String): Boolean {
         return hasField(line, "scope", "exec")
-    }
-
-    internal fun isStandaloneCommandFailureLine(line: String): Boolean {
-        return hasField(line, "source", "standalone") &&
-            hasField(line, "event", "command.executor.end") &&
-            hasField(line, "status", "STATUS_FAILED")
     }
 
     private fun isLevel(line: String, level: String): Boolean {

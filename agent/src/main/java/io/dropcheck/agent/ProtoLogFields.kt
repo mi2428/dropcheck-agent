@@ -117,25 +117,13 @@ internal fun RunCommand.logFields(): List<Pair<String, Any?>> {
             RunCommand.CommandCase.WGET -> addAll(wget.logFields())
             RunCommand.CommandCase.RESOLVE_DNS -> addAll(resolveDns.logFields())
             RunCommand.CommandCase.HTTP_CHECK -> addAll(httpCheck.logFields())
-            RunCommand.CommandCase.EDIT_STANDALONE_CONFIG -> add("standalone_edits" to editStandaloneConfig.editsCount)
-            RunCommand.CommandCase.GET_STANDALONE_CONFIG -> Unit
-            RunCommand.CommandCase.GET_STANDALONE_STATUS -> Unit
-            RunCommand.CommandCase.LIST_STANDALONE_RUNS -> {
-                add("limit" to listStandaloneRuns.limit)
-                add("include_synced" to listStandaloneRuns.includeSynced)
-            }
-            RunCommand.CommandCase.GET_STANDALONE_RUN -> {
-                add("run_id" to getStandaloneRun.runId)
-                add("mark_synced" to getStandaloneRun.markSynced)
-            }
-            RunCommand.CommandCase.CLEAR_STANDALONE_RUNS -> {
-                add("synced_only" to clearStandaloneRuns.syncedOnly)
-                add("all" to clearStandaloneRuns.all)
-            }
-            RunCommand.CommandCase.RUN_STANDALONE_ONCE -> {
-                add("festa" to runStandaloneOnce.festa)
-                add("save" to runStandaloneOnce.save)
-            }
+            RunCommand.CommandCase.EDIT_STANDALONE_CONFIG,
+            RunCommand.CommandCase.GET_STANDALONE_CONFIG,
+            RunCommand.CommandCase.GET_STANDALONE_STATUS,
+            RunCommand.CommandCase.LIST_STANDALONE_RUNS,
+            RunCommand.CommandCase.GET_STANDALONE_RUN,
+            RunCommand.CommandCase.CLEAR_STANDALONE_RUNS,
+            RunCommand.CommandCase.RUN_STANDALONE_ONCE -> add("legacy_command" to true)
             RunCommand.CommandCase.COMMAND_NOT_SET -> Unit
         }
     }
@@ -254,33 +242,11 @@ internal fun CommandResult.logFields(): List<Pair<String, Any?>> {
             CommandResult.PayloadCase.PATH_MTU -> addAll(pathMtu.logFields())
             CommandResult.PayloadCase.GLOBAL_IP -> addAll(globalIp.logFields())
             CommandResult.PayloadCase.WGET -> addAll(wget.logFields())
-            CommandResult.PayloadCase.STANDALONE_CONFIG -> {
-                add("standalone_enabled" to standaloneConfig.enabled)
-                add("standalone_festas" to standaloneConfig.festasCount)
-            }
-            CommandResult.PayloadCase.STANDALONE_STATUS -> {
-                add("standalone_enabled" to standaloneStatus.enabled)
-                add("standalone_running" to standaloneStatus.running)
-                add("stored_runs" to standaloneStatus.storedRuns)
-                add("unsynced_runs" to standaloneStatus.unsyncedRuns)
-                add("stored_bytes" to standaloneStatus.storedBytes)
-            }
-            CommandResult.PayloadCase.STANDALONE_RUNS -> {
-                add("runs_count" to standaloneRuns.runsCount)
-                add("total_runs" to standaloneRuns.totalRuns)
-                add("unsynced_runs" to standaloneRuns.unsyncedRuns)
-            }
-            CommandResult.PayloadCase.STANDALONE_RUN -> {
-                add("run_id" to standaloneRun.summary.runId)
-                add("run_status" to standaloneRun.summary.status)
-                add("steps_count" to standaloneRun.stepsCount)
-                add("failed_steps" to standaloneRun.summary.failedStepCount)
-                add("synced" to standaloneRun.summary.synced)
-            }
-            CommandResult.PayloadCase.STANDALONE_CLEAR -> {
-                add("removed_runs" to standaloneClear.removedRuns)
-                add("removed_bytes" to standaloneClear.removedBytes)
-            }
+            CommandResult.PayloadCase.STANDALONE_CONFIG,
+            CommandResult.PayloadCase.STANDALONE_STATUS,
+            CommandResult.PayloadCase.STANDALONE_RUNS,
+            CommandResult.PayloadCase.STANDALONE_RUN,
+            CommandResult.PayloadCase.STANDALONE_CLEAR -> add("legacy_payload" to true)
             CommandResult.PayloadCase.PAYLOAD_NOT_SET -> Unit
         }
     }

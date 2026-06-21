@@ -6,10 +6,6 @@ internal object CommandTerminalLog {
         return format(listOf("command_id" to commandId), scope, message)
     }
 
-    fun standalone(scope: CommandLogScope, message: String): String {
-        return format(listOf("source" to "standalone"), scope, message)
-    }
-
     fun agentShell(scope: CommandLogScope, message: String): String {
         return format(listOf("source" to "agent-shell"), scope, message)
     }

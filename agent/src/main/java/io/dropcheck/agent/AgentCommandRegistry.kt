@@ -47,13 +47,6 @@ internal object AgentCommandRegistry {
         Entry(RunCommand.CommandCase.WGET, "download"),
         Entry(RunCommand.CommandCase.RESOLVE_DNS, "dns"),
         Entry(RunCommand.CommandCase.HTTP_CHECK, "http.check"),
-        Entry(RunCommand.CommandCase.EDIT_STANDALONE_CONFIG, "standalone.config.edit"),
-        Entry(RunCommand.CommandCase.GET_STANDALONE_CONFIG, "standalone.config"),
-        Entry(RunCommand.CommandCase.GET_STANDALONE_STATUS, "standalone.status"),
-        Entry(RunCommand.CommandCase.LIST_STANDALONE_RUNS, "standalone.runs"),
-        Entry(RunCommand.CommandCase.GET_STANDALONE_RUN, "standalone.run"),
-        Entry(RunCommand.CommandCase.CLEAR_STANDALONE_RUNS, "standalone.runs.clear"),
-        Entry(RunCommand.CommandCase.RUN_STANDALONE_ONCE, "standalone.run.once"),
     )
 
     /** Capability strings sent during hello. The controller treats this as the agent's local feature set. */

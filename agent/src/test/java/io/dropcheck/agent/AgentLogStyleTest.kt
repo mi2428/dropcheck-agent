@@ -12,33 +12,19 @@ class AgentLogStyleTest {
             AgentLogStyle.ACTIVE_PROBE_COLOR,
             AgentLogStyle.colorForLine("2026-05-03T00:00:00Z INFO  event=probe.exec probe=ping command_line=\"/system/bin/ping -c 3 1.1.1.1\" command_id=id scope=exec\n"),
         )
-        assertEquals(
-            AgentLogStyle.ACTIVE_PROBE_COLOR,
-            AgentLogStyle.colorForLine("INFO  event=probe.exec probe=dns name=example.com source=standalone scope=exec"),
-        )
+        assertEquals(AgentLogStyle.ACTIVE_PROBE_COLOR, AgentLogStyle.colorForLine("INFO  event=probe.exec probe=dns scope=exec"))
     }
 
     @Test
     fun keepsWarningAndErrorPriority() {
         assertEquals(
             AgentLogStyle.ERROR_COLOR,
-            AgentLogStyle.colorForLine("2026-05-03T00:00:00Z ERROR event=command.executor.end source=standalone status=STATUS_FAILED scope=command"),
+            AgentLogStyle.colorForLine("2026-05-03T00:00:00Z ERROR event=command.executor.end status=STATUS_FAILED scope=command"),
         )
     }
 
     @Test
-    fun colorsStandaloneCommandFailuresOrange() {
-        val failed = "2026-05-03T00:00:00Z DEBUG event=command.executor.end command_case=PING status=STATUS_FAILED payload_case=PING message=\"ping failed\" elapsed_ms=1001 source=standalone scope=command"
-
-        assertEquals(
-            AgentLogStyle.COMMAND_FAILED_COLOR,
-            AgentLogStyle.colorForLine(failed),
-        )
-        assertTrue(AgentLogStyle.isStandaloneCommandFailureLine(failed))
-    }
-
-    @Test
-    fun doesNotColorControllerFailuresOrange() {
+    fun leavesFailedCommandSummariesAtDefaultColor() {
         assertEquals(
             AgentLogStyle.TEXT_COLOR,
             AgentLogStyle.colorForLine("DEBUG event=command.executor.end command_case=PING status=STATUS_FAILED command_id=abc scope=command"),
