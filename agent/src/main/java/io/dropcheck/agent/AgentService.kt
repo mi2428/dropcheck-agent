@@ -27,7 +27,6 @@ class AgentService : Service() {
     private lateinit var clockWidgetObserver: ClockWidgetRefreshObserver
     private var wifiEvents: WifiEventLogger? = null
     private var wifiEventsStarted = false
-    private lateinit var standaloneRunner: StandaloneRunner
     private var current: Future<*>? = null
     private var currentSessionKey: String = ""
     private var currentStartId: Int = 0
@@ -41,8 +40,6 @@ class AgentService : Service() {
         if (AgentClockWidgetProvider.hasClockWidgets(this)) {
             clockWidgetObserver.start()
         }
-        standaloneRunner = StandaloneRunner(this)
-        standaloneRunner.refresh()
         TerminalLog.infoEvent(this, "service.create", listOf(
             "sdk" to Build.VERSION.SDK_INT,
             "manufacturer" to Build.MANUFACTURER,
@@ -106,16 +103,7 @@ class AgentService : Service() {
                     startGrpcSession(host, port, token, agentId, adbSerial, startId)
                 }
             }
-            ACTION_STANDALONE_REFRESH, null -> {
-                if (StandaloneConfigStore(this).load().enabled) {
-                    ensureWifiEventsStarted()
-                }
-                TerminalLog.infoEvent(this, "standalone.refresh", listOf(
-                    "enabled" to StandaloneConfigStore(this).load().enabled,
-                    "current_active" to (current?.isDone == false),
-                ))
-                standaloneRunner.refresh()
-            }
+            null -> Unit
             else -> TerminalLog.warnEvent(this, "service.start.ignored", listOf(
                 "reason" to "unknown_action",
                 "action" to intent?.action,
@@ -126,9 +114,6 @@ class AgentService : Service() {
 
     override fun onDestroy() {
         current?.cancel(true)
-        if (::standaloneRunner.isInitialized) {
-            standaloneRunner.shutdown()
-        }
         if (::clockWidgetObserver.isInitialized) {
             clockWidgetObserver.shutdown()
         }
@@ -219,13 +204,7 @@ class AgentService : Service() {
             currentSessionKey = ""
             currentStartId = 0
         }
-        if (StandaloneConfigStore(this).load().enabled) {
-            standaloneRunner.refresh()
-            startForegroundWithType("standalone checks")
-        }
-        if (!StandaloneConfigStore(this).load().enabled) {
-            stopWifiEvents()
-        }
+        stopWifiEvents()
         if (!shouldStayStarted()) {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf(startId)
@@ -233,14 +212,13 @@ class AgentService : Service() {
     }
 
     private fun shouldStayStarted(): Boolean {
-        return StandaloneConfigStore(this).load().enabled ||
-            AgentClockWidgetProvider.hasClockWidgets(this)
+        return AgentClockWidgetProvider.hasClockWidgets(this)
     }
 
     private fun notificationText(action: String?): String {
         return when (action) {
+            ACTION_GRPC_SESSION -> "controller session"
             ACTION_WIDGET_REFRESH_OBSERVER -> "widget updates"
-            ACTION_STANDALONE_REFRESH -> "standalone checks"
             else -> "waiting for controller"
         }
     }
@@ -310,7 +288,6 @@ class AgentService : Service() {
         private const val CHANNEL_ID = "dropcheck-agent"
         private const val NOTIFICATION_ID = 1001
         const val ACTION_GRPC_SESSION = "io.dropcheck.agent.action.GRPC_SESSION"
-        const val ACTION_STANDALONE_REFRESH = "io.dropcheck.agent.action.STANDALONE_REFRESH"
         const val ACTION_WIDGET_REFRESH_OBSERVER = "io.dropcheck.agent.action.WIDGET_REFRESH_OBSERVER"
         const val ACTION_WIDGET_REFRESH_STOP = "io.dropcheck.agent.action.WIDGET_REFRESH_STOP"
         const val EXTRA_GRPC_HOST = "grpc_host"
@@ -318,11 +295,6 @@ class AgentService : Service() {
         const val EXTRA_GRPC_TOKEN = "grpc_token"
         const val EXTRA_AGENT_ID = "agent_id"
         const val EXTRA_ADB_SERIAL = "adb_serial"
-
-        fun requestStandaloneRefresh(context: Context) {
-            val intent = Intent(context, AgentService::class.java).setAction(ACTION_STANDALONE_REFRESH)
-            context.startForegroundService(intent)
-        }
 
         fun requestWidgetObserver(context: Context) {
             val intent = Intent(context, AgentService::class.java).setAction(ACTION_WIDGET_REFRESH_OBSERVER)

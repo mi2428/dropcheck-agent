@@ -101,7 +101,7 @@ internal fun terminalDisplayText(line: String): String {
  * Minimal on-device terminal view for lab/debug sessions.
  *
  * It keeps the main screen as a local log tail and exposes a small swipe-in
- * shell for lab-only Wi-Fi target switching.
+ * shell for interactive Wi-Fi and network inspection.
  */
 class MainActivity : Activity() {
     private lateinit var logView: TextView
@@ -117,8 +117,6 @@ class MainActivity : Activity() {
     private var shellSafeRightInset = 0
     private var statusIconViews: List<ImageView> = emptyList()
     private var controllerHeartbeatConnected = false
-    private var standaloneActive = false
-    private var standaloneRunning = false
     private var screenDimmed = false
     private var shellVisible = false
     private var shellBusy = false
@@ -250,8 +248,6 @@ class MainActivity : Activity() {
         }
         setContentView(root)
         controllerHeartbeatConnected = ControllerSessionRuntimeState.heartbeatConnected()
-        standaloneActive = isStandaloneActive()
-        standaloneRunning = StandaloneRuntimeState.running.get()
         updateStatusIcons()
         resetIdleDimTimer()
         showInitialScreen(intent)
@@ -462,7 +458,7 @@ class MainActivity : Activity() {
             isClickable = false
             isFocusable = false
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            repeat(2) { index ->
+            repeat(1) { index ->
                 val icon = ImageView(this@MainActivity).apply {
                     setImageResource(R.drawable.shownet)
                     scaleType = ImageView.ScaleType.FIT_CENTER
@@ -493,11 +489,7 @@ class MainActivity : Activity() {
     }
 
     private fun updateStatusIcons() {
-        val count = when {
-            standaloneActive || standaloneRunning -> 2
-            controllerHeartbeatConnected -> 1
-            else -> 0
-        }
+        val count = if (controllerHeartbeatConnected) 1 else 0
         statusIconViews.forEachIndexed { index, icon ->
             icon.visibility = if (index < count) View.VISIBLE else View.GONE
         }
@@ -505,13 +497,7 @@ class MainActivity : Activity() {
 
     private fun syncStatusIcons() {
         controllerHeartbeatConnected = ControllerSessionRuntimeState.heartbeatConnected()
-        standaloneActive = isStandaloneActive()
-        standaloneRunning = StandaloneRuntimeState.running.get()
         updateStatusIcons()
-    }
-
-    private fun isStandaloneActive(): Boolean {
-        return StandaloneRuntimeState.active.get() || StandaloneConfigStore(this).load().enabled
     }
 
     private fun resetIdleDimTimer() {
@@ -583,34 +569,19 @@ class MainActivity : Activity() {
     private fun renderShell() {
         if (!::shellContent.isInitialized) return
         seedShellTranscript()
-        val useController = StandaloneWifiUseController(applicationContext)
         shellContent.removeAllViews()
         fun addShellView(view: View) {
             shellContent.addView(view)
         }
         addShellView(shellText("dropcheck shell", AgentLogStyle.TEXT_COLOR))
-        addShellView(shellText("mode=idle runtime=${standaloneRunningLabel()} ${useController.statusText()}", AgentLogStyle.TEXT_COLOR))
-        /*
-         * DEAD CODE (2026-06-10): live-festa banner disabled with SSID-only `use`.
-         * val liveWifiBanner = useController.liveWifiBannerText()
-         * if (liveWifiBanner != null) {
-         *     addShellView(shellText(liveWifiBanner, AgentLogStyle.TEXT_COLOR))
-         * }
-         */
+        val controllerState = if (ControllerSessionRuntimeState.heartbeatConnected()) "connected" else "idle"
+        addShellView(shellText("mode=interactive controller=$controllerState", AgentLogStyle.TEXT_COLOR))
         addShellView(shellSpacer(8))
         shellTranscript.takeLast(SHELL_TRANSCRIPT_MAX_LINES).forEach {
             addShellView(shellText(it.text, it.color))
         }
         if (!shellBusy) {
             addShellView(ensureShellInputRow())
-        }
-    }
-
-    private fun standaloneRunningLabel(): String {
-        return when {
-            StandaloneRuntimeState.running.get() -> "running"
-            StandaloneRuntimeState.active.get() -> "active"
-            else -> "inactive"
         }
     }
 
@@ -691,17 +662,6 @@ class MainActivity : Activity() {
             is AgentShellCommand.Help -> {
                 appendShellLines(shellHelpLines(command.topic), focusInput = focusAfterSubmit)
             }
-            AgentShellCommand.ShowUse -> {
-                val useController = StandaloneWifiUseController(applicationContext)
-                /*
-                 * DEAD CODE (2026-06-10): previous live-festa detail output.
-                 * appendShellLines(
-                 *     listOf(useController.statusText()) + useController.liveWifiListText(),
-                 *     focusInput = focusAfterSubmit,
-                 * )
-                 */
-                appendShellLine(useController.statusText(), focusInput = focusAfterSubmit)
-            }
             AgentShellCommand.ShowVersion -> {
                 appendShellLine("version ${BuildConfig.VERSION_NAME}", focusInput = focusAfterSubmit)
             }
@@ -733,26 +693,10 @@ class MainActivity : Activity() {
             is AgentShellCommand.Ping -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
                 runPingCommand(command)
             }
-            is AgentShellCommand.SetDefaultPassphrase -> runShellCommand(focusAfterComplete = focusAfterSubmit) {
-                StandaloneWifiUseController(applicationContext).setDefaultPassphrase(command.passphrase)
-            }
             is AgentShellCommand.Traceroute -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
                 runTracerouteCommand(command)
             }
-            AgentShellCommand.ClearUse -> runShellCommand(focusAfterComplete = focusAfterSubmit) {
-                StandaloneWifiUseController(applicationContext).clearUse()
-            }
-            is AgentShellCommand.Use -> runShellCommand(focusAfterComplete = focusAfterSubmit) {
-                StandaloneWifiUseController(applicationContext).use(command.name)
-            }
             is AgentShellCommand.Invalid -> appendShellLine(command.message, SHELL_ERROR_COLOR, focusInput = focusAfterSubmit)
-        }
-    }
-
-    private fun runShellCommand(focusAfterComplete: Boolean = true, action: () -> StandaloneUseResult) {
-        runShellLinesCommand(focusAfterComplete = focusAfterComplete) {
-            val result = action()
-            ShellCommandResult(result.ok, listOf(result.message))
         }
     }
 
@@ -1051,11 +995,8 @@ class MainActivity : Activity() {
         return when (topic) {
             "" -> listOf(
                 "Shell builtins:",
-                "  clear use",
                 "  help [NAME]",
                 "  ping HOST [count N] [size BYTES] [timeout MS]",
-                "  set default passphrase PASSPHRASE",
-                "  show use",
                 "  show version",
                 "  show wifi eht",
                 "  show wifi eht fresh [timeout MS]",
@@ -1065,13 +1006,8 @@ class MainActivity : Activity() {
                 "  show wifi scan fresh [brief [mlo]] [timeout MS] [all|2.4ghz|5ghz|6ghz|60ghz]",
                 "  show wifi status",
                 "  traceroute HOST [max-hops N] [size BYTES] [timeout MS]",
-                "  use NAME",
                 "",
                 "Type 'help NAME' for more information.",
-            )
-            "clear", "clear use" -> listOf(
-                "clear use: clear use",
-                "    Clear the active Wi-Fi use override and restore standalone mode.",
             )
             "help" -> listOf(
                 "help: help [NAME]",
@@ -1082,14 +1018,8 @@ class MainActivity : Activity() {
                 "    Run ICMP ping over the active Wi-Fi network.",
                 "    size is the ICMP payload size in bytes.",
             )
-            "set" -> listOf(
-                "set: set default passphrase PASSPHRASE",
-                "    Store the default PSK used by direct 'use SSID' connections.",
-                "    Use an empty quoted string to clear it.",
-            )
             "show" -> listOf(
-                "show: show (version|use|wifi status|wifi eht|wifi scan)",
-                "    show use displays the Wi-Fi use override state for SSID-based use commands.",
+                "show: show (version|wifi status|wifi eht|wifi scan)",
                 "    show version displays the app version embedded at build time.",
                 "    show wifi status displays local Wi-Fi and IP state.",
                 "    show wifi eht displays connected and nearby EHT state.",
@@ -1102,11 +1032,6 @@ class MainActivity : Activity() {
                 "traceroute: traceroute HOST [max-hops N] [size BYTES] [timeout MS]",
                 "    Trace the path to HOST over the active Wi-Fi network.",
                 "    size is the probe payload size in bytes.",
-            )
-            "use" -> listOf(
-                "use: use NAME",
-                "    NAME is always treated as the SSID directly.",
-                "    When a default passphrase is set, it is used as the PSK for that SSID.",
             )
             else -> listOf("dropcheck: help: no help topics match '$topic'")
         }

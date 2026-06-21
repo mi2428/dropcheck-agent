@@ -6,14 +6,7 @@ import org.junit.Test
 
 class AgentInteractiveShellTest {
     @Test
-    fun parsesUseCommands() {
-        assertEquals(AgentShellCommand.Use("ap1"), AgentShellParser.parse("use ap1"))
-        assertEquals(AgentShellCommand.Use("AP1"), AgentShellParser.parse("u AP1"))
-        assertEquals(AgentShellCommand.Use("lab wifi"), AgentShellParser.parse("use \"lab wifi\""))
-        assertEquals(AgentShellCommand.ClearUse, AgentShellParser.parse("clear use"))
-        assertEquals(AgentShellCommand.ClearUse, AgentShellParser.parse("c u"))
-        assertEquals(AgentShellCommand.ShowUse, AgentShellParser.parse("show use"))
-        assertEquals(AgentShellCommand.ShowUse, AgentShellParser.parse("sh u"))
+    fun parsesInteractiveCommands() {
         assertEquals(AgentShellCommand.ShowVersion, AgentShellParser.parse("show version"))
         assertEquals(AgentShellCommand.ShowVersion, AgentShellParser.parse("sh v"))
         assertEquals(AgentShellCommand.ShowWifiStatus, AgentShellParser.parse("show wifi status"))
@@ -35,27 +28,22 @@ class AgentInteractiveShellTest {
         )
         assertEquals(AgentShellCommand.Ping("1.1.1.1"), AgentShellParser.parse("ping 1.1.1.1"))
         assertEquals(AgentShellCommand.Ping("1.1.1.1", count = 3, sizeBytes = 64, timeoutMs = 7000), AgentShellParser.parse("p count 3 size 64 timeout 7000 1.1.1.1"))
-        assertEquals(AgentShellCommand.SetDefaultPassphrase("hogehoge"), AgentShellParser.parse("set default passphrase hogehoge"))
-        assertEquals(AgentShellCommand.SetDefaultPassphrase(""), AgentShellParser.parse("set default passphrase \"\""))
         assertEquals(AgentShellCommand.Traceroute("1.1.1.1"), AgentShellParser.parse("traceroute 1.1.1.1"))
         assertEquals(AgentShellCommand.Traceroute("example.test", maxHops = 12, sizeBytes = 80, timeoutMs = 30000), AgentShellParser.parse("tr max-hops 12 size 80 timeout 30000 example.test"))
         assertEquals(AgentShellCommand.Help(), AgentShellParser.parse("help"))
         assertEquals(AgentShellCommand.Help(), AgentShellParser.parse("h"))
         assertEquals(AgentShellCommand.Help(), AgentShellParser.parse("he"))
         assertEquals(AgentShellCommand.Help(), AgentShellParser.parse("hel"))
-        assertEquals(AgentShellCommand.Help("set"), AgentShellParser.parse("help set"))
-        assertEquals(AgentShellCommand.Help("use"), AgentShellParser.parse("help use"))
+        assertEquals(AgentShellCommand.Help("show"), AgentShellParser.parse("help show"))
         assertEquals(AgentShellCommand.Help("ping"), AgentShellParser.parse("help p"))
         assertEquals(AgentShellCommand.Help("traceroute"), AgentShellParser.parse("help tr"))
-        assertEquals(AgentShellCommand.Help("use"), AgentShellParser.parse("h u"))
+        assertEquals(AgentShellCommand.Help("show"), AgentShellParser.parse("h sh"))
     }
 
     @Test
-    fun rejectsMalformedUseCommands() {
-        assertEquals(AgentShellCommand.Invalid("usage: use NAME"), AgentShellParser.parse("use"))
-        assertEquals(AgentShellCommand.Invalid("usage: clear use"), AgentShellParser.parse("clear"))
-        assertEquals(AgentShellCommand.Invalid("usage: show (version|use|wifi status|wifi eht|wifi scan)"), AgentShellParser.parse("show"))
-        assertEquals(AgentShellCommand.Invalid("usage: show (version|use|wifi status|wifi eht|wifi scan)"), AgentShellParser.parse("sh"))
+    fun rejectsMalformedCommands() {
+        assertEquals(AgentShellCommand.Invalid("usage: show (version|wifi status|wifi eht|wifi scan)"), AgentShellParser.parse("show"))
+        assertEquals(AgentShellCommand.Invalid("usage: show (version|wifi status|wifi eht|wifi scan)"), AgentShellParser.parse("sh"))
         assertEquals(AgentShellCommand.Invalid("usage: show wifi (status|eht|scan)"), AgentShellParser.parse("show wifi"))
         assertEquals(AgentShellCommand.Invalid("usage: show wifi status"), AgentShellParser.parse("show wifi status extra"))
         assertEquals(AgentShellCommand.Invalid("usage: show wifi (status|eht|scan)"), AgentShellParser.parse("show wifi networks"))
@@ -69,16 +57,13 @@ class AgentInteractiveShellTest {
         assertEquals(AgentShellCommand.Invalid("count requires a value"), AgentShellParser.parse("ping 1.1.1.1 count"))
         assertEquals(AgentShellCommand.Invalid("size must be a positive integer"), AgentShellParser.parse("ping 1.1.1.1 size 0"))
         assertEquals(AgentShellCommand.Invalid("timeout specified twice"), AgentShellParser.parse("ping 1.1.1.1 timeout 100 timeout 200"))
-        assertEquals(AgentShellCommand.Invalid("usage: set default passphrase PASSPHRASE"), AgentShellParser.parse("set"))
-        assertEquals(AgentShellCommand.Invalid("usage: set default passphrase PASSPHRASE"), AgentShellParser.parse("set default"))
-        assertEquals(AgentShellCommand.Invalid("usage: set default passphrase PASSPHRASE"), AgentShellParser.parse("set default security auto"))
-        assertEquals(AgentShellCommand.Invalid("usage: set default passphrase PASSPHRASE"), AgentShellParser.parse("set default pass-phrase hogehoge"))
         assertEquals(AgentShellCommand.Invalid("usage: traceroute HOST [max-hops N] [size BYTES] [timeout MS]"), AgentShellParser.parse("traceroute"))
         assertEquals(AgentShellCommand.Invalid("max-hops must be a positive integer"), AgentShellParser.parse("traceroute 1.1.1.1 max-hops nope"))
         assertEquals(AgentShellCommand.Invalid("list: command not found"), AgentShellParser.parse("list"))
-        assertEquals(AgentShellCommand.Invalid("usage: help [NAME]"), AgentShellParser.parse("help use extra"))
-        assertEquals(AgentShellCommand.Invalid("usage: use NAME"), AgentShellParser.parse("u"))
+        assertEquals(AgentShellCommand.Invalid("usage: help [NAME]"), AgentShellParser.parse("help show extra"))
+        assertEquals(AgentShellCommand.Invalid("u: command not found"), AgentShellParser.parse("u"))
         assertEquals(AgentShellCommand.Invalid("missing: command not found"), AgentShellParser.parse("missing"))
-        assertTrue(AgentShellParser.parse("use \"ap1") is AgentShellCommand.Invalid)
+        assertEquals(AgentShellCommand.Invalid("set: command not found"), AgentShellParser.parse("set default passphrase secret"))
+        assertTrue(AgentShellParser.parse("show wifi eht \"ap1") is AgentShellCommand.Invalid)
     }
 }
