@@ -569,11 +569,11 @@ func writeWatchHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "Usage:")
 	_, _ = fmt.Fprintln(w, "  dropcheck [flags] watch -c CONFIG.yml [--target TARGET|all] [--jsonl PATH] [--no-tui]")
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "Options:")
+	_, _ = fmt.Fprintln(w, "Controller TUI options:")
 	writeHelpRows(w, []helpRow{
-		{"-c, --config PATH", "watch YAML configuration"},
+		{"-c, --config PATH", "watch YAML plan for the Controller TUI"},
 		{"--target TARGET", "agent ID, prefix, adb serial, model, display number, or all; default is all agents in the session"},
-		{"--jsonl PATH", "append watch events to JSONL"},
-		{"--no-tui", "print findings without starting the live TUI"},
+		{"--jsonl PATH", "append Controller TUI events to JSONL"},
+		{"--no-tui", "print findings without starting the Controller TUI"},
 	})
 }

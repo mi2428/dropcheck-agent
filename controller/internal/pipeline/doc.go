@@ -1,4 +1,4 @@
-// Package pipeline parses and applies interactive shell output pipelines.
+// Package pipeline parses and applies Controller Shell output pipelines.
 //
 // Pipelines are intentionally presentation-layer filters. They can request JSON
 // display, configuration set-command display, filter rendered text with regular

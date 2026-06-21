@@ -7,13 +7,13 @@ import (
 	"strings"
 )
 
-// PrintHelp writes the full shell help summary to stdout.
+// PrintHelp writes the full Controller Shell help summary to stdout.
 func PrintHelp() {
 	writeShellHelp(os.Stdout)
 }
 
 func writeShellHelp(w io.Writer) {
-	_, _ = fmt.Fprintln(w, `commands:
+	_, _ = fmt.Fprintln(w, `Controller Shell commands:
   show devices
   show config [standalone]
   show wifi status
@@ -36,7 +36,7 @@ func writeShellHelp(w io.Writer) {
   configure
   request [<request-command>]
 
-configure mode:
+Controller Shell configure mode:
   show [standalone]
   set standalone enabled
   set standalone disabled
@@ -60,7 +60,7 @@ configure mode:
   exit
   quit
 
-request mode:
+Controller Shell request mode:
   wifi connect passphrase <passphrase> [security <auto|wpa2|wpa3|transition>] [bssid <bssid>] [band <band>] [mac-randomization <mode>] [timeout <ms>] <ssid>
   wifi disconnect
   wifi forget <ssid|network_id>

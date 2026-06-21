@@ -15,7 +15,7 @@ import io.dropcheck.agent.grpc.WifiMcsNssSupport
 import io.dropcheck.agent.grpc.WifiSecurityDetails
 import io.dropcheck.agent.grpc.WifiStatus
 
-/** Text renderer used by the on-device shell for `show wifi status`. */
+/** Text renderer used by Agent Shell for `show wifi status`. */
 internal object AgentWifiStatusRenderer {
     fun render(status: WifiStatus): List<String> {
         val out = mutableListOf<String>()

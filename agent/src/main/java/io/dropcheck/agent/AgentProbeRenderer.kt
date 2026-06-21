@@ -4,7 +4,7 @@ import io.dropcheck.agent.grpc.CommandResult
 import io.dropcheck.agent.grpc.PingResult
 import io.dropcheck.agent.grpc.TracerouteResult
 
-/** Text renderer used by the on-device shell for network probe commands. */
+/** Text renderer used by Agent Shell for network probe commands. */
 internal object AgentProbeRenderer {
     fun renderPing(result: PingResult, status: CommandResult.Status, message: String): List<String> {
         val out = mutableListOf(

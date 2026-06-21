@@ -8,8 +8,8 @@ Android handsets act as field probes for event NOCs.
 Instead of checking connectivity from the infrastructure side, each check measures from the same user-facing access network that attendees and staff devices use.
 
 The controller is the operator-facing entry point for live checks and automation.
-The agent is the on-device probe, and it can also keep collecting standalone measurements when the controller is absent.
-Saved measurements can be exported into the event observability stack for after-the-fact review.
+Its main surfaces are the one-shot CLI, Controller Shell, Controller TUI, and MCP.
+The agent is the on-device probe and hosts Agent Shell for direct handset-side inspection.
 
 ```mermaid
 sequenceDiagram
@@ -22,13 +22,13 @@ sequenceDiagram
   participant MCP as MCP Server
   actor AI as AI Agent
 
-  par NOC interactive control through Controller shell
-    NOC->>Controller: shell command
+  par NOC interactive control through Controller Shell
+    NOC->>Controller: Controller Shell command
     Controller->>App: ADB-started gRPC operation
     App->>WiFi: connect, inspect, or probe
     WiFi-->>App: link and probe result
     App-->>Controller: typed result
-    Controller-->>NOC: shell output
+    Controller-->>NOC: Controller Shell output
   and AI interactive control through MCP Server
     AI->>MCP: MCP tool call
     MCP->>Controller: controller operation
@@ -45,11 +45,11 @@ sequenceDiagram
     WiFi-->>App: measurement result
     App->>O11y: upload standalone archive
     O11y-->>NOC: metrics and dashboards
-  and NOC direct Android live mode
-    NOC->>App: on-device live mode command
-    App->>WiFi: connect using stored target
-    WiFi-->>App: connection result
-    App-->>NOC: terminal, widget, local log
+  and NOC direct control through Agent Shell
+    NOC->>App: Agent Shell command
+    App->>WiFi: inspect or probe from the handset
+    WiFi-->>App: status or probe result
+    App-->>NOC: Agent Shell output, widget, local log
   end
 ```
 
@@ -111,12 +111,13 @@ Keep Location enabled on the device; Android hides SSID, BSSID, scan, and MLO de
 ## Features
 
 The controller/agent toolchain has several entry points that share the same typed agent operations.
-Use the controller for ad-hoc checks, the shell for field work, MCP for model/tool orchestration, standalone mode for unattended handset-side runs, and Festival when the check should be a repeatable Go test.
+Use the one-shot controller CLI for ad-hoc checks, Controller Shell for field work, Controller TUI (`dropcheck watch`) for continuous loops, Agent Shell for on-device inspection, MCP for model/tool orchestration, and Festival when the check should be a repeatable Go test.
 
-### Controller CLI and shell
+### Controller Shell (`dropcheck shell`)
 
 The controller starts an ADB-backed gRPC session to one or more Android agents.
-One-shot CLI commands are scriptable and can emit text or JSON; the interactive shell adds prompts, completion, context help, output filters, and configure/request submodes.
+One-shot CLI commands are scriptable and can emit text or JSON.
+Controller Shell adds prompts, completion, context help, output filters, and configure/request submodes on top of the same typed agent operations.
 
 The controller builds three binaries:
 
@@ -153,7 +154,7 @@ A short interactive session, with verbose startup lines omitted and network valu
 ```console
 $ controller/dist/dropcheck --serial R5CT12345 shell
 dropcheck: selected agent=R5CT12345
-press '?' for context help, or type 'help' for commands
+press '?' for Controller Shell context help, or type 'help' for commands
 R5CT12345# show wifi ?
   status                   Current Wi-Fi connection and IP state
   diagnostics              Wi-Fi status, capabilities, networks, and scan
@@ -172,7 +173,7 @@ R5CT12345(request)# exit
 R5CT12345# exit
 ```
 
-### Android agent
+### Android Agent and Agent Shell
 
 Install the Android agent on a test handset:
 
@@ -182,9 +183,8 @@ $ make install SERIAL=R5CT12345
 + adb -s R5CT12345 install -r -t agent/build/outputs/apk/debug/agent-debug.apk
 ```
 
-The agent executes controller requests, records structured local logs, renders widgets, and can run a small on-device shell.
-Its `use NAME` command always treats `NAME` as the SSID directly.
-When the on-device shell has `set default passphrase <psk>` configured, `use NAME` connects to that SSID with the configured PSK.
+The Android agent executes controller requests, records structured local logs, renders widgets, and hosts Agent Shell for direct handset-side inspection.
+Agent Shell focuses on local Wi-Fi inspection plus handset-side probes such as `ping` and `traceroute`.
 
 Drive the agent from the controller for live measurements:
 
@@ -215,9 +215,9 @@ Ping: host=1.1.1.1 status=ok transmitted=5 received=5 loss=0.0% min/avg/max=10.2
 rtt min/avg/max/mdev = 10.200/12.400/16.300/1.900 ms
 ```
 
-### Watch TUI
+### Controller TUI (`dropcheck watch`)
 
-`dropcheck watch` runs a continuous E2E Wi-Fi test loop from the controller and renders a live terminal UI.
+`dropcheck watch` starts the Controller TUI and runs a continuous E2E Wi-Fi test loop from the controller.
 It is meant for field operation: connection failures and failed `required: true` checks skip the remaining checks for that target, other check failures are recorded as findings, and the next target and round continue.
 Use `--jsonl` when you also want an append-only event log.
 When multiple agents are connected, unassigned targets run on every selected agent.

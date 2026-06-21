@@ -22,7 +22,7 @@ import (
 )
 
 func repl(ctx context.Context, state *shellState) error {
-	fmt.Println("press '?' for context help, or type 'help' for commands")
+	fmt.Println("press '?' for Controller Shell context help, or type 'help' for commands")
 	if useLineEditor() {
 		return replLineEditor(ctx, state)
 	}

@@ -31,7 +31,7 @@ internal data class AgentWifiMloContext(
     val scanCommandMessage: String = "",
 )
 
-/** EHT-focused renderer for the on-device shell. */
+/** EHT-focused renderer for Agent Shell. */
 internal object AgentWifiMloRenderer {
     fun render(status: WifiStatus, scan: WifiScan, context: AgentWifiMloContext = AgentWifiMloContext()): List<String> {
         val out = mutableListOf<String>()
