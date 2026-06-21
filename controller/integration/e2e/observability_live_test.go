@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"dropcheck/controller/internal/controlpb"
-	f "dropcheck/controller/internal/festival"
+	f "dropcheck/controller/internal/harness"
 	ingestermetrics "dropcheck/controller/internal/ingester"
 	"google.golang.org/protobuf/proto"
 )
@@ -68,10 +68,10 @@ func TestStandaloneUploadIngesterPrometheusLive(t *testing.T) {
 		Results: []f.ResultSource{
 			f.StandaloneArchiveBytes("observability-minio-upload", archiveBytes),
 		},
-		Checks: standaloneFestivalChecks(),
+		Checks: standaloneHarnessChecks(),
 	})
 
-	cfg.waitFestivalMetricsInPrometheus(t, stack.prometheusURL, archive, 2*time.Minute)
+	cfg.waitHarnessMetricsInPrometheus(t, stack.prometheusURL, archive, 2*time.Minute)
 }
 
 type standaloneObservabilityStack struct {
@@ -252,7 +252,7 @@ func parseMinIOObjectLine(output string) string {
 	return ""
 }
 
-func (cfg *e2eConfig) waitFestivalMetricsInPrometheus(t *testing.T, prometheusURL string, archive *controlpb.StandaloneRunArchive, timeout time.Duration) {
+func (cfg *e2eConfig) waitHarnessMetricsInPrometheus(t *testing.T, prometheusURL string, archive *controlpb.StandaloneRunArchive, timeout time.Duration) {
 	t.Helper()
 	baseLabels := firstArchiveMetricGrouping(t, archive)
 	expectations := []struct {
