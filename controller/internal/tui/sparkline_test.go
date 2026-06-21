@@ -11,7 +11,7 @@ import (
 
 func TestRoundTimelineShowsRoundProgressGauge(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	m.Round = 7
 	m.Targets = []targetState{
 		{Target: targetSnapshot("ok"), Status: "ok"},
@@ -43,7 +43,7 @@ func TestRoundTimelineShowsRoundProgressGauge(t *testing.T) {
 
 func TestSummarySparklineIsPinnedToBottom(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(4 * time.Second)
 	for i := range 4 {
@@ -177,7 +177,7 @@ func TestSummarySparklineScalesThirtyMinuteWindowToPanelWidth(t *testing.T) {
 
 func TestPassingSparklineRetainsThirtyMinuteWindowBeyondFourHundredEvents(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	now := time.Date(2026, 5, 16, 9, 35, 0, 0, time.UTC)
 	m.Now = now
 	for i := range 401 {
@@ -253,7 +253,7 @@ func TestSummarySparklineUsesNiceAbsoluteScale(t *testing.T) {
 
 func TestSummarySparklineHeaderShowsScaleWhenCompressed(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(10 * time.Second)
 	for range 14 {

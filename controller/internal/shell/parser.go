@@ -1423,8 +1423,8 @@ func shellWifiValueCanBeTrailing(key string) bool {
 	}
 }
 
-func resolveShellKeyword(Kind string, value string, candidates []string) (string, error) {
-	return resolveUniquePrefix(Kind, value, candidates)
+func resolveShellKeyword(kind string, value string, candidates []string) (string, error) {
+	return resolveUniquePrefix(kind, value, candidates)
 }
 
 func wifiBandValues() []string {

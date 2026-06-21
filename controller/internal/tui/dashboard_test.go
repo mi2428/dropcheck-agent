@@ -17,7 +17,7 @@ func TestRenderShowsRoundTimelineAndCheckStatus(t *testing.T) {
 		{ID: "agent-a", Name: "pixel-a", ADBSerial: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b", ADBSerial: "pixel-b"},
 	}
-	m := newModel("shownet-watch", []watch.Target{
+	m := newModel([]watch.Target{
 		{Name: "u7-5ghz", SSID: "SHIZK RADIO", Band: "5ghz"},
 		{Name: "u6-5ghz", SSID: "SHIZK RADIO", Band: "5ghz"},
 	}, events, agents)
@@ -113,7 +113,7 @@ func TestRoundTimelineRendersTargetFailureDensity(t *testing.T) {
 		{Name: "any-5ghz", SSID: "SHIZK RADIO"},
 		{Name: "u7-2.4ghz", SSID: "SHIZK RADIO"},
 	}
-	m := newModel("shownet-watch", targets, events)
+	m := newModel(targets, events)
 	now := time.Date(2026, 5, 16, 9, 30, 30, 0, time.UTC)
 	m.Now = now
 	m.Round = 4
@@ -165,7 +165,7 @@ func TestRoundTimelineConnectFailureXRequiresAllAgents(t *testing.T) {
 		{ID: "agent-b", Name: "pixel-b"},
 	}
 	target := watch.TargetSnapshot{Name: "u6-2.4ghz", SSID: "SHIZK RADIO"}
-	m := newModel("shownet-watch", []watch.Target{{Name: "u6-2.4ghz", SSID: "SHIZK RADIO"}}, events, agents)
+	m := newModel([]watch.Target{{Name: "u6-2.4ghz", SSID: "SHIZK RADIO"}}, events, agents)
 	m.Round = 1
 	m.PassingChecks = []passingCheckState{{
 		Round:  1,
@@ -342,7 +342,7 @@ func TestRoundTimelinePacksColumnsWhileKeepingTenRounds(t *testing.T) {
 		{Name: "t4", SSID: "SHIZK RADIO"},
 		{Name: "t5", SSID: "SHIZK RADIO"},
 	}
-	m := newModel("shownet-watch", targets, events)
+	m := newModel(targets, events)
 	m.Round = 20
 
 	wide := stripANSI(m.roundTimelineView(140, 4))
@@ -383,7 +383,7 @@ func TestRoundTimelinePacksColumnsWhileKeepingTenRounds(t *testing.T) {
 
 func TestRoundTimelineDoesNotPadSingleRoundGraph(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{
+	m := newModel([]watch.Target{
 		{Name: "hp1(5G)", SSID: "Lab"},
 		{Name: "hp6(5G)", SSID: "Lab"},
 	}, events)
@@ -421,7 +421,7 @@ func TestRoundTimelineAlignsGraphStartWithinColumn(t *testing.T) {
 		{Name: "hp10(5G)", SSID: "Lab"},
 		{Name: "hp2(5G)", SSID: "Lab"},
 	}
-	m := newModel("shownet-watch", targets, events)
+	m := newModel(targets, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	for _, target := range []watch.TargetSnapshot{
 		{Name: "hp1(5G)", SSID: "Lab"},
@@ -485,7 +485,7 @@ func TestRoundTimelinePanelHeightExpandsForWrappedTargetRows(t *testing.T) {
 	for i := range 24 {
 		targets = append(targets, watch.Target{Name: fmt.Sprintf("target-%02d", i), SSID: "SHIZK RADIO"})
 	}
-	m := newModel("shownet-watch", targets, events)
+	m := newModel(targets, events)
 	grid := roundTimelineGrid(100, len(targets))
 	height := m.roundTimelinePanelHeight(100)
 	if grid.Rows < 6 {
@@ -498,7 +498,7 @@ func TestRoundTimelinePanelHeightExpandsForWrappedTargetRows(t *testing.T) {
 
 func TestCheckStatusPanelHeightFitsAllChecks(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{{Name: "u7-5ghz", SSID: "SHIZK RADIO"}}, events)
+	m := newModel([]watch.Target{{Name: "u7-5ghz", SSID: "SHIZK RADIO"}}, events)
 	checks := []string{
 		"connect",
 		"wait_connected",
@@ -542,7 +542,7 @@ func TestCheckStatusSpansFullWidthAboveRoundTimelineAndRunQueue(t *testing.T) {
 		{ID: "agent-a", Name: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b"},
 	}
-	m := newModel("shownet-watch", []watch.Target{{Name: "u7-5ghz", SSID: "SHIZK RADIO"}}, events, agents)
+	m := newModel([]watch.Target{{Name: "u7-5ghz", SSID: "SHIZK RADIO"}}, events, agents)
 	m.width = 140
 	m.height = 34
 	m.apply(watch.Event{
@@ -565,7 +565,7 @@ func TestCheckStatusSpansFullWidthAboveRoundTimelineAndRunQueue(t *testing.T) {
 	if checkStatusRow >= roundTimelineRow {
 		t.Fatalf("Latest Check Results should render above Failure Events by Round: checkStatus=%d roundTimeline=%d\n%s", checkStatusRow, roundTimelineRow, frame)
 	}
-	roundTimelineHeight, _, _, _ := m.dashboardPanelHeights(max(4, m.height-2), panelContentWidth(m.width))
+	roundTimelineHeight, _, _, _ := m.dashboardPanelHeights(intMax(4, m.height-2), panelContentWidth(m.width))
 	if runQueueRow != roundTimelineRow+roundTimelineHeight {
 		t.Fatalf("Run Queue should start below full-width Failure Events by Round: runQueue=%d roundTimeline=%d roundTimelineHeight=%d\n%s", runQueueRow, roundTimelineRow, roundTimelineHeight, frame)
 	}
@@ -652,7 +652,7 @@ func TestHotspotsAndRunQueueStartBelowFullWidthRoundTimeline(t *testing.T) {
 		{ID: "agent-a", Name: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b"},
 	}
-	m := newModel("shownet-watch", []watch.Target{{Name: "u7-5ghz", SSID: "SHIZK RADIO"}}, events, agents)
+	m := newModel([]watch.Target{{Name: "u7-5ghz", SSID: "SHIZK RADIO"}}, events, agents)
 	m.width = 220
 	m.height = 42
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)

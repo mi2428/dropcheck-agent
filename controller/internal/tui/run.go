@@ -48,8 +48,8 @@ func runModel(ctx context.Context, m model) error {
 	return err
 }
 
-func newModel(title string, targets []watch.Target, events <-chan watch.Event, agentSets ...[]watch.AgentSnapshot) model {
-	return newModelWithChecks(title, targets, nil, events, agentSets...)
+func newModel(targets []watch.Target, events <-chan watch.Event, agentSets ...[]watch.AgentSnapshot) model {
+	return newModelWithChecks("shownet-watch", targets, nil, events, agentSets...)
 }
 
 func newModelWithChecks(title string, targets []watch.Target, checks []watch.Check, events <-chan watch.Event, agentSets ...[]watch.AgentSnapshot) model {
@@ -180,11 +180,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.openDetailForPanel(focusFailureHotspots)
 			}
 		case "esc":
-			if m.paused {
+			switch {
+			case m.paused:
 				m.resume()
-			} else if m.detailOpen {
+			case m.detailOpen:
 				m.detailOpen = false
-			} else if !m.clearFocusedScrollPin() && m.hasSearchFilter() {
+			case !m.clearFocusedScrollPin() && m.hasSearchFilter():
 				m.clearSearch()
 			}
 		}

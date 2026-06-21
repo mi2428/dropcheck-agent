@@ -3,7 +3,6 @@ package control
 import (
 	"fmt"
 	"io"
-	"sync/atomic"
 	"time"
 
 	"dropcheck/controller/internal/controlpb"
@@ -83,7 +82,7 @@ func (s *Server) Session(stream controlpb.DropcheckControl_SessionServer) error 
 				// Heartbeats keep the bidirectional stream active even when no
 				// command is running and give the agent a controller timestamp.
 				frame := &controlpb.ControllerFrame{
-					Seq:       atomic.AddUint64(&s.seq, 1),
+					Seq:       s.seq.Add(1),
 					SessionId: conn.sessionID,
 					Body: &controlpb.ControllerFrame_Heartbeat{
 						Heartbeat: &controlpb.ControllerHeartbeat{

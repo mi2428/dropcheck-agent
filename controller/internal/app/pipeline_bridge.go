@@ -28,8 +28,8 @@ func wrapPipePipeline(parsed pipeline.Pipeline) pipePipeline {
 	}
 }
 
-func (p pipePipeline) format(defaultFormat outputFormat) outputFormat {
-	return p.pipeline.Format(defaultFormat)
+func (p pipePipeline) format() outputFormat {
+	return p.pipeline.Format(outputText)
 }
 
 func (p pipePipeline) apply(text string) (string, error) {

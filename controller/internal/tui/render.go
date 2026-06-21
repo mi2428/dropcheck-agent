@@ -19,11 +19,11 @@ func (m model) render() string {
 	}
 	help := m.helpBar(width)
 	status := m.statusBar(width)
-	bodyHeight := max(4, height-2)
+	bodyHeight := intMax(4, height-2)
 	runQueueWidth := dashboardRunQueueWidth(width)
 	leftWidth := dashboardMainWidth(width)
 	roundTimelineHeight, checkStatusHeight, summaryHeight, eventLogHeight := m.dashboardPanelHeights(bodyHeight, panelContentWidth(width))
-	lowerHeight := max(0, bodyHeight-checkStatusHeight-roundTimelineHeight)
+	lowerHeight := intMax(0, bodyHeight-checkStatusHeight-roundTimelineHeight)
 	summaryGap := 1
 	if leftWidth < 24 {
 		summaryGap = 0
@@ -34,7 +34,7 @@ func (m model) render() string {
 	hotspotsWidth := 0
 	eventLogWidth := 0
 	if showHotspots {
-		summaryWidth := max(3, leftWidth-summaryGap*2)
+		summaryWidth := intMax(3, leftWidth-summaryGap*2)
 		base := summaryWidth / 3
 		remainder := summaryWidth % 3
 		passingChecksWidth = base
@@ -48,7 +48,7 @@ func (m model) render() string {
 		}
 		eventLogWidth = passingChecksWidth + summaryGap + failedChecksWidth
 	} else {
-		summaryWidth := max(2, leftWidth-summaryGap)
+		summaryWidth := intMax(2, leftWidth-summaryGap)
 		passingChecksWidth = summaryWidth / 2
 		failedChecksWidth = summaryWidth - passingChecksWidth
 		eventLogWidth = passingChecksWidth + summaryGap + failedChecksWidth
@@ -98,10 +98,10 @@ func dashboardRunQueueWidth(width int) int {
 	}
 	runQueueWidth := clamp(width*25/100, 32, 48)
 	if width-runQueueWidth-1 < 50 {
-		runQueueWidth = max(24, width-51)
+		runQueueWidth = intMax(24, width-51)
 	}
 	if width < 80 {
-		runQueueWidth = max(20, width/3)
+		runQueueWidth = intMax(20, width/3)
 	}
 	return runQueueWidth
 }
@@ -110,7 +110,7 @@ func dashboardMainWidth(width int) int {
 	if width <= 0 {
 		width = 120
 	}
-	return max(20, width-dashboardRunQueueWidth(width)-1)
+	return intMax(20, width-dashboardRunQueueWidth(width)-1)
 }
 
 func (m model) dashboardPanelHeights(bodyHeight int, roundTimelineWidths ...int) (roundTimelineHeight int, checkStatusHeight int, summaryHeight int, eventLogHeight int) {
@@ -129,7 +129,7 @@ func (m model) dashboardPanelHeights(bodyHeight int, roundTimelineWidths ...int)
 		if defaultWidth <= 0 {
 			defaultWidth = 120
 		}
-		roundTimelineWidth = panelContentWidth(max(20, defaultWidth))
+		roundTimelineWidth = panelContentWidth(intMax(20, defaultWidth))
 	}
 	eventLogHeight = clamp(bodyHeight/6, 4, 7)
 	roundTimelineHeight = m.roundTimelinePanelHeight(roundTimelineWidth)
@@ -148,7 +148,7 @@ func (m model) dashboardPanelHeights(bodyHeight int, roundTimelineWidths ...int)
 		summaryHeight++
 	}
 	if summaryHeight < 4 {
-		summaryHeight = max(0, bodyHeight-roundTimelineHeight-checkStatusHeight-eventLogHeight)
+		summaryHeight = intMax(0, bodyHeight-roundTimelineHeight-checkStatusHeight-eventLogHeight)
 	}
 	return roundTimelineHeight, checkStatusHeight, summaryHeight, eventLogHeight
 }
@@ -161,7 +161,7 @@ func (m model) roundTimelinePanelHeight(width int) int {
 	} else {
 		contentHeight += roundTimelineGrid(width, len(targets)).Rows
 	}
-	return max(4, contentHeight+2)
+	return intMax(4, contentHeight+2)
 }
 
 func (m model) checkStatusPanelHeight() int {
@@ -174,28 +174,28 @@ func (m model) checkStatusPanelHeight() int {
 	if len(m.connectStatusFooterItems()) > 0 {
 		contentHeight++
 	}
-	return max(3, contentHeight+2)
+	return intMax(3, contentHeight+2)
 }
 
 func summaryAndEventLogHeights(bodyHeight int) (summaryHeight int, eventLogHeight int) {
 	if bodyHeight <= 0 {
 		return 0, 0
 	}
-	oldFailedChecksHeight := clamp(bodyHeight*63/100, 7, max(3, bodyHeight-6))
+	oldFailedChecksHeight := clamp(bodyHeight*63/100, 7, intMax(3, bodyHeight-6))
 	oldEventLogHeight := bodyHeight - oldFailedChecksHeight
 	if oldEventLogHeight < 4 && bodyHeight >= 8 {
 		oldEventLogHeight = 4
 	}
-	eventLogHeight = max(2, (oldEventLogHeight*60+50)/100)
+	eventLogHeight = intMax(2, (oldEventLogHeight*60+50)/100)
 	if bodyHeight >= 12 {
-		eventLogHeight = max(4, eventLogHeight)
+		eventLogHeight = intMax(4, eventLogHeight)
 	}
 	if bodyHeight >= 8 {
-		eventLogHeight = min(eventLogHeight, bodyHeight-4)
+		eventLogHeight = intMin(eventLogHeight, bodyHeight-4)
 	} else {
-		eventLogHeight = min(eventLogHeight, max(1, bodyHeight/3))
+		eventLogHeight = intMin(eventLogHeight, intMax(1, bodyHeight/3))
 	}
-	summaryHeight = max(0, bodyHeight-eventLogHeight)
+	summaryHeight = intMax(0, bodyHeight-eventLogHeight)
 	return summaryHeight, eventLogHeight
 }
 
@@ -279,16 +279,16 @@ func (m model) statusBar(width int) string {
 		if rightWidth >= width {
 			return renderStatusFields(rightFields, width, true)
 		}
-		leftBudget := max(0, width-rightWidth-1)
+		leftBudget := intMax(0, width-rightWidth-1)
 		return renderStatusFields(leftFields, leftBudget, false) + valueStyle.Render(" ") + renderStatusFields(rightFields, rightWidth, true)
 	}
 	left := renderStatusFields(leftFields, runeLen(leftPlain), false)
 	if rightPlain == "" {
-		return left + valueStyle.Render(strings.Repeat(" ", max(0, width-runeLen(leftPlain))))
+		return left + valueStyle.Render(strings.Repeat(" ", intMax(0, width-runeLen(leftPlain))))
 	}
 	right := renderStatusFields(rightFields, runeLen(rightPlain), true)
 	spaces := width - runeLen(leftPlain) - runeLen(rightPlain)
-	return left + valueStyle.Render(strings.Repeat(" ", max(1, spaces))) + right
+	return left + valueStyle.Render(strings.Repeat(" ", intMax(1, spaces))) + right
 }
 
 func statusBarValueStyle(key string, value string) lipgloss.Style {
@@ -406,26 +406,24 @@ func (m model) eventLogView(width int, height int) string {
 	targetName, stepName, last := m.eventLogSummary()
 	if targetName != "" && height > 0 {
 		b.WriteString(keyStyle.Render("target="))
-		targetText := fitText(targetName, max(1, width/4))
+		targetText := fitText(targetName, intMax(1, width/4))
 		b.WriteString(valueStyle.Render(targetText))
 		b.WriteString(keyStyle.Render("  step="))
-		stepText := fitText(firstNonEmpty(stepName, "-"), max(1, width/4))
+		stepText := fitText(firstNonEmpty(stepName, "-"), intMax(1, width/4))
 		b.WriteString(valueStyle.Render(stepText))
 		if last != "" {
 			b.WriteString(keyStyle.Render("  last="))
 			usedWidth := lipgloss.Width("target=") + lipgloss.Width(targetText) + lipgloss.Width("  step=") + lipgloss.Width(stepText) + lipgloss.Width("  last=")
-			b.WriteString(valueStyle.Render(fitText(last, max(1, width-usedWidth))))
+			b.WriteString(valueStyle.Render(fitText(last, intMax(1, width-usedWidth))))
 		}
 		b.WriteByte('\n')
 		used++
 	}
-	visibleLogs := max(0, height-used)
+	visibleLogs := intMax(0, height-used)
 	start := len(m.Logs) - visibleLogs
-	if start < 0 {
-		start = 0
-	}
+	start = max(start, 0)
 	for _, line := range m.Logs[start:] {
-		b.WriteString(logStyle.Render(fitText(line, max(1, width))))
+		b.WriteString(logStyle.Render(fitText(line, intMax(1, width))))
 		b.WriteByte('\n')
 	}
 	return b.String()

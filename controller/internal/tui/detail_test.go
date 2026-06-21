@@ -14,7 +14,7 @@ import (
 
 func TestEnterShowsFailedCheckDetail(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{
+	m := newModel([]watch.Target{
 		{Name: "SHIZK RADIO", SSID: "SHIZK RADIO", Band: "5ghz"},
 	}, events)
 	m.width = 150
@@ -64,7 +64,7 @@ func TestEnterShowsFailedCheckDetail(t *testing.T) {
 
 func TestFailedRequiredStepDetailShowsWifiAssertFailurePoint(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{
+	m := newModel([]watch.Target{
 		{Name: "ub2(6G)", SSID: "SHIZK RADIO", BSSID: "70:a7:41:a0:9a:6f", Band: "5ghz"},
 	}, events)
 	m.width = 180
@@ -107,7 +107,7 @@ func TestFailedRequiredStepDetailShowsWifiAssertFailurePoint(t *testing.T) {
 
 func TestEnterShowsPassingCheckDetail(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{
+	m := newModel([]watch.Target{
 		{Name: "SHIZK RADIO", SSID: "SHIZK RADIO", Band: "5ghz"},
 	}, events)
 	m.width = 150
@@ -152,7 +152,7 @@ func TestEnterShowsPassingCheckDetail(t *testing.T) {
 
 func TestTabKeepsModalOpenAndMovesPanelFocus(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	m.apply(watch.Event{
 		Time:     time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC),
 		Kind:     watch.EventStepFinished,
@@ -176,7 +176,7 @@ func TestTabKeepsModalOpenAndMovesPanelFocus(t *testing.T) {
 
 func TestDetailModalCursorFollowsOpenedItemAcrossUpdates(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	m.focus = focusPassingChecks
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(time.Minute)
@@ -228,7 +228,7 @@ func TestDetailModalCursorFollowsOpenedItemAcrossUpdates(t *testing.T) {
 
 func TestFailedCheckDetailOverlaysExistingTUI(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{
+	m := newModel([]watch.Target{
 		{Name: "SHIZK RADIO", SSID: "SHIZK RADIO", Band: "5ghz"},
 	}, events)
 	m.width = 150
@@ -272,7 +272,7 @@ func TestFailedCheckDetailOverlaysExistingTUI(t *testing.T) {
 
 func TestFailedCheckDetailModalKeepsInvestigationRowsWhenCompact(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{
+	m := newModel([]watch.Target{
 		{Name: "SHIZK RADIO", SSID: "SHIZK RADIO", Band: "5ghz"},
 	}, events)
 	m.width = 160
@@ -319,7 +319,7 @@ func TestFailedCheckDetailModalKeepsInvestigationRowsWhenCompact(t *testing.T) {
 
 func TestFailedCheckDetailUsesDenseInvestigationLayout(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(40 * time.Second)
 	for _, second := range []int{0, 20, 40} {
@@ -373,23 +373,23 @@ func TestFailedCheckDetailUsesDenseInvestigationLayout(t *testing.T) {
 	}
 	timeline := lineIndex(view, "window=last=90m")
 	if timeline <= 0 || lines[timeline-1] != "" {
-		t.Fatalf("detail graph should have one blank line above it, got line before timeline = %q:\n%s", lines[max(0, timeline-1)], view)
+		t.Fatalf("detail graph should have one blank line above it, got line before timeline = %q:\n%s", lines[intMax(0, timeline-1)], view)
 	}
 	if timeline+1 >= len(lines) || lines[timeline+1] != "" {
-		t.Fatalf("detail graph should have one blank line below its timeline header, got line after timeline = %q:\n%s", lines[min(len(lines)-1, timeline+1)], view)
+		t.Fatalf("detail graph should have one blank line below its timeline header, got line after timeline = %q:\n%s", lines[intMin(len(lines)-1, timeline+1)], view)
 	}
 	if lines[section-1] != "" {
 		t.Fatalf("detail graph should have one blank line below it, got line before section = %q:\n%s", lines[section-1], view)
 	}
 	logs := lineIndex(view, "Logs:")
 	if logs <= section || lines[logs-1] != "" {
-		t.Fatalf("detail sections should be separated by one blank line before Logs, got line before Logs = %q:\n%s", lines[max(0, logs-1)], view)
+		t.Fatalf("detail sections should be separated by one blank line before Logs, got line before Logs = %q:\n%s", lines[intMax(0, logs-1)], view)
 	}
 }
 
 func TestFailureHotspotDetailSectionsUseTitledSpacing(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(2 * time.Minute)
 	target := watch.TargetSnapshot{Name: "radio-a", SSID: "SHIZK RADIO", Band: "5ghz"}
@@ -429,14 +429,14 @@ func TestFailureHotspotDetailSectionsUseTitledSpacing(t *testing.T) {
 	for _, marker := range []string{"Latest Cause", "Fail Rate", "Causes:", "Failure History:", "Logs:"} {
 		index := lineIndex(view, marker)
 		if index <= 0 || lines[index-1] != "" {
-			t.Fatalf("%s should have one blank line above it, got %q:\n%s", marker, lines[max(0, index-1)], view)
+			t.Fatalf("%s should have one blank line above it, got %q:\n%s", marker, lines[intMax(0, index-1)], view)
 		}
 	}
 }
 
 func TestFailedCheckDetailLogsAreScopedToSelectedCheck(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	target := watch.TargetSnapshot{Name: "radio-a", SSID: "Lab", Band: "5ghz"}
 	m.apply(watch.Event{
@@ -487,7 +487,7 @@ func TestFailedCheckDetailLogsAreScopedToSelectedCheck(t *testing.T) {
 
 func TestFailedCheckDetailLogsUseStructuredHistoryBeyondVisibleEventLog(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	target := watch.TargetSnapshot{Name: "radio-a", SSID: "Lab", Band: "5ghz"}
 	m.apply(watch.Event{
@@ -667,7 +667,7 @@ func TestDenseDetailTimelineSeparatesHeaderAndGraph(t *testing.T) {
 
 func TestFailureCauseHistoryTableAlignsWithLongCheckNames(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	at := time.Date(2026, 5, 16, 13, 41, 52, 0, time.UTC)
 	m.Now = at.Add(time.Minute)
 	target := watch.TargetSnapshot{Name: "debug-a1(5G)", SSID: "SHIZK RADIO"}
@@ -705,7 +705,7 @@ func TestFailureCauseHistoryTableAlignsWithLongCheckNames(t *testing.T) {
 
 func TestFailureHotspotHistoryTableAlignsWithLongCheckNames(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	at := time.Date(2026, 5, 16, 14, 6, 35, 0, time.UTC)
 	m.Now = at.Add(time.Minute)
 	target := watch.TargetSnapshot{Name: "debug-a1(5G)", SSID: "SHIZK RADIO"}
@@ -811,7 +811,7 @@ func detailTestRows(count int, value string) []string {
 
 func TestFailedCheckDetailModalUsesFixedAppRatio(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	modal := m.failedCheckDetailModal(150, 32)
 
 	if got, want := lipgloss.Width(modal), 81; got != want {
@@ -824,7 +824,7 @@ func TestFailedCheckDetailModalUsesFixedAppRatio(t *testing.T) {
 
 func TestDetailModalShowsExpandedLogRows(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	target := watch.TargetSnapshot{Name: "radio-a", SSID: "Lab", Band: "5ghz"}
 	for i := range 30 {

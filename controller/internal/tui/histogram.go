@@ -20,7 +20,7 @@ func renderSparkline(counts []int, maxCount int, width int, height int, style li
 		return nil
 	}
 	counts = resampleSparklineCounts(counts, width)
-	maxCount = max(maxCount, maxInt(counts))
+	maxCount = intMax(maxCount, maxInt(counts))
 	eventsPerRow := sparklineEventsPerRow(maxCount, height)
 	if len(counts) == 0 || maxCount <= 0 {
 		lines := make([]string, height)
@@ -71,7 +71,7 @@ func summarySparklineAxis(width int, window time.Duration) string {
 	if width < len(left)+len(right)+1 {
 		return dimStyle.Render(strings.Repeat("-", width))
 	}
-	mid := strings.Repeat("-", max(1, width-len(left)-len(right)))
+	mid := strings.Repeat("-", intMax(1, width-len(left)-len(right)))
 	return dimStyle.Render(left + mid + right)
 }
 
@@ -105,7 +105,7 @@ func padVisible(value string, width int) string {
 	if lipgloss.Width(value) > width {
 		value = ansi.Truncate(value, width, "~")
 	}
-	return value + strings.Repeat(" ", max(0, width-lipgloss.Width(value)))
+	return value + strings.Repeat(" ", intMax(0, width-lipgloss.Width(value)))
 }
 
 func padLeftVisible(value string, width int) string {
@@ -115,5 +115,5 @@ func padLeftVisible(value string, width int) string {
 	if lipgloss.Width(value) > width {
 		value = ansi.Truncate(value, width, "~")
 	}
-	return strings.Repeat(" ", max(0, width-lipgloss.Width(value))) + value
+	return strings.Repeat(" ", intMax(0, width-lipgloss.Width(value))) + value
 }

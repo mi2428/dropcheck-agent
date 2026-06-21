@@ -11,7 +11,7 @@ import (
 
 func TestFailedCheckRemovesSameRoundPassingCheck(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", nil, events)
+	m := newModel(nil, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	target := watch.TargetSnapshot{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}
 	step := watch.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "ok"}
@@ -57,7 +57,7 @@ func TestMultiAgentResultsStaySeparated(t *testing.T) {
 		{ID: "agent-a", Name: "pixel-a", ADBSerial: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b", ADBSerial: "pixel-b"},
 	}
-	m := newModel("shownet-watch", []watch.Target{{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}}, events, agents)
+	m := newModel([]watch.Target{{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}}, events, agents)
 	m.width = 180
 	m.height = 36
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
@@ -120,7 +120,7 @@ func TestPassingCheckPanelShowsDeviceColumn(t *testing.T) {
 		{ID: "agent-a", Name: "35251JEHN00258", ADBSerial: "35251JEHN00258", DeviceModel: "Pixel 7a"},
 		{ID: "agent-b", Name: "45240DLAQ007HG", ADBSerial: "45240DLAQ007HG", DeviceModel: "Pixel 9"},
 	}
-	m := newModel("shownet-watch", []watch.Target{{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}}, events, agents)
+	m := newModel([]watch.Target{{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}}, events, agents)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	for i, agent := range agents {
 		m.apply(watch.Event{
@@ -156,7 +156,7 @@ func TestFailedCheckPanelShowsDeviceColumn(t *testing.T) {
 		{ID: "agent-a", Name: "35251JEHN00258", ADBSerial: "35251JEHN00258", DeviceModel: "Pixel 7a"},
 		{ID: "agent-b", Name: "45240DLAQ007HG", ADBSerial: "45240DLAQ007HG", DeviceModel: "Pixel 9"},
 	}
-	m := newModel("shownet-watch", []watch.Target{{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}}, events, agents)
+	m := newModel([]watch.Target{{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}}, events, agents)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	for i, agent := range agents {
 		m.apply(watch.Event{
@@ -195,7 +195,7 @@ func TestFailedCheckPanelShowsDeviceColumn(t *testing.T) {
 
 func TestCheckStatusShowsCurrentRoundPendingBeforeHistory(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}}, events)
+	m := newModel([]watch.Target{{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}}, events)
 	target := watch.TargetSnapshot{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}
 	m.apply(watch.Event{
 		Time:     time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC),
@@ -263,7 +263,7 @@ func TestCheckStatusOmitsFullFailedCheckPercent(t *testing.T) {
 		{ID: "agent-a", Name: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b"},
 	}
-	m := newModel("shownet-watch", []watch.Target{{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}}, events, agents)
+	m := newModel([]watch.Target{{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}}, events, agents)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	for i, agent := range agents {
 		m.apply(watch.Event{
@@ -298,7 +298,7 @@ func TestCheckStatusRendersPartialNonFailedStatusPercent(t *testing.T) {
 		{ID: "agent-b", Name: "pixel-b"},
 	}
 	target := watch.TargetSnapshot{Name: "u7-5ghz", SSID: "SHIZK RADIO"}
-	m := newModel("shownet-watch", []watch.Target{{Name: "u7-5ghz", SSID: "SHIZK RADIO"}}, events, agents)
+	m := newModel([]watch.Target{{Name: "u7-5ghz", SSID: "SHIZK RADIO"}}, events, agents)
 	m.apply(watch.Event{
 		Kind:   watch.EventStepFinished,
 		Agent:  agents[0],
@@ -465,7 +465,7 @@ func TestCheckStatusUsesContiguousInitialWindow(t *testing.T) {
 		{Name: "ap8(5G)", ShortName: "A8", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 	}
 	m := newModelWithChecks("shownet-watch", targets, []watch.Check{}, events, agents)
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		target := watch.TargetSnapshot{Name: targets[i].Name, ShortName: targets[i].ShortName, SSID: targets[i].SSID}
 		for _, step := range []string{"connect", "wait_connected"} {
 			m.apply(watch.Event{
@@ -504,7 +504,7 @@ func TestCheckStatusAutoWindowTracksRunningTargetContiguously(t *testing.T) {
 		{Name: "ap6(5G)", ShortName: "A6", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 	}
 	m := newModelWithChecks("shownet-watch", targets, []watch.Check{}, events, agents)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		target := watch.TargetSnapshot{Name: targets[i].Name, ShortName: targets[i].ShortName, SSID: targets[i].SSID}
 		for _, step := range []string{"connect", "wait_connected"} {
 			m.apply(watch.Event{
@@ -557,7 +557,7 @@ func TestCheckStatusAutoWindowTracksFailedTargetContiguously(t *testing.T) {
 		{Name: "ap6(5G)", ShortName: "A6", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 	}
 	m := newModelWithChecks("shownet-watch", targets, []watch.Check{}, events, agents)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		target := watch.TargetSnapshot{Name: targets[i].Name, ShortName: targets[i].ShortName, SSID: targets[i].SSID}
 		for _, step := range []string{"connect", "wait_connected"} {
 			m.apply(watch.Event{
@@ -679,7 +679,7 @@ func TestCheckStatusLeftScrollFromAutoWindowPinsPreviousWindow(t *testing.T) {
 		{Name: "ap6(5G)", ShortName: "A6", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 	}
 	m := newModelWithChecks("shownet-watch", targets, []watch.Check{}, events, agents)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		target := watch.TargetSnapshot{Name: targets[i].Name, ShortName: targets[i].ShortName, SSID: targets[i].SSID}
 		for _, step := range []string{"connect", "wait_connected"} {
 			m.apply(watch.Event{
@@ -837,8 +837,8 @@ func TestCheckStatusAutoWindowRepositionsAfterResize(t *testing.T) {
 	m.checkStatusPinned = false
 	m.normalizeCheckStatusOffset()
 
-	visible := min(layout.VisibleTargets, len(checkStatusTargets))
-	wantOffset := clamp(17-max(0, visible-2), 0, maxOffset)
+	visible := intMin(layout.VisibleTargets, len(checkStatusTargets))
+	wantOffset := clamp(17-intMax(0, visible-2), 0, maxOffset)
 	if m.checkStatusOffset != wantOffset {
 		t.Fatalf("auto resize should align the latest running target with one following column, offset=%d want=%d layout=%#v", m.checkStatusOffset, wantOffset, layout)
 	}
@@ -929,7 +929,7 @@ func TestAssignedTargetsUseAssignedAgentAsCheckStatusDenominator(t *testing.T) {
 
 func TestCheckStatusShowsPendingInsteadOfPreviousFailureOnNextRound(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}}, events)
+	m := newModel([]watch.Target{{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}}, events)
 	target := watch.TargetSnapshot{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}
 	m.apply(watch.Event{
 		Time:   time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC),

@@ -14,7 +14,7 @@ import (
 
 func TestRenderShowsPassingRows(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{
+	m := newModel([]watch.Target{
 		{Name: "SHIZK RADIO", SSID: "SHIZK RADIO", Band: "5ghz"},
 	}, events)
 	m.width = 150
@@ -49,7 +49,7 @@ func TestRenderShowsPassingRows(t *testing.T) {
 
 func TestPassingAndFailedChecksRenderCompactTables(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(5 * time.Second)
 	target := watch.TargetSnapshot{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}
@@ -117,7 +117,7 @@ func TestPassingAndFailedChecksRenderCompactTables(t *testing.T) {
 
 func TestFailureHotspotsRankTargetsByStreakRateCount(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(5 * time.Minute)
 	targetA := watch.TargetSnapshot{Name: "radio-a", SSID: "SHIZK RADIO"}
@@ -187,7 +187,7 @@ func TestFailureHotspotsRankTargetsByStreakRateCount(t *testing.T) {
 
 func TestFailureCauseModeRanksCausesByTargetSpread(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	m.width = 180
 	m.height = 36
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
@@ -272,7 +272,7 @@ func TestFailureCauseTargetsLabelShowsNamesAndOverflowCount(t *testing.T) {
 
 func TestFailureHotspotDetailSurvivesSummaryWindow(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	m.width = 180
 	m.height = 50
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
@@ -323,7 +323,7 @@ func TestFailureHotspotsPanelSplitsByAgent(t *testing.T) {
 		{ID: "agent-a", Name: "agent-a"},
 		{ID: "agent-b", Name: "agent-b"},
 	}
-	m := newModel("shownet-watch", []watch.Target{
+	m := newModel([]watch.Target{
 		{Name: "same-radio", SSID: "SHIZK RADIO"},
 	}, events, agents)
 	m.width = 220
@@ -400,7 +400,7 @@ func TestFailureHotspotNavigationStaysWithinFocusedAgent(t *testing.T) {
 		{ID: "agent-a", Name: "agent-a"},
 		{ID: "agent-b", Name: "agent-b"},
 	}
-	m := newModel("shownet-watch", []watch.Target{
+	m := newModel([]watch.Target{
 		{Name: "radio-a1", SSID: "SHIZK RADIO"},
 		{Name: "radio-a2", SSID: "SHIZK RADIO"},
 		{Name: "radio-b1", SSID: "SHIZK RADIO"},
@@ -462,7 +462,7 @@ func TestFailureHotspotNavigationStaysWithinFocusedAgent(t *testing.T) {
 
 func TestTabCyclesThroughFailureHotspotsWhenVisible(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	m.width = 220
 	m.height = 50
 
@@ -496,7 +496,7 @@ func TestTabCyclesThroughFailureHotspotsWhenVisible(t *testing.T) {
 
 func TestEnterShowsFailureHotspotDetail(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	m.width = 220
 	m.height = 50
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
@@ -548,7 +548,7 @@ func TestEnterShowsFailureHotspotDetail(t *testing.T) {
 
 func TestFailureHotspotDetailCursorFollowsOpenedItemAcrossUpdates(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	m.width = 220
 	m.height = 50
 	m.focus = focusFailureHotspots

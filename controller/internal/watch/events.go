@@ -10,15 +10,24 @@ import (
 type EventKind string
 
 const (
-	EventWatchStarted   EventKind = "watch_started"
-	EventRoundStarted   EventKind = "round_started"
-	EventRoundFinished  EventKind = "round_finished"
-	EventTargetStarted  EventKind = "target_started"
+	// EventWatchStarted marks the beginning of one watch run.
+	EventWatchStarted EventKind = "watch_started"
+	// EventRoundStarted marks the beginning of one watch round.
+	EventRoundStarted EventKind = "round_started"
+	// EventRoundFinished marks the end of one watch round.
+	EventRoundFinished EventKind = "round_finished"
+	// EventTargetStarted marks the beginning of work for one target.
+	EventTargetStarted EventKind = "target_started"
+	// EventTargetFinished marks the end of work for one target.
 	EventTargetFinished EventKind = "target_finished"
-	EventStepStarted    EventKind = "step_started"
-	EventStepFinished   EventKind = "step_finished"
-	EventFinding        EventKind = "finding"
-	EventLog            EventKind = "log"
+	// EventStepStarted marks the beginning of one target step.
+	EventStepStarted EventKind = "step_started"
+	// EventStepFinished marks the completion of one target step.
+	EventStepFinished EventKind = "step_finished"
+	// EventFinding reports one failed expectation or observation.
+	EventFinding EventKind = "finding"
+	// EventLog reports a runner log line or informational status message.
+	EventLog EventKind = "log"
 )
 
 // Event is one structured state transition, finding, or log item emitted by a watch run.

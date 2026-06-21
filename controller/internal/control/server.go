@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -59,7 +60,7 @@ type Server struct {
 	token string
 	onLog func(LogEvent)
 
-	seq uint64
+	seq atomic.Uint64
 
 	mu      sync.Mutex
 	conns   map[string]*agentConn

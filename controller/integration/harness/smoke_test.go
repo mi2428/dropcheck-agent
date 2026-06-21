@@ -1,4 +1,4 @@
-//go:build harness || festival
+//go:build harness
 
 package harness
 
@@ -31,33 +31,23 @@ const (
 	envStandard         = "DROPCHECK_HARNESS_WIFI_STANDARD"
 	envChannel          = "DROPCHECK_HARNESS_WIFI_CHANNEL"
 	envChannelWidth     = "DROPCHECK_HARNESS_WIFI_CHANNEL_WIDTH"
-
-	legacyEnvSSID             = "DROPCHECK_FESTIVAL_WIFI_SSID"
-	legacyEnvPSK              = "DROPCHECK_FESTIVAL_WIFI_PSK"
-	legacyEnvPSKName          = "DROPCHECK_FESTIVAL_WIFI_PSK_ENV"
-	legacyEnvBSSID            = "DROPCHECK_FESTIVAL_WIFI_BSSID"
-	legacyEnvBand             = "DROPCHECK_FESTIVAL_WIFI_BAND"
-	legacyEnvRequireValidated = "DROPCHECK_FESTIVAL_REQUIRE_VALIDATED"
-	legacyEnvStandard         = "DROPCHECK_FESTIVAL_WIFI_STANDARD"
-	legacyEnvChannel          = "DROPCHECK_FESTIVAL_WIFI_CHANNEL"
-	legacyEnvChannelWidth     = "DROPCHECK_FESTIVAL_WIFI_CHANNEL_WIDTH"
 )
 
 func TestHarnessSmoke(t *testing.T) {
-	ssid := envValue(envSSID, legacyEnvSSID)
-	pskEnv := firstNonEmpty(os.Getenv(envPSKName), os.Getenv(legacyEnvPSKName))
+	ssid := os.Getenv(envSSID)
+	pskEnv := os.Getenv(envPSKName)
 	if pskEnv == "" {
-		pskEnv = firstSetEnvName(envPSK, legacyEnvPSK)
+		pskEnv = envPSK
 	}
 	if ssid == "" || os.Getenv(pskEnv) == "" {
 		t.Skipf("set %s and %s to run the Dropcheck Harness smoke test", envSSID, pskEnv)
 	}
-	bssid := envValue(envBSSID, legacyEnvBSSID)
-	band := envValue(envBand, legacyEnvBand)
-	requireValidated := envValue(envRequireValidated, legacyEnvRequireValidated) == "1"
-	standard := envValue(envStandard, legacyEnvStandard)
-	channel := envValue(envChannel, legacyEnvChannel)
-	channelWidth := envValue(envChannelWidth, legacyEnvChannelWidth)
+	bssid := os.Getenv(envBSSID)
+	band := os.Getenv(envBand)
+	requireValidated := os.Getenv(envRequireValidated) == "1"
+	standard := os.Getenv(envStandard)
+	channel := os.Getenv(envChannel)
+	channelWidth := os.Getenv(envChannelWidth)
 
 	network := h.WiFi("smoke-wifi").
 		SSID(ssid).
@@ -147,28 +137,4 @@ func TestHarnessSmoke(t *testing.T) {
 				),
 		},
 	})
-}
-
-func envValue(name string, legacy string) string {
-	return firstNonEmpty(os.Getenv(name), os.Getenv(legacy))
-}
-
-func firstSetEnvName(name string, legacy string) string {
-	switch {
-	case os.Getenv(name) != "":
-		return name
-	case os.Getenv(legacy) != "":
-		return legacy
-	default:
-		return name
-	}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
-		}
-	}
-	return ""
 }

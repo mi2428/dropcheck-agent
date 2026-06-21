@@ -180,7 +180,6 @@ gradle-app.setting
 
 # Controller local build/test artifacts.
 /controller/dropcheck
-/controller/dropcheck-mcp
 /controller/bin/
 /controller/dist/
 /controller/coverage.out

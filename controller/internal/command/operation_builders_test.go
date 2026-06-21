@@ -469,11 +469,11 @@ func TestStandaloneOperationBuildersAndEdits(t *testing.T) {
 		t.Fatalf("StandaloneRunOperation(blank) error = nil")
 	}
 
-	clear, err := StandaloneClearRunsOperation("")
+	clearOp, err := StandaloneClearRunsOperation("")
 	if err != nil {
 		t.Fatalf("StandaloneClearRunsOperation() error = %v", err)
 	}
-	clearCmd, _, err := BuildRunCommand(clear)
+	clearCmd, _, err := BuildRunCommand(clearOp)
 	if err != nil {
 		t.Fatalf("clear command: %v", err)
 	}

@@ -13848,7 +13848,7 @@ func file_control_proto_init() {
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
-			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
+			GoPackagePath: reflect.TypeFor[x]().PkgPath(),
 			RawDescriptor: file_control_proto_rawDesc,
 			NumEnums:      8,
 			NumMessages:   102,

@@ -15,7 +15,7 @@ import (
 
 func TestTabFocusAndPanelLocalNavigation(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	target := watch.TargetSnapshot{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}
 	for i, step := range []string{"connect", "wait_connected"} {
@@ -95,7 +95,7 @@ func TestTabFocusAndPanelLocalNavigation(t *testing.T) {
 
 func TestPassingChecksManualScrollPinsSelectionUntilEsc(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	target := watch.TargetSnapshot{Name: "radio-a", SSID: "Lab"}
 	for i, check := range []string{"old pass", "middle pass"} {
@@ -142,7 +142,7 @@ func TestPassingChecksManualScrollPinsSelectionUntilEsc(t *testing.T) {
 
 func TestFailedChecksManualScrollPinsSelectionUntilEsc(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	target := watch.TargetSnapshot{Name: "radio-a", SSID: "Lab"}
 	emitFinding := func(offset time.Duration, check string) {
@@ -187,7 +187,7 @@ func TestFailedChecksManualScrollPinsSelectionUntilEsc(t *testing.T) {
 
 func TestRunQueueFocusScrollsVertically(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	m.width = 120
 	m.height = 16
 	for i := range 20 {
@@ -214,7 +214,7 @@ func TestRunQueueFocusScrollsVertically(t *testing.T) {
 func TestPauseResumeAndRightAlignedStatusItems(t *testing.T) {
 	events := make(chan watch.Event)
 	control := watch.NewPauseController()
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	m.pauseControl = control
 	m.width = 120
 	m.focus = focusFailedChecks
@@ -246,7 +246,7 @@ func TestPauseResumeAndRightAlignedStatusItems(t *testing.T) {
 func TestCtrlNSkipsCurrentWatchOperation(t *testing.T) {
 	events := make(chan watch.Event)
 	control := watch.NewSkipController()
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	m.skipControl = control
 
 	m = updateKey(t, m, tea.Key{Code: 'n', Mod: tea.ModCtrl})
@@ -261,7 +261,7 @@ func TestCtrlNSkipsCurrentWatchOperation(t *testing.T) {
 
 func TestSlashFilterAppliesToPassingAndFailedChecks(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	m.width = 150
 	m.height = 34
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
@@ -423,7 +423,7 @@ func TestRenderLetsSummaryPanelsAbsorbRoundTimelineAndCheckStatusGrowth(t *testi
 
 func TestRenderStylesSpacerRuns(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{
+	m := newModel([]watch.Target{
 		{Name: "shownet-6g-ap1", SSID: "ShowNet", Band: "6ghz"},
 		{Name: "shownet-5g-any", SSID: "ShowNet", Band: "5ghz"},
 	}, events)
@@ -486,7 +486,7 @@ func TestSummaryPanelsUseSemanticPalette(t *testing.T) {
 
 func TestTickAdvancesSummaryRecencyClock(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at
 	m.apply(watch.Event{
@@ -543,7 +543,7 @@ func TestHistoricalCheckStatusKeepsOutcomeHue(t *testing.T) {
 func renderWatchFrameWithSteps(t *testing.T, steps []watch.StepSnapshot) string {
 	t.Helper()
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{
+	m := newModel([]watch.Target{
 		{Name: "shownet-6g-ap1", SSID: "ShowNet", Band: "6ghz"},
 	}, events)
 	m.width = 140

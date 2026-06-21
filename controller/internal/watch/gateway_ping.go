@@ -25,15 +25,15 @@ func runGatewayPingCheckWithSkip(ctx context.Context, opRunner OperationRunner, 
 	started := time.Now()
 	maxAttempts := operationMaxAttempts(step)
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		exec, runErr, err, skipped := runGatewayPingAttempt(ctx, opRunner, agent, round, target, check, step, attempt, maxAttempts, skip, emit)
+		attemptResult, err := runGatewayPingAttempt(ctx, opRunner, agent, round, target, check, step, attempt, maxAttempts, skip, emit)
 		if err != nil {
 			return false, false, err
 		}
-		if skipped {
+		if attemptResult.skipped {
 			return false, true, emitOperatorSkippedStep(round, targetSnapshot, step, started, emit)
 		}
-		failedStep, operationFailed := operationFailureStep(step, exec, runErr)
-		findings := checkFindings(target, check, exec)
+		failedStep, operationFailed := operationFailureStep(step, attemptResult.exec, attemptResult.runErr)
+		findings := checkFindings(target, check, attemptResult.exec)
 		if !operationFailed && len(findings) == 0 {
 			if err := emitRetrySucceeded(round, target, step, attempt, maxAttempts, emit); err != nil {
 				return false, false, err
@@ -90,7 +90,7 @@ func runGatewayPingCheckWithSkip(ctx context.Context, opRunner OperationRunner, 
 	return false, false, nil
 }
 
-func runGatewayPingAttempt(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, check Check, step StepSnapshot, attempt int, maxAttempts int, skip *SkipController, emit func(Event) error) (runner.Result, error, error, bool) {
+func runGatewayPingAttempt(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, check Check, step StepSnapshot, attempt int, maxAttempts int, skip *SkipController, emit func(Event) error) (operationAttempt, error) {
 	targetSnapshot := snapshotTarget(target)
 	attemptStep := step
 	attemptStep.Status = "running"
@@ -98,26 +98,26 @@ func runGatewayPingAttempt(ctx context.Context, opRunner OperationRunner, agent 
 		attemptStep.Message = retryAttemptMessage(step, attempt, maxAttempts)
 	}
 	if err := emit(Event{Kind: EventStepStarted, Round: round, Target: targetSnapshot, Step: attemptStep, Status: "running", Message: attemptStep.Message}); err != nil {
-		return runner.Result{}, nil, err, false
+		return operationAttempt{}, err
 	}
 	opCtx, finish := skip.operationContext(ctx)
 	defer finish()
 
 	ipExec, ipErr := opRunner.Run(opCtx, agent, command.IPStatusOperation())
 	if operationSkipped(opCtx) {
-		return ipExec, ipErr, nil, true
+		return operationAttempt{exec: ipExec, runErr: ipErr, skipped: true}, nil
 	}
 	if ipErr != nil && ctx.Err() != nil {
-		return ipExec, ipErr, ctx.Err(), false
+		return operationAttempt{exec: ipExec, runErr: ipErr}, ctx.Err()
 	}
 	if failedStep, failed := operationFailureStep(step, ipExec, ipErr); failed {
 		failedStep.Message = firstNonEmpty(failedStep.Message, failedStep.Error, "ip status failed")
-		return ipExec, ipErr, nil, false
+		return operationAttempt{exec: ipExec, runErr: ipErr}, nil
 	}
 
 	host, ok, reason := gatewayPingHostFromStatus(ipExec.Result.GetIpStatus(), check.Family)
 	if !ok {
-		return gatewayPingFailureResult(reason), nil, nil, false
+		return operationAttempt{exec: gatewayPingFailureResult(reason)}, nil
 	}
 	pingOp, err := command.PingOperation(command.PingOptions{
 		Host:    host,
@@ -126,16 +126,16 @@ func runGatewayPingAttempt(ctx context.Context, opRunner OperationRunner, agent 
 		Timeout: durationMillis(check.Timeout),
 	})
 	if err != nil {
-		return runner.Result{}, nil, err, false
+		return operationAttempt{}, err
 	}
 	pingExec, pingErr := opRunner.Run(opCtx, agent, pingOp)
 	if operationSkipped(opCtx) {
-		return pingExec, pingErr, nil, true
+		return operationAttempt{exec: pingExec, runErr: pingErr, skipped: true}, nil
 	}
 	if pingErr != nil && ctx.Err() != nil {
-		return pingExec, pingErr, ctx.Err(), false
+		return operationAttempt{exec: pingExec, runErr: pingErr}, ctx.Err()
 	}
-	return pingExec, pingErr, nil, false
+	return operationAttempt{exec: pingExec, runErr: pingErr}, nil
 }
 
 func gatewayPingFailureResult(message string) runner.Result {

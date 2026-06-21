@@ -98,7 +98,7 @@ func padToWidth(value string, width int) string {
 		return ""
 	}
 	value = fit(value, width)
-	return value + strings.Repeat(" ", max(0, width-runeLen(value)))
+	return value + strings.Repeat(" ", intMax(0, width-runeLen(value)))
 }
 
 func runeLen(value string) int                { return len([]rune(value)) }
@@ -120,14 +120,14 @@ func runQueueRowStyle(status string) lipgloss.Style {
 }
 
 func firstNonEmpty(values ...string) string { return watchstate.FirstNonEmpty(values...) }
-func max(a, b int) int                      { return watchstate.Max(a, b) }
-func min(a, b int) int                      { return watchstate.Min(a, b) }
+func intMax(a, b int) int                   { return watchstate.Max(a, b) }
+func intMin(a, b int) int                   { return watchstate.Min(a, b) }
 func clamp(value, low, high int) int        { return watchstate.Clamp(value, low, high) }
 func correctedOffset(selected int, visibleRows int, totalRows int) int {
 	if totalRows <= 0 {
 		return 0
 	}
-	visibleRows = max(1, visibleRows)
+	visibleRows = intMax(1, visibleRows)
 	selected = clamp(selected, 0, totalRows-1)
 	if totalRows <= visibleRows {
 		return 0
@@ -139,9 +139,9 @@ func stableOffset(selected int, currentOffset int, visibleRows int, totalRows in
 	if totalRows <= 0 {
 		return 0
 	}
-	visibleRows = max(1, visibleRows)
+	visibleRows = intMax(1, visibleRows)
 	selected = clamp(selected, 0, totalRows-1)
-	currentOffset = clamp(currentOffset, 0, max(0, totalRows-visibleRows))
+	currentOffset = clamp(currentOffset, 0, intMax(0, totalRows-visibleRows))
 	if totalRows <= visibleRows {
 		return 0
 	}

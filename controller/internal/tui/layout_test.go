@@ -13,7 +13,7 @@ import (
 
 func TestRenderUsesDropcheckLayout(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{
+	m := newModel([]watch.Target{
 		{Name: "shownet-6g-ap1", SSID: "ShowNet", BSSID: "aa:bb:cc:dd:ee:ff", Band: "6ghz"},
 		{Name: "shownet-5g-any", SSID: "ShowNet", Band: "5ghz"},
 	}, events)
@@ -89,14 +89,14 @@ func TestRenderUsesDropcheckLayout(t *testing.T) {
 	passingWidth := panelTopWidth(frame, "Passing Checks")
 	failedWidth := panelTopWidth(frame, "Failed Checks")
 	hotspotsWidth := panelTopWidth(frame, "Failure Hotspots")
-	if max(passingWidth, max(failedWidth, hotspotsWidth))-min(passingWidth, min(failedWidth, hotspotsWidth)) > 1 {
+	if intMax(passingWidth, intMax(failedWidth, hotspotsWidth))-intMin(passingWidth, intMin(failedWidth, hotspotsWidth)) > 1 {
 		t.Fatalf("summary panels should be evenly split: passing=%d failed=%d hotspots=%d\n%s", passingWidth, failedWidth, hotspotsWidth, frame)
 	}
 }
 
 func TestInitStartsEventAndClockCommands(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", nil, events)
+	m := newModel(nil, events)
 	msg := m.Init()()
 	batch, ok := msg.(tea.BatchMsg)
 	if !ok {
@@ -109,7 +109,7 @@ func TestInitStartsEventAndClockCommands(t *testing.T) {
 
 func TestWindowResizeRequestsFullRepaint(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", nil, events)
+	m := newModel(nil, events)
 	updated, cmd := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	next := updated.(model)
 	if next.width != 120 || next.height != 40 {
@@ -125,7 +125,7 @@ func TestWindowResizeRequestsFullRepaint(t *testing.T) {
 
 func TestQKeyDoesNotQuit(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", nil, events)
+	m := newModel(nil, events)
 	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'q', Text: "q"}))
 	if cmd != nil {
 		t.Fatalf("q should not be bound to quit")
@@ -142,7 +142,7 @@ func TestDashboardPanelHeightsFollowRoundTimelineAndCheckStatusContent(t *testin
 		{ID: "agent-a", Name: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b"},
 	}
-	m := newModel("shownet-watch", []watch.Target{
+	m := newModel([]watch.Target{
 		{Name: "u7-5ghz", SSID: "SHIZK RADIO"},
 		{Name: "u6-5ghz", SSID: "SHIZK RADIO"},
 	}, events, agents)

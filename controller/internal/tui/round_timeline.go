@@ -23,7 +23,7 @@ func (m model) roundTimelineView(width int, height int) string {
 	targets := m.checkStatusTargets()
 	if len(targets) == 0 {
 		lines = append(lines, dimStyle.Render("no targets"))
-		return strings.Join(lines[:min(len(lines), height)], "\n")
+		return strings.Join(lines[:intMin(len(lines), height)], "\n")
 	}
 	grid := roundTimelineGrid(width, len(targets))
 	for row := 0; row < grid.Rows && len(lines) < height; row++ {
@@ -50,12 +50,12 @@ func (m model) roundTimelineHeaderView(width int, startRound uint64, endRound ui
 	leftPlain := fmt.Sprintf("round=%d span=%s ok=%d fail=%d run=%d", m.Round, span, ok, failed, counts.Running)
 	rightPlain := "progress=" + progressText
 	if runeLen(leftPlain)+1+runeLen(rightPlain) > width {
-		leftWidth := max(0, width-runeLen(rightPlain)-1)
+		leftWidth := intMax(0, width-runeLen(rightPlain)-1)
 		if leftWidth == 0 {
 			return valueStyle.Render(fit(rightPlain, width))
 		}
 		return valueStyle.Render(fit(leftPlain, leftWidth)) +
-			valueStyle.Render(strings.Repeat(" ", max(1, width-leftWidth-runeLen(rightPlain)))) +
+			valueStyle.Render(strings.Repeat(" ", intMax(1, width-leftWidth-runeLen(rightPlain)))) +
 			keyStyle.Render("progress=") +
 			valueStyle.Render(progressText)
 	}
@@ -65,12 +65,12 @@ func (m model) roundTimelineHeaderView(width int, startRound uint64, endRound ui
 		keyStyle.Render(" fail=") + valueStyle.Render(fmt.Sprint(failed)) +
 		keyStyle.Render(" run=") + valueStyle.Render(fmt.Sprint(counts.Running))
 	right := keyStyle.Render("progress=") + valueStyle.Render(progressText)
-	spaces := max(1, width-runeLen(leftPlain)-runeLen(rightPlain))
+	spaces := intMax(1, width-runeLen(leftPlain)-runeLen(rightPlain))
 	return left + valueStyle.Render(strings.Repeat(" ", spaces)) + right
 }
 
 func (m model) roundTimelineRoundSpan(width int) (uint64, uint64) {
-	visibleRounds := max(1, m.roundTimelineVisibleRounds(width))
+	visibleRounds := intMax(1, m.roundTimelineVisibleRounds(width))
 	return m.roundTimelineRoundRange(visibleRounds)
 }
 
@@ -79,7 +79,7 @@ func (m model) roundTimelineRoundRange(visibleRounds int) (uint64, uint64) {
 	if endRound == 0 {
 		return 0, 0
 	}
-	visibleRounds = max(1, visibleRounds)
+	visibleRounds = intMax(1, visibleRounds)
 	startRound := uint64(1)
 	if endRound > uint64(visibleRounds) {
 		startRound = endRound - uint64(visibleRounds) + 1
@@ -99,7 +99,7 @@ func (m model) roundTimelineVisibleRounds(width int) int {
 	visible := 1
 	for i, tileWidth := range tileWidths {
 		_, plotWidth := roundTimelineTileLayoutForLabel(tileWidth, labelWidths[i])
-		visible = max(visible, plotWidth)
+		visible = intMax(visible, plotWidth)
 	}
 	return visible
 }
@@ -130,17 +130,17 @@ func roundTimelineGrid(width int, targetCount int) roundTimelineGridLayout {
 	}
 	maxColumns := roundTimelineColumnCount(width, targetCount)
 	rows := (targetCount + maxColumns - 1) / maxColumns
-	rows = max(1, rows)
+	rows = intMax(1, rows)
 	columns := (targetCount + rows - 1) / rows
-	return roundTimelineGridLayout{Columns: max(1, columns), Rows: rows}
+	return roundTimelineGridLayout{Columns: intMax(1, columns), Rows: rows}
 }
 
 func (m model) roundTimelineTargetRow(targets []watch.TargetSnapshot, width int, grid roundTimelineGridLayout, row int) string {
 	if width <= 0 {
 		return ""
 	}
-	columns := max(1, grid.Columns)
-	rows := max(1, grid.Rows)
+	columns := intMax(1, grid.Columns)
+	rows := intMax(1, grid.Rows)
 	tileWidths := roundTimelineTileWidths(width, columns)
 	labelWidths := roundTimelineColumnLabelWidths(targets, tileWidths, rows)
 	tiles := make([]string, 0, len(tileWidths))
@@ -182,7 +182,7 @@ func roundTimelineTileWidths(width int, columns int) []int {
 	if width <= 0 || columns <= 0 {
 		return nil
 	}
-	available := max(1, width-roundTimelineTileGap*(columns-1))
+	available := intMax(1, width-roundTimelineTileGap*(columns-1))
 	baseWidth := available / columns
 	remainder := available % columns
 	widths := make([]int, columns)
@@ -197,7 +197,7 @@ func roundTimelineTileWidths(width int, columns int) []int {
 
 func roundTimelineColumnLabelWidths(targets []watch.TargetSnapshot, tileWidths []int, rows int) []int {
 	widths := make([]int, len(tileWidths))
-	rows = max(1, rows)
+	rows = intMax(1, rows)
 	for column, tileWidth := range tileWidths {
 		maxLabelWidth, _ := roundTimelineTileLayout(tileWidth)
 		labelWidth := 1
@@ -206,7 +206,7 @@ func roundTimelineColumnLabelWidths(targets []watch.TargetSnapshot, tileWidths [
 			if index >= len(targets) {
 				continue
 			}
-			labelWidth = max(labelWidth, min(maxLabelWidth, lipgloss.Width(checkStatusTargetLabel(targets[index]))))
+			labelWidth = intMax(labelWidth, intMin(maxLabelWidth, lipgloss.Width(checkStatusTargetLabel(targets[index]))))
 		}
 		widths[column] = clamp(labelWidth, 1, maxLabelWidth)
 	}
@@ -220,11 +220,11 @@ func (m model) roundTimelineTargetTile(target watch.TargetSnapshot, width int, l
 	labelWidth, plotWidth := roundTimelineTileLayoutForLabel(width, labelWidth)
 	plotWidth = m.roundTimelinePlotWidth(plotWidth)
 	buckets, _, _ := m.targetRoundHistory(target, plotWidth)
-	checkCount := max(1, len(m.checkStatusChecks()))
+	checkCount := intMax(1, len(m.checkStatusChecks()))
 	label := timelineKeyStyle.Render(padVisible(roundTimelineTargetLabel(target, labelWidth), labelWidth))
 	plot := renderTargetRoundHistory(buckets, checkCount, plotWidth)
 	content := fitANSI(label+timelineValueStyle.Render(" ")+plot, width)
-	return content + timelineValueStyle.Render(strings.Repeat(" ", max(0, width-lipgloss.Width(content))))
+	return content + timelineValueStyle.Render(strings.Repeat(" ", intMax(0, width-lipgloss.Width(content))))
 }
 
 func (m model) roundTimelinePlotWidth(maxWidth int) int {
@@ -242,11 +242,11 @@ func roundTimelineTileLayout(width int) (labelWidth int, plotWidth int) {
 	if width <= 0 {
 		return 0, 0
 	}
-	labelWidth = min(roundTimelineTargetLabelRunes, width)
+	labelWidth = intMin(roundTimelineTargetLabelRunes, width)
 	if width > roundTimelineMinVisibleRounds+1 && width < roundTimelineMinTileWidth() {
-		labelWidth = max(1, width-roundTimelineMinVisibleRounds-1)
+		labelWidth = intMax(1, width-roundTimelineMinVisibleRounds-1)
 	}
-	plotWidth = max(1, width-labelWidth-1)
+	plotWidth = intMax(1, width-labelWidth-1)
 	return labelWidth, plotWidth
 }
 
@@ -256,7 +256,7 @@ func roundTimelineTileLayoutForLabel(width int, labelWidth int) (int, int) {
 		return 0, 0
 	}
 	labelWidth = clamp(labelWidth, 1, maxLabelWidth)
-	return labelWidth, max(1, width-labelWidth-1)
+	return labelWidth, intMax(1, width-labelWidth-1)
 }
 
 func roundTimelineMinTileWidth() int {
@@ -268,7 +268,7 @@ func roundTimelineTargetLabel(target watch.TargetSnapshot, width int) string {
 }
 
 func (m model) targetRoundHistory(target watch.TargetSnapshot, width int) ([]targetRoundBucket, int, int) {
-	width = max(1, width)
+	width = intMax(1, width)
 	buckets := make([]targetRoundBucket, width)
 	connectFailedAgents := make([]map[string]bool, width)
 	startRound, endRound := m.roundTimelineRoundRange(width)
@@ -368,7 +368,7 @@ func (m model) expectedRoundAgentCount(target watch.TargetSnapshot) int {
 	for _, failedCheck := range m.FailedChecks {
 		seen[roundAgentKey(failedCheck.Agent)] = true
 	}
-	return max(1, len(seen))
+	return intMax(1, len(seen))
 }
 
 func roundAgentKey(agent watch.AgentSnapshot) string {
@@ -382,7 +382,7 @@ func renderTargetRoundHistory(buckets []targetRoundBucket, checkCount int, width
 	if width <= 0 {
 		return ""
 	}
-	checkCount = max(1, checkCount)
+	checkCount = intMax(1, checkCount)
 	var b strings.Builder
 	for i := range width {
 		bucket := targetRoundBucket{}

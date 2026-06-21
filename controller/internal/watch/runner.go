@@ -48,6 +48,12 @@ type RunOptions struct {
 	RoundBarrier *RoundBarrier
 }
 
+type operationAttempt struct {
+	exec    runner.Result
+	runErr  error
+	skipped bool
+}
+
 // Operation retries are intentionally fixed for watch runs. The watch command is
 // used against shared Wi-Fi infrastructure, where one failed probe is often less
 // useful than a bounded retry that records the flake without failing the target.
@@ -412,15 +418,15 @@ func runCheckWithSkip(ctx context.Context, opRunner OperationRunner, agent contr
 	deadline, poll := checkExpectationDeadline(check, started)
 	maxAttempts := checkMaxAttempts(step, check, poll)
 	for attempt := 1; ; attempt++ {
-		exec, runErr, err, skipped := runOperationAttempt(ctx, opRunner, agent, round, target, step, op, attempt, maxAttempts, skip, emit, emitCause)
+		attemptResult, err := runOperationAttempt(ctx, opRunner, agent, round, target, step, op, attempt, maxAttempts, skip, emit, emitCause)
 		if err != nil {
 			return false, false, err
 		}
-		if skipped {
+		if attemptResult.skipped {
 			return false, true, emitOperatorSkippedStep(round, targetSnapshot, step, started, emit)
 		}
-		failedStep, operationFailed := operationFailureStep(step, exec, runErr)
-		findings := checkFindings(target, check, exec)
+		failedStep, operationFailed := operationFailureStep(step, attemptResult.exec, attemptResult.runErr)
+		findings := checkFindings(target, check, attemptResult.exec)
 		if !operationFailed && len(findings) == 0 {
 			if err := emitRetrySucceeded(round, target, step, attempt, maxAttempts, emit); err != nil {
 				return false, false, err
@@ -445,7 +451,7 @@ func runCheckWithSkip(ctx context.Context, opRunner OperationRunner, agent contr
 				return false, false, err
 			}
 			if operationFailed {
-				if err := emitFailureCause(ctx, opRunner, agent, round, target, failedStep, op, exec, runErr, emitCause); err != nil {
+				if err := emitFailureCause(ctx, opRunner, agent, round, target, failedStep, op, attemptResult.exec, attemptResult.runErr, emitCause); err != nil {
 					return false, false, err
 				}
 			}
@@ -468,7 +474,7 @@ func runCheckWithSkip(ctx context.Context, opRunner OperationRunner, agent contr
 			return false, false, err
 		}
 		if operationFailed {
-			if err := emitFailureCause(ctx, opRunner, agent, round, target, failedStep, op, exec, runErr, emitCause); err != nil {
+			if err := emitFailureCause(ctx, opRunner, agent, round, target, failedStep, op, attemptResult.exec, attemptResult.runErr, emitCause); err != nil {
 				return false, false, err
 			}
 		}
@@ -487,7 +493,6 @@ func runCheckWithSkip(ctx context.Context, opRunner OperationRunner, agent contr
 		}
 		return false, false, nil
 	}
-	return false, false, nil
 }
 
 func checkExpectationDeadline(check Check, started time.Time) (time.Time, time.Duration) {
@@ -551,23 +556,23 @@ func runOperationStepWithSkip(ctx context.Context, opRunner OperationRunner, age
 	emitCause := failureCauseEmitter(round, target, step, emit)
 	maxAttempts := operationMaxAttempts(step)
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		exec, runErr, err, skipped := runOperationAttempt(ctx, opRunner, agent, round, target, step, op, attempt, maxAttempts, skip, emit, emitCause)
+		attemptResult, err := runOperationAttempt(ctx, opRunner, agent, round, target, step, op, attempt, maxAttempts, skip, emit, emitCause)
 		if err != nil {
-			return exec, false, err
+			return attemptResult.exec, false, err
 		}
-		if skipped {
-			return exec, true, emitOperatorSkippedStep(round, targetSnapshot, step, started, emit)
+		if attemptResult.skipped {
+			return attemptResult.exec, true, emitOperatorSkippedStep(round, targetSnapshot, step, started, emit)
 		}
-		finishedStep, failed := operationFailureStep(step, exec, runErr)
+		finishedStep, failed := operationFailureStep(step, attemptResult.exec, attemptResult.runErr)
 		if !failed {
 			if err := emitRetrySucceeded(round, target, step, attempt, maxAttempts, emit); err != nil {
-				return exec, false, err
+				return attemptResult.exec, false, err
 			}
 			finishedStep.Status = "ok"
 			if attempt > 1 {
 				finishedStep.Message = retrySucceededMessage(step, attempt, maxAttempts)
 			}
-			return exec, false, emit(Event{
+			return attemptResult.exec, false, emit(Event{
 				Kind:     EventStepFinished,
 				Round:    round,
 				Target:   targetSnapshot,
@@ -580,10 +585,10 @@ func runOperationStepWithSkip(ctx context.Context, opRunner OperationRunner, age
 		reason := operationFailureReason(finishedStep)
 		if attempt < maxAttempts {
 			if err := emitRetrying(round, target, step, attempt, maxAttempts, reason, emit); err != nil {
-				return exec, false, err
+				return attemptResult.exec, false, err
 			}
-			if err := emitFailureCause(ctx, opRunner, agent, round, target, finishedStep, op, exec, runErr, emitCause); err != nil {
-				return exec, false, err
+			if err := emitFailureCause(ctx, opRunner, agent, round, target, finishedStep, op, attemptResult.exec, attemptResult.runErr, emitCause); err != nil {
+				return attemptResult.exec, false, err
 			}
 			continue
 		}
@@ -596,12 +601,12 @@ func runOperationStepWithSkip(ctx context.Context, opRunner OperationRunner, age
 			Message:  firstNonEmpty(operationFailureReason(finishedStep), "operation failed"),
 			Duration: time.Since(started).Milliseconds(),
 		}); err != nil {
-			return exec, false, err
+			return attemptResult.exec, false, err
 		}
-		if err := emitFailureCause(ctx, opRunner, agent, round, target, finishedStep, op, exec, runErr, emitCause); err != nil {
-			return exec, false, err
+		if err := emitFailureCause(ctx, opRunner, agent, round, target, finishedStep, op, attemptResult.exec, attemptResult.runErr, emitCause); err != nil {
+			return attemptResult.exec, false, err
 		}
-		return exec, false, nil
+		return attemptResult.exec, false, nil
 	}
 	return runner.Result{}, false, nil
 }
@@ -621,7 +626,7 @@ func emitOperatorSkippedStep(round uint64, target TargetSnapshot, step StepSnaps
 	})
 }
 
-func runOperationAttempt(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, step StepSnapshot, op command.Operation, attempt int, maxAttempts int, skip *SkipController, emit func(Event) error, emitCause func(string) error) (runner.Result, error, error, bool) {
+func runOperationAttempt(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, step StepSnapshot, op command.Operation, attempt int, maxAttempts int, skip *SkipController, emit func(Event) error, emitCause func(string) error) (operationAttempt, error) {
 	targetSnapshot := snapshotTarget(target)
 	attemptStep := step
 	attemptStep.Status = "running"
@@ -629,7 +634,7 @@ func runOperationAttempt(ctx context.Context, opRunner OperationRunner, agent co
 		attemptStep.Message = retryAttemptMessage(step, attempt, maxAttempts)
 	}
 	if err := emit(Event{Kind: EventStepStarted, Round: round, Target: targetSnapshot, Step: attemptStep, Status: "running", Message: attemptStep.Message}); err != nil {
-		return runner.Result{}, nil, err, false
+		return operationAttempt{}, err
 	}
 	opCtx, finish := skip.operationContext(ctx)
 	stopCauseMonitor := startFailureCauseMonitor(opCtx, opRunner, agent, round, target, attemptStep, op, emitCause)
@@ -639,12 +644,12 @@ func runOperationAttempt(ctx context.Context, opRunner OperationRunner, agent co
 		stopCauseMonitor()
 	}
 	if operationSkipped(opCtx) {
-		return exec, runErr, nil, true
+		return operationAttempt{exec: exec, runErr: runErr, skipped: true}, nil
 	}
 	if runErr != nil && ctx.Err() != nil {
-		return exec, runErr, ctx.Err(), false
+		return operationAttempt{exec: exec, runErr: runErr}, ctx.Err()
 	}
-	return exec, runErr, nil, false
+	return operationAttempt{exec: exec, runErr: runErr}, nil
 }
 
 func operationMaxAttempts(step StepSnapshot) int {

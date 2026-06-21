@@ -118,18 +118,18 @@ func StandaloneRunOperation(runID string, markSynced bool) (Operation, error) {
 // StandaloneClearRunsOperation builds an operation that clears synced or all
 // archived standalone runs.
 func StandaloneClearRunsOperation(mode string) (Operation, error) {
-	clear := &controlpb.ClearStandaloneRuns{}
+	request := &controlpb.ClearStandaloneRuns{}
 	switch mode {
 	case "", "synced":
-		clear.SyncedOnly = true
+		request.SyncedOnly = true
 	case "all":
-		clear.All = true
+		request.All = true
 	default:
 		return Operation{}, fmt.Errorf("standalone clear mode must be synced or all")
 	}
 	return NewOperation("standalone.runs.clear", &controlpb.RunCommand{
 		Label:   "standalone clear " + emptyLabel(mode, "synced"),
-		Command: &controlpb.RunCommand_ClearStandaloneRuns{ClearStandaloneRuns: clear},
+		Command: &controlpb.RunCommand_ClearStandaloneRuns{ClearStandaloneRuns: request},
 	}, Options{}), nil
 }
 

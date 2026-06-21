@@ -13,7 +13,7 @@ import (
 func TestConnectFailedCheckAppearsInFailedChecks(t *testing.T) {
 	events := make(chan watch.Event)
 	agent := watch.AgentSnapshot{ID: "agent-b", Name: "pixel-b", ADBSerial: "pixel-b"}
-	m := newModel("shownet-watch", []watch.Target{{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}}, events, []watch.AgentSnapshot{agent})
+	m := newModel([]watch.Target{{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"}}, events, []watch.AgentSnapshot{agent})
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.apply(watch.Event{
 		Time:   at,
@@ -50,7 +50,7 @@ func TestSummaryAndEventLogHeightsReduceEventLogAndKeepSummaryArea(t *testing.T)
 
 func TestRenderShowsFailedCheckRowsInMainTable(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{
+	m := newModel([]watch.Target{
 		{Name: "shownet-6g-ap1", SSID: "ShowNet", Band: "6ghz"},
 	}, events)
 	m.width = 140
@@ -82,7 +82,7 @@ func TestRenderShowsFailedCheckRowsInMainTable(t *testing.T) {
 
 func TestFailedChecksCursorRowFillsPanelWidth(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	m.apply(watch.Event{
 		Time:   time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC),
 		Kind:   watch.EventFinding,
@@ -119,7 +119,7 @@ func TestFailedChecksCursorRowFillsPanelWidth(t *testing.T) {
 
 func TestPassingAndFailedChecksDoNotGroupBySSID(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.apply(watch.Event{
 		Time:     at,
@@ -192,7 +192,7 @@ func TestPassingAndFailedChecksDoNotGroupBySSID(t *testing.T) {
 
 func TestEventLogPanelShowsRawWatchEvents(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{
+	m := newModel([]watch.Target{
 		{Name: "SHIZK RADIO", SSID: "SHIZK RADIO", Band: "5ghz"},
 	}, events)
 	m.width = 260
@@ -244,7 +244,7 @@ func TestEventLogPanelShowsRawWatchEvents(t *testing.T) {
 
 func TestEventLogPanelSanitizesControlCharacters(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	m.width = 180
 	m.height = 18
 	m.apply(watch.Event{

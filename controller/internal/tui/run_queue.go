@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"dropcheck/controller/internal/watch"
@@ -34,7 +35,7 @@ func (m model) runQueueTreeViewScoped(agent watch.AgentSnapshot, includeAgentLab
 	}
 	current = clamp(current, 0, len(lines)-1)
 	start := stableOffset(current, offset, height, len(lines))
-	end := min(len(lines), start+height)
+	end := intMin(len(lines), start+height)
 	if ok && focused {
 		for i := start; i < end; i++ {
 			lines[i].Current = i == current
@@ -77,9 +78,9 @@ func (m model) runQueuePanelsSplit() bool {
 	if width <= 0 {
 		width = 120
 	}
-	bodyHeight := max(4, height-2)
+	bodyHeight := intMax(4, height-2)
 	roundTimelineHeight, checkStatusHeight, _, _ := m.dashboardPanelHeights(bodyHeight, panelContentWidth(width))
-	lowerHeight := max(0, bodyHeight-checkStatusHeight-roundTimelineHeight)
+	lowerHeight := intMax(0, bodyHeight-checkStatusHeight-roundTimelineHeight)
 	return m.runQueuePanelsCanSplit(lowerHeight)
 }
 
@@ -219,7 +220,7 @@ func (m model) compactRunQueueTreeLinesForAgent(width int, height int, agent wat
 	}
 	activeLines := compactActiveRunQueueBlock(blocks[active], height)
 	if len(activeLines) >= height {
-		return activeLines[:min(len(activeLines), height)], true
+		return activeLines[:intMin(len(activeLines), height)], true
 	}
 	lines := make([]runQueueLine, 0, height)
 	if previous, ok := previousCompletedRunQueueTarget(blocks, active); ok && len(activeLines)+1 <= height {
@@ -242,7 +243,7 @@ func compactActiveRunQueueBlock(block runQueueTargetBlock, height int) []runQueu
 		lines = append(lines, block.Steps...)
 		return lines
 	}
-	childHeight := max(0, height-1)
+	childHeight := intMax(0, height-1)
 	lines := []runQueueLine{block.Target}
 	if childHeight == 0 || len(block.Steps) == 0 {
 		return lines
@@ -255,7 +256,7 @@ func compactActiveRunQueueBlock(block runQueueTargetBlock, height int) []runQueu
 		}
 	}
 	start := stableOffset(current, 0, childHeight, len(block.Steps))
-	end := min(len(block.Steps), start+childHeight)
+	end := intMin(len(block.Steps), start+childHeight)
 	lines = append(lines, block.Steps[start:end]...)
 	return lines
 }
@@ -297,7 +298,7 @@ func runQueueCurrentStepName(target targetState) string {
 		return ""
 	}
 	steps := runQueueVisibleSteps(target)
-	for i := len(steps) - 1; i >= 0; i-- {
+	for i := range slices.Backward(steps) {
 		if normalizeStatus(steps[i].Status) != "pending" {
 			return steps[i].Name
 		}
@@ -349,8 +350,8 @@ func (m *model) updateRunQueueCursor() {
 	count := m.runQueueLineCountForAgent(agent)
 	viewportHeight := m.runQueueViewportHeight()
 	if m.focus == focusRunQueue && m.runQueuePinned {
-		m.runQueueCursor = clamp(m.runQueueCursor, 0, max(0, count-1))
-		m.runQueueOffset = clamp(m.runQueueOffset, 0, max(0, count-viewportHeight))
+		m.runQueueCursor = clamp(m.runQueueCursor, 0, intMax(0, count-1))
+		m.runQueueOffset = clamp(m.runQueueOffset, 0, intMax(0, count-viewportHeight))
 		return
 	}
 	if index, ok := m.currentRunQueueLineIndexForAgent(agent); ok {
@@ -358,8 +359,8 @@ func (m *model) updateRunQueueCursor() {
 		m.runQueueOffset = stableOffset(index, m.runQueueOffset, viewportHeight, count)
 		return
 	}
-	m.runQueueCursor = clamp(m.runQueueCursor, 0, max(0, count-1))
-	m.runQueueOffset = clamp(m.runQueueOffset, 0, max(0, count-viewportHeight))
+	m.runQueueCursor = clamp(m.runQueueCursor, 0, intMax(0, count-1))
+	m.runQueueOffset = clamp(m.runQueueOffset, 0, intMax(0, count-viewportHeight))
 }
 
 func (m model) runQueueViewportHeight() int {
@@ -371,20 +372,20 @@ func (m model) runQueueViewportHeight() int {
 	if width <= 0 {
 		width = 120
 	}
-	bodyHeight := max(4, height-2)
+	bodyHeight := intMax(4, height-2)
 	roundTimelineHeight, checkStatusHeight, _, _ := m.dashboardPanelHeights(bodyHeight, panelContentWidth(width))
-	lowerHeight := max(1, bodyHeight-checkStatusHeight-roundTimelineHeight)
+	lowerHeight := intMax(1, bodyHeight-checkStatusHeight-roundTimelineHeight)
 	if m.focus == focusRunQueue && m.runQueuePanelsSplit() {
 		agents := m.runQueueAgents()
 		heights := splitHeights(lowerHeight, len(agents))
 		key := m.currentRunQueueAgentKey()
 		for i, agent := range agents {
 			if roundAgentKey(agent) == key {
-				return max(1, heights[i]-2)
+				return intMax(1, heights[i]-2)
 			}
 		}
 	}
-	return max(1, lowerHeight-2)
+	return intMax(1, lowerHeight-2)
 }
 
 func (m model) currentRunQueueLineIndexForAgent(agent watch.AgentSnapshot) (int, bool) {

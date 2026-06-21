@@ -119,7 +119,7 @@ func TestEmptyFailedCheckHeaderDistributesColumns(t *testing.T) {
 
 func TestCheckStatusHeaderFillsPanelWidth(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{{Name: "ub1(5G)", SSID: "SHIZK RADIO"}}, events)
+	m := newModel([]watch.Target{{Name: "ub1(5G)", SSID: "SHIZK RADIO"}}, events)
 	m.Targets[0].Steps = []stepState{{Name: "connect", Status: "ok"}}
 
 	view := m.checkStatusView(64, 3)
@@ -179,7 +179,7 @@ func TestInitialRenderWithoutMeasurementsIsStable(t *testing.T) {
 		{ID: "agent-a", Name: "pixel-a", ADBSerial: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b", ADBSerial: "pixel-b"},
 	}
-	m := newModel("shownet-watch", []watch.Target{
+	m := newModel([]watch.Target{
 		{Name: "radio-u6-5ghz", SSID: "SHIZK RADIO", Band: "5ghz"},
 		{Name: "radio-any-2ghz", SSID: "SHIZK RADIO", Band: "2.4ghz"},
 	}, events, agents)

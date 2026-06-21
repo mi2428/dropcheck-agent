@@ -182,15 +182,24 @@ type OccurrenceHistogram struct {
 }
 
 const (
-	SummarySparklineWindow      = 30 * time.Minute
-	InvestigationHistoryWindow  = 24 * time.Hour
-	FailureHotspotWindow        = InvestigationHistoryWindow
+	// SummarySparklineWindow limits the summary sparkline time horizon.
+	SummarySparklineWindow = 30 * time.Minute
+	// InvestigationHistoryWindow limits retained history for investigation views.
+	InvestigationHistoryWindow = 24 * time.Hour
+	// FailureHotspotWindow limits retained history for hotspot summaries.
+	FailureHotspotWindow = InvestigationHistoryWindow
+	// CheckHistoryRetentionWindow limits retained passing and failing check history.
 	CheckHistoryRetentionWindow = InvestigationHistoryWindow
-	EventLogRetentionWindow     = InvestigationHistoryWindow
-	MaxPassingCheckHistory      = 200000
-	MaxFailedCheckHistory       = 100000
-	MaxEventLogHistory          = 100000
-	VisibleEventLogLimit        = 400
+	// EventLogRetentionWindow limits retained event log history.
+	EventLogRetentionWindow = InvestigationHistoryWindow
+	// MaxPassingCheckHistory caps retained passing-check entries.
+	MaxPassingCheckHistory = 200000
+	// MaxFailedCheckHistory caps retained failed-check entries.
+	MaxFailedCheckHistory = 100000
+	// MaxEventLogHistory caps retained event log entries.
+	MaxEventLogHistory = 100000
+	// VisibleEventLogLimit caps rendered log rows in TUI summaries.
+	VisibleEventLogLimit = 400
 )
 
 // State tracks watch progress and derived histories without depending on terminal UI packages.

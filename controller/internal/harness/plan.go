@@ -108,8 +108,6 @@ func WithRunner(opRunner OperationRunner, agent control.AgentInfo) RunOption {
 // Real Dropcheck Harness test files should normally be guarded with:
 //
 //	//go:build harness
-//
-// The legacy `festival` build tag is still accepted for existing test files.
 func Run(t *testing.T, plan Plan, opts ...RunOption) {
 	t.Helper()
 	cfg := defaultRunConfig()
@@ -125,11 +123,11 @@ func Run(t *testing.T, plan Plan, opts ...RunOption) {
 	if len(plan.Results) > 0 {
 		if plan.Name != "" {
 			t.Run(testName(plan.Name), func(t *testing.T) {
-				runResultPlan(t, cfg.Context, plan)
+				runResultPlan(cfg.Context, t, plan)
 			})
 			return
 		}
-		runResultPlan(t, cfg.Context, plan)
+		runResultPlan(cfg.Context, t, plan)
 		return
 	}
 	opRunner, agent := cfg.Runner, cfg.Agent
@@ -141,11 +139,11 @@ func Run(t *testing.T, plan Plan, opts ...RunOption) {
 	}
 	if plan.Name != "" {
 		t.Run(testName(plan.Name), func(t *testing.T) {
-			runPlan(t, cfg.Context, opRunner, agent, plan)
+			runPlan(cfg.Context, t, opRunner, agent, plan)
 		})
 		return
 	}
-	runPlan(t, cfg.Context, opRunner, agent, plan)
+	runPlan(cfg.Context, t, opRunner, agent, plan)
 }
 
 func validatePlan(plan Plan) error {
@@ -159,16 +157,16 @@ func validatePlan(plan Plan) error {
 	}
 }
 
-func runPlan(t *testing.T, ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, plan Plan) {
+func runPlan(ctx context.Context, t *testing.T, opRunner OperationRunner, agent control.AgentInfo, plan Plan) {
 	t.Helper()
 	for _, network := range plan.Networks {
 		t.Run(testName(network.displayName()), func(t *testing.T) {
-			runNetwork(t, ctx, opRunner, agent, network, plan.Checks)
+			runNetwork(ctx, t, opRunner, agent, network, plan.Checks)
 		})
 	}
 }
 
-func runResultPlan(t *testing.T, ctx context.Context, plan Plan) {
+func runResultPlan(ctx context.Context, t *testing.T, plan Plan) {
 	t.Helper()
 	for _, source := range plan.Results {
 		sourceName := resultSourceName(source)
@@ -186,14 +184,14 @@ func runResultPlan(t *testing.T, ctx context.Context, plan Plan) {
 			}
 			for _, target := range targets {
 				t.Run(testName(target.displayName()), func(t *testing.T) {
-					runResultTarget(t, ctx, target, plan.Checks)
+					runResultTarget(ctx, t, target, plan.Checks)
 				})
 			}
 		})
 	}
 }
 
-func runResultTarget(t *testing.T, ctx context.Context, target ResultTarget, planChecks []Check) {
+func runResultTarget(ctx context.Context, t *testing.T, target ResultTarget, planChecks []Check) {
 	t.Helper()
 	if !t.Run("connect", func(t *testing.T) {
 		runRecordedRequiredStep(t, target, "connect")
@@ -210,7 +208,7 @@ func runResultTarget(t *testing.T, ctx context.Context, target ResultTarget, pla
 	agent := target.syntheticAgent()
 	for _, check := range planChecks {
 		t.Run(testName(check.Name()), func(t *testing.T) {
-			runCheck(t, ctx, opRunner, agent, network, check)
+			runCheck(ctx, t, opRunner, agent, network, check)
 		})
 	}
 }
@@ -302,7 +300,7 @@ func selectAgent(t *testing.T, server *control.Server, agents []control.AgentInf
 	return agents[0]
 }
 
-func runNetwork(t *testing.T, ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, network Network, planChecks []Check) {
+func runNetwork(ctx context.Context, t *testing.T, opRunner OperationRunner, agent control.AgentInfo, network Network, planChecks []Check) {
 	t.Helper()
 	connect := network.connectOperation(t)
 	if network.disconnectAfter {
@@ -323,14 +321,14 @@ func runNetwork(t *testing.T, ctx context.Context, opRunner OperationRunner, age
 	// network subtest. t.Run isolates their failure output, but the returned bool
 	// is still needed to stop later checks from running on the wrong network.
 	if !t.Run("connect", func(t *testing.T) {
-		runRequiredOperation(t, ctx, opRunner, agent, connect)
+		runRequiredOperation(ctx, t, opRunner, agent, connect)
 	}) {
 		return
 	}
 	if network.waitConnected {
 		wait := network.waitOperation(t)
 		if !t.Run("wait_connected", func(t *testing.T) {
-			runRequiredOperation(t, ctx, opRunner, agent, wait)
+			runRequiredOperation(ctx, t, opRunner, agent, wait)
 		}) {
 			return
 		}
@@ -339,12 +337,12 @@ func runNetwork(t *testing.T, ctx context.Context, opRunner OperationRunner, age
 	checks = append(checks, network.checks...)
 	for _, check := range checks {
 		t.Run(testName(check.Name()), func(t *testing.T) {
-			runCheck(t, ctx, opRunner, agent, network, check)
+			runCheck(ctx, t, opRunner, agent, network, check)
 		})
 	}
 }
 
-func runRequiredOperation(t *testing.T, ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, op command.Operation) {
+func runRequiredOperation(ctx context.Context, t *testing.T, opRunner OperationRunner, agent control.AgentInfo, op command.Operation) {
 	t.Helper()
 	result, err := opRunner.Run(ctx, agent, op)
 	if err != nil {
@@ -355,7 +353,7 @@ func runRequiredOperation(t *testing.T, ctx context.Context, opRunner OperationR
 	}
 }
 
-func runCheck(t *testing.T, ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, network Network, check Check) {
+func runCheck(ctx context.Context, t *testing.T, opRunner OperationRunner, agent control.AgentInfo, network Network, check Check) {
 	t.Helper()
 	step, err := check.build()
 	if err != nil {
@@ -363,27 +361,27 @@ func runCheck(t *testing.T, ctx context.Context, opRunner OperationRunner, agent
 	}
 	repeat := normalizedRepeat(step.policy.repeat)
 	if repeat == 1 {
-		runCheckPass(t, ctx, opRunner, agent, network, step)
+		runCheckPass(ctx, t, opRunner, agent, network, step)
 		return
 	}
 	for index := uint32(1); index <= repeat; index++ {
 		index := index
 		t.Run(fmt.Sprintf("repeat_%d", index), func(t *testing.T) {
-			runCheckPass(t, ctx, opRunner, agent, network, step)
+			runCheckPass(ctx, t, opRunner, agent, network, step)
 		})
 	}
 }
 
-func runCheckPass(t *testing.T, ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, network Network, step step) {
+func runCheckPass(ctx context.Context, t *testing.T, opRunner OperationRunner, agent control.AgentInfo, network Network, step step) {
 	t.Helper()
 	if step.policy.stableFor > 0 {
-		runStableCheck(t, ctx, opRunner, agent, network, step)
+		runStableCheck(ctx, t, opRunner, agent, network, step)
 		return
 	}
 	reportFailures(t, runCheckWithRetry(ctx, opRunner, agent, network, step))
 }
 
-func runStableCheck(t *testing.T, ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, network Network, step step) {
+func runStableCheck(ctx context.Context, t *testing.T, opRunner OperationRunner, agent control.AgentInfo, network Network, step step) {
 	t.Helper()
 	deadline := time.Now().Add(step.policy.stableFor)
 	interval := step.policy.stableInterval

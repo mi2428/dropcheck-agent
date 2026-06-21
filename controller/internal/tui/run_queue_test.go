@@ -11,7 +11,7 @@ import (
 
 func TestRunQueueTreeExpandsOnlyRunningTargets(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	m.Targets = []targetState{
 		{
 			Target: targetSnapshot("done-target"),
@@ -72,7 +72,7 @@ func TestRunQueueTreeExpandsOnlyRunningTargets(t *testing.T) {
 
 func TestRunQueueTreePrioritizesActiveStepsWhenClipped(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	for i := range 6 {
 		m.Targets = append(m.Targets, targetState{
 			Target: targetSnapshot(fmt.Sprintf("done-%02d", i)),
@@ -128,7 +128,7 @@ func TestRunQueueTreePrioritizesActiveStepsWhenClipped(t *testing.T) {
 
 func TestRunQueueCursorStaysOnChildBetweenStepFinishAndNextStart(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	m.Targets = []targetState{{
 		Target:      targetSnapshot("running-target"),
 		Status:      "running",
@@ -164,7 +164,7 @@ func TestRunQueueCursorStaysOnChildBetweenStepFinishAndNextStart(t *testing.T) {
 
 func TestRunQueueTreeOmitsTargetOutcomeStrip(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{{Name: "u7-5ghz", SSID: "SHIZK RADIO"}}, events)
+	m := newModel([]watch.Target{{Name: "u7-5ghz", SSID: "SHIZK RADIO"}}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.apply(watch.Event{
 		Time:     at,
@@ -248,7 +248,7 @@ func TestRunQueuePanelsSplitByAgent(t *testing.T) {
 
 func TestRunQueueTreeKeepsScrollAnchorWhenNoTargetIsActive(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	m.height = 9
 	for i := range 16 {
 		status := "pending"
@@ -280,7 +280,7 @@ func TestRunQueueTreeKeepsScrollAnchorWhenNoTargetIsActive(t *testing.T) {
 
 func TestRunQueueTreeUsesStableOffsetInsteadOfRecentering(t *testing.T) {
 	events := make(chan watch.Event)
-	m := newModel("shownet-watch", []watch.Target{}, events)
+	m := newModel([]watch.Target{}, events)
 	m.height = 9
 	for i := range 12 {
 		m.Targets = append(m.Targets, targetState{
