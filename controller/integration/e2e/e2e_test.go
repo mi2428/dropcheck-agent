@@ -11,9 +11,6 @@
 //
 //	make e2e SERIAL=<adb-serial> SSID="<test-ssid>" PSK_ENV=DROPCHECK_E2E_WIFI_PSK
 //
-// MCP integration and live tests live under integration/mcp. They use the same
-// live device, SSID, and PSK environment variables as this e2e matrix.
-//
 // make e2e runs go test -v -count=1. Each case prints its title, runner, command,
 // result, elapsed time, per-case log path, and a short output tail.
 //

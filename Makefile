@@ -28,7 +28,6 @@ AGENT_TEST_TASK         ?= :agent:testDebugUnitTest
 AGENT_LINT_TASK         ?= :agent:lintDebug
 APK                     ?= agent/build/outputs/apk/debug/agent-debug.apk
 CONTROLLER_BIN          ?= dist/dropcheck
-CONTROLLER_MCP_BIN      ?= dist/dropcheck-mcp
 CONTROLLER_INGESTER_BIN ?= dist/dropcheck-ingester
 
 HELP_NAME_WIDTH    := 25
@@ -45,7 +44,7 @@ build: ## Build targets; use TARGET=agent,controller or TARGET=all
 	for target in $$targets; do \
 		case "$$target" in \
 			agent) run "$(GRADLE)" "$(AGENT_BUILD_TASK)" "-PdropcheckVersion=$(VERSION)" ;; \
-			controller) (cd controller; bin="$(CONTROLLER_BIN)"; [[ "$$bin" != */* ]] || run mkdir -p "$${bin%/*}"; run "$(GO)" build -ldflags "$(GO_LDFLAGS)" -o "$$bin" ./cmd/dropcheck; bin="$(CONTROLLER_MCP_BIN)"; [[ "$$bin" != */* ]] || run mkdir -p "$${bin%/*}"; run "$(GO)" build -ldflags "$(GO_LDFLAGS)" -o "$$bin" ./cmd/dropcheck-mcp; bin="$(CONTROLLER_INGESTER_BIN)"; [[ "$$bin" != */* ]] || run mkdir -p "$${bin%/*}"; run "$(GO)" build -ldflags "$(GO_LDFLAGS)" -o "$$bin" ./cmd/dropcheck-ingester) ;; \
+			controller) (cd controller; bin="$(CONTROLLER_BIN)"; [[ "$$bin" != */* ]] || run mkdir -p "$${bin%/*}"; run "$(GO)" build -ldflags "$(GO_LDFLAGS)" -o "$$bin" ./cmd/dropcheck; bin="$(CONTROLLER_INGESTER_BIN)"; [[ "$$bin" != */* ]] || run mkdir -p "$${bin%/*}"; run "$(GO)" build -ldflags "$(GO_LDFLAGS)" -o "$$bin" ./cmd/dropcheck-ingester) ;; \
 			*) die "unknown TARGET=$$target" ;; \
 		esac; \
 	done
@@ -176,7 +175,6 @@ help: ## Show this help message
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "ADB_INSTALL_FLAGS" "adb install flags, defaults to $(ADB_INSTALL_FLAGS)"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "APK" "Debug APK path, defaults to $(APK)"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "CONTROLLER_BIN" "Controller binary path under controller/, defaults to $(CONTROLLER_BIN)"
-	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "CONTROLLER_MCP_BIN" "Controller MCP binary path under controller/, defaults to $(CONTROLLER_MCP_BIN)"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "CONTROLLER_INGESTER_BIN" "Controller ingester binary path under controller/, defaults to $(CONTROLLER_INGESTER_BIN)"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "E2E_TIMEOUT" "Go test timeout for make e2e, defaults to $(E2E_TIMEOUT)"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "INTEGRATION_PACKAGE" "Docker-backed integration package, defaults to $(INTEGRATION_PACKAGE)"

@@ -7,7 +7,7 @@ ADB-controlled Android probes for automated Wi-Fi and access-network end-to-end 
 Android handsets act as field probes for event NOCs.
 Instead of checking connectivity from the infrastructure side, each check measures from the same user-facing access network that attendees and staff devices use.
 
-The operator-facing surfaces are the one-shot CLI, Controller Shell, Controller TUI, MCP, and the Dropcheck Harness.
+The operator-facing surfaces are the one-shot CLI, Controller Shell, Controller TUI, and the Dropcheck Harness.
 The harness runs the same typed operations as normal Go tests.
 The agent is the on-device probe and hosts Agent Shell for direct handset-side inspection.
 
@@ -20,8 +20,6 @@ sequenceDiagram
   participant App as Android App
   participant WiFi as Wi-Fi under test
   participant O11y as O11y Stack
-  participant MCP as MCP Server
-  actor AI as AI Agent
 
   par NOC live control through controller surfaces
     NOC->>Controller: CLI, Shell, or TUI command
@@ -30,15 +28,6 @@ sequenceDiagram
     WiFi-->>App: link and probe result
     App-->>Controller: typed result
     Controller-->>NOC: text, JSON, or TUI output
-  and AI interactive control through MCP Server
-    AI->>MCP: MCP tool call
-    MCP->>Controller: controller operation
-    Controller->>App: ADB-started gRPC operation
-    App->>WiFi: inspect or probe
-    WiFi-->>App: link and probe result
-    App-->>Controller: typed result
-    Controller-->>MCP: tool result
-    MCP-->>AI: structured response
   and NOC repeatable Go tests through Dropcheck Harness
     NOC->>Harness: go test -tags harness
     Harness->>App: ADB-started gRPC operation
@@ -119,7 +108,7 @@ Keep Location enabled on the device; Android hides SSID, BSSID, scan, and MLO de
 ## Features
 
 The controller/agent toolchain has several entry points that share the same typed agent operations.
-Use the one-shot controller CLI for ad-hoc checks, Controller Shell for field work, Controller TUI (`dropcheck watch`) for continuous loops, Agent Shell for on-device inspection, MCP for model/tool orchestration, and Dropcheck Harness when the check should be a repeatable Go test.
+Use the one-shot controller CLI for ad-hoc checks, Controller Shell for field work, Controller TUI (`dropcheck watch`) for continuous loops, Agent Shell for on-device inspection, and Dropcheck Harness when the check should be a repeatable Go test.
 
 ### Controller Shell
 
@@ -127,14 +116,12 @@ The controller starts an ADB-backed gRPC session to one or more Android agents.
 One-shot CLI commands are scriptable and can emit text or JSON.
 Controller Shell adds prompts, completion, context help, output filters, and configure/request submodes on top of the same typed agent operations.
 
-The controller builds three binaries:
+The controller builds two host-side binaries:
 
 ```console
 $ make build TARGET=controller
 + mkdir -p dist
 + go build -ldflags -X\ dropcheck/controller/internal/version.Version=0.9.0-dirty -o dist/dropcheck ./cmd/dropcheck
-+ mkdir -p dist
-+ go build -ldflags -X\ dropcheck/controller/internal/version.Version=0.9.0-dirty -o dist/dropcheck-mcp ./cmd/dropcheck-mcp
 + mkdir -p dist
 + go build -ldflags -X\ dropcheck/controller/internal/version.Version=0.9.0-dirty -o dist/dropcheck-ingester ./cmd/dropcheck-ingester
 ```
@@ -305,122 +292,6 @@ checks:
 
 For `ping`, `traceroute`, and `path_mtu`, `family: ipv4` or `family: ipv6` pins a dual-stack hostname probe to one address family.
 Leave `family` unset when the agent should auto-select based on DNS answers and usable source addresses.
-
-### MCP server
-
-`controller/dist/dropcheck-mcp` runs an MCP stdio server backed by the same controller session machinery.
-A smoke check can initialize the stdio server and list the current tool inventory without starting an Android session:
-
-```text
-$ (
-  printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"readme-smoke","version":"0.1.0"}}}'
-  sleep 0.5
-  printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}'
-  printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
-  sleep 0.5
-) | controller/dist/dropcheck-mcp 2>/dev/null \
-  | jq -r 'select(.id==1).result.serverInfo.name, select(.id==2).result.tools[].name'
-
-dropcheck-mcp
-dropcheck_adb_diagnostics
-dropcheck_agents
-dropcheck_command
-dropcheck_dns
-dropcheck_download
-dropcheck_global_ip
-dropcheck_http
-dropcheck_ip_status
-dropcheck_path_mtu
-dropcheck_ping
-dropcheck_run
-dropcheck_session_start
-dropcheck_session_stop
-dropcheck_standalone_clear_runs
-dropcheck_standalone_config
-dropcheck_standalone_config_edit
-dropcheck_standalone_run
-dropcheck_standalone_run_once
-dropcheck_standalone_runs
-dropcheck_standalone_status
-dropcheck_traceroute
-dropcheck_wifi_assert
-dropcheck_wifi_capabilities
-dropcheck_wifi_connect
-dropcheck_wifi_cycle
-dropcheck_wifi_diagnostics
-dropcheck_wifi_disconnect
-dropcheck_wifi_forget
-dropcheck_wifi_eht
-dropcheck_wifi_monitor
-dropcheck_wifi_reconnect
-dropcheck_wifi_scan
-dropcheck_wifi_scan_detail
-dropcheck_wifi_status
-dropcheck_wifi_wait_connected
-```
-
-It also exposes `dropcheck://session` and `dropcheck://agents` resources; standalone resource templates for config, status, runs, and one run archive; and prompts for connectivity, EHT investigation, and NOC smoke checks.
-
-The comprehensive MCP live test starts `dropcheck-mcp` through MCP CommandTransport and drives a real Android agent over ADB. It connects, disconnects, forgets Wi-Fi, edits standalone config, runs saved standalone archives, and clears synced archives, so run it only against a dedicated Device Owner test handset.
-
-```console
-$ export DROPCHECK_WIFI_PSK='...'
-$ (
-  cd controller
-  DROPCHECK_E2E_LIVE=1 \
-    ADB_SERIAL=R5CT12345 \
-    DROPCHECK_E2E_WIFI_SSID=ShowNet \
-    go test -tags 'e2e mcp_live_full' ./integration/mcp \
-      -run TestMCPServerCommandTransportComprehensiveLive -count=1 -v
-)
-```
-
-Use `-v` when debugging; the test logs every MCP protocol call, tool call, progress notification, and logging message with Wi-Fi passphrases redacted.
-Use MCP when another tool should run checks without shelling out to the CLI grammar for every operation.
-For host-file writes, use the CLI directly: `sync standalone runs` is intentionally not exposed through MCP.
-
-MCP clients start the server over stdio. Build the controller first, then register or enable the binary with the client.
-Keep Wi-Fi passphrases out of prompts and config files where possible; export an environment variable in the shell that launches the MCP client and ask the agent to use `passphrase_env`.
-After changing MCP configuration, start a new Claude Code or Codex session from a shell with those environment variables exported.
-
-#### Claude Code
-
-Claude Code project-scoped MCP servers live in `.mcp.json` at the repository root. This repository includes a project-scoped `dropcheck` server that runs `${DROPCHECK_MCP_BIN:-./controller/dist/dropcheck-mcp}` and passes through `DROPCHECK_WIFI_PSK` when it is set. `.claude/` is for Claude Code settings, agents, commands, and local state; it is not the current project-scoped MCP server definition path.
-
-Build the server binary, export any secrets in the shell that starts Claude Code, then verify or approve the server with `/mcp`:
-
-```console
-$ make build TARGET=controller
-$ export DROPCHECK_WIFI_PSK='...'
-$ claude
-> /mcp
-```
-
-For a private per-project override instead of the checked-in `.mcp.json`, use local scope. Claude Code stores that in `~/.claude.json`, not in this repository:
-
-```console
-$ claude mcp add --transport stdio --scope local dropcheck -- "$PWD/controller/dist/dropcheck-mcp"
-$ claude mcp get dropcheck
-```
-
-#### Codex
-
-Register `dropcheck-mcp` as an MCP server:
-
-```console
-$ make build TARGET=controller
-$ export DROPCHECK_WIFI_PSK='...'
-$ codex mcp add dropcheck -- "$PWD/controller/dist/dropcheck-mcp"
-$ codex mcp get dropcheck
-```
-
-> [!NOTE]
-> `codex mcp add` stores a machine-local/global MCP entry with the absolute binary path. If the repository moves or the path becomes stale, remove and re-add it:
->
-> ```console
-> $ codex mcp remove dropcheck
-> $ codex mcp add dropcheck -- "$PWD/controller/dist/dropcheck-mcp"
-> ```
 
 ### Standalone measurement and observability
 
