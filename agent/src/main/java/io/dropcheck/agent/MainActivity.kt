@@ -101,7 +101,7 @@ internal fun terminalDisplayText(line: String): String {
  * Minimal on-device terminal view for lab/debug sessions.
  *
  * It keeps the main screen as a local log tail and exposes a small swipe-in
- * shell for interactive Wi-Fi and network inspection.
+ * shell for interactive Wi-Fi inspection, direct connect tests, and probes.
  */
 class MainActivity : Activity() {
     private lateinit var logView: TextView
@@ -575,7 +575,8 @@ class MainActivity : Activity() {
         }
         addShellView(shellText("Agent Shell", AgentLogStyle.TEXT_COLOR))
         val controllerState = if (ControllerSessionRuntimeState.heartbeatConnected()) "connected" else "idle"
-        addShellView(shellText("surface=agent-shell controller=$controllerState", AgentLogStyle.TEXT_COLOR))
+        val defaults = AgentShellUseDefaultsStore(applicationContext).load()
+        addShellView(shellText("surface=agent-shell controller=$controllerState ${AgentShellUsePolicy.statusText(defaults)}", AgentLogStyle.TEXT_COLOR))
         addShellView(shellSpacer(8))
         shellTranscript.takeLast(SHELL_TRANSCRIPT_MAX_LINES).forEach {
             addShellView(shellText(it.text, it.color))
@@ -656,11 +657,15 @@ class MainActivity : Activity() {
         }
         lastShellCommandLine = line
         shellInput?.setText("")
-        appendShellLine(shellCommandLine(line), focusInput = focusAfterSubmit)
+        appendShellLine(shellCommandLine(redactAgentShellCommandLine(line)), focusInput = focusAfterSubmit)
         when (val command = AgentShellParser.parse(line)) {
             AgentShellCommand.Noop -> Unit
             is AgentShellCommand.Help -> {
                 appendShellLines(shellHelpLines(command.topic), focusInput = focusAfterSubmit)
+            }
+            is AgentShellCommand.SetDefaultPassphrase -> {
+                AgentShellUseDefaultsStore(applicationContext).setDefaultPassphrase(command.passphrase)
+                appendShellLine(AgentShellUsePolicy.setDefaultPassphraseMessage(command.passphrase), focusInput = focusAfterSubmit)
             }
             AgentShellCommand.ShowVersion -> {
                 appendShellLine("version ${BuildConfig.VERSION_NAME}", focusInput = focusAfterSubmit)
@@ -695,6 +700,9 @@ class MainActivity : Activity() {
             }
             is AgentShellCommand.Traceroute -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
                 runTracerouteCommand(command)
+            }
+            is AgentShellCommand.Use -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
+                runUseCommand(command)
             }
             is AgentShellCommand.Invalid -> appendShellLine(command.message, SHELL_ERROR_COLOR, focusInput = focusAfterSubmit)
         }
@@ -739,6 +747,32 @@ class MainActivity : Activity() {
         return ShellCommandResult(
             ok = result.status == CommandResult.Status.STATUS_OK,
             lines = AgentProbeRenderer.renderTraceroute(result.traceroute, result.status, result.message),
+        )
+    }
+
+    private fun runUseCommand(command: AgentShellCommand.Use): ShellCommandResult {
+        val defaults = AgentShellUseDefaultsStore(applicationContext).load()
+        val decision = AgentShellUsePolicy.resolveUseRequest(command.ssid, command.passphrase, defaults)
+        val request = decision.request
+            ?: return ShellCommandResult(ok = false, lines = listOf(decision.error))
+        val result = CommandExecutor(applicationContext, agentShellLogger()).execute(
+            AgentShellUsePolicy.connectCommand(request),
+        )
+        if (!result.hasConnectWifi()) {
+            val message = result.message.ifBlank { result.status.name }
+            return ShellCommandResult(ok = false, lines = listOf("use failed: $message"))
+        }
+        return ShellCommandResult(
+            ok = result.status == CommandResult.Status.STATUS_OK,
+            lines = AgentShellTextFormatter.formatStructuredResult(
+                result,
+                AgentShellUsePolicy.renderConnect(
+                    result = result.connectWifi,
+                    status = result.status,
+                    message = result.message,
+                    source = request.passphraseSource,
+                ),
+            ),
         )
     }
 
@@ -997,6 +1031,7 @@ class MainActivity : Activity() {
                 "Agent Shell builtins:",
                 "  help [NAME]",
                 "  ping HOST [count N] [size BYTES] [timeout MS]",
+                "  set default passphrase PASSPHRASE",
                 "  show version",
                 "  show wifi eht",
                 "  show wifi eht fresh [timeout MS]",
@@ -1006,6 +1041,7 @@ class MainActivity : Activity() {
                 "  show wifi scan fresh [brief [mlo]] [timeout MS] [all|2.4ghz|5ghz|6ghz|60ghz]",
                 "  show wifi status",
                 "  traceroute HOST [max-hops N] [size BYTES] [timeout MS]",
+                "  use SSID [PASSPHRASE]",
                 "",
                 "Type 'help NAME' for more information.",
             )
@@ -1017,6 +1053,11 @@ class MainActivity : Activity() {
                 "ping: ping HOST [count N] [size BYTES] [timeout MS]",
                 "    Run ICMP ping over the active Wi-Fi network.",
                 "    size is the ICMP payload size in bytes.",
+            )
+            "set" -> listOf(
+                "set: set default passphrase PASSPHRASE",
+                "    Store the default PSK used by 'use SSID' when PASSPHRASE is omitted.",
+                "    Use an empty quoted string to clear it: set default passphrase \"\".",
             )
             "show" -> listOf(
                 "show: show (version|wifi status|wifi eht|wifi scan)",
@@ -1032,6 +1073,12 @@ class MainActivity : Activity() {
                 "traceroute: traceroute HOST [max-hops N] [size BYTES] [timeout MS]",
                 "    Trace the path to HOST over the active Wi-Fi network.",
                 "    size is the probe payload size in bytes.",
+            )
+            "use" -> listOf(
+                "use: use SSID [PASSPHRASE]",
+                "    Connect to SSID with PASSPHRASE.",
+                "    When PASSPHRASE is omitted, Agent Shell uses the stored default passphrase.",
+                "    Quote SSID or PASSPHRASE with double quotes when they contain spaces or special characters.",
             )
             else -> listOf("dropcheck: help: no help topics match '$topic'")
         }

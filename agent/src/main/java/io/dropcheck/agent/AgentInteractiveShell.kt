@@ -4,11 +4,14 @@ package io.dropcheck.agent
 private const val SHOW_WIFI_EHT_USAGE = "usage: show wifi eht [fresh [timeout MS]] [ssid SSID|bssid BSSID]"
 private const val SHOW_WIFI_SCAN_USAGE = "usage: show wifi scan [brief [mlo]] [all|2.4ghz|5ghz|6ghz|60ghz]"
 private const val SHOW_WIFI_SCAN_FRESH_USAGE = "usage: show wifi scan fresh [brief [mlo]] [timeout MS] [all|2.4ghz|5ghz|6ghz|60ghz]"
+private const val SET_DEFAULT_PASSPHRASE_USAGE = "usage: set default passphrase PASSPHRASE"
+private const val USE_USAGE = "usage: use SSID [PASSPHRASE]"
 private val WIFI_SCAN_BANDS = listOf("all", "2.4ghz", "5ghz", "6ghz", "60ghz")
 
 internal sealed class AgentShellCommand {
     data object Noop : AgentShellCommand()
     data class Help(val topic: String = "") : AgentShellCommand()
+    data class SetDefaultPassphrase(val passphrase: String) : AgentShellCommand()
     data object ShowVersion : AgentShellCommand()
     data object ShowWifiStatus : AgentShellCommand()
     data class ShowWifiEht(
@@ -27,15 +30,16 @@ internal sealed class AgentShellCommand {
     ) : AgentShellCommand()
     data class Ping(val host: String, val count: Int = 0, val sizeBytes: Int = 0, val timeoutMs: Int = 0) : AgentShellCommand()
     data class Traceroute(val host: String, val maxHops: Int = 0, val sizeBytes: Int = 0, val timeoutMs: Int = 0) : AgentShellCommand()
+    data class Use(val ssid: String, val passphrase: String? = null) : AgentShellCommand()
     data class Invalid(val message: String) : AgentShellCommand()
 }
 
 /** Parser for the Agent Shell command surface. */
 internal object AgentShellParser {
-    private val commandNames = listOf("help", "ping", "show", "traceroute")
+    private val commandNames = listOf("help", "ping", "set", "show", "traceroute", "use")
 
     fun parse(line: String): AgentShellCommand {
-        val tokens = splitWords(line).getOrElse { return AgentShellCommand.Invalid(it.message ?: "invalid command") }
+        val tokens = shellSplitWords(line).getOrElse { return AgentShellCommand.Invalid(it.message ?: "invalid command") }
         if (tokens.isEmpty()) return AgentShellCommand.Noop
         val command = if (tokens.first() == "?") "help" else resolveCommandName(tokens.first())
         return when (command) {
@@ -48,10 +52,32 @@ internal object AgentShellParser {
                 }
             }
             "ping" -> parsePing(tokens.drop(1))
+            "set" -> parseSet(tokens)
             "show" -> parseShow(tokens)
             "traceroute" -> parseTraceroute(tokens.drop(1))
+            "use" -> parseUse(tokens.drop(1))
             else -> AgentShellCommand.Invalid("${tokens.first()}: command not found")
         }
+    }
+
+    private fun parseSet(tokens: List<String>): AgentShellCommand {
+        if (tokens.size != 4) return AgentShellCommand.Invalid(SET_DEFAULT_PASSPHRASE_USAGE)
+        if (resolveKeyword(tokens[1], listOf("default")) != "default") {
+            return AgentShellCommand.Invalid(SET_DEFAULT_PASSPHRASE_USAGE)
+        }
+        if (resolveKeyword(tokens[2], listOf("passphrase")) != "passphrase") {
+            return AgentShellCommand.Invalid(SET_DEFAULT_PASSPHRASE_USAGE)
+        }
+        return AgentShellCommand.SetDefaultPassphrase(tokens[3])
+    }
+
+    private fun parseUse(args: List<String>): AgentShellCommand {
+        if (args.size !in 1..2) return AgentShellCommand.Invalid(USE_USAGE)
+        if (args[0].isBlank()) return AgentShellCommand.Invalid(USE_USAGE)
+        return AgentShellCommand.Use(
+            ssid = args[0],
+            passphrase = args.getOrNull(1),
+        )
     }
 
     private fun parseShow(tokens: List<String>): AgentShellCommand {
@@ -316,13 +342,6 @@ internal object AgentShellParser {
         return ParsedProbe(host = host, values = values)
     }
 
-    private fun resolveKeyword(value: String, options: List<String>): String? {
-        if (value.isBlank()) return null
-        options.firstOrNull { it == value }?.let { return it }
-        val matches = options.filter { it.startsWith(value) }
-        return matches.singleOrNull()
-    }
-
     private fun resolveCommandName(value: String): String? {
         if (value.isBlank()) return null
         commandNames.firstOrNull { it == value }?.let { return it }
@@ -330,57 +349,81 @@ internal object AgentShellParser {
         return matches.singleOrNull()
     }
 
-    private fun splitWords(line: String): Result<List<String>> {
-        val words = mutableListOf<String>()
-        val current = StringBuilder()
-        var quote: Char? = null
-        var escaped = false
-        var inToken = false
-        for (ch in line) {
-            when {
-                escaped -> {
-                    current.append(ch)
-                    escaped = false
-                    inToken = true
-                }
-                ch == '\\' -> {
-                    escaped = true
-                    inToken = true
-                }
-                quote != null && ch == quote -> {
-                    quote = null
-                    inToken = true
-                }
-                quote != null -> {
-                    current.append(ch)
-                    inToken = true
-                }
-                ch == '"' || ch == '\'' -> {
-                    quote = ch
-                    inToken = true
-                }
-                ch.isWhitespace() -> {
-                    if (inToken) {
-                        words += current.toString()
-                        current.clear()
-                        inToken = false
-                    }
-                }
-                else -> {
-                    current.append(ch)
-                    inToken = true
-                }
-            }
-        }
-        if (escaped) current.append('\\')
-        if (quote != null) return Result.failure(IllegalArgumentException("unterminated quote"))
-        if (inToken) words += current.toString()
-        return Result.success(words)
-    }
-
     private data class ParsedProbe(
         val host: String = "",
         val values: Map<String, Int> = emptyMap(),
         val error: String? = null,
     )
+}
+
+internal fun redactAgentShellCommandLine(line: String): String {
+    val tokens = shellSplitWords(line).getOrNull().orEmpty()
+    if (tokens.isEmpty()) return line
+    val command = tokens.first()
+    if ("use".startsWith(command) && tokens.size >= 3) {
+        return "use ${formatAgentShellToken(tokens[1])} <redacted>"
+    }
+    if ("set".startsWith(command) &&
+        tokens.size >= 4 &&
+        resolveKeyword(tokens[1], listOf("default")) == "default" &&
+        resolveKeyword(tokens[2], listOf("passphrase")) == "passphrase"
+    ) {
+        return "set default passphrase <redacted>"
+    }
+    return line
+}
+
+internal fun resolveKeyword(value: String, options: List<String>): String? {
+    if (value.isBlank()) return null
+    options.firstOrNull { it == value }?.let { return it }
+    val matches = options.filter { it.startsWith(value) }
+    return matches.singleOrNull()
+}
+
+internal fun shellSplitWords(line: String): Result<List<String>> {
+    val words = mutableListOf<String>()
+    val current = StringBuilder()
+    var quote: Char? = null
+    var escaped = false
+    var inToken = false
+    for (ch in line) {
+        when {
+            escaped -> {
+                current.append(ch)
+                escaped = false
+                inToken = true
+            }
+            ch == '\\' -> {
+                escaped = true
+                inToken = true
+            }
+            quote != null && ch == quote -> {
+                quote = null
+                inToken = true
+            }
+            quote != null -> {
+                current.append(ch)
+                inToken = true
+            }
+            ch == '"' || ch == '\'' -> {
+                quote = ch
+                inToken = true
+            }
+            ch.isWhitespace() -> {
+                if (inToken) {
+                    words += current.toString()
+                    current.clear()
+                    inToken = false
+                }
+            }
+            else -> {
+                current.append(ch)
+                inToken = true
+            }
+        }
+    }
+    if (escaped) current.append('\\')
+    if (quote != null) return Result.failure(IllegalArgumentException("unterminated quote"))
+    if (inToken) words += current.toString()
+    return Result.success(words)
 }

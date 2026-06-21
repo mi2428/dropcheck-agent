@@ -28,16 +28,24 @@ class AgentInteractiveShellTest {
         )
         assertEquals(AgentShellCommand.Ping("1.1.1.1"), AgentShellParser.parse("ping 1.1.1.1"))
         assertEquals(AgentShellCommand.Ping("1.1.1.1", count = 3, sizeBytes = 64, timeoutMs = 7000), AgentShellParser.parse("p count 3 size 64 timeout 7000 1.1.1.1"))
+        assertEquals(AgentShellCommand.SetDefaultPassphrase("hogehoge"), AgentShellParser.parse("set default passphrase hogehoge"))
+        assertEquals(AgentShellCommand.SetDefaultPassphrase(""), AgentShellParser.parse("set default passphrase \"\""))
         assertEquals(AgentShellCommand.Traceroute("1.1.1.1"), AgentShellParser.parse("traceroute 1.1.1.1"))
         assertEquals(AgentShellCommand.Traceroute("example.test", maxHops = 12, sizeBytes = 80, timeoutMs = 30000), AgentShellParser.parse("tr max-hops 12 size 80 timeout 30000 example.test"))
+        assertEquals(AgentShellCommand.Use("hp1"), AgentShellParser.parse("use hp1"))
+        assertEquals(AgentShellCommand.Use("hp1", "fugafuga"), AgentShellParser.parse("use hp1 fugafuga"))
+        assertEquals(AgentShellCommand.Use("hp 1", "fuga fuga"), AgentShellParser.parse("use \"hp 1\" \"fuga fuga\""))
         assertEquals(AgentShellCommand.Help(), AgentShellParser.parse("help"))
         assertEquals(AgentShellCommand.Help(), AgentShellParser.parse("h"))
         assertEquals(AgentShellCommand.Help(), AgentShellParser.parse("he"))
         assertEquals(AgentShellCommand.Help(), AgentShellParser.parse("hel"))
         assertEquals(AgentShellCommand.Help("show"), AgentShellParser.parse("help show"))
+        assertEquals(AgentShellCommand.Help("set"), AgentShellParser.parse("help set"))
         assertEquals(AgentShellCommand.Help("ping"), AgentShellParser.parse("help p"))
         assertEquals(AgentShellCommand.Help("traceroute"), AgentShellParser.parse("help tr"))
+        assertEquals(AgentShellCommand.Help("use"), AgentShellParser.parse("help use"))
         assertEquals(AgentShellCommand.Help("show"), AgentShellParser.parse("h sh"))
+        assertEquals(AgentShellCommand.Help("use"), AgentShellParser.parse("h u"))
     }
 
     @Test
@@ -57,13 +65,27 @@ class AgentInteractiveShellTest {
         assertEquals(AgentShellCommand.Invalid("count requires a value"), AgentShellParser.parse("ping 1.1.1.1 count"))
         assertEquals(AgentShellCommand.Invalid("size must be a positive integer"), AgentShellParser.parse("ping 1.1.1.1 size 0"))
         assertEquals(AgentShellCommand.Invalid("timeout specified twice"), AgentShellParser.parse("ping 1.1.1.1 timeout 100 timeout 200"))
+        assertEquals(AgentShellCommand.Invalid("usage: set default passphrase PASSPHRASE"), AgentShellParser.parse("set"))
+        assertEquals(AgentShellCommand.Invalid("usage: set default passphrase PASSPHRASE"), AgentShellParser.parse("set default"))
+        assertEquals(AgentShellCommand.Invalid("usage: set default passphrase PASSPHRASE"), AgentShellParser.parse("set default security auto"))
+        assertEquals(AgentShellCommand.Invalid("usage: use SSID [PASSPHRASE]"), AgentShellParser.parse("use"))
+        assertEquals(AgentShellCommand.Invalid("usage: use SSID [PASSPHRASE]"), AgentShellParser.parse("use hp1 secret extra"))
         assertEquals(AgentShellCommand.Invalid("usage: traceroute HOST [max-hops N] [size BYTES] [timeout MS]"), AgentShellParser.parse("traceroute"))
         assertEquals(AgentShellCommand.Invalid("max-hops must be a positive integer"), AgentShellParser.parse("traceroute 1.1.1.1 max-hops nope"))
         assertEquals(AgentShellCommand.Invalid("list: command not found"), AgentShellParser.parse("list"))
         assertEquals(AgentShellCommand.Invalid("usage: help [NAME]"), AgentShellParser.parse("help show extra"))
-        assertEquals(AgentShellCommand.Invalid("u: command not found"), AgentShellParser.parse("u"))
+        assertEquals(AgentShellCommand.Invalid("usage: use SSID [PASSPHRASE]"), AgentShellParser.parse("u"))
+        assertEquals(AgentShellCommand.Invalid("usage: use SSID [PASSPHRASE]"), AgentShellParser.parse("u \"\""))
         assertEquals(AgentShellCommand.Invalid("missing: command not found"), AgentShellParser.parse("missing"))
-        assertEquals(AgentShellCommand.Invalid("set: command not found"), AgentShellParser.parse("set default passphrase secret"))
         assertTrue(AgentShellParser.parse("show wifi eht \"ap1") is AgentShellCommand.Invalid)
+    }
+
+    @Test
+    fun redactsSensitiveShellCommandEchoes() {
+        assertEquals("set default passphrase <redacted>", redactAgentShellCommandLine("set default passphrase hogehoge"))
+        assertEquals("set default passphrase <redacted>", redactAgentShellCommandLine("set default passphrase \"fuga fuga\""))
+        assertEquals("use hp1 <redacted>", redactAgentShellCommandLine("use hp1 fugafuga"))
+        assertEquals("use \"hp 1\" <redacted>", redactAgentShellCommandLine("use \"hp 1\" \"fuga fuga\""))
+        assertEquals("use hp1", redactAgentShellCommandLine("use hp1"))
     }
 }
