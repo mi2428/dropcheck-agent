@@ -1,5 +1,5 @@
 services:
-  # Local S3-compatible target for standalone Festival result uploads.
+  # Local S3-compatible target for standalone harness result uploads.
   # Anonymous PUT is enabled on http://localhost:8080/dropcheck/... by minio-init.
   minio:
     image: minio/minio:latest

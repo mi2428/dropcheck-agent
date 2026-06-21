@@ -59,7 +59,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func TestBatchBackfillReadsMinIOAndPushesFestivalMetrics(t *testing.T) {
+func TestBatchBackfillReadsMinIOAndPushesHarnessMetrics(t *testing.T) {
 	env := newIntegrationEnv(t, "batch")
 	archive := standaloneArchiveFixture("run-batch-1", "ok")
 	env.putArchive(t, "incoming/device/run-batch-1.pb", archive)

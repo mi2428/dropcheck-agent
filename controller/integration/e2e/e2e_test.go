@@ -31,7 +31,7 @@
 //	                           standalone upload live test. By default the test starts this
 //	                           repo's docker-compose MinIO and reaches it through adb reverse.
 //	                           The default MinIO path also fetches the uploaded protobuf and
-//	                           evaluates it with the Festival DSL.
+//	                           evaluates it with the Dropcheck Harness.
 //
 // The case table is testdata/e2e_cases.tsv. The title column is included in Go
 // subtest names, for example E2E-001_shell_help, so verbose output remains readable.
@@ -63,16 +63,16 @@ import (
 
 	commandparse "dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/controlpb"
-	f "dropcheck/controller/internal/festival"
-	"dropcheck/controller/internal/festival/capabilities"
-	"dropcheck/controller/internal/festival/dns"
-	"dropcheck/controller/internal/festival/globalip"
-	"dropcheck/controller/internal/festival/ip"
-	"dropcheck/controller/internal/festival/ping"
-	"dropcheck/controller/internal/festival/pmtu"
-	"dropcheck/controller/internal/festival/scan"
-	"dropcheck/controller/internal/festival/trace"
-	"dropcheck/controller/internal/festival/wifi"
+	f "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/harness/capabilities"
+	"dropcheck/controller/internal/harness/dns"
+	"dropcheck/controller/internal/harness/globalip"
+	"dropcheck/controller/internal/harness/ip"
+	"dropcheck/controller/internal/harness/ping"
+	"dropcheck/controller/internal/harness/pmtu"
+	"dropcheck/controller/internal/harness/scan"
+	"dropcheck/controller/internal/harness/trace"
+	"dropcheck/controller/internal/harness/wifi"
 	"dropcheck/controller/internal/linuxcli"
 	"dropcheck/controller/internal/shell"
 	"google.golang.org/protobuf/proto"
@@ -108,7 +108,7 @@ const (
 	standaloneHTTPURL      = "http://connectivitycheck.gstatic.com/generate_204"
 	defaultMinIOAPIPort    = "8080"
 
-	festivalReplayChildEnv = "DROPCHECK_E2E_FESTIVAL_REPLAY_CHILD"
+	harnessReplayChildEnv = "DROPCHECK_E2E_HARNESS_REPLAY_CHILD"
 )
 
 type matrixCase struct {
@@ -214,20 +214,20 @@ func TestDropcheckEndToEndMatrix(t *testing.T) {
 	}
 }
 
-func TestFestivalDSLLive(t *testing.T) {
+func TestHarnessLive(t *testing.T) {
 	cfg := loadConfig(t)
 	if !cfg.live {
-		t.Skipf("set %s=1 to run live Festival DSL E2E", envLive)
+		t.Skipf("set %s=1 to run live Dropcheck Harness E2E", envLive)
 	}
 	if cfg.serial == "" {
 		t.Skipf("%s or ADB_SERIAL is required", envSerial)
 	}
 	if cfg.ssid == "" || cfg.psk == "" {
-		t.Skipf("%s and %s are required for live Festival DSL E2E", envSSID, envPSK)
+		t.Skipf("%s and %s are required for live Dropcheck Harness E2E", envSSID, envPSK)
 	}
 
 	f.Run(t, f.Plan{
-		Name: "festival-live-e2e",
+		Name: "harness-live-e2e",
 		Networks: []f.Network{
 			f.WiFi("e2e-wifi").
 				SSID(cfg.ssid).
@@ -237,7 +237,7 @@ func TestFestivalDSLLive(t *testing.T) {
 				WaitTimeout(30 * time.Second).
 				DisconnectAfter(false),
 		},
-		Checks: standaloneFestivalChecks(),
+		Checks: standaloneHarnessChecks(),
 	}, f.WithADBPath(cfg.adb), f.WithSerial(cfg.serial), f.WithPackageName(cfg.packageName))
 }
 
@@ -284,7 +284,7 @@ func TestStandaloneUploadToMinIOLive(t *testing.T) {
 	status := cfg.waitStandaloneUploadSuccess(t, 2*time.Minute)
 	t.Logf("standalone upload succeeded from Android perspective: %s", oneLine(redact(status, psk)))
 	if !cfg.managedMinIO {
-		t.Logf("skipping MinIO fetch and Festival evaluation because %s overrides the managed local MinIO target", envUploadURL)
+		t.Logf("skipping MinIO fetch and Harness evaluation because %s overrides the managed local MinIO target", envUploadURL)
 		return
 	}
 	archive := cfg.fetchStandaloneUploadArchiveFromMinIO(t)
@@ -293,7 +293,7 @@ func TestStandaloneUploadToMinIOLive(t *testing.T) {
 		Results: []f.ResultSource{
 			f.StandaloneArchiveBytes("minio-upload", archive),
 		},
-		Checks: standaloneFestivalChecks(),
+		Checks: standaloneHarnessChecks(),
 	})
 }
 
@@ -398,7 +398,7 @@ func TestStandaloneCLIParityLive(t *testing.T) {
 	assertStandaloneRunDetail(t, detail, runID, standaloneCLIFesta, false)
 }
 
-func TestFestivalStandaloneResultReplayScenarios(t *testing.T) {
+func TestHarnessStandaloneResultReplayScenarios(t *testing.T) {
 	archive := standaloneReplayArchiveFixture()
 	f.Run(t, f.Plan{
 		Name: "standalone-replay-e2e-fixture",
@@ -418,15 +418,15 @@ func TestFestivalStandaloneResultReplayScenarios(t *testing.T) {
 		{name: "missing_ping", want: "no archived ping step"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			runFestivalReplayFailureChild(t, tc.name, tc.want)
+			runHarnessReplayFailureChild(t, tc.name, tc.want)
 		})
 	}
 }
 
-func TestFestivalStandaloneResultReplayFailureChild(t *testing.T) {
-	name := os.Getenv(festivalReplayChildEnv)
+func TestHarnessStandaloneResultReplayFailureChild(t *testing.T) {
+	name := os.Getenv(harnessReplayChildEnv)
 	if name == "" {
-		t.Skipf("set %s to run a failing replay fixture child", festivalReplayChildEnv)
+		t.Skipf("set %s to run a failing replay fixture child", harnessReplayChildEnv)
 	}
 	archive := standaloneReplayArchiveFixture()
 	switch name {
@@ -452,7 +452,7 @@ func TestFestivalStandaloneResultReplayFailureChild(t *testing.T) {
 	})
 }
 
-func standaloneFestivalChecks() []f.Check {
+func standaloneHarnessChecks() []f.Check {
 	return []f.Check{
 		f.DNS(standaloneDNSName).
 			A().
@@ -534,7 +534,7 @@ func standaloneReplayChecks() []f.Check {
 			MaxHops(30).
 			Expect(trace.OutputContains("8.8.8.8")),
 	}
-	return append(checks, standaloneFestivalChecks()...)
+	return append(checks, standaloneHarnessChecks()...)
 }
 
 func requireLiveStandalone(t *testing.T, cfg *e2eConfig, name string) {
@@ -804,17 +804,17 @@ func assertSyncedArchiveFile(t *testing.T, outputDir string, runID string, syncO
 	}
 }
 
-func runFestivalReplayFailureChild(t *testing.T, name string, want string) {
+func runHarnessReplayFailureChild(t *testing.T, name string, want string) {
 	t.Helper()
-	cmd := exec.Command(os.Args[0], "-test.run=^TestFestivalStandaloneResultReplayFailureChild$", "-test.v")
-	cmd.Env = append(os.Environ(), festivalReplayChildEnv+"="+name)
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHarnessStandaloneResultReplayFailureChild$", "-test.v")
+	cmd.Env = append(os.Environ(), harnessReplayChildEnv+"="+name)
 	cmd.Dir = packageDir(t)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
-		t.Fatalf("festival replay failure child %s unexpectedly passed:\n%s", name, out)
+		t.Fatalf("harness replay failure child %s unexpectedly passed:\n%s", name, out)
 	}
 	if !strings.Contains(string(out), want) {
-		t.Fatalf("festival replay failure child %s output missing %q:\n%s", name, want, out)
+		t.Fatalf("harness replay failure child %s output missing %q:\n%s", name, want, out)
 	}
 }
 

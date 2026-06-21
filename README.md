@@ -7,28 +7,29 @@ ADB-controlled Android probes for automated Wi-Fi and access-network end-to-end 
 Android handsets act as field probes for event NOCs.
 Instead of checking connectivity from the infrastructure side, each check measures from the same user-facing access network that attendees and staff devices use.
 
-The controller is the operator-facing entry point for live checks and automation.
-Its main surfaces are the one-shot CLI, Controller Shell, Controller TUI, and MCP.
+The operator-facing surfaces are the one-shot CLI, Controller Shell, Controller TUI, MCP, and the Dropcheck Harness.
+The harness runs the same typed operations as normal Go tests.
 The agent is the on-device probe and hosts Agent Shell for direct handset-side inspection.
 
 ```mermaid
 sequenceDiagram
   autonumber
   actor NOC as NOC
-  participant Controller as Controller
+  participant Controller as Controller CLI/Shell/TUI
+  participant Harness as Dropcheck Harness
   participant App as Android App
   participant WiFi as Wi-Fi under test
   participant O11y as O11y Stack
   participant MCP as MCP Server
   actor AI as AI Agent
 
-  par NOC interactive control through Controller Shell
-    NOC->>Controller: Controller Shell command
+  par NOC live control through controller surfaces
+    NOC->>Controller: CLI, Shell, or TUI command
     Controller->>App: ADB-started gRPC operation
     App->>WiFi: connect, inspect, or probe
     WiFi-->>App: link and probe result
     App-->>Controller: typed result
-    Controller-->>NOC: Controller Shell output
+    Controller-->>NOC: text, JSON, or TUI output
   and AI interactive control through MCP Server
     AI->>MCP: MCP tool call
     MCP->>Controller: controller operation
@@ -38,8 +39,15 @@ sequenceDiagram
     App-->>Controller: typed result
     Controller-->>MCP: tool result
     MCP-->>AI: structured response
-  and Standalone festa results collected into O11y
-    NOC->>Controller: configure and run standalone festa
+  and NOC repeatable Go tests through Dropcheck Harness
+    NOC->>Harness: go test -tags harness
+    Harness->>App: ADB-started gRPC operation
+    App->>WiFi: connect, inspect, or probe
+    WiFi-->>App: link and probe result
+    App-->>Harness: typed result
+    Harness-->>NOC: Go test output
+  and Standalone measurements collected into O11y
+    NOC->>Controller: configure or run standalone scenario
     Controller->>App: persist config or run once
     App->>WiFi: scheduled checks
     WiFi-->>App: measurement result
@@ -111,9 +119,9 @@ Keep Location enabled on the device; Android hides SSID, BSSID, scan, and MLO de
 ## Features
 
 The controller/agent toolchain has several entry points that share the same typed agent operations.
-Use the one-shot controller CLI for ad-hoc checks, Controller Shell for field work, Controller TUI (`dropcheck watch`) for continuous loops, Agent Shell for on-device inspection, MCP for model/tool orchestration, and Festival when the check should be a repeatable Go test.
+Use the one-shot controller CLI for ad-hoc checks, Controller Shell for field work, Controller TUI (`dropcheck watch`) for continuous loops, Agent Shell for on-device inspection, MCP for model/tool orchestration, and Dropcheck Harness when the check should be a repeatable Go test.
 
-### Controller Shell (`dropcheck shell`)
+### Controller Shell
 
 The controller starts an ADB-backed gRPC session to one or more Android agents.
 One-shot CLI commands are scriptable and can emit text or JSON.
@@ -217,7 +225,7 @@ Ping: host=1.1.1.1 status=ok transmitted=5 received=5 loss=0.0% min/avg/max=10.2
 rtt min/avg/max/mdev = 10.200/12.400/16.300/1.900 ms
 ```
 
-### Controller TUI (`dropcheck watch`)
+### Controller TUI
 
 `dropcheck watch` starts the Controller TUI and runs a continuous E2E Wi-Fi test loop from the controller.
 It is meant for field operation: connection failures and failed `required: true` checks skip the remaining checks for that target, other check failures are recorded as findings, and the next target and round continue.
@@ -438,40 +446,42 @@ $ controller/dist/dropcheck --serial R5CT12345 configure set standalone upload t
 $ controller/dist/dropcheck --serial R5CT12345 configure set standalone upload via wifi essid NOC passphrase upload-secret security auto timeout 5s
 ```
 
-### Festival DSL
+### Dropcheck Harness
 
-Festival tests are Go tests that connect to a requested Wi-Fi target, wait for the expected link state, run typed checks, and fail with normal Go test output.
-The DSL supports retries and stable checks, and it can also evaluate saved standalone archives without a connected Android agent.
+Dropcheck Harness is a Go test harness for ADB-backed Android network checks.
+Harness tests connect to a requested Wi-Fi target, wait for the expected link state, run typed checks, and fail with normal Go test output.
+It supports retries, stable checks, and replaying saved standalone archives without a connected Android agent.
+The legacy `festival` build tag and `DROPCHECK_FESTIVAL_*` environment variables are still accepted for compatibility.
 
 Available check builders include Wi-Fi status, EHT diagnostics, scan and scan-detail, Wi-Fi capabilities, IP status, ping, DNS, HTTP, download, traceroute, path MTU, and global IP.
 
 ```go
-//go:build festival
+//go:build harness
 
-package festival_test
+package harness_test
 
 import (
 	"testing"
 	"time"
 
-	f "dropcheck/controller/internal/festival"
-	"dropcheck/controller/internal/festival/capabilities"
-	"dropcheck/controller/internal/festival/dns"
-	"dropcheck/controller/internal/festival/ip"
-	"dropcheck/controller/internal/festival/ping"
-	"dropcheck/controller/internal/festival/scan"
-	"dropcheck/controller/internal/festival/wifi"
+	h "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/harness/capabilities"
+	"dropcheck/controller/internal/harness/dns"
+	"dropcheck/controller/internal/harness/ip"
+	"dropcheck/controller/internal/harness/ping"
+	"dropcheck/controller/internal/harness/scan"
+	"dropcheck/controller/internal/harness/wifi"
 )
 
 func TestShowNetWiFi(t *testing.T) {
-	f.Run(t, f.Plan{
+	h.Run(t, h.Plan{
 		Name: "shownet-wifi",
-		Networks: []f.Network{
+		Networks: []h.Network{
 			// Connect to one AP, not just any AP advertising the SSID.
-			f.WiFi("noc-6ghz").
+			h.WiFi("noc-6ghz").
 				SSID("ShowNet").
 				BSSID("aa:bb:cc:dd:ee:ff").
-				PSKEnv("DROPCHECK_FESTIVAL_WIFI_PSK").
+				PSKEnv("DROPCHECK_HARNESS_WIFI_PSK").
 				Security("wpa3").
 				Band("6ghz").
 				// Wait until Android says the network has validated internet.
@@ -480,9 +490,9 @@ func TestShowNetWiFi(t *testing.T) {
 				// Remove the test network from the handset during cleanup.
 				ForgetAfter(true),
 		},
-		Checks: []f.Check{
+		Checks: []h.Check{
 			// Check the current Wi-Fi link after association.
-			f.WiFiStatus().
+			h.WiFiStatus().
 				Expect(
 					wifi.Enabled().IsTrue(),
 					wifi.SSID().Eq("ShowNet"),
@@ -494,7 +504,7 @@ func TestShowNetWiFi(t *testing.T) {
 				).
 				Retry(3, 2*time.Second),
 			// Force a fresh scan and verify the target AP advertisement.
-			f.WiFiScan().
+			h.WiFiScan().
 				Fresh().
 				Band("6ghz").
 				Timeout(10*time.Second).
@@ -509,14 +519,14 @@ func TestShowNetWiFi(t *testing.T) {
 						Exists(),
 				),
 			// Assert that the handset can run the requested Wi-Fi mode.
-			f.WiFiCapabilities().
+			h.WiFiCapabilities().
 				Expect(
 					capabilities.Band("6ghz").Supported(),
 					capabilities.Standard("be").Supported(),
 					capabilities.Security("wpa3_sae").Supported(),
 				),
 			// Check layer-3 provisioning from Android's active network.
-			f.IPStatus().
+			h.IPStatus().
 				Expect(
 					ip.Validated().IsTrue(),
 					ip.Internet().IsTrue(),
@@ -525,7 +535,7 @@ func TestShowNetWiFi(t *testing.T) {
 					ip.MTU().Ge(1280),
 				),
 			// Run active reachability checks through the connected Wi-Fi.
-			f.Ping("1.1.1.1").
+			h.Ping("1.1.1.1").
 				Count(5).
 				Expect(
 					ping.Received().Eq(5),
@@ -534,7 +544,7 @@ func TestShowNetWiFi(t *testing.T) {
 				).
 				Retry(2, time.Second),
 			// Confirm resolver behavior, not only raw IP reachability.
-			f.DNS("www.wide.ad.jp").
+			h.DNS("www.wide.ad.jp").
 				A().
 				Expect(
 					dns.AnswerCount().Ge(1),
@@ -546,7 +556,8 @@ func TestShowNetWiFi(t *testing.T) {
 ```
 
 ```console
-$ ADB_SERIAL=R5CT12345 DROPCHECK_FESTIVAL_WIFI_PSK=secret go test -tags festival -run TestShowNetWiFi -v ./integration/festival
+$ cd controller
+$ ADB_SERIAL=R5CT12345 DROPCHECK_HARNESS_WIFI_PSK=secret go test -tags harness -run TestShowNetWiFi -v ./integration/harness
 === RUN   TestShowNetWiFi
 === RUN   TestShowNetWiFi/shownet-wifi
 === RUN   TestShowNetWiFi/shownet-wifi/noc-6ghz
@@ -560,7 +571,7 @@ $ ADB_SERIAL=R5CT12345 DROPCHECK_FESTIVAL_WIFI_PSK=secret go test -tags festival
 === RUN   TestShowNetWiFi/shownet-wifi/noc-6ghz/dns_www.wide.ad.jp
 --- PASS: TestShowNetWiFi (16.84s)
 PASS
-ok  	dropcheck/controller/integration/festival	17.208s
+ok  	dropcheck/controller/integration/harness	17.208s
 ```
 
 ## License
