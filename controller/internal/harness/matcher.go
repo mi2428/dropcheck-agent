@@ -116,8 +116,8 @@ func (m OrderedMetric[T]) Le(value T) OrderedMetric[T] {
 }
 
 // Between requires the metric to be within [min, max].
-func (m OrderedMetric[T]) Between(min T, max T) OrderedMetric[T] {
-	return m.Ge(min).Le(max)
+func (m OrderedMetric[T]) Between(minValue T, maxValue T) OrderedMetric[T] {
+	return m.Ge(minValue).Le(maxValue)
 }
 
 func (m OrderedMetric[T]) with(op string, value T, pass func(T, T) bool) OrderedMetric[T] {

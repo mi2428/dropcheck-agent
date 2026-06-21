@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"dropcheck/controller/internal/watch"
@@ -47,7 +48,7 @@ func (m model) checkStatusView(width int, height int) string {
 	} else {
 		footer = ""
 	}
-	visibleRows := max(0, height-1-footerHeight)
+	visibleRows := intMax(0, height-1-footerHeight)
 	for _, check := range checks {
 		if visibleRows <= 0 {
 			break
@@ -82,22 +83,22 @@ type checkStatusLayout struct {
 }
 
 func checkStatusTableLayout(width int, checks []string, targets []watch.TargetSnapshot, agents []watch.AgentSnapshot) checkStatusLayout {
-	labelWidth := clamp(maxCheckStatusLabelWidth(checks), 5, min(27, max(5, width*3/8)))
-	available := max(1, width-labelWidth-1)
+	labelWidth := clamp(maxCheckStatusLabelWidth(checks), 5, intMin(27, intMax(5, width*3/8)))
+	available := intMax(1, width-labelWidth-1)
 	fullMinCellWidth := 9
 	fullMaxCellWidth := 12
 	fullVisible := checkStatusVisibleTargetCount(available, len(targets), fullMinCellWidth)
-	fullCellWidth := clamp((available-max(0, fullVisible-1))/fullVisible, fullMinCellWidth, fullMaxCellWidth)
+	fullCellWidth := clamp((available-intMax(0, fullVisible-1))/fullVisible, fullMinCellWidth, fullMaxCellWidth)
 	shortMode := allCheckStatusTargetsHaveShortName(targets) &&
 		(fullVisible < len(targets) || checkStatusTargetLabelsNeedCompaction(targets, fullCellWidth))
 	minCellWidth := fullMinCellWidth
 	maxCellWidth := fullMaxCellWidth
 	if shortMode {
 		minCellWidth = maxCheckStatusShortCellWidth(targets, agents)
-		maxCellWidth = max(minCellWidth, 10)
+		maxCellWidth = intMax(minCellWidth, 10)
 	}
 	visibleTargets := checkStatusVisibleTargetCount(available, len(targets), minCellWidth)
-	cellWidth := clamp((available-max(0, visibleTargets-1))/visibleTargets, minCellWidth, maxCellWidth)
+	cellWidth := clamp((available-intMax(0, visibleTargets-1))/visibleTargets, minCellWidth, maxCellWidth)
 	return checkStatusLayout{
 		LabelWidth:     labelWidth,
 		CellWidth:      cellWidth,
@@ -110,15 +111,15 @@ func checkStatusVisibleTargetCount(available int, targetCount int, minCellWidth 
 	if targetCount <= 0 {
 		return 0
 	}
-	return min(targetCount, max(1, (available+1)/(minCellWidth+1)))
+	return intMin(targetCount, intMax(1, (available+1)/(minCellWidth+1)))
 }
 
 func maxCheckStatusShortCellWidth(targets []watch.TargetSnapshot, agents []watch.AgentSnapshot) int {
-	width := compactCheckStatusTokenWidth(max(1, len(agents)))
+	width := compactCheckStatusTokenWidth(intMax(1, len(agents)))
 	for _, target := range targets {
-		width = max(width, lipgloss.Width(checkStatusTargetShortLabel(target)))
+		width = intMax(width, lipgloss.Width(checkStatusTargetShortLabel(target)))
 	}
-	return max(1, width)
+	return intMax(1, width)
 }
 
 func allCheckStatusTargetsHaveShortName(targets []watch.TargetSnapshot) bool {
@@ -146,7 +147,7 @@ func checkStatusTargetLabelsNeedCompaction(targets []watch.TargetSnapshot, width
 }
 
 func (m model) checkStatusVisibleTargets(targets []watch.TargetSnapshot, layout checkStatusLayout) []watch.TargetSnapshot {
-	visible := min(layout.VisibleTargets, len(targets))
+	visible := intMin(layout.VisibleTargets, len(targets))
 	if visible >= len(targets) {
 		return targets
 	}
@@ -173,7 +174,7 @@ func (m *model) moveCheckStatusHorizontal(delta int) {
 
 func padCheckStatusLine(line string, width int) string {
 	line = fitANSI(line, width)
-	return line + valueStyle.Render(strings.Repeat(" ", max(0, width-lipgloss.Width(line))))
+	return line + valueStyle.Render(strings.Repeat(" ", intMax(0, width-lipgloss.Width(line))))
 }
 
 func (m *model) normalizeCheckStatusOffset() {
@@ -191,11 +192,11 @@ func (m *model) normalizeCheckStatusOffset() {
 	if active < 0 {
 		return
 	}
-	visible := min(layout.VisibleTargets, len(targets))
+	visible := intMin(layout.VisibleTargets, len(targets))
 	if visible <= 0 {
 		return
 	}
-	desiredPosition := max(0, visible-2)
+	desiredPosition := intMax(0, visible-2)
 	m.checkStatusOffset = clamp(active-desiredPosition, 0, maxOffset)
 }
 
@@ -219,7 +220,7 @@ func (m model) checkStatusWindowMetrics(width int) ([]watch.TargetSnapshot, chec
 	}
 	agents := m.outcomeAgents(m.outcomeEvents())
 	layout := checkStatusTableLayout(width, checks, targets, agents)
-	return targets, layout, max(0, len(targets)-layout.VisibleTargets)
+	return targets, layout, intMax(0, len(targets)-layout.VisibleTargets)
 }
 
 func (m model) filteredCheckStatusAxes(checks []string, targets []watch.TargetSnapshot) ([]string, []watch.TargetSnapshot) {
@@ -272,12 +273,12 @@ func checkStatusTargetMatches(target watch.TargetSnapshot, query string) bool {
 }
 
 func (m model) checkStatusActiveTargetIndex(targets []watch.TargetSnapshot) int {
-	for i := len(targets) - 1; i >= 0; i-- {
+	for i := range slices.Backward(targets) {
 		if m.checkStatusTargetRunning(targets[i]) {
 			return i
 		}
 	}
-	for i := len(targets) - 1; i >= 0; i-- {
+	for i := range slices.Backward(targets) {
 		if m.checkStatusTargetFailed(targets[i]) {
 			return i
 		}
@@ -450,7 +451,7 @@ func connectStatusPhaseStyle(phase string) lipgloss.Style {
 func maxCheckStatusLabelWidth(checks []string) int {
 	width := 5
 	for _, check := range checks {
-		width = max(width, lipgloss.Width(displayCheckName(check)))
+		width = intMax(width, lipgloss.Width(displayCheckName(check)))
 	}
 	return width
 }
@@ -518,12 +519,12 @@ func compactCheckStatusToken(status string) string {
 func compactCheckStatusTokenWidth(total int) int {
 	width := 4 // WAIT
 	for _, status := range []string{"ok", "failed", "running", "skipped"} {
-		width = max(width, lipgloss.Width(compactCheckStatusToken(status)))
+		width = intMax(width, lipgloss.Width(compactCheckStatusToken(status)))
 	}
 	if total > 1 {
-		count := max(1, total-1)
+		count := intMax(1, total-1)
 		for _, status := range []string{"ok", "failed", "running", "skipped"} {
-			width = max(width, lipgloss.Width(fmt.Sprintf("%s%d/%d", compactCheckStatusToken(status), count, total)))
+			width = intMax(width, lipgloss.Width(fmt.Sprintf("%s%d/%d", compactCheckStatusToken(status), count, total)))
 		}
 	}
 	return width
@@ -556,7 +557,7 @@ func compactTargetLabel(label string, width int) string {
 	parts := strings.Split(label, "-")
 	if len(parts) > 1 {
 		candidate := ""
-		for i := len(parts) - 1; i >= 0; i-- {
+		for i := range slices.Backward(parts) {
 			next := parts[i]
 			if candidate != "" {
 				next += "-" + candidate

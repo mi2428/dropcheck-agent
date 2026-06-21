@@ -161,7 +161,7 @@ func collectIPv6RASysctls(ctx context.Context, client adb.Client, iface string) 
 		"done"
 	result, _ := client.Run(ctx, "shell", "sh", "-c", shellQuote(script))
 	values := map[string]string{}
-	for _, line := range strings.Split(strings.TrimSpace(result.Stdout), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(result.Stdout), "\n") {
 		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
 		if !ok || key == "" || value == "" {
 			continue
@@ -497,9 +497,7 @@ func renderIPv6RALines(b *strings.Builder, lines []ipv6RARenderLine) {
 		}
 		prefix := line.indent + line.label
 		padding := maxPrefixWidth - len(prefix) + 2
-		if padding < 2 {
-			padding = 2
-		}
+		padding = max(padding, 2)
 		_, _ = fmt.Fprintf(b, "%s%s%s\n", prefix, strings.Repeat(" ", padding), line.value)
 	}
 }

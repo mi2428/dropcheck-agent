@@ -1437,11 +1437,11 @@ type completionArgs struct {
 	pending     *completionOption
 }
 
-func scanCompletionArgs(Kind string, args []string, options []completionOption) completionArgs {
+func scanCompletionArgs(kind string, args []string, options []completionOption) completionArgs {
 	state := completionArgs{used: map[string]bool{}}
 	names := completionOptionNames(options)
 	for i := 0; i < len(args); i++ {
-		key, err := resolveShellKeyword(Kind, args[i], names)
+		key, err := resolveShellKeyword(kind, args[i], names)
 		if err != nil {
 			state.positionals = append(state.positionals, args[i])
 			continue
@@ -1624,8 +1624,8 @@ func downloadValueCompletionCandidates(last string) ([]string, bool) {
 	return nil, false
 }
 
-func isResolvedKeyword(Kind string, value string, candidates []string) bool {
-	_, err := resolveShellKeyword(Kind, value, candidates)
+func isResolvedKeyword(kind string, value string, candidates []string) bool {
+	_, err := resolveShellKeyword(kind, value, candidates)
 	return err == nil
 }
 
@@ -2215,11 +2215,8 @@ func requestStandaloneCompletionCandidates(command string, args []string) []stri
 }
 
 func requestStandaloneValueCompletionCandidates(command string, last string) ([]string, bool) {
-	switch command {
-	case "run":
-		if isResolvedKeyword("standalone run once option", last, []string{"festa"}) {
-			return []string{"<name>"}, true
-		}
+	if command == "run" && isResolvedKeyword("standalone run once option", last, []string{"festa"}) {
+		return []string{"<name>"}, true
 	}
 	return nil, false
 }

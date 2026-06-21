@@ -13,10 +13,10 @@ func renderPanel(title string, width int, height int, body string) string {
 }
 
 func renderPanelFocused(title string, width int, height int, body string, focused bool) string {
-	width = max(2, width)
-	height = max(2, height)
+	width = intMax(2, width)
+	height = intMax(2, height)
 	contentWidth := panelContentWidth(width)
-	contentHeight := max(0, height-2)
+	contentHeight := intMax(0, height-2)
 	lines := panelBodyLines(body)
 	border := borderStyle
 	titleSty := titleStyle
@@ -38,12 +38,12 @@ func renderPanelFocused(title string, width int, height int, body string, focuse
 		b.WriteString(border.Render("│"))
 		b.WriteString(anchor.Render(" "))
 		b.WriteString(line)
-		b.WriteString(anchor.Render(strings.Repeat(" ", max(0, contentWidth-lipgloss.Width(line)))))
+		b.WriteString(anchor.Render(strings.Repeat(" ", intMax(0, contentWidth-lipgloss.Width(line)))))
 		b.WriteString(anchor.Render(" "))
 		b.WriteString(border.Render("│"))
 	}
 	b.WriteByte('\n')
-	b.WriteString(border.Render("└" + strings.Repeat("─", max(0, width-2)) + "┘"))
+	b.WriteString(border.Render("└" + strings.Repeat("─", intMax(0, width-2)) + "┘"))
 	return b.String()
 }
 
@@ -52,18 +52,18 @@ func panelRowAnchorStyle(row int) lipgloss.Style {
 }
 
 func panelTop(title string, width int, border lipgloss.Style, titleStyle lipgloss.Style) string {
-	innerWidth := max(0, width-2)
+	innerWidth := intMax(0, width-2)
 	title = fit(title, innerWidth)
 	if title == "" {
 		return border.Render("┌" + strings.Repeat("─", innerWidth) + "┐")
 	}
-	fill := max(0, innerWidth-runeLen(title))
+	fill := intMax(0, innerWidth-runeLen(title))
 	return border.Render("┌") + titleStyle.Render(title) + border.Render(strings.Repeat("─", fill)+"┐")
 }
 
 func panelTitleWithLabel(prefix string, label string, width int) string {
 	prefix = strings.TrimSpace(prefix) + ": "
-	labelWidth := max(4, max(0, width-2-runeLen(prefix)))
+	labelWidth := intMax(4, intMax(0, width-2-runeLen(prefix)))
 	return prefix + compactTargetLabel(label, labelWidth)
 }
 
@@ -76,7 +76,7 @@ func panelBodyLines(body string) []string {
 }
 
 func panelContentWidth(width int) int {
-	return max(0, width-4)
+	return intMax(0, width-4)
 }
 
 func verticalSpacer(height int) string {
@@ -87,7 +87,7 @@ func horizontalSpacer(width int, height int) string {
 	if height <= 0 {
 		return ""
 	}
-	width = max(0, width)
+	width = intMax(0, width)
 	lines := make([]string, height)
 	for i := range lines {
 		lines[i] = valueStyle.Render(strings.Repeat(" ", width))

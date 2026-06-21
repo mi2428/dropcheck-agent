@@ -1,7 +1,9 @@
 package harness
 
 import (
+	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"dropcheck/controller/internal/command"
@@ -68,6 +70,16 @@ func (c checkBase) step(operation command.Operation) step {
 	return step{name: c.name, operation: operation, expectations: c.expectations, policy: c.policy}
 }
 
+func (c checkBase) buildStep(operation command.Operation, err error) (step, error) {
+	if err != nil {
+		return step{}, err
+	}
+	if strings.TrimSpace(c.name) == "" {
+		return step{}, errors.New("check name is required")
+	}
+	return c.step(operation), nil
+}
+
 // IPStatusCheck configures an IP provisioning check.
 type IPStatusCheck struct {
 	checkBase
@@ -114,7 +126,7 @@ func (c IPStatusCheck) StableInterval(interval time.Duration) IPStatusCheck {
 }
 
 func (c IPStatusCheck) build() (step, error) {
-	return c.step(command.IPStatusOperation()), nil
+	return c.buildStep(command.IPStatusOperation(), nil)
 }
 
 // WiFiStatusCheck configures a Wi-Fi link-state check.
@@ -162,7 +174,7 @@ func (c WiFiStatusCheck) StableInterval(interval time.Duration) WiFiStatusCheck 
 }
 
 func (c WiFiStatusCheck) build() (step, error) {
-	return c.step(command.WifiStatusOperation()), nil
+	return c.buildStep(command.WifiStatusOperation(), nil)
 }
 
 // WiFiEHTCheck configures an EHT-focused Wi-Fi diagnostics check.
@@ -210,7 +222,7 @@ func (c WiFiEHTCheck) StableInterval(interval time.Duration) WiFiEHTCheck {
 }
 
 func (c WiFiEHTCheck) build() (step, error) {
-	return c.step(command.WifiEHTOperation()), nil
+	return c.buildStep(command.WifiEHTOperation(), nil)
 }
 
 // WiFiScanCheck configures a Wi-Fi scan check.
@@ -280,11 +292,9 @@ func (c WiFiScanCheck) StableInterval(interval time.Duration) WiFiScanCheck {
 
 func (c WiFiScanCheck) build() (step, error) {
 	if c.fresh {
-		op, err := command.WifiFreshScanOperation(c.band, c.timeout)
-		return c.step(op), err
+		return c.buildStep(command.WifiFreshScanOperation(c.band, c.timeout))
 	}
-	op, err := command.WifiScanOperation(c.band)
-	return c.step(op), err
+	return c.buildStep(command.WifiScanOperation(c.band))
 }
 
 // WiFiScanDetailCheck configures a targeted Wi-Fi scan-detail check.
@@ -336,8 +346,7 @@ func (c WiFiScanDetailCheck) StableInterval(interval time.Duration) WiFiScanDeta
 }
 
 func (c WiFiScanDetailCheck) build() (step, error) {
-	op, err := command.WifiScanDetailOperation(c.target, c.band)
-	return c.step(op), err
+	return c.buildStep(command.WifiScanDetailOperation(c.target, c.band))
 }
 
 // WiFiCapabilitiesCheck configures a device Wi-Fi capabilities check.
@@ -381,7 +390,7 @@ func (c WiFiCapabilitiesCheck) StableInterval(interval time.Duration) WiFiCapabi
 }
 
 func (c WiFiCapabilitiesCheck) build() (step, error) {
-	return c.step(command.WifiCapabilitiesOperation()), nil
+	return c.buildStep(command.WifiCapabilitiesOperation(), nil)
 }
 
 // PingCheck configures an ICMP ping check.
@@ -447,8 +456,7 @@ func (c PingCheck) StableInterval(interval time.Duration) PingCheck {
 }
 
 func (c PingCheck) build() (step, error) {
-	op, err := command.PingOperation(command.PingOptions{Host: c.host, Count: c.count, Size: c.size, Timeout: c.timeout})
-	return c.step(op), err
+	return c.buildStep(command.PingOperation(command.PingOptions{Host: c.host, Count: c.count, Size: c.size, Timeout: c.timeout}))
 }
 
 // DNSCheck configures a DNS resolution check.
@@ -522,8 +530,7 @@ func (c DNSCheck) StableInterval(interval time.Duration) DNSCheck {
 }
 
 func (c DNSCheck) build() (step, error) {
-	op, err := command.DNSOperation(c.nameValue, c.qtype, c.timeout)
-	return c.step(op), err
+	return c.buildStep(command.DNSOperation(c.nameValue, c.qtype, c.timeout))
 }
 
 // GlobalIPCheck configures a public IP check.
@@ -593,8 +600,7 @@ func (c GlobalIPCheck) StableInterval(interval time.Duration) GlobalIPCheck {
 }
 
 func (c GlobalIPCheck) build() (step, error) {
-	op, err := command.GlobalIPOperation(c.family, c.timeout)
-	return c.step(op), err
+	return c.buildStep(command.GlobalIPOperation(c.family, c.timeout))
 }
 
 // PathMTUCheck configures a path-MTU discovery check.
@@ -660,8 +666,7 @@ func (c PathMTUCheck) StableInterval(interval time.Duration) PathMTUCheck {
 }
 
 func (c PathMTUCheck) build() (step, error) {
-	op, err := command.PathMTUOperation(command.PathMTUOptions{Host: c.host, MinMTU: c.minMTU, MaxMTU: c.maxMTU, Timeout: c.timeout})
-	return c.step(op), err
+	return c.buildStep(command.PathMTUOperation(command.PathMTUOptions{Host: c.host, MinMTU: c.minMTU, MaxMTU: c.maxMTU, Timeout: c.timeout}))
 }
 
 // TracerouteCheck configures a traceroute check.
@@ -734,8 +739,7 @@ func (c TracerouteCheck) StableInterval(interval time.Duration) TracerouteCheck 
 }
 
 func (c TracerouteCheck) build() (step, error) {
-	op, err := command.TracerouteOperation(command.TracerouteOptions{Host: c.host, MaxHops: c.maxHops, Via: c.via, Size: c.size, Timeout: c.timeout})
-	return c.step(op), err
+	return c.buildStep(command.TracerouteOperation(command.TracerouteOptions{Host: c.host, MaxHops: c.maxHops, Via: c.via, Size: c.size, Timeout: c.timeout}))
 }
 
 // HTTPCheck configures an HTTP status check.
@@ -794,8 +798,7 @@ func (c HTTPCheck) StableInterval(interval time.Duration) HTTPCheck {
 }
 
 func (c HTTPCheck) build() (step, error) {
-	op, err := command.HTTPOperation(c.url, c.expectedStatus, c.timeout)
-	return c.step(op), err
+	return c.buildStep(command.HTTPOperation(c.url, c.expectedStatus, c.timeout))
 }
 
 // DownloadCheck configures an HTTP download check.
@@ -847,6 +850,5 @@ func (c DownloadCheck) StableInterval(interval time.Duration) DownloadCheck {
 }
 
 func (c DownloadCheck) build() (step, error) {
-	op, err := command.DownloadOperation(c.url, c.timeout)
-	return c.step(op), err
+	return c.buildStep(command.DownloadOperation(c.url, c.timeout))
 }

@@ -335,9 +335,9 @@ func denseDetailView(summary []string, histogram occurrenceHistogram, graphStyle
 	}
 	remaining := height - len(lines)
 	if remaining <= 0 || len(sections) == 0 {
-		return strings.Join(lines[:min(len(lines), height)], "\n")
+		return strings.Join(lines[:intMin(len(lines), height)], "\n")
 	}
-	allocations := detailSectionAllocations(sections, max(0, remaining-detailSectionGapCount(lines, len(sections))), width)
+	allocations := detailSectionAllocations(sections, intMax(0, remaining-detailSectionGapCount(lines, len(sections))), width)
 	for i, section := range sections {
 		if len(lines) >= height || allocations[i] <= 0 {
 			continue
@@ -391,7 +391,7 @@ func detailSectionGapCount(lines []string, sectionCount int) int {
 	if len(lines) == 0 || detailLineBlank(lines[len(lines)-1]) {
 		gaps--
 	}
-	return max(0, gaps)
+	return intMax(0, gaps)
 }
 
 func detailLineBlank(line string) bool {
@@ -402,7 +402,7 @@ func detailSummaryTableLines(fields []detailField, width int) []string {
 	if width <= 0 {
 		return nil
 	}
-	lines := make([]string, 0, max(1, len(fields)/3)*2)
+	lines := make([]string, 0, intMax(1, len(fields)/3)*2)
 	pending := make([]detailField, 0, len(fields))
 	appendGroup := func(group []string) {
 		if len(group) == 0 {
@@ -433,7 +433,7 @@ func detailSummaryTableLines(fields []detailField, width int) []string {
 }
 
 func detailSummaryFieldTableLines(fields []detailField, width int) []string {
-	lines := make([]string, 0, max(1, len(fields)/3)*2)
+	lines := make([]string, 0, intMax(1, len(fields)/3)*2)
 	for len(fields) > 0 {
 		count, widths := detailSummaryRowShape(fields, width)
 		lines = append(lines, detailSummaryRenderFieldRow(fields[:count], widths)...)
@@ -450,7 +450,7 @@ func detailSummaryRowShape(fields []detailField, width int) (int, []int) {
 			return count, detailSummaryColumnWidths(fields[:count], width)
 		}
 	}
-	return 1, []int{max(1, width)}
+	return 1, []int{intMax(1, width)}
 }
 
 func detailSummaryColumnWidths(fields []detailField, width int) []int {
@@ -490,15 +490,15 @@ func detailSummaryMinWidths(fields []detailField) []int {
 	widths := make([]int, len(fields))
 	for i, field := range fields {
 		keyWidth := lipgloss.Width(detailFieldHeader(field.Key))
-		valueWidth := min(lipgloss.Width(firstNonEmpty(field.Value, "-")), detailSummaryTargetCell)
-		widths[i] = max(detailSummaryMinCellWidth, max(keyWidth, valueWidth))
+		valueWidth := intMin(lipgloss.Width(firstNonEmpty(field.Value, "-")), detailSummaryTargetCell)
+		widths[i] = intMax(detailSummaryMinCellWidth, intMax(keyWidth, valueWidth))
 	}
 	return widths
 }
 
 func detailSummaryPreferredWidth(field detailField) int {
 	value := firstNonEmpty(field.Value, "-")
-	preferred := max(lipgloss.Width(detailFieldHeader(field.Key)), lipgloss.Width(value))
+	preferred := intMax(lipgloss.Width(detailFieldHeader(field.Key)), lipgloss.Width(value))
 	return clamp(preferred, detailSummaryMinCellWidth, detailSummaryMaxCellWidth)
 }
 
@@ -578,7 +578,7 @@ func detailTimelineLabel(histogram occurrenceHistogram, graphHeight int) string 
 	if graphHeight > 1 {
 		plotHeight = graphHeight - 1
 	}
-	scale := sparklineEventsPerRow(histogram.Max, max(1, plotHeight))
+	scale := sparklineEventsPerRow(histogram.Max, intMax(1, plotHeight))
 	label := summarySparklineLabelStyle.Render("window=") + summaryValueStyle.Render("last="+detailTimelineWindowLabel()) +
 		summarySparklineLabelStyle.Render(" count=") + summaryValueStyle.Render(fmt.Sprint(histogram.Count)) +
 		summarySparklineLabelStyle.Render(" peak=") + summaryValueStyle.Render(fmt.Sprint(histogram.Max)) +
@@ -599,7 +599,7 @@ func detailTimelineAxis(width int) string {
 	if width < len(left)+len(right)+1 {
 		return dimStyle.Render(strings.Repeat("-", width))
 	}
-	mid := strings.Repeat("-", max(1, width-len(left)-len(right)))
+	mid := strings.Repeat("-", intMax(1, width-len(left)-len(right)))
 	return dimStyle.Render(left + mid + right)
 }
 
@@ -628,9 +628,9 @@ func detailLogRowLines(row string, width int) []string {
 		prefix += timestamp + "  "
 		continuationPrefix += strings.Repeat(" ", lipgloss.Width(timestamp)) + "  "
 	}
-	bodyWidth := max(1, width-lipgloss.Width(prefix))
+	bodyWidth := intMax(1, width-lipgloss.Width(prefix))
 	wrapped := detailWrapLogBody(body, bodyWidth)
-	lines := make([]string, 0, max(1, len(wrapped)))
+	lines := make([]string, 0, intMax(1, len(wrapped)))
 	if len(wrapped) == 0 {
 		wrapped = []string{""}
 	}
@@ -725,7 +725,7 @@ func detailCompactGraphHeight(height int, used int, sections []detailSection) in
 	if availableForGraph < 2 {
 		return 0
 	}
-	return min(4, availableForGraph)
+	return intMin(4, availableForGraph)
 }
 
 func detailSectionsMinimumHeight(sections []detailSection) int {
@@ -751,7 +751,7 @@ func detailSectionAllocations(sections []detailSection, available int, width int
 		naturals[i] = detailSectionNaturalAllocation(section, width)
 		minimums[i] = detailSectionMinAllocation(section)
 		if naturals[i] > 0 {
-			minimums[i] = min(minimums[i], naturals[i])
+			minimums[i] = intMin(minimums[i], naturals[i])
 		}
 		minimumTotal += minimums[i]
 	}
@@ -761,7 +761,7 @@ func detailSectionAllocations(sections []detailSection, available int, width int
 			if remaining <= 0 {
 				break
 			}
-			allocations[i] = min(minimum, remaining)
+			allocations[i] = intMin(minimum, remaining)
 			remaining -= allocations[i]
 		}
 		return allocations
@@ -773,11 +773,11 @@ func detailSectionAllocations(sections []detailSection, available int, width int
 		if remaining <= 0 || index < 0 || index >= len(allocations) {
 			return
 		}
-		target = min(target, naturals[index])
+		target = intMin(target, naturals[index])
 		if target <= allocations[index] {
 			return
 		}
-		extra := min(target-allocations[index], remaining)
+		extra := intMin(target-allocations[index], remaining)
 		allocations[index] += extra
 		remaining -= extra
 	}
@@ -814,7 +814,7 @@ func detailSectionNaturalAllocation(section detailSection, width int) int {
 }
 
 func detailLogMinimumAllocation(available int) int {
-	return max(2, (available+3)/4)
+	return intMax(2, (available+3)/4)
 }
 
 func detailSectionMinAllocation(section detailSection) int {
@@ -825,7 +825,7 @@ func detailSectionMinAllocation(section detailSection) int {
 	if detailSectionIsLogs(section) {
 		return 2
 	}
-	return 1 + min(2, rows)
+	return 1 + intMin(2, rows)
 }
 
 func detailSectionTitle(section detailSection) string {
@@ -1004,7 +1004,7 @@ func detailTableRows(headers []string, rows [][]string, width int, rightAlign ma
 	allRows = append(allRows, headers)
 	allRows = append(allRows, rows...)
 	widths := maxColumnWidths(allRows)
-	widths = shrinkWidths(widths, max(1, width-2), 1)
+	widths = shrinkWidths(widths, intMax(1, width-2), 1)
 	out := make([]string, 0, len(rows)+1)
 	out = append(out, summaryKeyStyle.Render("  "+detailTableLine(headers, widths, rightAlign)))
 	for _, row := range rows {
@@ -1230,9 +1230,9 @@ func renderDetailHistogram(histogram occurrenceHistogram, width int, height int,
 	if height == 1 {
 		return renderSparkline(histogram.Counts, histogram.Max, width, 1, style)
 	}
-	lines := renderSparkline(histogram.Counts, histogram.Max, width, max(1, height-1), style)
+	lines := renderSparkline(histogram.Counts, histogram.Max, width, intMax(1, height-1), style)
 	lines = append(lines, detailTimelineAxis(width))
-	return lines[:min(len(lines), height)]
+	return lines[:intMin(len(lines), height)]
 }
 
 func (m model) detailModal(width int, height int) string {
@@ -1290,20 +1290,20 @@ func (m model) failureHotspotDetailModal(width int, height int) string {
 }
 
 func detailModalWidth(width int) int {
-	return max(2, width*detailModalWidthPercent/100)
+	return intMax(2, width*detailModalWidthPercent/100)
 }
 
 func detailModalHeight(height int) int {
-	return max(2, height*detailModalHeightPercent/100)
+	return intMax(2, height*detailModalHeightPercent/100)
 }
 
 func detailModalMaxHeight(height int) int {
-	return max(2, height*detailModalMaxHeightPercent/100)
+	return intMax(2, height*detailModalMaxHeightPercent/100)
 }
 
 func detailModalHeightForContent(appHeight int, contentHeight int) int {
 	baseHeight := detailModalHeight(appHeight)
-	baseContentHeight := max(0, baseHeight-2)
+	baseContentHeight := intMax(0, baseHeight-2)
 	if contentHeight <= baseContentHeight {
 		return baseHeight
 	}
@@ -1316,8 +1316,8 @@ func overlayModal(frame string, width int, height int, modal string) string {
 	if modalWidth <= 0 || modalHeight <= 0 {
 		return frame
 	}
-	x := max(0, (width-modalWidth)/2)
-	y := max(0, (height-modalHeight)/2)
+	x := intMax(0, (width-modalWidth)/2)
+	y := intMax(0, (height-modalHeight)/2)
 	frameLines := strings.Split(frame, "\n")
 	for len(frameLines) < height {
 		frameLines = append(frameLines, valueStyle.Render(strings.Repeat(" ", width)))

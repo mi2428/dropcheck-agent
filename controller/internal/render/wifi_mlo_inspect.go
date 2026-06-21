@@ -3,6 +3,7 @@ package render
 import (
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"strings"
 
 	"dropcheck/controller/internal/controlpb"
@@ -116,7 +117,7 @@ func wifiMLOInformationElementChecklist(result *controlpb.WifiScanResult) string
 		wifiMLOHasInformationElement(elements, 127, nil),
 		wifiMLOHasInformationElement(elements, rnrElementID, nil),
 		wifiMLOHasInformationElement(elements, multipleBSSIDElementID, nil),
-		wifiMLOHasInformationElement(elements, 255, intPtr(nonInheritanceIDExt)),
+		wifiMLOHasInformationElement(elements, 255, new(nonInheritanceIDExt)),
 		wifiMLOHasElement(elements),
 		result.GetApMldMacAddress() != "" || wifiMLOMLDMACFromElements(elements) != "",
 		result.GetApMloLinkId() >= 0 || wifiMLOCurrentLinkIDFromElements(elements) != nil,
@@ -401,7 +402,7 @@ func parseWifiMLORNRBytes(bytes []byte) []wifiMLORNRNeighbor {
 			neighbors = append(neighbors, neighbor)
 			break
 		}
-		for i := 0; i < count; i++ {
+		for range count {
 			if offset >= len(bytes) {
 				neighbor.truncated = true
 				break
@@ -706,9 +707,9 @@ func parseWifiSecurityDetailsFromBytes(rsn []byte, rsnxe []byte, extended []byte
 		builder.ExtendedCapabilities = wifiExtendedCapabilityNames(extended)
 		builder.BeaconProtection = wifiInformationElementBit(extended, 84)
 	}
-	builder.Gcmp_256 = builder.GroupDataCipher == "gcmp_256" || slicesContains(builder.PairwiseCiphers, "gcmp_256")
-	builder.SaeGdh = slicesContains(builder.AkmSuites, "sae_gdh")
-	builder.FtSaeGdh = slicesContains(builder.AkmSuites, "ft_sae_gdh")
+	builder.Gcmp_256 = builder.GroupDataCipher == "gcmp_256" || slices.Contains(builder.PairwiseCiphers, "gcmp_256")
+	builder.SaeGdh = slices.Contains(builder.AkmSuites, "sae_gdh")
+	builder.FtSaeGdh = slices.Contains(builder.AkmSuites, "ft_sae_gdh")
 	builder.Wifi7PersonalReady = builder.PmfRequired && builder.Gcmp_256 && (builder.SaeGdh || builder.FtSaeGdh) && builder.BeaconProtection
 	return builder
 }
@@ -739,7 +740,7 @@ func parseWifiRSNBytes(bytes []byte, value *controlpb.WifiSecurityDetails) {
 	}
 	pairwiseCount := u16le(bytes, offset)
 	offset += 2
-	for i := 0; i < pairwiseCount; i++ {
+	for i := range pairwiseCount {
 		if !require(4, fmt.Sprintf("pairwise_cipher_%d", i)) {
 			return
 		}
@@ -751,7 +752,7 @@ func parseWifiRSNBytes(bytes []byte, value *controlpb.WifiSecurityDetails) {
 	}
 	akmCount := u16le(bytes, offset)
 	offset += 2
-	for i := 0; i < akmCount; i++ {
+	for i := range akmCount {
 		if !require(4, fmt.Sprintf("akm_suite_%d", i)) {
 			return
 		}
@@ -940,17 +941,4 @@ func wifiMLOJoinIntsFromInt(values []int, emptyValue string) string {
 		parts = append(parts, fmt.Sprint(value))
 	}
 	return strings.Join(parts, ",")
-}
-
-func slicesContains(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
-}
-
-func intPtr(value int) *int {
-	return &value
 }

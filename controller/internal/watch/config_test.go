@@ -9,10 +9,6 @@ import (
 	"dropcheck/controller/internal/controlpb"
 )
 
-func boolPtr(value bool) *bool {
-	return &value
-}
-
 func TestLoadFileAppliesDefaultsAndCompilesExpectations(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "watch.yml")
 	data := []byte(`version: 1
@@ -232,8 +228,8 @@ func TestMacRotationDefaultsToNonPersistentAndForcesCleanup(t *testing.T) {
 	plan, err := Config{
 		Defaults: TargetDefaults{
 			MacRotation:     "per_target",
-			DisconnectAfter: boolPtr(false),
-			ForgetAfter:     boolPtr(false),
+			DisconnectAfter: new(false),
+			ForgetAfter:     new(false),
 		},
 		Targets: []Target{{SSID: "Lab"}},
 		Checks:  []Check{{Type: "ip_status"}},

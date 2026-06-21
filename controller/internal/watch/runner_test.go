@@ -2,6 +2,7 @@ package watch
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -811,9 +812,10 @@ func TestRunTargetOperatorSkipCancelsCurrentCheckAndLeavesCheckPending(t *testin
 	skip := NewSkipController()
 	opRunner := &blockingAfterRunner{blockOnCall: 3, started: make(chan string, 1)}
 	var events []Event
+	var emitErr error
 	emit := func(event Event) error {
 		events = append(events, event)
-		return nil
+		return emitErr
 	}
 
 	done := make(chan struct {
@@ -1053,7 +1055,7 @@ func firstEvent(events []Event, kind EventKind, match func(Event) bool) (Event, 
 }
 
 func lastEvent(events []Event, kind EventKind) (Event, bool) {
-	for i := len(events) - 1; i >= 0; i-- {
+	for i := range slices.Backward(events) {
 		if events[i].Kind == kind {
 			return events[i], true
 		}

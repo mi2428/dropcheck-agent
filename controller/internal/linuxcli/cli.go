@@ -589,8 +589,7 @@ func parseLinuxWifiScan(args []string) (command.Operation, error) {
 			return command.Operation{}, fmt.Errorf("usage: show wifi scan detail <ssid|bssid> [--band band]")
 		}
 		band := opts.value("band")
-		if opts.value("band") != "" {
-		} else if len(pos) == 3 {
+		if band == "" && len(pos) == 3 {
 			band = pos[2]
 		}
 		if len(pos) > 3 {
@@ -783,8 +782,7 @@ func parseLinuxWifiReconnect(args []string) (command.Operation, error) {
 		return command.Operation{}, fmt.Errorf("usage: request wifi reconnect [timeout_ms]")
 	}
 	timeout := opts.value("timeout")
-	if opts.value("timeout") != "" {
-	} else if len(opts.positionals) == 1 {
+	if timeout == "" && len(opts.positionals) == 1 {
 		timeout = opts.positionals[0]
 	}
 	return command.WifiReconnectOperation(timeout)
@@ -813,8 +811,7 @@ func parseLinuxPing(args []string) (command.Operation, error) {
 		return command.Operation{}, fmt.Errorf("too many positional arguments for request ping")
 	}
 	count := opts.value("count")
-	if opts.value("count") != "" {
-	} else if len(opts.positionals) == 2 {
+	if count == "" && len(opts.positionals) == 2 {
 		count = opts.positionals[1]
 	}
 	return command.PingOperation(command.PingOptions{Host: opts.positionals[0], Count: count, Size: opts.value("size"), Timeout: opts.value("timeout")})
@@ -837,8 +834,7 @@ func parseLinuxTraceroute(args []string) (command.Operation, error) {
 		return command.Operation{}, fmt.Errorf("too many positional arguments for request traceroute")
 	}
 	maxHops := opts.value("max-hops")
-	if opts.value("max-hops") != "" {
-	} else if len(opts.positionals) == 2 {
+	if maxHops == "" && len(opts.positionals) == 2 {
 		maxHops = opts.positionals[1]
 	}
 	return command.TracerouteOperation(command.TracerouteOptions{
@@ -878,8 +874,7 @@ func parseLinuxGlobalIP(args []string) (command.Operation, error) {
 		return command.Operation{}, fmt.Errorf("request global-ip family specified twice")
 	}
 	family := opts.value("family")
-	if opts.value("family") != "" {
-	} else if len(opts.positionals) == 1 {
+	if family == "" && len(opts.positionals) == 1 {
 		family = opts.positionals[0]
 	}
 	return command.GlobalIPOperation(family, opts.value("timeout"))
@@ -911,8 +906,7 @@ func parseLinuxDNS(args []string) (command.Operation, error) {
 		return command.Operation{}, fmt.Errorf("too many positional arguments for request dns")
 	}
 	qtype := opts.value("type")
-	if opts.value("type") != "" {
-	} else if len(opts.positionals) == 2 {
+	if qtype == "" && len(opts.positionals) == 2 {
 		qtype = opts.positionals[1]
 	}
 	return command.DNSOperation(opts.positionals[0], qtype, opts.value("timeout"))
@@ -933,8 +927,7 @@ func parseLinuxHTTP(args []string) (command.Operation, error) {
 		return command.Operation{}, fmt.Errorf("too many positional arguments for request http")
 	}
 	expectedStatus := opts.value("expected-status")
-	if opts.value("expected-status") != "" {
-	} else if len(opts.positionals) == 2 {
+	if expectedStatus == "" && len(opts.positionals) == 2 {
 		expectedStatus = opts.positionals[1]
 	}
 	return command.HTTPOperation(opts.positionals[0], expectedStatus, opts.value("timeout"))

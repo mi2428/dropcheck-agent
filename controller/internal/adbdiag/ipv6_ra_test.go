@@ -144,7 +144,7 @@ func TestRenderIPv6RASummary(t *testing.T) {
 }
 
 func findLineContaining(text string, needle string) string {
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		if strings.Contains(line, needle) {
 			return line
 		}

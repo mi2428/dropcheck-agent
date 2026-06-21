@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 
 	"dropcheck/controller/internal/watch"
@@ -123,7 +124,7 @@ func (m model) focusSlots() []focusSlot {
 			slots = append(slots, focusSlot{Panel: focusFailureHotspots})
 		} else {
 			agents := m.failureHotspotAgents()
-			for i := len(agents) - 1; i >= 0; i-- {
+			for i := range slices.Backward(agents) {
 				slots = append(slots, focusSlot{Panel: focusFailureHotspots, HotspotAgentKey: roundAgentKey(agents[i])})
 			}
 		}
@@ -374,9 +375,9 @@ func (m *model) clearSearch() {
 
 func (m *model) normalizeCursors() {
 	m.followPinnedSummaryCursors()
-	m.passingCheckCursor = clamp(m.passingCheckCursor, 0, max(0, len(m.filteredPassingCheckSummaries())-1))
-	m.failedCheckCursor = clamp(m.failedCheckCursor, 0, max(0, len(m.filteredFailedCheckSummaries())-1))
-	m.failureHotspotCursor = clamp(m.failureHotspotCursor, 0, max(0, len(m.indexedFailureAnalysisRows(m.failureHotspotMode))-1))
+	m.passingCheckCursor = clamp(m.passingCheckCursor, 0, intMax(0, len(m.filteredPassingCheckSummaries())-1))
+	m.failedCheckCursor = clamp(m.failedCheckCursor, 0, intMax(0, len(m.filteredFailedCheckSummaries())-1))
+	m.failureHotspotCursor = clamp(m.failureHotspotCursor, 0, intMax(0, len(m.indexedFailureAnalysisRows(m.failureHotspotMode))-1))
 	m.normalizeCheckStatusOffset()
 	if m.focus == focusFailureHotspots && !m.failureHotspotsVisible() {
 		m.focus = focusFailedChecks

@@ -3,7 +3,6 @@ package control
 import (
 	"context"
 	"fmt"
-	"sync/atomic"
 
 	"dropcheck/controller/internal/controlpb"
 )
@@ -26,7 +25,7 @@ func (s *Server) Run(ctx context.Context, agentID string, commandID string, cmd 
 	// from the agent cannot race ahead of the receiver setup.
 	s.waiters[commandID] = commandWaiter{agentID: agentID, ch: respCh}
 	frame := &controlpb.ControllerFrame{
-		Seq:       atomic.AddUint64(&s.seq, 1),
+		Seq:       s.seq.Add(1),
 		SessionId: conn.sessionID,
 		CommandId: commandID,
 		Body: &controlpb.ControllerFrame_RunCommand{
@@ -75,7 +74,7 @@ func (s *Server) Cancel(ctx context.Context, agentID string, commandID string, r
 		return fmt.Errorf("agent %q is not connected", agentID)
 	}
 	frame := &controlpb.ControllerFrame{
-		Seq:       atomic.AddUint64(&s.seq, 1),
+		Seq:       s.seq.Add(1),
 		SessionId: conn.sessionID,
 		CommandId: commandID,
 		Body: &controlpb.ControllerFrame_CancelCommand{

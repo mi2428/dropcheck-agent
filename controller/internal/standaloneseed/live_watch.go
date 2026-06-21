@@ -1,6 +1,9 @@
+// Package standaloneseed builds standalone configuration edits from local seed
+// sources such as watch plans.
 package standaloneseed
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -12,9 +15,9 @@ import (
 )
 
 const (
-	liveFestaName   = "live"
-	liveWatchUsage  = "usage: set standalone live watch <file> [<file>...]"
-	maxUint32Millis = time.Duration(^uint32(0)) * time.Millisecond
+	liveFestaName     = "live"
+	liveWatchUsage    = "usage: set standalone live watch <file> [<file>...]"
+	maxUint32Duration = time.Duration(^uint32(0)) * time.Millisecond
 )
 
 // OperationFromSetArgs parses `set standalone live watch ...` and returns a
@@ -24,7 +27,7 @@ func OperationFromSetArgs(args []string) (command.Operation, bool, error) {
 		return command.Operation{}, false, nil
 	}
 	if len(args) < 3 || args[1] != "watch" {
-		return command.Operation{}, true, fmt.Errorf(liveWatchUsage)
+		return command.Operation{}, true, errors.New(liveWatchUsage)
 	}
 	edits, err := LiveWatchEdits(args[2:])
 	if err != nil {
@@ -38,7 +41,7 @@ func OperationFromSetArgs(args []string) (command.Operation, bool, error) {
 // one or more watch configs.
 func LiveWatchEdits(paths []string) ([]command.StandaloneEdit, error) {
 	if len(paths) == 0 {
-		return nil, fmt.Errorf(liveWatchUsage)
+		return nil, errors.New(liveWatchUsage)
 	}
 	edits := []command.StandaloneEdit{
 		command.StandaloneDeleteEdit([]string{"festa", liveFestaName}),
@@ -47,7 +50,7 @@ func LiveWatchEdits(paths []string) ([]command.StandaloneEdit, error) {
 	for _, path := range paths {
 		path = strings.TrimSpace(path)
 		if path == "" {
-			return nil, fmt.Errorf(liveWatchUsage)
+			return nil, errors.New(liveWatchUsage)
 		}
 		plan, err := watch.LoadFile(path)
 		if err != nil {
@@ -118,7 +121,7 @@ func resolveTimeoutMillis(timeout time.Duration) (string, error) {
 	if timeout <= 0 {
 		return "", nil
 	}
-	if timeout > maxUint32Millis {
+	if timeout > maxUint32Duration {
 		return "", fmt.Errorf("connect_timeout exceeds uint32 milliseconds")
 	}
 	return strconv.FormatInt(timeout.Milliseconds(), 10), nil

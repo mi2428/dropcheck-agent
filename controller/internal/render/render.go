@@ -1328,7 +1328,7 @@ func scanDisplayGroups(results []*controlpb.WifiScanResult, mloOnly bool, layout
 		groupRows := make([][]string, 0, len(group.results))
 		if mloOnly {
 			groupRows = scanMLODisplayRows(group.results, layout)
-			scanSuppressRepeatedGroupSSID(groupRows, layout)
+			scanSuppressRepeatedGroupSSID(groupRows)
 		} else {
 			for _, result := range group.results {
 				groupRows = append(groupRows, scanResultDisplayRow(result, layout))
@@ -1574,7 +1574,7 @@ func flattenScanDisplayGroups(groups []scanDisplayGroup) [][]string {
 	return rows
 }
 
-func scanSuppressRepeatedGroupSSID(rows [][]string, layout scanRenderLayout) {
+func scanSuppressRepeatedGroupSSID(rows [][]string) {
 	if len(rows) <= 1 {
 		return
 	}
@@ -1817,8 +1817,7 @@ func connectionInformationElementCapabilityName(element *controlpb.WifiInformati
 	case 201:
 		return "rnr", true
 	case 255:
-		switch element.GetIdExt() {
-		case 107:
+		if element.GetIdExt() == 107 {
 			return "mlo", true
 		}
 		return "", false
@@ -2020,11 +2019,6 @@ func wifiSecurityStrictSummary(value *controlpb.WifiSecurityDetails) string {
 		wifiMLOJoinStrings(fallback, "<none>"),
 		strictReady,
 	)
-}
-
-func wifiSecurityStrictReady(value *controlpb.WifiSecurityDetails) bool {
-	_, _, _, _, strictReady := wifiSecurityStrictFields(value)
-	return strictReady
 }
 
 func wifiSecurityStrictFields(value *controlpb.WifiSecurityDetails) (pairwiseOnly bool, akmGdhOnly bool, groupMgmt256 bool, fallback []string, strictReady bool) {

@@ -447,7 +447,7 @@ func standaloneArchiveFixture() *controlpb.StandaloneRunArchive {
 			}},
 		},
 		Steps: []*controlpb.StandaloneMeasurementStep{
-			standaloneStep(1, group, 1, "connect", &controlpb.RunCommand{
+			standaloneStep(1, "connect", &controlpb.RunCommand{
 				Label: "standalone connect lab",
 				Command: &controlpb.RunCommand_ConnectWifi{ConnectWifi: &controlpb.ConnectWifi{
 					Ssid:       "Lab",
@@ -464,7 +464,7 @@ func standaloneArchiveFixture() *controlpb.StandaloneRunArchive {
 					Connected: true,
 				}},
 			}),
-			standaloneStep(1, group, 2, "wait_connected", &controlpb.RunCommand{
+			standaloneStep(2, "wait_connected", &controlpb.RunCommand{
 				Label: "standalone wait lab",
 				Command: &controlpb.RunCommand_WaitWifiConnected{WaitWifiConnected: &controlpb.WaitWifiConnected{
 					Ssid:      "Lab",
@@ -480,7 +480,7 @@ func standaloneArchiveFixture() *controlpb.StandaloneRunArchive {
 					Passed: true,
 				}},
 			}),
-			standaloneStep(1, group, 3, "dns", &controlpb.RunCommand{
+			standaloneStep(3, "dns", &controlpb.RunCommand{
 				Label: "standalone dns example.com",
 				Command: &controlpb.RunCommand_ResolveDns{ResolveDns: &controlpb.ResolveDns{
 					Name:      "example.com",
@@ -499,7 +499,7 @@ func standaloneArchiveFixture() *controlpb.StandaloneRunArchive {
 					}},
 				}},
 			}),
-			standaloneStep(1, group, 4, "ping", &controlpb.RunCommand{
+			standaloneStep(4, "ping", &controlpb.RunCommand{
 				Label: "standalone ping 8.8.8.8",
 				Command: &controlpb.RunCommand_Ping{Ping: &controlpb.Ping{
 					Host:      "8.8.8.8",
@@ -521,7 +521,7 @@ func standaloneArchiveFixture() *controlpb.StandaloneRunArchive {
 					ElapsedMs:         120,
 				}},
 			}),
-			standaloneStep(1, group, 5, "http", &controlpb.RunCommand{
+			standaloneStep(5, "http", &controlpb.RunCommand{
 				Label: "standalone http http://example.com/health",
 				Command: &controlpb.RunCommand_HttpCheck{HttpCheck: &controlpb.HttpCheck{
 					Url:            "http://example.com/health",
@@ -543,10 +543,10 @@ func standaloneArchiveFixture() *controlpb.StandaloneRunArchive {
 	}
 }
 
-func standaloneStep(groupIndex uint32, groupName string, stepIndex uint32, name string, command *controlpb.RunCommand, result *controlpb.CommandResult) *controlpb.StandaloneMeasurementStep {
+func standaloneStep(stepIndex uint32, name string, command *controlpb.RunCommand, result *controlpb.CommandResult) *controlpb.StandaloneMeasurementStep {
 	return &controlpb.StandaloneMeasurementStep{
-		WifiGroupIndex: groupIndex,
-		WifiGroupName:  groupName,
+		WifiGroupIndex: 1,
+		WifiGroupName:  "lab",
 		StepIndex:      stepIndex,
 		StepName:       name,
 		Attempt:        1,

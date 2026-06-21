@@ -658,8 +658,8 @@ func TestParseShellPipeline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseShellLineForTest(show config display set) error = %v", err)
 	}
-	if setConfig.kind != shellShowConfig || !setConfig.pipeline.displaySet || setConfig.pipeline.format(outputText) != outputSet || len(setConfig.pipeline.stages) != 1 {
-		t.Fatalf("display set pipeline = kind %v displaySet %t format %q stages %d", setConfig.kind, setConfig.pipeline.displaySet, setConfig.pipeline.format(outputText), len(setConfig.pipeline.stages))
+	if setConfig.kind != shellShowConfig || !setConfig.pipeline.displaySet || setConfig.pipeline.format() != outputSet || len(setConfig.pipeline.stages) != 1 {
+		t.Fatalf("display set pipeline = kind %v displaySet %t format %q stages %d", setConfig.kind, setConfig.pipeline.displaySet, setConfig.pipeline.format(), len(setConfig.pipeline.stages))
 	}
 
 	_, err = parseShellLineForTest(`show devices | count | display json`)

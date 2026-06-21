@@ -146,7 +146,7 @@ func hasRunePrefix(value []rune, prefix []rune) bool {
 func shellCompletionOffset(line string) int {
 	runes := []rune(line)
 	offset := 0
-	for i := len(runes) - 1; i >= 0; i-- {
+	for i := range slices.Backward(runes) {
 		switch runes[i] {
 		case ' ', '|':
 			return offset
@@ -268,7 +268,7 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 			return false, nil
 		}
 		return false, runConfigForAgents(ctx, state, agents, command.configScope, commandOutputOptions{
-			format:   command.pipeline.format(outputText),
+			format:   command.pipeline.format(),
 			pipeline: command.pipeline,
 		})
 	case shellAgentCommand:
@@ -278,7 +278,7 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 			return false, nil
 		}
 		return false, runOperationForAgents(ctx, state, agents, command.operation, commandOutputOptions{
-			format:   command.pipeline.format(outputText),
+			format:   command.pipeline.format(),
 			pipeline: command.pipeline,
 		})
 	case shellADBDiagnostics:
@@ -288,7 +288,7 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 			return false, nil
 		}
 		return false, runADBDiagnosticsForAgents(ctx, state, agents, command.adbKind, commandOutputOptions{
-			format:   command.pipeline.format(outputText),
+			format:   command.pipeline.format(),
 			pipeline: command.pipeline,
 		})
 	case shellStandaloneSync:
@@ -306,7 +306,7 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 }
 
 func printLocalOutput(command shellCommand, render func(outputFormat) (string, error)) error {
-	out, err := render(command.pipeline.format(outputText))
+	out, err := render(command.pipeline.format())
 	if err != nil {
 		return err
 	}

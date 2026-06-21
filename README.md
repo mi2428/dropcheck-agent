@@ -322,7 +322,6 @@ $ controller/dist/dropcheck --serial R5CT12345 configure set standalone upload v
 Dropcheck Harness is a Go test harness for ADB-backed Android network checks.
 Harness tests connect to a requested Wi-Fi target, wait for the expected link state, run typed checks, and fail with normal Go test output.
 It supports retries, stable checks, and replaying saved standalone archives without a connected Android agent.
-The legacy `festival` build tag and `DROPCHECK_FESTIVAL_*` environment variables are still accepted for compatibility.
 
 Available check builders include Wi-Fi status, EHT diagnostics, scan and scan-detail, Wi-Fi capabilities, IP status, ping, DNS, HTTP, download, traceroute, path MTU, and global IP.
 

@@ -29,21 +29,6 @@ type wifiMLOFilter struct {
 	bssid string
 }
 
-type wifiMLOBriefLinkRow struct {
-	mark        string
-	linkID      string
-	band        string
-	rssi        string
-	security    string
-	standard    string
-	color       string
-	eht         string
-	addr        string
-	sortLink    int32
-	hasSortLink bool
-	hasScan     bool
-}
-
 func renderWifiMLO(b *strings.Builder, diagnostics *controlpb.WifiDiagnostics, options command.Options) {
 	if diagnostics == nil {
 		return
@@ -219,9 +204,9 @@ func renderWifiMLOCurrentRelation(b *strings.Builder, current *controlpb.WifiCon
 		kv("connected_link", wifiMLOConnectionLinkID(current)),
 		kv("current_bssid_seen", currentBSSIDSeen),
 		kv("same_mld_results", len(sameMLDResults)),
-		kv("visible_links", wifiMLOJoinIntSet(visibleLinks, "<none>")),
-		kv("associated_links", wifiMLOJoinIntSet(associatedLinks, "<none>")),
-		kv("missing_associated", wifiMLOJoinIntSet(missingLinks, "<none>")),
+		kv("visible_links", wifiMLOJoinIntSet(visibleLinks)),
+		kv("associated_links", wifiMLOJoinIntSet(associatedLinks)),
+		kv("missing_associated", wifiMLOJoinIntSet(missingLinks)),
 	)
 }
 
@@ -378,54 +363,6 @@ func renderWifiMLONearbyAPs(b *strings.Builder, groups []wifiMLOGroup, current *
 	renderWifiMLOScanEHTDetails(b, groups)
 }
 
-func renderWifiMLONearbyBriefTable(b *strings.Builder, groups []wifiMLOGroup, current *controlpb.WifiConnection) {
-	writeSection(b, "Nearby EHT MLDs")
-	if len(groups) == 0 {
-		b.WriteString("  no EHT-capable scan results\n")
-		return
-	}
-	columns := []wifiMLOTableColumn{
-		{header: "ITEM"},
-		{header: "MLD", maxWidth: 17},
-		{header: "BAND", maxWidth: 6},
-		{header: "RSSI", maxWidth: 4},
-		{header: "SEC", maxWidth: 7},
-		{header: "STD", maxWidth: 4},
-		{header: "CLR", maxWidth: 5},
-		{header: "EHT", maxWidth: 9},
-		{header: "ADDR", maxWidth: 17},
-	}
-	rows := [][]string{}
-	for _, group := range groups {
-		rows = append(rows, []string{
-			wifiMLOJoinStrings(wifiMLOGroupSSIDs(group), "<hidden>"),
-			wifiMLOBriefCell(group.displayMLD),
-			"",
-			"",
-			"",
-			"",
-			"",
-			"",
-			"",
-		})
-		links := wifiMLOBriefLinkRows(group, current)
-		for i, link := range links {
-			rows = append(rows, []string{
-				wifiMLOBriefNodeLabel(i, len(links), link.mark, link.linkID),
-				"",
-				link.band,
-				link.rssi,
-				link.security,
-				link.standard,
-				link.color,
-				link.eht,
-				link.addr,
-			})
-		}
-	}
-	wifiMLOWriteTable(b, columns, rows)
-}
-
 func renderWifiMLONearbyAPTable(b *strings.Builder, groups []wifiMLOGroup) {
 	columns := []wifiMLOTableColumn{
 		{header: "SSID", maxWidth: 14},
@@ -451,133 +388,6 @@ func renderWifiMLONearbyAPTable(b *strings.Builder, groups []wifiMLOGroup) {
 		})
 	}
 	wifiMLOWriteTable(b, columns, rows)
-}
-
-func wifiMLOBriefLinkRows(group wifiMLOGroup, current *controlpb.WifiConnection) []wifiMLOBriefLinkRow {
-	rows := []wifiMLOBriefLinkRow{}
-	for _, result := range group.results {
-		rows = wifiMLOUpsertBriefLinkRow(rows, wifiMLOBriefScanRow(group, result, current))
-		for _, link := range result.GetAffiliatedMloLinks() {
-			rows = wifiMLOUpsertBriefLinkRow(rows, wifiMLOBriefAffiliatedRow(group, link, current))
-		}
-	}
-	sort.Slice(rows, func(i, j int) bool {
-		left := rows[i]
-		right := rows[j]
-		if wifiMLOBriefMarkRank(left.mark) != wifiMLOBriefMarkRank(right.mark) {
-			return wifiMLOBriefMarkRank(left.mark) > wifiMLOBriefMarkRank(right.mark)
-		}
-		if left.hasSortLink != right.hasSortLink {
-			return left.hasSortLink
-		}
-		if left.hasSortLink && right.hasSortLink && left.sortLink != right.sortLink {
-			return left.sortLink < right.sortLink
-		}
-		if left.hasScan != right.hasScan {
-			return left.hasScan
-		}
-		return left.addr < right.addr
-	})
-	return rows
-}
-
-func wifiMLOUpsertBriefLinkRow(rows []wifiMLOBriefLinkRow, candidate wifiMLOBriefLinkRow) []wifiMLOBriefLinkRow {
-	for i := range rows {
-		if wifiMLOBriefLinkRowMatches(rows[i], candidate) {
-			rows[i] = wifiMLOMergeBriefLinkRows(rows[i], candidate)
-			return rows
-		}
-	}
-	return append(rows, candidate)
-}
-
-func wifiMLOBriefLinkRowMatches(left wifiMLOBriefLinkRow, right wifiMLOBriefLinkRow) bool {
-	if left.hasSortLink && right.hasSortLink && left.sortLink == right.sortLink {
-		return true
-	}
-	return left.addr != "" && right.addr != "" && strings.EqualFold(left.addr, right.addr)
-}
-
-func wifiMLOMergeBriefLinkRows(current wifiMLOBriefLinkRow, candidate wifiMLOBriefLinkRow) wifiMLOBriefLinkRow {
-	if candidate.hasScan && !current.hasScan {
-		current, candidate = candidate, current
-	}
-	if wifiMLOBriefMarkRank(candidate.mark) > wifiMLOBriefMarkRank(current.mark) {
-		current.mark = candidate.mark
-	}
-	if current.linkID == "" || current.linkID == "?" {
-		current.linkID = candidate.linkID
-	}
-	if current.addr == "" || current.addr == "?" {
-		current.addr = candidate.addr
-	}
-	if current.band == "" || current.band == "?" {
-		current.band = candidate.band
-	}
-	if current.rssi == "" || current.rssi == "?" {
-		current.rssi = candidate.rssi
-	}
-	if current.security == "" || current.security == "-" {
-		current.security = candidate.security
-	}
-	if current.standard == "" || current.standard == "-" {
-		current.standard = candidate.standard
-	}
-	if current.color == "" || current.color == "-" {
-		current.color = candidate.color
-	}
-	if current.eht == "" || current.eht == "-" {
-		current.eht = candidate.eht
-	}
-	if !current.hasSortLink && candidate.hasSortLink {
-		current.sortLink = candidate.sortLink
-		current.hasSortLink = true
-	}
-	current.hasScan = current.hasScan || candidate.hasScan
-	return current
-}
-
-func wifiMLOBriefScanRow(group wifiMLOGroup, result *controlpb.WifiScanResult, current *controlpb.WifiConnection) wifiMLOBriefLinkRow {
-	linkID, hasLinkID := wifiMLOBriefLinkIDFromResult(result)
-	return wifiMLOBriefLinkRow{
-		mark:        wifiMLOResultMark(group, result, current),
-		linkID:      wifiMLOBriefCell(wifiMLOScanLinkID(result)),
-		band:        wifiMLOBriefBand(empty(result.GetBand(), wifiBandFromFrequency(result.GetFrequencyMhz()))),
-		rssi:        fmt.Sprint(result.GetRssiDbm()),
-		security:    wifiMLOBriefSecurity(wifiMLOScanSecurity(result)),
-		standard:    wifiMLOBriefStandard(result.GetWifiStandard()),
-		color:       wifiMLOBriefColor(wifiMLOHEOperationBSSColorValue(result.GetHeOperation())),
-		eht:         wifiMLOBriefEHT(result),
-		addr:        wifiMLOBriefCell(result.GetBssid()),
-		sortLink:    linkID,
-		hasSortLink: hasLinkID,
-		hasScan:     true,
-	}
-}
-
-func wifiMLOBriefAffiliatedRow(group wifiMLOGroup, link *controlpb.MloLinkInfo, current *controlpb.WifiConnection) wifiMLOBriefLinkRow {
-	return wifiMLOBriefLinkRow{
-		mark:        wifiMLOLinkMark(group, link, current),
-		linkID:      wifiMLOBriefLinkID(link),
-		band:        wifiMLOBriefBand(link.GetBand()),
-		rssi:        fmt.Sprint(link.GetRssiDbm()),
-		security:    "-",
-		standard:    "-",
-		color:       "-",
-		eht:         "-",
-		addr:        wifiMLOBriefCell(link.GetApMacAddress()),
-		sortLink:    link.GetLinkId(),
-		hasSortLink: link != nil && link.GetLinkId() >= 0,
-		hasScan:     false,
-	}
-}
-
-func wifiMLOBriefNodeLabel(index int, total int, mark string, linkID string) string {
-	branch := "|--"
-	if index == total-1 {
-		branch = "`--"
-	}
-	return fmt.Sprintf("%s %s %s", branch, wifiMLOBriefMarker(mark), empty(linkID, "?"))
 }
 
 func renderWifiMLOConnectedSecurity(b *strings.Builder, current *controlpb.WifiConnection) {
@@ -709,7 +519,7 @@ func renderWifiMLOHEDetails(b *strings.Builder, label string, capabilities *cont
 			}
 		}
 		if len(capabilities.GetFeatures()) > 0 {
-			for _, line := range wifiMLOWrappedListLines("he features", capabilities.GetFeatures(), "<none>") {
+			for _, line := range wifiMLOWrappedListLines("he features", capabilities.GetFeatures()) {
 				fmt.Fprintf(b, "    %s\n", line)
 			}
 		}
@@ -775,7 +585,7 @@ func wifiMLOHEMACSummaryLines(value *controlpb.WifiHeCapabilities) []string {
 	lines := []string{
 		fmt.Sprintf("he_mac link_adapt=%s max_ampdu_ext=%d multi_tid_rx_qos=%d multi_tid_tx_qos=%d", empty(mac.GetLinkAdaptation(), "<unknown>"), mac.GetMaxAmpduLengthExponentExtension(), mac.GetMultiTidAggregationRxQos(), mac.GetMultiTidAggregationTxQos()),
 	}
-	lines = append(lines, wifiMLOWrappedListLines("he_mac flags", flags, "<none>")...)
+	lines = append(lines, wifiMLOWrappedListLines("he_mac flags", flags)...)
 	return lines
 }
 
@@ -799,7 +609,7 @@ func wifiMLOHEOperationSummaryLines(value *controlpb.WifiHeOperation) []string {
 	lines := []string{
 		fmt.Sprintf("he_oper params=0x%x basic_mcs_nss=0x%s bss_color=%d disabled=%t", value.GetParameters(), value.GetBasicMcsNssSetHex(), value.GetBssColor(), value.GetBssColorDisabled()),
 	}
-	lines = append(lines, wifiMLOWrappedListLines("he_oper flags", value.GetFlags(), "<none>")...)
+	lines = append(lines, wifiMLOWrappedListLines("he_oper flags", value.GetFlags())...)
 	if value.GetChannelWidth() != "" || value.GetPrimaryChannel() != 0 || value.GetCenterFreqSegment0() != 0 || value.GetCenterFreqSegment1() != 0 {
 		lines = append(lines, fmt.Sprintf("he_oper_6ghz width=%s primary=%d ccfs0=%d ccfs1=%d", empty(value.GetChannelWidth(), "<unknown>"), value.GetPrimaryChannel(), value.GetCenterFreqSegment0(), value.GetCenterFreqSegment1()))
 	}
@@ -1011,7 +821,7 @@ func renderWifiMLOEHTDetails(b *strings.Builder, label string, capabilities *con
 			}
 		}
 		if len(capabilities.GetFeatures()) > 0 {
-			for _, line := range wifiMLOWrappedListLines("eht features", capabilities.GetFeatures(), "<none>") {
+			for _, line := range wifiMLOWrappedListLines("eht features", capabilities.GetFeatures()) {
 				fmt.Fprintf(b, "    %s\n", line)
 			}
 		}
@@ -1072,7 +882,7 @@ func wifiMLOEHTMACSummaryLines(value *controlpb.WifiEhtCapabilities) []string {
 		flags = append(flags, "unsol_epcs")
 	}
 	lines := []string{fmt.Sprintf("mac max_mpdu=%d max_ampdu_ext=%d link_adapt=%s", mac.GetMaxMpduLengthBytes(), mac.GetMaxAmpduLengthExponentExtension(), empty(mac.GetLinkAdaptation(), "<unknown>"))}
-	lines = append(lines, wifiMLOWrappedListLines("mac flags", flags, "<none>")...)
+	lines = append(lines, wifiMLOWrappedListLines("mac flags", flags)...)
 	return lines
 }
 
@@ -1154,7 +964,7 @@ func wifiMLOEHTOperationSummaryLines(value *controlpb.WifiEhtOperation) []string
 		fmt.Sprintf("oper op_info=%t width=%s width_mhz=%d code=%d", value.GetOperationInformationPresent(), empty(value.GetChannelWidth(), "<unknown>"), value.GetChannelWidthMhz(), value.GetChannelWidthCode()),
 		fmt.Sprintf("oper ccfs0=%d ccfs1=%d mcs15_disabled=%t group_bu_exp=%d", value.GetCenterFreqSegment0(), value.GetCenterFreqSegment1(), value.GetMcs15Disabled(), value.GetGroupAddressedBuIndicationExponent()),
 	}
-	lines = append(lines, wifiMLOWrappedListLines("oper flags", value.GetFlags(), "<none>")...)
+	lines = append(lines, wifiMLOWrappedListLines("oper flags", value.GetFlags())...)
 	if value.GetDisabledSubchannelBitmapPresent() || value.GetDisabledSubchannelBitmap() != 0 {
 		bitmap := value.GetDisabledSubchannelBitmapHex()
 		if bitmap == "" {
@@ -1414,7 +1224,7 @@ func renderWifiMLODiagnostics(b *strings.Builder, status *controlpb.WifiStatus, 
 			}
 		}
 		if len(missing) > 0 {
-			warnings = append(warnings, "associated_link_missing_from_scan ids="+wifiMLOJoinIntSet(missing, "<none>"))
+			warnings = append(warnings, "associated_link_missing_from_scan ids="+wifiMLOJoinIntSet(missing))
 		}
 	}
 	writeSection(b, "Diagnostics / Warnings")
@@ -1620,137 +1430,6 @@ func wifiMLOBlockMark(mark string) string {
 	return mark
 }
 
-func wifiMLOBriefMarker(mark string) string {
-	return "[" + wifiMLOBlockMark(mark) + "]"
-}
-
-func wifiMLOBriefCell(value string) string {
-	switch strings.TrimSpace(value) {
-	case "", "<unknown>", "<none>":
-		return "?"
-	default:
-		return value
-	}
-}
-
-func wifiMLOBriefLinkID(link *controlpb.MloLinkInfo) string {
-	if link == nil || link.GetLinkId() < 0 {
-		return "?"
-	}
-	return fmt.Sprint(link.GetLinkId())
-}
-
-func wifiMLOBriefLinkIDFromResult(result *controlpb.WifiScanResult) (int32, bool) {
-	if result == nil {
-		return 0, false
-	}
-	if result.GetApMloLinkId() >= 0 {
-		return result.GetApMloLinkId(), true
-	}
-	if id := wifiMLOCurrentLinkIDFromElements(result.GetInformationElements()); id != nil {
-		return int32(*id), true
-	}
-	return 0, false
-}
-
-func wifiMLOBriefMarkRank(mark string) int {
-	switch strings.TrimSpace(mark) {
-	case "*":
-		return 3
-	case "+":
-		return 2
-	case "-":
-		return 1
-	default:
-		return 0
-	}
-}
-
-func wifiMLOBriefBand(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "2.4ghz", "2ghz", "2.4g", "2g":
-		return "2G"
-	case "5ghz", "5g":
-		return "5G"
-	case "6ghz", "6g":
-		return "6G"
-	case "60ghz", "60g":
-		return "60G"
-	default:
-		return wifiMLOBriefCell(value)
-	}
-}
-
-func wifiMLOBriefSecurity(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "<unknown>", "<none>", "-", "?":
-		return "?"
-	case "wpa3_sae", "sae":
-		return "sae"
-	case "wpa2_psk", "psk":
-		return "psk"
-	case "owe":
-		return "owe"
-	case "open":
-		return "open"
-	}
-	upper := strings.ToUpper(value)
-	switch {
-	case strings.Contains(upper, "SAE"):
-		return "sae"
-	case strings.Contains(upper, "PSK"):
-		return "psk"
-	case strings.Contains(upper, "OWE"):
-		return "owe"
-	default:
-		return wifiMLOBriefCell(strings.ToLower(value))
-	}
-}
-
-func wifiMLOBriefStandard(value string) string {
-	trimmed := strings.ToLower(strings.TrimSpace(value))
-	switch trimmed {
-	case "", "<unknown>", "-", "?":
-		return "?"
-	case "unknown":
-		return "?"
-	}
-	if strings.HasPrefix(trimmed, "802.11") {
-		core := strings.TrimPrefix(trimmed, "802.11")
-		if core != "" {
-			return core
-		}
-	}
-	return trimmed
-}
-
-func wifiMLOBriefColor(value string) string {
-	trimmed := strings.TrimSpace(value)
-	switch trimmed {
-	case "", "<unknown>", "<none>", "-", "?":
-		return "?"
-	}
-	if strings.HasSuffix(trimmed, "(part)") {
-		return strings.TrimSuffix(trimmed, "(part)") + "p"
-	}
-	if strings.HasSuffix(trimmed, "(off)") {
-		return strings.TrimSuffix(trimmed, "(off)") + "off"
-	}
-	return trimmed
-}
-
-func wifiMLOBriefEHT(result *controlpb.WifiScanResult) string {
-	if result == nil {
-		return "-"
-	}
-	width := strings.TrimSuffix(wifiMLOBriefCell(wifiMLOScanEHTOperationWidth(result)), "MHz")
-	puncturing := wifiMLOBriefCell(wifiMLOScanEHTOperationPuncturing(result))
-	if puncturing == "none" {
-		puncturing = "-"
-	}
-	return width + "/" + puncturing
-}
-
 func wifiMLOConnectionLinkID(conn *controlpb.WifiConnection) string {
 	if !wifiConnectionHasMLO(conn) {
 		return "<none>"
@@ -1926,10 +1605,10 @@ func wifiMLOScanSecurity(result *controlpb.WifiScanResult) string {
 	return result.GetCapabilities()
 }
 
-func wifiMLOWrappedListLines(label string, values []string, emptyValue string) []string {
+func wifiMLOWrappedListLines(label string, values []string) []string {
 	values = wifiMLOUniqueStrings(values)
 	if len(values) == 0 {
-		return []string{label + " " + emptyValue}
+		return []string{label + " <none>"}
 	}
 	lines := []string{}
 	current := ""
@@ -2038,28 +1717,13 @@ func wifiMLOScanChannelWidth(value string) string {
 func wifiMLOWriteTable(b *strings.Builder, columns []wifiMLOTableColumn, rows [][]string) {
 	displayColumns := make([]displayTableColumn, len(columns))
 	for i, column := range columns {
-		displayColumns[i] = displayTableColumn{
-			header:   column.header,
-			maxWidth: column.maxWidth,
-		}
+		displayColumns[i] = displayTableColumn(column)
 	}
 	writeDisplayTable(b, displayColumns, rows)
 }
 
-func wifiMLOFitCell(value string, maxWidth int) string {
-	return fitDisplayCell(value, maxWidth)
-}
-
-func wifiMLOPadDisplayEnd(value string, width int) string {
-	return padDisplayEnd(value, width)
-}
-
 func wifiMLODisplayWidth(value string) int {
 	return displayWidth(value)
-}
-
-func wifiMLORuneDisplayWidth(r rune) int {
-	return runeDisplayWidth(r)
 }
 
 func wifiMLOJoinStrings(values []string, emptyValue string) string {
@@ -2098,8 +1762,8 @@ func wifiMLOJoinUint32s(values []uint32, emptyValue string) string {
 	return strings.Join(parts, ",")
 }
 
-func wifiMLOJoinIntSet(values map[int32]bool, emptyValue string) string {
-	return wifiMLOJoinInts(wifiMLOSortedIntSet(values), emptyValue)
+func wifiMLOJoinIntSet(values map[int32]bool) string {
+	return wifiMLOJoinInts(wifiMLOSortedIntSet(values), "<none>")
 }
 
 func wifiMLOSortedIntSet(values map[int32]bool) []int32 {

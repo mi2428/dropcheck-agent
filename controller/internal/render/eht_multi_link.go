@@ -467,7 +467,6 @@ func parseBasicCommonInfo(bytes []byte, commonStart int, commonEnd int, control 
 	extendedMLDCaps := ""
 	if hasBit(control, 10) {
 		extendedMLDCaps = readHex(bytes, offset, 2, commonEnd, &truncated)
-		offset += 2
 	}
 	return ehtMultiLinkCommonInfo{
 		length:                            commonLength,
@@ -1168,7 +1167,7 @@ func ehtChannelWidthName(code int) string {
 
 func disabledSubchannelIndicesSummary(bitmap int, _ int) string {
 	indices := []string{}
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		if bitmap&(1<<i) != 0 {
 			indices = append(indices, fmt.Sprint(i))
 		}
@@ -1221,7 +1220,7 @@ func bitmapBitsFromHex(value string) string {
 	}
 	bits := []string{}
 	for byteIndex, b := range bytes {
-		for bit := 0; bit < 8; bit++ {
+		for bit := range 8 {
 			if int(b)&(1<<bit) != 0 {
 				bits = append(bits, fmt.Sprint(byteIndex*8+bit))
 			}

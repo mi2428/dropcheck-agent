@@ -462,12 +462,12 @@ func TestParseAgentCommandSurface(t *testing.T) {
 			args: []string{"clear", "standalone", "runs", "all"},
 			check: func(t *testing.T, run *controlpb.RunCommand) {
 				t.Helper()
-				clear := run.GetClearStandaloneRuns()
-				if clear == nil {
+				request := run.GetClearStandaloneRuns()
+				if request == nil {
 					t.Fatalf("command = %T, want ClearStandaloneRuns", run.GetCommand())
 				}
-				if !clear.GetAll() || clear.GetSyncedOnly() {
-					t.Fatalf("clear standalone = %#v", clear)
+				if !request.GetAll() || request.GetSyncedOnly() {
+					t.Fatalf("clear standalone = %#v", request)
 				}
 			},
 		},

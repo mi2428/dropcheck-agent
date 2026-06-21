@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -17,14 +18,14 @@ func (m model) passingChecksView(width int, height int) string {
 	}
 	rows := m.filteredPassingCheckSummaries()
 	maxCount := maxPassingCheckSummaryCount(rows)
-	layout := passingCheckBarListLayout(rows, max(1, width-2), m.MultiAgent)
-	selected := clamp(m.passingCheckCursor, 0, max(0, len(rows)-1))
+	layout := passingCheckBarListLayout(rows, intMax(1, width-2), m.MultiAgent)
+	selected := clamp(m.passingCheckCursor, 0, intMax(0, len(rows)-1))
 	now := m.currentTime()
 	sparkHeight := summarySparklineHeight(height)
 	if sparkHeight > 0 {
-		sparkHeight = min(height, sparkHeight+1)
+		sparkHeight = intMin(height, sparkHeight+1)
 	}
-	tableHeight := max(0, height-sparkHeight)
+	tableHeight := intMax(0, height-sparkHeight)
 	lines := make([]tableLine, 0, len(rows)*2+1)
 	selectedLine := -1
 	lines = append(lines, tableLine{Text: "  " + barListHeader(passingCheckListHeaderColumns(m.MultiAgent), passingCheckListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
@@ -53,14 +54,14 @@ func (m model) failedChecksView(width int, height int) string {
 	}
 	rows := m.filteredFailedCheckSummaries()
 	maxCount := maxFailedCheckSummaryCount(rows)
-	layout := failedCheckBarListLayout(rows, max(1, width-2), m.MultiAgent)
-	selected := clamp(m.failedCheckCursor, 0, max(0, len(rows)-1))
+	layout := failedCheckBarListLayout(rows, intMax(1, width-2), m.MultiAgent)
+	selected := clamp(m.failedCheckCursor, 0, intMax(0, len(rows)-1))
 	now := m.currentTime()
 	sparkHeight := summarySparklineHeight(height)
 	if sparkHeight > 0 {
-		sparkHeight = min(height, sparkHeight+1)
+		sparkHeight = intMin(height, sparkHeight+1)
 	}
-	tableHeight := max(0, height-sparkHeight)
+	tableHeight := intMax(0, height-sparkHeight)
 	lines := make([]tableLine, 0, len(rows)*2+1)
 	selectedLine := -1
 	lines = append(lines, tableLine{Text: "  " + barListHeader(failedCheckListHeaderColumns(m.MultiAgent), failedCheckListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
@@ -91,8 +92,8 @@ func (m model) failureHotspotsView(width int, height int) string {
 		return ""
 	}
 	rows := m.filteredFailureHotspotRows()
-	layout := failureHotspotListLayout(rows, max(1, width-2))
-	selected := clamp(m.failureHotspotCursor, 0, max(0, len(rows)-1))
+	layout := failureHotspotListLayout(rows, intMax(1, width-2))
+	selected := clamp(m.failureHotspotCursor, 0, intMax(0, len(rows)-1))
 	lines := make([]tableLine, 0, len(rows)+1)
 	selectedLine := -1
 	lines = append(lines, tableLine{Text: "  " + barListHeader(failureHotspotListHeaderColumns(), failureHotspotListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
@@ -118,8 +119,8 @@ func (m model) failureCausesView(width int, height int) string {
 		return ""
 	}
 	rows := m.filteredFailureCauseRows()
-	layout := failureCauseListLayout(rows, max(1, width-2))
-	selected := clamp(m.failureHotspotCursor, 0, max(0, len(rows)-1))
+	layout := failureCauseListLayout(rows, intMax(1, width-2))
+	selected := clamp(m.failureHotspotCursor, 0, intMax(0, len(rows)-1))
 	lines := make([]tableLine, 0, len(rows)+1)
 	selectedLine := -1
 	lines = append(lines, tableLine{Text: "  " + barListHeader(failureCauseListHeaderColumns(), failureCauseListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
@@ -179,9 +180,9 @@ func (m model) failureHotspotPanelsSplit() bool {
 	if width <= 0 {
 		width = 120
 	}
-	bodyHeight := max(4, height-2)
+	bodyHeight := intMax(4, height-2)
 	roundTimelineHeight, checkStatusHeight, _, _ := m.dashboardPanelHeights(bodyHeight, panelContentWidth(width))
-	lowerHeight := max(0, bodyHeight-checkStatusHeight-roundTimelineHeight)
+	lowerHeight := intMax(0, bodyHeight-checkStatusHeight-roundTimelineHeight)
 	return lowerHeight >= 6 && lowerHeight >= len(agents)*3
 }
 
@@ -197,7 +198,7 @@ func (m model) failureHotspotsViewForAgent(agent watch.AgentSnapshot, width int,
 	for _, row := range rows {
 		items = append(items, row.Item)
 	}
-	layout := failureHotspotListLayout(items, max(1, width-2))
+	layout := failureHotspotListLayout(items, intMax(1, width-2))
 	lines := make([]tableLine, 0, len(rows)+1)
 	selectedLine := -1
 	lines = append(lines, tableLine{Text: "  " + barListHeader(failureHotspotListHeaderColumns(), failureHotspotListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
@@ -228,7 +229,7 @@ func (m model) failureCausesViewForAgent(agent watch.AgentSnapshot, width int, h
 	for _, row := range rows {
 		items = append(items, row.Item)
 	}
-	layout := failureCauseListLayout(items, max(1, width-2))
+	layout := failureCauseListLayout(items, intMax(1, width-2))
 	lines := make([]tableLine, 0, len(rows)+1)
 	selectedLine := -1
 	lines = append(lines, tableLine{Text: "  " + barListHeader(failureCauseListHeaderColumns(), failureCauseListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
@@ -319,7 +320,7 @@ func (m model) summarySparklineView(_ string, times []time.Time, width int, heig
 	}
 	lines = append(lines, renderSparkline(histogram.Counts, histogram.Max, width, plotHeight, style)...)
 	lines = append(lines, summarySparklineAxis(width, summarySparklineWindow))
-	return strings.Join(lines[:min(len(lines), height)], "\n")
+	return strings.Join(lines[:intMin(len(lines), height)], "\n")
 }
 
 func summarySparklinePlotHeight(height int) int {
@@ -333,7 +334,7 @@ func summarySparklinePlotHeight(height int) int {
 	if height >= 4 {
 		reserved++ // spacer between header and graph
 	}
-	return max(1, height-reserved)
+	return intMax(1, height-reserved)
 }
 
 func (m model) passingCheckEventTimes() []time.Time {
@@ -367,7 +368,7 @@ func pinBottom(top string, bottom string, width int, height int) string {
 	if len(bottomLines) > height {
 		bottomLines = bottomLines[len(bottomLines)-height:]
 	}
-	maxTop := max(0, height-len(bottomLines))
+	maxTop := intMax(0, height-len(bottomLines))
 	if len(topLines) > maxTop {
 		topLines = topLines[:maxTop]
 	}
@@ -413,9 +414,7 @@ func recencyPanelRowStyle(last time.Time, now time.Time, fresh lipgloss.Style, w
 		now = time.Now()
 	}
 	age := now.Sub(last)
-	if age < 0 {
-		age = 0
-	}
+	age = max(age, 0)
 	switch {
 	case age <= recencyFreshWindow:
 		return fresh
@@ -485,26 +484,26 @@ func newListLayout(width int, columns [][]string, rights [][]string, includeBar 
 	barWidth := 0
 	if includeBar {
 		barWidth = countBarWidth(width)
-		barWidth = min(barWidth, max(4, width-joinedWidths(columnWidths)-rightWidth-listColumnGap*2))
+		barWidth = intMin(barWidth, intMax(4, width-joinedWidths(columnWidths)-rightWidth-listColumnGap*2))
 	}
 	gapWidth := listColumnGap
 	if includeBar {
 		gapWidth = listColumnGap*2 + barWidth
 	}
-	leftBudget := max(4, width-rightWidth-gapWidth)
+	leftBudget := intMax(4, width-rightWidth-gapWidth)
 	columnWidths = shrinkWidths(columnWidths, leftBudget, 4)
 	if emptyRows {
 		columnWidths = expandWidthsEvenly(columnWidths, leftBudget)
 	}
 	if includeBar {
 		if joinedWidths(columnWidths)+barWidth+rightWidth+listColumnGap*2 > width {
-			barWidth = max(4, width-joinedWidths(columnWidths)-rightWidth-listColumnGap*2)
+			barWidth = intMax(4, width-joinedWidths(columnWidths)-rightWidth-listColumnGap*2)
 		}
 		if joinedWidths(columnWidths)+rightWidth+listColumnGap*2 < width {
-			barWidth = max(4, width-joinedWidths(columnWidths)-rightWidth-listColumnGap*2)
+			barWidth = intMax(4, width-joinedWidths(columnWidths)-rightWidth-listColumnGap*2)
 		}
 	} else {
-		budget := max(1, width-joinedWidths(rightWidths)-listColumnGap)
+		budget := intMax(1, width-joinedWidths(rightWidths)-listColumnGap)
 		columnWidths = shrinkWidths(columnWidths, budget, 4)
 		if emptyRows {
 			columnWidths = expandWidthsEvenly(columnWidths, budget)
@@ -512,7 +511,7 @@ func newListLayout(width int, columns [][]string, rights [][]string, includeBar 
 	}
 	rightGap := listColumnGap
 	if !includeBar {
-		rightGap = max(listColumnGap, width-joinedWidths(columnWidths)-joinedWidths(rightWidths))
+		rightGap = intMax(listColumnGap, width-joinedWidths(columnWidths)-joinedWidths(rightWidths))
 	}
 	return barListLayout{ColumnWidths: columnWidths, BarWidth: barWidth, RightWidths: rightWidths, RightGap: rightGap}
 }
@@ -522,7 +521,7 @@ func expandWidthsEvenly(widths []int, budget int) []int {
 	if len(out) == 0 || budget <= 0 || joinedWidths(out) >= budget {
 		return out
 	}
-	available := max(0, budget-listColumnGap*(len(out)-1))
+	available := intMax(0, budget-listColumnGap*(len(out)-1))
 	base := available / len(out)
 	remainder := available % len(out)
 	for i := range out {
@@ -551,12 +550,12 @@ func expandWidthsEvenly(widths []int, budget int) []int {
 func maxColumnWidths(rows [][]string) []int {
 	count := 0
 	for _, row := range rows {
-		count = max(count, len(row))
+		count = intMax(count, len(row))
 	}
 	widths := make([]int, count)
 	for _, row := range rows {
 		for i, value := range row {
-			widths[i] = max(widths[i], lipgloss.Width(value))
+			widths[i] = intMax(widths[i], lipgloss.Width(value))
 		}
 	}
 	return widths
@@ -621,7 +620,7 @@ func joinListColumns(left string, right string, gap int) string {
 	if left == "" {
 		return right
 	}
-	return left + strings.Repeat(" ", max(listColumnGap, gap)) + right
+	return left + strings.Repeat(" ", intMax(listColumnGap, gap)) + right
 }
 
 func renderBarListColumns(values []string, widths []int, rightAlign bool) string {
@@ -761,7 +760,7 @@ func failureCauseTargetsLabel(item failureCauseSummary, width int) string {
 	if width <= 0 || lipgloss.Width(full) <= width {
 		return full
 	}
-	for shown := len(labels) - 1; shown >= 0; shown-- {
+	for shown := range slices.Backward(labels) {
 		omitted := len(labels) - shown
 		suffix := fmt.Sprintf("...(%d)", omitted)
 		candidate := suffix
@@ -791,7 +790,7 @@ func countBar(count int, maxCount int, width int) string {
 	if count <= 0 || maxCount <= 0 {
 		return strings.Repeat(" ", width)
 	}
-	filled := max(1, (count*width+maxCount-1)/maxCount)
+	filled := intMax(1, (count*width+maxCount-1)/maxCount)
 	filled = clamp(filled, 1, width)
 	return strings.Repeat("█", filled) + strings.Repeat(" ", width-filled)
 }
@@ -824,7 +823,7 @@ func renderTableLines(lines []tableLine, width int, visible int, selectedLine in
 	if selectedLine >= 0 {
 		start = correctedOffset(selectedLine, visible, len(lines))
 	}
-	end := min(len(lines), start+visible)
+	end := intMin(len(lines), start+visible)
 	var b strings.Builder
 	for _, line := range lines[start:end] {
 		text := fit(line.Text, width)
