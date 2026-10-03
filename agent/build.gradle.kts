@@ -2,7 +2,6 @@ import com.google.protobuf.gradle.id
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("com.google.protobuf")
 }
 
@@ -33,10 +32,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+}
 
-    kotlin {
-        jvmToolchain(17)
-    }
+kotlin {
+    jvmToolchain(17)
 }
 
 protobuf {
