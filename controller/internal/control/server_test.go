@@ -182,6 +182,67 @@ func TestRunSendsCancelWhenContextEnds(t *testing.T) {
 	}
 }
 
+func TestRunCancellationWithFullQueueReturnsWithinBound(t *testing.T) {
+	server := NewServer("token", nil)
+	conn := addTestConn(server, "agent-a", "session-a")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := server.Run(ctx, "agent-a", "cmd-full", &controlpb.RunCommand{})
+		done <- err
+	}()
+	_ = receiveControllerFrame(t, conn.sendCh)
+	for len(conn.sendCh) < cap(conn.sendCh) {
+		conn.sendCh <- &controlpb.ControllerFrame{}
+	}
+	start := time.Now()
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run() error = %v, want canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Run() stuck behind full queue")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("Run() took %v after cancellation", elapsed)
+	}
+	server.mu.Lock()
+	_, waiting := server.waiters["cmd-full"]
+	server.mu.Unlock()
+	if waiting {
+		t.Fatal("waiter leaked after cancellation")
+	}
+}
+
+func TestRunCancellationWithFullQueueDisconnects(t *testing.T) {
+	server := NewServer("token", nil)
+	conn := addTestConn(server, "agent-a", "session-a")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := server.Run(ctx, "agent-a", "cmd-disconnect", &controlpb.RunCommand{})
+		done <- err
+	}()
+	_ = receiveControllerFrame(t, conn.sendCh)
+	for len(conn.sendCh) < cap(conn.sendCh) {
+		conn.sendCh <- &controlpb.ControllerFrame{}
+	}
+	cancel()
+	conn.close()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) && (err == nil || !strings.Contains(err.Error(), "disconnected")) {
+			t.Fatalf("Run() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Run() stuck after disconnect")
+	}
+}
+
 func TestHandleAgentFrameLogsAndDeliversError(t *testing.T) {
 	var events []LogEvent
 	server := NewServer("token", func(event LogEvent) {

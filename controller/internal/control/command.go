@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"dropcheck/controller/internal/controlpb"
 )
@@ -11,7 +12,7 @@ import (
 //
 // commandID must be unique among in-flight commands. If ctx ends while the
 // command is running, Run sends a best-effort cancel frame to the agent before
-// returning the context error.
+// returning the context error. The best-effort delivery is bounded to 100ms.
 func (s *Server) Run(ctx context.Context, agentID string, commandID string, cmd *controlpb.RunCommand) (*controlpb.CommandResult, error) {
 	respCh := make(chan CommandResponse, 1)
 
@@ -60,7 +61,9 @@ func (s *Server) Run(ctx context.Context, agentID string, commandID string, cmd 
 	case <-conn.done:
 		return nil, fmt.Errorf("agent disconnected")
 	case <-ctx.Done():
-		_ = s.Cancel(context.Background(), agentID, commandID, "controller command context ended")
+		cancelCtx, stop := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer stop()
+		_ = s.Cancel(cancelCtx, agentID, commandID, "controller command context ended")
 		return nil, ctx.Err()
 	}
 }
