@@ -90,7 +90,8 @@ func RunWithOptions(ctx context.Context, plan Plan, opRunner OperationRunner, ag
 		if sink == nil {
 			return nil
 		}
-		if event.Step.Type == "cleanup" || ctx.Err() != nil {
+		// Skip leaves the parent live, so its events need their own deadline.
+		if event.Step.Type == "cleanup" || event.Status == "skipped" || ctx.Err() != nil {
 			eventCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 			defer cancel()
 			return sink.Emit(eventCtx, event)
