@@ -91,6 +91,11 @@ fmt: ## Format targets where a formatter is configured
 		esac; \
 	done
 
+.PHONY: fmt-check
+fmt-check: ## Check controller Go formatting without rewriting generated code or sources
+	@unformatted="$$(git ls-files -z -- 'controller/*.go' ':!:controller/internal/controlpb/*' | xargs -0 gofmt -l)"; \
+	[[ -z "$$unformatted" ]] || { printf 'Run make fmt TARGET=controller for:\n%s\n' "$$unformatted" >&2; exit 1; }
+
 .PHONY: lint
 lint: ## Lint targets; controller runs go vet and staticcheck
 	@die(){ printf 'make lint: %s\n' "$$*" >&2; exit 1; }; \
