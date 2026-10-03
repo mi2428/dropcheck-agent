@@ -52,6 +52,9 @@ sequenceDiagram
 
 ## Requirements
 
+Building the Android agent requires JDK 17, Android SDK Platform 37, and SDK Build Tools 37.0.0.
+The build uses AGP 9.1.1 with its built-in Kotlin support and Gradle 9.3.1, the minimum Gradle version in [AGP 9.1.1's API 37 compatibility matrix](https://developer.android.com/build/releases/agp-9-1-0-release-notes#compatibility).
+
 For the Android agent, use an Android 12+ test device with USB debugging enabled. The debug APK is installed over ADB:
 
 ```console
