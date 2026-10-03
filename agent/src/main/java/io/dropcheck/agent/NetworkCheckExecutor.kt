@@ -1090,7 +1090,7 @@ class NetworkCheckExecutor(
     }
 
     /**
-     * Starts a process without a shell and collects merged stdout/stderr after it exits.
+     * Starts a process without a shell and drains bounded merged stdout/stderr while it runs.
      *
      * On timeout, the process is forcibly killed and reported as exit -1.
      */
