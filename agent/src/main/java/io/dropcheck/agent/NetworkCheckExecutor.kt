@@ -39,6 +39,19 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 
+internal fun awaitDnsAnswer(latch: CountDownLatch, timeoutMs: Int, cancel: () -> Unit): Boolean {
+    var completed = false
+    try {
+        completed = latch.await(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+        return completed
+    } catch (e: InterruptedException) {
+        Thread.currentThread().interrupt()
+        throw e
+    } finally {
+        if (!completed) cancel()
+    }
+}
+
 /**
  * Executes local network probes on a selected Android [android.net.Network].
  *
@@ -451,8 +464,16 @@ class NetworkCheckExecutor(
             .setService(GLOBAL_IP_SERVICE_HOST)
             .setRequestedFamily(requestedFamily)
             .setInterfaceName(ip.interfaceName)
+        val deadline = started + TimeUnit.MILLISECONDS.toNanos(timeoutMs.toLong())
         val resolved = try {
-            network.getAllByName(GLOBAL_IP_SERVICE_HOST).toList()
+            families.flatMap { family ->
+                val qtype = if (family == IpFamily.IP_FAMILY_IPV6) DnsRecordType.DNS_RECORD_TYPE_AAAA else DnsRecordType.DNS_RECORD_TYPE_A
+                val lookup = resolveDnsQtype(network, GLOBAL_IP_SERVICE_HOST, qtype, globalIpTimeoutMs(deadline))
+                if (lookup.error.isNotBlank()) logger.warn("global ip DNS failed qtype=$qtype error=${lookup.error}")
+                lookup.addresses
+            }
+        } catch (e: InterruptedException) {
+            throw e
         } catch (e: Exception) {
             result.error = e.toString()
             emptyList()
@@ -468,7 +489,7 @@ class NetworkCheckExecutor(
                     .build())
                 continue
             }
-            result.addAddresses(runGlobalIpProbe(network, family, address, timeoutMs))
+            result.addAddresses(runGlobalIpProbe(network, family, address, deadline))
         }
         result.elapsedMs = Duration.ofNanos(System.nanoTime() - started).toMillis()
         val built = result.build()
@@ -802,6 +823,8 @@ class NetworkCheckExecutor(
                     }
                 }
             }
+        } catch (e: InterruptedException) {
+            throw e
         } catch (e: Exception) {
             result.error = e.toString()
             logger.warn("dns error name=${command.name} error=$e")
@@ -859,11 +882,8 @@ class NetworkCheckExecutor(
                 }
             },
         )
-        val completed = runCatching {
-            latch.await(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
-        }.getOrDefault(false)
+        val completed = awaitDnsAnswer(latch, timeoutMs) { cancellation.cancel() }
         if (!completed) {
-            cancellation.cancel()
             return DnsLookup(qtype, error = "dns_timeout=${timeoutMs}ms")
         }
         logger.debug("dns qtype result name=$name qtype=${qtype.name} count=${addresses.size} values=${addresses.joinToString(",") { it.hostAddress.orEmpty() }} error=${error.ifBlank { "none" }}")
@@ -1179,7 +1199,7 @@ class NetworkCheckExecutor(
         network: Network,
         family: IpFamily,
         address: InetAddress,
-        timeoutMs: Int,
+        deadlineNanos: Long,
     ): GlobalIpAddress {
         val endpoint = globalIpEndpoint(address)
         val result = GlobalIpAddress.newBuilder()
@@ -1190,13 +1210,11 @@ class NetworkCheckExecutor(
             "probe" to "global_ip",
             "family" to family.name,
             "endpoint" to endpoint,
-            "timeout_ms" to timeoutMs,
+            "remaining_timeout_ms" to TimeUnit.NANOSECONDS.toMillis(deadlineNanos - started).coerceAtLeast(0),
         ))
         try {
             val socket = network.socketFactory.createSocket()
             socket.use {
-                it.connect(InetSocketAddress(address, GLOBAL_IP_SERVICE_PORT), timeoutMs)
-                it.soTimeout = timeoutMs
                 val request = buildString {
                     append("GET $GLOBAL_IP_SERVICE_PATH HTTP/1.1\r\n")
                     append("Host: $GLOBAL_IP_SERVICE_HOST\r\n")
@@ -1205,13 +1223,10 @@ class NetworkCheckExecutor(
                     append("Connection: close\r\n")
                     append("\r\n")
                 }
-                it.getOutputStream().write(request.toByteArray(StandardCharsets.US_ASCII))
-                it.getOutputStream().flush()
-                val response = String(it.getInputStream().readBytes(), StandardCharsets.UTF_8)
-                val parsed = parseHttpResponse(response)
-                val publicIp = firstIpLiteralLine(parsed.body).ifBlank {
-                    firstIpLiteralLine(response)
-                }
+                val response = readGlobalIpResponse(it, InetSocketAddress(address, GLOBAL_IP_SERVICE_PORT),
+                    request.toByteArray(StandardCharsets.US_ASCII), deadlineNanos)
+                val parsed = parseGlobalIpHttpResponse(response)
+                val publicIp = parsed.body.trim()
                 result.status = parsed.status
                 result.ip = publicIp
                 if (parsed.status != 200) {
@@ -1228,6 +1243,8 @@ class NetworkCheckExecutor(
                     }
                 }
             }
+        } catch (e: InterruptedException) {
+            throw e
         } catch (e: Exception) {
             result.error = e.toString()
         }
@@ -1242,63 +1259,6 @@ class NetworkCheckExecutor(
             "error" to result.error,
         ))
         return result.build()
-    }
-
-    private fun firstIpLiteralLine(text: String): String {
-        return text.lineSequence()
-            .map { it.trim() }
-            .firstOrNull { NetworkCheckPolicy.parseIpLiteral(it) != null }
-            .orEmpty()
-    }
-
-    private fun parseHttpResponse(response: String): HttpResponse {
-        val separator = when {
-            "\r\n\r\n" in response -> "\r\n\r\n"
-            "\n\n" in response -> "\n\n"
-            else -> ""
-        }
-        val headerText: String
-        val bodyText: String
-        if (separator.isBlank()) {
-            headerText = response
-            bodyText = ""
-        } else {
-            val index = response.indexOf(separator)
-            headerText = response.take(index)
-            bodyText = response.drop(index + separator.length)
-        }
-        val headerLines = headerText.lineSequence().toList()
-        val status = httpStatusRegex.find(headerLines.firstOrNull().orEmpty())
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.toIntOrNull() ?: 0
-        val chunked = headerLines.any { it.startsWith("Transfer-Encoding:", ignoreCase = true) && it.contains("chunked", ignoreCase = true) }
-        return HttpResponse(
-            status = status,
-            body = if (chunked) decodeChunkedBody(bodyText) else bodyText,
-        )
-    }
-
-    private fun decodeChunkedBody(body: String): String {
-        val out = StringBuilder()
-        var cursor = 0
-        while (cursor < body.length) {
-            val lineEnd = body.indexOf("\r\n", cursor).takeIf { it >= 0 } ?: body.indexOf('\n', cursor)
-            if (lineEnd < 0) break
-            val sizeText = body.substring(cursor, lineEnd).substringBefore(";").trim()
-            val size = sizeText.toIntOrNull(16) ?: break
-            cursor = lineEnd + if (body.startsWith("\r\n", lineEnd)) 2 else 1
-            if (size == 0) break
-            if (cursor + size > body.length) break
-            out.append(body.substring(cursor, cursor + size))
-            cursor += size
-            if (body.startsWith("\r\n", cursor)) {
-                cursor += 2
-            } else if (body.startsWith("\n", cursor)) {
-                cursor += 1
-            }
-        }
-        return out.toString()
     }
 
     private fun globalIpEndpoint(address: InetAddress): String {
@@ -1400,11 +1360,6 @@ class NetworkCheckExecutor(
         val family: IpFamily,
     )
 
-    private data class HttpResponse(
-        val status: Int,
-        val body: String,
-    )
-
     companion object {
         private const val PING_TRACE_HOP_TIMEOUT_MS = 2_000
         private const val PATH_MTU_PROBE_TIMEOUT_MS = 500
@@ -1414,7 +1369,6 @@ class NetworkCheckExecutor(
         private const val GLOBAL_IP_SERVICE_HOST = "ifconfig.me"
         private const val GLOBAL_IP_SERVICE_PATH = "/ip"
         private const val GLOBAL_IP_SERVICE_PORT = 80
-        private val httpStatusRegex = Regex("""^HTTP/\S+\s+(\d{3})""")
         private val pingReachedRegex = Regex(
             """(?im)(?:\d+\s+bytes\s+from|from)\s+([^\s:]+)(?:\s+\(([^)]+)\))?:.*time[=<]?(\d+(?:\.\d+)?)\s*ms""",
         )
