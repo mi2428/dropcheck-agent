@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -114,7 +115,7 @@ func TestRunOperationForAgentsDispatchesAndRendersResult(t *testing.T) {
 			state,
 			[]control.AgentInfo{agent},
 			op,
-			commandOutputOptions{},
+			commandOutputOptions{strict: true},
 		)
 	})
 	if err != nil {
@@ -135,6 +136,79 @@ func TestRunOperationForAgentsDispatchesAndRendersResult(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("runOperationForAgents output = %q, missing %q", out, want)
 		}
+	}
+}
+
+func TestRunOperationForAgentsStrictFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body *controlpb.AgentFrame
+		want string
+	}{
+		{"failed", &controlpb.AgentFrame{Body: &controlpb.AgentFrame_Result{Result: &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_FAILED, Message: "ping failed"}}}, "FAILED"},
+		{"canceled", &controlpb.AgentFrame{Body: &controlpb.AgentFrame_Result{Result: &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_CANCELED, Message: "ping canceled"}}}, "CANCELED"},
+		{"command error", &controlpb.AgentFrame{Body: &controlpb.AgentFrame_Error{Error: &controlpb.CommandError{Message: "agent error"}}}, "agent error"},
+	} {
+		for _, format := range []outputFormat{outputText, outputJSON} {
+			for _, strict := range []bool{false, true} {
+				t.Run(tc.name+"/"+string(format)+"/strict="+strconv.FormatBool(strict), func(t *testing.T) {
+					state, stream, cleanup := connectedShellStateWithStream(t)
+					defer cleanup()
+					agent, err := state.server.ResolveAgent("agent-a")
+					if err != nil {
+						t.Fatal(err)
+					}
+					go func() {
+						for frame := range stream.sent {
+							if frame.GetRunCommand() != nil {
+								tc.body.CommandId = frame.GetCommandId()
+								stream.recv <- tc.body
+								return
+							}
+						}
+					}()
+					op, err := command.PingOperation(command.PingOptions{Host: "example.test", Count: "1"})
+					if err != nil {
+						t.Fatal(err)
+					}
+					out, err := captureStdout(t, func() error {
+						return runOperationForAgents(context.Background(), state, []control.AgentInfo{agent}, op, commandOutputOptions{format: format, strict: strict})
+					})
+					if (err != nil) != strict || strict && !strings.Contains(err.Error(), tc.want) {
+						t.Fatalf("error = %v, strict = %v", err, strict)
+					}
+					if !strings.Contains(strings.ToLower(out), strings.ToLower(tc.want)) {
+						t.Fatalf("output = %q, want %q", out, tc.want)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestRunOperationForAgentsStrictReportsAllAgents(t *testing.T) {
+	state, streamA, cleanupA := connectedShellStateWithStream(t)
+	defer cleanupA()
+	streamB, cleanupB := connectAdditionalTestAgent(t, state.server, "session-b", "agent-b", "serial-b", 35)
+	defer cleanupB()
+	respondToPingCommand(streamA, 4)
+	go func() {
+		for frame := range streamB.sent {
+			if frame.GetRunCommand() != nil {
+				streamB.recv <- &controlpb.AgentFrame{CommandId: frame.GetCommandId(), Body: &controlpb.AgentFrame_Result{Result: &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_FAILED, Message: "agent-b failed"}}}
+				return
+			}
+		}
+	}()
+	op, err := command.PingOperation(command.PingOptions{Host: "example.test", Count: "1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := captureStdout(t, func() error {
+		return runOperationForAgents(context.Background(), state, state.server.Agents(), op, commandOutputOptions{format: outputJSON, strict: true})
+	})
+	if err == nil || !strings.Contains(err.Error(), "agent-b failed") || strings.Count(out, `"agent"`) != 2 {
+		t.Fatalf("error = %v, output = %q", err, out)
 	}
 }
 
