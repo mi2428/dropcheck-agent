@@ -136,11 +136,19 @@ func (c Client) Output(ctx context.Context, args ...string) (string, error) {
 	result, err := c.Run(ctx, args...)
 	out := result.Stdout + result.Stderr
 	if err != nil {
+		var replacements []string
+		for i := 0; i+2 < len(result.Args); i++ {
+			if result.Args[i] == "--es" && result.Args[i+1] == "grpc_token" && result.Args[i+2] != "" {
+				replacements = append(replacements, result.Args[i+2], "[REDACTED]")
+			}
+		}
+		redact := strings.NewReplacer(replacements...)
+		out = redact.Replace(out)
 		msg := strings.TrimSpace(out)
 		if msg == "" {
-			msg = err.Error()
+			msg = redact.Replace(err.Error())
 		}
-		return out, fmt.Errorf("adb %s: %s", strings.Join(result.Args, " "), msg)
+		return out, fmt.Errorf("adb %s: %s", redact.Replace(strings.Join(result.Args, " ")), msg)
 	}
 	return out, nil
 }
