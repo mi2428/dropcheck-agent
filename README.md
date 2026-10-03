@@ -427,6 +427,87 @@ this configuration and needs an authenticated TLS proxy. Changing only the
 upload bind does not expose the consoles or metrics writer. Never commit
 credentials or a deployment-specific override.
 
+### Container image inputs and updates
+
+Remote images are pinned to multi-platform manifest digests, not mutable tags.
+The common supported platforms are Linux `amd64` and `arm64`. The manifest
+inventory below lists all runnable platforms (provenance attestations are not
+platforms):
+
+| Input | Version / immutable reference | Linux platforms |
+| --- | --- | --- |
+| Pushgateway | `prom/pushgateway:v1.11.3@sha256:74fa117cef2d7e383112d25139ff1c2d2e309c35389a9e0554a47136a1482e48` | amd64, arm64, arm/v7, ppc64le, s390x |
+| Prometheus | `prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e` | amd64, arm64, arm/v7, ppc64le, riscv64, s390x |
+| Grafana (normal stack only) | `grafana/grafana:13.2.3@sha256:b28bae15e219c998fb0e0424ed724930cc61b1f61fb404d47c862f9a23f9e572` | amd64, arm64, arm/v7 |
+| Go builder (ingester, MinIO, mc) | `golang:1.26.8-alpine3.23@sha256:a8fa79c5bd40d880b52bd3b6d7669ecdcfd00e85facdd427d279efb5ddd79cb1` | amd64, arm/v6, arm/v7, arm64/v8, 386, ppc64le, riscv64, s390x |
+| Ingester / MinIO runtime | `gcr.io/distroless/static-debian13:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3` | amd64, arm64/v8, arm/v7, s390x, ppc64le, riscv64 |
+| mc shell runtime | `alpine:3.23.6@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0` | amd64, arm/v6, arm/v7, arm64/v8, 386, ppc64le, riscv64, s390x |
+
+MinIO community is now [source-only and no longer maintained](https://github.com/minio/minio#source-only-distribution).
+Its DockerHub/Quay server and mc release manifests could not be pulled anonymously
+when checked. Neither stack relies on those unavailable images or another vendor:
+`docker/minio/Dockerfile` builds the official source, verifies each archive's
+SHA-256, and uses digest-pinned build/runtime bases. The local image names identify
+source commits; `pull_policy: build` ensures Compose builds them rather than
+pulling an unrelated registry tag. These are local builds, not official prebuilt
+images. MinIO runs nonroot, as does mc.
+
+| Official source | Release | Commit | Source archive SHA-256 |
+| --- | --- | --- | --- |
+| [minio/minio](https://github.com/minio/minio/releases/tag/RELEASE.2025-10-15T17-29-55Z) | `RELEASE.2025-10-15T17-29-55Z` | `9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a` | `45521908307306e925c98d629e1c17d78c8b72b6ee242b1bfb1409f7d8ee5841` |
+| [minio/mc](https://github.com/minio/mc/releases/tag/RELEASE.2025-08-13T08-35-41Z) | `RELEASE.2025-08-13T08-35-41Z` | `7394ce0dd2a80935aded936b09fa12cbb3cb8096` | `95cd293c7119f16921a6dc515a1fb74a2227f19fd994b9c8b770a154e802ac44` |
+
+The direct integration helper builds the same MinIO Dockerfile/target and source
+image name before starting a disposable loopback-only container with test-only
+credentials. Build/daemon failures fail `make integration`, rather than silently
+skipping it. First builds download and compile MinIO's modules; builds use Go
+1.26.8, `GOFLAGS=-p=1`, and two Go workers. Source/module/base inputs are fixed;
+local image layer timestamps and image IDs need not be byte-identical between
+container builders. AGPL obligations and the upstream maintenance status remain
+the operator's responsibility, including reviewing future security advisories.
+
+For updates, review the official [Pushgateway](https://github.com/prometheus/pushgateway/releases),
+[Prometheus](https://github.com/prometheus/prometheus/releases),
+[Grafana](https://github.com/grafana/grafana/releases),
+[Go image](https://github.com/docker-library/official-images/blob/master/library/golang),
+[Alpine image](https://github.com/docker-library/official-images/blob/master/library/alpine),
+and [distroless](https://github.com/GoogleContainerTools/distroless) metadata.
+Resolve the release's public manifest digest and confirm both `amd64` and `arm64`
+entries, then update both Compose files, Dockerfiles, this inventory, and the
+helper together. For MinIO/mc, review the official release, resolve its full
+commit, and recheck the `codeload.github.com/minio/<repo>/tar.gz/<commit>` archive
+hash. Do not substitute `latest` or bypass checksum verification. In an authorized
+disposable runtime, validate both configs and rebuild:
+
+```sh
+python3 docker/check-config.py
+docker compose config --quiet
+docker compose -f docker-compose.test.yml config --quiet
+docker compose build minio minio-init ingester
+make integration GOFLAGS=-p=1
+# In the disposable stack's environment, disable periodic backfills so the
+# archive check proves notification delivery rather than a polling fallback.
+export DROPCHECK_INGESTER_POLL_INTERVAL=1h
+docker compose -p image-check up -d --build
+python3 docker/check-stack.py --project image-check
+# Repeat with -f docker-compose.test.yml and a separate project/port set.
+```
+
+Then exercise real uploads/notifications, replacement metrics and Prometheus
+scrapes, and Grafana's datasource health in the normal stack. A manifest listing
+is architecture availability, not proof that every architecture was executed.
+Record actual tested platforms and results with the change; do not count a
+skipped integration test or a successful pull as a working-stack test.
+
+This pinned set was exercised on Linux `arm64` with Podman 6.1.3's Docker API
+and Compose 5.5.1 (`DOCKER_BUILDKIT=0` for that runtime): both Compose stacks
+passed archive-only upload permissions, actual MinIO notifications, ingestion,
+same-group replacement/removal of old metrics, stale-archive ordering, and
+Prometheus scrapes. The normal stack also passed Grafana authentication and
+datasource health. All three direct ingester integration tests passed without
+skips. `amd64` is present in the pinned base/service manifests, but was not
+executed in this verification; run the same checks on the deployment platform.
+
 ### Dropcheck Harness
 
 Dropcheck Harness is a Go test harness for ADB-backed Android network checks.
@@ -656,7 +737,7 @@ handset, or Wi-Fi credentials are needed by either job.
 
 Docker-backed `make integration` is an explicit, separate check: it needs a
 Docker daemon and disposable MinIO containers, and is not run by this workflow.
-Publicly pullable, tested image pins must be established separately (issue #24).
+Image/source inputs and the update checks are listed above.
 Run it in an authorized isolated environment when changing ingestion or
 container images; a skipped MinIO test is not a successful integration check.
 Live `make e2e` and `-tags harness` device tests are excluded: they require

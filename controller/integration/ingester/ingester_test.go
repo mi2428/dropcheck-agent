@@ -37,7 +37,6 @@ const (
 
 var (
 	minIOEndpoint string
-	minIOSkip     string
 	minIOCleanup  func()
 )
 
@@ -49,8 +48,8 @@ func TestMain(m *testing.M) {
 
 	service, err := startMinIOContainer()
 	if err != nil {
-		minIOSkip = err.Error()
-		os.Exit(m.Run())
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 	minIOEndpoint = service.endpoint
 	minIOCleanup = service.close
@@ -163,9 +162,6 @@ type integrationEnv struct {
 
 func newIntegrationEnv(t *testing.T, name string) *integrationEnv {
 	t.Helper()
-	if minIOSkip != "" {
-		t.Skipf("MinIO integration skipped: %s", minIOSkip)
-	}
 	client := newMinIOClient(t)
 	bucket := fmt.Sprintf("dropcheck-it-%s-%d", strings.ReplaceAll(name, "_", "-"), time.Now().UnixNano())
 	if err := client.MakeBucket(context.Background(), bucket, minio.MakeBucketOptions{}); err != nil {
@@ -240,10 +236,14 @@ func startMinIOContainer() (*minIOService, error) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		return nil, fmt.Errorf("docker command not found: %w", err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	if out, err := exec.CommandContext(ctx, "docker", "version", "--format", "{{.Server.Version}}").CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("docker daemon unavailable: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	const image = "dropcheck-minio:9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a"
+	if out, err := exec.CommandContext(ctx, "docker", "build", "--target", "minio", "--tag", image, "../../../docker/minio").CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("build MinIO source image: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 	port, err := freePort()
 	if err != nil {
@@ -256,7 +256,7 @@ func startMinIOContainer() (*minIOService, error) {
 		"-p", fmt.Sprintf("127.0.0.1:%d:9000", port),
 		"-e", "MINIO_ROOT_USER=" + minIOAccessKey,
 		"-e", "MINIO_ROOT_PASSWORD=" + minIOSecretKey,
-		"minio/minio:latest",
+		image,
 		"server", "/data",
 	}
 	if out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput(); err != nil {
