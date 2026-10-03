@@ -6,12 +6,35 @@ import io.dropcheck.agent.grpc.CycleWifi
 import io.dropcheck.agent.grpc.WaitWifiConnected
 import io.dropcheck.agent.grpc.WifiBand
 import io.dropcheck.agent.grpc.WifiCycleResult
+import io.dropcheck.agent.grpc.WifiScan
+import io.dropcheck.agent.grpc.WifiScanResult
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WifiCommandPolicyTest {
+    @Test
+    fun registrationExceptionReturnsDiagnosticsWithoutStartingScan() {
+        var scanStarted = false
+        val cached = WifiScan.newBuilder()
+            .addResults(WifiScanResult.newBuilder().setSsid("TestSSID"))
+            .build()
+        fun requestScan(): WifiScan {
+            registerFreshScanReceiver(
+                register = { throw SecurityException("test denial") },
+                onFailure = { return cached.toBuilder().addErrors("register_receiver=${it.javaClass.simpleName}").build() },
+            )
+            scanStarted = true
+            return WifiScan.getDefaultInstance()
+        }
+        val scan = requestScan()
+        assertFalse(scanStarted)
+        assertEquals(cached.resultsList, scan.resultsList)
+        assertEquals(listOf("register_receiver=SecurityException"), scan.errorsList)
+        assertFalse(WifiCommandPolicy.freshScanCompleted(scan.errorsList))
+    }
+
     @Test
     fun appliesProtoZeroTimeoutDefaults() {
         assertEquals(12_345, WifiCommandPolicy.effectiveTimeoutMs(12_345, WifiCommandPolicy.DEFAULT_WAIT_TIMEOUT_MS))
@@ -25,6 +48,7 @@ class WifiCommandPolicyTest {
         assertTrue(WifiCommandPolicy.freshScanCompleted(listOf("get_scan_results=SecurityException:denied")))
         assertFalse(WifiCommandPolicy.freshScanCompleted(listOf("start_scan=false")))
         assertFalse(WifiCommandPolicy.freshScanCompleted(listOf("scan_broadcast_timeout=10000ms")))
+        assertFalse(WifiCommandPolicy.freshScanCompleted(listOf("register_receiver=SecurityException:denied")))
 
         assertTrue(WifiCommandPolicy.scanDetailMatched(resultCount = 1, errors = emptyList()))
         assertFalse(WifiCommandPolicy.scanDetailMatched(resultCount = 0, errors = emptyList()))
