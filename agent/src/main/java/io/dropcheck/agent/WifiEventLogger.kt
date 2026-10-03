@@ -374,12 +374,12 @@ internal class WifiEventLogger(
         val active = connectivity.activeNetwork
         val networks = connectivity.allNetworks.toList()
         val wifiNetworks = networks.filter { network ->
-            connectivity.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+            connectivity.getNetworkCapabilities(network)?.isPhysicalWifiNetwork() == true
         }
         val selected = wifiNetworks.firstOrNull { it == active } ?: wifiNetworks.firstOrNull()
         val caps = selected?.let { connectivity.getNetworkCapabilities(it) }
         val link = selected?.let { connectivity.getLinkProperties(it) }
-        val info = bestWifiInfo(caps?.transportInfo as? WifiInfo)
+        val info = networkWifiInfo(appContext, selected, caps)
         val mapped = info?.let { runCatching { mapper.wifiConnection(it) }.getOrNull() }
         val addresses = link?.linkAddresses?.map { it.toString() }.orEmpty()
         val dnsServers = link?.dnsServers?.mapNotNull { it.hostAddress }.orEmpty()
@@ -457,7 +457,7 @@ internal class WifiEventLogger(
             add("signal_strength" to (caps?.signalStrength ?: Int.MIN_VALUE))
             add("downstream_kbps" to (caps?.linkDownstreamBandwidthKbps ?: 0))
             add("upstream_kbps" to (caps?.linkUpstreamBandwidthKbps ?: 0))
-            val info = bestWifiInfo(caps?.transportInfo as? WifiInfo)
+            val info = networkWifiInfo(appContext, network, caps)
             if (info != null) addAll(wifiInfoFields(info))
             if (link != null) addAll(linkFields(link))
         }
@@ -524,14 +524,6 @@ internal class WifiEventLogger(
 
     private fun capabilityNames(caps: NetworkCapabilities): List<String> {
         return caps.capabilities.map { capabilityName(it) }
-    }
-
-    @SuppressLint("MissingPermission")
-    private fun bestWifiInfo(primary: WifiInfo?): WifiInfo? {
-        if (primary != null && primary.ssid != WifiManager.UNKNOWN_SSID && primary.bssid != PLACEHOLDER_BSSID) {
-            return primary
-        }
-        return wifi.connectionInfo ?: primary
     }
 
     private inline fun <reified T> Intent.getParcelableExtraCompat(name: String): T? {
