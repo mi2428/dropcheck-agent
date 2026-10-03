@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <queries>
+        <package android:name="io.dropcheck.agent" />
+    </queries>
+    <application>
+        <!-- Standalone test activity runs in the test APK UID, even with an active agent session. -->
+        <activity android:name="io.dropcheck.agent.UntrustedServiceCallerActivity" android:exported="true" />
+    </application>
+    <instrumentation
+        android:name="io.dropcheck.agent.ServiceSameUidInstrumentation"
+        android:targetPackage="io.dropcheck.agent" />
+</manifest>

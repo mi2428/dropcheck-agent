@@ -9,6 +9,18 @@ import org.junit.Test
 
 class AgentManifestTest {
     @Test
+    fun exportedServiceRequiresPlatformDumpPermissionForCrossUidCallers() {
+        val services = parseManifest().getElementsByTagName("service")
+        val service = (0 until services.length).map { services.item(it) }.single {
+            it.attributes.getNamedItemNS(ANDROID_NS, "name")?.nodeValue == ".AgentService"
+        }
+        assertEquals("true", service.attributes.getNamedItemNS(ANDROID_NS, "exported")?.nodeValue)
+        assertEquals("android.permission.DUMP", service.attributes.getNamedItemNS(ANDROID_NS, "permission")?.nodeValue)
+        // The agent itself needs no DUMP grant; Android permits calls by the owning UID.
+        assertFalse(manifestFile().readText().contains("<uses-permission android:name=\"android.permission.DUMP\""))
+    }
+
+    @Test
     fun agentServiceUsesConnectedDeviceAndLocationForegroundTypes() {
         val manifest = parseManifest()
         val services = manifest.getElementsByTagName("service")

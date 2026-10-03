@@ -104,6 +104,43 @@ $ adb -s 35251JEHN00258 shell pm grant io.dropcheck.agent android.permission.NEA
 
 Keep Location enabled on the device; Android hides SSID, BSSID, scan, and MLO details without it.
 
+### Controller service caller boundary
+
+`AgentService` remains exported for `adb shell am start-foreground-service`, but Android checks
+`android.permission.DUMP` on the original caller **before** delivering a start intent, even when
+the service is already running. The platform shell holds this permission; Android also allows
+the component's own UID, so clock-widget start/stop needs no extra grant. The agent does not
+request DUMP. Ordinary installed apps cannot obtain it through a runtime permission prompt.
+Platform/privileged apps and apps explicitly granted this development permission by an ADB
+operator are trusted callers too; do not grant DUMP to untrusted apps. Device Owner alone is
+not the service-start authorization, and the gRPC token does not replace this caller boundary.
+
+This uses the platform's [DUMP declaration](https://android.googlesource.com/platform/frameworks/base/+/android-16.0.0_r1/core/res/AndroidManifest.xml)
+(`signature|privileged|development`), [shell grant](https://android.googlesource.com/platform/frameworks/base/+/android-12.0.0_r1/packages/Shell/AndroidManifest.xml),
+and [component UID/permission check](https://android.googlesource.com/platform/frameworks/base/+/android-12.0.0_r1/core/java/android/app/ActivityManager.java).
+No caller UID is inferred from `onStartCommand`, which is dispatched by the system.
+
+Device checks are still required on dedicated API 31/32 and current supported handsets.
+Build the minimal native instrumentation APK with `./gradlew :agent:assembleDebugAndroidTest`.
+After installing both debug APKs, run these **device-only** checks:
+
+```sh
+adb shell am start -W -n io.dropcheck.agent.test/io.dropcheck.agent.UntrustedServiceCallerActivity
+adb shell run-as io.dropcheck.agent.test cat files/service-caller-result
+adb shell am instrument -w io.dropcheck.agent.test/io.dropcheck.agent.ServiceSameUidInstrumentation
+```
+
+The test activity runs in its own test package (a separate UID with no DUMP grant) and requires
+permission-specific denial for controller and widget intents. Run it once with the service
+stopped and again while a normal controller session is active; the latter session must retain
+its connection and continue a harmless status command, with no superseded-session event.
+The native instrumentation targets the agent UID and exercises widget observer start/stop only.
+Run instrumentation separately from the active-session denial check: Android can restart the
+instrumented app. The standalone denial activity does not instrument or restart the agent.
+Separately run the normal controller `show wifi status` ADB flow twice to verify authorized
+start and session replacement. FGS lifecycle/permissions and actual widget updates must also
+remain healthy; a background-start restriction alone is not evidence of caller authorization.
+
 ## Features
 
 The controller/agent toolchain has several entry points that share the same typed agent operations.
