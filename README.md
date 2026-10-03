@@ -141,6 +141,21 @@ Separately run the normal controller `show wifi status` ADB flow twice to verify
 start and session replacement. FGS lifecycle/permissions and actual widget updates must also
 remain healthy; a background-start restriction alone is not evidence of caller authorization.
 
+### Wi-Fi Network identity
+
+Per-Network status, SSID selectors, widgets, and event logs use WifiInfo associated with that
+exact Android `Network`. On-demand capabilities redact location-sensitive identity on API 31+;
+when necessary, a location-inclusive network callback obtains the associated snapshot with a
+one-second bound and unregisters after each lookup. It never assigns global
+`WifiManager.connectionInfo` to another Network or keeps an inferred identity cache.
+This follows the platform's [on-demand redaction and callback contract](https://android.googlesource.com/platform/packages/modules/Connectivity/+/refs/heads/android12-release/framework/src/android/net/ConnectivityManager.java).
+The existing Location/visibility grants remain required. Missing/redacted identity is logged
+as `wifi.identity.unavailable`; that candidate is explicitly rejected, while selection continues
+to any known matching Network. If no match can be selected and a candidate's identity is unknown,
+the specific SSID selector fails with an identity-unavailable error rather than guessing.
+A blank selector needs no SSID identity. VPNs may report their underlying Wi-Fi transport but are not physical Wi-Fi
+candidates; their IP status must not inherit the underlying network's WifiInfo.
+
 ## Features
 
 The controller/agent toolchain has several entry points that share the same typed agent operations.

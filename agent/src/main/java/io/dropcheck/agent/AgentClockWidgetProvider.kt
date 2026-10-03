@@ -318,7 +318,7 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
             val activeNetwork = connectivity.activeNetwork
             val activeCapabilities = activeNetwork
                 ?.let { connectivity.getNetworkCapabilities(it) }
-            if (activeCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
+            if (activeCapabilities?.isPhysicalWifiNetwork() == true) {
                 wifiSnapshotForNetwork(appContext, connectivity, activeNetwork, activeCapabilities)?.let {
                     return it
                 }
@@ -326,7 +326,7 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
 
             connectivity.allNetworks.orEmpty().forEach { network ->
                 val capabilities = connectivity.getNetworkCapabilities(network) ?: return@forEach
-                if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                if (capabilities.isPhysicalWifiNetwork()) {
                     wifiSnapshotForNetwork(appContext, connectivity, network, capabilities)?.let {
                         return it
                     }
@@ -342,7 +342,7 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
             network: Network,
             capabilities: NetworkCapabilities,
         ): WifiSnapshot? {
-            val info = bestWifiInfo(context, capabilities.transportInfo as? WifiInfo)
+            val info = networkWifiInfo(context, network, capabilities)
             if (!clockWidgetWifiNetworkIsDisplayable(capabilities.isLocalWifiNetwork(), info != null)) {
                 return null
             }
@@ -360,15 +360,6 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
                 info = null,
                 addresses = ethernetAddresses(connectivity),
             )
-        }
-
-        @Suppress("DEPRECATION")
-        private fun bestWifiInfo(context: Context, primary: WifiInfo?): WifiInfo? {
-            if (primary?.isUsableWifiInfo() == true) return primary
-
-            val wifi = context.applicationContext.getSystemService(WifiManager::class.java)
-            val fallback = wifi?.connectionInfo
-            return if (fallback?.isUsableWifiInfo() == true) fallback else null
         }
 
         private fun cleanEssid(ssid: String?): String {
@@ -503,15 +494,6 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
             LocationManager.NETWORK_PROVIDER,
             LocationManager.PASSIVE_PROVIDER,
         )
-
-        private fun WifiInfo.isUsableWifiInfo(): Boolean {
-            return clockWidgetWifiInfoIsUsable(
-                networkId = networkId,
-                ssid = ssid,
-                bssid = bssid,
-                supplicantState = supplicantState?.toString(),
-            )
-        }
 
         private fun NetworkCapabilities.isLocalWifiNetwork(): Boolean {
             return Build.VERSION.SDK_INT >= 35 &&

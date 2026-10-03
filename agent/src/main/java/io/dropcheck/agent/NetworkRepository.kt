@@ -13,7 +13,6 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.wifi.ScanResult
-import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Build
 import io.dropcheck.agent.grpc.DiagnosticField
@@ -139,16 +138,14 @@ class NetworkRepository(
         val active = connectivity.activeNetwork
         val wifiNetworks = connectivity.allNetworks.filter { network ->
             val caps = connectivity.getNetworkCapabilities(network) ?: return@filter false
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+            caps.isPhysicalWifiNetwork()
         }
         val selected = wifiNetworks.firstOrNull { it == active } ?: wifiNetworks.firstOrNull()
         logger.debug("wifiStatus active=${active ?: "none"} wifi_networks=${wifiNetworks.size} selected=${selected ?: "none"} manager_enabled=${wifi.isWifiEnabled} manager_state=${wifiStateName(wifi.wifiState)}")
         wifiNetworks.forEachIndexed { index, network ->
             logger.debug("wifiStatus wifi_candidate[$index] network=$network ${describeNetwork(network)}")
         }
-        val bestInfo = bestWifiInfo(selected?.let {
-            connectivity.getNetworkCapabilities(it)?.transportInfo as? WifiInfo
-        })
+        val bestInfo = networkWifiInfo(context, selected, selected?.let { connectivity.getNetworkCapabilities(it) })
 
         val builder = WifiStatus.newBuilder()
             .setEnabled(wifi.isWifiEnabled)
@@ -630,20 +627,10 @@ class NetworkRepository(
         if (dumpCandidates) {
             logger.debug("selectNetwork selector=${selectorSummary(selector)} active=${active ?: "none"} all_networks=${connectivity.allNetworks.size}")
         }
-        if (active != null && matches(active, selector)) {
+        val candidates = (listOfNotNull(active) + connectivity.allNetworks).distinct()
+        val selected = selectWifiCandidate(candidates, classify = { networkMatch(it, selector) }) { network, match ->
             if (dumpCandidates) {
-                logger.debug("selectNetwork chose active network=$active ${describeNetwork(active)}")
-            }
-            return active
-        }
-        var selected: Network? = null
-        for (network in connectivity.allNetworks) {
-            val match = matches(network, selector)
-            if (dumpCandidates) {
-                logger.debug("selectNetwork candidate network=$network match=$match reject_reason=${rejectReason(network, selector)} ${describeNetwork(network)}")
-            }
-            if (match && selected == null) {
-                selected = network
+                logger.debug("selectNetwork candidate network=$network match=${match == WifiNetworkMatch.MATCH} reject_reason=${match.rejectReason} ${describeNetwork(network)}")
             }
         }
         if (dumpCandidates && selected == null) {
@@ -676,11 +663,7 @@ class NetworkRepository(
                 builder.addAllSubscriptionIds(caps.subscriptionIds.map { it.toInt() })
             }
             builder.rawCapabilities = caps.toString()
-            val info = if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
-                bestWifiInfo(caps.transportInfo as? WifiInfo)
-            } else {
-                null
-            }
+            val info = networkWifiInfo(context, network, caps)
             if (info != null) {
                 builder.wifi = mapper.wifiConnection(info)
             }
@@ -710,28 +693,12 @@ class NetworkRepository(
         return built
     }
 
-    private fun matches(network: Network, selector: NetworkSelector): Boolean {
-        val caps = connectivity.getNetworkCapabilities(network) ?: return false
-        return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) && ssidMatches(caps, selector.ssid)
-    }
-
-    private fun rejectReason(network: Network, selector: NetworkSelector): String {
-        val caps = connectivity.getNetworkCapabilities(network) ?: return "no_capabilities"
-        if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
-            return "not_wifi"
-        }
-        if (!ssidMatches(caps, selector.ssid)) {
-            val actual = bestWifiInfo(caps.transportInfo as? WifiInfo)?.ssid?.trim('"').orEmpty()
-            return "ssid_mismatch actual=${actual.ifBlank { "unknown" }}"
-        }
-        return "none"
-    }
-
-    private fun ssidMatches(caps: NetworkCapabilities, expected: String): Boolean {
-        if (expected.isBlank()) return true
-        val actual = bestWifiInfo(caps.transportInfo as? WifiInfo)?.ssid?.trim('"') ?: return false
-        if (actual == WifiManager.UNKNOWN_SSID) return false
-        return actual == expected
+    private fun networkMatch(network: Network, selector: NetworkSelector): WifiNetworkMatch {
+        val caps = connectivity.getNetworkCapabilities(network) ?: return WifiNetworkMatch.NO_CAPABILITIES
+        if (!caps.isPhysicalWifiNetwork()) return WifiNetworkMatch.NOT_WIFI
+        if (selector.ssid.isBlank()) return WifiNetworkMatch.MATCH
+        val actual = networkWifiInfo(context, network, caps)?.ssid.orEmpty()
+        return networkWifiSsidMatch(selector.ssid, actual)
     }
 
     private fun transports(caps: NetworkCapabilities): List<String> = buildList {
@@ -753,12 +720,8 @@ class NetworkRepository(
         val caps = connectivity.getNetworkCapabilities(network)
         val link = connectivity.getLinkProperties(network)
         val transports = caps?.let { transports(it).joinToString(",") } ?: "none"
-        val wifiInfo = if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
-            caps.transportInfo as? WifiInfo
-        } else {
-            null
-        }
-        val ssid = if (wifiInfo != null) bestWifiInfo(wifiInfo)?.ssid?.trim('"').orEmpty() else ""
+        val wifiInfo = networkWifiInfo(context, network, caps)
+        val ssid = wifiInfo?.ssid?.trim('"').orEmpty()
         val addresses = link?.linkAddresses?.joinToString(",") { it.toString() }.orEmpty()
         val dns = link?.dnsServers?.joinToString(",") { it.hostAddress.orEmpty() }.orEmpty()
         val routes = link?.routes?.joinToString(" | ") { it.toString() }.orEmpty()
@@ -815,26 +778,6 @@ class NetworkRepository(
             "internet=${ip?.internet ?: false}",
             "addresses=${ip?.addressesList?.joinToString(",").orEmpty()}",
         ).joinToString(" ")
-    }
-
-    /**
-     * Falls back to WifiManager.connectionInfo when NetworkCapabilities contains
-     * redacted placeholder Wi-Fi info.
-     */
-    @SuppressLint("MissingPermission")
-    private fun bestWifiInfo(primary: WifiInfo?): WifiInfo? {
-        if (isUsableWifiInfo(primary)) {
-            return primary
-        }
-        val fallback = wifi.connectionInfo
-        return if (isUsableWifiInfo(fallback)) fallback else null
-    }
-
-    private fun isUsableWifiInfo(info: WifiInfo?): Boolean {
-        if (info == null) return false
-        if (isKnownWifiSsid(info.ssid.orEmpty()) || isKnownWifiBssid(info.bssid.orEmpty())) return true
-        val connectedState = info.supplicantState?.toString().equals("COMPLETED", ignoreCase = true)
-        return info.networkId >= 0 && connectedState
     }
 
     private fun permissionSummary(): List<String> {
