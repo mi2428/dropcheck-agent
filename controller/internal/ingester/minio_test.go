@@ -59,3 +59,24 @@ func TestMinIOListingStreamsPagesAndStopsEarly(t *testing.T) {
 		})
 	}
 }
+
+func TestMinIOGetObjectPreservesReadCap(t *testing.T) {
+	const limit = 32
+	for _, size := range []int{limit, limit + 1} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Length", fmt.Sprint(size))
+			w.Header().Set("Last-Modified", "Mon, 02 Jan 2006 15:04:05 GMT")
+			_, _ = fmt.Fprint(w, strings.Repeat("x", size))
+		}))
+		client, err := minio.New(strings.TrimPrefix(server.URL, "http://"), &minio.Options{Region: "us-east-1"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		store := &MinIOStore{client: client, bucket: "synthetic", limit: limit}
+		data, err := store.GetObject(context.Background(), "synthetic.pb")
+		server.Close()
+		if (err != nil) != (size > limit) || (err == nil && len(data) != size) {
+			t.Fatalf("size=%d read=%d err=%v", size, len(data), err)
+		}
+	}
+}

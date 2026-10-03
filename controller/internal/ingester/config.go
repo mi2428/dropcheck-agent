@@ -25,6 +25,8 @@ const (
 type Config struct {
 	// ListenAddr is the HTTP bind address for health checks and MinIO events.
 	ListenAddr string
+	// WebhookToken is the required single-token MinIO webhook bearer credential.
+	WebhookToken string
 	// MinIOEndpoint is the host:port for the S3-compatible object store.
 	MinIOEndpoint string
 	// MinIOAccessKey authenticates object store reads and bucket scans.
@@ -65,6 +67,7 @@ func ConfigFromEnv() (Config, error) {
 	}
 	cfg := Config{
 		ListenAddr:     envOr("DROPCHECK_INGESTER_ADDR", defaultListenAddr),
+		WebhookToken:   os.Getenv("DROPCHECK_INGESTER_WEBHOOK_TOKEN"),
 		MinIOEndpoint:  envOrAny([]string{"DROPCHECK_INGESTER_MINIO_ENDPOINT", "DROPCHECK_MINIO_ENDPOINT"}, defaultMinIOEndpoint),
 		MinIOAccessKey: envOrAny([]string{"DROPCHECK_INGESTER_MINIO_ACCESS_KEY", "DROPCHECK_MINIO_ACCESS_KEY"}, defaultMinIOAccessKey),
 		MinIOSecretKey: envOrAny([]string{"DROPCHECK_INGESTER_MINIO_SECRET_KEY", "DROPCHECK_MINIO_SECRET_KEY"}, defaultMinIOSecretKey),
@@ -76,6 +79,9 @@ func ConfigFromEnv() (Config, error) {
 		PushJob:        envOrAny([]string{"DROPCHECK_INGESTER_JOB", "DROPCHECK_PUSH_JOB"}, defaultPushJob),
 		BatchInterval:  interval,
 		MaxObjectBytes: maxObjectBytes,
+	}
+	if err := validateWebhookToken(cfg.WebhookToken); err != nil {
+		return Config{}, err
 	}
 	if cfg.MinIOEndpoint == "" {
 		return Config{}, fmt.Errorf("DROPCHECK_MINIO_ENDPOINT is required")
@@ -96,6 +102,18 @@ func ConfigFromEnv() (Config, error) {
 		return Config{}, fmt.Errorf("DROPCHECK_INGESTER_MAX_OBJECT_BYTES must be positive")
 	}
 	return cfg, nil
+}
+
+func validateWebhookToken(token string) error {
+	// RFC 6750 b64token; whitespace would change MinIO's Authorization syntax.
+	unpadded := strings.TrimRight(token, "=")
+	if unpadded == "" || strings.ContainsFunc(unpadded, func(r rune) bool {
+		return !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || strings.ContainsRune("-._~+/", r))
+	}) {
+		return fmt.Errorf("DROPCHECK_INGESTER_WEBHOOK_TOKEN must be a nonempty single bearer token")
+	}
+	return nil
 }
 
 func envOr(name, fallback string) string {

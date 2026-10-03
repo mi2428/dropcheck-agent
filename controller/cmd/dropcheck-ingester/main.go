@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"log"
 	"os"
 	"os/signal"
@@ -27,7 +26,8 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := app.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+	// Run returns the exact sentinel only for clean cancellation, not joined cleanup failures.
+	if err := app.Run(ctx); err != nil && err != context.Canceled {
 		logger.Fatalf("run: %v", err)
 	}
 }

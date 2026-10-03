@@ -21,7 +21,7 @@ func TestProcessObjectParsesArchiveAndPushesMetrics(t *testing.T) {
 	pusher := &fakePusher{}
 	ing := New(testConfig(), &fakeStore{objects: map[string][]byte{"device/run-1.pb": data}}, pusher, log.New(testWriter{t}, "", 0))
 
-	if err := ing.ProcessObject(context.Background(), ObjectRef{Key: "device/run-1.pb", ETag: "etag", Size: int64(len(data))}); err != nil {
+	if err := ing.ProcessObject(context.Background(), ObjectRef{Bucket: "dropcheck", Key: "device/run-1.pb", ETag: "etag", Size: int64(len(data))}); err != nil {
 		t.Fatalf("ProcessObject: %v", err)
 	}
 	if len(pusher.pushes) != 1 {
@@ -33,7 +33,7 @@ func TestProcessObjectParsesArchiveAndPushesMetrics(t *testing.T) {
 	})
 	assertSample(t, pusher.pushes[0].batch, MetricSuccess, nil, 1)
 
-	if err := ing.ProcessObject(context.Background(), ObjectRef{Key: "device/run-1.pb", ETag: "etag", Size: int64(len(data))}); err != nil {
+	if err := ing.ProcessObject(context.Background(), ObjectRef{Bucket: "dropcheck", Key: "device/run-1.pb", ETag: "etag", Size: int64(len(data))}); err != nil {
 		t.Fatalf("dedup ProcessObject: %v", err)
 	}
 	if len(pusher.pushes) != 1 {
@@ -45,7 +45,7 @@ func TestProcessObjectReturnsDecodeFailureWithoutPushingMetrics(t *testing.T) {
 	pusher := &fakePusher{}
 	ing := New(testConfig(), &fakeStore{objects: map[string][]byte{"bad.pb": []byte("not protobuf")}}, pusher, log.New(testWriter{t}, "", 0))
 
-	err := ing.ProcessObject(context.Background(), ObjectRef{Key: "bad.pb", ETag: "bad", Size: 12})
+	err := ing.ProcessObject(context.Background(), ObjectRef{Bucket: "dropcheck", Key: "bad.pb", ETag: "bad", Size: 12})
 	if err == nil {
 		t.Fatal("ProcessObject err = nil, want decode error")
 	}
@@ -72,7 +72,7 @@ func TestProcessObjectKeepsNewestArchiveAcrossArrivalAndBackfillOrder(t *testing
 			keys = []string{"new.pb", "old.pb"}
 		}
 		for _, key := range keys {
-			if err := ing.ProcessObject(context.Background(), ObjectRef{Key: key, ETag: key, Size: int64(len(objects[key]))}); err != nil {
+			if err := ing.ProcessObject(context.Background(), ObjectRef{Bucket: "dropcheck", Key: key, ETag: key, Size: int64(len(objects[key]))}); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -107,7 +107,7 @@ func TestProcessObjectConcurrentNewerAndOlder(t *testing.T) {
 		wg.Add(1)
 		go func(key string) {
 			defer wg.Done()
-			if err := ing.ProcessObject(context.Background(), ObjectRef{Key: key, ETag: key, Size: int64(len(objects[key]))}); err != nil {
+			if err := ing.ProcessObject(context.Background(), ObjectRef{Bucket: "dropcheck", Key: key, ETag: key, Size: int64(len(objects[key]))}); err != nil {
 				t.Errorf("ProcessObject(%s): %v", key, err)
 			}
 		}(key)
@@ -145,6 +145,7 @@ func lastSuccessValue(pusher *fakePusher) float64 {
 func testConfig() Config {
 	return Config{
 		ListenAddr:     ":0",
+		WebhookToken:   "synthetic-webhook-token",
 		MinIOBucket:    "dropcheck",
 		ObjectSuffix:   ".pb",
 		PushgatewayURL: "http://pushgateway:9091",
@@ -167,7 +168,7 @@ func (s *fakeStore) GetObject(_ context.Context, key string) ([]byte, error) {
 func (s *fakeStore) ListObjects(context.Context) iter.Seq2[ObjectRef, error] {
 	return func(yield func(ObjectRef, error) bool) {
 		for key, data := range s.objects {
-			if !yield(ObjectRef{Key: key, Size: int64(len(data))}, nil) {
+			if !yield(ObjectRef{Bucket: "dropcheck", Key: key, Size: int64(len(data))}, nil) {
 				return
 			}
 		}

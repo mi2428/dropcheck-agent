@@ -33,12 +33,10 @@ import (
 const (
 	minIOAccessKey = "dropcheck"
 	minIOSecretKey = "dropcheck-secret"
+	webhookToken   = "synthetic-webhook-token"
 )
 
-var (
-	minIOEndpoint string
-	minIOCleanup  func()
-)
+var minIOEndpoint string
 
 func TestMain(m *testing.M) {
 	if endpoint := strings.TrimSpace(os.Getenv("DROPCHECK_INGESTER_INTEGRATION_MINIO_ENDPOINT")); endpoint != "" {
@@ -52,9 +50,8 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	minIOEndpoint = service.endpoint
-	minIOCleanup = service.close
 	code := m.Run()
-	minIOCleanup()
+	service.close()
 	os.Exit(code)
 }
 
@@ -113,6 +110,7 @@ func TestNotificationPathFetchesMinIOObjectAndDeduplicatesSameObject(t *testing.
 
 	for attempt := 0; attempt < 2; attempt++ {
 		req := httptest.NewRequest(http.MethodPost, "/minio/events", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+webhookToken)
 		rec := httptest.NewRecorder()
 		ing.Handler().ServeHTTP(rec, req)
 		if rec.Code != http.StatusAccepted {
@@ -188,6 +186,7 @@ func (e *integrationEnv) newIngester(t *testing.T, prefix string) *core.Ingester
 	t.Helper()
 	cfg := core.Config{
 		ListenAddr:     ":0",
+		WebhookToken:   webhookToken,
 		MinIOEndpoint:  minIOEndpoint,
 		MinIOAccessKey: minIOAccessKey,
 		MinIOSecretKey: minIOSecretKey,
