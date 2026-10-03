@@ -379,6 +379,54 @@ Reproduce the scale check from `controller/`:
 go test -p 1 ./internal/ingester -run '^$' -bench '^BenchmarkBackfillScale$' -benchtime=1x -benchmem
 ```
 
+### Local archive/observability stack
+
+Both Compose files are trusted-local development stacks, not an internet-facing
+deployment. Choose dedicated credentials before starting; there are no default
+MinIO root or Grafana admin passwords. Supply these variables through your secret
+manager or a protected, untracked environment file. For a disposable local stack:
+
+```sh
+export MINIO_ROOT_USER=archive-admin
+export MINIO_ROOT_PASSWORD="$(openssl rand -hex 24)"
+export GRAFANA_ADMIN_USER=dashboard-admin
+export GRAFANA_ADMIN_PASSWORD="$(openssl rand -hex 24)"
+docker compose config --quiet
+docker compose -f docker-compose.test.yml config --quiet
+docker compose up -d --build
+```
+
+Retain the chosen credentials for the lifetime of the stack; do not regenerate
+them while reusing its volumes. The test Compose file does not require Grafana
+credentials. Local defaults publish only MinIO's S3 API (`127.0.0.1:8080`), its
+console (`127.0.0.1:8081`), Prometheus (`127.0.0.1:9090`), and, in the normal stack,
+Grafana (`127.0.0.1:3000`). The ingester webhook/health endpoint and unauthenticated
+Pushgateway writer are container-to-container only, with no host publishing.
+Query metrics through Prometheus; Grafana's provisioned Prometheus datasource
+uses the private Compose network.
+
+`minio-init` permits anonymous `s3:PutObject` only for `*.pb` archive keys in
+`MINIO_BUCKET` (default `dropcheck`); anonymous reads, listings, deletes, and other
+file extensions are denied. Existing saved archives can still be uploaded:
+
+```sh
+curl --fail --upload-file archive.pb http://127.0.0.1:8080/dropcheck/incoming/archive.pb
+curl --fail --get --data-urlencode 'query=dropcheck_success' http://127.0.0.1:9090/api/v1/query
+```
+
+Anonymous writers can overwrite a known `.pb` key and consume storage: this is
+only suitable for trusted upload clients and bounded disposable storage. For
+phone/LAN uploads, explicitly set `MINIO_API_BIND` to the intended host interface
+and `MINIO_API_PORT` if needed. Do not expose it on an untrusted network; use
+authenticated or presigned S3 uploads and TLS there. Management overrides are
+separate: `MINIO_CONSOLE_BIND`, `PROMETHEUS_HTTP_BIND`, and `GRAFANA_HTTP_BIND`
+(each defaults to `127.0.0.1`), with matching existing `*_PORT` variables.
+`0.0.0.0` explicitly exposes all interfaces. MinIO/Grafana need strong unique
+credentials and TLS before such exposure; Prometheus has no authentication in
+this configuration and needs an authenticated TLS proxy. Changing only the
+upload bind does not expose the consoles or metrics writer. Never commit
+credentials or a deployment-specific override.
+
 ### Dropcheck Harness
 
 Dropcheck Harness is a Go test harness for ADB-backed Android network checks.
