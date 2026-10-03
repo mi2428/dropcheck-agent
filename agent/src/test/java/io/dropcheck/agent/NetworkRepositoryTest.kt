@@ -9,6 +9,30 @@ import org.junit.Test
 
 class NetworkRepositoryTest {
     @Test
+    fun monitorCleanupRunsExactlyOnceOnNormalInterruptedAndFailedWork() {
+        var cleanupCount = 0
+        assertEquals(42, withMonitorCleanup(true, { cleanupCount++ }) { 42 })
+        assertEquals(1, cleanupCount)
+        for (failure in listOf(InterruptedException("cancel"), IllegalStateException("poll failed"))) {
+            assertSame(failure, assertThrows(failure.javaClass) {
+                withMonitorCleanup(true, { cleanupCount++ }) { throw failure }
+            })
+        }
+        assertEquals(3, cleanupCount)
+    }
+
+    @Test
+    fun failedMonitorRegistrationNeverUnregisters() {
+        withMonitorCleanup(false, { error("invalid unregister") }) { }
+        assertThrows(InterruptedException::class.java) {
+            withMonitorCleanup(false, { error("invalid unregister") }) { throw InterruptedException() }
+        }
+        assertThrows(IllegalStateException::class.java) {
+            withMonitorCleanup(true, { error("unregister failed") }) { }
+        }
+    }
+
+    @Test
     fun failedBindingNeverExecutesProbe() {
         var executed = false
         var restored = false
