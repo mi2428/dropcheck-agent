@@ -34,6 +34,19 @@ import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
+internal fun <T> withNetworkBinding(
+    bind: () -> Boolean,
+    restore: () -> Boolean,
+    block: () -> T,
+): T {
+    check(bind()) { "bindProcessToNetwork failed" }
+    return try {
+        block()
+    } finally {
+        check(restore()) { "restore bindProcessToNetwork failed" }
+    }
+}
+
 internal fun effectiveLinkMtu(
     linkMtu: Int,
     interfaceName: String?,
@@ -570,15 +583,11 @@ class NetworkRepository(
      */
     fun <T> withBoundNetwork(network: Network, block: () -> T): T {
         val previous = connectivity.boundNetworkForProcess
-        val bound = connectivity.bindProcessToNetwork(network)
-        if (!bound) {
-            logger.warn("bindProcessToNetwork failed network=$network")
-        }
-        return try {
-            block()
-        } finally {
-            connectivity.bindProcessToNetwork(previous)
-        }
+        return withNetworkBinding(
+            bind = { connectivity.bindProcessToNetwork(network) },
+            restore = { connectivity.bindProcessToNetwork(previous) },
+            block = block,
+        )
     }
 
     /** Returns the best currently matching Wi-Fi network without waiting. */
