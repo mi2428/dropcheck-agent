@@ -492,6 +492,57 @@ is reaped. Keep existing success-check deadlines and production ADB timeouts
 intact; investigate these diagnostics and competing jobs before extending a
 timeout. Run non-live E2E with `DROPCHECK_E2E_LIVE` unset.
 
+## Protobuf binding generation
+
+The shared schema is `proto/dropcheck/v1/control.proto`. Go bindings are committed
+under `controller/internal/controlpb`; Android generates its bindings through
+Gradle using the versions in `agent/build.gradle.kts`.
+
+For Go generation, install **protoc 35.0** from the
+[official release](https://github.com/protocolbuffers/protobuf/releases/tag/v35.0):
+download the `protoc-35.0-<platform>.zip` matching your OS and architecture,
+verify its SHA-256 against the release asset digest, extract it, and put its `bin`
+directory on `PATH` (or set `PROTOC` to the extracted executable).
+`protoc --version` must print `libprotoc 35.0`.
+Go must meet `controller/go.mod`'s requirement. From the repository root:
+
+```sh
+make generate-go
+git diff -- controller/internal/controlpb
+make generate-go
+git diff -- controller/internal/controlpb
+make test TARGET=controller
+```
+
+The target rejects other protoc versions and installs pinned `protoc-gen-go`
+**v1.36.1** and `protoc-gen-go-grpc` **v1.3.0** into a temporary directory, removed
+on exit. It needs network access on first use; no globally installed Go plugins
+are required. These generator versions intentionally preserve the existing Go
+API and are independent of the newer runtime dependencies. The include root is
+`proto/dropcheck/v1`, so the descriptor source stays `control.proto`;
+`paths=source_relative` maps both outputs directly into `controlpb`.
+Do not hand-edit generated files.
+
+The initial regeneration restores two generator-emitted spellings:
+`reflect.TypeOf(x{})` instead of `reflect.TypeFor[x]()`, and `interface{}` instead
+of `any`. They do not change the Go API, descriptors, or wire format.
+
+Unchanged-schema generation must produce identical bytes on the second run.
+From a clean checkout, a generation-drift check is:
+
+```sh
+make generate-go
+git diff --exit-code -- controller/internal/controlpb
+```
+
+CI can run this once its owner provisions the pinned protoc and Go tools.
+For schema edits, reserve both removed field numbers and names, preserve enum
+numbers and archive/wire compatibility, regenerate Go, and validate both
+consumers with `make test TARGET=controller` and
+`make build test TARGET=agent`. The Android tasks regenerate through Gradle;
+do not use the host Go generator versions to override Android's toolchain.
+Go-only workflow maintenance does not require an Android schema change.
+
 ## License
 
 MIT
