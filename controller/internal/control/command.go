@@ -22,9 +22,13 @@ func (s *Server) Run(ctx context.Context, agentID string, commandID string, cmd 
 		s.mu.Unlock()
 		return nil, fmt.Errorf("agent %q is not connected", agentID)
 	}
+	if _, exists := s.waiters[commandID]; exists {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("command %q is already running", commandID)
+	}
 	// Register the waiter before enqueueing the frame so an immediate result
 	// from the agent cannot race ahead of the receiver setup.
-	s.waiters[commandID] = commandWaiter{agentID: agentID, ch: respCh}
+	s.waiters[commandID] = commandWaiter{conn: conn, ch: respCh}
 	frame := &controlpb.ControllerFrame{
 		Seq:       s.seq.Add(1),
 		SessionId: conn.sessionID,
@@ -37,7 +41,9 @@ func (s *Server) Run(ctx context.Context, agentID string, commandID string, cmd 
 
 	defer func() {
 		s.mu.Lock()
-		delete(s.waiters, commandID)
+		if s.waiters[commandID].ch == respCh {
+			delete(s.waiters, commandID)
+		}
 		s.mu.Unlock()
 	}()
 
@@ -63,7 +69,7 @@ func (s *Server) Run(ctx context.Context, agentID string, commandID string, cmd 
 	case <-ctx.Done():
 		cancelCtx, stop := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer stop()
-		_ = s.Cancel(cancelCtx, agentID, commandID, "controller command context ended")
+		_ = s.cancelConn(cancelCtx, conn, commandID, "controller command context ended")
 		return nil, ctx.Err()
 	}
 }
@@ -72,10 +78,14 @@ func (s *Server) Run(ctx context.Context, agentID string, commandID string, cmd 
 func (s *Server) Cancel(ctx context.Context, agentID string, commandID string, reason string) error {
 	s.mu.Lock()
 	conn := s.conns[agentID]
+	s.mu.Unlock()
 	if conn == nil {
-		s.mu.Unlock()
 		return fmt.Errorf("agent %q is not connected", agentID)
 	}
+	return s.cancelConn(ctx, conn, commandID, reason)
+}
+
+func (s *Server) cancelConn(ctx context.Context, conn *agentConn, commandID string, reason string) error {
 	frame := &controlpb.ControllerFrame{
 		Seq:       s.seq.Add(1),
 		SessionId: conn.sessionID,
@@ -84,7 +94,6 @@ func (s *Server) Cancel(ctx context.Context, agentID string, commandID string, r
 			CancelCommand: &controlpb.CancelCommand{Reason: reason},
 		},
 	}
-	s.mu.Unlock()
 
 	select {
 	case conn.sendCh <- frame:
@@ -96,11 +105,11 @@ func (s *Server) Cancel(ctx context.Context, agentID string, commandID string, r
 	}
 }
 
-func (s *Server) deliver(commandID string, resp CommandResponse) {
+func (s *Server) deliver(conn *agentConn, commandID string, resp CommandResponse) {
 	s.mu.Lock()
 	waiter := s.waiters[commandID]
-	s.mu.Unlock()
-	if waiter.ch == nil {
+	if waiter.conn != conn || s.conns[conn.id] != conn {
+		s.mu.Unlock()
 		return
 	}
 	select {
@@ -109,4 +118,5 @@ func (s *Server) deliver(commandID string, resp CommandResponse) {
 		// The response channel is buffered and Run only needs one terminal
 		// response. Drop duplicates from retries or late frames after cleanup.
 	}
+	s.mu.Unlock()
 }
