@@ -378,6 +378,9 @@ func agentTextBlock(agent string, out string, printedAny bool) string {
 func runOperationForAgents(ctx context.Context, state *shellState, agents []control.AgentInfo, op Operation, output commandOutputOptions) error {
 	if len(agents) == 0 {
 		fmt.Fprintln(os.Stderr, "no Android agents connected")
+		if output.strict {
+			return errors.New("no Android agents connected")
+		}
 		return nil
 	}
 	if output.format == "" {
@@ -412,12 +415,11 @@ func runOperationForAgents(ctx context.Context, state *shellState, agents []cont
 	}
 	wg.Wait()
 	close(errCh)
+	var failures []error
 	for err := range errCh {
-		if err != nil {
-			return err
-		}
+		failures = append(failures, err)
 	}
-	return nil
+	return errors.Join(failures...)
 }
 
 func runADBDiagnosticsForAgents(ctx context.Context, state *shellState, agents []control.AgentInfo, kind string, output commandOutputOptions) error {
@@ -626,6 +628,9 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 		if output.format == outputText {
 			*printedAny = true
 		}
+		if output.strict {
+			return fmt.Errorf("%s: %w", agentDisplayName(agent), err)
+		}
 		return nil
 	}
 	var out string
@@ -653,6 +658,9 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 	fmt.Print(out)
 	if output.format == outputText {
 		*printedAny = true
+	}
+	if output.strict && result.GetStatus() != controlpb.CommandResult_STATUS_OK {
+		return fmt.Errorf("%s: %s: %s", agentDisplayName(agent), resultStatusLabel(result.GetStatus()), result.GetMessage())
 	}
 	return nil
 }
