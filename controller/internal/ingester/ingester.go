@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"dropcheck/controller/internal/controlpb"
@@ -15,18 +16,25 @@ import (
 
 // Ingester receives MinIO notifications, backfills missed objects, and pushes metrics.
 type Ingester struct {
-	cfg       Config
-	store     ObjectStore
-	pusher    MetricPusher
-	logger    *log.Logger
-	processed sync.Map
-	groupMu   sync.Mutex
-	groupTime map[string]archiveOrder
+	cfg        Config
+	store      ObjectStore
+	pusher     MetricPusher
+	logger     *log.Logger
+	processed  sync.Map
+	batchMu    sync.Mutex
+	generation atomic.Uint64
+	groupMu    sync.Mutex
+	groupTime  map[string]archiveOrder
 }
 
 type archiveOrder struct {
 	at  int64
 	key string
+}
+
+type processedObject struct {
+	signature  string
+	generation uint64
 }
 
 // New creates an Ingester using the supplied object store and metric pusher.
@@ -144,23 +152,48 @@ func (i *Ingester) RunBatches(ctx context.Context) error {
 // ProcessBatch scans the configured object prefix and processes every matching
 // result archive that has not already been seen with the same object signature.
 func (i *Ingester) ProcessBatch(ctx context.Context) error {
-	objects, err := i.store.ListObjects(ctx)
-	if err != nil {
-		return fmt.Errorf("list objects: %w", err)
-	}
+	i.batchMu.Lock()
+	defer i.batchMu.Unlock()
+	generation := i.generation.Add(1)
+	// ponytail: keep 10 error samples; scoped diagnostics if larger failure sets need detail.
+	const maxBatchErrors = 10
 	var errs []error
-	processed := 0
-	for _, object := range objects {
+	scanned, processed, failed := 0, 0, 0
+	for object, err := range i.store.ListObjects(ctx) {
+		if err != nil {
+			return fmt.Errorf("list objects after scanned=%d failed=%d (showing first %d object errors): %w", scanned, failed, len(errs), errors.Join(append(errs, err)...))
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		scanned++
 		if err := i.ProcessObject(ctx, object); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", object.Key, err))
+			failed++
+			if len(errs) < maxBatchErrors {
+				errs = append(errs, fmt.Errorf("%s: %w", object.Key, err))
+			}
 			continue
 		}
 		processed++
 	}
-	if len(objects) > 0 {
-		i.logger.Printf("batch scanned=%d processed=%d failed=%d", len(objects), processed, len(errs))
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	return errors.Join(errs...)
+	// A complete listing is the retention boundary. CAS preserves entries
+	// refreshed by concurrent notifications; incomplete listings never prune.
+	i.processed.Range(func(key, value any) bool {
+		if value.(processedObject).generation < generation {
+			i.processed.CompareAndDelete(key, value)
+		}
+		return true
+	})
+	if scanned > 0 {
+		i.logger.Printf("batch scanned=%d processed=%d failed=%d", scanned, processed, failed)
+	}
+	if failed > 0 {
+		return fmt.Errorf("batch failed=%d total=%d (showing first %d errors): %w", failed, scanned, len(errs), errors.Join(errs...))
+	}
+	return nil
 }
 
 // ProcessObject parses one object and pushes its metrics batches.
@@ -221,11 +254,16 @@ func (i *Ingester) alreadyProcessed(object ObjectRef) bool {
 		return false
 	}
 	value, ok := i.processed.Load(object.Key)
-	return ok && value == signature
+	if !ok {
+		return false
+	}
+	entry := value.(processedObject)
+	i.processed.CompareAndSwap(object.Key, entry, processedObject{signature: entry.signature, generation: i.generation.Load()})
+	return entry.signature == signature
 }
 
 func (i *Ingester) markProcessed(object ObjectRef) {
 	if signature := object.signature(); signature != "" {
-		i.processed.Store(object.Key, signature)
+		i.processed.Store(object.Key, processedObject{signature: signature, generation: i.generation.Load()})
 	}
 }

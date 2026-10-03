@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"iter"
 	"log"
 	"strings"
 	"sync"
@@ -198,8 +199,14 @@ type orderedCountingStore struct {
 	gets int
 }
 
-func (s *orderedCountingStore) ListObjects(context.Context) ([]ObjectRef, error) {
-	return s.refs, nil
+func (s *orderedCountingStore) ListObjects(context.Context) iter.Seq2[ObjectRef, error] {
+	return func(yield func(ObjectRef, error) bool) {
+		for _, object := range s.refs {
+			if !yield(object, nil) {
+				return
+			}
+		}
+	}
 }
 
 func (s *orderedCountingStore) GetObject(ctx context.Context, key string) ([]byte, error) {
