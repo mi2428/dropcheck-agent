@@ -86,13 +86,6 @@ func TestTimeoutForControllerDeadlines(t *testing.T) {
 			want: 12 * time.Second,
 		},
 		{
-			name: "standalone run once allows long on-device festa execution",
-			cmd: &controlpb.RunCommand{Command: &controlpb.RunCommand_RunStandaloneOnce{
-				RunStandaloneOnce: &controlpb.RunStandaloneOnce{Festa: "smoke"},
-			}},
-			want: 30 * time.Minute,
-		},
-		{
 			name: "unknown command gets bounded fallback",
 			cmd:  &controlpb.RunCommand{},
 			want: 15 * time.Second,

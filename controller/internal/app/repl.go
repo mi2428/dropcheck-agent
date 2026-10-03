@@ -14,7 +14,6 @@ import (
 
 	"dropcheck/controller/internal/adb"
 	"dropcheck/controller/internal/adbdiag"
-	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
 	"github.com/chzyer/readline"
@@ -261,16 +260,6 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 		return false, printLocalOutput(command, func(format outputFormat) (string, error) {
 			return renderAgents(agentListView(state), format)
 		})
-	case shellShowConfig:
-		agents, err := state.commandTargets()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			return false, nil
-		}
-		return false, runConfigForAgents(ctx, state, agents, command.configScope, commandOutputOptions{
-			format:   command.pipeline.format(),
-			pipeline: command.pipeline,
-		})
 	case shellAgentCommand:
 		agents, err := state.commandTargets()
 		if err != nil {
@@ -291,15 +280,6 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 			format:   command.pipeline.format(),
 			pipeline: command.pipeline,
 		})
-	case shellStandaloneSync:
-		if err := syncStandaloneRuns(ctx, state, standaloneSyncOptions{
-			OutputDir:  command.syncOutput,
-			Limit:      command.syncLimit,
-			MarkSynced: command.syncMark,
-		}); err != nil {
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-		}
-		return false, nil
 	default:
 		return false, nil
 	}
@@ -486,88 +466,6 @@ func runADBDiagnosticsForAgent(ctx context.Context, state *shellState, agent con
 		*printedAny = true
 	}
 	return nil
-}
-
-func runConfigForAgents(ctx context.Context, state *shellState, agents []control.AgentInfo, scope string, output commandOutputOptions) error {
-	if len(agents) == 0 {
-		fmt.Fprintln(os.Stderr, "no Android agents connected")
-		return nil
-	}
-	if output.format == "" {
-		output.format = outputText
-	}
-	includeAgentHeader := len(agents) > 1
-	var printedAny bool
-	for _, agent := range agents {
-		view, err := fetchConfigView(ctx, state, agent, scope)
-		if err != nil {
-			if output.strict {
-				return err
-			}
-			fmt.Fprintf(os.Stderr, "%s: %v\n", agentDisplayName(agent), err)
-			continue
-		}
-		var out string
-		if output.format == outputJSON && includeAgentHeader {
-			out, err = renderConfigEnvelope(agentDisplayName(agent), view)
-		} else {
-			out, err = renderConfig(view, output.format)
-			if err == nil && includeAgentHeader && output.format == outputText {
-				out = agentTextBlock(agentDisplayName(agent), out, printedAny)
-			}
-		}
-		if err != nil {
-			return err
-		}
-		out, err = output.pipeline.apply(out)
-		if err != nil {
-			return err
-		}
-		if output.format == outputText && !includeAgentHeader {
-			out = separateTextBlock(out, printedAny)
-		}
-		fmt.Print(out)
-		if output.format == outputText {
-			printedAny = true
-		}
-	}
-	return nil
-}
-
-func fetchConfigView(ctx context.Context, state *shellState, agent control.AgentInfo, scope string) (configView, error) {
-	var view configView
-	if scope == "" {
-		scope = "all"
-	}
-	if scope == "all" || scope == "standalone" {
-		result, err := fetchOperationResult(ctx, state, agent, command.StandaloneConfigOperation())
-		if err != nil {
-			return view, err
-		}
-		view.Standalone = result.GetStandaloneConfig()
-	}
-	return view, nil
-}
-
-func fetchOperationResult(ctx context.Context, state *shellState, agent control.AgentInfo, op Operation) (*controlpb.CommandResult, error) {
-	cmd, _, err := buildRunCommand(op)
-	if err != nil {
-		return nil, err
-	}
-	commandID, err := control.RandomHex(8)
-	if err != nil {
-		return nil, err
-	}
-	runCtx, cancel := context.WithTimeout(ctx, timeoutFor(cmd))
-	result, err := state.server.Run(runCtx, agent.ID, commandID, cmd)
-	cancel()
-	if err != nil {
-		return nil, err
-	}
-	if result.GetStatus() != controlpb.CommandResult_STATUS_OK {
-		return nil, fmt.Errorf("%s: %s", resultStatusLabel(result.GetStatus()), result.GetMessage())
-	}
-	return result, nil
 }
 
 func resultStatusLabel(status controlpb.CommandResult_Status) string {

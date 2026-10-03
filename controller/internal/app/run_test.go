@@ -29,6 +29,11 @@ func TestTopLevelHelpIncludesFlagsCommandsAndExamples(t *testing.T) {
 	if strings.Contains(help, "request wifi scan") {
 		t.Fatalf("topLevelHelp() contains stale request wifi scan help:\n%s", help)
 	}
+	for _, removed := range []string{"standalone", "show config", "configure <set|delete>"} {
+		if strings.Contains(help, removed) {
+			t.Fatalf("topLevelHelp() advertises removed control %q:\n%s", removed, help)
+		}
+	}
 	if strings.Contains(help, "\t") {
 		t.Fatalf("topLevelHelp() contains tab indentation:\n%s", help)
 	}
