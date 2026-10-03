@@ -82,13 +82,15 @@ func RunWithOptions(ctx context.Context, plan Plan, opRunner OperationRunner, ag
 	}
 	agentSnapshot := snapshotAgent(agent)
 	emit := func(event Event) error {
-		event.Time = time.Now()
+		if event.Time.IsZero() {
+			event.Time = time.Now()
+		}
 		event.Plan = plan.Name
 		event.Agent = agentSnapshot
 		if sink == nil {
 			return nil
 		}
-		if event.Step.Type == "cleanup" {
+		if event.Step.Type == "cleanup" || ctx.Err() != nil {
 			eventCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 			defer cancel()
 			return sink.Emit(eventCtx, event)
@@ -250,14 +252,32 @@ func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent c
 		return targetFailed, err
 	}
 	connectAttempted := false
-	cleanup := func() error {
+	cleanup := func(stopping bool) error {
 		if !connectAttempted {
 			return nil
 		}
 		connectAttempted = false
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
 		defer cancel()
-		return runCleanup(cleanupCtx, opRunner, agent, round, target, emit)
+		cleanupEmit := emit
+		var pending []Event
+		if stopping {
+			// At shutdown/skip/error, operations have priority over log I/O.
+			// There are at most four cleanup events; retain their actual times.
+			cleanupEmit = func(event Event) error {
+				event.Time = time.Now()
+				pending = append(pending, event)
+				return nil
+			}
+		}
+		cleanupErr := runCleanup(cleanupCtx, opRunner, agent, round, target, cleanupEmit)
+		for _, event := range pending {
+			cleanupErr = errors.Join(cleanupErr, emit(event))
+		}
+		if cleanupErr != nil {
+			return errors.Join(errors.New("watch cleanup failed"), cleanupErr)
+		}
+		return nil
 	}
 	waitPause := func() error {
 		pauseCtx, finish := skip.operationContext(ctx)
@@ -273,7 +293,7 @@ func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent c
 			outcome = targetSkipped
 			retErr = finishOperatorSkippedTarget(round, target, targetStart, emit)
 		}
-		retErr = errors.Join(retErr, cleanup())
+		retErr = errors.Join(retErr, cleanup(true))
 	}()
 	ok, skipped, err := runRequiredStepWithSkip(ctx, opRunner, agent, round, target, StepSnapshot{Name: "connect", Type: "connect", Operation: connect.Name}, connect, skip, func(event Event) error {
 		err := emit(event)
@@ -343,7 +363,7 @@ func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent c
 	if err := waitPause(); err != nil {
 		return targetFailed, err
 	}
-	if err := cleanup(); err != nil {
+	if err := cleanup(false); err != nil {
 		return targetFailed, err
 	}
 	status := "ok"
