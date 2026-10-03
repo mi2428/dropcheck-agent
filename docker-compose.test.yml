@@ -2,7 +2,11 @@ services:
   # Local S3-compatible target for historical archive and observability E2E.
   # minio-init permits anonymous PUT only for .pb object keys.
   minio:
-    image: minio/minio:latest
+    image: dropcheck-minio:9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a
+    pull_policy: build
+    build:
+      context: ./docker/minio
+      target: minio
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set a dedicated MinIO root user}
@@ -17,7 +21,11 @@ services:
       - minio-data:/data
 
   minio-init:
-    image: minio/mc:latest
+    image: dropcheck-mc:7394ce0dd2a80935aded936b09fa12cbb3cb8096
+    pull_policy: build
+    build:
+      context: ./docker/minio
+      target: mc
     depends_on:
       - minio
     environment:
@@ -59,11 +67,11 @@ services:
       - pushgateway
 
   pushgateway:
-    image: prom/pushgateway:latest
+    image: prom/pushgateway:v1.11.3@sha256:74fa117cef2d7e383112d25139ff1c2d2e309c35389a9e0554a47136a1482e48
     restart: unless-stopped
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
     restart: unless-stopped
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
