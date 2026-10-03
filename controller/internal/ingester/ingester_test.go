@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 	"testing"
 
+	"dropcheck/controller/internal/controlpb"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -49,6 +51,94 @@ func TestProcessObjectReturnsDecodeFailureWithoutPushingMetrics(t *testing.T) {
 	if len(pusher.pushes) != 0 {
 		t.Fatalf("push count = %d, want 0", len(pusher.pushes))
 	}
+}
+
+func TestProcessObjectKeepsNewestArchiveAcrossArrivalAndBackfillOrder(t *testing.T) {
+	newer, older := timestampedArchive(2000, true), timestampedArchive(1000, false)
+	objects := make(map[string][]byte)
+	for key, archive := range map[string]*controlpb.StandaloneRunArchive{"new.pb": newer, "old.pb": older} {
+		data, err := proto.Marshal(archive)
+		if err != nil {
+			t.Fatal(err)
+		}
+		objects[key] = data
+	}
+	for _, reverse := range []bool{false, true} {
+		pusher := &fakePusher{}
+		ing := New(testConfig(), &fakeStore{objects: objects}, pusher, log.New(testWriter{t}, "", 0))
+		keys := []string{"old.pb", "new.pb"}
+		if reverse {
+			keys = []string{"new.pb", "old.pb"}
+		}
+		for _, key := range keys {
+			if err := ing.ProcessObject(context.Background(), ObjectRef{Key: key, ETag: key, Size: int64(len(objects[key]))}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got := lastSuccessValue(pusher); got != 1 {
+			t.Fatalf("reverse=%v last success = %v, want newer value 1", reverse, got)
+		}
+	}
+	pusher := &fakePusher{}
+	ing := New(testConfig(), &fakeStore{objects: objects}, pusher, log.New(testWriter{t}, "", 0))
+	if err := ing.ProcessBatch(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := lastSuccessValue(pusher); got != 1 {
+		t.Fatalf("backfill last success = %v, want newer value 1", got)
+	}
+}
+
+func TestProcessObjectConcurrentNewerAndOlder(t *testing.T) {
+	newer, older := timestampedArchive(2000, true), timestampedArchive(1000, false)
+	objects := make(map[string][]byte)
+	for key, archive := range map[string]*controlpb.StandaloneRunArchive{"new.pb": newer, "old.pb": older} {
+		data, err := proto.Marshal(archive)
+		if err != nil {
+			t.Fatal(err)
+		}
+		objects[key] = data
+	}
+	pusher := &fakePusher{}
+	ing := New(testConfig(), &fakeStore{objects: objects}, pusher, log.New(testWriter{t}, "", 0))
+	var wg sync.WaitGroup
+	for _, key := range []string{"new.pb", "old.pb"} {
+		wg.Add(1)
+		go func(key string) {
+			defer wg.Done()
+			if err := ing.ProcessObject(context.Background(), ObjectRef{Key: key, ETag: key, Size: int64(len(objects[key]))}); err != nil {
+				t.Errorf("ProcessObject(%s): %v", key, err)
+			}
+		}(key)
+	}
+	wg.Wait()
+	if got := lastSuccessValue(pusher); got != 1 {
+		t.Fatalf("last success = %v, want newer value 1", got)
+	}
+}
+
+func timestampedArchive(finished int64, succeeded bool) *controlpb.StandaloneRunArchive {
+	archive := metricArchiveFixture()
+	archive.Summary.FinishedUnixMs = finished
+	status := controlpb.CommandResult_STATUS_FAILED
+	if succeeded {
+		status = controlpb.CommandResult_STATUS_OK
+	}
+	for _, step := range archive.Steps {
+		step.Result.Status = status
+	}
+	return archive
+}
+
+func lastSuccessValue(pusher *fakePusher) float64 {
+	for n := len(pusher.pushes) - 1; n >= 0; n-- {
+		for _, sample := range pusher.pushes[n].batch.Samples {
+			if sample.Name == MetricSuccess {
+				return sample.Value
+			}
+		}
+	}
+	return -1
 }
 
 func testConfig() Config {
