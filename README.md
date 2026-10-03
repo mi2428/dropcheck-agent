@@ -467,6 +467,31 @@ PASS
 ok  	dropcheck/controller/integration/harness	17.208s
 ```
 
+## Controller unit tests
+
+Controller unit tests use temporary fake ADB executables, not connected devices.
+Their bounded success checks include OS scheduling, shell startup, and, for session
+tests, multiple process launches plus the local gRPC handshake. On shared or busy
+hosts, run only one controller test invocation at a time and run its Go packages
+serially so competing package builds/tests do not consume those budgets:
+
+```console
+$ make test TARGET=controller GOFLAGS=-p=1
+$ cd controller
+$ go test -p 1 -race -count=1 ./...
+$ go test -p 1 -race -count=10 ./internal/adb ./internal/session ./internal/app
+```
+
+`-p 1` limits this invocation's package parallelism; it does not serialize other
+test jobs or disable concurrent controller code and the race detector.
+Fake-process timeout/cancellation tests still run and report elapsed time, timeout
+state, and exit status with `-v`. `TestFakeADBLaunchDiagnostics` separates process
+creation from completion for a shell-builtin-only fixture; the cancellation check
+waits for an explicit startup marker before canceling and verifies that the child
+is reaped. Keep existing success-check deadlines and production ADB timeouts
+intact; investigate these diagnostics and competing jobs before extending a
+timeout. Run non-live E2E with `DROPCHECK_E2E_LIVE` unset.
+
 ## License
 
 MIT

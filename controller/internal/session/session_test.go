@@ -33,7 +33,7 @@ fi
 if [ "${1:-}" = "reverse" ] && [ "${2:-}" != "--remove" ]; then
   count=0
   if [ -f "$ADB_COUNT" ]; then
-    count=$(cat "$ADB_COUNT")
+    read -r count < "$ADB_COUNT"
   fi
   count=$((count + 1))
   printf '%s\n' "$count" > "$ADB_COUNT"
