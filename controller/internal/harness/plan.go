@@ -204,7 +204,7 @@ func runResultTarget(ctx context.Context, t *testing.T, target ResultTarget, pla
 		return
 	}
 	network := target.syntheticNetwork()
-	opRunner := archiveRunner{target: target}
+	opRunner := &archiveRunner{target: target}
 	agent := target.syntheticAgent()
 	for _, check := range planChecks {
 		t.Run(testName(check.Name()), func(t *testing.T) {
@@ -358,6 +358,9 @@ func runCheck(ctx context.Context, t *testing.T, opRunner OperationRunner, agent
 	step, err := check.build()
 	if err != nil {
 		t.Fatalf("build check: %v", err)
+	}
+	if _, archived := opRunner.(*archiveRunner); archived && step.policy.stableFor > 0 {
+		t.Fatal("StableFor is unsupported for offline archive replay; use Repeat with recorded observations")
 	}
 	repeat := normalizedRepeat(step.policy.repeat)
 	if repeat == 1 {
