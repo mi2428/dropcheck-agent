@@ -3,6 +3,7 @@ package ingester
 import (
 	"context"
 	"fmt"
+	"iter"
 	"log"
 	"sync"
 	"testing"
@@ -163,12 +164,14 @@ func (s *fakeStore) GetObject(_ context.Context, key string) ([]byte, error) {
 	return data, nil
 }
 
-func (s *fakeStore) ListObjects(context.Context) ([]ObjectRef, error) {
-	var refs []ObjectRef
-	for key, data := range s.objects {
-		refs = append(refs, ObjectRef{Key: key, Size: int64(len(data))})
+func (s *fakeStore) ListObjects(context.Context) iter.Seq2[ObjectRef, error] {
+	return func(yield func(ObjectRef, error) bool) {
+		for key, data := range s.objects {
+			if !yield(ObjectRef{Key: key, Size: int64(len(data))}, nil) {
+				return
+			}
+		}
 	}
-	return refs, nil
 }
 
 type fakePusher struct {

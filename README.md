@@ -310,6 +310,29 @@ $ controller/dist/dropcheck --serial R5CT12345 sync standalone runs --output out
 For unattended observability, the Android agent uploads standalone archives to MinIO-compatible storage.
 `dist/dropcheck-ingester` consumes MinIO notifications or batch backfills, converts archives into metrics, and pushes them to Pushgateway for Prometheus and Grafana.
 
+Backfill streams the MinIO listing rather than retaining every object reference.
+It reports total failures with at most ten example errors, retries failed objects,
+and removes deleted-object deduplication signatures only after a complete listing.
+Incomplete/canceled listings preserve that state; concurrent notifications refresh it.
+Latest-measurement fences remain per stable group even when its objects are deleted.
+
+The synthetic scale-check envelope is 1,000–100,000 retained archives per configured
+prefix, with five steps and one stable group, not a production RSS guarantee.
+At 100,000 objects, sampled initial heap growth was about 51 MB; replacing all keys
+kept 100,000 cached signatures instead of accumulating 200,000. All-fetch-failure
+error output stayed below 1 KB instead of growing to 6.6 MB. Allocation totals are
+not retained heap, and a retention scan may temporarily hold both generations.
+Deduplication memory still scales with retained keys plus notifications since the
+last complete scan; ordering state scales with stable groups. Choose object-store
+lifecycle retention/prefix scope to fit the deployment's memory budget. The ingester
+does not delete archives or impose a new archive-count cap. The existing per-object
+64 MiB limit does not bound total heap or concurrent notification payloads.
+Reproduce the scale check from `controller/`:
+
+```sh
+go test -p 1 ./internal/ingester -run '^$' -bench '^BenchmarkBackfillScale$' -benchtime=1x -benchmem
+```
+
 Configure uploads by setting a path-style bucket/prefix URL and the management Wi-Fi used before upload:
 
 ```console

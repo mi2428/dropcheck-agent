@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"iter"
 	"strings"
 
 	"github.com/minio/minio-go/v7"
@@ -39,8 +40,9 @@ func (o ObjectRef) signature() string {
 type ObjectStore interface {
 	// GetObject returns the full object payload for key.
 	GetObject(ctx context.Context, key string) ([]byte, error)
-	// ListObjects returns all candidate objects under the configured prefix.
-	ListObjects(ctx context.Context) ([]ObjectRef, error)
+	// ListObjects yields candidate objects under the configured prefix, or an
+	// error if enumeration cannot complete. It must honor early iteration exit.
+	ListObjects(ctx context.Context) iter.Seq2[ObjectRef, error]
 }
 
 // MinIOStore is an ObjectStore backed by MinIO's S3-compatible API.
@@ -91,27 +93,28 @@ func (s *MinIOStore) GetObject(ctx context.Context, key string) ([]byte, error) 
 	return data, nil
 }
 
-// ListObjects returns matching objects under the store prefix.
-func (s *MinIOStore) ListObjects(ctx context.Context) ([]ObjectRef, error) {
-	var objects []ObjectRef
-	for info := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{
-		Prefix:    s.prefix,
-		Recursive: true,
-	}) {
-		if info.Err != nil {
-			return nil, info.Err
+// ListObjects yields matching objects under the store prefix without retaining
+// the complete listing. Early exit cancels the SDK's listing goroutine.
+func (s *MinIOStore) ListObjects(ctx context.Context) iter.Seq2[ObjectRef, error] {
+	return func(yield func(ObjectRef, error) bool) {
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		for info := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{
+			Prefix:    s.prefix,
+			Recursive: true,
+		}) {
+			if info.Err != nil {
+				yield(ObjectRef{}, info.Err)
+				return
+			}
+			if !objectMatches(info.Key, s.prefix, s.suffix) {
+				continue
+			}
+			if !yield(ObjectRef{Bucket: s.bucket, Key: info.Key, ETag: info.ETag, Size: info.Size}, nil) {
+				return
+			}
 		}
-		if !objectMatches(info.Key, s.prefix, s.suffix) {
-			continue
-		}
-		objects = append(objects, ObjectRef{
-			Bucket: s.bucket,
-			Key:    info.Key,
-			ETag:   info.ETag,
-			Size:   info.Size,
-		})
 	}
-	return objects, nil
 }
 
 func objectMatches(key, prefix, suffix string) bool {
