@@ -118,7 +118,7 @@ func TestIncompleteOrCanceledListingDoesNotPrune(t *testing.T) {
 			store := &orderedCountingStore{fakeStore: fakeStore{objects: map[string][]byte{
 				"retained.pb": marshalOrderingArchive(t, timestampedArchive(2000, true)),
 				"unseen.pb":   marshalOrderingArchive(t, timestampedArchive(1000, false)),
-			}}, refs: []ObjectRef{{Key: "retained.pb", ETag: "retained"}, {Key: "unseen.pb", ETag: "unseen"}}}
+			}}, refs: []ObjectRef{{Bucket: "dropcheck", Key: "retained.pb", ETag: "retained"}, {Bucket: "dropcheck", Key: "unseen.pb", ETag: "unseen"}}}
 			ing := New(testConfig(), store, discardPusher{}, log.New(io.Discard, "", 0))
 			if err := ing.ProcessBatch(context.Background()); err != nil {
 				t.Fatal(err)
@@ -147,13 +147,13 @@ func TestRetentionPruningPreservesConcurrentNotificationsAndLatestFence(t *testi
 		"new.pb":    marshalOrderingArchive(t, timestampedArchive(2000, true)),
 		"old.pb":    marshalOrderingArchive(t, timestampedArchive(1000, false)),
 		"notify.pb": marshalOrderingArchive(t, timestampedArchive(3000, true)),
-	}}, refs: []ObjectRef{{Key: "new.pb", ETag: "new"}}}
+	}}, refs: []ObjectRef{{Bucket: "dropcheck", Key: "new.pb", ETag: "new"}}}
 	pusher := &fakePusher{}
 	ing := New(testConfig(), store, pusher, log.New(io.Discard, "", 0))
 	if err := ing.ProcessBatch(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	notification := ObjectRef{Key: "notify.pb", ETag: "notify"}
+	notification := ObjectRef{Bucket: "dropcheck", Key: "notify.pb", ETag: "notify"}
 	ing.store = &listingStore{ObjectStore: store, list: func(func(ObjectRef, error) bool) {
 		done := make(chan struct{})
 		go func() {
@@ -171,7 +171,7 @@ func TestRetentionPruningPreservesConcurrentNotificationsAndLatestFence(t *testi
 		t.Fatal("pruning lost concurrent notification or retained deleted signature")
 	}
 	before := len(pusher.pushes)
-	if err := ing.ProcessObject(context.Background(), ObjectRef{Key: "old.pb", ETag: "old"}); err != nil || len(pusher.pushes) != before {
+	if err := ing.ProcessObject(context.Background(), ObjectRef{Bucket: "dropcheck", Key: "old.pb", ETag: "old"}); err != nil || len(pusher.pushes) != before {
 		t.Fatalf("pruning lost latest metric fence: %v", err)
 	}
 }
@@ -200,7 +200,7 @@ type generatedStore struct {
 func (s *generatedStore) ListObjects(context.Context) iter.Seq2[ObjectRef, error] {
 	return func(yield func(ObjectRef, error) bool) {
 		for n := 0; n < s.count; n++ {
-			object := ObjectRef{Key: fmt.Sprintf("synthetic/run-%09d.pb", s.offset+n), ETag: "synthetic", Size: int64(len(s.data))}
+			object := ObjectRef{Bucket: "dropcheck", Key: fmt.Sprintf("synthetic/run-%09d.pb", s.offset+n), ETag: "synthetic", Size: int64(len(s.data))}
 			if !yield(object, nil) {
 				return
 			}

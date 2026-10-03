@@ -6,6 +6,8 @@ import (
 	"io"
 	"iter"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -13,7 +15,7 @@ import (
 
 // ObjectRef identifies a MinIO object that may contain a standalone run archive.
 type ObjectRef struct {
-	// Bucket is the source bucket name when supplied by notifications.
+	// Bucket is the required source bucket for notifications and trusted listings.
 	Bucket string
 	// Key is the object key inside the bucket.
 	Key string
@@ -21,6 +23,31 @@ type ObjectRef struct {
 	ETag string
 	// Size is the object size in bytes used for in-memory deduplication.
 	Size int64
+}
+
+func validateObject(cfg Config, object ObjectRef) error {
+	if cfg.MinIOBucket == "" || object.Bucket != cfg.MinIOBucket {
+		return fmt.Errorf("object bucket must match the configured bucket")
+	}
+	if object.Key == "" || len(object.Key) > 1024 || !utf8.ValidString(object.Key) || strings.ContainsFunc(object.Key, unicode.IsControl) {
+		return fmt.Errorf("object key must be 1-1024 UTF-8 bytes without control characters")
+	}
+	if object.Size < 0 {
+		return fmt.Errorf("object size must be nonnegative")
+	}
+	return nil
+}
+
+// validateArchiveSize applies the read cap only after archive/event filtering.
+func validateArchiveSize(cfg Config, object ObjectRef) error {
+	limit := cfg.MaxObjectBytes
+	if limit <= 0 {
+		limit = defaultMaxObjectBytes
+	}
+	if object.Size > limit {
+		return fmt.Errorf("archive object exceeds max read size %d", limit)
+	}
+	return nil
 }
 
 func (o ObjectRef) signature() string {
@@ -38,10 +65,10 @@ func (o ObjectRef) signature() string {
 
 // ObjectStore reads standalone result objects from MinIO or a compatible store.
 type ObjectStore interface {
-	// GetObject returns the full object payload for key.
+	// GetObject returns the full object payload for key and must honor ctx.
 	GetObject(ctx context.Context, key string) ([]byte, error)
 	// ListObjects yields candidate objects under the configured prefix, or an
-	// error if enumeration cannot complete. It must honor early iteration exit.
+	// error if enumeration cannot complete. It must honor ctx and early iteration exit.
 	ListObjects(ctx context.Context) iter.Seq2[ObjectRef, error]
 }
 

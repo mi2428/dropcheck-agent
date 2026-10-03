@@ -13,7 +13,7 @@ func TestDecodeNotificationExtractsCreatedProtobufObjects(t *testing.T) {
 	    {"eventName": "s3:ObjectRemoved:Delete", "s3": {"bucket": {"name": "dropcheck"}, "object": {"key": "device%2Frun-3.pb", "size": 3}}}
 	  ]
 	}`
-	objects, err := DecodeNotification(strings.NewReader(body), ".pb")
+	objects, err := DecodeNotification(strings.NewReader(body), testConfig())
 	if err != nil {
 		t.Fatalf("DecodeNotification: %v", err)
 	}
@@ -22,5 +22,15 @@ func TestDecodeNotificationExtractsCreatedProtobufObjects(t *testing.T) {
 	}
 	if objects[0].Bucket != "dropcheck" || objects[0].Key != "device/run-1.pb" || objects[0].ETag != "abc" || objects[0].Size != 12 {
 		t.Fatalf("object = %#v", objects[0])
+	}
+}
+
+func TestDecodeNotificationEnforcesCompleteBodyLimit(t *testing.T) {
+	for _, size := range []int{notificationBodyLimit, notificationBodyLimit + 1} {
+		body := validNotification + strings.Repeat(" ", size-len(validNotification))
+		_, err := DecodeNotification(strings.NewReader(body), testConfig())
+		if (err != nil) != (size > notificationBodyLimit) {
+			t.Fatalf("size=%d err=%v", size, err)
+		}
 	}
 }

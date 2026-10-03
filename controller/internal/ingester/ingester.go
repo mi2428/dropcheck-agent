@@ -2,9 +2,12 @@ package ingester
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -21,9 +24,9 @@ type Ingester struct {
 	pusher     MetricPusher
 	logger     *log.Logger
 	processed  sync.Map
-	batchMu    sync.Mutex
+	batchGate  chan struct{}
 	generation atomic.Uint64
-	groupMu    sync.Mutex
+	groupGate  chan struct{}
 	groupTime  map[string]archiveOrder
 }
 
@@ -47,6 +50,8 @@ func New(cfg Config, store ObjectStore, pusher MetricPusher, logger *log.Logger)
 		store:     store,
 		pusher:    pusher,
 		logger:    logger,
+		batchGate: make(chan struct{}, 1),
+		groupGate: make(chan struct{}, 1),
 		groupTime: make(map[string]archiveOrder),
 	}
 }
@@ -54,37 +59,72 @@ func New(cfg Config, store ObjectStore, pusher MetricPusher, logger *log.Logger)
 // Run serves the notification HTTP endpoint and scheduled backfill loop until
 // ctx is canceled or either path returns a fatal error.
 func (i *Ingester) Run(ctx context.Context) error {
-	server := &http.Server{
-		Addr:              i.cfg.ListenAddr,
-		Handler:           i.Handler(),
-		ReadHeaderTimeout: 5 * time.Second,
-	}
-	errCh := make(chan error, 2)
-	go func() {
-		i.logger.Printf("ingester listening addr=%s bucket=%s prefix=%q suffix=%q pushgateway=%s interval=%s", i.cfg.ListenAddr, i.cfg.MinIOBucket, i.cfg.MinIOPrefix, i.cfg.ObjectSuffix, i.cfg.PushgatewayURL, i.cfg.BatchInterval)
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-		}
-	}()
-	go func() {
-		errCh <- i.RunBatches(ctx)
-	}()
-
-	select {
-	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			return err
-		}
-		return ctx.Err()
-	case err := <-errCh:
-		if err == nil {
-			return nil
-		}
+	if err := validateWebhookToken(i.cfg.WebhookToken); err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// Bind before starting privileged work; a listen failure must not launch backfill.
+	listener, err := net.Listen("tcp", i.cfg.ListenAddr)
+	if err != nil {
+		return err
+	}
+	runCtx, stop := context.WithCancel(ctx)
+	defer stop()
+	server := &http.Server{
+		Handler:           i.Handler(),
+		BaseContext:       func(net.Listener) context.Context { return runCtx },
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       notificationReadTimeout,
+		WriteTimeout:      notificationTimeout + 5*time.Second,
+		IdleTimeout:       time.Minute,
+	}
+	errCh := make(chan error, 2)
+	var workers sync.WaitGroup
+	workers.Add(2)
+	go func() {
+		defer workers.Done()
+		i.logger.Printf("ingester listening addr=%s bucket=%s prefix=%q suffix=%q pushgateway=%s interval=%s", i.cfg.ListenAddr, i.cfg.MinIOBucket, i.cfg.MinIOPrefix, i.cfg.ObjectSuffix, i.cfg.PushgatewayURL, i.cfg.BatchInterval)
+		errCh <- server.Serve(listener)
+	}()
+	go func() {
+		defer workers.Done()
+		errCh <- i.RunBatches(runCtx)
+	}()
+
+	var runErr error
+	select {
+	case <-ctx.Done():
+		runErr = ctx.Err()
+	case runErr = <-errCh:
+	}
+	stop() // Cancels both backfill and in-flight HTTP request contexts on every exit.
+	if runErr == nil {
+		runErr = ctx.Err()
+	}
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownErr := server.Shutdown(shutdownCtx)
+	cancel()
+	closeErr := server.Close() // Also close active connections if graceful shutdown timed out.
+	workers.Wait()
+	close(errCh)
+	cleanupErrs := []error{shutdownErr, closeErr}
+	for err := range errCh {
+		if err != http.ErrServerClosed {
+			cleanupErrs = append(cleanupErrs, err)
+		}
+	}
+	if err := errors.Join(cleanupErrs...); err != nil {
+		return errors.Join(runErr, fmt.Errorf("ingester cleanup: %w", err))
+	}
+	return runErr
 }
+
+const (
+	notificationReadTimeout = 5 * time.Second
+	notificationTimeout     = 30 * time.Second
+)
 
 // Handler returns the ingester HTTP routes.
 //
@@ -110,14 +150,43 @@ func (i *Ingester) handleNotification(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	objects, err := DecodeNotification(r.Body, i.cfg.ObjectSuffix)
+	if err := validateWebhookToken(i.cfg.WebhookToken); err != nil {
+		http.Error(w, "webhook authentication is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	// Compare fixed-size digests, including the scheme; never log either value.
+	want := sha256.Sum256([]byte("Bearer " + i.cfg.WebhookToken))
+	got := sha256.Sum256([]byte(r.Header.Get("Authorization")))
+	if len(r.Header.Values("Authorization")) != 1 || subtle.ConstantTimeCompare(got[:], want[:]) != 1 {
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		http.Error(w, "unauthorized notification", http.StatusUnauthorized)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), notificationTimeout)
+	defer cancel()
+	if r.ContentLength > notificationBodyLimit {
+		http.Error(w, errNotificationTooLarge.Error(), http.StatusRequestEntityTooLarge)
+		return
+	}
+	objects, err := DecodeNotification(r.Body, i.cfg)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		var timeout net.Error
+		status, message := http.StatusBadRequest, "invalid notification: check JSON records, bucket, object key and size"
+		if errors.Is(err, errNotificationTooLarge) {
+			status, message = http.StatusRequestEntityTooLarge, errNotificationTooLarge.Error()
+		} else if errors.As(err, &timeout) && timeout.Timeout() {
+			status, message = http.StatusRequestTimeout, "notification body read timed out"
+		}
+		http.Error(w, message, status)
 		return
 	}
 	failures := 0
 	for _, object := range objects {
-		if err := i.ProcessObject(r.Context(), object); err != nil {
+		if err := i.ProcessObject(ctx, object); err != nil {
+			if ctx.Err() != nil {
+				http.Error(w, "notification processing timed out or canceled", http.StatusGatewayTimeout)
+				return
+			}
 			failures++
 			i.logger.Printf("notification ingest failed key=%q err=%v", object.Key, err)
 		}
@@ -132,6 +201,9 @@ func (i *Ingester) handleNotification(w http.ResponseWriter, r *http.Request) {
 
 // RunBatches runs an immediate backfill and then repeats it on BatchInterval.
 func (i *Ingester) RunBatches(ctx context.Context) error {
+	if i.cfg.BatchInterval <= 0 {
+		return fmt.Errorf("batch interval must be positive")
+	}
 	if err := i.ProcessBatch(ctx); err != nil {
 		i.logger.Printf("initial batch failed: %v", err)
 	}
@@ -152,8 +224,15 @@ func (i *Ingester) RunBatches(ctx context.Context) error {
 // ProcessBatch scans the configured object prefix and processes every matching
 // result archive that has not already been seen with the same object signature.
 func (i *Ingester) ProcessBatch(ctx context.Context) error {
-	i.batchMu.Lock()
-	defer i.batchMu.Unlock()
+	select {
+	case i.batchGate <- struct{}{}:
+		defer func() { <-i.batchGate }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	generation := i.generation.Add(1)
 	// ponytail: keep 10 error samples; scoped diagnostics if larger failure sets need detail.
 	const maxBatchErrors = 10
@@ -198,10 +277,21 @@ func (i *Ingester) ProcessBatch(ctx context.Context) error {
 
 // ProcessObject parses one object and pushes its metrics batches.
 //
-// Objects that do not match the configured prefix or suffix are ignored.
+// Callers must be trusted in-process code or authenticated notification handlers.
+// Every reference must name the configured bucket. Valid objects outside the
+// configured prefix/suffix are ignored; invalid references are rejected first.
 func (i *Ingester) ProcessObject(ctx context.Context, object ObjectRef) error {
+	if err := validateObject(i.cfg, object); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !objectMatches(object.Key, i.cfg.MinIOPrefix, i.cfg.ObjectSuffix) {
 		return nil
+	}
+	if err := validateArchiveSize(i.cfg, object); err != nil {
+		return err
 	}
 	if i.alreadyProcessed(object) {
 		return nil
@@ -211,6 +301,9 @@ func (i *Ingester) ProcessObject(ctx context.Context, object ObjectRef) error {
 	if err != nil {
 		return fmt.Errorf("fetch object: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	archive := &controlpb.StandaloneRunArchive{}
 	if err := proto.Unmarshal(data, archive); err != nil {
 		return fmt.Errorf("decode standalone archive: %w", err)
@@ -218,13 +311,23 @@ func (i *Ingester) ProcessObject(ctx context.Context, object ObjectRef) error {
 	var pushErrs []error
 	batches := ArchiveMetricBatches(archive)
 	// ponytail: one lock serializes group writes; per-group locks if throughput requires it.
-	i.groupMu.Lock()
-	defer i.groupMu.Unlock()
+	select {
+	case i.groupGate <- struct{}{}:
+		defer func() { <-i.groupGate }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	finished := archive.GetSummary().GetFinishedUnixMs()
 	if finished <= 0 {
 		finished = archive.GetSummary().GetStartedUnixMs()
 	}
 	for _, batch := range batches {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		key := groupingKey(batch.Grouping)
 		// Undated legacy archives may initialize a group, but never replace a
 		// dated measurement. Equal timestamps use the object key as a stable tie.

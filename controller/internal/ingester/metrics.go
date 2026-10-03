@@ -113,6 +113,7 @@ type MetricBatch struct {
 
 // MetricPusher writes one tested Wi-Fi unit to a metrics sink.
 type MetricPusher interface {
+	// Push must honor context cancellation, including in-flight network I/O.
 	Push(ctx context.Context, batch MetricBatch) error
 }
 

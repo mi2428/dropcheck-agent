@@ -43,7 +43,7 @@ func TestArchiveOrderingPolicy(t *testing.T) {
 			pusher := &fakePusher{}
 			ing := New(testConfig(), store, pusher, log.New(io.Discard, "", 0))
 			for _, key := range tc.keys {
-				if err := ing.ProcessObject(context.Background(), ObjectRef{Key: key, ETag: key}); err != nil {
+				if err := ing.ProcessObject(context.Background(), ObjectRef{Bucket: "dropcheck", Key: key, ETag: key}); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -58,11 +58,11 @@ func TestSameKeyChangedSignatureAndTimestampTieCanUpdate(t *testing.T) {
 	store := &fakeStore{objects: map[string][]byte{"same.pb": marshalOrderingArchive(t, timestampedArchive(2000, false))}}
 	pusher := &fakePusher{}
 	ing := New(testConfig(), store, pusher, log.New(io.Discard, "", 0))
-	if err := ing.ProcessObject(context.Background(), ObjectRef{Key: "same.pb", ETag: "first"}); err != nil {
+	if err := ing.ProcessObject(context.Background(), ObjectRef{Bucket: "dropcheck", Key: "same.pb", ETag: "first"}); err != nil {
 		t.Fatal(err)
 	}
 	store.objects["same.pb"] = marshalOrderingArchive(t, timestampedArchive(2000, true))
-	if err := ing.ProcessObject(context.Background(), ObjectRef{Key: "same.pb", ETag: "changed"}); err != nil {
+	if err := ing.ProcessObject(context.Background(), ObjectRef{Bucket: "dropcheck", Key: "same.pb", ETag: "changed"}); err != nil {
 		t.Fatal(err)
 	}
 	if len(pusher.pushes) != 2 || lastSuccessValue(pusher) != 1 {
@@ -87,7 +87,7 @@ func TestConcurrentNotificationAndBackfillKeepLatest(t *testing.T) {
 	}()
 	go func() {
 		defer wg.Done()
-		if err := ing.ProcessObject(context.Background(), ObjectRef{Key: "new.pb", ETag: "new"}); err != nil {
+		if err := ing.ProcessObject(context.Background(), ObjectRef{Bucket: "dropcheck", Key: "new.pb", ETag: "new"}); err != nil {
 			t.Error(err)
 		}
 	}()
@@ -113,7 +113,7 @@ func TestRestartBackfillOrderAndFetchCount(t *testing.T) {
 			store.objects[key] = marshalOrderingArchive(t, archive)
 		}
 		for _, key := range keys {
-			store.refs = append(store.refs, ObjectRef{Key: key, ETag: key})
+			store.refs = append(store.refs, ObjectRef{Bucket: "dropcheck", Key: key, ETag: key})
 		}
 		pusher := &fakePusher{}
 		for restart := 0; restart < 2; restart++ {
@@ -146,14 +146,14 @@ func TestPartialPushRetryPreservesSuccessfulGroupFence(t *testing.T) {
 	}}
 	pusher := &partialFailurePusher{fail: true, calls: make(map[string]int)}
 	ing := New(testConfig(), store, pusher, log.New(io.Discard, "", 0))
-	object := ObjectRef{Key: "new.pb", ETag: "new"}
+	object := ObjectRef{Bucket: "dropcheck", Key: "new.pb", ETag: "new"}
 	if err := ing.ProcessObject(context.Background(), object); err == nil {
 		t.Fatal("partial push failure was not returned")
 	}
 	if ing.alreadyProcessed(object) {
 		t.Fatal("partially pushed archive was marked processed")
 	}
-	if err := ing.ProcessObject(context.Background(), ObjectRef{Key: "old.pb", ETag: "old"}); err != nil {
+	if err := ing.ProcessObject(context.Background(), ObjectRef{Bucket: "dropcheck", Key: "old.pb", ETag: "old"}); err != nil {
 		t.Fatal(err)
 	}
 	if pusher.calls["lab"] != 1 {
@@ -175,7 +175,7 @@ func TestPartialPushRetryPreservesSuccessfulGroupFence(t *testing.T) {
 func TestBatchReturnsFetchAndDecodeErrorsWithoutPrefetch(t *testing.T) {
 	store := &orderedCountingStore{
 		fakeStore: fakeStore{objects: map[string][]byte{"bad.pb": []byte("bad protobuf")}},
-		refs:      []ObjectRef{{Key: "missing.pb", ETag: "missing"}, {Key: "bad.pb", ETag: "bad"}},
+		refs:      []ObjectRef{{Bucket: "dropcheck", Key: "missing.pb", ETag: "missing"}, {Bucket: "dropcheck", Key: "bad.pb", ETag: "bad"}},
 	}
 	ing := New(testConfig(), store, &fakePusher{}, log.New(io.Discard, "", 0))
 	err := ing.ProcessBatch(context.Background())

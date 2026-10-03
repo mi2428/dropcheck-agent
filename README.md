@@ -356,6 +356,19 @@ MinIO notifications or batch backfills, converts them into metrics, and pushes t
 to Pushgateway for Prometheus and Grafana. This does not require or restore Android
 standalone mode.
 
+Set `DROPCHECK_INGESTER_WEBHOOK_TOKEN` to a randomly generated single bearer token
+before starting either Compose stack (for example, `openssl rand -hex 32`). Both
+MinIO's `MINIO_NOTIFY_WEBHOOK_AUTH_TOKEN_INGESTER` and the ingester receive that
+same required value; there is no unauthenticated mode or default token. With a
+separate MinIO deployment, configure that sender variable explicitly. Use HTTPS
+or an isolated trusted network for delivery; a bearer token does not encrypt it.
+POST `/minio/events` requires exactly `Authorization: Bearer <token>`. All records
+must name the configured bucket and contain valid object keys/sizes before any
+fetch or metrics write. Notifications are limited to 1 MiB, body reads to 5 seconds,
+and processing to 30 seconds; failures return 400/401/413/408/504 as appropriate
+(502 for store/push failures). `/healthz` and GET/HEAD notification readiness probes
+remain unauthenticated and never process objects. Token/header values are not logged.
+
 Backfill streams the MinIO listing rather than retaining every object reference.
 It reports total failures with at most ten example errors, retries failed objects,
 and removes deleted-object deduplication signatures only after a complete listing.
@@ -391,6 +404,7 @@ export MINIO_ROOT_USER=archive-admin
 export MINIO_ROOT_PASSWORD="$(openssl rand -hex 24)"
 export GRAFANA_ADMIN_USER=dashboard-admin
 export GRAFANA_ADMIN_PASSWORD="$(openssl rand -hex 24)"
+export DROPCHECK_INGESTER_WEBHOOK_TOKEN="$(openssl rand -hex 32)"
 docker compose config --quiet
 docker compose -f docker-compose.test.yml config --quiet
 docker compose up -d --build
@@ -739,7 +753,33 @@ Docker-backed `make integration` is an explicit, separate check: it needs a
 Docker daemon and disposable MinIO containers, and is not run by this workflow.
 Image/source inputs and the update checks are listed above.
 Run it in an authorized isolated environment when changing ingestion or
-container images; a skipped MinIO test is not a successful integration check.
+container images. Setup failures fail the suite rather than skipping it.
+The default `make integration` runs three real-MinIO tests: backfill, authenticated
+handler ingestion/deduplication, and decode failure. It does not expose a webhook
+listener or verify delivery from the MinIO sender. An explicitly provisioned
+MinIO can replace the Docker helper via `DROPCHECK_INGESTER_INTEGRATION_MINIO_ENDPOINT`.
+
+Actual sender delivery is a separate opt-in scenario, adding a fourth test:
+
+```sh
+make integration
+# After provisioning an isolated external MinIO and its matched webhook target:
+export DROPCHECK_INGESTER_INTEGRATION_MINIO_ENDPOINT="${MINIO_ENDPOINT:?set an isolated external MinIO endpoint}"
+export DROPCHECK_INGESTER_INTEGRATION_WEBHOOK_ADDR="${WEBHOOK_ADDR:?set a numeric loopback webhook address}"
+go -C controller test -v -count=1 -tags integration,minionotify -timeout 10m ./integration/ingester
+go -C controller test -race -v -count=1 -tags integration,minionotify -timeout 10m ./integration/ingester
+```
+
+`minionotify` requires both `DROPCHECK_INGESTER_INTEGRATION_MINIO_ENDPOINT` and
+`DROPCHECK_INGESTER_INTEGRATION_WEBHOOK_ADDR`. The receiver address must be an
+explicit numeric loopback address with a nonzero port. Provision the MinIO target
+`arn:minio:sqs::INGESTER:webhook` to reach that receiver's `/minio/events`, using
+the public integration fixture token `synthetic-webhook-token` and fixture S3
+credentials. Missing/invalid configuration fails before Docker startup; there
+is no host-wide listener, host-gateway fallback, or skipped sender check. This
+scenario verifies real MinIO notification authentication, object retrieval and
+metrics delivery to an HTTP capture sink, not an additional Pushgateway daemon.
+
 Live `make e2e` and `-tags harness` device tests are excluded: they require
 dedicated authorized handsets and network credentials, never an ordinary PR
 runner. Regression tests in the normal controller and Android unit-test suites
