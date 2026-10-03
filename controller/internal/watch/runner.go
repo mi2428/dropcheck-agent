@@ -59,6 +59,10 @@ type operationAttempt struct {
 // useful than a bounded retry that records the flake without failing the target.
 const operationRetryLimit = 3
 
+// Cleanup has a five-second operation budget; each cleanup event has a one-second
+// delivery budget so shutdown and a blocked sink cannot hold it indefinitely.
+const cleanupTimeout = 5 * time.Second
+
 var checkExpectationPollInterval = time.Second
 
 // Run executes plan rounds until ctx is canceled or an unrecoverable runner or sink error occurs.
@@ -78,6 +82,11 @@ func RunWithOptions(ctx context.Context, plan Plan, opRunner OperationRunner, ag
 		event.Agent = agentSnapshot
 		if sink == nil {
 			return nil
+		}
+		if event.Step.Type == "cleanup" {
+			eventCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+			defer cancel()
+			return sink.Emit(eventCtx, event)
 		}
 		return sink.Emit(ctx, event)
 	}
@@ -178,7 +187,7 @@ const (
 	targetSkipped
 )
 
-func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, bands bandSupport, pause *PauseController, skip *SkipController, emit func(Event) error) (targetResult, error) {
+func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, bands bandSupport, pause *PauseController, skip *SkipController, emit func(Event) error) (outcome targetResult, retErr error) {
 	targetStart := time.Now()
 	targetSnapshot := snapshotTarget(target)
 	if message, ok := bands.skipReason(target.Band); ok {
@@ -219,7 +228,24 @@ func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent c
 	if err := pause.Wait(ctx); err != nil {
 		return targetFailed, err
 	}
-	ok, skipped, err := runRequiredStepWithSkip(ctx, opRunner, agent, round, target, StepSnapshot{Name: "connect", Type: "connect", Operation: connect.Name}, connect, skip, emit)
+	connectAttempted := false
+	cleanup := func() error {
+		if !connectAttempted {
+			return nil
+		}
+		connectAttempted = false
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+		defer cancel()
+		return runCleanup(cleanupCtx, opRunner, agent, round, target, emit)
+	}
+	defer func() { retErr = errors.Join(retErr, cleanup()) }()
+	ok, skipped, err := runRequiredStepWithSkip(ctx, opRunner, agent, round, target, StepSnapshot{Name: "connect", Type: "connect", Operation: connect.Name}, connect, skip, func(event Event) error {
+		err := emit(event)
+		if err == nil && event.Kind == EventStepStarted {
+			connectAttempted = true
+		}
+		return err
+	})
 	if err != nil {
 		return targetFailed, err
 	}
@@ -278,10 +304,16 @@ func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent c
 			return targetFailed, err
 		}
 	}
-	if err := pause.Wait(ctx); err != nil {
+	pauseCtx, finishPause := skip.operationContext(ctx)
+	err = pause.Wait(pauseCtx)
+	finishPause()
+	if operationSkipped(pauseCtx) {
+		return targetSkipped, finishOperatorSkippedTarget(round, target, targetStart, emit)
+	}
+	if err != nil {
 		return targetFailed, err
 	}
-	if err := runCleanup(ctx, opRunner, agent, round, target, skip, emit); err != nil && !errors.Is(err, ErrSkipRequested) {
+	if err := cleanup(); err != nil {
 		return targetFailed, err
 	}
 	status := "ok"
@@ -967,28 +999,31 @@ func macRotationForgetNotFound(result *controlpb.CommandResult) bool {
 	return strings.Contains(strings.ToLower(result.GetMessage()), "wifi network not found")
 }
 
-func runCleanup(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, skip *SkipController, emit func(Event) error) error {
+func runCleanup(ctx context.Context, opRunner OperationRunner, agent control.AgentInfo, round uint64, target Target, emit func(Event) error) error {
+	var operations []command.Operation
 	if target.disconnectAfter() {
-		op := command.WifiDisconnectOperation()
-		_, skipped, err := runOperationStepWithSkip(ctx, opRunner, agent, round, target, StepSnapshot{Name: "disconnect", Type: "cleanup", Operation: op.Name}, op, skip, emit)
-		if err != nil {
-			return err
-		}
-		if skipped {
-			return ErrSkipRequested
-		}
+		operations = append(operations, command.WifiDisconnectOperation())
 	}
 	if target.forgetAfter() {
-		op := command.WifiForgetOperation(target.SSID)
-		_, skipped, err := runOperationStepWithSkip(ctx, opRunner, agent, round, target, StepSnapshot{Name: "forget", Type: "cleanup", Operation: op.Name}, op, skip, emit)
-		if err != nil {
-			return err
-		}
-		if skipped {
-			return ErrSkipRequested
-		}
+		operations = append(operations, command.WifiForgetOperation(target.SSID))
 	}
-	return nil
+	var failures []error
+	for _, op := range operations {
+		started := time.Now()
+		step := StepSnapshot{Name: strings.TrimPrefix(op.Name, "wifi."), Type: "cleanup", Operation: op.Name, Status: "running"}
+		failures = append(failures, emit(Event{Kind: EventStepStarted, Round: round, Target: snapshotTarget(target), Step: step, Status: "running"}))
+		// Sink failure or operator skip must not prevent the requested cleanup.
+		exec, runErr := opRunner.Run(ctx, agent, op)
+		step, failed := operationFailureStep(step, exec, runErr)
+		if failed {
+			if runErr == nil {
+				runErr = fmt.Errorf("%s cleanup failed: %s", step.Name, operationFailureReason(step))
+			}
+			failures = append(failures, runErr)
+		}
+		failures = append(failures, emit(Event{Kind: EventStepFinished, Round: round, Target: snapshotTarget(target), Step: step, Status: step.Status, Message: operationFailureReason(step), Duration: time.Since(started).Milliseconds()}))
+	}
+	return errors.Join(failures...)
 }
 
 func connectOperation(target Target) (command.Operation, error) {
