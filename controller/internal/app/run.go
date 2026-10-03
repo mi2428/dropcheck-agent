@@ -72,13 +72,8 @@ func writeTopLevelHelp(w io.Writer) {
 		{"shell", "start the Controller Shell"},
 		{"watch -c CONFIG.yml", "start the Controller TUI for continuous E2E Wi-Fi checks"},
 		{"show devices", "list connected Android agents"},
-		{"show config [standalone]", "print agent configuration"},
 		{"show wifi <topic>", "show Wi-Fi status and diagnostics"},
 		{"show ip status", "show IP and routing status"},
-		{"show standalone <topic>", "show standalone runs and status"},
-		{"configure <set|delete> ...", "edit agent configuration"},
-		{"clear standalone runs [synced|all]", "delete stored runs"},
-		{"sync standalone runs [options]", "download stored standalone runs"},
 		{"request <command> ...", "run a one-shot agent operation"},
 	})
 	_, _ = fmt.Fprintln(w)

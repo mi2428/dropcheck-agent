@@ -182,15 +182,6 @@ func timeoutFor(cmd *controlpb.RunCommand) time.Duration {
 			durationFromMillis(c.ResolveDns.TimeoutMs, 5*time.Second) + 3*time.Second
 	case *controlpb.RunCommand_HttpCheck:
 		return durationFromMillis(c.HttpCheck.TimeoutMs, 10*time.Second) + 3*time.Second
-	case *controlpb.RunCommand_RunStandaloneOnce:
-		return 30 * time.Minute
-	case *controlpb.RunCommand_EditStandaloneConfig,
-		*controlpb.RunCommand_GetStandaloneConfig,
-		*controlpb.RunCommand_GetStandaloneStatus,
-		*controlpb.RunCommand_ListStandaloneRuns,
-		*controlpb.RunCommand_GetStandaloneRun,
-		*controlpb.RunCommand_ClearStandaloneRuns:
-		return 15 * time.Second
 	default:
 		return 15 * time.Second
 	}

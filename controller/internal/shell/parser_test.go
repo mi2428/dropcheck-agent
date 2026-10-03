@@ -1,12 +1,9 @@
 package shell
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/controlpb"
 )
 
@@ -25,33 +22,6 @@ func TestParseLineLocalCommandSurface(t *testing.T) {
 		t.Fatalf("pipeline should request JSON display")
 	}
 
-	showConfig, err := ParseLine("show config standalone")
-	if err != nil {
-		t.Fatalf("ParseLine(show config standalone) error = %v", err)
-	}
-	if showConfig.Kind != ShowConfig || showConfig.ConfigScope != "standalone" {
-		t.Fatalf("show config = kind %v scope %q", showConfig.Kind, showConfig.ConfigScope)
-	}
-
-	showConfigSet, err := ParseLine("show config | display set | match standalone")
-	if err != nil {
-		t.Fatalf("ParseLine(show config display set) error = %v", err)
-	}
-	if showConfigSet.Kind != ShowConfig || !showConfigSet.Pipeline.DisplaySet() || showConfigSet.Pipeline.StageCount() != 1 {
-		t.Fatalf("show config display set = kind %v displaySet %t stages %d", showConfigSet.Kind, showConfigSet.Pipeline.DisplaySet(), showConfigSet.Pipeline.StageCount())
-	}
-
-	sync, err := ParseLine("sync standalone runs output /tmp/dropcheck-e2e limit 2 keep-unsynced")
-	if err != nil {
-		t.Fatalf("ParseLine(sync standalone runs) error = %v", err)
-	}
-	if sync.Kind != StandaloneSync {
-		t.Fatalf("sync kind = %v, want %v", sync.Kind, StandaloneSync)
-	}
-	if sync.StandaloneSyncOutput != "/tmp/dropcheck-e2e" || sync.StandaloneSyncLimit != "2" || sync.StandaloneSyncMark {
-		t.Fatalf("sync options = output %q limit %q mark %t", sync.StandaloneSyncOutput, sync.StandaloneSyncLimit, sync.StandaloneSyncMark)
-	}
-
 	adbDiag, err := ParseLine("show adb dumpsys connectivity requests | display json")
 	if err != nil {
 		t.Fatalf("ParseLine(show adb dumpsys connectivity requests) error = %v", err)
@@ -61,41 +31,6 @@ func TestParseLineLocalCommandSurface(t *testing.T) {
 	}
 	if !adbDiag.Pipeline.DisplayJSON() {
 		t.Fatalf("adb diagnostics pipeline should request JSON display")
-	}
-}
-
-func TestParseConfigureLineStandaloneLiveWatch(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "seed.yml")
-	if err := os.WriteFile(path, []byte(strings.TrimSpace(`
-version: 1
-name: seed
-targets:
-  - name: cs1
-    ssid: cs1
-checks:
-  - type: ping
-    host: 1.1.1.1
-`)+"\n"), 0o644); err != nil {
-		t.Fatalf("WriteFile(%s) error = %v", path, err)
-	}
-
-	cmd, err := ParseConfigureLine("set standalone live watch " + path)
-	if err != nil {
-		t.Fatalf("ParseConfigureLine() error = %v", err)
-	}
-	if cmd.Kind != AgentCommand {
-		t.Fatalf("kind = %v, want AgentCommand", cmd.Kind)
-	}
-	run, _, err := command.BuildRunCommand(cmd.Operation)
-	if err != nil {
-		t.Fatalf("BuildRunCommand() error = %v", err)
-	}
-	edit := run.GetEditStandaloneConfig()
-	if edit == nil {
-		t.Fatalf("command = %T, want EditStandaloneConfig", run.GetCommand())
-	}
-	if got := strings.Join(edit.GetEdits()[1].GetPath(), "/"); got != "festa/live/wifi/cs1/match/essid" {
-		t.Fatalf("seed path = %q, want festa/live/wifi/cs1/match/essid", got)
 	}
 }
 
@@ -206,32 +141,6 @@ func TestParseLineAgentCommandSurface(t *testing.T) {
 				scan := cmd.GetGetWifiScan()
 				if scan == nil || scan.GetBand() != controlpb.WifiBand_WIFI_BAND_5_GHZ || cmd.GetLabel() != "wifi scan brief mlo 5ghz" {
 					t.Fatalf("brief mlo scan = %#v", cmd)
-				}
-			},
-		},
-		{
-			name:      "configure standalone",
-			line:      "set standalone enabled",
-			parse:     ParseConfigureLine,
-			operation: "standalone.config.edit",
-			check: func(t *testing.T, cmd *controlpb.RunCommand) {
-				t.Helper()
-				edit := cmd.GetEditStandaloneConfig().GetEdits()[0]
-				if edit.GetAction() != controlpb.StandaloneEdit_ACTION_SET || strings.Join(edit.GetPath(), ".") != "enabled" || edit.GetValue() != "true" {
-					t.Fatalf("standalone enabled edit not set")
-				}
-			},
-		},
-		{
-			name:      "standalone run once",
-			line:      "standalone run once festa smoke save",
-			parse:     ParseRequestLine,
-			operation: "standalone.run.once",
-			check: func(t *testing.T, cmd *controlpb.RunCommand) {
-				t.Helper()
-				run := cmd.GetRunStandaloneOnce()
-				if run == nil || run.GetFesta() != "smoke" || !run.GetSave() {
-					t.Fatalf("standalone run once = %#v", run)
 				}
 			},
 		},

@@ -35,12 +35,8 @@ sequenceDiagram
     WiFi-->>App: link and probe result
     App-->>Harness: typed result
     Harness-->>NOC: Go test output
-  and Standalone measurements collected into O11y
-    NOC->>Controller: configure or run standalone scenario
-    Controller->>App: persist config or run once
-    App->>WiFi: scheduled checks
-    WiFi-->>App: measurement result
-    App->>O11y: upload standalone archive
+   and Historical measurements collected into O11y
+    NOC->>O11y: ingest saved historical archives
     O11y-->>NOC: metrics and dashboards
   and NOC direct control through Agent Shell
     NOC->>App: Agent Shell command
@@ -117,7 +113,7 @@ Use the one-shot controller CLI for ad-hoc checks, Controller Shell for field wo
 
 The controller starts an ADB-backed gRPC session to one or more Android agents.
 One-shot CLI commands are scriptable and can emit text or JSON.
-Controller Shell adds prompts, completion, context help, output filters, and configure/request submodes on top of the same typed agent operations.
+Controller Shell adds prompts, completion, context help, output filters, and request mode on top of the same typed agent operations. Configure mode retains `run show ...` and `run request ...`; obsolete standalone configuration commands are no longer available.
 
 The controller builds two host-side binaries:
 
@@ -296,22 +292,17 @@ checks:
 For `ping`, `traceroute`, and `path_mtu`, `family: ipv4` or `family: ipv6` pins a dual-stack hostname probe to one address family.
 Leave `family` unset when the agent should auto-select based on DNS answers and usable source addresses.
 
-### Standalone measurement and observability
+### Historical archives and observability
 
-Standalone mode stores "festa" configurations on the handset.
-A festa contains Wi-Fi groups to connect to, wait policies, and DNS/ping/HTTP checks.
-The agent can run them on a schedule or once on demand, then save a protobuf archive locally.
+Android standalone scheduling, run-once, storage retrieval, and upload control have
+been removed. The controller no longer exposes standalone commands or `show config`.
+Use Controller TUI/watch or Dropcheck Harness for current measurements.
 
-The controller can inspect and export those archives:
-
-```console
-$ controller/dist/dropcheck --serial R5CT12345 request standalone run once --festa shownet --save
-$ controller/dist/dropcheck --serial R5CT12345 show standalone runs --limit 5
-$ controller/dist/dropcheck --serial R5CT12345 sync standalone runs --output out/standalone --mark-synced
-```
-
-For unattended observability, the Android agent uploads standalone archives to MinIO-compatible storage.
-`dist/dropcheck-ingester` consumes MinIO notifications or batch backfills, converts archives into metrics, and pushes them to Pushgateway for Prometheus and Grafana.
+Saved historical standalone protobuf archives remain supported for offline Harness
+replay and ingestion. `dist/dropcheck-ingester` consumes stored archives through
+MinIO notifications or batch backfills, converts them into metrics, and pushes them
+to Pushgateway for Prometheus and Grafana. This does not require or restore Android
+standalone mode.
 
 Backfill streams the MinIO listing rather than retaining every object reference.
 It reports total failures with at most ten example errors, retries failed objects,
@@ -336,18 +327,12 @@ Reproduce the scale check from `controller/`:
 go test -p 1 ./internal/ingester -run '^$' -bench '^BenchmarkBackfillScale$' -benchtime=1x -benchmem
 ```
 
-Configure uploads by setting a path-style bucket/prefix URL and the management Wi-Fi used before upload:
-
-```console
-$ controller/dist/dropcheck --serial R5CT12345 configure set standalone upload to http://192.168.50.10:8080/dropcheck/incoming
-$ controller/dist/dropcheck --serial R5CT12345 configure set standalone upload via wifi essid NOC passphrase upload-secret security auto timeout 5s
-```
-
 ### Dropcheck Harness
 
 Dropcheck Harness is a Go test harness for ADB-backed Android network checks.
 Harness tests connect to a requested Wi-Fi target, wait for the expected link state, run typed checks, and fail with normal Go test output.
-It supports retries, stable checks, and replaying saved standalone archives without a connected Android agent.
+Live checks support retries and stability checks. Offline replay consumes distinct
+saved observations for repetition and retries; `StableFor` requires live measurements.
 
 Available check builders include Wi-Fi status, EHT diagnostics, scan and scan-detail, Wi-Fi capabilities, IP status, ping, DNS, HTTP, download, traceroute, path MTU, and global IP.
 

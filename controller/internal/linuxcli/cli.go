@@ -6,7 +6,6 @@ import (
 
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/pipeline"
-	"dropcheck/controller/internal/standaloneseed"
 )
 
 // Options contains dropcheck CLI flags that affect dispatch and presentation.
@@ -27,10 +26,6 @@ const (
 	AgentCommand Kind = iota
 	// Devices lists connected agents.
 	Devices
-	// Config prints persisted Agent App configuration.
-	Config
-	// StandaloneSync downloads stored standalone measurement archives.
-	StandaloneSync
 )
 
 // Command is the parsed non-interactive CLI command.
@@ -39,14 +34,6 @@ type Command struct {
 	Kind Kind
 	// Operation is populated when Kind is AgentCommand.
 	Operation command.Operation
-	// ConfigScope is populated when Kind is Config.
-	ConfigScope string
-	// StandaloneSyncOutput is the output directory for StandaloneSync.
-	StandaloneSyncOutput string
-	// StandaloneSyncLimit caps StandaloneSync downloads.
-	StandaloneSyncLimit string
-	// StandaloneSyncMark marks downloaded runs as synced.
-	StandaloneSyncMark bool
 }
 
 // ExtractOptions parses CLI-global flags and returns the remaining command
@@ -115,12 +102,6 @@ func Parse(args []string) (Command, error) {
 	switch args[0] {
 	case "show":
 		return parseShow(args[1:])
-	case "configure":
-		return parseConfigure(args[1:])
-	case "clear":
-		return parseClear(args[1:])
-	case "sync":
-		return parseSync(args[1:])
 	case "request":
 		return parseRequest(args[1:])
 	default:
@@ -128,23 +109,9 @@ func Parse(args []string) (Command, error) {
 	}
 }
 
-func parseConfigure(args []string) (Command, error) {
-	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: configure <set|delete> <command>")
-	}
-	switch args[0] {
-	case "set":
-		return parseSet(args[1:])
-	case "delete":
-		return parseDelete(args[1:])
-	default:
-		return Command{}, fmt.Errorf("usage: configure <set|delete> <command>")
-	}
-}
-
 func parseShow(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: show <devices|config|wifi|ip|standalone>")
+		return Command{}, fmt.Errorf("usage: show <devices|wifi|ip>")
 	}
 	switch args[0] {
 	case "devices":
@@ -152,16 +119,11 @@ func parseShow(args []string) (Command, error) {
 			return Command{}, fmt.Errorf("usage: show devices")
 		}
 		return Command{Kind: Devices}, nil
-	case "config":
-		return parseShowConfig(args[1:])
 	case "wifi":
 		op, err := parseLinuxShowWifi(args[1:])
 		return Command{Kind: AgentCommand, Operation: op}, err
 	case "ip":
 		op, err := parseLinuxShowIP(args[1:])
-		return Command{Kind: AgentCommand, Operation: op}, err
-	case "standalone":
-		op, err := parseStandaloneShow(args[1:])
 		return Command{Kind: AgentCommand, Operation: op}, err
 	default:
 		return Command{}, fmt.Errorf("unknown show command %q", args[0])
@@ -173,22 +135,6 @@ func parseLinuxShowIP(args []string) (command.Operation, error) {
 		return command.Operation{}, fmt.Errorf("usage: show ip status")
 	}
 	return command.IPStatusOperation(), nil
-}
-
-func parseShowConfig(args []string) (Command, error) {
-	switch len(args) {
-	case 0:
-		return Command{Kind: Config, ConfigScope: "all"}, nil
-	case 1:
-		switch args[0] {
-		case "standalone":
-			return Command{Kind: Config, ConfigScope: "standalone"}, nil
-		default:
-			return Command{}, fmt.Errorf("usage: show config [standalone]")
-		}
-	default:
-		return Command{}, fmt.Errorf("usage: show config [standalone]")
-	}
 }
 
 func parseLinuxShowWifi(args []string) (command.Operation, error) {
@@ -217,74 +163,9 @@ func parseLinuxShowWifi(args []string) (command.Operation, error) {
 	}
 }
 
-func parseSet(args []string) (Command, error) {
-	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: set standalone <command>")
-	}
-	if args[0] != "standalone" {
-		return Command{}, fmt.Errorf("usage: set standalone <command>")
-	}
-	if op, matched, err := standaloneseed.OperationFromSetArgs(args[1:]); matched || err != nil {
-		return Command{Kind: AgentCommand, Operation: op}, err
-	}
-	edits, err := command.StandaloneSetEdits(args[1:])
-	if err != nil {
-		return Command{}, err
-	}
-	op, err := command.StandaloneEditOperation(edits)
-	return Command{Kind: AgentCommand, Operation: op}, err
-}
-
-func parseDelete(args []string) (Command, error) {
-	if len(args) == 0 || args[0] != "standalone" {
-		return Command{}, fmt.Errorf("usage: delete standalone [festa <name>|...]")
-	}
-	edits, err := command.StandaloneDeleteEdits(args[1:])
-	if err != nil {
-		return Command{}, err
-	}
-	op, err := command.StandaloneEditOperation(edits)
-	return Command{Kind: AgentCommand, Operation: op}, err
-}
-
-func parseClear(args []string) (Command, error) {
-	if len(args) < 2 || args[0] != "standalone" || args[1] != "runs" || len(args) > 3 {
-		return Command{}, fmt.Errorf("usage: clear standalone runs [synced|all]")
-	}
-	mode := "synced"
-	if len(args) == 3 {
-		mode = args[2]
-	}
-	op, err := command.StandaloneClearRunsOperation(mode)
-	return Command{Kind: AgentCommand, Operation: op}, err
-}
-
-func parseSync(args []string) (Command, error) {
-	if len(args) < 2 || args[0] != "standalone" || args[1] != "runs" {
-		return Command{}, fmt.Errorf("usage: sync standalone runs [--output dir] [--limit n] [--mark-synced|--keep-unsynced]")
-	}
-	opts, err := parseDashOptions(args[2:], map[string]dashOptionSpec{
-		"output":        {value: true},
-		"limit":         {value: true},
-		"mark-synced":   {},
-		"keep-unsynced": {},
-	})
-	if err != nil {
-		return Command{}, err
-	}
-	if len(opts.positionals) != 0 {
-		return Command{}, fmt.Errorf("usage: sync standalone runs [--output dir] [--limit n] [--mark-synced|--keep-unsynced]")
-	}
-	if opts.flags["mark-synced"] && opts.flags["keep-unsynced"] {
-		return Command{}, fmt.Errorf("--mark-synced and --keep-unsynced cannot be used together")
-	}
-	markSynced := !opts.flags["keep-unsynced"]
-	return Command{Kind: StandaloneSync, StandaloneSyncOutput: opts.value("output"), StandaloneSyncLimit: opts.value("limit"), StandaloneSyncMark: markSynced}, nil
-}
-
 func parseRequest(args []string) (Command, error) {
 	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: request <wifi|standalone|monitor|ping|traceroute|path-mtu|global-ip|dns|http|download> <command>")
+		return Command{}, fmt.Errorf("usage: request <wifi|monitor|ping|traceroute|path-mtu|global-ip|dns|http|download> <command>")
 	}
 	if args[0] == "wifi" {
 		op, err := parseLinuxWifi(args[1:])
@@ -322,68 +203,7 @@ func parseRequest(args []string) (Command, error) {
 		op, err := parseLinuxDownload(args[1:])
 		return Command{Kind: AgentCommand, Operation: op}, err
 	}
-	if args[0] != "standalone" {
-		return Command{}, fmt.Errorf("usage: request <wifi|standalone|monitor|ping|traceroute|path-mtu|global-ip|dns|http|download> <command>")
-	}
-	return parseStandaloneRequest(args[1:])
-}
-
-func parseStandaloneShow(args []string) (command.Operation, error) {
-	if len(args) == 0 {
-		return command.Operation{}, fmt.Errorf("usage: show standalone <status|runs|run>")
-	}
-	switch args[0] {
-	case "status":
-		if len(args) != 1 {
-			return command.Operation{}, fmt.Errorf("usage: show standalone status")
-		}
-		return command.StandaloneStatusOperation(), nil
-	case "runs":
-		opts, err := parseDashOptions(args[1:], map[string]dashOptionSpec{
-			"limit":  {value: true},
-			"synced": {},
-		})
-		if err != nil {
-			return command.Operation{}, err
-		}
-		if len(opts.positionals) != 0 {
-			return command.Operation{}, fmt.Errorf("usage: show standalone runs [--limit n] [--synced]")
-		}
-		return command.StandaloneListRunsOperation(command.StandaloneListOptions{Limit: opts.value("limit"), IncludeSynced: opts.flags["synced"]})
-	case "run":
-		if len(args) != 2 {
-			return command.Operation{}, fmt.Errorf("usage: show standalone run <run-id>")
-		}
-		return command.StandaloneRunOperation(args[1], false)
-	default:
-		return command.Operation{}, fmt.Errorf("unknown show standalone command %q", args[0])
-	}
-}
-
-func parseStandaloneRequest(args []string) (Command, error) {
-	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: request standalone run once [--festa name] [--save]")
-	}
-	switch args[0] {
-	case "run":
-		if len(args) < 2 || args[1] != "once" {
-			return Command{}, fmt.Errorf("usage: request standalone run once [--festa name] [--save]")
-		}
-		opts, err := parseDashOptions(args[2:], map[string]dashOptionSpec{
-			"festa": {value: true},
-			"save":  {},
-		})
-		if err != nil {
-			return Command{}, err
-		}
-		if len(opts.positionals) != 0 {
-			return Command{}, fmt.Errorf("usage: request standalone run once [--festa name] [--save]")
-		}
-		op, err := command.StandaloneRunOnceOperation(command.StandaloneRunOptions{Festa: opts.value("festa"), Save: opts.flags["save"]})
-		return Command{Kind: AgentCommand, Operation: op}, err
-	default:
-		return Command{}, fmt.Errorf("unknown request standalone command %q", args[0])
-	}
+	return Command{}, fmt.Errorf("usage: request <wifi|monitor|ping|traceroute|path-mtu|global-ip|dns|http|download> <command>")
 }
 
 type dashOptionSpec struct {

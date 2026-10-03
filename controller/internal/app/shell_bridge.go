@@ -17,22 +17,16 @@ const (
 	shellEnterConfigureMode
 	shellEnterRequestMode
 	shellShowDevices
-	shellShowConfig
 	shellAgentCommand
 	shellADBDiagnostics
-	shellStandaloneSync
 )
 
 type shellCommand struct {
-	kind        shellCommandKind
-	configScope string
-	operation   Operation
-	adbKind     string
-	syncOutput  string
-	syncLimit   string
-	syncMark    bool
-	pipeline    pipePipeline
-	rawCommand  string
+	kind       shellCommandKind
+	operation  Operation
+	adbKind    string
+	pipeline   pipePipeline
+	rawCommand string
 }
 
 func parseShellLine(line string) (shellCommand, error) {
@@ -52,15 +46,11 @@ func parseShellConfigureLine(line string) (shellCommand, error) {
 
 func wrapShellCommand(parsed shell.Command) shellCommand {
 	return shellCommand{
-		kind:        shellCommandKind(parsed.Kind),
-		configScope: parsed.ConfigScope,
-		operation:   parsed.Operation,
-		adbKind:     parsed.ADBDiagnosticsKind,
-		syncOutput:  parsed.StandaloneSyncOutput,
-		syncLimit:   parsed.StandaloneSyncLimit,
-		syncMark:    parsed.StandaloneSyncMark,
-		pipeline:    wrapPipePipeline(parsed.Pipeline),
-		rawCommand:  parsed.RawCommand,
+		kind:       shellCommandKind(parsed.Kind),
+		operation:  parsed.Operation,
+		adbKind:    parsed.ADBDiagnosticsKind,
+		pipeline:   wrapPipePipeline(parsed.Pipeline),
+		rawCommand: parsed.RawCommand,
 	}
 }
 

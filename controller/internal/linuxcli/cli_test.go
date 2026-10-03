@@ -1,8 +1,6 @@
 package linuxcli
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -55,19 +53,6 @@ func TestParseTopLevelCommands(t *testing.T) {
 				t.Helper()
 				if cmd.Kind != Devices {
 					t.Fatalf("kind = %v, want Devices", cmd.Kind)
-				}
-			},
-		},
-		{
-			name: "sync standalone runs",
-			args: []string{"sync", "standalone", "runs", "--output", "out", "--limit=5", "--keep-unsynced"},
-			check: func(t *testing.T, cmd Command) {
-				t.Helper()
-				if cmd.Kind != StandaloneSync {
-					t.Fatalf("kind = %v, want StandaloneSync", cmd.Kind)
-				}
-				if cmd.StandaloneSyncOutput != "out" || cmd.StandaloneSyncLimit != "5" || cmd.StandaloneSyncMark {
-					t.Fatalf("standalone sync = %#v", cmd)
 				}
 			},
 		},
@@ -231,34 +216,6 @@ func TestParseAgentCommandSurface(t *testing.T) {
 				t.Helper()
 				if !options.WifiScanBrief || !options.WifiScanMLO {
 					t.Fatalf("wifi scan brief mlo options = %#v", options)
-				}
-			},
-		},
-		{
-			name: "standalone runs",
-			args: []string{"show", "standalone", "runs", "--limit", "5", "--synced"},
-			check: func(t *testing.T, run *controlpb.RunCommand) {
-				t.Helper()
-				list := run.GetListStandaloneRuns()
-				if list == nil {
-					t.Fatalf("command = %T, want ListStandaloneRuns", run.GetCommand())
-				}
-				if list.GetLimit() != 5 || !list.GetIncludeSynced() {
-					t.Fatalf("list standalone = %#v", list)
-				}
-			},
-		},
-		{
-			name: "standalone run",
-			args: []string{"show", "standalone", "run", "run-123"},
-			check: func(t *testing.T, run *controlpb.RunCommand) {
-				t.Helper()
-				get := run.GetGetStandaloneRun()
-				if get == nil {
-					t.Fatalf("command = %T, want GetStandaloneRun", run.GetCommand())
-				}
-				if get.GetRunId() != "run-123" || get.GetMarkSynced() {
-					t.Fatalf("get standalone run = %#v", get)
 				}
 			},
 		},
@@ -443,130 +400,6 @@ func TestParseAgentCommandSurface(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "standalone run once",
-			args: []string{"request", "standalone", "run", "once", "--festa", "smoke", "--save"},
-			check: func(t *testing.T, run *controlpb.RunCommand) {
-				t.Helper()
-				once := run.GetRunStandaloneOnce()
-				if once == nil {
-					t.Fatalf("command = %T, want RunStandaloneOnce", run.GetCommand())
-				}
-				if once.GetFesta() != "smoke" || !once.GetSave() {
-					t.Fatalf("run standalone once = %#v", once)
-				}
-			},
-		},
-		{
-			name: "clear standalone runs",
-			args: []string{"clear", "standalone", "runs", "all"},
-			check: func(t *testing.T, run *controlpb.RunCommand) {
-				t.Helper()
-				request := run.GetClearStandaloneRuns()
-				if request == nil {
-					t.Fatalf("command = %T, want ClearStandaloneRuns", run.GetCommand())
-				}
-				if !request.GetAll() || request.GetSyncedOnly() {
-					t.Fatalf("clear standalone = %#v", request)
-				}
-			},
-		},
-		{
-			name: "delete standalone festa",
-			args: []string{"configure", "delete", "standalone", "festa", "smoke"},
-			check: func(t *testing.T, run *controlpb.RunCommand) {
-				t.Helper()
-				edit := run.GetEditStandaloneConfig()
-				if edit == nil {
-					t.Fatalf("command = %T, want EditStandaloneConfig", run.GetCommand())
-				}
-				edits := edit.GetEdits()
-				if len(edits) != 1 || edits[0].GetAction() != controlpb.StandaloneEdit_ACTION_DELETE ||
-					strings.Join(edits[0].GetPath(), ".") != "festa.smoke" {
-					t.Fatalf("standalone delete edits = %#v", edits)
-				}
-			},
-		},
-		{
-			name: "set standalone upload wifi",
-			args: []string{"configure", "set", "standalone", "upload", "via", "wifi", "essid", "NOC", "passphrase", "secret", "security", "wpa3", "band", "6ghz", "timeout", "5s"},
-			check: func(t *testing.T, run *controlpb.RunCommand) {
-				t.Helper()
-				edit := run.GetEditStandaloneConfig()
-				if edit == nil {
-					t.Fatalf("command = %T, want EditStandaloneConfig", run.GetCommand())
-				}
-				edits := edit.GetEdits()
-				if len(edits) != 6 ||
-					strings.Join(edits[0].GetPath(), ".") != "upload.wifi" ||
-					edits[0].GetAction() != controlpb.StandaloneEdit_ACTION_DELETE ||
-					strings.Join(edits[1].GetPath(), ".") != "upload.wifi.ssid" ||
-					edits[1].GetValue() != "NOC" ||
-					strings.Join(edits[5].GetPath(), ".") != "upload.wifi.timeout_ms" ||
-					edits[5].GetValue() != "5000" {
-					t.Fatalf("standalone upload wifi edits = %#v", edits)
-				}
-			},
-		},
-		{
-			name: "set standalone festa wifi match",
-			args: []string{"configure", "set", "standalone", "festa", "smoke", "wifi", "mgmt", "match", "essid", "NOC", "mac-randomization", "auto"},
-			check: func(t *testing.T, run *controlpb.RunCommand) {
-				t.Helper()
-				edit := run.GetEditStandaloneConfig()
-				if edit == nil {
-					t.Fatalf("command = %T, want EditStandaloneConfig", run.GetCommand())
-				}
-				edits := edit.GetEdits()
-				if len(edits) != 2 ||
-					strings.Join(edits[0].GetPath(), ".") != "festa.smoke.wifi.mgmt.match.essid" ||
-					edits[0].GetValue() != "NOC" ||
-					strings.Join(edits[1].GetPath(), ".") != "festa.smoke.wifi.mgmt.mac_randomization" ||
-					edits[1].GetValue() != "auto" {
-					t.Fatalf("standalone festa wifi match edits = %#v", edits)
-				}
-			},
-		},
-		{
-			name: "set standalone festa wifi passphrase",
-			args: []string{"configure", "set", "standalone", "festa", "smoke", "wifi", "mgmt", "passphrase", "secret", "security", "transition"},
-			check: func(t *testing.T, run *controlpb.RunCommand) {
-				t.Helper()
-				edit := run.GetEditStandaloneConfig()
-				if edit == nil {
-					t.Fatalf("command = %T, want EditStandaloneConfig", run.GetCommand())
-				}
-				edits := edit.GetEdits()
-				if len(edits) != 2 ||
-					strings.Join(edits[0].GetPath(), ".") != "festa.smoke.wifi.mgmt.passphrase" ||
-					edits[0].GetValue() != "secret" ||
-					strings.Join(edits[1].GetPath(), ".") != "festa.smoke.wifi.mgmt.security" ||
-					edits[1].GetValue() != "transition" {
-					t.Fatalf("standalone festa wifi passphrase edits = %#v", edits)
-				}
-			},
-		},
-		{
-			name: "set standalone festa named ping check",
-			args: []string{"configure", "set", "standalone", "festa", "smoke", "check", "cloudflare", "test", "ping", "host", "1.1.1.1", "count", "1", "timeout", "8s"},
-			check: func(t *testing.T, run *controlpb.RunCommand) {
-				t.Helper()
-				edit := run.GetEditStandaloneConfig()
-				if edit == nil {
-					t.Fatalf("command = %T, want EditStandaloneConfig", run.GetCommand())
-				}
-				edits := edit.GetEdits()
-				if len(edits) != 4 ||
-					strings.Join(edits[0].GetPath(), ".") != "festa.smoke.check.cloudflare.test" ||
-					edits[0].GetValue() != "ping" ||
-					strings.Join(edits[1].GetPath(), ".") != "festa.smoke.check.cloudflare.host" ||
-					edits[1].GetValue() != "1.1.1.1" ||
-					strings.Join(edits[3].GetPath(), ".") != "festa.smoke.check.cloudflare.timeout_ms" ||
-					edits[3].GetValue() != "8000" {
-					t.Fatalf("standalone named ping check edits = %#v", edits)
-				}
-			},
-		},
 	}
 
 	for _, tt := range tests {
@@ -590,48 +423,6 @@ func TestParseAgentCommandSurface(t *testing.T) {
 	}
 }
 
-func TestParseStandaloneLiveWatch(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "seed.yml")
-	if err := os.WriteFile(path, []byte(strings.TrimSpace(`
-version: 1
-name: seed
-targets:
-  - name: cs1
-    ssid: cs1
-checks:
-  - type: ping
-    host: 1.1.1.1
-`)+"\n"), 0o644); err != nil {
-		t.Fatalf("WriteFile(%s) error = %v", path, err)
-	}
-
-	cmd, err := Parse([]string{"configure", "set", "standalone", "live", "watch", path})
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
-	if cmd.Kind != AgentCommand {
-		t.Fatalf("kind = %v, want AgentCommand", cmd.Kind)
-	}
-	run, _, err := cmdop.BuildRunCommand(cmd.Operation)
-	if err != nil {
-		t.Fatalf("BuildRunCommand() error = %v", err)
-	}
-	edit := run.GetEditStandaloneConfig()
-	if edit == nil {
-		t.Fatalf("command = %T, want EditStandaloneConfig", run.GetCommand())
-	}
-	edits := edit.GetEdits()
-	if len(edits) != 2 {
-		t.Fatalf("edits = %#v, want delete+set", edits)
-	}
-	if edits[0].GetAction() != controlpb.StandaloneEdit_ACTION_DELETE || strings.Join(edits[0].GetPath(), "/") != "festa/live" {
-		t.Fatalf("delete edit = %#v", edits[0])
-	}
-	if strings.Join(edits[1].GetPath(), "/") != "festa/live/wifi/cs1/match/essid" || edits[1].GetValue() != "cs1" {
-		t.Fatalf("seed edit = %#v", edits[1])
-	}
-}
-
 func TestParseRejectsInvalidCLICommands(t *testing.T) {
 	tests := [][]string{
 		{"show", "ip"},
@@ -641,7 +432,17 @@ func TestParseRejectsInvalidCLICommands(t *testing.T) {
 		{"show", "wifi", "scan", "mlo"},
 		{"request", "wifi", "connect", "Lab"},
 		{"request", "dns", "example.com", "--type", "A", "--type", "AAAA"},
-		{"sync", "standalone", "runs", "--mark-synced", "--keep-unsynced"},
+		{"show", "config"},
+		{"show", "config", "standalone"},
+		{"show", "standalone", "status"},
+		{"show", "standalone", "runs"},
+		{"show", "standalone", "run", "test-run"},
+		{"configure", "set", "standalone", "enabled"},
+		{"configure", "delete", "standalone"},
+		{"configure", "set", "standalone", "live", "watch", "missing.yml"},
+		{"request", "standalone", "run", "once"},
+		{"clear", "standalone", "runs", "all"},
+		{"sync", "standalone", "runs"},
 	}
 	for _, args := range tests {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {

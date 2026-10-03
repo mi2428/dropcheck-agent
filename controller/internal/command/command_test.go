@@ -98,37 +98,6 @@ func TestPathMTUOperationRejectsInvertedBounds(t *testing.T) {
 	}
 }
 
-func TestStandaloneSetEditsBuildConfigEdit(t *testing.T) {
-	edits, err := StandaloneSetEdits([]string{"festa", "lab", "wifi", "office", "match", "essid", "Lab", "mac-randomization", "persistent"})
-	if err != nil {
-		t.Fatalf("StandaloneSetEdits() error = %v", err)
-	}
-	op, err := StandaloneEditOperation(edits)
-	if err != nil {
-		t.Fatalf("StandaloneEditOperation() error = %v", err)
-	}
-	cmd, _, err := BuildRunCommand(op)
-	if err != nil {
-		t.Fatalf("BuildRunCommand() error = %v", err)
-	}
-	edit := cmd.GetEditStandaloneConfig().GetEdits()[0]
-	if edit.GetAction() != controlpb.StandaloneEdit_ACTION_SET || strings.Join(edit.GetPath(), "/") != "festa/lab/wifi/office/match/essid" || edit.GetValue() != "Lab" {
-		t.Fatalf("edit = %#v", edit)
-	}
-	macEdit := cmd.GetEditStandaloneConfig().GetEdits()[1]
-	if strings.Join(macEdit.GetPath(), "/") != "festa/lab/wifi/office/mac_randomization" || macEdit.GetValue() != "persistent" {
-		t.Fatalf("mac edit = %#v", macEdit)
-	}
-
-	retention, err := StandaloneSetEdits([]string{"retention", "7d"})
-	if err != nil {
-		t.Fatalf("retention edit: %v", err)
-	}
-	if retention[0].Value != "604800000" {
-		t.Fatalf("retention = %#v", retention[0])
-	}
-}
-
 func TestWifiFreshScanOperationBuildsCommand(t *testing.T) {
 	op, err := WifiFreshScanOperation("6ghz", "9000")
 	if err != nil {

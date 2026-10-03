@@ -51,18 +51,6 @@ func runCLI(ctx context.Context, opts shellOptions, rawArgs []string) error {
 		}
 		fmt.Print(out)
 		return nil
-	case linuxcli.Config:
-		agents, err := state.commandTargets()
-		if err != nil {
-			return err
-		}
-		return runConfigForAgents(ctx, state, agents, command.ConfigScope, commandOutputOptions{format: cliOpts.Format, strict: true})
-	case linuxcli.StandaloneSync:
-		return syncStandaloneRuns(ctx, state, standaloneSyncOptions{
-			OutputDir:  command.StandaloneSyncOutput,
-			Limit:      command.StandaloneSyncLimit,
-			MarkSynced: command.StandaloneSyncMark,
-		})
 	default:
 		agents, err := state.commandTargets()
 		if err != nil {
