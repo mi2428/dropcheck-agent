@@ -268,6 +268,46 @@ func TestRunEvaluatesStandaloneArchiveResults(t *testing.T) {
 	})
 }
 
+func TestStandaloneArchiveRepeatAndRetryConsumeDistinctObservations(t *testing.T) {
+	for _, retry := range []bool{false, true} {
+		t.Run(fmt.Sprintf("retry=%v", retry), func(t *testing.T) {
+			archive := standaloneArchiveFixture()
+			first := archive.Steps[3]
+			second := proto.Clone(first).(*controlpb.StandaloneMeasurementStep)
+			second.StepIndex = 6
+			if retry {
+				first.Result.GetPing().Received = 0
+			}
+			// Deliberately store the later observation first.
+			archive.Steps = append([]*controlpb.StandaloneMeasurementStep{second}, archive.Steps...)
+			var observed []uint32
+			check := harness.Ping("8.8.8.8").Count(3).Expect(ping.Assert("recorded sequence", func(r ping.Result) error {
+				observed = append(observed, r.Received)
+				if r.Received == 0 {
+					return fmt.Errorf("no replies")
+				}
+				return nil
+			}))
+			if retry {
+				check = check.Retry(2, 0)
+			} else {
+				check = check.Repeat(2)
+			}
+			harness.Run(t, harness.Plan{
+				Results: []harness.ResultSource{harness.StandaloneArchive("two-observations", archive)},
+				Checks:  []harness.Check{check},
+			})
+			want := []uint32{3, 3}
+			if retry {
+				want[0] = 0
+			}
+			if !reflect.DeepEqual(observed, want) {
+				t.Fatalf("observed = %v, want %v", observed, want)
+			}
+		})
+	}
+}
+
 func TestStandaloneArchiveResultSourcesLoadProtobufBinary(t *testing.T) {
 	archive := standaloneArchiveFixture()
 	data, err := proto.Marshal(archive)

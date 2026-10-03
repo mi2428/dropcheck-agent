@@ -413,6 +413,10 @@ func TestHarnessStandaloneResultReplayScenarios(t *testing.T) {
 		{name: "missing_wait", want: "wait_connected missing from standalone result"},
 		{name: "failed_connect", want: "connect status=STATUS_FAILED"},
 		{name: "missing_ping", want: "no archived ping step"},
+		{name: "repeat_exhausted", want: "no archived ping step"},
+		{name: "repeat_failed", want: "command status=STATUS_FAILED"},
+		{name: "retry_exhausted", want: "no archived ping step"},
+		{name: "stable_unsupported", want: "StableFor is unsupported for offline archive replay"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			runHarnessReplayFailureChild(t, tc.name, tc.want)
@@ -426,6 +430,8 @@ func TestHarnessStandaloneResultReplayFailureChild(t *testing.T) {
 		t.Skipf("set %s to run a failing replay fixture child", harnessReplayChildEnv)
 	}
 	archive := standaloneReplayArchiveFixture()
+	checks := standaloneReplayChecks()
+	pingCheck := f.Ping(standalonePingHost).Count(1).Expect(ping.Received().Ge(1))
 	switch name {
 	case "missing_wait":
 		archive.Steps = removeStandaloneStep(archive.GetSteps(), "wait_connected")
@@ -437,6 +443,23 @@ func TestHarnessStandaloneResultReplayFailureChild(t *testing.T) {
 		}
 	case "missing_ping":
 		archive.Steps = removeStandaloneStep(archive.GetSteps(), "ping")
+	case "repeat_exhausted":
+		checks = []f.Check{pingCheck.Repeat(2)}
+	case "repeat_failed":
+		for _, step := range archive.Steps {
+			if step.GetStepName() == "ping" {
+				failed := proto.Clone(step).(*controlpb.StandaloneMeasurementStep)
+				failed.StepIndex = 100
+				failed.Result.Status = controlpb.CommandResult_STATUS_FAILED
+				archive.Steps = append(archive.Steps, failed)
+				break
+			}
+		}
+		checks = []f.Check{pingCheck.Repeat(2)}
+	case "retry_exhausted":
+		checks = []f.Check{f.Ping(standalonePingHost).Count(1).Retry(2, 0).Expect(ping.Received().Gt(1))}
+	case "stable_unsupported":
+		checks = []f.Check{pingCheck.StableFor(time.Nanosecond)}
 	default:
 		t.Fatalf("unknown replay failure fixture %q", name)
 	}
@@ -445,7 +468,7 @@ func TestHarnessStandaloneResultReplayFailureChild(t *testing.T) {
 		Results: []f.ResultSource{
 			f.StandaloneArchive(name, archive),
 		},
-		Checks: standaloneReplayChecks(),
+		Checks: checks,
 	})
 }
 

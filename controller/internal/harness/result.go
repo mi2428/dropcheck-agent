@@ -225,32 +225,46 @@ func (target ResultTarget) syntheticAgent() control.AgentInfo {
 	return control.AgentInfo{ID: "standalone:" + target.displayName()}
 }
 
-func (target ResultTarget) matchCommand(command *controlpb.RunCommand) *controlpb.StandaloneMeasurementStep {
-	for _, step := range target.Steps {
-		if runCommandsMatch(command, step.GetCommand()) {
-			return step
-		}
-	}
-	return nil
-}
-
 type archiveRunner struct {
 	target ResultTarget
+	used   map[int]bool
 }
 
-func (r archiveRunner) Run(_ context.Context, _ control.AgentInfo, op command.Operation) (runner.Result, error) {
+func (r *archiveRunner) Run(_ context.Context, _ control.AgentInfo, op command.Operation) (runner.Result, error) {
 	cmd, options, err := command.BuildRunCommand(op)
 	result := runner.Result{Operation: op, Command: cmd, Options: options}
 	if err != nil {
 		return result, err
 	}
-	step := r.target.matchCommand(cmd)
+	index, step := r.nextMatchingStep(cmd)
 	if step == nil {
 		return result, fmt.Errorf("standalone result %q has no archived %s step matching %s", r.target.displayName(), op.Name, commandLabel(cmd))
 	}
+	if r.used == nil {
+		r.used = make(map[int]bool)
+	}
+	r.used[index] = true
 	result.CommandID = archiveCommandID(r.target, step)
 	result.Result = archivedStepResult(step)
 	return result, nil
+}
+
+func (r *archiveRunner) nextMatchingStep(command *controlpb.RunCommand) (int, *controlpb.StandaloneMeasurementStep) {
+	// ponytail: linear selection per observation; sort/index if large replays require it.
+	selected := -1
+	for index, step := range r.target.Steps {
+		if r.used[index] || !runCommandsMatch(command, step.GetCommand()) {
+			continue
+		}
+		if selected < 0 || step.GetStepIndex() < r.target.Steps[selected].GetStepIndex() ||
+			(step.GetStepIndex() == r.target.Steps[selected].GetStepIndex() && step.GetAttempt() < r.target.Steps[selected].GetAttempt()) {
+			selected = index
+		}
+	}
+	if selected < 0 {
+		return -1, nil
+	}
+	return selected, r.target.Steps[selected]
 }
 
 func archiveCommandID(target ResultTarget, step *controlpb.StandaloneMeasurementStep) string {

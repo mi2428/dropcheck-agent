@@ -10,6 +10,10 @@
 // In that mode Run does not start an Android session; it replays archived
 // command results through the same Check and Expect matcher path used by live
 // Networks.
+// Offline Repeat and Retry consume matching observations once per target in
+// step_index, attempt order (archive order breaks ties), including failed results.
+// Checks share that consumption state; insufficient observations fail the check.
+// StableFor is rejected offline: replay elapsed time is not measurement time.
 //
 // Run integrates the plan with testing.T so callers get Go subtests, -run
 // filtering, -json output, t.Cleanup, and standard failure reporting.
