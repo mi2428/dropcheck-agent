@@ -23,13 +23,11 @@ func TestDiscoverADBTargetsUsesExplicitSerial(t *testing.T) {
 
 func TestDiscoverADBTargetsFiltersConnectedDevices(t *testing.T) {
 	path := fakeADB(t, `
-cat <<'OUT'
-List of devices attached
+printf '%s\n' 'List of devices attached
 R5CT11111 device product:one
 R5CT22222 offline product:two
 R5CT33333 unauthorized product:three
-
-OUT
+'
 `)
 
 	targets, err := discoverADBTargets(context.Background(), adb.Client{Path: path, Timeout: 5 * time.Second}, "")
@@ -43,11 +41,9 @@ OUT
 
 func TestDiscoverADBTargetsRejectsEmptyConnectedSet(t *testing.T) {
 	path := fakeADB(t, `
-cat <<'OUT'
-List of devices attached
+printf '%s\n' 'List of devices attached
 R5CT22222 offline product:two
-
-OUT
+'
 `)
 
 	_, err := discoverADBTargets(context.Background(), adb.Client{Path: path, Timeout: 5 * time.Second}, "")

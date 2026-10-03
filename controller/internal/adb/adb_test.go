@@ -1,8 +1,11 @@
 package adb
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,13 +18,11 @@ if [ "$1" = "-s" ]; then
   echo "ListDevices should not pass a serial" >&2
   exit 9
 fi
-cat <<'OUT'
-List of devices attached
+printf '%s\n' 'List of devices attached
 emulator-5554 device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64 device:emu64a transport_id:1
 R5CT12345 offline usb:336592896X
 malformed
-
-OUT
+'
 `)
 
 	devices, err := Client{Path: path, Serial: "ignored", Timeout: 5 * time.Second}.ListDevices(context.Background())
@@ -184,6 +185,98 @@ func TestStartAgentSessionRedactsTokenOnFailure(t *testing.T) {
 				t.Fatalf("echoed diagnostic lost: %q", out)
 			}
 		})
+	}
+}
+
+func TestClientRunStopsAndReapsFakeProcess(t *testing.T) {
+	for _, mode := range []string{"timeout", "cancel after start"} {
+		t.Run(mode, func(t *testing.T) {
+			ready := filepath.Join(t.TempDir(), "ready")
+			t.Setenv("ADB_TEST_READY", ready)
+			path := fakeADB(t, `
+printf 'started\n'
+: > "$ADB_TEST_READY"
+exec sleep 60
+`)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			timeout := 5 * time.Second
+			if mode == "timeout" {
+				timeout = 100 * time.Millisecond
+			}
+			type outcome struct {
+				result Result
+				err    error
+			}
+			done := make(chan outcome, 1)
+			started := time.Now()
+			go func() {
+				result, err := (Client{Path: path, Timeout: timeout}).Run(ctx, "shell", "test")
+				done <- outcome{result, err}
+			}()
+			if mode == "cancel after start" {
+				startupCtx, stop := context.WithTimeout(ctx, timeout)
+				defer stop()
+				ticker := time.NewTicker(5 * time.Millisecond)
+				defer ticker.Stop()
+				for {
+					if _, err := os.Stat(ready); err == nil {
+						break
+					} else if !errors.Is(err, os.ErrNotExist) {
+						t.Fatal(err)
+					}
+					select {
+					case <-ticker.C:
+					case <-startupCtx.Done():
+						cancel()
+						select {
+						case got := <-done:
+							t.Fatalf("fake process did not start: elapsed=%v process=%v timedOut=%v exit=%d error=%v", time.Since(started), got.result.Elapsed, got.result.TimedOut, got.result.ExitCode, got.err)
+						case <-time.After(time.Second):
+							t.Fatal("fake process did not complete after startup cancellation")
+						}
+					}
+				}
+				cancel()
+			}
+			select {
+			case got := <-done:
+				want := context.DeadlineExceeded
+				if mode == "cancel after start" {
+					want = context.Canceled
+					if !strings.Contains(got.result.Stdout, "started") {
+						t.Fatal("cancellation did not exercise an already-started process")
+					}
+				}
+				if !errors.Is(got.err, want) || !got.result.TimedOut || got.result.ExitCode != -1 {
+					t.Fatalf("process=%v timedOut=%v exit=%d error=%v", got.result.Elapsed, got.result.TimedOut, got.result.ExitCode, got.err)
+				}
+				t.Logf("fake process completed and reaped: elapsed=%v timedOut=%v exit=%d", got.result.Elapsed, got.result.TimedOut, got.result.ExitCode)
+			case <-time.After(time.Second):
+				t.Fatal("fake process did not complete after context stop")
+			}
+		})
+	}
+}
+
+func TestFakeADBLaunchDiagnostics(t *testing.T) {
+	path := fakeADB(t, "printf 'started\\n'\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, "shell", "test")
+	var output bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &output, &output
+	started := time.Now()
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("fake launch: elapsed=%v context=%v error=%v", time.Since(started), ctx.Err(), err)
+	}
+	launchElapsed := time.Since(started)
+	waitStarted := time.Now()
+	err := cmd.Wait()
+	waitElapsed := time.Since(waitStarted)
+	t.Logf("fake launch=%v completion=%v marker=%v exit=%d context=%v", launchElapsed, waitElapsed, strings.Contains(output.String(), "started"), cmd.ProcessState.ExitCode(), ctx.Err())
+	if err != nil || output.String() != "started\n" {
+		t.Fatalf("fake completion: launch=%v completion=%v marker=%v context=%v error=%v", launchElapsed, waitElapsed, strings.Contains(output.String(), "started"), ctx.Err(), err)
 	}
 }
 
