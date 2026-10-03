@@ -543,6 +543,39 @@ consumers with `make test TARGET=controller` and
 do not use the host Go generator versions to override Android's toolchain.
 Go-only workflow maintenance does not require an Android schema change.
 
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on pushes and pull requests. It also supports
+an explicitly authorized manual run on a safe branch. Jobs use Ubuntu 24.04,
+immutable action revisions, Go 1.26.8, staticcheck v0.7.0, and Temurin JDK
+17.0.20.1+1. Android SDK platform 37 (`platforms;android-37.0`) and Build Tools
+37.0.0 match the agent's Gradle configuration; target SDK remains 36. Gradle and
+application dependency versions come from the committed wrapper and build
+files. Update CI provisioning alongside any changes to those toolchain requirements.
+
+The controller job runs `make fmt-check`, `make build TARGET=controller`,
+`make test TARGET=controller`, `make lint TARGET=controller`, and
+`go test -race -count=1 ./...` from `controller/`. Job-wide `GOFLAGS=-p=1`
+serializes package work for tool installation, build, tests, vet, staticcheck,
+and race checks. Each GitHub-hosted job has its own runner; local controller
+checks must also run one job at a time per host with `GOFLAGS=-p=1`.
+The formatting gate is read-only and excludes generated
+`controller/internal/controlpb` files, matching `make fmt TARGET=controller`;
+it does not run the source-rewriting
+`make quality` target. The Android job runs the existing agent build,
+unit-test, and lint Make targets with the SDK installed. No secrets, connected
+handset, or Wi-Fi credentials are needed by either job.
+
+Docker-backed `make integration` is an explicit, separate check: it needs a
+Docker daemon and disposable MinIO containers, and is not run by this workflow.
+Publicly pullable, tested image pins must be established separately (issue #24).
+Run it in an authorized isolated environment when changing ingestion or
+container images; a skipped MinIO test is not a successful integration check.
+Live `make e2e` and `-tags harness` device tests are excluded: they require
+dedicated authorized handsets and network credentials, never an ordinary PR
+runner. Regression tests in the normal controller and Android unit-test suites
+run automatically without adding special workflow filters.
+
 ## License
 
 MIT
