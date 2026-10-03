@@ -4,6 +4,7 @@ SHELL                   := /bin/bash
 
 TARGET                  ?= all
 GO                      ?= go
+PROTOC                  ?= protoc
 GRADLE                  ?= ./gradlew
 ADB                     ?= adb
 SERIAL                  ?= $(ADB_SERIAL)
@@ -34,6 +35,19 @@ HELP_NAME_WIDTH    := 25
 HELP_EXAMPLE_WIDTH := 41
 
 ##@ Development
+
+.PHONY: generate-go
+generate-go: ## Regenerate Go protobuf bindings with pinned tools (requires protoc 35.0)
+	@version=$$("$(PROTOC)" --version); [[ "$$version" == "libprotoc 35.0" ]] || { printf 'make generate-go: protoc 35.0 is required; set PROTOC to its executable\n' >&2; exit 1; }; \
+	tools="$$(mktemp -d)"; trap 'rm -rf "$$tools"' EXIT; \
+	GOBIN="$$tools" "$(GO)" install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.1; \
+	GOBIN="$$tools" "$(GO)" install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.3.0; \
+	"$(PROTOC)" --proto_path=proto/dropcheck/v1 \
+		--plugin=protoc-gen-go="$$tools/protoc-gen-go" \
+		--plugin=protoc-gen-go-grpc="$$tools/protoc-gen-go-grpc" \
+		--go_out=controller/internal/controlpb --go_opt=paths=source_relative \
+		--go-grpc_out=controller/internal/controlpb --go-grpc_opt=paths=source_relative \
+		proto/dropcheck/v1/control.proto
 
 .PHONY: build
 build: ## Build targets; use TARGET=agent,controller or TARGET=all
@@ -166,6 +180,7 @@ help: ## Show this help message
 		}' $(MAKEFILE_LIST)
 	@printf "\n\033[1mVariables:\033[0m\n"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "TARGET" "agent, controller, or all; comma and space lists are accepted"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "PROTOC" "protoc 35.0 executable for make generate-go"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "VERSION" "Version from git describe; override with VERSION=x.y.z"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "TAGS" "Go build/test tags for controller targets"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "SSID" "Test Wi-Fi SSID for make e2e"
