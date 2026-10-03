@@ -20,6 +20,13 @@ type Ingester struct {
 	pusher    MetricPusher
 	logger    *log.Logger
 	processed sync.Map
+	groupMu   sync.Mutex
+	groupTime map[string]archiveOrder
+}
+
+type archiveOrder struct {
+	at  int64
+	key string
 }
 
 // New creates an Ingester using the supplied object store and metric pusher.
@@ -28,10 +35,11 @@ func New(cfg Config, store ObjectStore, pusher MetricPusher, logger *log.Logger)
 		logger = log.Default()
 	}
 	return &Ingester{
-		cfg:    cfg,
-		store:  store,
-		pusher: pusher,
-		logger: logger,
+		cfg:       cfg,
+		store:     store,
+		pusher:    pusher,
+		logger:    logger,
+		groupTime: make(map[string]archiveOrder),
 	}
 }
 
@@ -176,9 +184,27 @@ func (i *Ingester) ProcessObject(ctx context.Context, object ObjectRef) error {
 	}
 	var pushErrs []error
 	batches := ArchiveMetricBatches(archive)
+	// ponytail: one lock serializes group writes; per-group locks if throughput requires it.
+	i.groupMu.Lock()
+	defer i.groupMu.Unlock()
+	finished := archive.GetSummary().GetFinishedUnixMs()
+	if finished <= 0 {
+		finished = archive.GetSummary().GetStartedUnixMs()
+	}
 	for _, batch := range batches {
+		key := groupingKey(batch.Grouping)
+		// Undated legacy archives may initialize a group, but never replace a
+		// dated measurement. Equal timestamps use the object key as a stable tie.
+		if previous := i.groupTime[key]; previous.at > 0 &&
+			(previous.at > finished || (previous.at == finished && previous.key > object.Key)) {
+			continue
+		}
 		if err := i.pusher.Push(ctx, batch); err != nil {
 			pushErrs = append(pushErrs, err)
+			continue
+		}
+		if finished > 0 {
+			i.groupTime[key] = archiveOrder{at: finished, key: object.Key}
 		}
 	}
 	if len(pushErrs) > 0 {
