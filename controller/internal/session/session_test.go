@@ -116,6 +116,30 @@ fi
 	}
 }
 
+func TestStartupErrorDoesNotExposeSessionToken(t *testing.T) {
+	path := fakeADB(t, `
+if [ "${1:-}" = "-s" ]; then shift 2; fi
+if [ "${1:-}" = "shell" ]; then
+  printf 'service failed: %s\n' "$*" >&2
+  exit 7
+fi
+`)
+	const token = "TEST_ONLY_SESSION_TOKEN"
+	session, err := startOnce(context.Background(), Options{ADBPath: path, PackageName: "test.agent", ListenAddr: "127.0.0.1:0"}, []adb.Device{{Serial: "serial-test"}}, token)
+	if session != nil {
+		t.Cleanup(session.Close)
+	}
+	if err == nil {
+		t.Fatal("startup unexpectedly succeeded")
+	}
+	if strings.Contains(err.Error(), token) {
+		t.Fatal("propagated startup error leaked synthetic token")
+	}
+	if !strings.Contains(err.Error(), "[REDACTED]") || !strings.Contains(err.Error(), "service failed") {
+		t.Fatalf("startup diagnostics missing: %v", err)
+	}
+}
+
 func connectStartedAgent(t *testing.T, path string) (func(), <-chan error) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())

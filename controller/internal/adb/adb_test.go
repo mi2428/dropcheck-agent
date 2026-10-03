@@ -147,6 +147,46 @@ printf '%s\n' "$*" >> "$ADB_LOG"
 	}
 }
 
+func TestStartAgentSessionRedactsTokenOnFailure(t *testing.T) {
+	const token = "TEST_ONLY_TOKEN"
+	for _, mode := range []string{"missing", "exit", "timeout", "canceled"} {
+		t.Run(mode, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "missing-adb")
+			if mode != "missing" {
+				body := "printf 'failure argv: %s\\n' \"$*\" >&2\nexit 7\n"
+				if mode == "timeout" {
+					body = "printf 'failure argv: %s\\n' \"$*\" >&2\nexec sleep 60\n"
+				}
+				path = fakeADB(t, body)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if mode == "canceled" {
+				cancel()
+			}
+			timeout := 5 * time.Second
+			if mode == "timeout" {
+				timeout = 100 * time.Millisecond
+			}
+			out, err := (Client{Path: path, Timeout: timeout}).StartAgentSession(ctx, "test.agent", 43123, token, "agent-test", "serial-test")
+			if err == nil {
+				t.Fatal("startup unexpectedly succeeded")
+			}
+			if strings.Contains(out, token) || strings.Contains(err.Error(), token) {
+				t.Fatal("startup output or error leaked synthetic token")
+			}
+			for _, want := range []string{"start-foreground-service", "--es grpc_token [REDACTED]", "--ei grpc_port 43123", "--es agent_id agent-test"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("error missing %q: %v", want, err)
+				}
+			}
+			if mode == "exit" && !strings.Contains(out, "failure argv:") {
+				t.Fatalf("echoed diagnostic lost: %q", out)
+			}
+		})
+	}
+}
+
 func fakeADB(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "adb")
