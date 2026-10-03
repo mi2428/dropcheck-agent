@@ -1098,15 +1098,7 @@ class NetworkCheckExecutor(
         val process = ProcessBuilder(args)
             .redirectErrorStream(true)
             .start()
-        val finished = process.waitFor(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
-        if (!finished) {
-            process.destroyForcibly()
-            process.waitFor(500, TimeUnit.MILLISECONDS)
-        }
-        val output = runCatching { process.inputStream.bufferedReader().readText() }.getOrDefault("")
-        val exitCode = if (finished) process.exitValue() else -1
-        val error = if (finished) "" else "process_timeout=${timeoutMs}ms"
-        return ProcessRun(finished = finished, exitCode = exitCode, output = output, error = error)
+        return collectProbeProcess(process, timeoutMs)
     }
 
     /**
@@ -1394,13 +1386,6 @@ class NetworkCheckExecutor(
             throw InterruptedException("command interrupted")
         }
     }
-
-    private data class ProcessRun(
-        val finished: Boolean,
-        val exitCode: Int,
-        val output: String,
-        val error: String,
-    )
 
     private data class PingTraceProbe(
         val host: String = "",
