@@ -47,6 +47,14 @@ internal fun <T> withNetworkBinding(
     }
 }
 
+internal fun <T> withMonitorCleanup(registered: Boolean, cleanup: () -> Unit, block: () -> T): T {
+    return try {
+        block()
+    } finally {
+        if (registered) cleanup()
+    }
+}
+
 internal fun effectiveLinkMtu(
     linkMtu: Int,
     interfaceName: String?,
@@ -370,21 +378,25 @@ class NetworkRepository(
         val boundedInterval = intervalMs.coerceIn(100, 60000)
         val startedAt = System.currentTimeMillis()
         val deadline = startedAt + boundedDuration
+        var monitoring = true
         fun addEvent(type: String, message: String, network: Network? = null, status: WifiStatus? = null) {
-            val event = WifiEvent.newBuilder()
-                .setUnixTimeMs(System.currentTimeMillis())
-                .setType(type)
-                .setMessage(message)
-                .addFields(diagnosticField("elapsed_ms", System.currentTimeMillis() - startedAt))
-            if (status != null) {
-                event.status = status
+            synchronized(events) {
+                if (!monitoring) return
+                val event = WifiEvent.newBuilder()
+                    .setUnixTimeMs(System.currentTimeMillis())
+                    .setType(type)
+                    .setMessage(message)
+                    .addFields(diagnosticField("elapsed_ms", System.currentTimeMillis() - startedAt))
+                if (status != null) {
+                    event.status = status
+                }
+                if (network != null) {
+                    event.addFields(diagnosticField("network", network.toString()))
+                    event.addFields(diagnosticField("network_state", describeNetwork(network)))
+                }
+                events += event.build()
+                logger.debug("wifi monitor event type=$type message=$message network=${network ?: "none"}")
             }
-            if (network != null) {
-                event.addFields(diagnosticField("network", network.toString()))
-                event.addFields(diagnosticField("network_state", describeNetwork(network)))
-            }
-            events += event.build()
-            logger.debug("wifi monitor event type=$type message=$message network=${network ?: "none"}")
         }
         val callback = object : ConnectivityManager.NetworkCallback(
             ConnectivityManager.NetworkCallback.FLAG_INCLUDE_LOCATION_INFO,
@@ -411,36 +423,44 @@ class NetworkRepository(
         val registered = runCatching { connectivity.registerNetworkCallback(request, callback) }
             .onFailure { builder.addErrors("register_network_callback=${errorSummary(it)}") }
             .isSuccess
-        addEvent("monitor_start", "wifi monitor started")
-        var lastSignature = ""
-        logger.info("wifi monitor begin duration_ms=$boundedDuration interval_ms=$boundedInterval registered=$registered")
-        while (System.currentTimeMillis() < deadline) {
-            val status = runCatching { wifiStatus() }.getOrNull()
-            if (status != null) {
-                val signature = statusSignature(status)
-                if (signature != lastSignature) {
-                    lastSignature = signature
-                    val event = WifiEvent.newBuilder()
-                        .setUnixTimeMs(System.currentTimeMillis())
-                        .setType("status_changed")
-                        .setMessage(signature)
-                        .setStatus(status)
-                        .addFields(diagnosticField("signature", signature))
-                        .addFields(diagnosticField("elapsed_ms", System.currentTimeMillis() - startedAt))
-                        .build()
-                    events += event
-                    logger.debug("wifi monitor status_changed signature=$signature")
+        withMonitorCleanup(
+            registered = registered,
+            cleanup = {
+                synchronized(events) { monitoring = false }
+                runCatching { connectivity.unregisterNetworkCallback(callback) }
+                    .onFailure {
+                        builder.addErrors("unregister_network_callback=${errorSummary(it)}")
+                        logger.warn("wifi monitor unregister callback failed error=${errorSummary(it)}")
+                    }
+            },
+        ) {
+            addEvent("monitor_start", "wifi monitor started")
+            var lastSignature = ""
+            logger.info("wifi monitor begin duration_ms=$boundedDuration interval_ms=$boundedInterval registered=$registered")
+            while (System.currentTimeMillis() < deadline) {
+                val status = runCatching { wifiStatus() }.getOrNull()
+                if (status != null) {
+                    val signature = statusSignature(status)
+                    if (signature != lastSignature) {
+                        lastSignature = signature
+                        val event = WifiEvent.newBuilder()
+                            .setUnixTimeMs(System.currentTimeMillis())
+                            .setType("status_changed")
+                            .setMessage(signature)
+                            .setStatus(status)
+                            .addFields(diagnosticField("signature", signature))
+                            .addFields(diagnosticField("elapsed_ms", System.currentTimeMillis() - startedAt))
+                            .build()
+                        events += event
+                        logger.debug("wifi monitor status_changed signature=$signature")
+                    }
                 }
+                val remaining = deadline - System.currentTimeMillis()
+                if (remaining <= 0) break
+                Thread.sleep(minOf(boundedInterval.toLong(), remaining))
             }
-            val remaining = deadline - System.currentTimeMillis()
-            if (remaining <= 0) break
-            Thread.sleep(minOf(boundedInterval.toLong(), remaining))
+            addEvent("monitor_end", "wifi monitor ended")
         }
-        if (registered) {
-            runCatching { connectivity.unregisterNetworkCallback(callback) }
-                .onFailure { builder.addErrors("unregister_network_callback=${errorSummary(it)}") }
-        }
-        addEvent("monitor_end", "wifi monitor ended")
         synchronized(events) {
             builder.addAllEvents(events)
         }
