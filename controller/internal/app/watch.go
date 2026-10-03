@@ -84,18 +84,19 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) (retErr err
 	roundBarrier := watch.NewRoundBarrier(len(agentPlans))
 
 	var sinks watch.MultiSink
-	var jsonlFile *os.File
 	if watchOpts.jsonlPath != "" {
-		jsonlFile, err = os.OpenFile(watchOpts.jsonlPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		jsonlWriter, err := watch.OpenJSONLFile(watchOpts.jsonlPath)
 		if err != nil {
 			return fmt.Errorf("open jsonl output: %w", err)
 		}
 		defer func() {
-			if closeErr := jsonlFile.Close(); closeErr != nil && retErr == nil {
-				retErr = fmt.Errorf("close jsonl output: %w", closeErr)
+			closeCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer stop()
+			if closeErr := jsonlWriter.Close(closeCtx); closeErr != nil {
+				retErr = errors.Join(retErr, fmt.Errorf("close jsonl output: %w", closeErr))
 			}
 		}()
-		sinks = append(sinks, watch.NewJSONLWriter(jsonlFile))
+		sinks = append(sinks, jsonlWriter)
 	}
 	sinks = append(sinks, watch.ChannelSink{C: eventPipe.C})
 
@@ -122,8 +123,7 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) (retErr err
 		}
 	} else if err := tui.RunWithControls(watchCtx, uiPlan.Name, uiPlan.Targets, uiPlan.Checks, agentSnapshots, eventPipe.C, pauseControl, skipControl); err != nil {
 		cancel()
-		_ = collectWatchErrors(errCh)
-		return err
+		return errors.Join(err, collectWatchErrors(errCh))
 	}
 	cancel()
 	if err := collectWatchErrors(errCh); err != nil {
