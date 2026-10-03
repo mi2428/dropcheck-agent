@@ -55,6 +55,14 @@ internal fun <T> withMonitorCleanup(registered: Boolean, cleanup: () -> Unit, bl
     }
 }
 
+internal inline fun registerFreshScanReceiver(register: () -> Unit, onFailure: (Exception) -> Nothing) {
+    try {
+        register()
+    } catch (e: Exception) {
+        onFailure(e)
+    }
+}
+
 internal fun effectiveLinkMtu(
     linkMtu: Int,
     interfaceName: String?,
@@ -300,20 +308,20 @@ class NetworkRepository(
         }
         val filter = IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION)
         val appContext = context.applicationContext
-        runCatching {
+        registerFreshScanReceiver(register = {
             if (Build.VERSION.SDK_INT >= 33) {
                 appContext.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
             } else {
                 @Suppress("DEPRECATION")
                 appContext.registerReceiver(receiver, filter)
             }
-        }.onFailure {
+        }, onFailure = {
             logger.warn("wifi fresh scan register receiver failed error=$it")
             return wifiScan(band).toBuilder()
                 .addFields(diagnosticField("fresh_scan_receiver_registered", false))
                 .addErrors("register_receiver=${errorSummary(it)}")
                 .build()
-        }
+        })
         val scanStarted = runCatching { wifi.startScan() }
             .onFailure { logger.warn("wifi fresh scan startScan failed error=$it") }
             .getOrDefault(false)

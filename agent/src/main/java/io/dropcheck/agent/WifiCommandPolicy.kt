@@ -38,11 +38,11 @@ internal object WifiCommandPolicy {
     fun effectiveTimeoutMs(value: Int, fallback: Int): Int = if (value > 0) value else fallback
 
     /**
-     * Fresh scan may still return cached results; only start/broadcast failures
+     * Fresh scan may still return cached results; only registration/start/broadcast failures
      * mark the command failed at this layer.
      */
     fun freshScanCompleted(errors: List<String>): Boolean {
-        return errors.none { it.startsWith("start_scan=false") || it.startsWith("scan_broadcast_timeout") }
+        return errors.none { it.startsWith("register_receiver=") || it.startsWith("start_scan=false") || it.startsWith("scan_broadcast_timeout") }
     }
 
     /** A scan detail command succeeds only when at least one filtered scan result remains. */
