@@ -111,14 +111,17 @@ func (s *Server) Session(stream controlpb.DropcheckControl_SessionServer) error 
 		// Without this, callers waiting in Run could block until their context
 		// deadline even though the transport has already ended.
 		for id, waiter := range s.waiters {
-			if waiter.agentID != conn.id {
+			if waiter.conn != conn {
 				continue
 			}
 			delete(s.waiters, id)
-			waiter.ch <- CommandResponse{Error: &controlpb.CommandError{
+			select {
+			case waiter.ch <- CommandResponse{Error: &controlpb.CommandError{
 				Message: "agent disconnected",
 				Detail:  "gRPC session ended",
-			}}
+			}}:
+			default: // A terminal response is already queued.
+			}
 		}
 		s.mu.Unlock()
 		conn.close()
@@ -163,9 +166,9 @@ func (s *Server) handleAgentFrame(conn *agentConn, frame *controlpb.AgentFrame) 
 			})
 		}
 	case *controlpb.AgentFrame_Result:
-		s.deliver(frame.CommandId, CommandResponse{Result: body.Result})
+		s.deliver(conn, frame.CommandId, CommandResponse{Result: body.Result})
 	case *controlpb.AgentFrame_Error:
-		s.deliver(frame.CommandId, CommandResponse{Error: body.Error})
+		s.deliver(conn, frame.CommandId, CommandResponse{Error: body.Error})
 	case *controlpb.AgentFrame_Accepted:
 		if s.onLog != nil {
 			s.onLog(LogEvent{

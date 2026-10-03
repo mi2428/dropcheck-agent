@@ -250,7 +250,8 @@ func TestHandleAgentFrameLogsAndDeliversError(t *testing.T) {
 	})
 	conn := &agentConn{id: "agent-a", sessionID: "session-a", sendCh: make(chan *controlpb.ControllerFrame), done: make(chan struct{})}
 	respCh := make(chan CommandResponse, 1)
-	server.waiters["cmd-1"] = commandWaiter{agentID: "agent-a", ch: respCh}
+	server.conns[conn.id] = conn
+	server.waiters["cmd-1"] = commandWaiter{conn: conn, ch: respCh}
 
 	server.handleAgentFrame(conn, &controlpb.AgentFrame{
 		CommandId: "cmd-1",
@@ -318,7 +319,7 @@ func TestSessionAuthenticatesRegistersAndCleansUpWaiters(t *testing.T) {
 
 	respCh := make(chan CommandResponse, 1)
 	server.mu.Lock()
-	server.waiters["cmd-1"] = commandWaiter{agentID: "agent-a", ch: respCh}
+	server.waiters["cmd-1"] = commandWaiter{conn: server.conns["agent-a"], ch: respCh}
 	server.mu.Unlock()
 
 	close(stream.recvCh)
@@ -373,6 +374,94 @@ func TestSessionRejectsMissingOrMismatchedHello(t *testing.T) {
 				t.Fatalf("Agents() = %#v, want empty", agents)
 			}
 		})
+	}
+}
+
+func TestResponsesRequireOwningConnection(t *testing.T) {
+	server := NewServer("token", nil)
+	owner := addTestConn(server, "agent-a", "session-a")
+	other := addTestConn(server, "agent-b", "session-b")
+	stale := &agentConn{id: owner.id, sessionID: "old-session"}
+	responses := make(chan CommandResponse, 1)
+	server.waiters["cmd-owned"] = commandWaiter{conn: owner, ch: responses}
+	for _, conn := range []*agentConn{other, stale} {
+		server.handleAgentFrame(conn, &controlpb.AgentFrame{CommandId: "cmd-owned", Body: &controlpb.AgentFrame_Result{Result: &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK}}})
+		server.handleAgentFrame(conn, &controlpb.AgentFrame{CommandId: "cmd-owned", Body: &controlpb.AgentFrame_Error{Error: &controlpb.CommandError{Message: "wrong owner"}}})
+		if len(responses) != 0 {
+			t.Fatalf("response accepted from %s", conn.sessionID)
+		}
+	}
+	frame := &controlpb.AgentFrame{CommandId: "cmd-owned", Body: &controlpb.AgentFrame_Result{Result: &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK}}}
+	server.handleAgentFrame(owner, frame)
+	server.handleAgentFrame(owner, frame) // Duplicate must not block delivery.
+	if len(responses) != 1 || (<-responses).Result.GetStatus() != controlpb.CommandResult_STATUS_OK {
+		t.Fatal("owning connection did not deliver its result")
+	}
+	delete(server.waiters, "cmd-owned")
+	server.handleAgentFrame(owner, frame)
+	if len(responses) != 0 {
+		t.Fatal("late response accepted")
+	}
+}
+
+func TestOldSessionCleanupPreservesReplacementCommand(t *testing.T) {
+	server := NewServer("token", nil)
+	oldStream, newStream := newFakeSessionStream(), newFakeSessionStream()
+	oldDone, newDone := make(chan error, 1), make(chan error, 1)
+	for i, stream := range []*fakeSessionStream{oldStream, newStream} {
+		stream.recvCh <- &controlpb.AgentFrame{SessionId: []string{"old", "new"}[i], Body: &controlpb.AgentFrame_Hello{Hello: &controlpb.AgentHello{Token: "token", ControllerAgentId: "agent-a"}}}
+		done := []chan error{oldDone, newDone}[i]
+		go func() { done <- server.Session(stream) }()
+		select {
+		case <-server.ready:
+		case <-time.After(time.Second):
+			t.Fatal("session did not register")
+		}
+	}
+	defer func() {
+		close(newStream.recvCh)
+		if err := receiveSessionError(t, newDone); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := server.Run(ctx, "agent-a", "cmd-new", &controlpb.RunCommand{})
+		done <- err
+	}()
+	frame := receiveControllerFrame(t, newStream.sendCh)
+	if frame.GetCommandId() != "cmd-new" {
+		t.Fatalf("replacement frame = %v", frame)
+	}
+	close(oldStream.recvCh)
+	if err := receiveSessionError(t, oldDone); err != nil {
+		t.Fatal(err)
+	}
+	server.mu.Lock()
+	waiter := server.waiters["cmd-new"]
+	current := server.conns["agent-a"]
+	server.mu.Unlock()
+	if waiter.conn != current || waiter.ch == nil || len(waiter.ch) != 0 {
+		t.Fatal("old session removed or failed replacement waiter")
+	}
+	newStream.recvCh <- &controlpb.AgentFrame{CommandId: "cmd-new", Body: &controlpb.AgentFrame_Result{Result: &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK}}}
+	if err := receiveSessionError(t, done); err != nil {
+		t.Fatalf("replacement Run() error = %v", err)
+	}
+}
+
+func TestRunRejectsDuplicateCommandID(t *testing.T) {
+	server := NewServer("token", nil)
+	conn := addTestConn(server, "agent-a", "session-a")
+	responses := make(chan CommandResponse, 1)
+	server.waiters["duplicate"] = commandWaiter{conn: conn, ch: responses}
+	if _, err := server.Run(context.Background(), conn.id, "duplicate", &controlpb.RunCommand{}); err == nil {
+		t.Fatal("duplicate command ID accepted")
+	}
+	if server.waiters["duplicate"].ch != responses {
+		t.Fatal("duplicate command replaced original waiter")
 	}
 }
 

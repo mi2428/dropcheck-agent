@@ -78,8 +78,8 @@ type agentConn struct {
 }
 
 type commandWaiter struct {
-	agentID string
-	ch      chan CommandResponse
+	conn *agentConn
+	ch   chan CommandResponse
 }
 
 func (c *agentConn) close() {
