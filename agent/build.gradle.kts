@@ -6,7 +6,8 @@ plugins {
     id("com.google.protobuf")
 }
 
-val protobufVersion = "4.34.1"
+val protobufVersion = "4.34.2"
+val grpcVersion = "1.81.1"
 val dropcheckVersion = providers.gradleProperty("dropcheckVersion").orElse("0.0.0-dev").get()
 
 android {
@@ -44,7 +45,7 @@ protobuf {
     }
     plugins {
         id("grpc") {
-            artifact = "io.grpc:protoc-gen-grpc-java:1.81.0"
+            artifact = "io.grpc:protoc-gen-grpc-java:$grpcVersion"
         }
     }
     generateProtoTasks {
@@ -64,9 +65,9 @@ protobuf {
 }
 
 dependencies {
-    implementation("io.grpc:grpc-okhttp:1.81.0")
-    implementation("io.grpc:grpc-protobuf-lite:1.81.0")
-    implementation("io.grpc:grpc-stub:1.81.0")
+    implementation("io.grpc:grpc-okhttp:$grpcVersion")
+    implementation("io.grpc:grpc-protobuf-lite:$grpcVersion")
+    implementation("io.grpc:grpc-stub:$grpcVersion")
     implementation("com.google.protobuf:protobuf-javalite:$protobufVersion")
     compileOnly("javax.annotation:javax.annotation-api:1.3.2")
     testImplementation("junit:junit:4.13.2")
