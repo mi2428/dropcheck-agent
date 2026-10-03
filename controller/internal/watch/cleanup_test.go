@@ -206,103 +206,115 @@ func TestCleanupTimeoutRecordsFailureAndStillAttemptsForget(t *testing.T) {
 }
 
 func TestCleanupPauseBoundaryResumesOrTerminates(t *testing.T) {
-	for _, action := range []string{"resume", "cancel", "skip"} {
-		t.Run(action, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			pause, skip := NewPauseController(), NewSkipController()
-			boundary := make(chan struct{}, 1)
-			cleanups := make(chan string, 4)
-			opRunner := cleanupRunnerFunc(func(opCtx context.Context, op command.Operation) (runner.Result, error) {
-				if op.Name == "wifi.disconnect" || op.Name == "wifi.forget" {
-					if opCtx.Err() != nil {
-						return runner.Result{}, errors.New("cleanup inherited cancellation")
+	for _, pauseAfter := range []string{"connect", "wait_connected", "first", "second"} {
+		for _, action := range []string{"resume", "cancel", "skip"} {
+			t.Run(pauseAfter+"/"+action, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				pause, skip := NewPauseController(), NewSkipController()
+				boundary := make(chan struct{}, 1)
+				cleanups := make(chan string, 4)
+				operations := make(chan string, 8)
+				opRunner := cleanupRunnerFunc(func(opCtx context.Context, op command.Operation) (runner.Result, error) {
+					operations <- op.Name
+					if op.Name == "wifi.disconnect" || op.Name == "wifi.forget" {
+						if opCtx.Err() != nil {
+							return runner.Result{}, errors.New("cleanup inherited cancellation")
+						}
+						cleanups <- op.Name
 					}
-					cleanups <- op.Name
-				}
-				return runner.Result{Result: &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK}}, nil
-			})
-			type outcome struct {
-				result targetResult
-				err    error
-			}
-			done := make(chan outcome, 1)
-			go func() {
-				result, err := runTarget(ctx, Plan{}, opRunner, control.AgentInfo{}, 1, Target{SSID: "Test Network", ForgetAfter: new(true)}, bandSupport{}, pause, skip, func(event Event) error {
-					if event.Kind == EventStepFinished && event.Step.Name == "wait_connected" {
-						pause.Pause()
-						boundary <- struct{}{}
-					}
-					return nil
+					return runner.Result{Result: &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK}}, nil
 				})
-				done <- outcome{result, err}
-			}()
-			select {
-			case <-boundary:
-			case <-time.After(time.Second):
-				t.Fatal("target did not reach cleanup boundary")
-			}
-			gateCtx, stop := context.WithTimeout(ctx, time.Second)
-			defer stop()
-			ticker := time.NewTicker(time.Millisecond)
-			defer ticker.Stop()
-			for {
+				type outcome struct {
+					result targetResult
+					err    error
+				}
+				done := make(chan outcome, 1)
+				go func() {
+					plan := Plan{Checks: []Check{{Name: "first", Type: "ping", Host: "example.test"}, {Name: "second", Type: "dns", Query: "example.test"}}}
+					result, err := runTarget(ctx, plan, opRunner, control.AgentInfo{}, 1, Target{SSID: "Test Network", ForgetAfter: new(true)}, bandSupport{}, pause, skip, func(event Event) error {
+						if event.Kind == EventStepFinished && event.Step.Name == pauseAfter {
+							pause.Pause()
+							boundary <- struct{}{}
+						}
+						return nil
+					})
+					done <- outcome{result, err}
+				}()
+				select {
+				case <-boundary:
+				case <-time.After(time.Second):
+					t.Fatal("target did not reach pause boundary")
+				}
+				gateCtx, stop := context.WithTimeout(ctx, time.Second)
+				defer stop()
+				ticker := time.NewTicker(time.Millisecond)
+				defer ticker.Stop()
+				for {
+					skip.mu.Lock()
+					active := len(skip.active)
+					skip.mu.Unlock()
+					if active == 1 {
+						break
+					}
+					select {
+					case <-ticker.C:
+					case <-gateCtx.Done():
+						t.Fatal("pause gate did not register skip context")
+					}
+				}
+				select {
+				case op := <-cleanups:
+					t.Fatalf("cleanup %s ran while paused", op)
+				case got := <-done:
+					t.Fatalf("target returned while paused: %v", got)
+				case <-time.After(20 * time.Millisecond):
+				}
+				switch action {
+				case "resume":
+					pause.Resume()
+				case "cancel":
+					cancel()
+				case "skip":
+					skip.Skip()
+				}
+				select {
+				case got := <-done:
+					want := targetPassed
+					if action == "skip" {
+						want = targetSkipped
+					}
+					if action == "cancel" {
+						want = targetFailed
+						if !errors.Is(got.err, context.Canceled) {
+							t.Fatalf("cancel error = %v", got.err)
+						}
+					} else if got.err != nil {
+						t.Fatal(got.err)
+					}
+					if got.result != want {
+						t.Fatalf("result = %v, want %v", got.result, want)
+					}
+				case <-time.After(time.Second):
+					t.Fatalf("target did not finish after %s", action)
+				}
+				if len(cleanups) != 2 || <-cleanups != "wifi.disconnect" || <-cleanups != "wifi.forget" {
+					t.Fatal("disconnect and forget were not each attempted exactly once")
+				}
+				wantCalls := 6
+				if action != "resume" {
+					wantCalls = map[string]int{"connect": 3, "wait_connected": 4, "first": 5, "second": 6}[pauseAfter]
+				}
+				if len(operations) != wantCalls {
+					t.Fatalf("operation calls=%d, want %d", len(operations), wantCalls)
+				}
 				skip.mu.Lock()
 				active := len(skip.active)
 				skip.mu.Unlock()
-				if active == 1 {
-					break
+				if active != 0 {
+					t.Fatal("pause skip context leaked")
 				}
-				select {
-				case <-ticker.C:
-				case <-gateCtx.Done():
-					t.Fatal("cleanup pause gate did not register skip context")
-				}
-			}
-			select {
-			case op := <-cleanups:
-				t.Fatalf("cleanup %s ran while paused", op)
-			case got := <-done:
-				t.Fatalf("target returned while paused: %v", got)
-			case <-time.After(20 * time.Millisecond):
-			}
-			switch action {
-			case "resume":
-				pause.Resume()
-			case "cancel":
-				cancel()
-			case "skip":
-				skip.Skip()
-			}
-			select {
-			case got := <-done:
-				want := targetPassed
-				if action == "skip" {
-					want = targetSkipped
-				}
-				if action == "cancel" {
-					want = targetFailed
-					if !errors.Is(got.err, context.Canceled) {
-						t.Fatalf("cancel error = %v", got.err)
-					}
-				} else if got.err != nil {
-					t.Fatal(got.err)
-				}
-				if got.result != want {
-					t.Fatalf("result = %v, want %v", got.result, want)
-				}
-			case <-time.After(time.Second):
-				t.Fatalf("target did not finish after %s", action)
-			}
-			if len(cleanups) != 2 || <-cleanups != "wifi.disconnect" || <-cleanups != "wifi.forget" {
-				t.Fatal("disconnect and forget were not each attempted exactly once")
-			}
-			skip.mu.Lock()
-			active := len(skip.active)
-			skip.mu.Unlock()
-			if active != 0 {
-				t.Fatal("pause skip context leaked")
-			}
-		})
+			})
+		}
 	}
 }

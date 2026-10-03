@@ -71,7 +71,12 @@ func Run(ctx context.Context, plan Plan, opRunner OperationRunner, agent control
 }
 
 // RunWithOptions executes plan rounds with optional runner controls.
-func RunWithOptions(ctx context.Context, plan Plan, opRunner OperationRunner, agent control.AgentInfo, sink Sink, opts RunOptions) error {
+func RunWithOptions(ctx context.Context, plan Plan, opRunner OperationRunner, agent control.AgentInfo, sink Sink, opts RunOptions) (retErr error) {
+	defer func() {
+		if contextErr := ctx.Err(); contextErr != nil && onlyContextError(retErr, contextErr) {
+			retErr = nil
+		}
+	}()
 	if opRunner == nil {
 		return fmt.Errorf("watch runner is nil")
 	}
@@ -96,7 +101,7 @@ func RunWithOptions(ctx context.Context, plan Plan, opRunner OperationRunner, ag
 	bands, err := detectBandSupport(ctx, opRunner, agent)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil
+			return err
 		}
 		if err := emit(Event{Kind: EventLog, Status: "warn", Message: "wifi capabilities unavailable: " + err.Error()}); err != nil {
 			return err
@@ -104,16 +109,13 @@ func RunWithOptions(ctx context.Context, plan Plan, opRunner OperationRunner, ag
 	}
 	for round := uint64(1); ; round++ {
 		if err := ctx.Err(); err != nil {
-			return nil
+			return err
 		}
 		if err := opts.Pause.Wait(ctx); err != nil {
-			return nil
+			return err
 		}
 		failed, err := runRound(ctx, plan, opRunner, agent, round, bands, opts.Pause, opts.Skip, opts.RoundBarrier, emit)
 		if err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
 			return err
 		}
 		if plan.RoundInterval > 0 {
@@ -125,9 +127,28 @@ func RunWithOptions(ctx context.Context, plan Plan, opRunner OperationRunner, ag
 				return err
 			}
 			if err := sleepContext(ctx, plan.RoundInterval); err != nil {
-				return nil
+				return err
 			}
 		}
+	}
+}
+
+// A joined error is a normal shutdown only when every leaf is the parent's
+// context error. errors.Is alone also matches joins containing real failures.
+func onlyContextError(err error, contextErr error) bool {
+	switch wrapped := err.(type) {
+	case interface{ Unwrap() []error }:
+		causes := wrapped.Unwrap()
+		for _, cause := range causes {
+			if !onlyContextError(cause, contextErr) {
+				return false
+			}
+		}
+		return len(causes) > 0
+	case interface{ Unwrap() error }:
+		return onlyContextError(wrapped.Unwrap(), contextErr)
+	default:
+		return err != nil && err == contextErr
 	}
 }
 
@@ -238,7 +259,22 @@ func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent c
 		defer cancel()
 		return runCleanup(cleanupCtx, opRunner, agent, round, target, emit)
 	}
-	defer func() { retErr = errors.Join(retErr, cleanup()) }()
+	waitPause := func() error {
+		pauseCtx, finish := skip.operationContext(ctx)
+		err := pause.Wait(pauseCtx)
+		finish()
+		if operationSkipped(pauseCtx) {
+			return ErrSkipRequested
+		}
+		return err
+	}
+	defer func() {
+		if retErr == ErrSkipRequested {
+			outcome = targetSkipped
+			retErr = finishOperatorSkippedTarget(round, target, targetStart, emit)
+		}
+		retErr = errors.Join(retErr, cleanup())
+	}()
 	ok, skipped, err := runRequiredStepWithSkip(ctx, opRunner, agent, round, target, StepSnapshot{Name: "connect", Type: "connect", Operation: connect.Name}, connect, skip, func(event Event) error {
 		err := emit(event)
 		if err == nil && event.Kind == EventStepStarted {
@@ -261,7 +297,7 @@ func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent c
 		if err != nil {
 			return targetFailed, err
 		}
-		if err := pause.Wait(ctx); err != nil {
+		if err := waitPause(); err != nil {
 			return targetFailed, err
 		}
 		ok, skipped, err = runRequiredStepWithSkip(ctx, opRunner, agent, round, target, StepSnapshot{Name: "wait_connected", Type: "wait_connected", Operation: wait.Name}, wait, skip, emit)
@@ -278,7 +314,7 @@ func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent c
 	}
 	if ready {
 		for i, check := range plan.Checks {
-			if err := pause.Wait(ctx); err != nil {
+			if err := waitPause(); err != nil {
 				return targetFailed, err
 			}
 			ok, skipped, err := runCheckWithSkip(ctx, opRunner, agent, round, target, check, skip, emit)
@@ -304,13 +340,7 @@ func runTarget(ctx context.Context, plan Plan, opRunner OperationRunner, agent c
 			return targetFailed, err
 		}
 	}
-	pauseCtx, finishPause := skip.operationContext(ctx)
-	err = pause.Wait(pauseCtx)
-	finishPause()
-	if operationSkipped(pauseCtx) {
-		return targetSkipped, finishOperatorSkippedTarget(round, target, targetStart, emit)
-	}
-	if err != nil {
+	if err := waitPause(); err != nil {
 		return targetFailed, err
 	}
 	if err := cleanup(); err != nil {
@@ -679,7 +709,7 @@ func runOperationAttempt(ctx context.Context, opRunner OperationRunner, agent co
 		return operationAttempt{exec: exec, runErr: runErr, skipped: true}, nil
 	}
 	if runErr != nil && ctx.Err() != nil {
-		return operationAttempt{exec: exec, runErr: runErr}, ctx.Err()
+		return operationAttempt{exec: exec, runErr: runErr}, runErr
 	}
 	return operationAttempt{exec: exec, runErr: runErr}, nil
 }
@@ -948,7 +978,7 @@ func runMacRotationForget(ctx context.Context, opRunner OperationRunner, agent c
 		return false, true, nil
 	}
 	if runErr != nil && ctx.Err() != nil {
-		return false, false, ctx.Err()
+		return false, false, runErr
 	}
 	ok, message := macRotationForgetResult(exec, runErr)
 	status := "info"

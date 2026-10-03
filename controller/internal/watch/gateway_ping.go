@@ -108,7 +108,7 @@ func runGatewayPingAttempt(ctx context.Context, opRunner OperationRunner, agent 
 		return operationAttempt{exec: ipExec, runErr: ipErr, skipped: true}, nil
 	}
 	if ipErr != nil && ctx.Err() != nil {
-		return operationAttempt{exec: ipExec, runErr: ipErr}, ctx.Err()
+		return operationAttempt{exec: ipExec, runErr: ipErr}, ipErr
 	}
 	if failedStep, failed := operationFailureStep(step, ipExec, ipErr); failed {
 		failedStep.Message = firstNonEmpty(failedStep.Message, failedStep.Error, "ip status failed")
@@ -133,7 +133,7 @@ func runGatewayPingAttempt(ctx context.Context, opRunner OperationRunner, agent 
 		return operationAttempt{exec: pingExec, runErr: pingErr, skipped: true}, nil
 	}
 	if pingErr != nil && ctx.Err() != nil {
-		return operationAttempt{exec: pingExec, runErr: pingErr}, ctx.Err()
+		return operationAttempt{exec: pingExec, runErr: pingErr}, pingErr
 	}
 	return operationAttempt{exec: pingExec, runErr: pingErr}, nil
 }
