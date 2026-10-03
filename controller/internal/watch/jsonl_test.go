@@ -25,6 +25,7 @@ type blockedJSONLWriter struct {
 	mu         sync.Mutex
 	output     bytes.Buffer
 	stage      string
+	blockKind  EventKind
 	entered    chan struct{}
 	release    chan struct{}
 	blockSync  bool
@@ -43,6 +44,9 @@ func (w *blockedJSONLWriter) Write(data []byte) (int, error) {
 		return 0, err
 	}
 	block := event.Kind == EventStepStarted && event.Step.Type == "cleanup" && event.Step.Name == "disconnect"
+	if w.blockKind != "" {
+		block = event.Kind == w.blockKind && event.Status == "skipped"
+	}
 	if block && w.stage == "write" {
 		close(w.entered)
 		<-w.release
@@ -154,6 +158,182 @@ func TestStoppedCleanupDoesNotWaitForJSONLIO(t *testing.T) {
 
 // Keep the fixture interface explicit: both Write and Sync must be exercised.
 var _ io.WriteCloser = (*blockedJSONLWriter)(nil)
+
+func TestOperatorSkipJSONLCleanupWithLiveParent(t *testing.T) {
+	for _, mode := range []string{"pause", "wait", "check"} {
+		for _, stage := range []string{"ready", "write", "sync"} {
+			t.Run(mode+"/"+stage, func(t *testing.T) {
+				ctx := context.Background() // Skip must not cancel the parent to escape I/O.
+				pause, skip := NewPauseController(), NewSkipController()
+				kind := EventStepFinished
+				if mode == "pause" {
+					kind = EventTargetFinished
+				}
+				writer := &blockedJSONLWriter{stage: stage, blockKind: kind, entered: make(chan struct{}), release: make(chan struct{})}
+				log := NewJSONLWriter(writer)
+				boundary, cleanups := make(chan struct{}, 1), make(chan string, 2)
+				done := make(chan error, 1)
+				var releaseOnce sync.Once
+				release := func() { releaseOnce.Do(func() { close(writer.release) }) }
+				returned := false
+				defer func() {
+					release()
+					if !returned {
+						select {
+						case <-done:
+						case <-time.After(2 * time.Second):
+							t.Error("watch remained after releasing skipped JSONL I/O")
+						}
+					}
+					closeCtx, stop := context.WithTimeout(ctx, 2*time.Second)
+					defer stop()
+					if err := log.Close(closeCtx); err != nil {
+						t.Errorf("released JSONL did not drain: %v", err)
+					}
+				}()
+				var operations []string
+				activeOp := map[string]string{"wait": "wifi.wait", "check": "ping"}[mode]
+				opRunner := cleanupRunnerFunc(func(opCtx context.Context, op command.Operation) (runner.Result, error) {
+					operations = append(operations, op.Name)
+					if op.Name == activeOp {
+						boundary <- struct{}{}
+						<-opCtx.Done()
+						return runner.Result{}, opCtx.Err()
+					}
+					if op.Name == "wifi.disconnect" || op.Name == "wifi.forget" {
+						deadline, bounded := opCtx.Deadline()
+						if opCtx.Err() != nil || !bounded || time.Until(deadline) < cleanupTimeout-time.Second {
+							t.Errorf("cleanup lost its independent operation budget: err=%v deadline=%v", opCtx.Err(), deadline)
+						}
+						cleanups <- op.Name
+					}
+					return runner.Result{Result: &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK}}, nil
+				})
+				var progress []Event
+				roundDone := errors.New("test round finished")
+				sink := MultiSink{log, cleanupSinkFunc(func(_ context.Context, event Event) error {
+					writer.mu.Lock()
+					synced := writer.syncCalls
+					writer.mu.Unlock()
+					if synced != len(progress)+1 {
+						return errors.New("progress preceded durable JSONL ack")
+					}
+					progress = append(progress, event)
+					if mode == "pause" && event.Kind == EventStepFinished && event.Step.Name == "connect" {
+						pause.Pause()
+						boundary <- struct{}{}
+					}
+					if event.Kind == EventRoundFinished {
+						return roundDone // End the test round without canceling the parent.
+					}
+					return nil
+				})}
+				go func() {
+					plan := Plan{Targets: []Target{{SSID: "Test Network", ForgetAfter: new(true)}}, Checks: []Check{{Name: "first", Type: "ping", Host: "example.test"}, {Name: "later", Type: "dns", Query: "example.test"}}}
+					done <- RunWithOptions(ctx, plan, opRunner, control.AgentInfo{}, sink, RunOptions{Pause: pause, Skip: skip})
+				}()
+				select {
+				case <-boundary:
+				case <-time.After(time.Second):
+					t.Fatal("watch did not reach Skip boundary")
+				}
+				gateTimer, ticker := time.NewTimer(time.Second), time.NewTicker(time.Millisecond)
+				defer gateTimer.Stop()
+				defer ticker.Stop()
+				for {
+					skip.mu.Lock()
+					active := len(skip.active)
+					skip.mu.Unlock()
+					if active == 1 {
+						break
+					}
+					select {
+					case <-ticker.C:
+					case <-gateTimer.C:
+						t.Fatal("Skip context was not registered")
+					}
+				}
+				skip.Skip()
+				if stage != "ready" {
+					select {
+					case <-writer.entered:
+					case <-time.After(time.Second):
+						t.Fatal("skipped terminal event did not reach real JSONL I/O")
+					}
+				}
+				cleanupTimer := time.NewTimer(2 * time.Second)
+				defer cleanupTimer.Stop()
+				for _, want := range []string{"wifi.disconnect", "wifi.forget"} {
+					select {
+					case got := <-cleanups:
+						if got != want {
+							t.Fatalf("cleanup=%s, want %s", got, want)
+						}
+					case <-cleanupTimer.C:
+						t.Fatal("live-parent Skip left requested cleanup behind blocked JSONL")
+					}
+				}
+				select {
+				case err := <-done:
+					returned = true
+					if stage == "ready" && err != roundDone || stage != "ready" && !errors.Is(err, context.DeadlineExceeded) {
+						t.Fatalf("Skip result lost normal progress or finite I/O error: %v", err)
+					}
+				case <-time.After(cleanupTimeout + time.Second):
+					t.Fatal("Skip remained blocked after cleanup")
+				}
+				wantOps := []string{"wifi.capabilities", "wifi.connect"}
+				if mode != "pause" {
+					wantOps = append(wantOps, "wifi.wait")
+				}
+				if mode == "check" {
+					wantOps = append(wantOps, "ping")
+				}
+				wantOps = append(wantOps, "wifi.disconnect", "wifi.forget")
+				if !slices.Equal(operations, wantOps) || ctx.Err() != nil {
+					t.Fatalf("Skip ran later probes, repeated cleanup, or canceled parent: %v", operations)
+				}
+				release()
+				closeCtx, stop := context.WithTimeout(ctx, 2*time.Second)
+				defer stop()
+				if err := log.Close(closeCtx); err != nil {
+					t.Fatal(err)
+				}
+				writer.mu.Lock()
+				data := append([]byte(nil), writer.output.Bytes()...)
+				synced, closed := writer.syncCalls, writer.closeCalls
+				writer.mu.Unlock()
+				if synced != bytes.Count(data, []byte("\n")) || closed != 0 || len(log.requests) != 0 {
+					t.Fatal("JSONL drain/durable ack/borrowed ownership changed")
+				}
+				if stage == "ready" {
+					var want bytes.Buffer
+					for _, event := range progress {
+						encoded, err := json.Marshal(event)
+						if err != nil {
+							t.Fatal(err)
+						}
+						want.Write(append(encoded, '\n'))
+					}
+					if !bytes.Equal(data, want.Bytes()) || len(progress) < 6 || progress[len(progress)-6].Kind != EventTargetFinished || progress[len(progress)-6].Status != "skipped" {
+						t.Fatal("normal Skip lost JSONL/progress order or terminal event")
+					}
+				} else {
+					for _, event := range progress {
+						if event.Status == "skipped" {
+							t.Fatal("unacknowledged skipped JSONL advanced progress")
+						}
+					}
+				}
+				select {
+				case <-log.done:
+				default:
+					t.Fatal("JSONL worker remained after I/O release")
+				}
+			})
+		}
+	}
+}
 
 func TestJSONLWriterDurableOrderAndOwnedClose(t *testing.T) {
 	writer := &blockedJSONLWriter{}
