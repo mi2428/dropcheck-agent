@@ -357,7 +357,7 @@ internal object AgentShellParser {
 }
 
 internal fun redactAgentShellCommandLine(line: String): String {
-    val tokens = shellSplitWords(line).getOrNull().orEmpty()
+    val tokens = shellSplitWords(line).getOrElse { return "<redacted malformed command>" }
     if (tokens.isEmpty()) return line
     val command = tokens.first()
     if ("use".startsWith(command) && tokens.size >= 3) {

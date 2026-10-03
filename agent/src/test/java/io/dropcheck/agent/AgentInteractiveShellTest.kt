@@ -1,6 +1,7 @@
 package io.dropcheck.agent
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -87,5 +88,24 @@ class AgentInteractiveShellTest {
         assertEquals("use hp1 <redacted>", redactAgentShellCommandLine("use hp1 fugafuga"))
         assertEquals("use \"hp 1\" <redacted>", redactAgentShellCommandLine("use \"hp 1\" \"fuga fuga\""))
         assertEquals("use hp1", redactAgentShellCommandLine("use hp1"))
+    }
+
+    @Test
+    fun malformedSecretInputNeverFallsBackToLiteralHistory() {
+        for (line in listOf(
+            "use TestSSID \"TEST_ONLY_PSK",
+            "u \"Test SSID\" 'TEST_ONLY_PSK",
+            "use \"Test SSID TEST_ONLY_PSK",
+            "set default passphrase \"TEST_ONLY_PSK",
+            "se d p 'TEST_ONLY_PSK",
+            "\"use TestSSID TEST_ONLY_PSK",
+        )) {
+            assertFalse(redactAgentShellCommandLine(line).contains("TEST_ONLY_PSK"))
+            assertEquals(AgentShellCommand.Invalid("unterminated quote"), AgentShellParser.parse(line))
+        }
+        assertEquals("use \"Test SSID\" <redacted>", redactAgentShellCommandLine("u \"Test SSID\" TEST_ONLY_PSK"))
+        assertEquals("set default passphrase <redacted>", redactAgentShellCommandLine("se d p TEST_ONLY_PSK"))
+        assertEquals("ping example.test", redactAgentShellCommandLine("ping example.test"))
+        assertEquals("show wifi status", redactAgentShellCommandLine("show wifi status"))
     }
 }
