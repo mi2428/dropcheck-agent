@@ -17,9 +17,10 @@ class LinkProfileLiveInstrumentation : Instrumentation() {
         var linkReads = 0
         var wrongReads = 0
         var rejected = 0
+        var shellAdapterPassed = false
         fun done(outcome: LinkOutcome, category: String, wrong: String = "SKIP", stages: String = "SKIP,SKIP") {
             val result = Bundle().apply {
-                putString("stream", "link=$outcome category=$category stages=$stages wrong=$wrong reads=initial:$initialReads,link:$linkReads,wrong:$wrongReads rejected:$rejected; mutation=0 external_probe=0 (GET_IP_STATUS only)\n")
+                putString("stream", "link=$outcome category=$category stages=$stages wrong=$wrong shell_adapter=$shellAdapterPassed reads=initial:$initialReads,link:$linkReads,wrong:$wrongReads rejected:$rejected; mutation=0 external_probe=0 (GET_IP_STATUS only)\n")
             }
             finish(if (outcome == LinkOutcome.PASS && wrong == "MISSING,SKIP" && rejected == 0) Activity.RESULT_OK else Activity.RESULT_CANCELED, result)
         }
@@ -61,6 +62,16 @@ class LinkProfileLiveInstrumentation : Instrumentation() {
             if (report.outcome == LinkOutcome.PASS) {
                 check(linkReads == 2 && report.stages.all { it.outcome == LinkOutcome.PASS })
                 check(report.stages.all { stage -> stage.metrics.size == 3 && stage.metrics.all { it.outcome == LinkOutcome.PASS } })
+                val adapter = AgentShellAdapter(targetContext.applicationContext, logger)
+                check(adapter.execute(AgentShellCommand.ShowChecks).lines.any { it.toString().contains("link: supported") })
+                val escapedSsid = observedSsid.replace("\\", "\\\\").replace("\"", "\\\"")
+                val parsed = AgentShellParser.parse("check link ssid \"$escapedSsid\"")
+                check(parsed is AgentShellCommand.Check && parsed.ssid == observedSsid)
+                val shellResult = adapter.execute(parsed)
+                check(shellResult.ok && shellResult.lines.any { it.toString().contains("PASS") })
+                val historical = adapter.execute(AgentShellCommand.ShowCheckLast(detail = true))
+                check(historical.ok && historical.lines.firstOrNull()?.toString()?.startsWith("Historical last check") == true)
+                shellAdapterPassed = true
             }
             val missing = if (report.outcome == LinkOutcome.FAIL) report.stages.flatMap { it.metrics }
                 .filter { it.outcome == LinkOutcome.FAIL }.map { metric -> when (metric.name) {
@@ -83,6 +94,8 @@ class LinkProfileLiveInstrumentation : Instrumentation() {
                 }
                 check(rejected == 0 && wrongReads == 1 && wrongTarget.outcome == LinkOutcome.MISSING)
                 check(wrongTarget.stages.map { it.outcome } == listOf(LinkOutcome.MISSING, LinkOutcome.SKIP))
+                val latest = AgentShellAdapter(targetContext.applicationContext, logger).execute(AgentShellCommand.ShowCheckLast(detail = false))
+                check(latest.lines.firstOrNull()?.toString()?.contains("MISSING") == true) { "last check retained a stale PASS" }
                 wrong = "MISSING,SKIP"
             }
             done(report.outcome, missing, wrong, report.stages.joinToString(",") { it.outcome.name })
