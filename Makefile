@@ -69,7 +69,7 @@ test: ## Test targets; use TARGET=agent,controller or TAGS=... for Go tags
 	for target in $$targets; do \
 		case "$$target" in \
 			agent) run "$(GRADLE)" "$(AGENT_TEST_TASK)" "-PdropcheckVersion=$(VERSION)" ;; \
-			controller) go_test=("$(GO)" test); [[ -z "$(TAGS)" ]] || go_test+=(-tags "$(TAGS)"); go_test+=(./...); (cd controller && run "$${go_test[@]}") ;; \
+			controller) go_test=("$(GO)" test -count=1); [[ -z "$(TAGS)" ]] || go_test+=(-tags "$(TAGS)"); go_test+=(./...); (cd controller && run "$${go_test[@]}") ;; \
 			*) die "unknown TARGET=$$target" ;; \
 		esac; \
 	done

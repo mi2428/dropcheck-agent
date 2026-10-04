@@ -1,11 +1,11 @@
 //go:build e2e
 
-// Package e2e runs Dropcheck's parser and real-device end-to-end matrix as Go tests.
+// The tagged suite runs Dropcheck's real-device end-to-end matrix as Go tests.
 //
 // Parser and case-table consistency checks do not require a device:
 //
 //	cd controller
-//	go test -tags e2e ./integration/e2e
+//	go test ./integration/e2e
 //
 // Full live execution requires an attached Android device and test Wi-Fi:
 //
@@ -33,9 +33,7 @@
 package e2e
 
 import (
-	"bytes"
 	"context"
-	"encoding/csv"
 	"errors"
 	"fmt"
 	"os"
@@ -52,8 +50,6 @@ import (
 	f "dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/harness/dns"
 	"dropcheck/controller/internal/harness/ping"
-	"dropcheck/controller/internal/linuxcli"
-	"dropcheck/controller/internal/shell"
 )
 
 const (
@@ -79,15 +75,6 @@ const (
 	liveHTTPURL  = "http://connectivitycheck.gstatic.com/generate_204"
 )
 
-type matrixCase struct {
-	ID        string
-	Title     string
-	Runner    string
-	Command   string
-	Expect    string
-	Assertion string
-}
-
 type e2eConfig struct {
 	controllerRoot string
 	repoRoot       string
@@ -107,15 +94,12 @@ type e2eConfig struct {
 	launchAppEveryCase bool
 }
 
-type commandResult struct {
-	Output string
-	Code   int
-	Err    error
-}
-
 func TestDropcheckEndToEndMatrix(t *testing.T) {
 	cases := loadCases(t)
 	cfg := loadConfig(t)
+	if !cfg.live {
+		t.Skipf("set %s=1 to run real-device E2E", envLive)
+	}
 	filter := os.Getenv(envFilter)
 	selected := filteredCases(cases, filter)
 	if cfg.live && hasLiveProcessCases(selected) {
@@ -131,24 +115,19 @@ func TestDropcheckEndToEndMatrix(t *testing.T) {
 	t.Logf("e2e cases=%d selected=%d live=%t logs=%s filter=%q serial=%q package=%q launch_app=%t launch_app_every_case=%t force_stop=%t", len(cases), len(selected), cfg.live, cfg.logDir, filter, cfg.serial, cfg.packageName, cfg.launchAppActivity, cfg.launchAppEveryCase, cfg.forceStopApp)
 
 	for _, tc := range selected {
+		if tc.Runner == "shell-parser" {
+			continue // Executed once by the ordinary parser suite.
+		}
 		t.Run(tc.testName(), func(t *testing.T) {
 			start := time.Now()
-			commandLine, missing := cfg.expand(tc.Command, tc.Runner)
+			commandLine, missing := cfg.expand(tc.Command)
 			if missing != "" {
 				t.Skipf("missing runtime value %s for %s", missing, tc.Command)
 			}
 			expect := tc.Expect
 			t.Logf("START %s title=%q runner=%s expect=%s command=%s", tc.ID, tc.Title, tc.Runner, expect, redact(commandLine, cfg.psk))
 			switch tc.Runner {
-			case "shell-parser":
-				res := runShellParser(commandLine)
-				logPath := cfg.writeLog(t, tc, commandLine, res)
-				t.Logf("DONE %s rc=%d err=%v elapsed=%s log=%s output_tail=%q", tc.ID, res.Code, res.Err, time.Since(start).Round(time.Millisecond), logPath, outputTail(redact(res.Output, cfg.psk)))
-				assertParserResult(t, tc, expect, res)
 			case "shell", "cli":
-				if !cfg.live {
-					t.Skipf("set %s=1, %s, %s, and %s to run live e2e cases", envLive, envSerial, envSSID, envPSK)
-				}
 				if cfg.serial == "" {
 					t.Skipf("%s or ADB_SERIAL is required", envSerial)
 				}
@@ -237,46 +216,6 @@ func liveHarnessChecks() []f.Check {
 	}
 }
 
-func loadCases(t *testing.T) []matrixCase {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(packageDir(t), "testdata", "e2e_cases.tsv"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	reader := csv.NewReader(strings.NewReader(string(data)))
-	reader.Comma = '\t'
-	reader.FieldsPerRecord = -1
-	reader.LazyQuotes = true
-	rows, err := reader.ReadAll()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rows) < 2 {
-		t.Fatalf("no e2e cases loaded")
-	}
-	var cases []matrixCase
-	seen := map[string]bool{}
-	for i, row := range rows[1:] {
-		if len(row) != 6 {
-			t.Fatalf("e2e case row %d has %d fields, want 6: %#v", i+2, len(row), row)
-		}
-		tc := matrixCase{
-			ID:        row[0],
-			Title:     row[1],
-			Runner:    row[2],
-			Command:   row[3],
-			Expect:    row[4],
-			Assertion: row[5],
-		}
-		if seen[tc.ID] {
-			t.Fatalf("duplicate e2e case ID %q", tc.ID)
-		}
-		seen[tc.ID] = true
-		cases = append(cases, tc)
-	}
-	return cases
-}
-
 func loadConfig(t *testing.T) *e2eConfig {
 	t.Helper()
 	controllerRoot := findControllerRoot(t)
@@ -362,44 +301,6 @@ func (cfg *e2eConfig) prepareLiveCase(t *testing.T, reason string) {
 	}
 }
 
-func runShellParser(commandLine string) commandResult {
-	requestLine, requestMode := requestModeCommand(commandLine)
-	configureLine, configureMode := configureModeCommand(commandLine)
-	parseLine := commandLine
-	if requestMode {
-		parseLine = requestLine
-	} else if configureMode {
-		parseLine = configureLine
-	}
-	if shell.IsHelpLine(parseLine) {
-		var out bytes.Buffer
-		switch {
-		case requestMode:
-			shell.WriteRequestContextHelp(&out, parseLine)
-		case configureMode:
-			shell.WriteConfigureContextHelp(&out, parseLine)
-		default:
-			shell.WriteContextHelp(&out, parseLine)
-		}
-		if strings.TrimSpace(out.String()) == "" {
-			return commandResult{Output: "help output: <empty>", Code: 1, Err: errors.New("empty help output")}
-		}
-		return commandResult{Output: out.String(), Code: 0}
-	}
-	var err error
-	if requestMode {
-		_, err = shell.ParseRequestLine(parseLine)
-	} else if configureMode {
-		_, err = shell.ParseConfigureLine(parseLine)
-	} else {
-		_, err = shell.ParseLine(parseLine)
-	}
-	if err != nil {
-		return commandResult{Output: err.Error(), Code: 1, Err: err}
-	}
-	return commandResult{Output: "parse ok\n", Code: 0}
-}
-
 func (cfg *e2eConfig) runShellCase(tc matrixCase, commandLine string) commandResult {
 	input := shellInput(commandLine)
 	if commandLine != "quit" && commandLine != "exit" {
@@ -416,22 +317,6 @@ func shellInput(commandLine string) string {
 		return "configure\n" + configureLine + "\n"
 	}
 	return commandLine + "\n"
-}
-
-func requestModeCommand(commandLine string) (string, bool) {
-	const marker = "request> "
-	if after, ok := strings.CutPrefix(commandLine, marker); ok {
-		return after, true
-	}
-	return commandLine, false
-}
-
-func configureModeCommand(commandLine string) (string, bool) {
-	const marker = "config> "
-	if after, ok := strings.CutPrefix(commandLine, marker); ok {
-		return after, true
-	}
-	return commandLine, false
 }
 
 func (cfg *e2eConfig) runCLICase(tc matrixCase, commandLine string) commandResult {
@@ -470,28 +355,6 @@ func (cfg *e2eConfig) runExternal(timeout time.Duration, args []string, stdin st
 		}
 	}
 	return commandResult{Output: string(out), Code: code, Err: err}
-}
-
-func assertParserResult(t *testing.T, tc matrixCase, expect string, res commandResult) {
-	t.Helper()
-	failOnPanic(t, res.Output)
-	switch expect {
-	case "help":
-		if res.Err != nil || strings.TrimSpace(res.Output) == "" {
-			t.Fatalf("%s expected help entries, got err=%v output=%q", tc.ID, res.Err, res.Output)
-		}
-	case "ok", "ok_or_clear":
-		if res.Err != nil {
-			t.Fatalf("%s expected parse ok, got %v", tc.ID, res.Err)
-		}
-	case "error":
-		if res.Err == nil {
-			t.Fatalf("%s expected parse error, got ok", tc.ID)
-		}
-	case "advisory":
-	default:
-		t.Fatalf("%s has unknown expectation %q", tc.ID, expect)
-	}
 }
 
 func assertProcessResult(t *testing.T, tc matrixCase, expect string, res commandResult) {
@@ -577,7 +440,7 @@ func isFailureStatusOutput(output string) bool {
 		strings.Contains(lower, "status: failed")
 }
 
-func (cfg *e2eConfig) expand(commandLine string, runner string) (string, string) {
+func (cfg *e2eConfig) expand(commandLine string) (string, string) {
 	serial := firstNonEmpty(cfg.serial, "SERIAL")
 	serialPrefix := serial
 	if len(serialPrefix) > 12 {
@@ -599,11 +462,8 @@ func (cfg *e2eConfig) expand(commandLine string, runner string) (string, string)
 	for key, value := range replacements {
 		out = strings.ReplaceAll(out, key, value)
 	}
-	if runner != "shell-parser" {
-		switch {
-		case strings.Contains(commandLine, "<bssid>") && cfg.bssid == "":
-			return out, "<bssid>"
-		}
+	if strings.Contains(commandLine, "<bssid>") && cfg.bssid == "" {
+		return out, "<bssid>"
 	}
 	return out, ""
 }
@@ -625,8 +485,6 @@ func requiresWiFiSecret(commandLine string) bool {
 func timeoutFor(tc matrixCase) time.Duration {
 	commandLine := strings.ToLower(tc.Command)
 	switch {
-	case tc.Runner == "shell-parser":
-		return 5 * time.Second
 	case strings.Contains(commandLine, "traceroute"):
 		return 90 * time.Second
 	case strings.Contains(commandLine, "path-mtu"):
@@ -957,37 +815,6 @@ func caseMatchesFilter(tc matrixCase, filter string) bool {
 		strings.Contains(strings.ToLower(tc.Assertion), filter)
 }
 
-func (tc matrixCase) testName() string {
-	slug := slugForTestName(tc.Title)
-	if slug == "" {
-		return tc.ID
-	}
-	return tc.ID + "_" + slug
-}
-
-func slugForTestName(value string) string {
-	value = strings.ToLower(value)
-	var b strings.Builder
-	lastUnderscore := false
-	for _, r := range value {
-		isWord := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
-		if isWord {
-			b.WriteRune(r)
-			lastUnderscore = false
-			continue
-		}
-		if !lastUnderscore && b.Len() > 0 {
-			b.WriteByte('_')
-			lastUnderscore = true
-		}
-	}
-	slug := strings.Trim(b.String(), "_")
-	if len(slug) > 72 {
-		slug = strings.TrimRight(slug[:72], "_")
-	}
-	return slug
-}
-
 func outputTail(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -1004,99 +831,6 @@ func oneLine(value string) string {
 	value = strings.TrimSpace(value)
 	value = strings.Join(strings.Fields(value), " ")
 	return value
-}
-
-const e2eCaseCount = 282
-
-var e2eCaseID = regexp.MustCompile(`^E2E-[0-9]{3}$`)
-
-func TestE2ECaseTableSchema(t *testing.T) {
-	cases := loadCases(t)
-	if len(cases) != e2eCaseCount {
-		t.Fatalf("case count = %d, want %d", len(cases), e2eCaseCount)
-	}
-	titles := map[string]string{}
-	previousID := ""
-	for index, tc := range cases {
-		// Keep surviving IDs stable when obsolete cases are removed.
-		if !e2eCaseID.MatchString(tc.ID) || tc.ID <= previousID {
-			t.Fatalf("case row %d has invalid or unordered ID %q after %q", index+2, tc.ID, previousID)
-		}
-		previousID = tc.ID
-		if strings.TrimSpace(tc.Title) == "" {
-			t.Fatalf("%s has an empty test title", tc.ID)
-		}
-		if !titleMatchesRunner(tc) {
-			t.Fatalf("%s title %q does not match runner %q", tc.ID, tc.Title, tc.Runner)
-		}
-		if previousID, ok := titles[tc.Title]; ok {
-			t.Fatalf("%s duplicates title %q from %s", tc.ID, tc.Title, previousID)
-		}
-		titles[tc.Title] = tc.ID
-		if containsStaleCaseLanguage(tc) {
-			t.Fatalf("%s contains stale case-management language", tc.ID)
-		}
-	}
-}
-
-func titleMatchesRunner(tc matrixCase) bool {
-	switch tc.Runner {
-	case "shell":
-		return strings.HasPrefix(tc.Title, "Shell ")
-	case "shell-parser":
-		return strings.HasPrefix(tc.Title, "Parser ")
-	case "cli":
-		return strings.HasPrefix(tc.Title, "CLI ")
-	default:
-		return false
-	}
-}
-
-func containsStaleCaseLanguage(tc matrixCase) bool {
-	text := strings.ToLower(strings.Join([]string{tc.ID, tc.Title, tc.Runner, tc.Command, tc.Expect, tc.Assertion}, "\n"))
-	staleTerms := []string{
-		"test2",
-		"mer" + "ged",
-		"manual" + " matrix",
-		"resolved" + " anom" + "aly",
-		"regression" + ":",
-		"cur" + "rently",
-		"decide" + " whether",
-		"documented" + " as",
-		"last" + "-wins",
-	}
-	for _, term := range staleTerms {
-		if strings.Contains(text, term) {
-			return true
-		}
-	}
-	return false
-}
-
-func TestE2ECaseTableParsesShellAndCLIExpectations(t *testing.T) {
-	cases := loadCases(t)
-	for _, tc := range cases {
-		if tc.Runner != "shell" && tc.Runner != "cli" {
-			continue
-		}
-		commandLine := expandParserPlaceholders(tc.Command)
-		var res commandResult
-		switch tc.Runner {
-		case "shell":
-			res = runShellParser(commandLine)
-		case "cli":
-			res = runCLIParser(commandLine)
-		}
-		if tc.Expect == "error" {
-			if res.Err == nil {
-				t.Errorf("%s expected parser error for %s command %q", tc.ID, tc.Runner, tc.Command)
-			}
-			continue
-		}
-		if res.Err != nil {
-			t.Errorf("%s expected parser success for %s command %q: %v", tc.ID, tc.Runner, tc.Command, res.Err)
-		}
-	}
 }
 
 func TestE2EFailureClassifiers(t *testing.T) {
@@ -1122,142 +856,4 @@ func TestE2EFailureClassifiers(t *testing.T) {
 	if !isShellErrorOutput("match regex: error parsing regexp: missing closing ]: `[`") {
 		t.Fatalf("regexp parse errors must count as shell errors")
 	}
-}
-
-func TestE2ECaseTableCoversControllerCommandSurface(t *testing.T) {
-	cases := loadCases(t)
-	required := []struct {
-		name   string
-		runner string
-		text   string
-	}{
-		{name: "shell help", runner: "shell", text: "help"},
-		{name: "shell show devices", runner: "shell", text: "show devices"},
-		{name: "shell pipeline", runner: "shell", text: "| match"},
-		{name: "shell wifi status", runner: "shell", text: "show wifi status"},
-		{name: "shell ip status", runner: "shell", text: "show ip status"},
-		{name: "shell wifi diagnostics", runner: "shell", text: "show wifi diagnostics"},
-		{name: "shell wifi eht", runner: "shell", text: "show wifi eht"},
-		{name: "shell wifi eht fresh", runner: "shell", text: "show wifi eht fresh"},
-		{name: "shell wifi capabilities", runner: "shell", text: "show wifi capabilities"},
-		{name: "shell wifi scan", runner: "shell", text: "show wifi scan"},
-		{name: "shell wifi fresh scan", runner: "shell", text: "show wifi scan fresh"},
-		{name: "shell wifi scan detail", runner: "shell", text: "show wifi scan detail"},
-		{name: "shell wifi connect", runner: "shell", text: "request> wifi connect"},
-		{name: "shell wifi wait", runner: "shell", text: "request> wifi wait"},
-		{name: "shell wifi assert", runner: "shell", text: "request> wifi assert"},
-		{name: "shell wifi reconnect", runner: "shell", text: "request> wifi reconnect"},
-		{name: "shell wifi monitor", runner: "shell", text: "request> monitor wifi"},
-		{name: "shell wifi cycle", runner: "shell", text: "request> wifi cycle"},
-		{name: "shell wifi disconnect", runner: "shell", text: "request> wifi disconnect"},
-		{name: "shell wifi forget", runner: "shell", text: "request> wifi forget"},
-		{name: "shell ping", runner: "shell", text: "request> ping"},
-		{name: "shell traceroute", runner: "shell", text: "request> traceroute"},
-		{name: "shell path mtu", runner: "shell", text: "request> path-mtu"},
-		{name: "shell global ip", runner: "shell", text: "request> global-ip"},
-		{name: "shell dns", runner: "shell", text: "request> dns"},
-		{name: "shell http", runner: "shell", text: "request> http"},
-		{name: "shell download", runner: "shell", text: "request> download"},
-		{name: "cli show devices", runner: "cli", text: "dropcheck --serial"},
-		{name: "cli ip status", runner: "cli", text: "dropcheck show ip status"},
-		{name: "cli wifi eht", runner: "cli", text: "dropcheck show wifi eht"},
-		{name: "cli wifi scan", runner: "cli", text: "dropcheck show wifi scan"},
-		{name: "cli wifi connect", runner: "cli", text: "dropcheck request wifi connect"},
-		{name: "cli wifi wait", runner: "cli", text: "dropcheck request wifi wait"},
-		{name: "cli wifi assert", runner: "cli", text: "dropcheck request wifi assert"},
-		{name: "cli wifi monitor", runner: "cli", text: "dropcheck request monitor wifi"},
-		{name: "cli wifi reconnect", runner: "cli", text: "dropcheck request wifi reconnect"},
-		{name: "cli wifi cycle", runner: "cli", text: "dropcheck request wifi cycle"},
-		{name: "cli ping", runner: "cli", text: "dropcheck request ping"},
-		{name: "cli traceroute", runner: "cli", text: "dropcheck request traceroute"},
-		{name: "cli path mtu", runner: "cli", text: "dropcheck request path-mtu"},
-		{name: "cli global ip", runner: "cli", text: "dropcheck request global-ip"},
-		{name: "cli dns", runner: "cli", text: "dropcheck request dns"},
-		{name: "cli http", runner: "cli", text: "dropcheck request http"},
-		{name: "cli download", runner: "cli", text: "dropcheck request download"},
-	}
-	for _, want := range required {
-		if !e2eTableHasCommand(cases, want.runner, want.text) {
-			t.Errorf("missing E2E coverage for %s: runner=%s command contains %q", want.name, want.runner, want.text)
-		}
-	}
-	for _, tc := range cases {
-		commandLine := e2eComparableCommand(tc.Command)
-		if strings.Contains(commandLine, "wifi watch") || strings.Contains(commandLine, "watch wifi") {
-			t.Errorf("%s still references removed wifi watch command: %s", tc.ID, tc.Command)
-		}
-		if strings.Contains(commandLine, "standalone") || strings.Contains(commandLine, "show config") {
-			t.Errorf("%s still references removed standalone control: %s", tc.ID, tc.Command)
-		}
-	}
-}
-
-func e2eTableHasCommand(cases []matrixCase, runner string, text string) bool {
-	needle := e2eComparableCommand(text)
-	for _, tc := range cases {
-		if tc.Runner == runner && strings.Contains(e2eComparableCommand(tc.Command), needle) {
-			return true
-		}
-	}
-	return false
-}
-
-func e2eComparableCommand(value string) string {
-	return strings.Join(strings.Fields(strings.ToLower(value)), " ")
-}
-
-func expandParserPlaceholders(commandLine string) string {
-	return strings.NewReplacer(
-		"<serial>", "SERIAL",
-		"<ssid>", "Lab",
-		"<psk>", "secret",
-		"<bssid>", "00:11:22:33:44:55",
-	).Replace(commandLine)
-}
-
-func runCLIParser(commandLine string) commandResult {
-	args, err := commandparse.SplitArgs(commandLine)
-	if err != nil {
-		return commandResult{Output: err.Error(), Code: 1, Err: err}
-	}
-	if len(args) > 0 && args[0] == "dropcheck" {
-		args = args[1:]
-	}
-	args, err = stripAppFlags(args)
-	if err != nil {
-		return commandResult{Output: err.Error(), Code: 1, Err: err}
-	}
-	_, args, err = linuxcli.ExtractOptions(args)
-	if err != nil {
-		return commandResult{Output: err.Error(), Code: 1, Err: err}
-	}
-	if _, err := linuxcli.Parse(args); err != nil {
-		return commandResult{Output: err.Error(), Code: 1, Err: err}
-	}
-	return commandResult{Output: "parse ok\n", Code: 0}
-}
-
-func stripAppFlags(args []string) ([]string, error) {
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if arg == "--" {
-			return append([]string(nil), args[i+1:]...), nil
-		}
-		if !strings.HasPrefix(arg, "-") {
-			return append([]string(nil), args[i:]...), nil
-		}
-		name, _, hasValue := strings.Cut(arg, "=")
-		switch name {
-		case "--adb", "-adb", "--serial", "-serial", "--package", "-package", "--listen":
-			if !hasValue {
-				if i+1 >= len(args) {
-					return nil, fmt.Errorf("%s requires a value", name)
-				}
-				i++
-			}
-		default:
-			return append([]string(nil), args[i:]...), nil
-		}
-	}
-	return nil, nil
 }

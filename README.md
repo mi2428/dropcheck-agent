@@ -485,7 +485,15 @@ ok  	dropcheck/controller/integration/harness	17.208s
 ## Controller unit tests
 
 Controller unit tests use temporary fake ADB executables, not connected devices.
-Their bounded success checks include OS scheduling, shell startup, and, for session
+Ordinary untagged tests also check all 282 rows of
+`controller/integration/e2e/testdata/e2e_cases.tsv`: 100 parser/help rows execute
+in-process, and 136 Shell plus 46 CLI rows have their parse expectations checked.
+The table's surviving IDs are intentionally non-contiguous. These checks use
+deterministic synthetic placeholders, not `loadConfig`, lab credentials, ADB
+discovery, or a controller process. Invalid tables, missing command coverage,
+empty help, and success/error expectation mismatches fail the ordinary suite.
+`make test TARGET=controller` uses `-count=1` for fresh test execution.
+Fake-process success checks include OS scheduling, shell startup, and, for session
 tests, multiple process launches plus the local gRPC handshake. On shared or busy
 hosts, run only one controller test invocation at a time and run its Go packages
 serially so competing package builds/tests do not consume those budgets:
@@ -494,6 +502,7 @@ serially so competing package builds/tests do not consume those budgets:
 $ make test TARGET=controller GOFLAGS=-p=1
 $ cd controller
 $ go test -p 1 -race -count=1 ./...
+$ go test -p 1 -count=1 -v ./integration/e2e
 $ go test -p 1 -race -count=10 ./internal/adb ./internal/session ./internal/app
 ```
 
@@ -505,7 +514,23 @@ creation from completion for a shell-builtin-only fixture; the cancellation chec
 waits for an explicit startup marker before canceling and verifies that the child
 is reaped. Keep existing success-check deadlines and production ADB timeouts
 intact; investigate these diagnostics and competing jobs before extending a
-timeout. Run non-live E2E with `DROPCHECK_E2E_LIVE` unset.
+timeout. Leave `DROPCHECK_E2E_LIVE` unset for device-free checks. To verify both
+supported Go versions locally, run the controller gates sequentially with
+`GOTOOLCHAIN=go1.26.0` and `GOTOOLCHAIN=go1.26.8`, always using `GOFLAGS=-p=1`.
+
+Android bindings, the complete JVM suite, and lint can be checked fresh without a
+handset using the configured JDK/SDK:
+
+```sh
+./gradlew :agent:assembleDebug :agent:testDebugUnitTest :agent:lintDebug --rerun-tasks --no-build-cache
+```
+
+These fake/parser/JVM checks do not prove real Wi-Fi, selected-Network behavior,
+or terminal restoration. A feature-supplied fake-backed PTY smoke is separate
+local acceptance; permissioned live checks require dedicated authorized handsets,
+approved networks/credentials, bounded scope, and cleanup/restore precautions.
+Record actual execution, skips, and cache usage separately; unavailable device or
+PTY evidence remains pending rather than an ordinary CI pass.
 
 ## Protobuf binding generation
 
@@ -519,14 +544,15 @@ download the `protoc-35.0-<platform>.zip` matching your OS and architecture,
 verify its SHA-256 against the release asset digest, extract it, and put its `bin`
 directory on `PATH` (or set `PROTOC` to the extracted executable).
 `protoc --version` must print `libprotoc 35.0`.
-Go must meet `controller/go.mod`'s requirement. From the repository root:
+Go must meet `controller/go.mod`'s **1.26.0** minimum; CI also tests **1.26.8**.
+From a clean committed baseline at the repository root:
 
 ```sh
 make generate-go
-git diff -- controller/internal/controlpb
+git diff --exit-code -- controller/internal/controlpb
 make generate-go
-git diff -- controller/internal/controlpb
-make test TARGET=controller
+git diff --exit-code -- controller/internal/controlpb
+make test TARGET=controller GOFLAGS=-p=1
 ```
 
 The target rejects other protoc versions and installs pinned `protoc-gen-go`
@@ -538,10 +564,6 @@ API and are independent of the newer runtime dependencies. The include root is
 `paths=source_relative` maps both outputs directly into `controlpb`.
 Do not hand-edit generated files.
 
-The initial regeneration restores two generator-emitted spellings:
-`reflect.TypeOf(x{})` instead of `reflect.TypeFor[x]()`, and `interface{}` instead
-of `any`. They do not change the Go API, descriptors, or wire format.
-
 Unchanged-schema generation must produce identical bytes on the second run.
 From a clean checkout, a generation-drift check is:
 
@@ -550,7 +572,10 @@ make generate-go
 git diff --exit-code -- controller/internal/controlpb
 ```
 
-CI can run this once its owner provisions the pinned protoc and Go tools.
+CI provisions the official `protoc-35.0-linux-x86_64.zip` release asset and verifies
+SHA-256 `a45cda0989c17dd950db55f6fbe1e5814c50fda08e87aa422980ac1f89dddbbc`
+before extracting it. The existing generator target and clean-diff gate reject
+binding drift; the second unchanged local generation must also leave no diff.
 For schema edits, reserve both removed field numbers and names, preserve enum
 numbers and retained wire identities, regenerate Go, and validate both
 consumers with `make test TARGET=controller` and
@@ -562,23 +587,30 @@ Go-only workflow maintenance does not require an Android schema change.
 
 `.github/workflows/ci.yml` runs on pushes and pull requests. It also supports
 an explicitly authorized manual run on a safe branch. Jobs use Ubuntu 24.04,
-immutable action revisions, Go 1.26.8, staticcheck v0.7.0, and Temurin JDK
+immutable action revisions, a Go **1.26.0 / 1.26.8** controller matrix,
+staticcheck v0.7.0, and Temurin JDK
 17.0.20.1+1. Android SDK platform 37 (`platforms;android-37.0`) and Build Tools
 37.0.0 match the agent's Gradle configuration; target SDK remains 36. Gradle and
 application dependency versions come from the committed wrapper and build
 files. Update CI provisioning alongside any changes to those toolchain requirements.
 
-The controller job runs `make fmt-check`, `make build TARGET=controller`,
+Each controller matrix entry provisions verified protoc 35.0 and runs
+`make generate-go` plus `git diff --exit-code -- controller/internal/controlpb`,
+then `make fmt-check`, `make build TARGET=controller`,
 `make test TARGET=controller`, `make lint TARGET=controller`, and
 `go test -race -count=1 ./...` from `controller/`. Job-wide `GOFLAGS=-p=1`
 serializes package work for tool installation, build, tests, vet, staticcheck,
-and race checks. Each GitHub-hosted job has its own runner; local controller
+and race checks. `GOTOOLCHAIN=local` prevents an automatic toolchain switch from
+hiding a declared-minimum failure. Each GitHub-hosted job has its own runner; local controller
 checks must also run one job at a time per host with `GOFLAGS=-p=1`.
 The formatting gate is read-only and excludes generated
 `controller/internal/controlpb` files, matching `make fmt TARGET=controller`;
 it does not run the source-rewriting
-`make quality` target. The Android job runs the existing agent build,
-unit-test, and lint Make targets with the SDK installed. No secrets, connected
+`make quality` target. Ordinary normal/race suites include the untagged E2E
+table/parser/help checks, not skipped live matrix cases. The Android job keeps
+the existing build/lint Make targets and runs the complete
+`:agent:testDebugUnitTest` task with `--rerun-tasks --no-build-cache` and the SDK
+installed. No secrets, connected
 handset, or Wi-Fi credentials are needed by either job.
 
 Live `make e2e` and `-tags harness` device tests are excluded: they require
