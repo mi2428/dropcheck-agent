@@ -11,6 +11,7 @@ import (
 
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/control"
+	"dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/session"
 	"dropcheck/controller/internal/version"
 )
@@ -108,6 +109,7 @@ func writeTopLevelHelp(w io.Writer) {
 			_, _ = fmt.Fprintln(w, "  "+commandUsage(spec))
 		}
 	}
+	_, _ = fmt.Fprintln(w, "  check link: family defaults to ipv4; BSSID pinning unsupported; no external traffic or Wi-Fi changes")
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, `Notes:
   Top-level flags accept either single or double dash, for example -serial or --serial.
@@ -153,6 +155,9 @@ func writeCommandHelp(w io.Writer, topic string) {
 	}
 	if !found {
 		_, _ = fmt.Fprintln(w, "unsupported help topic")
+	}
+	if topic == "check" || topic == "check link" {
+		_, _ = fmt.Fprintln(w, "  link: family defaults to ipv4; existing physical Wi-Fi only; BSSID pinning unsupported")
 	}
 }
 
@@ -309,11 +314,14 @@ func selectShellStartupTarget(state *shellState, agents []control.AgentInfo, tar
 }
 
 type shellState struct {
-	server        *control.Server
-	adbPath       string
-	selected      string
-	selectedLabel string
-	targetAll     bool
+	server                *control.Server
+	adbPath               string
+	selected              string
+	selectedLabel         string
+	targetAll             bool
+	lastReport            *harness.Report
+	lastProfile, lastSSID string
+	failedUse             bool
 }
 
 func (s *shellState) setSelectedAgent(info control.AgentInfo) {

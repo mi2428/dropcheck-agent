@@ -66,8 +66,11 @@ func compilePlan(plan Plan, agents []control.AgentInfo, bind bool) (*CompiledPla
 	for i, network := range plan.Networks {
 		// Probes select a Network by SSID. A BSSID-only connect would leave
 		// their selector empty and could measure Android's default Network.
-		if network.ssid == "" {
+		if strings.TrimSpace(network.ssid) == "" {
 			return nil, fmt.Errorf("target %d: SSID is required to pin network-bound probes", i)
+		}
+		if network.readOnly && (network.bssid != "" || network.psk.value != "" || network.psk.env != "" || network.band != "" || network.security != "" || network.macRandomization != "" || network.rotation != "" || network.waitConnected || network.disconnectAfter || network.forgetAfter || network.connectTimeout != 0 || network.waitTimeout != 0 || network.requireIP || network.requireValidated || network.connectPolicy != (Policy{}) || network.waitPolicy != (Policy{})) {
+			return nil, fmt.Errorf("target %d: read-only target cannot request connection, BSSID pinning, or cleanup", i)
 		}
 		if network.connectTimeout < 0 || network.waitTimeout < 0 {
 			return nil, fmt.Errorf("target %d: negative timeout", i)
@@ -103,15 +106,18 @@ func compilePlan(plan Plan, agents []control.AgentInfo, bind bool) (*CompiledPla
 			return nil, fmt.Errorf("target %d: unknown MAC rotation", i)
 		}
 		network.rotation = rotation
-		connect, err := network.connectOperation()
-		if err != nil {
-			return nil, fmt.Errorf("target %d: %s", i, p.redact(err.Error()))
-		}
 		id := fmt.Sprintf("target/%d", i)
 		target := compiledTarget{network: network, preview: Target{ID: id, Name: network.displayName(), ShortName: network.shortName, Agent: network.agent, SSID: network.ssid, BSSID: network.bssid, Band: network.band, DisconnectAfter: new(network.disconnectAfter), ForgetAfter: new(network.forgetAfter), SecretPresent: passphrase != ""}}
-		target.connect, err = compileStep(step{name: "connect", operation: connect, policy: network.connectPolicy, required: true}, "connect", "connect")
-		if err != nil {
-			return nil, fmt.Errorf("target %d connect: %s", i, p.redact(err.Error()))
+		var err error
+		if !network.readOnly {
+			connect, buildErr := network.connectOperation()
+			if buildErr != nil {
+				return nil, fmt.Errorf("target %d: %s", i, p.redact(buildErr.Error()))
+			}
+			target.connect, err = compileStep(step{name: "connect", operation: connect, policy: network.connectPolicy, required: true}, "connect", "connect")
+			if err != nil {
+				return nil, fmt.Errorf("target %d connect: %s", i, p.redact(err.Error()))
+			}
 		}
 		if network.waitConnected {
 			wait, buildErr := network.waitOperation()
@@ -153,6 +159,9 @@ func compilePlan(plan Plan, agents []control.AgentInfo, bind bool) (*CompiledPla
 			if compileErr != nil {
 				return nil, fmt.Errorf("target %d check %d: %s", i, j, p.redact(compileErr.Error()))
 			}
+			if network.readOnly && (compiled.gateway != nil || compiled.operation.Command.GetGetWifiStatus() == nil && compiled.operation.Command.GetGetIpStatus() == nil) {
+				return nil, fmt.Errorf("target %d check %d: read-only target supports Wi-Fi/IP status observations only", i, j)
+			}
 			if compiled.gateway == nil {
 				compiled.operation, err = bindSelector(compiled.operation, network.ssid)
 				if err != nil {
@@ -161,6 +170,9 @@ func compilePlan(plan Plan, agents []control.AgentInfo, bind bool) (*CompiledPla
 			}
 			target.checks = append(target.checks, compiled)
 			target.preview.Checks = append(target.preview.Checks, stepInfo(compiled))
+		}
+		if network.readOnly && len(target.checks) == 0 {
+			return nil, fmt.Errorf("target %d: read-only target must have a check", i)
 		}
 		if bind {
 			target.agents, err = bindAgents(network.agent, agents)
@@ -331,8 +343,10 @@ func (p *CompiledPlan) Preview() Preview {
 	seen := map[string]bool{}
 	for _, target := range p.targets {
 		t := target.preview
-		connect := stepInfo(target.connect)
-		t.Connect = &connect
+		if target.connect.id != "" {
+			connect := stepInfo(target.connect)
+			t.Connect = &connect
+		}
 		if target.wait.id != "" {
 			wait := stepInfo(target.wait)
 			t.Wait = &wait
