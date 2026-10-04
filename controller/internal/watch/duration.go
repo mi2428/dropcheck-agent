@@ -31,6 +31,9 @@ func (d *Duration) UnmarshalYAML(node *yaml.Node) error {
 		if err != nil {
 			return err
 		}
+		if ms < 0 || ms > int64((1<<63)-1)/int64(time.Millisecond) {
+			return fmt.Errorf("duration is negative or overflows")
+		}
 		d.Duration = time.Duration(ms) * time.Millisecond
 		return nil
 	}
@@ -48,14 +51,10 @@ func parseDuration(value string) (time.Duration, error) {
 		if err != nil {
 			return 0, err
 		}
+		if count < 0 || count > int64((1<<63)-1)/int64(24*time.Hour) {
+			return 0, fmt.Errorf("duration is negative or overflows")
+		}
 		return time.Duration(count) * 24 * time.Hour, nil
 	}
 	return time.ParseDuration(value)
-}
-
-func durationMillis(value Duration) string {
-	if value.Duration <= 0 {
-		return ""
-	}
-	return strconv.FormatInt(value.Milliseconds(), 10)
 }

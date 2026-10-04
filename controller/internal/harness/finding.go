@@ -4,6 +4,9 @@ import "fmt"
 
 // Finding is the result of evaluating one expectation.
 type Finding struct {
+	Target   string `json:"target,omitempty"`
+	TargetID string `json:"target_id,omitempty"`
+	CheckID  string `json:"check_id,omitempty"`
 	// Check is the check that produced the finding.
 	Check string
 	// Metric is the stable metric or assertion name.
@@ -13,7 +16,10 @@ type Finding struct {
 	// Expected is the constraint or assertion that should have held.
 	Expected string
 	// Passed reports whether the expectation succeeded.
-	Passed bool
+	Passed        bool
+	Missing       bool
+	ObservedValue any `json:"observed_value,omitempty"`
+	ExpectedValue any `json:"expected_value,omitempty"`
 	// Message carries additional diagnostic context for failures.
 	Message string
 }
@@ -26,6 +32,11 @@ func Fail(metric string, observed string, expected string, message string) Findi
 // Pass returns a passed expectation finding.
 func Pass(metric string, observed string, expected string) Finding {
 	return Finding{Metric: metric, Observed: observed, Expected: expected, Passed: true}
+}
+
+// MissingFinding describes an unavailable observation, not an observed zero.
+func MissingFinding(metric, observed, expected, message string) Finding {
+	return Finding{Metric: metric, Observed: observed, Expected: expected, Missing: true, Message: message}
 }
 
 func (f Finding) failureString() string {

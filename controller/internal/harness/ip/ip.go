@@ -94,7 +94,7 @@ type Result struct {
 // AddressCount matches the number of assigned addresses.
 func AddressCount() harness.OrderedMetric[int] {
 	return harness.Ordered[int]("ip.address_count", func(result harness.Result) (int, bool, string) {
-		ip, ok, reason := from(result)
+		ip, ok, reason := fromAvailable(result, "link_properties")
 		return len(ip.Addresses), ok, reason
 	})
 }
@@ -102,7 +102,7 @@ func AddressCount() harness.OrderedMetric[int] {
 // IPv4AddressCount matches the number of assigned IPv4 addresses.
 func IPv4AddressCount() harness.OrderedMetric[int] {
 	return harness.Ordered[int]("ip.ipv4_address_count", func(result harness.Result) (int, bool, string) {
-		ip, ok, reason := from(result)
+		ip, ok, reason := fromAvailable(result, "link_properties")
 		return countAddresses(ip.Addresses, func(addr netip.Addr) bool { return addr.Is4() }), ok, reason
 	})
 }
@@ -110,7 +110,7 @@ func IPv4AddressCount() harness.OrderedMetric[int] {
 // IPv6AddressCount matches the number of assigned IPv6 addresses.
 func IPv6AddressCount() harness.OrderedMetric[int] {
 	return harness.Ordered[int]("ip.ipv6_address_count", func(result harness.Result) (int, bool, string) {
-		ip, ok, reason := from(result)
+		ip, ok, reason := fromAvailable(result, "link_properties")
 		return countAddresses(ip.Addresses, func(addr netip.Addr) bool { return addr.Is6() }), ok, reason
 	})
 }
@@ -118,7 +118,7 @@ func IPv6AddressCount() harness.OrderedMetric[int] {
 // MTU matches the interface MTU.
 func MTU() harness.OrderedMetric[uint32] {
 	return harness.Ordered[uint32]("ip.mtu", func(result harness.Result) (uint32, bool, string) {
-		ip, ok, reason := from(result)
+		ip, ok, reason := fromAvailable(result, "link_properties")
 		return ip.MTU, ok, reason
 	})
 }
@@ -126,7 +126,7 @@ func MTU() harness.OrderedMetric[uint32] {
 // Validated matches Android's validated internet state.
 func Validated() harness.BoolMetric {
 	return harness.Bool("ip.validated", func(result harness.Result) (bool, bool, string) {
-		ip, ok, reason := from(result)
+		ip, ok, reason := fromAvailable(result, "capabilities")
 		return ip.Validated, ok, reason
 	})
 }
@@ -134,7 +134,7 @@ func Validated() harness.BoolMetric {
 // Internet matches Android's internet capability state.
 func Internet() harness.BoolMetric {
 	return harness.Bool("ip.internet", func(result harness.Result) (bool, bool, string) {
-		ip, ok, reason := from(result)
+		ip, ok, reason := fromAvailable(result, "capabilities")
 		return ip.Internet, ok, reason
 	})
 }
@@ -142,7 +142,7 @@ func Internet() harness.BoolMetric {
 // PrivateDNSActive matches Android's Private DNS active state.
 func PrivateDNSActive() harness.BoolMetric {
 	return harness.Bool("ip.private_dns_active", func(result harness.Result) (bool, bool, string) {
-		ip, ok, reason := from(result)
+		ip, ok, reason := fromAvailable(result, "link_properties")
 		return ip.PrivateDNSActive, ok, reason
 	})
 }
@@ -150,12 +150,9 @@ func PrivateDNSActive() harness.BoolMetric {
 // PrivateDNSServerName matches Android's Private DNS server name.
 func PrivateDNSServerName() harness.OrderedMetric[string] {
 	return harness.Ordered[string]("ip.private_dns_server_name", func(result harness.Result) (string, bool, string) {
-		ip, ok, reason := from(result)
+		ip, ok, reason := fromAvailable(result, "link_properties")
 		if !ok {
 			return "", false, reason
-		}
-		if ip.PrivateDNSServerName == "" {
-			return "", false, "private dns server name is empty"
 		}
 		return ip.PrivateDNSServerName, true, ""
 	})
@@ -164,12 +161,9 @@ func PrivateDNSServerName() harness.OrderedMetric[string] {
 // DHCPServer matches the DHCP server address string exactly.
 func DHCPServer() harness.OrderedMetric[string] {
 	return harness.Ordered[string]("ip.dhcp_server", func(result harness.Result) (string, bool, string) {
-		ip, ok, reason := from(result)
+		ip, ok, reason := fromAvailable(result, "link_properties")
 		if !ok {
 			return "", false, reason
-		}
-		if ip.DHCPServer == "" {
-			return "", false, "dhcp server is empty"
 		}
 		return ip.DHCPServer, true, ""
 	})
@@ -178,12 +172,9 @@ func DHCPServer() harness.OrderedMetric[string] {
 // NAT64Prefix matches Android's NAT64 prefix exactly.
 func NAT64Prefix() harness.OrderedMetric[string] {
 	return harness.Ordered[string]("ip.nat64_prefix", func(result harness.Result) (string, bool, string) {
-		ip, ok, reason := from(result)
+		ip, ok, reason := fromAvailable(result, "link_properties")
 		if !ok {
 			return "", false, reason
-		}
-		if ip.NAT64Prefix == "" {
-			return "", false, "nat64 prefix is empty"
 		}
 		return ip.NAT64Prefix, true, ""
 	})
@@ -192,7 +183,7 @@ func NAT64Prefix() harness.OrderedMetric[string] {
 // DNSServerCount matches the number of DNS server addresses.
 func DNSServerCount() harness.OrderedMetric[int] {
 	return harness.Ordered[int]("ip.dns_server_count", func(result harness.Result) (int, bool, string) {
-		ip, ok, reason := from(result)
+		ip, ok, reason := fromAvailable(result, "link_properties")
 		return len(ip.DNSAddresses), ok, reason
 	})
 }
@@ -200,7 +191,7 @@ func DNSServerCount() harness.OrderedMetric[int] {
 // IPv4DNSServerCount matches the number of IPv4 DNS server addresses.
 func IPv4DNSServerCount() harness.OrderedMetric[int] {
 	return harness.Ordered[int]("ip.ipv4_dns_server_count", func(result harness.Result) (int, bool, string) {
-		ip, ok, reason := from(result)
+		ip, ok, reason := fromAvailable(result, "link_properties")
 		return countAddrs(ip.DNSAddresses, func(addr netip.Addr) bool { return addr.Is4() }), ok, reason
 	})
 }
@@ -208,7 +199,7 @@ func IPv4DNSServerCount() harness.OrderedMetric[int] {
 // IPv6DNSServerCount matches the number of IPv6 DNS server addresses.
 func IPv6DNSServerCount() harness.OrderedMetric[int] {
 	return harness.Ordered[int]("ip.ipv6_dns_server_count", func(result harness.Result) (int, bool, string) {
-		ip, ok, reason := from(result)
+		ip, ok, reason := fromAvailable(result, "link_properties")
 		return countAddrs(ip.DNSAddresses, func(addr netip.Addr) bool { return addr.Is6() }), ok, reason
 	})
 }
@@ -216,7 +207,7 @@ func IPv6DNSServerCount() harness.OrderedMetric[int] {
 // DefaultRoute matches whether any default route is present.
 func DefaultRoute() harness.BoolMetric {
 	return harness.Bool("ip.default_route", func(result harness.Result) (bool, bool, string) {
-		ip, ok, reason := from(result)
+		ip, ok, reason := fromAvailable(result, "link_properties")
 		return hasDefaultRoute(ip.Routes, familyAny), ok, reason
 	})
 }
@@ -224,7 +215,7 @@ func DefaultRoute() harness.BoolMetric {
 // IPv4DefaultRoute matches whether an IPv4 default route is present.
 func IPv4DefaultRoute() harness.BoolMetric {
 	return harness.Bool("ip.ipv4_default_route", func(result harness.Result) (bool, bool, string) {
-		ip, ok, reason := from(result)
+		ip, ok, reason := fromAvailable(result, "link_properties")
 		return hasDefaultRoute(ip.Routes, familyIPv4), ok, reason
 	})
 }
@@ -232,7 +223,7 @@ func IPv4DefaultRoute() harness.BoolMetric {
 // IPv6DefaultRoute matches whether an IPv6 default route is present.
 func IPv6DefaultRoute() harness.BoolMetric {
 	return harness.Bool("ip.ipv6_default_route", func(result harness.Result) (bool, bool, string) {
-		ip, ok, reason := from(result)
+		ip, ok, reason := fromAvailable(result, "link_properties")
 		return hasDefaultRoute(ip.Routes, familyIPv6), ok, reason
 	})
 }
@@ -337,11 +328,18 @@ type assertion struct {
 	fn   func(Result) error
 }
 
+func (a assertion) Validate() error {
+	if a.fn == nil || a.name == "" {
+		return fmt.Errorf("invalid IP assertion")
+	}
+	return nil
+}
+
 func (a assertion) Evaluate(result harness.Result) []harness.Finding {
 	ip, ok, reason := from(result)
 	metric := "ip.assert." + a.name
 	if !ok {
-		return []harness.Finding{harness.Fail(metric, "<missing>", "custom assertion passed", reason)}
+		return []harness.Finding{harness.MissingFinding(metric, "<missing>", "custom assertion passed", reason)}
 	}
 	if err := a.fn(ip); err != nil {
 		return []harness.Finding{harness.Fail(metric, "failed", "custom assertion passed", err.Error())}
@@ -378,15 +376,17 @@ type addressInCIDR struct {
 	cidr     string
 }
 
+func (e addressInCIDR) Validate() error { _, err := netip.ParsePrefix(e.cidr); return err }
+
 type addressScope struct {
 	selector AddressSelector
 	scope    string
 }
 
 func (e addressScope) Evaluate(result harness.Result) []harness.Finding {
-	ip, ok, reason := from(result)
+	ip, ok, reason := fromAvailable(result, "link_properties")
 	if !ok {
-		return []harness.Finding{harness.Fail(e.selector.metric, "<missing>", "scope "+e.scope, reason)}
+		return []harness.Finding{harness.MissingFinding(e.selector.metric, "<missing>", "scope "+e.scope, reason)}
 	}
 	for _, address := range ip.Addresses {
 		if !e.selector.accepts(address.Addr) {
@@ -400,9 +400,9 @@ func (e addressScope) Evaluate(result harness.Result) []harness.Finding {
 }
 
 func (e addressInCIDR) Evaluate(result harness.Result) []harness.Finding {
-	ip, ok, reason := from(result)
+	ip, ok, reason := fromAvailable(result, "link_properties")
 	if !ok {
-		return []harness.Finding{harness.Fail(e.selector.metric, "<missing>", "in "+e.cidr, reason)}
+		return []harness.Finding{harness.MissingFinding(e.selector.metric, "<missing>", "in "+e.cidr, reason)}
 	}
 	prefix, err := netip.ParsePrefix(e.cidr)
 	if err != nil {
@@ -446,10 +446,12 @@ type dnsAddressInCIDR struct {
 	cidr     string
 }
 
+func (e dnsAddressInCIDR) Validate() error { _, err := netip.ParsePrefix(e.cidr); return err }
+
 func (e dnsAddressInCIDR) Evaluate(result harness.Result) []harness.Finding {
-	ip, ok, reason := from(result)
+	ip, ok, reason := fromAvailable(result, "link_properties")
 	if !ok {
-		return []harness.Finding{harness.Fail(e.selector.metric, "<missing>", "in "+e.cidr, reason)}
+		return []harness.Finding{harness.MissingFinding(e.selector.metric, "<missing>", "in "+e.cidr, reason)}
 	}
 	prefix, err := netip.ParsePrefix(e.cidr)
 	if err != nil {
@@ -493,10 +495,12 @@ type prefixWithin struct {
 	cidr     string
 }
 
+func (e prefixWithin) Validate() error { _, err := netip.ParsePrefix(e.cidr); return err }
+
 func (e prefixWithin) Evaluate(result harness.Result) []harness.Finding {
-	ip, ok, reason := from(result)
+	ip, ok, reason := fromAvailable(result, "link_properties")
 	if !ok {
-		return []harness.Finding{harness.Fail(e.selector.metric, "<missing>", "within "+e.cidr, reason)}
+		return []harness.Finding{harness.MissingFinding(e.selector.metric, "<missing>", "within "+e.cidr, reason)}
 	}
 	expected, err := netip.ParsePrefix(e.cidr)
 	if err != nil {
@@ -580,25 +584,27 @@ func (s RouteSelector) Count() harness.OrderedMetric[int] {
 		if s.err != nil {
 			return 0, false, s.err.Error()
 		}
-		ip, ok, reason := from(result)
+		ip, ok, reason := fromAvailable(result, "link_properties")
 		if !ok {
 			return 0, false, reason
 		}
 		return len(s.matches(ip.RouteEntries)), true, ""
-	})
+	}).Validated(s.err)
 }
 
 type routeExists struct {
 	selector RouteSelector
 }
 
+func (e routeExists) Validate() error { return e.selector.err }
+
 func (e routeExists) Evaluate(result harness.Result) []harness.Finding {
 	if e.selector.err != nil {
 		return []harness.Finding{harness.Fail(e.selector.metric, "<invalid selector>", "exists", e.selector.err.Error())}
 	}
-	ip, ok, reason := from(result)
+	ip, ok, reason := fromAvailable(result, "link_properties")
 	if !ok {
-		return []harness.Finding{harness.Fail(e.selector.metric, "<missing>", "exists", reason)}
+		return []harness.Finding{harness.MissingFinding(e.selector.metric, "<missing>", "exists", reason)}
 	}
 	matches := e.selector.matches(ip.RouteEntries)
 	if len(matches) > 0 {
@@ -671,7 +677,7 @@ type stringListContains struct {
 func (e stringListContains) Evaluate(result harness.Result) []harness.Finding {
 	ip, ok, reason := from(result)
 	if !ok {
-		return []harness.Finding{harness.Fail(e.selector.metric, "<missing>", "contains "+e.value, reason)}
+		return []harness.Finding{harness.MissingFinding(e.selector.metric, "<missing>", "contains "+e.value, reason)}
 	}
 	values := e.selector.values(ip)
 	if slices.Contains(values, e.value) {
@@ -688,7 +694,7 @@ type stringListPrefix struct {
 func (e stringListPrefix) Evaluate(result harness.Result) []harness.Finding {
 	ip, ok, reason := from(result)
 	if !ok {
-		return []harness.Finding{harness.Fail(e.selector.metric, "<missing>", "contains prefix "+e.prefix, reason)}
+		return []harness.Finding{harness.MissingFinding(e.selector.metric, "<missing>", "contains prefix "+e.prefix, reason)}
 	}
 	values := e.selector.values(ip)
 	for _, value := range values {
@@ -718,7 +724,7 @@ type textContains struct {
 func (e textContains) Evaluate(result harness.Result) []harness.Finding {
 	ip, ok, reason := from(result)
 	if !ok {
-		return []harness.Finding{harness.Fail(e.selector.metric, "<missing>", "contains "+e.value, reason)}
+		return []harness.Finding{harness.MissingFinding(e.selector.metric, "<missing>", "contains "+e.value, reason)}
 	}
 	value := e.selector.value(ip)
 	if strings.Contains(value, e.value) {
@@ -758,6 +764,15 @@ func from(result harness.Result) (Result, bool, string) {
 		PrivateDNSServerName: status.GetPrivateDnsServerName(),
 		RawLinkProperties:    status.GetRawLinkProperties(),
 	}, true, ""
+}
+
+func fromAvailable(result harness.Result, group string) (Result, bool, string) {
+	view, ok, reason := from(result)
+	if !ok {
+		return view, false, reason
+	}
+	ok, reason = harness.Availability(view.Raw.ObservationFields, group)
+	return view, ok, reason
 }
 
 func parseAddresses(values []string) []AssignedAddress {

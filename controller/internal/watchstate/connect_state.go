@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 )
 
 var connectStateFieldREs = map[string]*regexp.Regexp{

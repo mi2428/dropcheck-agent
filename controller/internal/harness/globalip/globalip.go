@@ -55,11 +55,18 @@ type assertion struct {
 	fn   func(Result) error
 }
 
+func (a assertion) Validate() error {
+	if a.fn == nil || a.name == "" {
+		return fmt.Errorf("invalid global IP assertion")
+	}
+	return nil
+}
+
 func (a assertion) Evaluate(result harness.Result) []harness.Finding {
 	global, ok, reason := from(result)
 	metric := "global_ip.assert." + a.name
 	if !ok {
-		return []harness.Finding{harness.Fail(metric, "<missing>", "custom assertion passed", reason)}
+		return []harness.Finding{harness.MissingFinding(metric, "<missing>", "custom assertion passed", reason)}
 	}
 	if err := a.fn(global); err != nil {
 		return []harness.Finding{harness.Fail(metric, "failed", "custom assertion passed", err.Error())}

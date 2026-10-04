@@ -448,6 +448,7 @@ class CommandExecutor(
         return WifiOperationResult.newBuilder()
             .setOperation(operation.operation)
             .setOk(operation.ok)
+            .setAlreadyAbsent(operation.alreadyAbsent)
             .setMessage(operation.message)
             .addAllFields(operation.fields.map { diagnosticField(it.first, it.second) })
             .setStatus(status)

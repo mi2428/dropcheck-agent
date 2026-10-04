@@ -470,6 +470,9 @@ func PingOperation(opts PingOptions) (Operation, error) {
 		return Operation{}, err
 	}
 	if timeoutMs == 0 {
+		if count > (^uint32(0)-3000)/2000 {
+			return Operation{}, errors.New("ping count overflows derived timeout")
+		}
 		timeoutMs = count*2000 + 3000
 	}
 	family, err := parseOptionalProbeFamily(opts.Family)

@@ -104,11 +104,18 @@ type assertion struct {
 	fn   func(Result) error
 }
 
+func (a assertion) Validate() error {
+	if a.fn == nil || a.name == "" {
+		return fmt.Errorf("invalid capability assertion")
+	}
+	return nil
+}
+
 func (a assertion) Evaluate(result harness.Result) []harness.Finding {
 	capabilities, ok, reason := from(result)
 	metric := "capabilities.assert." + a.name
 	if !ok {
-		return []harness.Finding{harness.Fail(metric, "<missing>", "custom assertion passed", reason)}
+		return []harness.Finding{harness.MissingFinding(metric, "<missing>", "custom assertion passed", reason)}
 	}
 	if err := a.fn(capabilities); err != nil {
 		return []harness.Finding{harness.Fail(metric, "failed", "custom assertion passed", err.Error())}
@@ -142,7 +149,10 @@ type supportExpectation struct {
 func (e supportExpectation) Evaluate(result harness.Result) []harness.Finding {
 	capabilities, ok, reason := from(result)
 	if !ok {
-		return []harness.Finding{harness.Fail(e.selector.metric, "<missing>", e.expected(), reason)}
+		return []harness.Finding{harness.MissingFinding(e.selector.metric, "<missing>", e.expected(), reason)}
+	}
+	if !slices.Contains(e.selector.supported(capabilities), e.selector.value) && !slices.Contains(e.selector.unsupported(capabilities), e.selector.value) {
+		return []harness.Finding{harness.MissingFinding(e.selector.metric, "<missing>", e.expected(), "capability availability was not reported")}
 	}
 	if e.wantSupported {
 		if slices.Contains(e.selector.supported(capabilities), e.selector.value) {
@@ -189,7 +199,7 @@ func (e fieldExpectation) Evaluate(result harness.Result) []harness.Finding {
 	capabilities, ok, reason := from(result)
 	metric := "capabilities.field." + e.selector.key
 	if !ok {
-		return []harness.Finding{harness.Fail(metric, "<missing>", e.op+" "+e.value, reason)}
+		return []harness.Finding{harness.MissingFinding(metric, "<missing>", e.op+" "+e.value, reason)}
 	}
 	for _, field := range capabilities.Fields {
 		if field.GetKey() != e.selector.key {
@@ -200,7 +210,7 @@ func (e fieldExpectation) Evaluate(result harness.Result) []harness.Finding {
 		}
 		return []harness.Finding{harness.Fail(metric, field.GetValue(), e.op+" "+e.value, "field constraint failed")}
 	}
-	return []harness.Finding{harness.Fail(metric, "<missing>", e.op+" "+e.value, "field not found")}
+	return []harness.Finding{harness.MissingFinding(metric, "<missing>", e.op+" "+e.value, "field not found")}
 }
 
 func from(result harness.Result) (Result, bool, string) {

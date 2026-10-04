@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 )
 
 func (m model) roundTimelineView(width int, height int) string {

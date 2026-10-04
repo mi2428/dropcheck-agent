@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/watchstate"
 
 	"charm.land/bubbles/v2/key"
@@ -14,25 +14,18 @@ import (
 )
 
 // Run renders watch events until the user quits, ctx is canceled, or the event stream closes.
-func Run(ctx context.Context, title string, targets []watch.Target, checks []watch.Check, agents []watch.AgentSnapshot, events <-chan watch.Event) error {
+func Run(ctx context.Context, title string, targets []watch.Target, checks []watch.CheckInfo, agents []watch.AgentSnapshot, events <-chan watch.Event) error {
 	m := newModelWithChecks(title, targets, checks, events, agents)
 	return runModel(ctx, m)
 }
 
-// RunWithPauseControl renders watch events and lets keyboard input pause or
-// resume the watch runner through pauseControl.
-func RunWithPauseControl(ctx context.Context, title string, targets []watch.Target, checks []watch.Check, agents []watch.AgentSnapshot, events <-chan watch.Event, pauseControl *watch.PauseController) error {
-	return RunWithControls(ctx, title, targets, checks, agents, events, pauseControl, nil)
-}
-
 // RunWithControls renders watch events and lets keyboard input control the
 // watch runner through pause and skip controllers.
-func RunWithControls(ctx context.Context, title string, targets []watch.Target, checks []watch.Check, agents []watch.AgentSnapshot, events <-chan watch.Event, pauseControl *watch.PauseController, skipControl *watch.SkipController) error {
+func RunWithControls(ctx context.Context, title string, targets []watch.Target, checks []watch.CheckInfo, agents []watch.AgentSnapshot, events <-chan watch.Event, controls *watch.Controls) error {
 	m := newModelWithChecks(title, targets, checks, events, agents)
-	m.pauseControl = pauseControl
-	m.skipControl = skipControl
-	if pauseControl != nil {
-		m.paused = pauseControl.Paused()
+	m.controls = controls
+	if controls != nil {
+		m.paused = controls.Paused(watch.Scope{Kind: watch.ScopeRun})
 	}
 	return runModel(ctx, m)
 }
@@ -52,7 +45,7 @@ func newModel(targets []watch.Target, events <-chan watch.Event, agentSets ...[]
 	return newModelWithChecks("shownet-watch", targets, nil, events, agentSets...)
 }
 
-func newModelWithChecks(title string, targets []watch.Target, checks []watch.Check, events <-chan watch.Event, agentSets ...[]watch.AgentSnapshot) model {
+func newModelWithChecks(title string, targets []watch.Target, checks []watch.CheckInfo, events <-chan watch.Event, agentSets ...[]watch.AgentSnapshot) model {
 	if strings.TrimSpace(title) == "" {
 		title = "dropcheck watch"
 	}

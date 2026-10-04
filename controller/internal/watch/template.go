@@ -29,11 +29,6 @@ func resolveCheckForTarget(check Check, target Target) (Check, error) {
 		*field = value
 	}
 	if check.Expect == nil {
-		if len(check.compiledExpect) > 0 {
-			resolved.compiledExpect = append([]Matcher(nil), check.compiledExpect...)
-		} else {
-			resolved.compiledExpect = nil
-		}
 		resolved.Expect = nil
 		return resolved, nil
 	}
@@ -50,11 +45,6 @@ func resolveCheckForTarget(check Check, target Target) (Check, error) {
 		}
 		resolved.Expect = expect
 	}
-	matchers, err := compileMatchers(resolved.Expect)
-	if err != nil {
-		return Check{}, err
-	}
-	resolved.compiledExpect = matchers
 	return resolved, nil
 }
 
@@ -127,7 +117,7 @@ func targetBuiltinValues(target Target) map[string]string {
 		"name":       strings.TrimSpace(target.Name),
 		"short_name": strings.TrimSpace(target.ShortName),
 		"agent":      strings.TrimSpace(target.Agent),
-		"ssid":       strings.TrimSpace(target.SSID),
+		"ssid":       target.SSID,
 		"bssid":      strings.TrimSpace(target.BSSID),
 		"band":       strings.TrimSpace(target.Band),
 	}

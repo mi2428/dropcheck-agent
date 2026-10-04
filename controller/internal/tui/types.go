@@ -3,7 +3,7 @@ package tui
 import (
 	"time"
 
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/watchstate"
 
 	"charm.land/bubbles/v2/key"
@@ -122,8 +122,7 @@ type model struct {
 	checkStatusSearchQuery    string
 	failureHotspotSearchQuery string
 	paused                    bool
-	pauseControl              *watch.PauseController
-	skipControl               *watch.SkipController
+	controls                  *watch.Controls
 	detailOpen                bool
 	detailPanel               focusPanel
 	detailHotspotMode         failureHotspotMode

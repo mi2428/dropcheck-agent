@@ -1,21 +1,30 @@
 package tui
 
+import "dropcheck/controller/internal/harness"
+
 func (m *model) pause() {
-	m.paused = true
-	if m.pauseControl != nil {
-		m.pauseControl.Pause()
+	if m.controls != nil {
+		if err := m.controls.Pause(harness.Scope{Kind: harness.ScopeRun}); err != nil {
+			m.pushLog(err.Error())
+			return
+		}
+		m.State.Phase = "pausing"
 	}
 }
 
 func (m *model) resume() {
 	m.paused = false
-	if m.pauseControl != nil {
-		m.pauseControl.Resume()
+	if m.controls != nil {
+		if err := m.controls.Resume(harness.Scope{Kind: harness.ScopeRun}); err != nil {
+			m.pushLog(err.Error())
+		}
 	}
 }
 
 func (m *model) skipCurrent() {
-	if m.skipControl != nil {
-		m.skipControl.Skip()
+	if m.controls != nil {
+		if err := m.controls.Skip(harness.Scope{Kind: harness.ScopeRun}); err != nil {
+			m.pushLog(err.Error())
+		}
 	}
 }

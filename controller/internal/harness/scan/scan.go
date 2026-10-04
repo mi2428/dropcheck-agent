@@ -3,6 +3,7 @@ package scan
 
 import (
 	"fmt"
+	"net"
 	"slices"
 	"strings"
 
@@ -115,11 +116,18 @@ type assertion struct {
 	fn   func(Result) error
 }
 
+func (a assertion) Validate() error {
+	if a.fn == nil || a.name == "" {
+		return fmt.Errorf("invalid scan assertion")
+	}
+	return nil
+}
+
 func (a assertion) Evaluate(result harness.Result) []harness.Finding {
 	scan, ok, reason := from(result)
 	metric := "scan.assert." + a.name
 	if !ok {
-		return []harness.Finding{harness.Fail(metric, "<missing>", "custom assertion passed", reason)}
+		return []harness.Finding{harness.MissingFinding(metric, "<missing>", "custom assertion passed", reason)}
 	}
 	if err := a.fn(scan); err != nil {
 		return []harness.Finding{harness.Fail(metric, "failed", "custom assertion passed", err.Error())}
@@ -253,17 +261,45 @@ func (s APSelector) Count() harness.OrderedMetric[int] {
 			return 0, false, reason
 		}
 		return len(s.matches(scan.Results)), true, ""
-	})
+	}).Validated(s.validate())
 }
 
 type apExists struct {
 	selector APSelector
 }
 
+func (e apExists) Validate() error { return e.selector.validate() }
+func (s APSelector) validate() error {
+	if s.bssid != "" {
+		mac, err := net.ParseMAC(s.bssid)
+		if err != nil || len(mac) != 6 {
+			return fmt.Errorf("invalid AP BSSID")
+		}
+	}
+	if s.apMLDMac != "" {
+		mac, err := net.ParseMAC(s.apMLDMac)
+		if err != nil || len(mac) != 6 {
+			return fmt.Errorf("invalid AP MLD")
+		}
+	}
+	switch s.band {
+	case "", "all", "2.4ghz", "5ghz", "6ghz", "60ghz":
+	default:
+		return fmt.Errorf("invalid AP band")
+	}
+	if s.channel != nil && *s.channel <= 0 {
+		return fmt.Errorf("invalid AP channel")
+	}
+	if s.mloLinkID != nil && (*s.mloLinkID < 0 || *s.mloLinkID > 15) {
+		return fmt.Errorf("invalid MLO link ID")
+	}
+	return nil
+}
+
 func (e apExists) Evaluate(result harness.Result) []harness.Finding {
 	scan, ok, reason := from(result)
 	if !ok {
-		return []harness.Finding{harness.Fail(e.selector.metric, "<missing>", "exists", reason)}
+		return []harness.Finding{harness.MissingFinding(e.selector.metric, "<missing>", "exists", reason)}
 	}
 	matches := e.selector.matches(scan.Results)
 	if len(matches) > 0 {

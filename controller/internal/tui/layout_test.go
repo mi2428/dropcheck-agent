@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 
 	tea "charm.land/bubbletea/v2"
 )

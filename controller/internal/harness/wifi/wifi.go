@@ -62,8 +62,12 @@ type Result struct {
 // Enabled matches Android's Wi-Fi enabled state.
 func Enabled() harness.BoolMetric {
 	return harness.Bool("wifi.enabled", func(result harness.Result) (bool, bool, string) {
-		wifi, ok, reason := from(result)
-		return wifi.Enabled, ok, reason
+		status := result.Run.Raw.GetWifiStatus()
+		if status == nil {
+			return false, false, "wifi status is unavailable"
+		}
+		known, reason := harness.Availability(status.ObservationFields, "radio")
+		return status.Enabled, known, reason
 	})
 }
 
@@ -175,7 +179,14 @@ func RSSIDbm() harness.OrderedMetric[int32] {
 func MLOPresent() harness.BoolMetric {
 	return harness.Bool("wifi.mlo_present", func(result harness.Result) (bool, bool, string) {
 		wifi, ok, reason := from(result)
-		return connectionMLOPresent(wifi), ok, reason
+		if !ok {
+			return false, false, reason
+		}
+		if connectionMLOPresent(wifi) {
+			return true, true, ""
+		}
+		known, reason := harness.Availability(wifi.Raw.ObservationFields, "ap_mld_mac_address")
+		return false, known, reason
 	})
 }
 
@@ -206,7 +217,11 @@ func APMLOLinkID() harness.OrderedMetric[int32] {
 func AssociatedMLOLinkCount() harness.OrderedMetric[int] {
 	return harness.Ordered[int]("wifi.associated_mlo_link_count", func(result harness.Result) (int, bool, string) {
 		wifi, ok, reason := from(result)
-		return len(wifi.AssociatedMLOLinks), ok, reason
+		if !ok {
+			return 0, false, reason
+		}
+		known, reason := harness.Availability(wifi.Raw.ObservationFields, "associated_mlo_links")
+		return len(wifi.AssociatedMLOLinks), known, reason
 	})
 }
 
@@ -214,7 +229,11 @@ func AssociatedMLOLinkCount() harness.OrderedMetric[int] {
 func AffiliatedMLOLinkCount() harness.OrderedMetric[int] {
 	return harness.Ordered[int]("wifi.affiliated_mlo_link_count", func(result harness.Result) (int, bool, string) {
 		wifi, ok, reason := from(result)
-		return len(wifi.AffiliatedMLOLinks), ok, reason
+		if !ok {
+			return 0, false, reason
+		}
+		known, reason := harness.Availability(wifi.Raw.ObservationFields, "affiliated_mlo_links")
+		return len(wifi.AffiliatedMLOLinks), known, reason
 	})
 }
 
@@ -249,11 +268,18 @@ type assertion struct {
 	fn   func(Result) error
 }
 
+func (a assertion) Validate() error {
+	if a.fn == nil || a.name == "" {
+		return fmt.Errorf("invalid Wi-Fi assertion")
+	}
+	return nil
+}
+
 func (a assertion) Evaluate(result harness.Result) []harness.Finding {
 	wifi, ok, reason := from(result)
 	metric := "wifi.assert." + a.name
 	if !ok {
-		return []harness.Finding{harness.Fail(metric, "<missing>", "custom assertion passed", reason)}
+		return []harness.Finding{harness.MissingFinding(metric, "<missing>", "custom assertion passed", reason)}
 	}
 	if err := a.fn(wifi); err != nil {
 		return []harness.Finding{harness.Fail(metric, "failed", "custom assertion passed", err.Error())}
@@ -268,7 +294,7 @@ type rawContains struct {
 func (e rawContains) Evaluate(result harness.Result) []harness.Finding {
 	wifi, ok, reason := from(result)
 	if !ok {
-		return []harness.Finding{harness.Fail("wifi.raw", "<missing>", "contains "+e.value, reason)}
+		return []harness.Finding{harness.MissingFinding("wifi.raw", "<missing>", "contains "+e.value, reason)}
 	}
 	if strings.Contains(wifi.RawText, e.value) {
 		return []harness.Finding{harness.Pass("wifi.raw", e.value, "contains "+e.value)}
@@ -348,7 +374,7 @@ type mloLinkExists struct {
 func (e mloLinkExists) Evaluate(result harness.Result) []harness.Finding {
 	wifi, ok, reason := from(result)
 	if !ok {
-		return []harness.Finding{harness.Fail(e.selector.metric, "<missing>", "exists", reason)}
+		return []harness.Finding{harness.MissingFinding(e.selector.metric, "<missing>", "exists", reason)}
 	}
 	links := e.selector.links(wifi)
 	matches := e.selector.matches(links)
@@ -399,6 +425,11 @@ func stringMetric(name string, observe func(Result) (string, bool, string)) harn
 		if !ok {
 			return "", false, reason
 		}
+		if name == "wifi.ssid" || name == "wifi.bssid" {
+			if known, reason := harness.Availability(wifi.Raw.ObservationFields, "identity"); !known {
+				return "", false, reason
+			}
+		}
 		return observe(wifi)
 	})
 }
@@ -408,6 +439,20 @@ func intMetric(name string, observe func(Result) (int32, bool, string)) harness.
 		wifi, ok, reason := from(result)
 		if !ok {
 			return 0, false, reason
+		}
+		group := ""
+		switch name {
+		case "wifi.rssi_dbm":
+			group = "rssi"
+		case "wifi.tx_link_speed_mbps":
+			group = "tx_link_speed_mbps"
+		case "wifi.rx_link_speed_mbps":
+			group = "rx_link_speed_mbps"
+		}
+		if group != "" {
+			if known, reason := harness.Availability(wifi.Raw.ObservationFields, group); !known {
+				return 0, false, reason
+			}
 		}
 		return observe(wifi)
 	})
@@ -457,8 +502,7 @@ func from(result harness.Result) (Result, bool, string) {
 func connectionMLOPresent(result Result) bool {
 	return result.APMLDMacAddress != "" ||
 		len(result.AssociatedMLOLinks) > 0 ||
-		len(result.AffiliatedMLOLinks) > 0 ||
-		(result.Standard == "be" && result.APMLOLinkID >= 0)
+		len(result.AffiliatedMLOLinks) > 0
 }
 
 func describeMLOLink(link *controlpb.MloLinkInfo) string {

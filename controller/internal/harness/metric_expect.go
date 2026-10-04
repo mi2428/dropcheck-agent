@@ -1,9 +1,9 @@
-package watch
+package harness
 
 import (
 	"fmt"
-	"math"
 	"net/netip"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -17,14 +17,86 @@ type Matcher struct {
 	Mode   string
 }
 
-// Finding describes one expectation mismatch emitted by a failed check.
-type Finding struct {
-	Target   string `json:"target,omitempty"`
-	Check    string `json:"check,omitempty"`
-	Metric   string `json:"metric"`
-	Observed string `json:"observed"`
-	Expected string `json:"expected"`
-	Message  string `json:"message,omitempty"`
+// CompileExpectations produces the same built-in expectations for YAML or Go.
+// It does not execute probes or parse native stdout.
+func CompileExpectations(values map[string]any) ([]Expectation, error) {
+	matchers, err := compileMatchers(values)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]Expectation, 0, len(matchers))
+	for _, matcher := range matchers {
+		e := metricExpectation{matcher: matcher}
+		if err := e.Validate(); err != nil {
+			return nil, err
+		}
+		result = append(result, e)
+	}
+	return result, nil
+}
+
+type metricExpectation struct{ matcher Matcher }
+
+func (e metricExpectation) Description() string {
+	return e.matcher.Metric + ": " + e.matcher.Op + " " + e.matcher.Want + " " + strings.Join(e.matcher.Values, ",")
+}
+
+func (e metricExpectation) Validate() error {
+	if !knownMetric(e.matcher.Metric) {
+		return fmt.Errorf("unknown metric %q", e.matcher.Metric)
+	}
+	if e.matcher.Op == "cidr" {
+		if len(e.matcher.Values) == 0 {
+			return fmt.Errorf("CIDR set is empty")
+		}
+		for _, value := range e.matcher.Values {
+			if _, err := netip.ParsePrefix(value); err != nil {
+				return fmt.Errorf("invalid CIDR")
+			}
+		}
+	}
+	if e.matcher.Op == ">" || e.matcher.Op == ">=" || e.matcher.Op == "<" || e.matcher.Op == "<=" {
+		if _, err := strconv.ParseFloat(e.matcher.Want, 64); err != nil {
+			return fmt.Errorf("invalid numeric expectation")
+		}
+	}
+	return nil
+}
+
+func (e metricExpectation) Evaluate(result Result) []Finding {
+	m := e.matcher
+	if m.Op == "dontcare" {
+		return []Finding{Pass(m.Metric, "ignored", "dontcare")}
+	}
+	observed, ok := metricsForResult(result.Run.Raw)[m.Metric]
+	expected := m.Op + " " + m.Want
+	if len(m.Values) > 0 {
+		expected = m.Op + " " + strings.Join(m.Values, ",") + " " + m.Mode
+	}
+	if !ok {
+		return []Finding{MissingFinding(m.Metric, "<missing>", expected, "metric is unavailable")}
+	}
+	f := Pass(m.Metric, observed.String(), expected)
+	f.ObservedValue, f.ExpectedValue = observed.value, m.Want
+	if m.Op == "present" {
+		if observed.String() == "" {
+			return []Finding{MissingFinding(m.Metric, "<missing>", expected, "metric is not present")}
+		}
+	} else if !m.matches(observed) {
+		f.Passed = false
+		f.Message = "constraint failed"
+	}
+	return []Finding{f}
+}
+
+func knownMetric(metric string) bool {
+	metric = strings.ReplaceAll(metric, "_", "-")
+	for _, known := range strings.Fields("status elapsed-ms enabled validated ssid bssid rssi frequency-mhz band standard security link-speed-mbps tx-link-speed-mbps rx-link-speed-mbps associated-mlo-link-count affiliated-mlo-link-count channel-width internet interface mtu address-count addresses ip-addresses ipv4-addresses ipv6-addresses dns-server-count dns-servers ipv4-dns-servers ipv6-dns-servers route-count default-route ipv4-default-route ipv6-default-route host count transmitted received loss-percent min-latency-ms avg-latency-ms max-latency-ms name answer-count answers a-answers aaaa-answers a-count aaaa-count error url status-code expected-status matched global-ips ipv4-global-ips ipv6-global-ips global-count error-count ipv4-count ipv6-count max-hops size-bytes exit-code executable hop-count hop-ips ipv4-hop-ips ipv6-hop-ips reached discovered path-mtu-bytes payload-size-bytes min-mtu-bytes max-mtu-bytes ip-overhead-bytes probe-count passed-probe-count content-type content-length bytes-read throughput-bps visible result-count security-types mlo security-details-present psk sae owe transition security-akm-suites security-pairwise-ciphers security-rsnxe-capabilities security-extended-capabilities security-warnings group-data-cipher group-management-cipher rsn-present rsnxe-present pmf-capable pmf-required gcmp-256 ft-sae sae-gdh ft-sae-gdh wifi7-personal-ready sae-h2e h2e sae-public-key sae-public-key-exclusive ssid-protection beacon-protection bss-transition supported-bands unsupported-bands supported-standards unsupported-standards supported-security-modes unsupported-security-modes supported-features unsupported-features dhcp-server nat64-prefix private-dns-active private-dns-server-name") {
+		if metric == known {
+			return true
+		}
+	}
+	return false
 }
 
 func compileMatchers(values map[string]any) ([]Matcher, error) {
@@ -32,7 +104,13 @@ func compileMatchers(values map[string]any) ([]Matcher, error) {
 		return nil, nil
 	}
 	matchers := make([]Matcher, 0, len(values))
-	for metric, raw := range values {
+	keys := make([]string, 0, len(values))
+	for metric := range values {
+		keys = append(keys, metric)
+	}
+	sort.Strings(keys)
+	for _, metric := range keys {
+		raw := values[metric]
 		matcher, err := compileMatcher(metric, raw)
 		if err != nil {
 			return nil, err
@@ -74,6 +152,13 @@ func compileMatcher(metric string, raw any) (Matcher, error) {
 }
 
 func compileMapMatcher(metric string, raw map[string]any) (Matcher, error) {
+	for key := range raw {
+		switch key {
+		case "mode", "cidr", "cidrs", "contains", "exact":
+		default:
+			return Matcher{}, fmt.Errorf("unknown expectation option %q", key)
+		}
+	}
 	mode, err := matcherMode(raw["mode"])
 	if err != nil {
 		return Matcher{}, fmt.Errorf("%s mode: %w", metric, err)
@@ -186,30 +271,6 @@ func compileStringMatcher(metric string, value string) (Matcher, error) {
 	return Matcher{Metric: metric, Op: "==", Want: value}, nil
 }
 
-func evaluateMatchers(target Target, check Check, metrics map[string]Value) []Finding {
-	var findings []Finding
-	for _, matcher := range check.compiledExpect {
-		if matcher.Op == "dontcare" {
-			continue
-		}
-		observed, ok := metrics[matcher.Metric]
-		if matcher.Op == "present" {
-			if !ok || observed.String() == "" {
-				findings = append(findings, finding(target, check, matcher, observed, "metric is not present"))
-			}
-			continue
-		}
-		if !ok {
-			findings = append(findings, finding(target, check, matcher, Value{}, "metric is missing"))
-			continue
-		}
-		if !matcher.matches(observed) {
-			findings = append(findings, finding(target, check, matcher, observed, "constraint failed"))
-		}
-	}
-	return findings
-}
-
 func (m Matcher) matches(observed Value) bool {
 	switch m.Op {
 	case "dontcare":
@@ -255,7 +316,7 @@ func valuesEqual(observed Value, want string) bool {
 	}
 	if got, ok := observed.Float(); ok {
 		wantFloat, err := strconv.ParseFloat(want, 64)
-		return err == nil && math.Abs(got-wantFloat) < 0.000001
+		return err == nil && got == wantFloat
 	}
 	return observed.String() == want
 }
@@ -331,24 +392,4 @@ func cidrMatch(observed []string, cidrs []string, mode string) bool {
 		return parsed > 0 && parsed == matched
 	}
 	return matched > 0
-}
-
-func finding(target Target, check Check, matcher Matcher, observed Value, message string) Finding {
-	expected := matcher.Op
-	if matcher.Want != "" {
-		expected += " " + matcher.Want
-	} else if len(matcher.Values) > 0 {
-		expected += " " + strings.Join(matcher.Values, ",")
-		if matcher.Mode != "" {
-			expected += " mode=" + matcher.Mode
-		}
-	}
-	return Finding{
-		Target:   target.DisplayName(),
-		Check:    check.DisplayName(),
-		Metric:   matcher.Metric,
-		Observed: observed.String(),
-		Expected: expected,
-		Message:  message,
-	}
 }

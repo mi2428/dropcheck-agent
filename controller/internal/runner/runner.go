@@ -48,7 +48,7 @@ func (r Runner) Run(ctx context.Context, agent control.AgentInfo, op command.Ope
 	}
 	runCtx, cancel := context.WithTimeout(ctx, command.TimeoutFor(cmd))
 	defer cancel()
-	result, err := r.server.Run(runCtx, agent.ID, commandID, cmd)
+	result, err := r.server.RunPinned(runCtx, agent, commandID, cmd)
 	if err != nil {
 		return Result{CommandID: commandID, Operation: op, Command: cmd, Options: options}, err
 	}

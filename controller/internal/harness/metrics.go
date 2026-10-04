@@ -1,9 +1,8 @@
-package watch
+package harness
 
 import (
 	"fmt"
 	"net/netip"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -121,6 +120,23 @@ func metricsForResult(result *controlpb.CommandResult) map[string]Value {
 		addDownloadMetrics(metrics, payload.Wget)
 	case *controlpb.CommandResult_WifiScanDetail:
 		addWifiScanDetailMetrics(metrics, payload.WifiScanDetail)
+	case *controlpb.CommandResult_WifiScan:
+		if payload.WifiScan != nil {
+			addWifiScanDetailMetrics(metrics, &controlpb.WifiScanDetail{Results: payload.WifiScan.Results, Errors: payload.WifiScan.Errors})
+		}
+	case *controlpb.CommandResult_WifiCapabilities:
+		if c := payload.WifiCapabilities; c != nil {
+			metrics["supported_bands"], metrics["unsupported_bands"] = stringListValue(c.SupportedBands), stringListValue(c.UnsupportedBands)
+			metrics["supported_standards"], metrics["unsupported_standards"] = stringListValue(c.SupportedStandards), stringListValue(c.UnsupportedStandards)
+			metrics["supported_security_modes"], metrics["unsupported_security_modes"] = stringListValue(c.SupportedSecurityModes), stringListValue(c.UnsupportedSecurityModes)
+			metrics["supported_features"], metrics["unsupported_features"] = stringListValue(c.SupportedFeatures), stringListValue(c.UnsupportedFeatures)
+			metrics["error_count"] = intValue(int64(len(c.Errors)))
+		}
+	case *controlpb.CommandResult_WifiDiagnostics:
+		if d := payload.WifiDiagnostics; d != nil {
+			addWifiStatusMetrics(metrics, d.Status)
+			addIPStatusMetrics(metrics, d.GetStatus().GetIpStatus())
+		}
 	}
 	return metrics
 }
@@ -129,24 +145,42 @@ func addWifiStatusMetrics(metrics map[string]Value, status *controlpb.WifiStatus
 	if status == nil {
 		return
 	}
-	metrics["enabled"] = boolValue(status.GetEnabled())
-	metrics["validated"] = boolValue(status.GetIpStatus().GetValidated())
+	if known, _ := Availability(status.ObservationFields, "radio"); known {
+		metrics["enabled"] = boolValue(status.GetEnabled())
+	}
+	if ip := status.GetIpStatus(); ip != nil {
+		if known, _ := Availability(ip.ObservationFields, "capabilities"); known {
+			metrics["validated"] = boolValue(ip.GetValidated())
+		}
+	}
 	conn := status.GetConnection()
 	if conn == nil {
 		return
 	}
-	metrics["ssid"] = stringValue(conn.GetSsid())
-	metrics["bssid"] = stringValue(conn.GetBssid())
-	metrics["rssi"] = intValue(int64(conn.GetRssiDbm()))
+	if known, _ := Availability(conn.ObservationFields, "identity"); known {
+		metrics["ssid"] = stringValue(conn.GetSsid())
+		metrics["bssid"] = stringValue(conn.GetBssid())
+	}
+	if known, _ := Availability(conn.ObservationFields, "rssi"); known {
+		metrics["rssi"] = intValue(int64(conn.GetRssiDbm()))
+	}
 	metrics["frequency_mhz"] = intValue(int64(conn.GetFrequencyMhz()))
 	metrics["band"] = stringValue(bandFromFrequency(conn.GetFrequencyMhz()))
 	metrics["standard"] = stringValue(conn.GetWifiStandard())
 	metrics["security"] = stringValue(conn.GetSecurityType())
 	metrics["link_speed_mbps"] = intValue(int64(conn.GetLinkSpeedMbps()))
-	metrics["tx_link_speed_mbps"] = intValue(int64(conn.GetTxLinkSpeedMbps()))
-	metrics["rx_link_speed_mbps"] = intValue(int64(conn.GetRxLinkSpeedMbps()))
-	metrics["associated_mlo_link_count"] = intValue(int64(len(conn.GetAssociatedMloLinks())))
-	metrics["affiliated_mlo_link_count"] = intValue(int64(len(conn.GetAffiliatedMloLinks())))
+	if known, _ := Availability(conn.ObservationFields, "tx_link_speed_mbps"); known {
+		metrics["tx_link_speed_mbps"] = intValue(int64(conn.GetTxLinkSpeedMbps()))
+	}
+	if known, _ := Availability(conn.ObservationFields, "rx_link_speed_mbps"); known {
+		metrics["rx_link_speed_mbps"] = intValue(int64(conn.GetRxLinkSpeedMbps()))
+	}
+	if known, _ := Availability(conn.ObservationFields, "associated_mlo_links"); known {
+		metrics["associated_mlo_link_count"] = intValue(int64(len(conn.GetAssociatedMloLinks())))
+	}
+	if known, _ := Availability(conn.ObservationFields, "affiliated_mlo_links"); known {
+		metrics["affiliated_mlo_link_count"] = intValue(int64(len(conn.GetAffiliatedMloLinks())))
+	}
 	metrics["channel_width"] = stringValue(conn.GetChannelWidth())
 	addWifiSecurityFeatureMetrics(metrics, []string{conn.GetSecurityType()}, conn.GetSecurityDetails(), wifiConnectionHasMLO(conn))
 }
@@ -155,8 +189,13 @@ func addIPStatusMetrics(metrics map[string]Value, status *controlpb.IpStatus) {
 	if status == nil {
 		return
 	}
-	metrics["validated"] = boolValue(status.GetValidated())
-	metrics["internet"] = boolValue(status.GetInternet())
+	if known, _ := Availability(status.ObservationFields, "capabilities"); known {
+		metrics["validated"] = boolValue(status.GetValidated())
+		metrics["internet"] = boolValue(status.GetInternet())
+	}
+	if known, _ := Availability(status.ObservationFields, "link_properties"); !known {
+		return
+	}
 	metrics["interface"] = stringValue(status.GetInterfaceName())
 	metrics["mtu"] = uintValue(uint64(status.GetMtu()))
 	metrics["address_count"] = intValue(int64(len(status.GetAddresses())))
@@ -174,6 +213,10 @@ func addIPStatusMetrics(metrics map[string]Value, status *controlpb.IpStatus) {
 	metrics["default_route"] = boolValue(hasDefaultRoute(status.GetRoutes()))
 	metrics["ipv4_default_route"] = boolValue(hasDefaultRouteForFamily(status.GetRoutes(), "ipv4"))
 	metrics["ipv6_default_route"] = boolValue(hasDefaultRouteForFamily(status.GetRoutes(), "ipv6"))
+	metrics["dhcp_server"] = stringValue(status.GetDhcpServer())
+	metrics["nat64_prefix"] = stringValue(status.GetNat64Prefix())
+	metrics["private_dns_active"] = boolValue(status.GetPrivateDnsActive())
+	metrics["private_dns_server_name"] = stringValue(status.GetPrivateDnsServerName())
 }
 
 func addPingMetrics(metrics map[string]Value, ping *controlpb.PingResult) {
@@ -186,14 +229,6 @@ func addPingMetrics(metrics map[string]Value, ping *controlpb.PingResult) {
 	minLatency := ping.GetMinMs()
 	avgLatency := ping.GetAvgMs()
 	maxLatency := ping.GetMaxMs()
-	if parsed, ok := parsePingOutputMetrics(ping.GetOutput()); ok {
-		transmitted = uint64(parsed.transmitted)
-		received = uint64(parsed.received)
-		lossPercent = parsed.lossPercent
-		minLatency = parsed.minMs
-		avgLatency = parsed.avgMs
-		maxLatency = parsed.maxMs
-	}
 	metrics["host"] = stringValue(ping.GetHost())
 	metrics["count"] = uintValue(uint64(ping.GetCount()))
 	metrics["transmitted"] = uintValue(transmitted)
@@ -203,78 +238,6 @@ func addPingMetrics(metrics map[string]Value, ping *controlpb.PingResult) {
 	metrics["avg_latency_ms"] = floatValue(avgLatency)
 	metrics["max_latency_ms"] = floatValue(maxLatency)
 	metrics["elapsed_ms"] = intValue(ping.GetElapsedMs())
-}
-
-type pingOutputMetrics struct {
-	transmitted uint32
-	received    uint32
-	lossPercent float64
-	minMs       float64
-	avgMs       float64
-	maxMs       float64
-}
-
-var (
-	pingOutputSummary = regexp.MustCompile(`(?m)(\d+)\s+packets transmitted,\s+(\d+)\s+(?:packets\s+)?received,.*?([0-9.]+)%\s+packet loss`)
-	pingOutputRTT     = regexp.MustCompile(`(?m)(?:rtt|round-trip) min/avg/max/(?:mdev|stddev) = ([0-9.]+)/([0-9.]+)/([0-9.]+)/[0-9.]+ ms`)
-	tracerouteHopLine = regexp.MustCompile(`^\s*(\d{1,3})\s+(.+?)\s*$`)
-)
-
-func parsePingOutputMetrics(output string) (pingOutputMetrics, bool) {
-	summary := pingOutputSummary.FindStringSubmatch(output)
-	if summary == nil {
-		return pingOutputMetrics{}, false
-	}
-	stats := pingOutputMetrics{
-		transmitted: parseUint32Default(summary[1]),
-		received:    parseUint32Default(summary[2]),
-		lossPercent: parseFloatDefault(summary[3]),
-	}
-	if rtt := pingOutputRTT.FindStringSubmatch(output); rtt != nil {
-		stats.minMs = parseFloatDefault(rtt[1])
-		stats.avgMs = parseFloatDefault(rtt[2])
-		stats.maxMs = parseFloatDefault(rtt[3])
-	}
-	return stats, true
-}
-
-func parseUint32Default(value string) uint32 {
-	parsed, err := strconv.ParseUint(value, 10, 32)
-	if err != nil {
-		return 0
-	}
-	return uint32(parsed)
-}
-
-func parseFloatDefault(value string) float64 {
-	parsed, err := strconv.ParseFloat(value, 64)
-	if err != nil {
-		return 0
-	}
-	return parsed
-}
-
-func parseTracerouteOutputMetrics(output string, target string) (int64, bool, []string) {
-	var hopCount int64
-	reached := false
-	hopIPs := []string(nil)
-	target = strings.ToLower(strings.TrimSpace(target))
-	for line := range strings.SplitSeq(output, "\n") {
-		match := tracerouteHopLine.FindStringSubmatch(line)
-		if match == nil {
-			continue
-		}
-		body := strings.TrimSpace(match[2])
-		if body == "" || strings.TrimSpace(strings.ReplaceAll(body, "*", "")) == "" {
-			continue
-		}
-		hopCount++
-		hopIPs = append(hopIPs, ipLiteralsFromText(body)...)
-		if target != "" && strings.Contains(strings.ToLower(body), target) {
-			reached = true
-		}
-	}
-	return hopCount, reached, uniqueStrings(hopIPs)
 }
 
 func addDNSMetrics(metrics map[string]Value, dns *controlpb.ResolveDnsResult) {
@@ -378,19 +341,21 @@ func addTracerouteMetrics(metrics map[string]Value, traceroute *controlpb.Tracer
 	if traceroute == nil {
 		return
 	}
-	hopCount, reached, hopIPs := parseTracerouteOutputMetrics(traceroute.GetOutput(), traceroute.GetHost())
+	hopCount, hopIPs, observed, _ := TraceObservations(traceroute)
 	metrics["host"] = stringValue(traceroute.GetHost())
 	metrics["max_hops"] = uintValue(uint64(traceroute.GetMaxHops()))
 	metrics["size_bytes"] = uintValue(uint64(traceroute.GetSizeBytes()))
 	metrics["exit_code"] = intValue(int64(traceroute.GetExitCode()))
 	metrics["interface"] = stringValue(traceroute.GetInterfaceName())
 	metrics["executable"] = stringValue(traceroute.GetExecutable())
-	metrics["hop_count"] = intValue(hopCount)
-	metrics["hop_ips"] = stringListValue(hopIPs)
-	ipv4Hops, ipv6Hops := splitIPListByFamily(hopIPs)
-	metrics["ipv4_hop_ips"] = stringListValue(ipv4Hops)
-	metrics["ipv6_hop_ips"] = stringListValue(ipv6Hops)
-	metrics["reached"] = boolValue(reached)
+	if observed {
+		metrics["hop_count"] = intValue(int64(hopCount))
+		metrics["hop_ips"] = stringListValue(hopIPs)
+		ipv4Hops, ipv6Hops := splitIPListByFamily(hopIPs)
+		metrics["ipv4_hop_ips"] = stringListValue(ipv4Hops)
+		metrics["ipv6_hop_ips"] = stringListValue(ipv6Hops)
+		metrics["reached"] = boolValue(traceroute.GetReachedTarget())
+	}
 	metrics["elapsed_ms"] = intValue(traceroute.GetElapsedMs())
 	metrics["error"] = stringValue(traceroute.GetError())
 }
@@ -656,7 +621,10 @@ func defaultRouteFamily(route string) (string, bool) {
 			if !ok {
 				continue
 			}
-			return gatewayFamily(addr), true
+			if addr.Is4() {
+				return "ipv4", true
+			}
+			return "ipv6", true
 		}
 	}
 	return "", true
@@ -677,20 +645,6 @@ func splitIPListByFamily(values []string) ([]string, []string) {
 		}
 	}
 	return ipv4, ipv6
-}
-
-func ipLiteralsFromText(text string) []string {
-	replacer := strings.NewReplacer("(", " ", ")", " ", "[", " ", "]", " ", ",", " ", ";", " ", "\t", " ")
-	fields := strings.Fields(replacer.Replace(text))
-	values := make([]string, 0, len(fields))
-	for _, field := range fields {
-		addr, ok := parseIPLiteral(field)
-		if !ok {
-			continue
-		}
-		values = append(values, addr.String())
-	}
-	return uniqueStrings(values)
 }
 
 func parseIPLiteral(value string) (netip.Addr, bool) {

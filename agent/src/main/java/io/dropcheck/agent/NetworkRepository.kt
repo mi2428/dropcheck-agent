@@ -153,6 +153,9 @@ class NetworkRepository(
             .setActiveNetwork(active?.toString().orEmpty())
             .setWifiNetworkCount(wifiNetworks.size)
             .addAllPermissions(permissionSummary())
+            .addAllObservationFields(observationAvailability("radio", true))
+            .addAllObservationFields(observationAvailability("connection", bestInfo != null,
+                if (selected == null) "no selected Wi-Fi Network" else "per-Network WifiInfo unavailable"))
         logMloCapabilityWarnings()
 
         if (bestInfo != null) {
@@ -641,10 +644,25 @@ class NetworkRepository(
 
     /** Maps Android NetworkCapabilities and LinkProperties into the wire IP status message. */
     fun ipStatus(network: Network): IpStatus {
-        val caps = connectivity.getNetworkCapabilities(network)
-        val link = connectivity.getLinkProperties(network)
+        val capabilities = runCatching { connectivity.getNetworkCapabilities(network) }
+        val properties = runCatching { connectivity.getLinkProperties(network) }
+        val caps = capabilities.getOrNull()
+        val link = properties.getOrNull()
         val builder = IpStatus.newBuilder()
             .setNetworkId(network.toString())
+            .addAllObservationFields(observationAvailability("capabilities", caps != null,
+                capabilities.exceptionOrNull()?.javaClass?.simpleName ?: "NetworkCapabilities unavailable"))
+            .addAllObservationFields(observationAvailability("link_properties", link != null,
+                properties.exceptionOrNull()?.javaClass?.simpleName ?: "LinkProperties unavailable"))
+        val defaultNetwork = runCatching { connectivity.activeNetwork }
+        if (defaultNetwork.isSuccess) {
+            builder.addAllObservationFields(observationAvailability("default_network", true))
+            builder.addObservationFields(diagnosticField("default_network_id", defaultNetwork.getOrNull()?.toString() ?: "none"))
+            builder.addObservationFields(diagnosticField("selected_is_default", defaultNetwork.getOrNull() == network))
+        } else {
+            builder.addAllObservationFields(observationAvailability("default_network", false,
+                defaultNetwork.exceptionOrNull()?.javaClass?.simpleName.orEmpty()))
+        }
 
         if (caps != null) {
             builder.addAllTransports(transports(caps))

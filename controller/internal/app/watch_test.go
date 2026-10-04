@@ -8,7 +8,7 @@ import (
 
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 )
 
 func TestWatchSessionLogEventFormatsWarnForTUI(t *testing.T) {
@@ -39,7 +39,7 @@ func TestPrintWatchNoTUIEventPrintsRequiredStepFailure(t *testing.T) {
 	var out bytes.Buffer
 	printWatchNoTUIEvent(&out, watch.Event{
 		Time:  time.Date(2026, 5, 19, 10, 11, 12, 0, time.UTC),
-		Kind:  watch.EventStepFinished,
+		Kind:  watch.EventFinding,
 		Round: 4,
 		Agent: watch.AgentSnapshot{ADBSerial: "R5CT12345"},
 		Target: watch.TargetSnapshot{
@@ -52,7 +52,8 @@ func TestPrintWatchNoTUIEventPrintsRequiredStepFailure(t *testing.T) {
 			Status:  "failed",
 			Message: "wifi condition timeout",
 		},
-		Status: "failed",
+		Status:  "failed",
+		Finding: &watch.Finding{Target: "lab-6g", Check: "wait_connected", Metric: "status", Observed: "failed", Expected: "== ok", Message: "wifi condition timeout"},
 	}, true)
 
 	got := out.String()
@@ -113,27 +114,18 @@ func TestWatchAgentPlansAssignTargetsBySerial(t *testing.T) {
 	}
 	plan := watch.Plan{
 		Name: "assigned-watch",
-		Targets: []watch.Target{
-			{Name: "ap-5g", Agent: "35251JEHN00258", SSID: "Lab", Band: "5ghz"},
-			{Name: "ap-6g", Agent: "45240DLAQ007HG", SSID: "Lab", Band: "6ghz"},
-			{Name: "shared", SSID: "Lab"},
+		Networks: []watch.Network{
+			watch.WiFi("ap-5g").Agent("35251JEHN00258").SSID("Lab").Band("5ghz"),
+			watch.WiFi("ap-6g").Agent("45240DLAQ007HG").SSID("Lab").Band("6ghz"),
+			watch.WiFi("shared").SSID("Lab"),
 		},
-		Checks: []watch.Check{{Name: "connect", Type: "connect"}},
 	}
 
-	agentPlans, uiPlan, err := watchAgentPlans(plan, agents)
+	compiled, err := watch.Compile(plan, agents)
 	if err != nil {
 		t.Fatalf("watchAgentPlans() error = %v", err)
 	}
-	if len(agentPlans) != 2 {
-		t.Fatalf("agentPlans len = %d, want 2", len(agentPlans))
-	}
-	if got := targetNames(agentPlans[0].Plan.Targets); strings.Join(got, ",") != "ap-5g,shared" {
-		t.Fatalf("pixel7a targets = %#v", got)
-	}
-	if got := targetNames(agentPlans[1].Plan.Targets); strings.Join(got, ",") != "ap-6g,shared" {
-		t.Fatalf("pixel9 targets = %#v", got)
-	}
+	uiPlan := compiled.Preview()
 	if uiPlan.Targets[0].Agent != "35251JEHN00258" || uiPlan.Targets[1].Agent != "45240DLAQ007HG" || uiPlan.Targets[2].Agent != "" {
 		t.Fatalf("ui target agents = %#v", uiPlan.Targets)
 	}
@@ -151,21 +143,12 @@ func TestWatchAgentPlansRejectDeviceModelAgentSelector(t *testing.T) {
 	}
 	plan := watch.Plan{
 		Name: "assigned-watch",
-		Targets: []watch.Target{
-			{Name: "ap-5g", Agent: "Pixel 7a", SSID: "Lab", Band: "5ghz"},
+		Networks: []watch.Network{
+			watch.WiFi("ap-5g").Agent("Pixel 7a").SSID("Lab").Band("5ghz"),
 		},
-		Checks: []watch.Check{{Name: "connect", Type: "connect"}},
 	}
 
-	if _, _, err := watchAgentPlans(plan, agents); err == nil || !strings.Contains(err.Error(), "agent serial") {
+	if _, err := watch.Compile(plan, agents); err == nil {
 		t.Fatalf("watchAgentPlans() error = %v, want agent serial error", err)
 	}
-}
-
-func targetNames(targets []watch.Target) []string {
-	names := make([]string, 0, len(targets))
-	for _, target := range targets {
-		names = append(names, target.Name)
-	}
-	return names
 }

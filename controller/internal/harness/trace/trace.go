@@ -33,7 +33,10 @@ type Result struct {
 	// Error is the agent-provided traceroute error text, when any.
 	Error string
 	// Executable is the traceroute implementation used by the agent.
-	Executable string
+	Executable       string
+	Hops             []*controlpb.TracerouteHop
+	ReachedTarget    *bool
+	ObservationError string
 }
 
 // MaxHops matches the configured traceroute max-hop value reported by the agent.
@@ -41,6 +44,30 @@ func MaxHops() harness.OrderedMetric[uint32] {
 	return harness.Ordered[uint32]("trace.max_hops", func(result harness.Result) (uint32, bool, string) {
 		trace, ok, reason := from(result)
 		return trace.MaxHops, ok, reason
+	})
+}
+
+func Reached() harness.BoolMetric {
+	return harness.Bool("trace.reached", func(result harness.Result) (bool, bool, string) {
+		view, ok, reason := from(result)
+		if !ok {
+			return false, false, reason
+		}
+		if view.ReachedTarget == nil {
+			return false, false, "target arrival observation unavailable"
+		}
+		return *view.ReachedTarget, true, ""
+	})
+}
+
+func HopCount() harness.OrderedMetric[int] {
+	return harness.Ordered[int]("trace.hop_count", func(result harness.Result) (int, bool, string) {
+		view, ok, reason := from(result)
+		if !ok {
+			return 0, false, reason
+		}
+		count, _, observed, reason := harness.TraceObservations(view.Raw)
+		return count, observed, reason
 	})
 }
 
@@ -73,7 +100,7 @@ func (e outputContains) Evaluate(result harness.Result) []harness.Finding {
 	trace, ok, reason := from(result)
 	metric := "trace.output_contains"
 	if !ok {
-		return []harness.Finding{harness.Fail(metric, "<missing>", e.value, reason)}
+		return []harness.Finding{harness.MissingFinding(metric, "<missing>", e.value, reason)}
 	}
 	if strings.Contains(trace.Output, e.value) {
 		return []harness.Finding{harness.Pass(metric, e.value, "contains "+e.value)}
@@ -91,11 +118,18 @@ type assertion struct {
 	fn   func(Result) error
 }
 
+func (a assertion) Validate() error {
+	if a.fn == nil || a.name == "" {
+		return fmt.Errorf("invalid trace assertion")
+	}
+	return nil
+}
+
 func (a assertion) Evaluate(result harness.Result) []harness.Finding {
 	trace, ok, reason := from(result)
 	metric := "trace.assert." + a.name
 	if !ok {
-		return []harness.Finding{harness.Fail(metric, "<missing>", "custom assertion passed", reason)}
+		return []harness.Finding{harness.MissingFinding(metric, "<missing>", "custom assertion passed", reason)}
 	}
 	if err := a.fn(trace); err != nil {
 		return []harness.Finding{harness.Fail(metric, "failed", "custom assertion passed", err.Error())}
@@ -113,16 +147,19 @@ func from(result harness.Result) (Result, bool, string) {
 		return Result{}, false, fmt.Sprintf("command payload is %T, not traceroute", raw.GetPayload())
 	}
 	return Result{
-		Raw:        value,
-		Status:     raw.GetStatus(),
-		Host:       value.GetHost(),
-		MaxHops:    value.GetMaxHops(),
-		SizeBytes:  value.GetSizeBytes(),
-		Elapsed:    time.Duration(value.GetElapsedMs()) * time.Millisecond,
-		ExitCode:   value.GetExitCode(),
-		Interface:  value.GetInterfaceName(),
-		Output:     value.GetOutput(),
-		Error:      value.GetError(),
-		Executable: value.GetExecutable(),
+		Raw:              value,
+		Status:           raw.GetStatus(),
+		Host:             value.GetHost(),
+		MaxHops:          value.GetMaxHops(),
+		SizeBytes:        value.GetSizeBytes(),
+		Elapsed:          time.Duration(value.GetElapsedMs()) * time.Millisecond,
+		ExitCode:         value.GetExitCode(),
+		Interface:        value.GetInterfaceName(),
+		Output:           value.GetOutput(),
+		Error:            value.GetError(),
+		Executable:       value.GetExecutable(),
+		Hops:             value.GetHops(),
+		ReachedTarget:    value.ReachedTarget,
+		ObservationError: value.GetObservationError(),
 	}, true, ""
 }

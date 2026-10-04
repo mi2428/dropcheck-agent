@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 )
 
 // OutcomeEvent is the compact historical outcome used by check-status and
@@ -127,17 +127,17 @@ func (s State) CheckStatusChecks() []string {
 	}
 	for _, target := range s.Targets {
 		for _, step := range target.PlannedSteps {
-			add(FirstNonEmpty(step.Name, step.Type))
+			add(FirstNonEmpty(step.ID, step.Name, step.Type))
 		}
 		for _, step := range target.Steps {
-			add(FirstNonEmpty(step.Name, step.Type))
+			add(FirstNonEmpty(step.ID, step.Name, step.Type))
 		}
 	}
 	for _, passingCheck := range s.PassingChecks {
-		add(FirstNonEmpty(passingCheck.Step.Name, passingCheck.Step.Type))
+		add(FirstNonEmpty(passingCheck.Step.ID, passingCheck.Step.Name, passingCheck.Step.Type))
 	}
 	for _, failedCheck := range s.FailedChecks {
-		add(failedCheck.Finding.Check)
+		add(FirstNonEmpty(failedCheck.Finding.CheckID, failedCheck.Finding.Check))
 	}
 	return checks
 }
@@ -245,6 +245,10 @@ func (s State) CheckStatusTargetCell(check string, target watch.TargetSnapshot, 
 	switch {
 	case failed > 0:
 		return CheckStatusAggregate{Status: "failed", Count: failed, Failed: failed, Total: total, Stale: currentCounts["failed"] == 0}
+	case counts["missing"] > 0:
+		return CheckStatusAggregate{Status: "missing", Count: counts["missing"], Total: total}
+	case counts["canceled"] > 0:
+		return CheckStatusAggregate{Status: "canceled", Count: counts["canceled"], Total: total}
 	case counts["running"] > 0:
 		return CheckStatusAggregate{Status: "running", Count: total - counts["pending"], Total: total}
 	case counts["ok"] > 0:
@@ -277,7 +281,7 @@ func (s State) HistoricalCheckStatus(agent watch.AgentSnapshot, target watch.Tar
 		if !SameAgent(passingCheck.Agent, agent) || CheckStatusTargetKey(passingCheck.Target) != CheckStatusTargetKey(target) {
 			continue
 		}
-		if FirstNonEmpty(passingCheck.Step.Name, passingCheck.Step.Type) != check {
+		if FirstNonEmpty(passingCheck.Step.ID, passingCheck.Step.Name, passingCheck.Step.Type) != check {
 			continue
 		}
 		if passingCheck.When.After(seen) || seen.IsZero() {
@@ -289,7 +293,7 @@ func (s State) HistoricalCheckStatus(agent watch.AgentSnapshot, target watch.Tar
 		if !SameAgent(failedCheck.Agent, agent) || CheckStatusTargetKey(failedCheck.Target) != CheckStatusTargetKey(target) {
 			continue
 		}
-		if failedCheck.Finding.Check != check {
+		if FirstNonEmpty(failedCheck.Finding.CheckID, failedCheck.Finding.Check) != check {
 			continue
 		}
 		if failedCheck.When.After(seen) || seen.IsZero() {
@@ -314,7 +318,7 @@ func (s State) CurrentCheckStatus(agent watch.AgentSnapshot, target watch.Target
 			continue
 		}
 		for _, step := range state.Steps {
-			if FirstNonEmpty(step.Name, step.Type) != check {
+			if FirstNonEmpty(step.ID, step.Name, step.Type) != check {
 				continue
 			}
 			status := NormalizeStatus(step.Status)
@@ -323,7 +327,26 @@ func (s State) CurrentCheckStatus(agent watch.AgentSnapshot, target watch.Target
 			}
 			return status, true
 		}
+		if state.Target.ID != "" {
+			return "pending", true
+		}
 		return "", false
 	}
 	return "", false
+}
+
+func (s State) CheckLabel(id string) string {
+	for _, check := range s.Checks {
+		if check.ID == id {
+			return DisplayCheckName(check.Name)
+		}
+	}
+	for _, target := range s.Targets {
+		for _, step := range append(append([]StepState(nil), target.PlannedSteps...), target.Steps...) {
+			if step.ID == id {
+				return DisplayCheckName(step.Name)
+			}
+		}
+	}
+	return DisplayCheckName(id)
 }

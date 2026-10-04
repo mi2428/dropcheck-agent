@@ -19,21 +19,16 @@ type step struct {
 	name         string
 	operation    command.Operation
 	expectations []Expectation
-	policy       runPolicy
-}
-
-type runPolicy struct {
-	repeat         uint32
-	retryAttempts  uint32
-	retryDelay     time.Duration
-	stableFor      time.Duration
-	stableInterval time.Duration
+	policy       Policy
+	required     bool
+	sourceID     string
+	gateway      *GatewayPingOptions
 }
 
 type checkBase struct {
 	name         string
 	expectations []Expectation
-	policy       runPolicy
+	policy       Policy
 }
 
 func (c checkBase) Name() string {
@@ -46,23 +41,23 @@ func (c checkBase) withExpectations(expectations []Expectation) checkBase {
 }
 
 func (c checkBase) withRepeat(count uint32) checkBase {
-	c.policy.repeat = count
+	c.policy.Repeat = count
 	return c
 }
 
 func (c checkBase) withRetry(attempts uint32, delay time.Duration) checkBase {
-	c.policy.retryAttempts = attempts
-	c.policy.retryDelay = delay
+	c.policy.Attempts = attempts
+	c.policy.Delay = delay
 	return c
 }
 
 func (c checkBase) withStableFor(duration time.Duration) checkBase {
-	c.policy.stableFor = duration
+	c.policy.StableFor = duration
 	return c
 }
 
 func (c checkBase) withStableInterval(interval time.Duration) checkBase {
-	c.policy.stableInterval = interval
+	c.policy.Interval = interval
 	return c
 }
 
@@ -400,7 +395,10 @@ type PingCheck struct {
 	count   string
 	size    string
 	timeout string
+	family  string
 }
+
+func (c PingCheck) Family(value string) PingCheck { c.family = value; return c }
 
 // Ping starts a ping check builder.
 func Ping(host string) PingCheck {
@@ -456,7 +454,7 @@ func (c PingCheck) StableInterval(interval time.Duration) PingCheck {
 }
 
 func (c PingCheck) build() (step, error) {
-	return c.buildStep(command.PingOperation(command.PingOptions{Host: c.host, Count: c.count, Size: c.size, Timeout: c.timeout}))
+	return c.buildStep(command.PingOperation(command.PingOptions{Host: c.host, Count: c.count, Size: c.size, Family: c.family, Timeout: c.timeout}))
 }
 
 // DNSCheck configures a DNS resolution check.
@@ -610,7 +608,10 @@ type PathMTUCheck struct {
 	minMTU  string
 	maxMTU  string
 	timeout string
+	family  string
 }
+
+func (c PathMTUCheck) Family(value string) PathMTUCheck { c.family = value; return c }
 
 // PathMTU starts a path-MTU check builder.
 func PathMTU(host string) PathMTUCheck {
@@ -666,7 +667,7 @@ func (c PathMTUCheck) StableInterval(interval time.Duration) PathMTUCheck {
 }
 
 func (c PathMTUCheck) build() (step, error) {
-	return c.buildStep(command.PathMTUOperation(command.PathMTUOptions{Host: c.host, MinMTU: c.minMTU, MaxMTU: c.maxMTU, Timeout: c.timeout}))
+	return c.buildStep(command.PathMTUOperation(command.PathMTUOptions{Host: c.host, MinMTU: c.minMTU, MaxMTU: c.maxMTU, Family: c.family, Timeout: c.timeout}))
 }
 
 // TracerouteCheck configures a traceroute check.
@@ -677,7 +678,10 @@ type TracerouteCheck struct {
 	via     []string
 	size    string
 	timeout string
+	family  string
 }
+
+func (c TracerouteCheck) Family(value string) TracerouteCheck { c.family = value; return c }
 
 // Traceroute starts a traceroute check builder.
 func Traceroute(host string) TracerouteCheck {
@@ -739,7 +743,7 @@ func (c TracerouteCheck) StableInterval(interval time.Duration) TracerouteCheck 
 }
 
 func (c TracerouteCheck) build() (step, error) {
-	return c.buildStep(command.TracerouteOperation(command.TracerouteOptions{Host: c.host, MaxHops: c.maxHops, Via: c.via, Size: c.size, Timeout: c.timeout}))
+	return c.buildStep(command.TracerouteOperation(command.TracerouteOptions{Host: c.host, MaxHops: c.maxHops, Via: c.via, Size: c.size, Family: c.family, Timeout: c.timeout}))
 }
 
 // HTTPCheck configures an HTTP status check.

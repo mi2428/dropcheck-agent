@@ -263,6 +263,7 @@ class NetworkCheckExecutor(
         val executable = commandArgs
             .take(if (commandArgs.first().endsWith("toybox") || commandArgs.first().endsWith("busybox")) 2 else 1)
             .joinToString(" ")
+        val observation = tracerouteObservation(run.output, target.destination)
         val result = TracerouteResult.newBuilder()
             .setHost(command.host)
             .setMaxHops(maxHops)
@@ -273,6 +274,9 @@ class NetworkCheckExecutor(
             .setOutput(run.output.take(12000))
             .setError(run.error)
             .setExecutable(executable)
+            .addAllHops(observation.hops)
+            .setObservationError(observation.error)
+            .apply { observation.reached?.let { reachedTarget = it } }
             .build()
         logger.debug("traceroute finished host=${command.host} finished=${run.finished} exit=${run.exitCode} elapsed_ms=$elapsedMs output_bytes=${run.output.length} error=${run.error.ifBlank { "none" }}")
         logger.debugEvent("process.end", listOf(
@@ -532,6 +536,7 @@ class NetworkCheckExecutor(
         var reached = false
         var observedHop = false
         var error = ""
+        val hops = mutableListOf<io.dropcheck.agent.grpc.TracerouteHop>()
         for (ttl in 1..maxHops) {
             throwIfInterrupted()
             val elapsedBeforeHop = Duration.ofNanos(System.nanoTime() - started).toMillis()
@@ -576,6 +581,15 @@ class NetworkCheckExecutor(
             }
             val hopElapsedMs = Duration.ofNanos(System.nanoTime() - hopStarted).toMillis()
             val probe = parsePingTraceProbe(run.output, target.destination, hopElapsedMs)
+            hops += io.dropcheck.agent.grpc.TracerouteHop.newBuilder()
+                .setIndex(ttl)
+                .setTimedOut(probe.timedOut)
+                .apply {
+                    if (probe.address.isNotBlank()) addAddresses(probe.address)
+                    if (probe.host.isNotBlank()) addHostnames(probe.host)
+                    if (!probe.timedOut) probe.rttMs?.let { addRttMs(it) }
+                }
+                .build()
             if (!probe.timedOut && (probe.address.isNotBlank() || probe.host.isNotBlank())) {
                 observedHop = true
             }
@@ -622,6 +636,8 @@ class NetworkCheckExecutor(
             .setOutput(output.toString().take(12000))
             .setError(if (completed) "" else error)
             .setExecutable("ping TTL fallback")
+            .addAllHops(hops)
+            .setReachedTarget(reached)
             .build()
         logger.debug("traceroute ping fallback finished host=${command.host} reached=$reached observed_hop=$observedHop elapsed_ms=$elapsedMs output_bytes=${output.length} error=${error.ifBlank { "none" }}")
         logger.debugEvent("network.probe.result", listOf(

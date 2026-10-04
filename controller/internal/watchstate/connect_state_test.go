@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 )
 
 func TestRecordConnectStateUpdatesLatestAgentPhase(t *testing.T) {
