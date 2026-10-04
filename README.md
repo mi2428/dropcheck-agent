@@ -681,9 +681,9 @@ run automatically without adding special workflow filters.
 
 ### Acceptance record (2026-10-04)
 
-- Local Go 1.26.0 and 1.26.8 normal, vet/staticcheck and fresh race suites passed, including the 282 device-free parser cases; pinned Go binding generation twice and `go mod tidy` left no drift. Fresh Android build/JVM/lint passed (155 unit tests, no failures). The Ubuntu CI matrix itself was **not** run locally.
+- Local Go 1.26.0 and 1.26.8 normal, vet/staticcheck and fresh race suites passed, including the 282 device-free parser cases; pinned Go binding generation twice and `go mod tidy` left no drift. Fresh Android build/JVM/lint passed (156 unit tests, no failures); 23 portable commands and 8 rejected inputs read the same canonical fixture as Go. The Ubuntu CI matrix itself was **not** run locally.
 - A fake-backed real PTY exercised TUI selection, preview, finite review/rerun, loop stop, resize and terminal restoration; it did not touch ADB. On one authorized API 37 handset, a separate-UID fixture verified six DUMP-permission denials while authorized control continued, and a synthetic `Paint` instrumentation check passed 24 width/font-scale cases. The device's owner and Wi-Fi configuration were not changed.
-- On that handset, a failed fresh-scan request returned a failed exit status and labeled cached reference data; fresh-scan **success** was not observed. API 31/32 coverage, real Activity rotation/split-screen/IME layout, clipboard and TalkBack, final output-font readability, and network-changing scenarios remain unverified. CLI-breaking grammar and named `check` profiles still require product decisions; do not mistake the partial implementation for either feature's completion.
+- On that handset, a failed fresh-scan request returned a failed exit status and labeled cached reference data; fresh-scan **success** was not observed. After the flat grammar change, four read-only one-shot `show` commands succeeded on the authorized handset without changing its owner or Wi-Fi settings. API 31/32 coverage, real Activity rotation/split-screen/IME layout, clipboard and TalkBack, final output-font readability, and network-changing scenarios remain unverified. Named `check` profiles still require product decisions and are not implemented.
 
 ## License
 
