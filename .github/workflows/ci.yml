@@ -10,18 +10,35 @@ permissions:
 
 jobs:
   controller:
+    name: Controller (Go ${{ matrix.go-version }})
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ['1.26.0', '1.26.8']
     env:
       GOFLAGS: -p=1
+      GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
         with:
           persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16  # v6
         with:
-          go-version: '1.26.8'
+          go-version: ${{ matrix.go-version }}
           cache-dependency-path: controller/go.sum
+      - name: Provision pinned protoc
+        run: |
+          archive="$RUNNER_TEMP/protoc-35.0-linux-x86_64.zip"
+          curl --fail --location --retry 3 --output "$archive" \
+            https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-linux-x86_64.zip
+          printf '%s  %s\n' 'a45cda0989c17dd950db55f6fbe1e5814c50fda08e87aa422980ac1f89dddbbc' "$archive" | sha256sum --check --strict
+          unzip -q "$archive" -d "$RUNNER_TEMP/protoc-35.0"
+      - name: Verify Go binding generation
+        run: |
+          make generate-go PROTOC="$RUNNER_TEMP/protoc-35.0/bin/protoc"
+          git diff --exit-code -- controller/internal/controlpb
       - name: Install staticcheck
         run: go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
       - name: Check formatting
@@ -54,6 +71,6 @@ jobs:
       - name: Build
         run: make build TARGET=agent
       - name: Unit test
-        run: make test TARGET=agent
+        run: ./gradlew :agent:testDebugUnitTest --rerun-tasks --no-build-cache -PdropcheckVersion="$(make -s version)"
       - name: Lint
         run: make lint TARGET=agent
