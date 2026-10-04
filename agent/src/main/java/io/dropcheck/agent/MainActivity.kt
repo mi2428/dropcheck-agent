@@ -16,8 +16,6 @@ import android.graphics.drawable.ColorDrawable
 import android.graphics.text.LineBreakConfig
 import android.graphics.text.LineBreaker
 import android.net.Uri
-import android.net.wifi.ScanResult
-import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -49,14 +47,6 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import io.dropcheck.agent.grpc.CommandLog
-import io.dropcheck.agent.grpc.CommandResult
-import io.dropcheck.agent.grpc.GetFreshWifiScan
-import io.dropcheck.agent.grpc.GetWifiScan
-import io.dropcheck.agent.grpc.GetWifiStatus
-import io.dropcheck.agent.grpc.Ping
-import io.dropcheck.agent.grpc.RunCommand
-import io.dropcheck.agent.grpc.Traceroute
-import io.dropcheck.agent.grpc.WifiBand
 import java.util.concurrent.Executors
 import java.util.IdentityHashMap
 
@@ -126,13 +116,6 @@ class MainActivity : Activity() {
     private var swipeStartX = 0f
     private var swipeStartY = 0f
     private val shellTapSlopPx: Int by lazy { ViewConfiguration.get(this).scaledTouchSlop }
-    private val shellDoubleTapSlopPx: Int by lazy { ViewConfiguration.get(this).scaledDoubleTapSlop }
-    private var shellLastTapUpTimeMs = 0L
-    private var shellLastTapX = 0f
-    private var shellLastTapY = 0f
-    private var shellTapStartRawX = 0f
-    private var shellTapStartRawY = 0f
-    private var lastShellCommandLine = ""
     private var backgroundLocationPromptShown = false
     private val statusRefreshHandler = Handler(Looper.getMainLooper())
     private val statusRefresh = object : Runnable {
@@ -279,13 +262,6 @@ class MainActivity : Activity() {
         super.onNewIntent(intent)
         setIntent(intent)
         showInitialScreen(intent)
-    }
-
-    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-        if (shellVisible && handleShellScreenDoubleTap(event)) {
-            return true
-        }
-        return super.dispatchTouchEvent(event)
     }
 
     override fun onStart() {
@@ -786,239 +762,48 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun submitShellInput(raw: String, focusAfterSubmit: Boolean = true) {
+    private fun submitShellInput(raw: String) {
         val line = raw.trim()
         if (line.isBlank()) {
             shellInput?.setText("")
-            if (focusAfterSubmit) focusShellInput()
+            focusShellInput()
             return
         }
         if (shellBusy) {
-            if (focusAfterSubmit) focusShellInput()
+            focusShellInput()
             return
         }
-        lastShellCommandLine = line
         shellInput?.setText("")
-        appendShellLine(shellCommandLine(redactAgentShellCommandLine(line)), focusInput = focusAfterSubmit)
+        appendShellLine(shellCommandLine(redactAgentShellCommandLine(line)))
         when (val command = AgentShellParser.parse(line)) {
             AgentShellCommand.Noop -> Unit
             is AgentShellCommand.Help -> {
-                appendShellLines(shellHelpLines(command.topic), focusInput = focusAfterSubmit)
+                appendShellLines(AgentShellParser.help(command.topic))
             }
             is AgentShellCommand.SetDefaultPassphrase -> {
                 AgentShellUseDefaultsStore(applicationContext).setDefaultPassphrase(command.passphrase)
-                appendShellLine(AgentShellUsePolicy.setDefaultPassphraseMessage(command.passphrase), focusInput = focusAfterSubmit)
+                appendShellLine(AgentShellUsePolicy.setDefaultPassphraseMessage(command.passphrase))
             }
             AgentShellCommand.ShowVersion -> {
-                appendShellLine("version ${BuildConfig.VERSION_NAME}", focusInput = focusAfterSubmit)
+                appendShellLine("version ${BuildConfig.VERSION_NAME}")
             }
-            AgentShellCommand.ShowWifiStatus -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
-                val result = CommandExecutor(applicationContext, agentShellLogger()).execute(
-                    RunCommand.newBuilder()
-                        .setGetWifiStatus(GetWifiStatus.getDefaultInstance())
-                        .build(),
-                )
-                if (result.hasWifiStatus()) {
-                    ShellCommandResult(
-                        ok = result.status == CommandResult.Status.STATUS_OK,
-                        block = AgentShellTextFormatter.block(result, AgentWifiStatusRenderer.presentation(result.wifiStatus),
-                            if (result.status == CommandResult.Status.STATUS_OK) AgentLogStyle.TEXT_COLOR else SHELL_ERROR_COLOR),
-                    )
-                } else {
-                    val message = result.message.ifBlank { result.status.name }
-                    ShellCommandResult(ok = false, lines = listOf("show wifi status failed: $message"))
+            is AgentShellCommand.Execute, is AgentShellCommand.ShowWifiEht, is AgentShellCommand.Use ->
+                runShellLinesCommand {
+                    AgentShellAdapter(applicationContext, agentShellLogger()).execute(command)
                 }
-            }
-            is AgentShellCommand.ShowWifiEht -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
-                runWifiEhtCommand(command)
-            }
-            is AgentShellCommand.ShowWifiScan -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
-                runWifiScanCommand(command)
-            }
-            is AgentShellCommand.Ping -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
-                runPingCommand(command)
-            }
-            is AgentShellCommand.Traceroute -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
-                runTracerouteCommand(command)
-            }
-            is AgentShellCommand.Use -> runShellLinesCommand(focusAfterComplete = focusAfterSubmit) {
-                runUseCommand(command)
-            }
-            is AgentShellCommand.Invalid -> appendShellLine(command.message, SHELL_ERROR_COLOR, focusInput = focusAfterSubmit)
+            is AgentShellCommand.Invalid -> appendShellLine(command.message, SHELL_ERROR_COLOR)
         }
     }
 
-    private fun runPingCommand(command: AgentShellCommand.Ping): ShellCommandResult {
-        val ping = Ping.newBuilder()
-            .setHost(command.host)
-        if (command.count > 0) ping.count = command.count
-        if (command.sizeBytes > 0) ping.sizeBytes = command.sizeBytes
-        if (command.timeoutMs > 0) ping.timeoutMs = command.timeoutMs
-        val result = CommandExecutor(applicationContext, agentShellLogger()).execute(
-            RunCommand.newBuilder()
-                .setPing(ping.build())
-                .build(),
-        )
-        if (!result.hasPing()) {
-            val message = result.message.ifBlank { result.status.name }
-            return ShellCommandResult(ok = false, lines = listOf("ping failed: $message"))
-        }
-        return ShellCommandResult(
-            ok = result.status == CommandResult.Status.STATUS_OK,
-            lines = AgentProbeRenderer.renderPing(result.ping, result.status, result.message),
-        )
-    }
-
-    private fun runTracerouteCommand(command: AgentShellCommand.Traceroute): ShellCommandResult {
-        val traceroute = Traceroute.newBuilder()
-            .setHost(command.host)
-        if (command.maxHops > 0) traceroute.maxHops = command.maxHops
-        if (command.sizeBytes > 0) traceroute.sizeBytes = command.sizeBytes
-        if (command.timeoutMs > 0) traceroute.timeoutMs = command.timeoutMs
-        val result = CommandExecutor(applicationContext, agentShellLogger()).execute(
-            RunCommand.newBuilder()
-                .setTraceroute(traceroute.build())
-                .build(),
-        )
-        if (!result.hasTraceroute()) {
-            val message = result.message.ifBlank { result.status.name }
-            return ShellCommandResult(ok = false, lines = listOf("traceroute failed: $message"))
-        }
-        return ShellCommandResult(
-            ok = result.status == CommandResult.Status.STATUS_OK,
-            lines = AgentProbeRenderer.renderTraceroute(result.traceroute, result.status, result.message),
-        )
-    }
-
-    private fun runUseCommand(command: AgentShellCommand.Use): ShellCommandResult {
-        val defaults = AgentShellUseDefaultsStore(applicationContext).load()
-        val decision = AgentShellUsePolicy.resolveUseRequest(command.ssid, command.passphrase, defaults)
-        val request = decision.request
-            ?: return ShellCommandResult(ok = false, lines = listOf(decision.error))
-        val result = CommandExecutor(applicationContext, agentShellLogger()).execute(
-            AgentShellUsePolicy.connectCommand(request),
-        )
-        if (!result.hasConnectWifi()) {
-            val message = result.message.ifBlank { result.status.name }
-            return ShellCommandResult(ok = false, lines = listOf("use failed: $message"))
-        }
-        return ShellCommandResult(
-            ok = result.status == CommandResult.Status.STATUS_OK,
-            lines = AgentShellTextFormatter.formatStructuredResult(
-                result,
-                AgentShellUsePolicy.renderConnect(
-                    result = result.connectWifi,
-                    status = result.status,
-                    message = result.message,
-                    source = request.passphraseSource,
-                ),
-            ),
-        )
-    }
-
-    private fun runWifiEhtCommand(command: AgentShellCommand.ShowWifiEht): ShellCommandResult {
-        val executor = CommandExecutor(applicationContext, agentShellLogger())
-        if (command.brief && command.ssid.isBlank() && command.bssid.isBlank()) {
-            return runWifiScanCommand(
-                AgentShellCommand.ShowWifiScan(
-                    brief = true,
-                    mlo = true,
-                    fresh = command.fresh,
-                    timeoutMs = command.timeoutMs,
-                ),
-            )
-        }
-        val diagnosticsResult = runWifiEhtDiagnostics(command, executor::execute)
-        if (!diagnosticsResult.hasWifiDiagnostics()) {
-            val message = diagnosticsResult.message.ifBlank { diagnosticsResult.status.name }
-            return ShellCommandResult(ok = false, lines = listOf("show wifi eht failed: diagnostics unavailable: $message"))
-        }
-        val diagnostics = diagnosticsResult.wifiDiagnostics
-        if (!diagnostics.hasStatus()) {
-            val message = diagnosticsResult.message.ifBlank { diagnosticsResult.status.name }
-            return ShellCommandResult(ok = false, lines = listOf("show wifi eht failed: status unavailable: $message"))
-        }
-        val scan = diagnostics.scan
-
-        val context = AgentWifiMloContext(
-            brief = command.brief,
-            scanSource = scan.fieldsList.lastOrNull { it.key == "scan_source" }?.value ?: "diagnostics",
-            sdkInt = Build.VERSION.SDK_INT,
-            wifi7Supported = wifi7StandardSupported(),
-            wifiCapabilities = diagnostics.capabilities.takeIf { diagnostics.hasCapabilities() },
-            ssidFilter = command.ssid,
-            bssidFilter = command.bssid,
-        )
-        return ShellCommandResult(
-            ok = diagnosticsResult.status == CommandResult.Status.STATUS_OK,
-            block = AgentShellTextFormatter.block(diagnosticsResult, AgentWifiMloRenderer.presentation(diagnostics.status, scan, context),
-                if (diagnosticsResult.status == CommandResult.Status.STATUS_OK) AgentLogStyle.TEXT_COLOR else SHELL_ERROR_COLOR, "Wi-Fi EHT"),
-        )
-    }
-
-    private fun runWifiScanCommand(command: AgentShellCommand.ShowWifiScan): ShellCommandResult {
-        val executor = CommandExecutor(applicationContext, agentShellLogger())
-        val band = wifiBandForShell(command.band)
-        val result = if (command.fresh) {
-            val scan = GetFreshWifiScan.newBuilder().setBand(band)
-            if (command.timeoutMs > 0) scan.timeoutMs = command.timeoutMs
-            executor.execute(
-                RunCommand.newBuilder()
-                    .setGetFreshWifiScan(scan.build())
-                    .build(),
-            )
-        } else {
-            executor.execute(
-                RunCommand.newBuilder()
-                    .setGetWifiScan(GetWifiScan.newBuilder().setBand(band).build())
-                    .build(),
-            )
-        }
-        if (!result.hasWifiScan()) {
-            val message = result.message.ifBlank { result.status.name }
-            val label = if (command.fresh) "show wifi scan fresh" else "show wifi scan"
-            return ShellCommandResult(ok = false, lines = listOf("$label failed: $message"))
-        }
-        return ShellCommandResult(
-            ok = result.status == CommandResult.Status.STATUS_OK,
-            block = AgentShellTextFormatter.block(
-                result,
-                AgentWifiScanRenderer.presentation(result.wifiScan, AgentWifiScanContext(brief = command.brief, mloOnly = command.mlo, requestedFresh = command.fresh)),
-                if (result.status == CommandResult.Status.STATUS_OK) AgentLogStyle.TEXT_COLOR else SHELL_ERROR_COLOR,
-            ),
-        )
-    }
-
-    private fun wifiBandForShell(value: String): WifiBand {
-        return when (value.lowercase()) {
-            "", "all" -> WifiBand.WIFI_BAND_ALL
-            "2.4ghz" -> WifiBand.WIFI_BAND_2_4_GHZ
-            "5ghz" -> WifiBand.WIFI_BAND_5_GHZ
-            "6ghz" -> WifiBand.WIFI_BAND_6_GHZ
-            "60ghz" -> WifiBand.WIFI_BAND_60_GHZ
-            else -> WifiBand.WIFI_BAND_ALL
-        }
-    }
-
-    private fun wifi7StandardSupported(): Boolean? {
-        if (Build.VERSION.SDK_INT < 33) return null
-        return runCatching {
-            getSystemService(WifiManager::class.java)
-                ?.isWifiStandardSupported(ScanResult.WIFI_STANDARD_11BE)
-        }.getOrNull()
-    }
-
-    private fun runShellLinesCommand(focusAfterComplete: Boolean = true, action: () -> ShellCommandResult) {
+    private fun runShellLinesCommand(action: () -> AgentShellResult) {
         shellBusy = true
         renderShell()
         shellExecutor.submit {
-            val result = runCatching { action() }.getOrElse {
-                ShellCommandResult(false, listOf(it.message ?: it.toString()))
-            }
+            val result = runCatching { action() }.getOrElse { AgentShellResult(false, listOf("command failed (execution error)")) }
             runOnUiThread {
                 shellBusy = false
-                if (result.block != null) appendShellBlock(result.block, focusAfterComplete) else appendShellLines(
-                    result.lines, if (result.ok) AgentLogStyle.TEXT_COLOR else SHELL_ERROR_COLOR, focusAfterComplete,
+                if (result.block != null) appendShellBlock(result.block, true) else appendShellLines(
+                    result.lines, if (result.ok) AgentLogStyle.TEXT_COLOR else SHELL_ERROR_COLOR,
                 )
                 syncStatusIcons()
             }
@@ -1109,7 +894,7 @@ class MainActivity : Activity() {
     private fun seedShellTranscript() {
         if (shellTranscriptSeeded) return
         shellTranscriptSeeded = true
-        shellTranscript.append(AgentPresentationBlock.create(shellHelpLines("").map { AgentBlockPart.Text(it) }, AgentLogStyle.TEXT_COLOR))
+        shellTranscript.append(AgentPresentationBlock.create(AgentShellParser.help().map { AgentBlockPart.Text(it) }, AgentLogStyle.TEXT_COLOR))
     }
 
     private fun scrollShellToInput() {
@@ -1168,65 +953,6 @@ class MainActivity : Activity() {
         root.requestFocus()
     }
 
-    private fun shellHelpLines(topic: String): List<String> {
-        return when (topic) {
-            "" -> listOf(
-                "Agent Shell builtins:",
-                "  help [NAME]",
-                "  ping HOST [count N] [size BYTES] [timeout MS]",
-                "  set default passphrase PASSPHRASE",
-                "  show version",
-                "  show wifi eht",
-                "  show wifi eht fresh [timeout MS]",
-                "  show wifi eht ssid SSID",
-                "  show wifi eht bssid BSSID",
-                "  show wifi scan [brief [mlo]] [all|2.4ghz|5ghz|6ghz|60ghz]",
-                "  show wifi scan fresh [brief [mlo]] [timeout MS] [all|2.4ghz|5ghz|6ghz|60ghz]",
-                "  show wifi status",
-                "  traceroute HOST [max-hops N] [size BYTES] [timeout MS]",
-                "  use SSID [PASSPHRASE]",
-                "",
-                "Type 'help NAME' for more information.",
-            )
-            "help" -> listOf(
-                "help: help [NAME]",
-                "    Display information about Agent Shell builtins.",
-            )
-            "ping" -> listOf(
-                "ping: ping HOST [count N] [size BYTES] [timeout MS]",
-                "    Run ICMP ping over the active Wi-Fi network.",
-                "    size is the ICMP payload size in bytes.",
-            )
-            "set" -> listOf(
-                "set: set default passphrase PASSPHRASE",
-                "    Store the default PSK used by 'use SSID' when PASSPHRASE is omitted.",
-                "    Use an empty quoted string to clear it: set default passphrase \"\".",
-            )
-            "show" -> listOf(
-                "show: show (version|wifi status|wifi eht|wifi scan)",
-                "    show version displays the app version embedded at build time.",
-                "    show wifi status displays local Wi-Fi and IP state.",
-                "    show wifi eht displays connected and nearby EHT state.",
-                "    show wifi eht fresh requests a scan before rendering EHT state.",
-                "    show wifi eht ssid/bssid filters scan and current EHT output.",
-                "    show wifi scan brief mlo renders a narrow mobile-friendly MLO table.",
-                "    show wifi scan fresh brief mlo runs a fresh scan before that table view.",
-            )
-            "traceroute" -> listOf(
-                "traceroute: traceroute HOST [max-hops N] [size BYTES] [timeout MS]",
-                "    Trace the path to HOST over the active Wi-Fi network.",
-                "    size is the probe payload size in bytes.",
-            )
-            "use" -> listOf(
-                "use: use SSID [PASSPHRASE]",
-                "    Connect to SSID with PASSPHRASE.",
-                "    When PASSPHRASE is omitted, Agent Shell uses the stored default passphrase.",
-                "    Quote SSID or PASSPHRASE with double quotes when they contain spaces or special characters.",
-            )
-            else -> listOf("dropcheck: help: no help topics match '$topic'")
-        }
-    }
-
     private fun shellSpacer(heightDp: Int): View {
         return View(this).apply {
             layoutParams = LinearLayout.LayoutParams(
@@ -1278,64 +1004,9 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun handleShellScreenDoubleTap(event: MotionEvent): Boolean {
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                if (!isShellCommandRepeatTapArea(event)) {
-                    shellLastTapUpTimeMs = 0L
-                    return false
-                }
-                shellTapStartRawX = event.rawX
-                shellTapStartRawY = event.rawY
-            }
-            MotionEvent.ACTION_UP -> {
-                if (!isShellCommandRepeatTapArea(event)) {
-                    shellLastTapUpTimeMs = 0L
-                    return false
-                }
-                val dx = event.rawX - shellTapStartRawX
-                val dy = event.rawY - shellTapStartRawY
-                if (kotlin.math.abs(dx) > shellTapSlopPx || kotlin.math.abs(dy) > shellTapSlopPx) {
-                    return false
-                }
-                if (isShellDoubleTap(event)) {
-                    shellLastTapUpTimeMs = 0L
-                    val line = lastShellCommandLine
-                    if (line.isNotBlank() && !shellBusy) {
-                        submitShellInput(line, focusAfterSubmit = false)
-                        return true
-                    }
-                    return false
-                }
-                shellLastTapUpTimeMs = event.eventTime
-                shellLastTapX = event.rawX
-                shellLastTapY = event.rawY
-            }
-            MotionEvent.ACTION_CANCEL -> {
-                shellLastTapUpTimeMs = 0L
-            }
-        }
-        return false
-    }
-
-    private fun isShellCommandRepeatTapArea(event: MotionEvent): Boolean {
-        val height = root.height.takeIf { it > 0 } ?: shellScroll.height
-        return height <= 0 || event.y < height * 2f / 3f
-    }
-
     private fun isShellKeyboardTapArea(event: MotionEvent): Boolean {
         val height = shellScroll.height.takeIf { it > 0 } ?: root.height
         return height <= 0 || event.y >= height * 2f / 3f
-    }
-
-    private fun isShellDoubleTap(event: MotionEvent): Boolean {
-        if (shellLastTapUpTimeMs <= 0L) return false
-        val dt = event.eventTime - shellLastTapUpTimeMs
-        if (dt <= 0L || dt > ViewConfiguration.getDoubleTapTimeout().toLong()) return false
-        val dx = event.rawX - shellLastTapX
-        val dy = event.rawY - shellLastTapY
-        val maxDistance = shellDoubleTapSlopPx.toFloat()
-        return dx * dx + dy * dy <= maxDistance * maxDistance
     }
 
     private fun showShell() {
@@ -1390,12 +1061,6 @@ class MainActivity : Activity() {
             controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
     }
-
-    private data class ShellCommandResult(
-        val ok: Boolean,
-        val lines: List<CharSequence> = emptyList(),
-        val block: AgentPresentationBlock? = null,
-    )
 
     private data class ShellDisplayState(
         val history: AgentBlockHistory,

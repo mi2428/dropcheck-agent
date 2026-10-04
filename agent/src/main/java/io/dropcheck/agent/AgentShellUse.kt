@@ -1,9 +1,7 @@
 package io.dropcheck.agent
 
 import android.content.Context
-import io.dropcheck.agent.grpc.CommandResult
 import io.dropcheck.agent.grpc.ConnectWifi
-import io.dropcheck.agent.grpc.ConnectWifiResult
 import io.dropcheck.agent.grpc.RunCommand
 
 internal data class AgentShellUseDefaults(
@@ -27,6 +25,10 @@ internal data class AgentShellUseDecision(
 )
 
 internal object AgentShellUsePolicy {
+    fun validPassphrase(value: String): Boolean = !value.any { Character.isISOControl(it) } &&
+        (value.toByteArray(Charsets.UTF_8).size in 8..63 ||
+            (value.length == 64 && value.all { it in '0'..'9' || it.lowercaseChar() in 'a'..'f' }))
+
     fun statusText(defaults: AgentShellUseDefaults): String {
         val defaultPassphrase = if (defaults.defaultPassphrase.isNotEmpty()) "present" else "unset"
         return "default_passphrase=$defaultPassphrase"
@@ -50,6 +52,7 @@ internal object AgentShellUsePolicy {
             if (explicitPassphrase.isEmpty()) {
                 return AgentShellUseDecision(error = "use passphrase cannot be empty")
             }
+            if (!validPassphrase(explicitPassphrase)) return AgentShellUseDecision(error = "invalid passphrase length or encoding")
             return AgentShellUseDecision(
                 request = AgentShellUseRequest(
                     ssid = ssid,
@@ -61,6 +64,7 @@ internal object AgentShellUsePolicy {
         if (defaults.defaultPassphrase.isEmpty()) {
             return AgentShellUseDecision(error = "use requires a passphrase; set default passphrase or pass one explicitly")
         }
+        if (!validPassphrase(defaults.defaultPassphrase)) return AgentShellUseDecision(error = "invalid default passphrase length or encoding")
         return AgentShellUseDecision(
             request = AgentShellUseRequest(
                 ssid = ssid,
@@ -80,45 +84,6 @@ internal object AgentShellUsePolicy {
             .build()
     }
 
-    fun renderConnect(
-        result: ConnectWifiResult,
-        status: CommandResult.Status,
-        message: String,
-        source: AgentShellUsePassphraseSource,
-    ): List<String> {
-        val resolvedMessage = message.ifBlank { result.message.ifBlank { "-" } }
-        return buildList {
-            add("Wi-Fi Use")
-            add(row("ssid", result.ssid))
-            add(row("connected", result.connected.toString()))
-            add(row("passphrase_source", source.name.lowercase()))
-            add(row("message", resolvedMessage))
-            if (result.hasIpStatus()) {
-                add(row("interface", result.ipStatus.interfaceName.ifBlank { "unknown" }))
-                add(row("validated", result.ipStatus.validated.toString()))
-                add(row("internet", result.ipStatus.internet.toString()))
-            }
-        }
-    }
-
-    private fun row(key: String, value: String): String = "  ${key.padEnd(18)} $value"
-}
-
-internal fun formatAgentShellToken(value: String): String {
-    if (value.isEmpty()) return "\"\""
-    val safe = value.all { it.isLetterOrDigit() || it in ".:_/@%+-" }
-    if (safe) return value
-    return buildString {
-        append('"')
-        value.forEach { ch ->
-            when (ch) {
-                '\\' -> append("\\\\")
-                '"' -> append("\\\"")
-                else -> append(ch)
-            }
-        }
-        append('"')
-    }
 }
 
 internal class AgentShellUseDefaultsStore(context: Context) {

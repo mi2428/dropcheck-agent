@@ -1,153 +1,168 @@
 package io.dropcheck.agent
 
+import io.dropcheck.agent.grpc.DnsRecordType
+import io.dropcheck.agent.grpc.IpFamily
+import io.dropcheck.agent.grpc.CommandResult
+import io.dropcheck.agent.grpc.RunCommand
+import io.dropcheck.agent.grpc.TracerouteHop
+import io.dropcheck.agent.grpc.TracerouteResult
+import io.dropcheck.agent.grpc.WifiBand
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentInteractiveShellTest {
-    @Test
-    fun parsesInteractiveCommands() {
-        assertEquals(AgentShellCommand.ShowVersion, AgentShellParser.parse("show version"))
-        assertEquals(AgentShellCommand.ShowVersion, AgentShellParser.parse("sh v"))
-        assertEquals(AgentShellCommand.ShowWifiStatus, AgentShellParser.parse("show wifi status"))
-        assertEquals(AgentShellCommand.ShowWifiStatus, AgentShellParser.parse("sh wi sta"))
-        assertEquals(AgentShellCommand.ShowWifiEht(), AgentShellParser.parse("show wifi eht"))
-        assertEquals(AgentShellCommand.ShowWifiEht(), AgentShellParser.parse("sh wi e"))
-        assertEquals(AgentShellCommand.ShowWifiEht(brief = true), AgentShellParser.parse("show wifi eht brief"))
-        assertEquals(AgentShellCommand.ShowWifiEht(fresh = true), AgentShellParser.parse("show wifi eht fresh"))
-        assertEquals(AgentShellCommand.ShowWifiEht(fresh = true, timeoutMs = 9000), AgentShellParser.parse("show wifi eht fresh timeout 9000"))
-        assertEquals(AgentShellCommand.ShowWifiEht(fresh = true, timeoutMs = 9000), AgentShellParser.parse("show wifi eht fresh 9000"))
-        assertEquals(AgentShellCommand.ShowWifiEht(ssid = "temp-life26"), AgentShellParser.parse("show wifi eht ssid temp-life26"))
-        assertEquals(AgentShellCommand.ShowWifiEht(bssid = "aa:bb:cc:dd:ee:ff"), AgentShellParser.parse("show wifi eht bssid aa:bb:cc:dd:ee:ff"))
-        assertEquals(AgentShellCommand.ShowWifiEht(fresh = true, timeoutMs = 9000, ssid = "temp-life26"), AgentShellParser.parse("show wifi eht fresh timeout 9000 ssid temp-life26"))
-        assertEquals(AgentShellCommand.ShowWifiScan(band = "6ghz"), AgentShellParser.parse("show wifi scan 6ghz"))
-        assertEquals(AgentShellCommand.ShowWifiScan(brief = true, mlo = true, band = "5ghz"), AgentShellParser.parse("show wifi scan brief mlo 5ghz"))
-        assertEquals(
-            AgentShellCommand.ShowWifiScan(brief = true, mlo = true, fresh = true, timeoutMs = 9000, band = "6ghz"),
-            AgentShellParser.parse("show wifi scan fresh brief mlo timeout 9000 6ghz"),
+    private fun live(input: String): AgentShellCommand.Execute {
+        val parsed = AgentShellParser.parse(input)
+        assertTrue("$input: $parsed", parsed is AgentShellCommand.Execute)
+        return parsed as AgentShellCommand.Execute
+    }
+
+    private fun invalid(input: String): String {
+        val parsed = AgentShellParser.parse(input)
+        assertTrue("$input: $parsed", parsed is AgentShellCommand.Invalid)
+        return (parsed as AgentShellCommand.Invalid).message
+    }
+
+    @Test fun registryInventoryAndEhtComposite() {
+        val commands = listOf(
+            "show wifi status", "show wifi diagnostics", "show wifi scan", "show wifi scan fresh", "show wifi scan detail Lab",
+            "show wifi capabilities", "wifi connect Lab passphrase test-only", "wifi disconnect", "wifi forget Lab",
+            "wifi wait connected", "wifi assert", "wifi monitor", "wifi reconnect", "wifi cycle Lab passphrase test-only",
+            "show ip status", "ping example.test", "traceroute example.test", "path-mtu example.test", "global-ip",
+            "download https://example.test", "dns example.test", "http https://example.test",
         )
-        assertEquals(AgentShellCommand.Ping("1.1.1.1"), AgentShellParser.parse("ping 1.1.1.1"))
-        assertEquals(AgentShellCommand.Ping("1.1.1.1", count = 3, sizeBytes = 64, timeoutMs = 7000), AgentShellParser.parse("p count 3 size 64 timeout 7000 1.1.1.1"))
-        assertEquals(AgentShellCommand.SetDefaultPassphrase("hogehoge"), AgentShellParser.parse("set default passphrase hogehoge"))
-        assertEquals(AgentShellCommand.SetDefaultPassphrase(""), AgentShellParser.parse("set default passphrase \"\""))
-        assertEquals(AgentShellCommand.Traceroute("1.1.1.1"), AgentShellParser.parse("traceroute 1.1.1.1"))
-        assertEquals(AgentShellCommand.Traceroute("example.test", maxHops = 12, sizeBytes = 80, timeoutMs = 30000), AgentShellParser.parse("tr max-hops 12 size 80 timeout 30000 example.test"))
-        assertEquals(AgentShellCommand.Use("hp1"), AgentShellParser.parse("use hp1"))
-        assertEquals(AgentShellCommand.Use("hp1", "fugafuga"), AgentShellParser.parse("use hp1 fugafuga"))
-        assertEquals(AgentShellCommand.Use("hp 1", "fuga fuga"), AgentShellParser.parse("use \"hp 1\" \"fuga fuga\""))
-        assertEquals(AgentShellCommand.Help(), AgentShellParser.parse("help"))
-        assertEquals(AgentShellCommand.Help(), AgentShellParser.parse("h"))
-        assertEquals(AgentShellCommand.Help(), AgentShellParser.parse("he"))
-        assertEquals(AgentShellCommand.Help(), AgentShellParser.parse("hel"))
-        assertEquals(AgentShellCommand.Help("show"), AgentShellParser.parse("help show"))
-        assertEquals(AgentShellCommand.Help("set"), AgentShellParser.parse("help set"))
-        assertEquals(AgentShellCommand.Help("ping"), AgentShellParser.parse("help p"))
-        assertEquals(AgentShellCommand.Help("traceroute"), AgentShellParser.parse("help tr"))
-        assertEquals(AgentShellCommand.Help("use"), AgentShellParser.parse("help use"))
-        assertEquals(AgentShellCommand.Help("show"), AgentShellParser.parse("h sh"))
-        assertEquals(AgentShellCommand.Help("use"), AgentShellParser.parse("h u"))
+        assertEquals(AgentCommandRegistry.entries.map { it.commandCase }.toSet(), commands.map { live(it).request.commandCase }.toSet())
+        assertEquals(22, commands.size)
+        assertEquals(AgentShellCommand.ShowWifiEht(), AgentShellParser.parse("show wifi eht"))
+        assertEquals(AgentShellCommand.ShowWifiEht(detail = true, fresh = true, timeoutMs = 9000),
+            AgentShellParser.parse("show wifi eht detail fresh timeout 9000"))
+        assertEquals(AgentShellCommand.ShowVersion, AgentShellParser.parse("show version"))
     }
 
-    @Test
-    fun rejectsMalformedCommands() {
-        assertEquals(AgentShellCommand.Invalid("usage: show (version|wifi status|wifi eht|wifi scan)"), AgentShellParser.parse("show"))
-        assertEquals(AgentShellCommand.Invalid("usage: show (version|wifi status|wifi eht|wifi scan)"), AgentShellParser.parse("sh"))
-        assertEquals(AgentShellCommand.Invalid("usage: show wifi (status|eht|scan)"), AgentShellParser.parse("show wifi"))
-        assertEquals(AgentShellCommand.Invalid("usage: show wifi status"), AgentShellParser.parse("show wifi status extra"))
-        assertEquals(AgentShellCommand.Invalid("usage: show wifi (status|eht|scan)"), AgentShellParser.parse("show wifi networks"))
-        assertEquals(AgentShellCommand.Invalid("usage: show wifi eht [fresh [timeout MS]] [ssid SSID|bssid BSSID]"), AgentShellParser.parse("show wifi eht current"))
-        assertEquals(AgentShellCommand.Invalid("usage: show wifi eht [fresh [timeout MS]] [ssid SSID|bssid BSSID]"), AgentShellParser.parse("show wifi eht fresh timeout"))
-        assertEquals(AgentShellCommand.Invalid("ssid and bssid filters cannot be used together"), AgentShellParser.parse("show wifi eht ssid Lab bssid aa:bb:cc:dd:ee:ff"))
-        assertEquals(AgentShellCommand.Invalid("usage: show wifi (status|eht|scan)"), AgentShellParser.parse("show wifi mlo"))
-        assertEquals(AgentShellCommand.Invalid("mlo is supported only with wifi scan brief"), AgentShellParser.parse("show wifi scan mlo"))
-        assertEquals(AgentShellCommand.Invalid("usage: show wifi scan fresh [brief [mlo]] [timeout MS] [all|2.4ghz|5ghz|6ghz|60ghz]"), AgentShellParser.parse("show wifi scan fresh timeout"))
-        assertEquals(AgentShellCommand.Invalid("usage: ping HOST [count N] [size BYTES] [timeout MS]"), AgentShellParser.parse("ping"))
-        assertEquals(AgentShellCommand.Invalid("count requires a value"), AgentShellParser.parse("ping 1.1.1.1 count"))
-        assertEquals(AgentShellCommand.Invalid("size must be a positive integer"), AgentShellParser.parse("ping 1.1.1.1 size 0"))
-        assertEquals(AgentShellCommand.Invalid("timeout specified twice"), AgentShellParser.parse("ping 1.1.1.1 timeout 100 timeout 200"))
-        assertEquals(AgentShellCommand.Invalid("usage: set default passphrase PASSPHRASE"), AgentShellParser.parse("set"))
-        assertEquals(AgentShellCommand.Invalid("usage: set default passphrase PASSPHRASE"), AgentShellParser.parse("set default"))
-        assertEquals(AgentShellCommand.Invalid("usage: set default passphrase PASSPHRASE"), AgentShellParser.parse("set default security auto"))
-        assertEquals(AgentShellCommand.Invalid("usage: use SSID [PASSPHRASE]"), AgentShellParser.parse("use"))
-        assertEquals(AgentShellCommand.Invalid("usage: use SSID [PASSPHRASE]"), AgentShellParser.parse("use hp1 secret extra"))
-        assertEquals(AgentShellCommand.Invalid("usage: traceroute HOST [max-hops N] [size BYTES] [timeout MS]"), AgentShellParser.parse("traceroute"))
-        assertEquals(AgentShellCommand.Invalid("max-hops must be a positive integer"), AgentShellParser.parse("traceroute 1.1.1.1 max-hops nope"))
-        assertEquals(AgentShellCommand.Invalid("list: command not found"), AgentShellParser.parse("list"))
-        assertEquals(AgentShellCommand.Invalid("usage: help [NAME]"), AgentShellParser.parse("help show extra"))
-        assertEquals(AgentShellCommand.Invalid("usage: use SSID [PASSPHRASE]"), AgentShellParser.parse("u"))
-        assertEquals(AgentShellCommand.Invalid("usage: use SSID [PASSPHRASE]"), AgentShellParser.parse("u \"\""))
-        assertEquals(AgentShellCommand.Invalid("missing: command not found"), AgentShellParser.parse("missing"))
-        assertTrue(AgentShellParser.parse("show wifi eht \"ap1") is AgentShellCommand.Invalid)
+    @Test fun builderDefaultsAreExplicitAndSelectNetwork() {
+        assertEquals(10000, live("show wifi scan fresh").request.getFreshWifiScan.timeoutMs)
+        assertEquals(WifiBand.WIFI_BAND_ALL, live("show wifi scan").request.getWifiScan.band)
+        assertEquals(45000, live("wifi connect Lab passphrase test-only").request.connectWifi.timeoutMs)
+        assertEquals(30000, live("wifi wait connected").request.waitWifiConnected.timeoutMs)
+        assertEquals(0, live("wifi assert").request.assertWifi.timeoutMs)
+        assertFalse(live("wifi assert").request.assertWifi.requireIp)
+        assertEquals(10000, live("wifi monitor").request.monitorWifi.durationMs)
+        assertEquals(1000, live("wifi monitor").request.monitorWifi.intervalMs)
+        assertEquals(30000, live("wifi reconnect").request.reconnectWifi.timeoutMs)
+        assertEquals(3, live("wifi cycle Lab passphrase test-only").request.cycleWifi.count)
+        assertEquals(1000, live("wifi cycle Lab passphrase test-only").request.cycleWifi.pauseMs)
+        val ping = live("ping example.test").request.ping
+        assertEquals(3, ping.count); assertEquals(9000, ping.timeoutMs); assertEquals(0, ping.sizeBytes)
+        assertEquals(IpFamily.IP_FAMILY_UNSPECIFIED, ping.family)
+        assertEquals(30, live("traceroute example.test").request.traceroute.maxHops)
+        assertEquals(60000, live("traceroute example.test").request.traceroute.timeoutMs)
+        assertEquals(30000, live("path-mtu example.test").request.pathMtu.timeoutMs)
+        assertEquals(0, live("path-mtu example.test").request.pathMtu.minMtuBytes)
+        assertEquals(5000, live("global-ip").request.globalIp.timeoutMs)
+        assertEquals(IpFamily.IP_FAMILY_ALL, live("global-ip").request.globalIp.family)
+        assertEquals(Int.MAX_VALUE, live("ping example.test timeout 2147483647").request.ping.timeoutMs)
+        assertEquals(5000, live("dns example.test").request.resolveDns.timeoutMs)
+        assertEquals(5000, live("http example.test").request.httpCheck.timeoutMs)
+        assertEquals(200, live("http example.test").request.httpCheck.expectedStatus)
+        assertEquals("https://example.test", live("http example.test").request.httpCheck.url)
+        assertEquals(60000, live("download https://example.test").request.wget.timeoutMs)
+        assertEquals(listOf(DnsRecordType.DNS_RECORD_TYPE_A, DnsRecordType.DNS_RECORD_TYPE_AAAA), live("dns example.test").request.resolveDns.qtypesList)
+        assertEquals("Lab", live("ping example.test ssid Lab").request.ping.selector.ssid)
+        assertEquals("Lab", live("show ip status ssid Lab").request.getIpStatus.selector.ssid)
     }
 
-    @Test
-    fun redactsSensitiveShellCommandEchoes() {
-        assertEquals("set default passphrase <redacted>", redactAgentShellCommandLine("set default passphrase hogehoge"))
-        assertEquals("set default passphrase <redacted>", redactAgentShellCommandLine("set default passphrase \"fuga fuga\""))
-        assertEquals("use hp1 <redacted>", redactAgentShellCommandLine("use hp1 fugafuga"))
-        assertEquals("use \"hp 1\" <redacted>", redactAgentShellCommandLine("use \"hp 1\" \"fuga fuga\""))
-        assertEquals("use hp1", redactAgentShellCommandLine("use hp1"))
+    @Test fun literalsQuotingSwitchesAndRepeatingVia() {
+        assertEquals("count", live("p count count 3").request.ping.host)
+        assertEquals(3, live("p count count 3").request.ping.count)
+        val connect = live("wifi connect 'scan | NAME' passphrase '  MiXeD \\\\ A  '").request.connectWifi
+        assertEquals("scan | NAME", connect.ssid)
+        assertEquals("  MiXeD \\ A  ", connect.passphrase)
+        assertEquals("scan", live("wifi connect scan passphrase test-only").request.connectWifi.ssid)
+        assertEquals(listOf("192.0.2.1", "2001:db8::1"), live("tr example.test via 192.0.2.1 via 2001:db8::1").via)
+        assertTrue(live("show wifi scan fresh brief mlo band 6ghz").mlo)
+        assertEquals(WifiBand.WIFI_BAND_6_GHZ, live("show wifi scan fresh brief mlo band 6ghz").request.getFreshWifiScan.band)
+        assertEquals("lab\\path", live("wifi connect \"lab\\\\path\" passphrase test-only").request.connectWifi.ssid)
+        assertEquals("lab\"scan", live("wifi connect \"lab\\\"scan\" passphrase test-only").request.connectWifi.ssid)
+        assertEquals("a|b", (AgentShellParser.parse("use 'a|b' test-only") as AgentShellCommand.Use).ssid)
+        assertEquals("|", live("wifi connect '|' passphrase test-only").request.connectWifi.ssid)
+        assertEquals(AgentShellCommand.SetDefaultPassphrase(""), AgentShellParser.parse("set default passphrase ''"))
+        assertEquals(listOf("show", "version"), shellSplitWords("show version").getOrThrow())
     }
 
-    @Test
-    fun malformedSecretInputNeverFallsBackToLiteralHistory() {
-        for (line in listOf(
-            "use TestSSID \"TEST_ONLY_PSK",
-            "u \"Test SSID\" 'TEST_ONLY_PSK",
-            "use \"Test SSID TEST_ONLY_PSK",
-            "set default passphrase \"TEST_ONLY_PSK",
-            "se d p 'TEST_ONLY_PSK",
-            "\"use TestSSID TEST_ONLY_PSK",
-        )) {
-            assertFalse(redactAgentShellCommandLine(line).contains("TEST_ONLY_PSK"))
-            assertEquals(AgentShellCommand.Invalid("unterminated quote"), AgentShellParser.parse(line))
+    @Test fun familiesEnumsAndControlOptions() {
+        assertEquals(IpFamily.IP_FAMILY_UNSPECIFIED, live("pm example.test family auto").request.pathMtu.family)
+        assertEquals(IpFamily.IP_FAMILY_ALL, live("gip family all").request.globalIp.family)
+        assertEquals(2, live("dns example.test record ALL").request.resolveDns.qtypesCount)
+        assertEquals(DnsRecordType.DNS_RECORD_TYPE_AAAA, live("dns example.test record AAAA").request.resolveDns.qtypesList.single())
+        val cycle = live("wifi cycle Lab passphrase test-only security wpa3 bssid aa:bb:cc:dd:ee:ff band 5ghz mac-randomization non-persistent count 2 ping example.test http https://example.test forget-after-each true pause 500").request.cycleWifi
+        assertTrue(cycle.forgetAfterEach); assertEquals(2, cycle.count); assertEquals(500, cycle.pauseMs)
+        assertEquals(WifiBand.WIFI_BAND_5_GHZ, cycle.connect.band)
+        assertEquals("example.test", cycle.pingHost)
+        assertEquals("https://example.test", cycle.httpUrl)
+        assertTrue(live("wifi wait connected require-ip true require-validated false").request.waitWifiConnected.requireIp)
+    }
+
+    @Test fun requiredHopsAreEvaluatedFromTypedObservationsNotOutput() {
+        val trace = TracerouteResult.newBuilder().setOutput("1 192.0.2.1 1ms\n2 192.0.2.2 2ms")
+            .setReachedTarget(true).addHops(TracerouteHop.newBuilder().setIndex(1).addAddresses("192.0.2.1"))
+            .addHops(TracerouteHop.newBuilder().setIndex(2).addHostnames("hop.example.test")).build()
+        val ok = CommandResult.newBuilder().setStatus(CommandResult.Status.STATUS_OK).setTraceroute(trace).build()
+        assertEquals(CommandResult.Status.STATUS_OK, evaluateShellTraceroute(ok, listOf("192.0.2.1", "hop.example.test")).status)
+        val missing = evaluateShellTraceroute(ok, listOf("192.0.2.1", "192.0.2.2"))
+        assertEquals(CommandResult.Status.STATUS_FAILED, missing.status)
+        assertTrue(missing.message.contains("192.0.2.2"))
+        assertEquals(trace, missing.traceroute)
+        val unobserved = ok.toBuilder().setTraceroute(trace.toBuilder().clearReachedTarget()).build()
+        assertEquals("typed hop observations unavailable", evaluateShellTraceroute(unobserved, listOf("192.0.2.1")).message)
+        assertEquals(CommandResult.Status.STATUS_FAILED, evaluateShellTraceroute(ok.toBuilder().setStatus(CommandResult.Status.STATUS_FAILED).build(), listOf("192.0.2.2")).status)
+    }
+
+    @Test fun rejectsInvalidInputBeforeAnyCommand() {
+        for (input in listOf(
+            "", // noop is checked separately below
+            "show ''", "show wifi s", "s", "show wifi scan ''", "show wifi eht brief",
+            "show wifi eht fresh 9000", "show wifi eht timeout 9000", "show wifi scan fresh timeout 0",
+            "show wifi scan mlo", "show wifi scan fresh fresh", "show wifi scan band nope",
+            "wifi connect Lab passphrase", "wifi connect Lab passphrase ''", "wifi connect Lab passphrase test-only security unknown",
+            "wifi connect Lab passphrase test-only mac-randomization unknown", "wifi connect Lab passphrase test-only bssid wrong",
+            "wifi wait connected require-ip maybe", "wifi cycle Lab passphrase test-only count 101", "wifi cycle Lab passphrase test-only pause 60001",
+            "wifi cycle Lab passphrase test-only http fixture.invalid", "wifi cycle Lab passphrase test-only http ftp://fixture.invalid",
+            "ping", "ping example.test count 0", "ping example.test count -1", "ping example.test count 2147483648",
+            "ping example.test count 4294967295", "ping example.test count 1073742", "ping example.test count 1 cou 2",
+            "ping example.test family all", "ping example.test size 0", "traceroute example.test max-hops 256",
+            "path-mtu example.test min-mtu 1500 max-mtu 1280", "global-ip family nonsense",
+            "global-ip family auto",
+            "dns example.test record B", "http ftp://example.test", "download https://u:secret@example.test",
+            "show version\\", "wifi connect Lab passphrase 'test-only", "show wifi status extra",
+        ).drop(1)) invalid(input)
+        assertEquals(AgentShellCommand.Noop, AgentShellParser.parse(""))
+        assertTrue(invalid("show wifi s").contains("status, scan"))
+        assertTrue(invalid("s").contains("show, set"))
+        assertEquals("trailing escape", invalid("show version\\"))
+        assertEquals("unterminated quote", invalid("wifi connect Lab passphrase 'test-only"))
+        assertEquals("<command submitted>", redactAgentShellCommandLine("wifi c Lab p test-only security unknown"))
+        assertFalse(invalid("wifi connect Lab passphrase test-only extra extra").contains("test-only"))
+        for (input in listOf("wifi connect Lab passphrase test-only", "wifi cycle Lab passphrase test-only",
+            "wi c Lab pass test-only", "use Lab test-only", "u Lab test-only", "set default passphrase test-only",
+            "wifi connect Lab passphrase 'test-only", "wifi connect Lab passphrase test-only\\")) {
+            assertFalse(redactAgentShellCommandLine(input).contains("test-only"))
+            assertFalse((AgentShellParser.parse(input) as? AgentShellCommand.Invalid)?.message.orEmpty().contains("test-only"))
         }
-        assertEquals("use \"Test SSID\" <redacted>", redactAgentShellCommandLine("u \"Test SSID\" TEST_ONLY_PSK"))
-        assertEquals("set default passphrase <redacted>", redactAgentShellCommandLine("se d p TEST_ONLY_PSK"))
-        assertEquals("ping example.test", redactAgentShellCommandLine("ping example.test"))
-        assertEquals("show wifi status", redactAgentShellCommandLine("show wifi status"))
+        invalid("wifi connect Lab passphrase short")
+        invalid("set default passphrase short")
     }
 
-    @Test
-    fun rejectsEmptyKeywordsWithoutChangingEmptyLiterals() {
-        for (line in listOf(
-            "\"\"", "show \"\"", "sh ''", "show '  '", "show \"\" status",
-            "show wifi \"\"", "show wifi eht \"\"", "set \"\" passphrase value",
-        )) {
-            assertTrue(line, AgentShellParser.parse(line) is AgentShellCommand.Invalid)
+    @Test fun reservesUnsupportedCommandsAndHelpUsesSyntaxRows() {
+        for (input in listOf("show devices", "check", "show checks", "show check last detail", "clear default passphrase", "adb shell", "show wifi status | json")) {
+            assertTrue(invalid(input).contains("unsupported"))
         }
-        assertEquals(AgentShellCommand.SetDefaultPassphrase(""), AgentShellParser.parse("set default passphrase \"\""))
-        assertEquals(AgentShellCommand.Use("show", ""), AgentShellParser.parse("u 'show' \"\""))
-    }
-
-    @Test
-    fun preservesQuotedLiteralSpacesCaseSeparatorsAndEscapes() {
-        val line = """u "  MiXeD | \"SSID\"\\Tail  " '  CaSe \"PSK\"\\tail  '"""
-        val ssid = "  MiXeD | \"SSID\"\\Tail  "
-        val passphrase = "  CaSe \"PSK\"\\tail  "
-        assertEquals(listOf("u", ssid, passphrase), shellSplitWords(line).getOrThrow())
-        assertEquals(AgentShellCommand.Use(ssid, passphrase), AgentShellParser.parse(line))
-        assertEquals(AgentShellCommand.ShowWifiEht(ssid = ssid), AgentShellParser.parse("sh wi e ssid ${formatAgentShellToken(ssid)}"))
-        assertEquals(AgentShellCommand.Use("show", "set"), AgentShellParser.parse("u 'show' 'set'"))
-    }
-
-    @Test
-    fun trailingEscapesRejectBeforeDispatchAndRedactMalformedCredentials() {
-        for (line in listOf(
-            "show version\\", "ping example.test\\", "use TestSSID TEST_ONLY_PSK\\",
-            "u 'Test SSID' TEST_ONLY_PSK\\", "set default passphrase TEST_ONLY_PSK\\",
-            "se d p TEST_ONLY_PSK\\", "use TestSSID \"TEST_ONLY_PSK\\",
-        )) {
-            assertEquals("trailing escape", shellSplitWords(line).exceptionOrNull()?.message)
-            assertEquals(AgentShellCommand.Invalid("trailing escape"), AgentShellParser.parse(line))
-            assertEquals("<redacted malformed command>", redactAgentShellCommandLine(line))
-        }
-        for (line in listOf("set TEST_ONLY_PSK", "set default TEST_ONLY_PSK", "set \"\" passphrase TEST_ONLY_PSK", "se d \"\" TEST_ONLY_PSK")) {
-            val result = AgentShellParser.parse(line)
-            assertTrue(result is AgentShellCommand.Invalid)
-            assertFalse((result as AgentShellCommand.Invalid).message.contains("TEST_ONLY_PSK"))
-            assertEquals("<redacted malformed command>", redactAgentShellCommandLine(line))
-        }
+        assertFalse(AgentShellParser.help().joinToString().contains("eht brief"))
+        assertTrue(AgentShellParser.help().any { it.contains("show wifi scan detail TARGET") })
+        assertEquals(AgentShellCommand.Help(), AgentShellParser.parse("?"))
+        assertEquals(AgentShellCommand.Help("ping"), AgentShellParser.parse("h p"))
+        assertEquals(RunCommand.CommandCase.PATH_MTU, live("pm example.test").request.commandCase)
+        assertEquals(RunCommand.CommandCase.PING, live("pi example.test").request.commandCase) // alias is exact; pi is canonical prefix
     }
 }

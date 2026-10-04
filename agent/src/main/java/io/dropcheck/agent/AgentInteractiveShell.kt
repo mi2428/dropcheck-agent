@@ -1,379 +1,342 @@
 package io.dropcheck.agent
 
-/** Commands supported by Agent Shell. */
-private const val SHOW_WIFI_EHT_USAGE = "usage: show wifi eht [fresh [timeout MS]] [ssid SSID|bssid BSSID]"
-private const val SHOW_WIFI_SCAN_USAGE = "usage: show wifi scan [brief [mlo]] [all|2.4ghz|5ghz|6ghz|60ghz]"
-private const val SHOW_WIFI_SCAN_FRESH_USAGE = "usage: show wifi scan fresh [brief [mlo]] [timeout MS] [all|2.4ghz|5ghz|6ghz|60ghz]"
-private const val SET_DEFAULT_PASSPHRASE_USAGE = "usage: set default passphrase PASSPHRASE"
-private const val USE_USAGE = "usage: use SSID [PASSPHRASE]"
-private val WIFI_SCAN_BANDS = listOf("all", "2.4ghz", "5ghz", "6ghz", "60ghz")
+import io.dropcheck.agent.grpc.*
+import java.net.URI
+import java.util.Locale
+
+private fun String.shellWords(): List<String> = if (isEmpty()) emptyList() else split(' ')
 
 internal sealed class AgentShellCommand {
     data object Noop : AgentShellCommand()
     data class Help(val topic: String = "") : AgentShellCommand()
     data class SetDefaultPassphrase(val passphrase: String) : AgentShellCommand()
     data object ShowVersion : AgentShellCommand()
-    data object ShowWifiStatus : AgentShellCommand()
-    data class ShowWifiEht(
-        val brief: Boolean = false,
-        val fresh: Boolean = false,
-        val timeoutMs: Int = 0,
-        val ssid: String = "",
-        val bssid: String = "",
-    ) : AgentShellCommand()
-    data class ShowWifiScan(
+    data class ShowWifiEht(val detail: Boolean = false, val fresh: Boolean = false, val timeoutMs: Int = 0, val ssid: String = "", val bssid: String = "") : AgentShellCommand()
+    data class Use(val ssid: String, val passphrase: String? = null) : AgentShellCommand()
+    data class Execute(
+        val request: RunCommand,
+        val detail: Boolean = false,
         val brief: Boolean = false,
         val mlo: Boolean = false,
         val fresh: Boolean = false,
-        val timeoutMs: Int = 0,
-        val band: String = "",
+        val via: List<String> = emptyList(),
+        val secret: String = "",
     ) : AgentShellCommand()
-    data class Ping(val host: String, val count: Int = 0, val sizeBytes: Int = 0, val timeoutMs: Int = 0) : AgentShellCommand()
-    data class Traceroute(val host: String, val maxHops: Int = 0, val sizeBytes: Int = 0, val timeoutMs: Int = 0) : AgentShellCommand()
-    data class Use(val ssid: String, val passphrase: String? = null) : AgentShellCommand()
     data class Invalid(val message: String) : AgentShellCommand()
 }
 
-/** Parser for the Agent Shell command surface. */
+/** The same rows drive parsing and help; the registry remains the executor capability table. */
 internal object AgentShellParser {
-    private val commandNames = listOf("help", "ping", "set", "show", "traceroute", "use")
+    private data class Syntax(val path: String, val position: String = "", val switches: String = "", val values: String = "") {
+        val parts = path.split(' ')
+        val keys get() = switches.shellWords() + values.shellWords()
+        fun usage(): String = buildString {
+            append(path)
+            if (position.isNotEmpty()) append(" $position")
+            switches.shellWords().forEach { append(" [$it]") }
+            values.shellWords().forEach { append(" [$it VALUE]") }
+            if (path == "show wifi scan") append(" (mlo requires brief)")
+        }
+    }
+
+    private val syntax = listOf(
+        Syntax("show version"), Syntax("show wifi status", switches = "detail"),
+        Syntax("show wifi diagnostics", switches = "detail"), Syntax("show wifi capabilities", switches = "detail"),
+        Syntax("show wifi scan", switches = "fresh brief mlo", values = "band timeout"),
+        Syntax("show wifi scan detail", "TARGET", values = "band"),
+        Syntax("show wifi eht", switches = "detail fresh", values = "ssid bssid timeout"),
+        Syntax("show ip status", switches = "detail", values = "ssid"),
+        Syntax("wifi connect", "SSID passphrase PSK", values = "security bssid band mac-randomization timeout"),
+        Syntax("wifi disconnect"), Syntax("wifi forget", "TARGET"),
+        Syntax("wifi wait connected", values = "ssid bssid security band require-ip require-validated timeout"),
+        Syntax("wifi assert", values = "ssid bssid security band require-ip require-validated timeout"),
+        Syntax("wifi monitor", values = "duration interval"), Syntax("wifi reconnect", values = "timeout"),
+        Syntax("wifi cycle", "SSID passphrase PSK", values = "security bssid band mac-randomization timeout count ping http forget-after-each pause"),
+        Syntax("ping", "HOST", values = "count size family timeout ssid"),
+        Syntax("traceroute", "HOST", values = "max-hops via size family timeout ssid"),
+        Syntax("path-mtu", "HOST", values = "min-mtu max-mtu family timeout ssid"),
+        Syntax("global-ip", values = "family timeout ssid"),
+        Syntax("dns", "NAME", values = "record timeout ssid"),
+        Syntax("http", "URL", values = "expected-status timeout ssid"),
+        Syntax("download", "URL", values = "timeout ssid"),
+        Syntax("help", "[TOPIC]"), Syntax("set default passphrase", "PASSPHRASE"),
+        Syntax("clear default passphrase"), Syntax("use", "SSID [PASSPHRASE]"),
+        Syntax("check", "[SCENARIO]"), Syntax("show checks"), Syntax("show check last", switches = "detail"),
+        Syntax("show devices"),
+    )
+    private val aliases = mapOf("p" to "ping", "tr" to "traceroute", "pm" to "path-mtu", "gip" to "global-ip", "h" to "help", "?" to "help")
+    init {
+        val roots = syntax.map { it.parts.first() }.toSet()
+        require(aliases.keys.none { it in roots || it in aliases.values }) { "shell keyword/alias collision" }
+        require(syntax.map { it.path }.distinct().size == syntax.size) { "duplicate shell command" }
+    }
+
+    private fun resolve(word: String, siblings: List<String>, alias: Boolean = false): String {
+        require(word.isNotBlank()) { "empty keyword" }
+        require(word != "|") { "PC pipeline: unsupported on Android" }
+        val token = word.lowercase(Locale.ROOT)
+        if (token in siblings) return token
+        if (alias) aliases[token]?.takeIf { it in siblings }?.let { return it }
+        val matches = siblings.filter { it.startsWith(token) }
+        require(matches.size == 1) { if (matches.isEmpty()) "unknown keyword" else "ambiguous keyword: ${matches.joinToString(", ")}" }
+        return matches.single()
+    }
+
+    fun help(topic: String = ""): List<String> {
+        val rows = syntax.filter { topic.isEmpty() || it.parts.first() == topic }
+        return listOf("Agent Shell (self); aliases: p tr pm gip h ?", "Options: key value; switches: fresh brief mlo detail; integers: 1..2147483647", "PSK: 8..63 UTF-8 bytes or 64 ASCII hex; PC-only ADB/device/format/pipeline/TTY: unsupported on Android") +
+            rows.map { "  ${it.usage()}" } + listOf("auto selects one family; global-ip all queries both; dns ALL queries A+AAAA", "use/default: connect only; check/profiles: unsupported")
+    }
 
     fun parse(line: String): AgentShellCommand {
         val tokens = shellSplitWords(line).getOrElse { return AgentShellCommand.Invalid(it.message ?: "invalid command") }
         if (tokens.isEmpty()) return AgentShellCommand.Noop
-        val command = if (tokens.first() == "?") "help" else resolveCommandName(tokens.first())
-        return when (command) {
-            "help" -> {
-                if (tokens.size <= 2) {
-                    val topic = tokens.drop(1).firstOrNull().orEmpty()
-                    AgentShellCommand.Help(resolveCommandName(topic) ?: topic)
-                } else {
-                    AgentShellCommand.Invalid("usage: help [NAME]")
-                }
-            }
-            "ping" -> parsePing(tokens.drop(1))
-            "set" -> parseSet(tokens)
-            "show" -> parseShow(tokens)
-            "traceroute" -> parseTraceroute(tokens.drop(1))
-            "use" -> parseUse(tokens.drop(1))
-            else -> AgentShellCommand.Invalid("${tokens.first()}: command not found")
+        return try { parseTokens(tokens) } catch (e: IllegalArgumentException) {
+            AgentShellCommand.Invalid(e.message ?: "invalid command")
         }
     }
 
-    private fun parseSet(tokens: List<String>): AgentShellCommand {
-        if (tokens.size != 4) return AgentShellCommand.Invalid(SET_DEFAULT_PASSPHRASE_USAGE)
-        if (resolveKeyword(tokens[1], listOf("default")) != "default") {
-            return AgentShellCommand.Invalid(SET_DEFAULT_PASSPHRASE_USAGE)
+    private fun parseTokens(tokens: List<String>): AgentShellCommand {
+        if (tokens.first().lowercase(Locale.ROOT) in
+            setOf("adb", "devices", "format", "shell", "tui", "--serial", "--format", "select", "broadcast", "pipeline")) {
+            return AgentShellCommand.Invalid("PC host-only command: unsupported on Android")
         }
-        if (resolveKeyword(tokens[2], listOf("passphrase")) != "passphrase") {
-            return AgentShellCommand.Invalid(SET_DEFAULT_PASSPHRASE_USAGE)
-        }
-        return AgentShellCommand.SetDefaultPassphrase(tokens[3])
-    }
-
-    private fun parseUse(args: List<String>): AgentShellCommand {
-        if (args.size !in 1..2) return AgentShellCommand.Invalid(USE_USAGE)
-        if (args[0].isBlank()) return AgentShellCommand.Invalid(USE_USAGE)
-        return AgentShellCommand.Use(
-            ssid = args[0],
-            passphrase = args.getOrNull(1),
-        )
-    }
-
-    private fun parseShow(tokens: List<String>): AgentShellCommand {
-        val keyword = resolveKeyword(tokens.getOrNull(1).orEmpty(), listOf("version", "wifi"))
-        return when {
-            tokens.size == 2 && keyword == "version" -> AgentShellCommand.ShowVersion
-            tokens.size == 2 && keyword == "wifi" -> AgentShellCommand.Invalid("usage: show wifi (status|eht|scan)")
-            tokens.size >= 3 && keyword == "wifi" -> parseShowWifi(tokens.drop(2))
-            else -> AgentShellCommand.Invalid("usage: show (version|wifi status|wifi eht|wifi scan)")
-        }
-    }
-
-    private fun parseShowWifi(tokens: List<String>): AgentShellCommand {
-        return when (resolveKeyword(tokens.first(), listOf("status", "eht", "scan"))) {
-            "status" -> {
-                if (tokens.size == 1) AgentShellCommand.ShowWifiStatus else AgentShellCommand.Invalid("usage: show wifi status")
-            }
-            "eht" -> parseShowWifiEht(tokens.drop(1))
-            "scan" -> parseShowWifiScan(tokens.drop(1))
-            else -> AgentShellCommand.Invalid("usage: show wifi (status|eht|scan)")
-        }
-    }
-
-    private fun parseShowWifiEht(args: List<String>): AgentShellCommand {
-        if (args.isEmpty()) return AgentShellCommand.ShowWifiEht()
-        if (resolveKeyword(args.first(), listOf("brief")) == "brief") {
-            return parseLegacyShowWifiEhtBrief(args)
-        }
-        var fresh = false
-        var timeoutMs = 0
-        var ssid = ""
-        var bssid = ""
+        var remaining = syntax
+        val path = mutableListOf<String>()
         var index = 0
-        while (index < args.size) {
-            when (resolveKeyword(args[index], listOf("fresh", "timeout", "ssid", "bssid"))) {
-                "fresh" -> {
-                    if (fresh) return AgentShellCommand.Invalid("fresh specified twice")
-                    fresh = true
-                    index++
-                }
-                "timeout" -> {
-                    if (index + 1 >= args.size) return AgentShellCommand.Invalid(SHOW_WIFI_EHT_USAGE)
-                    if (timeoutMs > 0) return AgentShellCommand.Invalid("timeout specified twice")
-                    timeoutMs = args[index + 1].toIntOrNull()
-                        ?: return AgentShellCommand.Invalid("timeout must be a positive integer")
-                    if (timeoutMs <= 0) return AgentShellCommand.Invalid("timeout must be a positive integer")
-                    index += 2
-                }
-                "ssid" -> {
-                    if (index + 1 >= args.size) return AgentShellCommand.Invalid(SHOW_WIFI_EHT_USAGE)
-                    if (ssid.isNotBlank()) return AgentShellCommand.Invalid("ssid specified twice")
-                    ssid = args[index + 1]
-                    index += 2
-                }
-                "bssid" -> {
-                    if (index + 1 >= args.size) return AgentShellCommand.Invalid(SHOW_WIFI_EHT_USAGE)
-                    if (bssid.isNotBlank()) return AgentShellCommand.Invalid("bssid specified twice")
-                    bssid = args[index + 1]
-                    index += 2
-                }
-                else -> {
-                    if (fresh && timeoutMs == 0 && args.size - index == 1) {
-                        timeoutMs = args[index].toIntOrNull()
-                            ?: return AgentShellCommand.Invalid(SHOW_WIFI_EHT_USAGE)
-                        if (timeoutMs <= 0) return AgentShellCommand.Invalid("timeout must be a positive integer")
-                        index++
-                    } else {
-                        return AgentShellCommand.Invalid(SHOW_WIFI_EHT_USAGE)
-                    }
-                }
-            }
+        while (index < tokens.size) {
+            val children = remaining.mapNotNull { it.parts.getOrNull(path.size) }.distinct()
+            if (children.isEmpty()) break
+            // A complete command has options/positionals next; only scan has a nested subcommand.
+            if (remaining.any { it.parts.size == path.size } && !(path == listOf("show", "wifi", "scan") && "detail".startsWith(tokens[index].lowercase(Locale.ROOT)))) break
+            val key = resolve(tokens[index], children, path.isEmpty())
+            path += key
+            remaining = remaining.filter { it.parts.take(path.size) == path }
+            index++
         }
-        if (!fresh && timeoutMs > 0) return AgentShellCommand.Invalid("timeout is supported only with show wifi eht fresh")
-        if (ssid.isNotBlank() && bssid.isNotBlank()) return AgentShellCommand.Invalid("ssid and bssid filters cannot be used together")
-        return AgentShellCommand.ShowWifiEht(fresh = fresh, timeoutMs = timeoutMs, ssid = ssid, bssid = bssid)
-    }
-
-    private fun parseLegacyShowWifiEhtBrief(args: List<String>): AgentShellCommand {
-        var brief = false
-        var fresh = false
-        var timeoutMs = 0
-        var ssid = ""
-        var bssid = ""
-        var index = 0
-        while (index < args.size) {
-            when (resolveKeyword(args[index], listOf("brief", "fresh", "timeout", "ssid", "bssid"))) {
-                "brief" -> {
-                    if (brief) return AgentShellCommand.Invalid("brief specified twice")
-                    brief = true
-                    index++
-                }
-                "fresh" -> {
-                    if (fresh) return AgentShellCommand.Invalid("fresh specified twice")
-                    fresh = true
-                    index++
-                }
-                "timeout" -> {
-                    if (index + 1 >= args.size) return AgentShellCommand.Invalid(SHOW_WIFI_EHT_USAGE)
-                    if (timeoutMs > 0) return AgentShellCommand.Invalid("timeout specified twice")
-                    timeoutMs = args[index + 1].toIntOrNull()
-                        ?: return AgentShellCommand.Invalid("timeout must be a positive integer")
-                    if (timeoutMs <= 0) return AgentShellCommand.Invalid("timeout must be a positive integer")
-                    index += 2
-                }
-                "ssid" -> {
-                    if (index + 1 >= args.size) return AgentShellCommand.Invalid(SHOW_WIFI_EHT_USAGE)
-                    if (ssid.isNotBlank()) return AgentShellCommand.Invalid("ssid specified twice")
-                    ssid = args[index + 1]
-                    index += 2
-                }
-                "bssid" -> {
-                    if (index + 1 >= args.size) return AgentShellCommand.Invalid(SHOW_WIFI_EHT_USAGE)
-                    if (bssid.isNotBlank()) return AgentShellCommand.Invalid("bssid specified twice")
-                    bssid = args[index + 1]
-                    index += 2
-                }
-                else -> {
-                    if (fresh && timeoutMs == 0 && args.size - index == 1) {
-                        timeoutMs = args[index].toIntOrNull()
-                            ?: return AgentShellCommand.Invalid(SHOW_WIFI_EHT_USAGE)
-                        if (timeoutMs <= 0) return AgentShellCommand.Invalid("timeout must be a positive integer")
-                        index++
-                    } else {
-                        return AgentShellCommand.Invalid(SHOW_WIFI_EHT_USAGE)
-                    }
-                }
-            }
+        val row = remaining.singleOrNull { it.parts == path } ?: throw IllegalArgumentException("incomplete command: ${remaining.map { it.path }.joinToString(", ")}")
+        val command = row.path
+        if (command == "show devices" || command == "check" || command == "show checks" || command == "show check last" || command == "clear default passphrase") {
+            return AgentShellCommand.Invalid("$command: unsupported on Android")
         }
-        if (!fresh && timeoutMs > 0) return AgentShellCommand.Invalid("timeout is supported only with show wifi eht fresh")
-        if (ssid.isNotBlank() && bssid.isNotBlank()) return AgentShellCommand.Invalid("ssid and bssid filters cannot be used together")
-        return AgentShellCommand.ShowWifiEht(brief = brief, fresh = fresh, timeoutMs = timeoutMs, ssid = ssid, bssid = bssid)
-    }
-
-    private fun parseShowWifiScan(args: List<String>): AgentShellCommand {
-        if (args.isEmpty()) return AgentShellCommand.ShowWifiScan()
-        val first = resolveKeyword(args.first(), listOf("brief", "fresh", "mlo") + WIFI_SCAN_BANDS)
-            ?: return AgentShellCommand.Invalid(SHOW_WIFI_SCAN_USAGE)
-        return if (first == "fresh") parseFreshWifiScan(args.drop(1)) else parseWifiScanArgs(args)
-    }
-
-    private fun parseFreshWifiScan(args: List<String>): AgentShellCommand {
-        var brief = false
-        var mlo = false
-        var timeoutMs = 0
-        var band = ""
-        var index = 0
-        while (index < args.size) {
-            when (resolveKeyword(args[index], listOf("brief", "mlo", "timeout") + WIFI_SCAN_BANDS)) {
-                "brief" -> {
-                    if (brief) return AgentShellCommand.Invalid("brief specified twice")
-                    brief = true
-                    index++
-                }
-                "mlo" -> {
-                    if (mlo) return AgentShellCommand.Invalid("mlo specified twice")
-                    mlo = true
-                    index++
-                }
-                "timeout" -> {
-                    if (index + 1 >= args.size) return AgentShellCommand.Invalid(SHOW_WIFI_SCAN_FRESH_USAGE)
-                    if (timeoutMs > 0) return AgentShellCommand.Invalid("timeout specified twice")
-                    timeoutMs = args[index + 1].toIntOrNull()
-                        ?: return AgentShellCommand.Invalid("timeout must be a positive integer")
-                    if (timeoutMs <= 0) return AgentShellCommand.Invalid("timeout must be a positive integer")
-                    index += 2
-                }
-                null -> return AgentShellCommand.Invalid(SHOW_WIFI_SCAN_FRESH_USAGE)
-                else -> {
-                    val value = resolveKeyword(args[index], WIFI_SCAN_BANDS)
-                        ?: return AgentShellCommand.Invalid(SHOW_WIFI_SCAN_FRESH_USAGE)
-                    if (band.isNotBlank()) return AgentShellCommand.Invalid("wifi scan fresh band specified twice")
-                    band = value
-                    index++
-                }
-            }
+        if (command == "help") {
+            require(tokens.size - index <= 1) { "usage: help [TOPIC]" }
+            val topic = tokens.getOrNull(index)?.let { resolve(it, syntax.map { s -> s.parts.first() }.distinct(), true) }.orEmpty()
+            return AgentShellCommand.Help(topic)
         }
-        if (mlo && !brief) return AgentShellCommand.Invalid("mlo is supported only with wifi scan brief")
-        return AgentShellCommand.ShowWifiScan(brief = brief, mlo = mlo, fresh = true, timeoutMs = timeoutMs, band = band)
-    }
-
-    private fun parseWifiScanArgs(args: List<String>): AgentShellCommand {
-        var brief = false
-        var mlo = false
-        var band = ""
-        var index = 0
-        while (index < args.size) {
-            when (resolveKeyword(args[index], listOf("brief", "mlo") + WIFI_SCAN_BANDS)) {
-                "brief" -> {
-                    if (brief) return AgentShellCommand.Invalid("brief specified twice")
-                    brief = true
-                    index++
-                }
-                "mlo" -> {
-                    if (mlo) return AgentShellCommand.Invalid("mlo specified twice")
-                    mlo = true
-                    index++
-                }
-                null -> return AgentShellCommand.Invalid(SHOW_WIFI_SCAN_USAGE)
-                else -> {
-                    val value = resolveKeyword(args[index], WIFI_SCAN_BANDS)
-                        ?: return AgentShellCommand.Invalid(SHOW_WIFI_SCAN_USAGE)
-                    if (band.isNotBlank()) return AgentShellCommand.Invalid("wifi scan band specified twice")
-                    band = value
-                    index++
-                }
-            }
+        if (command == "show version") {
+            require(index == tokens.size) { "usage: show version" }
+            return AgentShellCommand.ShowVersion
         }
-        if (mlo && !brief) return AgentShellCommand.Invalid("mlo is supported only with wifi scan brief")
-        return AgentShellCommand.ShowWifiScan(brief = brief, mlo = mlo, band = band)
-    }
-
-    private fun parsePing(args: List<String>): AgentShellCommand {
-        val parsed = parseOptionsAndHost(
-            args = args,
-            options = listOf("count", "size", "timeout"),
-            usage = "usage: ping HOST [count N] [size BYTES] [timeout MS]",
-        )
-        if (parsed.error != null) return AgentShellCommand.Invalid(parsed.error)
-        return AgentShellCommand.Ping(
-            host = parsed.host,
-            count = parsed.values["count"] ?: 0,
-            sizeBytes = parsed.values["size"] ?: 0,
-            timeoutMs = parsed.values["timeout"] ?: 0,
-        )
-    }
-
-    private fun parseTraceroute(args: List<String>): AgentShellCommand {
-        val parsed = parseOptionsAndHost(
-            args = args,
-            options = listOf("max-hops", "size", "timeout"),
-            usage = "usage: traceroute HOST [max-hops N] [size BYTES] [timeout MS]",
-        )
-        if (parsed.error != null) return AgentShellCommand.Invalid(parsed.error)
-        return AgentShellCommand.Traceroute(
-            host = parsed.host,
-            maxHops = parsed.values["max-hops"] ?: 0,
-            sizeBytes = parsed.values["size"] ?: 0,
-            timeoutMs = parsed.values["timeout"] ?: 0,
-        )
-    }
-
-    private fun parseOptionsAndHost(args: List<String>, options: List<String>, usage: String): ParsedProbe {
-        if (args.isEmpty()) return ParsedProbe(error = usage)
-        var host = ""
-        val values = mutableMapOf<String, Int>()
-        var index = 0
-        while (index < args.size) {
-            val key = resolveKeyword(args[index], options)
-            if (key != null) {
-                if (index + 1 >= args.size) return ParsedProbe(error = "$key requires a value")
-                if (values.containsKey(key)) return ParsedProbe(error = "$key specified twice")
-                val value = args[index + 1].toIntOrNull()
-                if (value == null || value <= 0) return ParsedProbe(error = "$key must be a positive integer")
-                values[key] = value
+        if (command == "set default passphrase") {
+            require(tokens.size - index == 1) { "usage: set default passphrase PASSPHRASE" }
+            if (tokens[index].isNotEmpty()) validPassphrase(tokens[index])
+            return AgentShellCommand.SetDefaultPassphrase(tokens[index])
+        }
+        if (command == "use") {
+            require(tokens.size - index in 1..2 && tokens[index].isNotBlank()) { "usage: use SSID [PASSPHRASE]" }
+            require(tokens.getOrNull(index + 1)?.isEmpty() != true) { "use passphrase cannot be empty" }
+            tokens.getOrNull(index + 1)?.let(::validPassphrase)
+            return AgentShellCommand.Use(tokens[index], tokens.getOrNull(index + 1))
+        }
+        val position = if (row.position.isNotEmpty()) {
+            val value = tokens.getOrNull(index) ?: throw IllegalArgumentException("usage: ${row.usage()}")
+            require(value.isNotBlank()) { "required literal cannot be empty" }
+            index++
+            value
+        } else ""
+        val ssid = position
+        var passphrase = ""
+        if (command == "wifi connect" || command == "wifi cycle") {
+            require(index < tokens.size && resolve(tokens[index], listOf("passphrase")) == "passphrase") { "passphrase required" }
+            passphrase = tokens.getOrNull(index + 1) ?: throw IllegalArgumentException("passphrase required")
+            validPassphrase(passphrase)
+            index += 2
+        }
+        val values = linkedMapOf<String, String>()
+        val switches = mutableSetOf<String>()
+        val via = mutableListOf<String>()
+        while (index < tokens.size) {
+            val key = resolve(tokens[index], row.keys)
+            if (key in row.switches.shellWords()) {
+                require(switches.add(key)) { "$key specified twice" }
+                index++
+            } else {
+                require(index + 1 < tokens.size) { "$key requires a value" }
+                val value = tokens[index + 1]
+                require(value.isNotBlank()) { "$key requires a nonempty value" }
+                if (key == "via") via += address(value)
+                else {
+                    require(key !in values) { "$key specified twice" }
+                    values[key] = value
+                }
                 index += 2
-                continue
             }
-            if (host.isNotBlank()) return ParsedProbe(error = usage)
-            host = args[index]
-            index += 1
         }
-        if (host.isBlank()) return ParsedProbe(error = usage)
-        return ParsedProbe(host = host, values = values)
+        fun value(key: String) = values[key].orEmpty()
+        fun number(key: String, default: Int = 0): Int {
+            val raw = values[key] ?: return default
+            require(raw.all { it in '0'..'9' } && raw.isNotEmpty()) { "$key must be a positive integer" }
+            val parsed = raw.toIntOrNull()
+            require(parsed != null && parsed > 0) { "$key must be in 1..2147483647" }
+            return parsed
+        }
+        fun band() = when (value("band").lowercase(Locale.ROOT)) {
+            "", "all" -> WifiBand.WIFI_BAND_ALL
+            "2.4ghz" -> WifiBand.WIFI_BAND_2_4_GHZ
+            "5ghz" -> WifiBand.WIFI_BAND_5_GHZ
+            "6ghz" -> WifiBand.WIFI_BAND_6_GHZ
+            "60ghz" -> WifiBand.WIFI_BAND_60_GHZ
+            else -> throw IllegalArgumentException("invalid band (all, 2.4ghz, 5ghz, 6ghz, 60ghz)")
+        }
+        fun security() = when (value("security").lowercase(Locale.ROOT)) {
+            "", "auto" -> ConnectWifi.Security.SECURITY_UNSPECIFIED
+            "wpa2" -> ConnectWifi.Security.SECURITY_WPA2_PSK
+            "wpa3" -> ConnectWifi.Security.SECURITY_WPA3_SAE
+            "transition" -> ConnectWifi.Security.SECURITY_WPA2_WPA3_TRANSITION
+            else -> throw IllegalArgumentException("invalid security (auto, wpa2, wpa3, transition)")
+        }
+        fun family(global: Boolean = false) = when (value("family").lowercase(Locale.ROOT)) {
+            "" -> if (global) IpFamily.IP_FAMILY_ALL else IpFamily.IP_FAMILY_UNSPECIFIED
+            "auto" -> { require(!global) { "global-ip family must be ipv4, ipv6 or all" }; IpFamily.IP_FAMILY_UNSPECIFIED }
+            "ipv4" -> IpFamily.IP_FAMILY_IPV4
+            "ipv6" -> IpFamily.IP_FAMILY_IPV6
+            "all" -> { require(global) { "family all is only supported for global-ip" }; IpFamily.IP_FAMILY_ALL }
+            else -> throw IllegalArgumentException("invalid family (ipv4, ipv6, ${if (global) "all" else "auto"})")
+        }
+        fun selector() = NetworkSelector.newBuilder().setSsid(value("ssid")).build()
+        fun connect() = ConnectWifi.newBuilder().setSsid(ssid).setPassphrase(passphrase).setSecurity(security()).setBand(band())
+            .setBssid(value("bssid").also { if (it.isNotEmpty()) bssid(it) }).setMacRandomization(when (value("mac-randomization").lowercase(Locale.ROOT)) {
+                "" -> ConnectWifi.MacRandomization.MAC_RANDOMIZATION_UNSPECIFIED
+                "auto" -> ConnectWifi.MacRandomization.MAC_RANDOMIZATION_AUTO
+                "none" -> ConnectWifi.MacRandomization.MAC_RANDOMIZATION_NONE
+                "persistent" -> ConnectWifi.MacRandomization.MAC_RANDOMIZATION_PERSISTENT
+                "non-persistent" -> ConnectWifi.MacRandomization.MAC_RANDOMIZATION_NON_PERSISTENT
+                else -> throw IllegalArgumentException("invalid mac-randomization (auto, none, persistent, non-persistent)")
+            }).setTimeoutMs(number("timeout", 45000)).build()
+        fun expectation(wait: Boolean): RunCommand {
+            value("bssid").takeIf { it.isNotEmpty() }?.let(::bssid)
+            val ip = boolean(value("require-ip"), "require-ip")
+            val validated = boolean(value("require-validated"), "require-validated")
+            return if (wait) RunCommand.newBuilder().setWaitWifiConnected(WaitWifiConnected.newBuilder().setSsid(value("ssid"))
+                .setBssid(value("bssid")).setSecurity(security()).setBand(band()).setRequireIp(ip).setRequireValidated(validated).setTimeoutMs(number("timeout", 30000))).build()
+            else RunCommand.newBuilder().setAssertWifi(AssertWifi.newBuilder().setSsid(value("ssid"))
+                .setBssid(value("bssid")).setSecurity(security()).setBand(band()).setRequireIp(ip).setRequireValidated(validated).setTimeoutMs(number("timeout"))).build()
+        }
+        if (command == "show wifi eht") {
+            require("timeout" !in values || "fresh" in switches) { "timeout is supported only with wifi eht fresh" }
+            require(value("ssid").isEmpty() || value("bssid").isEmpty()) { "ssid and bssid filters cannot be used together" }
+            value("bssid").takeIf { it.isNotEmpty() }?.let(::bssid)
+            return AgentShellCommand.ShowWifiEht("detail" in switches, "fresh" in switches, number("timeout", if ("fresh" in switches) 10000 else 0), value("ssid"), value("bssid"))
+        }
+        if (command == "show wifi scan") {
+            require("mlo" !in switches || "brief" in switches) { "mlo is supported only with wifi scan brief" }
+            require("timeout" !in values || "fresh" in switches) { "timeout is supported only with wifi scan fresh" }
+        }
+        if (command == "wifi cycle") {
+            require(number("count", 3) <= WifiCommandPolicy.MAX_CYCLE_COUNT) { "count exceeds cycle limit" }
+            require(number("pause", 1000) <= WifiCommandPolicy.MAX_CYCLE_PAUSE_MS) { "pause exceeds cycle limit" }
+            if (value("ping").isNotEmpty()) address(value("ping"))
+            if (value("http").isNotEmpty()) {
+                require(value("http").startsWith("http://", true) || value("http").startsWith("https://", true)) { "wifi cycle http requires an absolute HTTP URL" }
+                url(value("http"))
+            }
+        }
+        val request = when (command) {
+            "show wifi status" -> RunCommand.newBuilder().setGetWifiStatus(GetWifiStatus.getDefaultInstance()).build()
+            "show wifi diagnostics" -> RunCommand.newBuilder().setGetWifiDiagnostics(GetWifiDiagnostics.getDefaultInstance()).build()
+            "show wifi capabilities" -> RunCommand.newBuilder().setGetWifiCapabilities(GetWifiCapabilities.getDefaultInstance()).build()
+            "show wifi scan" -> if ("fresh" in switches) RunCommand.newBuilder().setGetFreshWifiScan(GetFreshWifiScan.newBuilder().setBand(band()).setTimeoutMs(number("timeout", 10000))).build()
+                else RunCommand.newBuilder().setGetWifiScan(GetWifiScan.newBuilder().setBand(band())).build()
+            "show wifi scan detail" -> RunCommand.newBuilder().setGetWifiScanDetail(GetWifiScanDetail.newBuilder().setTarget(position).setBand(band())).build()
+            "show ip status" -> RunCommand.newBuilder().setGetIpStatus(GetIpStatus.newBuilder().setSelector(selector())).build()
+            "wifi connect" -> RunCommand.newBuilder().setConnectWifi(connect()).build()
+            "wifi disconnect" -> RunCommand.newBuilder().setDisconnectWifi(DisconnectWifi.getDefaultInstance()).build()
+            "wifi forget" -> RunCommand.newBuilder().setForgetWifi(ForgetWifi.newBuilder().setTarget(position)).build()
+            "wifi wait connected" -> expectation(true)
+            "wifi assert" -> expectation(false)
+            "wifi monitor" -> RunCommand.newBuilder().setMonitorWifi(MonitorWifi.newBuilder().setDurationMs(number("duration", 10000)).setIntervalMs(number("interval", 1000))).build()
+            "wifi reconnect" -> RunCommand.newBuilder().setReconnectWifi(ReconnectWifi.newBuilder().setTimeoutMs(number("timeout", 30000))).build()
+            "wifi cycle" -> RunCommand.newBuilder().setCycleWifi(CycleWifi.newBuilder().setConnect(connect()).setCount(number("count", 3))
+                .setPauseMs(number("pause", 1000)).setForgetAfterEach(boolean(value("forget-after-each"), "forget-after-each"))
+                .setPingHost(value("ping")).setHttpUrl(value("http"))).build()
+            "ping" -> {
+                val count = number("count", 3)
+                val timeout = number("timeout", 0)
+                require(timeout != 0 || count <= (Int.MAX_VALUE - 3000) / 2000) { "ping count overflows derived timeout" }
+                RunCommand.newBuilder().setPing(Ping.newBuilder().setHost(address(position)).setCount(count).setSizeBytes(number("size"))
+                    .setFamily(family()).setTimeoutMs(if (timeout == 0) count * 2000 + 3000 else timeout).setSelector(selector())).build()
+            }
+            "traceroute" -> {
+                val hops = number("max-hops", 30)
+                require(hops <= NetworkCheckPolicy.MAX_TRACEROUTE_HOPS) { "max-hops exceeds 255" }
+                RunCommand.newBuilder().setTraceroute(Traceroute.newBuilder().setHost(address(position)).setMaxHops(hops).setSizeBytes(number("size"))
+                    .setFamily(family()).setTimeoutMs(number("timeout", 60000)).setSelector(selector())).build()
+            }
+            "path-mtu" -> {
+                val min = number("min-mtu"); val max = number("max-mtu")
+                require(min == 0 || max == 0 || min <= max) { "max-mtu must be greater than or equal to min-mtu" }
+                RunCommand.newBuilder().setPathMtu(PathMtu.newBuilder().setHost(address(position)).setMinMtuBytes(min).setMaxMtuBytes(max)
+                    .setFamily(family()).setTimeoutMs(number("timeout", 30000)).setSelector(selector())).build()
+            }
+            "global-ip" -> RunCommand.newBuilder().setGlobalIp(GlobalIp.newBuilder().setFamily(family(true)).setTimeoutMs(number("timeout", 5000)).setSelector(selector())).build()
+            "dns" -> {
+                val types = when (value("record").uppercase(Locale.ROOT)) {
+                    "", "ALL" -> listOf(DnsRecordType.DNS_RECORD_TYPE_A, DnsRecordType.DNS_RECORD_TYPE_AAAA)
+                    "A" -> listOf(DnsRecordType.DNS_RECORD_TYPE_A)
+                    "AAAA" -> listOf(DnsRecordType.DNS_RECORD_TYPE_AAAA)
+                    else -> throw IllegalArgumentException("invalid record (A, AAAA, ALL)")
+                }
+                RunCommand.newBuilder().setResolveDns(ResolveDns.newBuilder().setName(address(position)).addAllQtypes(types).setTimeoutMs(number("timeout", 5000)).setSelector(selector())).build()
+            }
+            "http" -> {
+                val status = number("expected-status", 200)
+                require(status in 100..599) { "expected-status must be 100..599" }
+                RunCommand.newBuilder().setHttpCheck(HttpCheck.newBuilder().setUrl(url(position)).setExpectedStatus(status).setTimeoutMs(number("timeout", 5000)).setSelector(selector())).build()
+            }
+            "download" -> RunCommand.newBuilder().setWget(Wget.newBuilder().setUrl(url(position)).setTimeoutMs(number("timeout", 60000)).setSelector(selector())).build()
+            else -> throw IllegalArgumentException("unsupported command")
+        }
+        return AgentShellCommand.Execute(request, "detail" in switches, "brief" in switches, "mlo" in switches, "fresh" in switches, via, passphrase)
     }
 
-    private fun resolveCommandName(value: String): String? = resolveKeyword(value, commandNames)
-
-    private data class ParsedProbe(
-        val host: String = "",
-        val values: Map<String, Int> = emptyMap(),
-        val error: String? = null,
-    )
-}
-
-internal fun redactAgentShellCommandLine(line: String): String {
-    val tokens = shellSplitWords(line).getOrElse { return "<redacted malformed command>" }
-    if (tokens.isEmpty()) return line
-    val command = tokens.first()
-    if ("use".startsWith(command) && tokens.size >= 3) {
-        return "use ${formatAgentShellToken(tokens[1])} <redacted>"
+    private fun boolean(value: String, key: String): Boolean = when (value.lowercase(Locale.ROOT)) {
+        "", "false" -> false
+        "true" -> true
+        else -> throw IllegalArgumentException("$key must be true or false")
     }
-    if ("set".startsWith(command)) {
-        return if (tokens.size >= 4 &&
-            resolveKeyword(tokens[1], listOf("default")) == "default" &&
-            resolveKeyword(tokens[2], listOf("passphrase")) == "passphrase"
-        ) "set default passphrase <redacted>" else "<redacted malformed command>"
+
+    private fun bssid(value: String) {
+        require(Regex("(?i)[0-9a-f]{2}(:[0-9a-f]{2}){5}").matches(value)) { "invalid BSSID" }
     }
-    return line
+
+    private fun validPassphrase(value: String) {
+        require(AgentShellUsePolicy.validPassphrase(value)) { "invalid passphrase length or encoding" }
+    }
+
+    private fun address(value: String): String {
+        require(value.isNotBlank() && value.length <= 253 && !value.startsWith('-') &&
+            (Regex("[A-Za-z0-9][A-Za-z0-9._-]*").matches(value) || Regex("(?i)[0-9a-f:.]+(?:%[A-Za-z0-9_.-]+)?").matches(value))) { "invalid host/address" }
+        if (value.all { it.isDigit() || it == '.' } && '.' in value) {
+            require(value.split('.').size == 4 && value.split('.').all { it.isNotEmpty() && it.length <= 3 && it.toIntOrNull()?.let { n -> n in 0..255 } == true }) { "invalid IPv4 address" }
+        }
+        if (':' in value) {
+            require(runCatching { java.net.InetAddress.getByName(value) }.getOrNull() is java.net.Inet6Address) { "invalid IPv6 address" }
+        }
+        return value
+    }
+
+    private fun url(value: String): String {
+        val normalized = if ("://" in value) value else "https://$value"
+        val parsed = runCatching { URI(normalized) }.getOrNull()
+        require(parsed != null && parsed.scheme?.lowercase(Locale.ROOT) in listOf("http", "https") && !parsed.host.isNullOrBlank() &&
+            parsed.rawUserInfo == null && parsed.port in -1..65535 && !normalized.any { it.isWhitespace() || Character.isISOControl(it) }) { "invalid HTTP URL" }
+        return normalized
+    }
 }
 
-internal fun resolveKeyword(value: String, options: List<String>): String? {
-    if (value.isBlank()) return null
-    options.firstOrNull { it == value }?.let { return it }
-    val matches = options.filter { it.startsWith(value) }
-    return matches.singleOrNull()
-}
+/** No raw input is echoed: even malformed, duplicate, or keyword-looking credentials stay private. */
+internal fun redactAgentShellCommandLine(line: String): String = if (line.isBlank()) "" else "<command submitted>"
 
 internal fun shellSplitWords(line: String): Result<List<String>> {
     val words = mutableListOf<String>()
@@ -383,38 +346,15 @@ internal fun shellSplitWords(line: String): Result<List<String>> {
     var inToken = false
     for (ch in line) {
         when {
-            escaped -> {
-                current.append(ch)
-                escaped = false
-                inToken = true
-            }
-            ch == '\\' -> {
-                escaped = true
-                inToken = true
-            }
-            quote != null && ch == quote -> {
-                quote = null
-                inToken = true
-            }
-            quote != null -> {
-                current.append(ch)
-                inToken = true
-            }
-            ch == '"' || ch == '\'' -> {
-                quote = ch
-                inToken = true
-            }
+            escaped -> { current.append(ch); escaped = false; inToken = true }
+            ch == '\\' -> { escaped = true; inToken = true }
+            quote != null && ch == quote -> { quote = null; inToken = true }
+            quote != null -> { current.append(ch); inToken = true }
+            ch == '"' || ch == '\'' -> { quote = ch; inToken = true }
             ch.isWhitespace() -> {
-                if (inToken) {
-                    words += current.toString()
-                    current.clear()
-                    inToken = false
-                }
+                if (inToken) { words += current.toString(); current.clear(); inToken = false }
             }
-            else -> {
-                current.append(ch)
-                inToken = true
-            }
+            else -> { current.append(ch); inToken = true }
         }
     }
     if (escaped) return Result.failure(IllegalArgumentException("trailing escape"))

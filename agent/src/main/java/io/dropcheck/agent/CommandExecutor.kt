@@ -401,11 +401,7 @@ class CommandExecutor(
                             .setSsid(command.connect.ssid)
                             .build())
                         .build())
-                    httpOk = httpResult.status == CommandResult.Status.STATUS_OK ||
-                        (httpResult.hasHttpCheck() && NetworkCheckPolicy.httpStatusSucceeded(
-                            error = httpResult.httpCheck.error,
-                            status = httpResult.httpCheck.status,
-                        ))
+                    httpOk = httpResult.status == CommandResult.Status.STATUS_OK
                     step.httpOk = httpOk
                     if (httpResult.hasHttpCheck()) step.http = httpResult.httpCheck
                     if (!httpOk) step.addErrors("http=${httpResult.message}")
