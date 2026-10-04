@@ -70,3 +70,22 @@ func TestCleanupCanceledAndMissingAttemptTimelineRemainExplicit(t *testing.T) {
 		t.Fatal("fabricated an elapsed time")
 	}
 }
+
+func TestReportRedactsFreeTextFailures(t *testing.T) {
+	report := harness.Report{
+		Outcome:  harness.FailOutcome,
+		Problems: []harness.Problem{{Message: "password=secret"}},
+		Cleanup:  []harness.OperationRecord{{Error: "token=secret"}},
+		Steps: []harness.StepReport{{
+			Name: "wifi", Outcome: harness.FailOutcome, Reason: "https://example.test/?token=secret",
+			Attempts: []harness.Attempt{{Reason: "psk=secret", Result: harness.OperationResult{Parts: []harness.OperationRecord{{Error: "api_key=secret"}}}}},
+		}},
+	}
+	out, err := Report(report, Presentation{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "secret") || !strings.Contains(out, "<redacted>") {
+		t.Fatalf("unsafe report: %s", out)
+	}
+}

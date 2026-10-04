@@ -88,6 +88,31 @@ func TestPresentationIPAndURLWidthMatrix(t *testing.T) {
 	}
 }
 
+func TestScanDetailKeepsFullIdentityAndUnknownLinkAvailability(t *testing.T) {
+	mac := "02:00:00:11:22:33"
+	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_WifiScanDetail{WifiScanDetail: &controlpb.WifiScanDetail{
+		Target: mac, Results: []*controlpb.WifiScanResult{{Ssid: "東京 e\u0301 👩\u200d🔬", Bssid: mac, ApMloLinkId: 0,
+			AffiliatedMloLinks: []*controlpb.MloLinkInfo{{ApMacAddress: "06:00:00:11:22:33", ObservationFields: testObservationFields("identity")}}}},
+	}}}
+	for _, width := range []int{24, 120} {
+		out, err := CommandResult("self", result, command.Options{}, pipeline.FormatText, Presentation{Width: width})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for line := range strings.SplitSeq(out, "\n") {
+			if displayWidth(line) > width {
+				t.Fatalf("overflow at %d: %q", width, line)
+			}
+		}
+		full := strings.ReplaceAll(out, "\n", "")
+		for _, value := range []string{mac, "06:00:00:11:22:33", "東京 e\u0301 👩\u200d🔬", "link ID presence unavailable"} {
+			if !strings.Contains(full, value) {
+				t.Fatalf("detail missing %q at %d: %s", value, width, out)
+			}
+		}
+	}
+}
+
 func TestSafePresentationSanitizesBeforeLayoutAndJSON(t *testing.T) {
 	url := "https://user:credential@example.test/Case?token=credential&ordinary=Keep"
 	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_FAILED, Message: "password=credential\x1b[31m\x00oops", Payload: &controlpb.CommandResult_HttpCheck{HttpCheck: &controlpb.HttpCheckResult{Url: url}}}

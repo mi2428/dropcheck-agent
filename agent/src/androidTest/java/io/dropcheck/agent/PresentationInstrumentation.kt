@@ -6,6 +6,7 @@ import android.content.res.Configuration
 import android.graphics.Typeface
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
 import android.widget.TextView
 import kotlin.math.ceil
 
@@ -38,6 +39,7 @@ class PresentationInstrumentation : Instrumentation() {
                             setPadding(24, 0, 32, 0) // Own padding already includes synthetic safe insets.
                         }
                         val content = ceil(columns * view.paint.measureText("0")).toInt()
+                        view.layoutParams = ViewGroup.LayoutParams(content + 56, ViewGroup.LayoutParams.WRAP_CONTENT)
                         view.measure(View.MeasureSpec.makeMeasureSpec(content + 56, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
                         view.layout(0, 0, view.measuredWidth, view.measuredHeight)
                         val actualContent = view.width - view.paddingLeft - view.paddingRight

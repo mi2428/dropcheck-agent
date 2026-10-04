@@ -1071,7 +1071,15 @@ class MainActivity : Activity() {
         if (shellTranscript.fits(styled)) {
             shellTranscript.append(styled)
         } else {
-            val values = AgentSafeValueFile.write(styled, cacheDir)
+            val values = try { AgentSafeValueFile.write(styled, cacheDir) } catch (failure: java.io.IOException) {
+                shellTranscript.append(AgentPresentationBlock.create(listOf(
+                    AgentBlockPart.Text("Result FAILED"),
+                    AgentBlockPart.Field("Target", "self"),
+                    AgentBlockPart.Field("Error", "Full safe result unavailable: ${failure.message}"),
+                ), SHELL_ERROR_COLOR, shellOutputSizeSp, shellMinimumSizeSp))
+                renderShell()
+                return
+            }
             val important = styled.parts.filterIndexed { index, part ->
                 index == 0 || when (part) {
                     is AgentBlockPart.Text -> part.value.startsWith("Status:") || part.value.startsWith("Source:") || part.value.startsWith("Error:") || part.value.startsWith("Reason:")

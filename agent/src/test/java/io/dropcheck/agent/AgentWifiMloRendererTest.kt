@@ -178,6 +178,17 @@ class AgentWifiMloRendererTest {
     }
 
     @Test
+    fun briefKeepsDistinctMacsEvenWhenLinkIdsCollide() {
+        val scan = WifiScan.newBuilder()
+            .addResults(mloScanResult("Lab", "02:00:00:11:22:33", -45, "02:00:00:00:00:01", 2))
+            .addResults(mloScanResult("Lab", "06:00:00:11:22:33", -55, "02:00:00:00:00:01", 2))
+            .build()
+        val out = AgentWifiMloRenderer.render(WifiStatus.newBuilder().setEnabled(true).build(), scan, AgentWifiMloContext(brief = true)).joinToString("\n")
+        assertTrue(out.contains("MAC: 02:00:00:11:22:33"))
+        assertTrue(out.contains("MAC: 06:00:00:11:22:33"))
+    }
+
+    @Test
     fun rendersMloDiagnostics() {
         val status = WifiStatus.newBuilder()
             .setEnabled(false)
@@ -322,6 +333,7 @@ class AgentWifiMloRendererTest {
             .setEnabled(true)
             .setState("enabled")
             .setConnection(WifiConnection.newBuilder()
+                .addObservationFields(field("identity.state", "available"))
                 .setSsid("Lab")
                 .setBssid("aa:bb:cc:dd:ee:ff")
                 .setWifiStandard("802.11ax")
@@ -397,6 +409,8 @@ class AgentWifiMloRendererTest {
                 .setBssid("02:00:00:00:00:00")
                 .setNetworkId(-1)
                 .setWifiStandard("802.11be")
+                .setApMldMacAddress("02:00:00:00:00:01")
+                .addObservationFields(field("ap_mlo_link_id.state", "available"))
                 .setApMloLinkId(0)
                 .build())
             .build()

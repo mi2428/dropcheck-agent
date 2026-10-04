@@ -18,7 +18,7 @@ internal sealed interface AgentBlockPart {
     data class Column(val label: String, val numeric: Boolean = false)
 }
 
-internal data class AgentPresentationBlock private constructor(
+internal class AgentPresentationBlock private constructor(
     val parts: List<AgentBlockPart>,
     val color: Int,
     val baseSizeSp: Float,
