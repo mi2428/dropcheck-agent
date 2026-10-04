@@ -127,7 +127,10 @@ adb shell am instrument -w io.dropcheck.agent.test/io.dropcheck.agent.ServiceSam
 ```
 
 The test activity runs in its own test package (a separate UID with no DUMP grant) and requires
-permission-specific denial for controller and widget intents. Run it once with the service
+permission-specific denial for controller and widget intents. It uses only Android/Java APIs;
+the standalone test APK cannot rely on the target APK's Kotlin runtime. The verdict records
+each action's `SecurityException` and `android.permission.DUMP`, not just a PASS marker.
+Run it once with the service
 stopped and again while a normal controller session is active; the latter session must retain
 its connection and continue a harmless status command, with no superseded-session event.
 The native instrumentation targets the agent UID and exercises widget observer start/stop only.
