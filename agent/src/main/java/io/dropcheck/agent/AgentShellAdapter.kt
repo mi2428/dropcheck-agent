@@ -33,6 +33,9 @@ internal class AgentShellAdapter(private val context: Context, private val logge
 
     fun execute(command: AgentShellCommand): AgentShellResult = when (command) {
         is AgentShellCommand.Use -> use(command)
+        is AgentShellCommand.Check -> AgentLinkProfile.run(command) { executor.execute(it) }.let { AgentShellResult(it.outcome == LinkOutcome.PASS, it.lines()) }
+        AgentShellCommand.ShowChecks -> AgentShellResult(true, AgentLinkProfile.catalogue())
+        is AgentShellCommand.ShowCheckLast -> AgentShellResult(true, AgentLinkProfile.lastReport()?.lines(command.detail, historical = true) ?: listOf("No last check report (no check attempted in this process)."))
         is AgentShellCommand.ShowWifiEht -> eht(command)
         is AgentShellCommand.Execute -> render(command, executor.execute(command.request))
         else -> error("not an executable Shell command")

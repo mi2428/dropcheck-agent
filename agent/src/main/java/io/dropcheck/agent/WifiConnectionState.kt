@@ -24,12 +24,13 @@ internal fun isActiveWifiConnection(conn: WifiConnection): Boolean {
 }
 
 internal fun normalizedWifiSsid(value: String?): String {
-    return value.orEmpty().trim().trim('"')
+    // WifiInfo/WifiConfiguration surround the literal SSID with one framework quote pair.
+    return value.orEmpty().removeSurrounding("\"")
 }
 
 internal fun isKnownWifiSsid(value: String): Boolean {
     val normalized = normalizedWifiSsid(value)
-    return normalized.isNotBlank() && !normalized.equals(UNKNOWN_SSID, ignoreCase = true)
+    return normalized.isNotEmpty() && !normalized.equals(UNKNOWN_SSID, ignoreCase = true)
 }
 
 internal fun isKnownWifiBssid(value: String): Boolean {

@@ -129,6 +129,9 @@ class AgentInteractiveShellTest {
         assertEquals("lab\\path", live("wifi connect \"lab\\\\path\" passphrase test-only").request.connectWifi.ssid)
         assertEquals("lab\"scan", live("wifi connect \"lab\\\"scan\" passphrase test-only").request.connectWifi.ssid)
         assertEquals("a|b", (AgentShellParser.parse("use 'a|b' test-only") as AgentShellCommand.Use).ssid)
+        assertEquals(" ", (AgentShellParser.parse("use ' ' test-only") as AgentShellCommand.Use).ssid)
+        assertEquals(" ", live("wifi connect ' ' passphrase test-only").request.connectWifi.ssid)
+        assertEquals(" ", live("wifi forget ' '").request.forgetWifi.target)
         assertEquals("|", live("wifi connect '|' passphrase test-only").request.connectWifi.ssid)
         assertEquals(AgentShellCommand.SetDefaultPassphrase(""), AgentShellParser.parse("set default passphrase ''"))
         assertEquals(listOf("show", "version"), shellSplitWords("show version").getOrThrow())
@@ -198,7 +201,7 @@ class AgentInteractiveShellTest {
     }
 
     @Test fun reservesUnsupportedCommandsAndHelpUsesSyntaxRows() {
-        for (input in listOf("show devices", "check", "show checks", "show check last detail", "clear default passphrase", "adb shell", "show wifi status | json")) {
+        for (input in listOf("show devices", "adb shell", "show wifi status | json")) {
             assertTrue(invalid(input).contains("unsupported"))
         }
         assertFalse(AgentShellParser.help().joinToString().contains("eht brief"))
@@ -207,5 +210,25 @@ class AgentInteractiveShellTest {
         assertEquals(AgentShellCommand.Help("ping"), AgentShellParser.parse("h p"))
         assertEquals(RunCommand.CommandCase.PATH_MTU, live("pm example.test").request.commandCase)
         assertEquals(RunCommand.CommandCase.PING, live("pi example.test").request.commandCase) // alias is exact; pi is canonical prefix
+    }
+
+    @Test fun portableCheckGrammarIsExplicitAndZeroOperationCommandsAreDistinct() {
+        assertEquals(AgentShellCommand.ShowChecks, AgentShellParser.parse("check"))
+        assertEquals(AgentShellCommand.ShowChecks, AgentShellParser.parse("show checks"))
+        assertEquals(AgentShellCommand.ShowCheckLast(), AgentShellParser.parse("show check last"))
+        assertEquals(AgentShellCommand.ShowCheckLast(true), AgentShellParser.parse("show check last detail"))
+        assertEquals(AgentShellCommand.ClearDefaultPassphrase, AgentShellParser.parse("clear default passphrase"))
+        assertEquals(AgentShellCommand.Check("link", " Lab "), AgentShellParser.parse("check link ssid ' Lab '"))
+        assertEquals(AgentShellCommand.Check("link", " "), AgentShellParser.parse("check link ssid ' '"))
+        assertEquals(AgentShellCommand.Check("link", "\"Lab\""), AgentShellParser.parse("check link ssid '\"Lab\"'"))
+        assertEquals(" ", live("show ip status ssid ' '").request.getIpStatus.selector.ssid)
+        assertEquals(AgentShellCommand.Check("link", "Lab", IpFamily.IP_FAMILY_IPV6, "aa:bb:cc:dd:ee:ff"),
+            AgentShellParser.parse("check link ssid Lab bssid aa:bb:cc:dd:ee:ff family ipv6"))
+        assertEquals(AgentShellCommand.Check("lab"), AgentShellParser.parse("check lab"))
+        assertEquals(AgentShellCommand.Check("LINK"), AgentShellParser.parse("check LINK")) // exact name only
+        for (input in listOf("check link", "check link ssid", "check link ssid Lab family auto",
+            "check link ssid Lab bssid invalid", "check link ssid Lab family ipv4 family ipv6", "show checks extra", "clear default passphrase extra")) invalid(input)
+        assertTrue(AgentShellParser.help().any { it.contains("check link defaults to family ipv4") })
+        assertEquals("<command submitted>", redactAgentShellCommandLine("clear default passphrase"))
     }
 }

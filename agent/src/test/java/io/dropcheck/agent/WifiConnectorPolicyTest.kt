@@ -2,6 +2,7 @@ package io.dropcheck.agent
 
 import io.dropcheck.agent.grpc.ConnectWifi
 import io.dropcheck.agent.grpc.WifiBand
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -10,9 +11,24 @@ import org.junit.Test
 
 class WifiConnectorPolicyTest {
     @Test
-    fun quotesWifiConfigurationStringsOnlyWhenNeeded() {
+    fun alwaysQuotesLiteralWifiConfigurationStrings() {
         assertEquals("\"Lab\"", WifiConnectorPolicy.quoteWifi("Lab"))
-        assertEquals("\"Lab\"", WifiConnectorPolicy.quoteWifi("\"Lab\""))
+        assertEquals("\"\"Lab\"\"", WifiConnectorPolicy.quoteWifi("\"Lab\""))
+        assertEquals("\" Lab \"", WifiConnectorPolicy.quoteWifi(" Lab "))
+    }
+
+    @Test fun invalidConnectNamesFailBeforeWifiManagerButLiteralSpacesAndQuotesRemainValid() {
+        for (ssid in listOf("Lab", " Lab ", " ", "\"Lab\"", "La\"b")) assertTrue(WifiConnectorPolicy.validConnectSsid(ssid))
+        for (ssid in listOf("", "\n", "Lab\u0000", "Lab\u001b", "x".repeat(33), "あ".repeat(11), "<unknown ssid>")) {
+            assertFalse(WifiConnectorPolicy.validConnectSsid(ssid))
+        }
+        val sourceDir = listOf(File("src/main/java/io/dropcheck/agent"),
+            File("agent/src/main/java/io/dropcheck/agent")).first { it.isDirectory }
+        val source = File(sourceDir, "WifiConnector.kt").readText()
+        assertTrue(source.contains("!WifiConnectorPolicy.validConnectSsid(ssid)"))
+        assertTrue(source.contains("ssid = normalizedWifiSsid(it.ssid)"))
+        assertTrue(source.contains("if (target.isEmpty() || target.any(Character::isISOControl))"))
+        assertFalse(source.contains("ssid?.trim('\"')"))
     }
 
     @Test
@@ -326,6 +342,38 @@ class WifiConnectorPolicyTest {
         assertEquals(listOf(42), WifiConnectorPolicy.forgetNetworkIds("42", configs))
         assertEquals(emptyList<Int>(), WifiConnectorPolicy.forgetNetworkIds("Missing", configs))
         assertEquals(emptyList<Int>(), WifiConnectorPolicy.forgetNetworkIds("", configs))
+    }
+
+    @Test fun literalSsidConfigSelectionDoesNotDeleteOtherSavedNetworks() {
+        val configs = listOf(
+            WifiConnectorPolicy.ConfiguredNetworkRef(7, "\"Lab\""),
+            WifiConnectorPolicy.ConfiguredNetworkRef(8, "\" Lab \""),
+            WifiConnectorPolicy.ConfiguredNetworkRef(9, "\"\"Lab\"\""),
+            WifiConnectorPolicy.ConfiguredNetworkRef(10, "\" \""),
+        )
+        for ((ssid, id) in listOf("Lab" to 7, " Lab " to 8, "\"Lab\"" to 9, " " to 10)) {
+            assertEquals(listOf(id), WifiConnectorPolicy.forgetNetworkIds(ssid, configs))
+            assertEquals(listOf(id), WifiConnectorPolicy.bssidPinCleanupNetworkIds(ssid, "aa:bb:cc:dd:ee:ff", null, configs))
+        }
+        assertFalse(WifiConnectorPolicy.disconnectSettled(7, "\" \"", "aa:bb:cc:dd:ee:ff", "COMPLETED"))
+        val current = WifiConnectorPolicy.CurrentConnectionRef(10, " ", "aa:bb:cc:dd:ee:ff", 2412, "sae")
+        assertTrue(WifiConnectorPolicy.currentConnectionMatchesForgetTarget(" ", current))
+        assertTrue(WifiConnectorPolicy.currentConnectionSatisfiesConnect(current, " ", "", ConnectWifi.Security.SECURITY_UNSPECIFIED, WifiBand.WIFI_BAND_ALL))
+        assertFalse(WifiConnectorPolicy.currentConnectionSatisfiesConnect(current, "Lab", "", ConnectWifi.Security.SECURITY_UNSPECIFIED, WifiBand.WIFI_BAND_ALL))
+        val quoted = current.copy(ssid = "\"Lab\"")
+        assertTrue(WifiConnectorPolicy.currentConnectionSatisfiesConnect(quoted, "\"Lab\"", "", ConnectWifi.Security.SECURITY_UNSPECIFIED, WifiBand.WIFI_BAND_ALL))
+        assertFalse(WifiConnectorPolicy.currentConnectionSatisfiesConnect(quoted, "Lab", "", ConnectWifi.Security.SECURITY_UNSPECIFIED, WifiBand.WIFI_BAND_ALL))
+    }
+
+    @Test fun redactedIdentityNeverMatchesForgetOrConnectedShortcut() {
+        val unknown = WifiConnectorPolicy.CurrentConnectionRef(7, "<unknown ssid>", "02:00:00:00:00:00", 2412, "sae")
+        assertFalse(WifiConnectorPolicy.currentConnectionSatisfiesConnect(unknown, "<unknown ssid>", "", ConnectWifi.Security.SECURITY_UNSPECIFIED, WifiBand.WIFI_BAND_ALL))
+        assertFalse(WifiConnectorPolicy.currentConnectionMatchesForgetTarget("<unknown ssid>", unknown))
+        assertFalse(WifiConnectorPolicy.currentConnectionMatchesForgetTarget("02:00:00:00:00:00", unknown))
+        assertTrue(WifiConnectorPolicy.currentConnectionMatchesForgetTarget("7", unknown))
+        val configs = listOf(WifiConnectorPolicy.ConfiguredNetworkRef(7, "<unknown ssid>"))
+        assertTrue(WifiConnectorPolicy.forgetNetworkIds("<unknown ssid>", configs).isEmpty())
+        assertTrue(WifiConnectorPolicy.bssidPinCleanupNetworkIds("<unknown ssid>", "aa:bb:cc:dd:ee:ff", null, configs).isEmpty())
     }
 
     @Test

@@ -51,7 +51,7 @@ class WifiConnector(
     fun connect(command: ConnectWifi): Setup {
         val ssid = command.ssid
         val passphrase = command.passphrase
-        if (ssid.isBlank()) return Setup(error = "wifi ssid is required")
+        if (!WifiConnectorPolicy.validConnectSsid(ssid)) return Setup(error = if (ssid.isEmpty()) "wifi ssid is required" else "invalid wifi ssid")
 
         val needsBandPin = command.bssid.isBlank() &&
             command.band != WifiBand.WIFI_BAND_UNSPECIFIED &&
@@ -281,7 +281,7 @@ class WifiConnector(
      */
     @SuppressLint("MissingPermission")
     fun forget(target: String): Operation {
-        if (target.isBlank()) {
+        if (target.isEmpty() || target.any(Character::isISOControl)) {
             return Operation(operation = "forget", ok = false, message = "wifi forget target is required")
         }
         val configs = runCatching { wifi.configuredNetworks }.getOrElse {
@@ -435,7 +435,7 @@ class WifiConnector(
         return info?.let {
             WifiConnectorPolicy.CurrentConnectionRef(
                 networkId = it.networkId,
-                ssid = it.ssid?.trim('"').orEmpty(),
+                ssid = normalizedWifiSsid(it.ssid),
                 bssid = it.bssid.orEmpty(),
                 frequencyMhz = it.frequency,
                 securityType = securityTypeName(it.currentSecurityType),

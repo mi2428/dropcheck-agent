@@ -23,6 +23,7 @@ class WifiNetworkInfoTest {
         val shared = File(sourceDir, "WifiNetworkInfo.kt").readText()
         assertTrue(shared.contains("FLAG_INCLUDE_LOCATION_INFO"))
         assertTrue(shared.contains("registerNetworkCallback(request, callback, Handler(delivery.looper))"))
+        assertTrue(shared.contains("isKnownWifiSsid(it.ssid.orEmpty()) || clockWidgetWifiInfoIsUsable"))
     }
 
     @Test
@@ -53,6 +54,50 @@ class WifiNetworkInfoTest {
         }, onCandidate = { _, _ -> }))
         assertNull(selectWifiCandidate(listOf("other"), classify = { networkWifiSsidMatch("FixtureB", "Other") },
             onCandidate = { _, _ -> }))
+    }
+
+    @Test fun literalSsidSelectionNeverFallsBackToWrongWifiOrVpn() {
+        val cases = listOf(
+            "Lab" to "\"Lab\"",
+            " Lab " to "\" Lab \"",
+            "\"Lab\"" to "\"\"Lab\"\"",
+            "La\"b" to "\"La\"b\"",
+            " " to "\" \"",
+        )
+        for ((requested, frameworkSsid) in cases) {
+            assertEquals(requested, normalizedWifiSsid(frameworkSsid))
+            assertTrue(isKnownWifiSsid(frameworkSsid))
+            val candidates = listOf("vpn", "ordinary", "redacted", "target")
+            val selected = selectWifiCandidate(candidates, classify = { candidate ->
+                if (candidate == "vpn") WifiNetworkMatch.NOT_WIFI else networkWifiSsidMatch(requested, when (candidate) {
+                    "ordinary" -> "\"Lab\""
+                    "redacted" -> "<unknown ssid>"
+                    else -> frameworkSsid
+                })
+            }, onCandidate = { _, _ -> })
+            assertEquals("target for literal '$requested'", if (requested == "Lab") "ordinary" else "target", selected)
+            if (requested != "Lab") {
+                assertEquals(WifiNetworkMatch.SSID_MISMATCH, networkWifiSsidMatch(requested, "\"Lab\""))
+            }
+            assertEquals(WifiNetworkMatch.IDENTITY_UNAVAILABLE, networkWifiSsidMatch(requested, "<unknown ssid>"))
+        }
+        assertEquals(WifiNetworkMatch.MATCH, networkWifiSsidMatch("", "<unknown ssid>")) // Only empty selector may ignore identity.
+        assertEquals(WifiNetworkMatch.SSID_MISMATCH, networkWifiSsidMatch(" ", "\"Lab\""))
+        assertEquals(WifiNetworkMatch.SSID_MISMATCH, networkWifiSsidMatch("lab", "\"Lab\""))
+        val candidates = listOf("vpn", "ordinary", "unknown")
+        assertThrows(IllegalStateException::class.java) {
+            selectWifiCandidate(candidates, classify = { candidate ->
+                if (candidate == "vpn") WifiNetworkMatch.NOT_WIFI else networkWifiSsidMatch(" ", if (candidate == "unknown") "<unknown ssid>" else "\"Lab\"")
+            }, onCandidate = { _, _ -> })
+        }
+    }
+
+    @Test fun selectorBoundaryRejectsBlankOnlyWildcardRegression() {
+        val sourceDir = listOf(File("src/main/java/io/dropcheck/agent"),
+            File("agent/src/main/java/io/dropcheck/agent")).first { it.isDirectory }
+        val source = File(sourceDir, "NetworkRepository.kt").readText()
+        assertTrue(source.contains("if (selector.ssid.isEmpty()) return WifiNetworkMatch.MATCH"))
+        assertFalse(source.contains("selector.ssid.isBlank()"))
     }
 
     @Test
