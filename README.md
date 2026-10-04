@@ -158,7 +158,7 @@ candidates; their IP status must not inherit the underlying network's WifiInfo.
 ## Features
 
 The controller/agent toolchain has several entry points that share the same typed agent operations.
-Use the one-shot controller CLI for ad-hoc checks, Controller Shell for field work, Controller TUI (`dropcheck watch`) for continuous loops, Agent Shell for on-device inspection, and Dropcheck Harness when the check should be a repeatable Go test.
+Start with `dropcheck tui [PLAN.yml]` to select, preview, run, review and rerun tests. Use the one-shot controller CLI for ad-hoc checks, Controller Shell for field work, `dropcheck watch` for immediate continuous loops, Agent Shell for on-device inspection, and Dropcheck Harness for Go-authored tests.
 
 ### Controller Shell
 
@@ -192,7 +192,7 @@ $ controller/dist/dropcheck --serial R5CT12345 request ping 1.1.1.1 --count 5
 In text mode, `show wifi status` appends controller-side ADB IPv6 RA diagnostics when the selected handset is reachable over ADB.
 That `ADB IPv6 RA` block shows `accept_ra*`, IPv6 default-route presence, and decoded router advertisements with `router_lifetime`, `valid_lifetime`, and `preferred_lifetime`, which is useful when SLAAC addresses appear but IPv6 internet access or the default router is missing.
 
-A short interactive session, with verbose startup lines omitted and network values shown as examples:
+A short interactive session (measurement output depends on the connected handset):
 
 ```console
 $ controller/dist/dropcheck --serial R5CT12345 shell
@@ -204,14 +204,10 @@ R5CT12345# show wifi ?
   eht                      Connected and nearby EHT state
   scan                     Cached or fresh scan results
   capabilities             Device Wi-Fi capabilities
-R5CT12345# show wifi status | match "^  (ssid|bssid|band|validated)[[:space:]]"
-  ssid                           ShowNet
-  bssid                          aa:bb:cc:dd:ee:ff
-  band                           6ghz
-  validated                      true
+R5CT12345# show wifi status
+R5CT12345# show ip status
 R5CT12345# request
-R5CT12345(request)# ping 1.1.1.1 count 3 | match "^Ping:"
-Ping: host=1.1.1.1 status=ok transmitted=3 received=3 loss=0.0% min/avg/max=10.20/12.40/16.30ms interface=wlan0 elapsed=428ms
+R5CT12345(request)# ping 192.0.2.1 count 3
 R5CT12345(request)# exit
 R5CT12345# exit
 ```
@@ -241,33 +237,12 @@ Wrap SSIDs or PSKs in double quotes when they contain spaces or other shell-sign
 - **Copy full result** copies plain sanitized values, not spans, display tabs, ellipsis, ANSI, artificial zero-width spaces, or credentials. History retains at most 32 whole safe blocks and 262144 UTF-16 characters, without commands/credentials. Table display is capped at 96 rows/240 lines, with omission counts; full copy keeps retained rows. A result exceeding in-memory history keeps its header/target/errors plus **Inspect/copy full safe values**: 25-label pages expose each complete safe value, with exact full identity copy and numbered chunks for long opaque values that cannot fit a clipboard transaction. Only the current oversize result has a private app-cache value file (32MiB quota); replacing it evicts the old file/block as a unit, and a new process clears abandoned files. Storage/quota failures are explicit, never silently clipped results. Appends do not force an older reader to the bottom. Native selection/anchor restoration is best effort.
 - Host ADB supplements carry a separate `adb` source and controller receipt time; those are not Android observations. Native Paint, clipboard, accessibility/TalkBack and readability acceptance require separately authorized device checks; JVM formatter tests or an APK build are not device evidence.
 
-Drive the agent from the controller for live measurements:
+Drive the agent from the controller for live measurements (synthetic addresses and targets shown as commands, not measured output):
 
 ```console
 $ controller/dist/dropcheck --serial R5CT12345 show devices
-SEL  #  AGENT    ADB SERIAL  DEVICE              SDK  APP    CONNECTED
-*    1  agent-1  R5CT12345   Google Pixel 9      35   0.9.0-dirty  2026-05-06T09:00:00Z
-
 $ controller/dist/dropcheck --serial R5CT12345 show wifi scan fresh all --timeout 9000
-Latency: 1420ms
-Wi-Fi Scan
-  requested_band                 all
-  results                        2
-  total                          2
-  errors                         0
-  fresh_scan_wait_completed      true
-  fresh_scan_elapsed_ms          1382
-
-SSID     BSSID              RSSI  BAND  FREQ  STANDARD  SECURITY  FLAGS  AP_MLD             AP_LINK  AFFILIATED
-ShowNet  aa:bb:cc:dd:ee:ff  -48   6ghz  6135  11be      wpa3_sae  -      02:00:00:00:00:01  1        2
-ShowNet  11:22:33:44:55:66  -55   5ghz  5745  11ax      wpa3_sae  -      <none>             -        0
-
-$ controller/dist/dropcheck --serial R5CT12345 request ping 1.1.1.1 --count 5
-Latency: 634ms
-Ping: host=1.1.1.1 status=ok transmitted=5 received=5 loss=0.0% min/avg/max=10.20/12.40/16.30ms interface=wlan0 elapsed=634ms
-
-5 packets transmitted, 5 received, 0% packet loss
-rtt min/avg/max/mdev = 10.200/12.400/16.300/1.900 ms
+$ controller/dist/dropcheck --serial R5CT12345 request ping 192.0.2.1 --count 1
 ```
 
 ### Controller TUI
@@ -703,6 +678,12 @@ Live `make e2e` and `-tags harness` device tests are excluded: they require
 dedicated authorized handsets and network credentials, never an ordinary PR
 runner. Regression tests in the normal controller and Android unit-test suites
 run automatically without adding special workflow filters.
+
+### Acceptance record (2026-10-04)
+
+- Local Go 1.26.0 and 1.26.8 normal, vet/staticcheck and fresh race suites passed, including the 282 device-free parser cases; pinned Go binding generation twice and `go mod tidy` left no drift. Fresh Android build/JVM/lint passed (155 unit tests, no failures). The Ubuntu CI matrix itself was **not** run locally.
+- A fake-backed real PTY exercised TUI selection, preview, finite review/rerun, loop stop, resize and terminal restoration; it did not touch ADB. On one authorized API 37 handset, a separate-UID fixture verified six DUMP-permission denials while authorized control continued, and a synthetic `Paint` instrumentation check passed 24 width/font-scale cases. The device's owner and Wi-Fi configuration were not changed.
+- On that handset, a failed fresh-scan request returned a failed exit status and labeled cached reference data; fresh-scan **success** was not observed. API 31/32 coverage, real Activity rotation/split-screen/IME layout, clipboard and TalkBack, final output-font readability, and network-changing scenarios remain unverified. CLI-breaking grammar and named `check` profiles still require product decisions; do not mistake the partial implementation for either feature's completion.
 
 ## License
 
