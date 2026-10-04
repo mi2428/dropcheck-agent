@@ -252,8 +252,8 @@ func TestRunOperationForAgentsSeparatesMultiAgentTextOutput(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"Agent: R5CT12345\nLatency: 4ms",
-		"Agent: 45240DLAQ007HG\nLatency: 7ms",
+		"Agent: R5CT12345\nPing  OK  4ms",
+		"Agent: 45240DLAQ007HG\nPing  OK  7ms",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("runOperationForAgents output = %q, missing %q", out, want)

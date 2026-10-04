@@ -2,6 +2,7 @@ package io.dropcheck.agent
 
 import java.io.IOException
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -35,5 +36,16 @@ class AgentSafeValueFileTest {
             values.value(0)
             throw AssertionError("evicted values were retained")
         } catch (_: IOException) { /* Explicitly expired result, not a clipped copy. */ }
+    }
+
+    @Test fun quotaFailureDeletesPartialFileRatherThanLeavingUnsafeUncopyableData() {
+        val block = AgentPresentationBlock.create(listOf(AgentBlockPart.Field("Data", "x".repeat(AgentSafeValueFile.MAX_BYTES.toInt()))), 0)
+        try {
+            AgentSafeValueFile.write(block, temporary.root)
+            throw AssertionError("quota accepted")
+        } catch (failure: IOException) {
+            assertTrue(failure.message.orEmpty().contains("quota"))
+            assertFalse(temporary.root.listFiles().orEmpty().any { it.name.startsWith("shell-safe-values-") })
+        }
     }
 }

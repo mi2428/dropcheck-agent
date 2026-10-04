@@ -898,8 +898,9 @@ internal object AgentWifiMloRenderer {
 
     private fun upsertBriefLinkRow(rows: MutableList<BriefLinkRow>, candidate: BriefLinkRow) {
         val index = rows.indexOfFirst { left ->
-            (left.sortLink != null && candidate.sortLink != null && left.sortLink == candidate.sortLink) ||
-                (left.addr.isNotBlank() && candidate.addr.isNotBlank() && left.addr.equals(candidate.addr, ignoreCase = true))
+            (isKnownWifiBssid(left.addr) && isKnownWifiBssid(candidate.addr) && left.addr.equals(candidate.addr, ignoreCase = true)) ||
+                (left.sortLink != null && left.sortLink == candidate.sortLink &&
+                    (!isKnownWifiBssid(left.addr) || !isKnownWifiBssid(candidate.addr)))
         }
         if (index < 0) {
             rows += candidate

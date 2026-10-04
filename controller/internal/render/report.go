@@ -91,7 +91,7 @@ func Report(report harness.Report, view Presentation) (string, error) {
 	// Problems and cleanup stay visible even when ordinary checks passed.
 	for _, problem := range report.Problems {
 		writeRecord(&b, "Problem", fmt.Sprintf("%s round=%d %s", problem.Kind, problem.Round, reportScope(problem.Scope, labels, view.Detail)))
-		writeRecord(&b, "Reason", problem.Message)
+		writeRecord(&b, "Reason", safePresentationText(problem.Message))
 	}
 	writeSection(&b, "Cleanup")
 	if len(report.Cleanup) == 0 {
@@ -101,10 +101,10 @@ func Report(report harness.Report, view Presentation) (string, error) {
 		writeRecord(&b, "Cleanup", fmt.Sprintf("%s round=%d %s", cleanup.Name, cleanup.Round, acquisitionRecordStatus(cleanup)))
 		writeRecord(&b, "Acquisition elapsed", acquisitionElapsed(cleanup.Started, cleanup.Ended))
 		if cleanup.Error != "" {
-			writeRecord(&b, "Error", cleanup.Error)
+			writeRecord(&b, "Error", safePresentationText(cleanup.Error))
 		}
 		if cleanup.Raw != nil && cleanup.Raw.GetMessage() != "" {
-			writeRecord(&b, "Reason", cleanup.Raw.GetMessage())
+			writeRecord(&b, "Reason", safePresentationText(cleanup.Raw.GetMessage()))
 		}
 		if view.Detail && cleanup.Raw != nil {
 			text, err := CommandResult("cleanup", cleanup.Raw, command.Options{}, pipeline.FormatText, view)
@@ -123,10 +123,10 @@ func Report(report harness.Report, view Presentation) (string, error) {
 		writeRecord(&b, "Scope", fmt.Sprintf("%s round=%d", reportScope(step.Scope, labels, view.Detail), step.Round))
 		writeRecord(&b, "Step", fmt.Sprintf("%s  %s", step.Name, strings.ToUpper(string(step.Outcome))))
 		if step.SkipReason != "" {
-			writeRecord(&b, "Skip reason", step.SkipReason)
+			writeRecord(&b, "Skip reason", safePresentationText(string(step.SkipReason)))
 		}
 		if step.Reason != "" {
-			writeRecord(&b, "Reason", step.Reason)
+			writeRecord(&b, "Reason", safePresentationText(step.Reason))
 		}
 		if len(step.Attempts) == 0 {
 			if step.Outcome == harness.SkipOutcome {
@@ -138,16 +138,16 @@ func Report(report harness.Report, view Presentation) (string, error) {
 		for _, attempt := range step.Attempts {
 			writeRecord(&b, "Attempt", fmt.Sprintf("repeat=%d sample=%d attempt=%d %s %s", attempt.Repeat, attempt.Sample, attempt.Number, strings.ToUpper(string(attempt.Outcome)), acquisitionElapsed(attempt.Started, attempt.Ended)))
 			if attempt.Reason != "" {
-				writeRecord(&b, "Reason", attempt.Reason)
+				writeRecord(&b, "Reason", safePresentationText(attempt.Reason))
 			}
 			writeFindings(&b, attempt.Findings, view.Detail)
 			for _, part := range attempt.Result.Parts {
 				writeRecord(&b, "Acquisition", fmt.Sprintf("%s %s %s", part.Name, acquisitionRecordStatus(part), acquisitionElapsed(part.Started, part.Ended)))
 				if part.Error != "" {
-					writeRecord(&b, "Error", part.Error)
+					writeRecord(&b, "Error", safePresentationText(part.Error))
 				}
 				if part.Raw != nil && part.Raw.GetStatus() != controlpb.CommandResult_STATUS_OK {
-					writeRecord(&b, "Reason", part.Raw.GetMessage())
+					writeRecord(&b, "Reason", safePresentationText(part.Raw.GetMessage()))
 				}
 			}
 			if view.Detail {

@@ -271,16 +271,6 @@ func writeKVRows(b *strings.Builder, rows ...kvRow) {
 	_ = tw.Flush()
 }
 
-func writeListSection(b *strings.Builder, title string, values []string) {
-	if len(values) == 0 {
-		return
-	}
-	writeSection(b, title)
-	for _, value := range values {
-		fmt.Fprintf(b, "  %s\n", value)
-	}
-}
-
 // Agents renders the connected-agent list.
 func Agents(view AgentListView, format pipeline.Format) (string, error) {
 	if format == pipeline.FormatJSON {
@@ -338,64 +328,6 @@ func Agents(view AgentListView, format pipeline.Format) (string, error) {
 	}
 	_ = tw.Flush()
 	return b.String(), nil
-}
-
-func renderWifiStatus(b *strings.Builder, status *controlpb.WifiStatus) {
-	if status == nil {
-		return
-	}
-	writeKVSection(b, "Wi-Fi",
-		kv("enabled", status.GetEnabled()),
-		kv("state", empty(status.GetState(), "unknown")),
-		kv("active", empty(status.GetActiveNetwork(), "none")),
-		kv("networks", status.GetWifiNetworkCount()),
-		kv("permissions", wifiPermissionSummary(status.GetPermissions())),
-	)
-	var conn *controlpb.WifiConnection
-	if status.GetConnection() != nil && status.GetConnection().GetSsid() != "" {
-		conn = status.GetConnection()
-		renderWifiConnection(b, conn)
-	}
-	if status.GetIpStatus() != nil {
-		renderIPStatusWithOptions(b, status.GetIpStatus(), ipRenderOptions{connection: conn})
-	} else if rows := wifiConnectionNetworkRows(conn); len(rows) > 0 {
-		writeKVSection(b, "Network", rows...)
-	}
-}
-
-func wifiPermissionSummary(permissions []string) string {
-	if len(permissions) == 0 {
-		return ""
-	}
-	granted := make([]string, 0, len(permissions))
-	missing := make([]string, 0)
-	for _, permission := range permissions {
-		name, state, ok := strings.Cut(permission, "=")
-		if !ok {
-			missing = append(missing, permission)
-			continue
-		}
-		if strings.EqualFold(state, "granted") {
-			granted = append(granted, name)
-		} else {
-			missing = append(missing, name+"="+state)
-		}
-	}
-	sort.Strings(granted)
-	sort.Strings(missing)
-	lines := make([]string, 0, 1+len(granted)+len(missing))
-	if len(missing) == 0 {
-		lines = append(lines, "all_granted")
-		lines = append(lines, granted...)
-		return multiLineValue(lines)
-	}
-	lines = append(lines, "missing")
-	lines = append(lines, missing...)
-	if len(granted) > 0 {
-		lines = append(lines, "granted")
-		lines = append(lines, granted...)
-	}
-	return multiLineValue(lines)
 }
 
 func renderWifiConnection(b *strings.Builder, conn *controlpb.WifiConnection) {
@@ -668,13 +600,6 @@ func renderMLOLinks(b *strings.Builder, title string, links []*controlpb.MloLink
 		writeRecord(b, "AP_MAC", observedValue(link.GetObservationFields(), "identity", link.GetApMacAddress()))
 		writeRecord(b, "STA_MAC", observedValue(link.GetObservationFields(), "identity", link.GetStaMacAddress()))
 	}
-}
-
-func mloLinkID(id int32) string {
-	if id < 0 {
-		return "<none>"
-	}
-	return strconv.Itoa(int(id))
 }
 
 func renderConnectWifi(b *strings.Builder, result *controlpb.ConnectWifiResult) {
@@ -1064,114 +989,6 @@ func renderWget(b *strings.Builder, result *controlpb.WgetResult) {
 	)
 }
 
-func renderWifiDiagnostics(b *strings.Builder, diagnostics *controlpb.WifiDiagnostics) {
-	if diagnostics == nil {
-		return
-	}
-	renderWifiStatus(b, diagnostics.GetStatus())
-	if diagnostics.GetCapabilities() != nil {
-		renderWifiCapabilities(b, diagnostics.GetCapabilities())
-	}
-	if len(diagnostics.GetNetworks()) > 0 {
-		writeSection(b, "Networks")
-		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(tw, "ID\tACTIVE\tINTERFACE\tVALIDATED\tTRANSPORTS")
-		for _, network := range diagnostics.GetNetworks() {
-			ip := network.GetIpStatus()
-			_, _ = fmt.Fprintf(tw, "%s\t%t\t%s\t%t\t%s\n",
-				empty(network.GetNetworkId(), "unknown"),
-				network.GetActive(),
-				empty(ip.GetInterfaceName(), "none"),
-				ip.GetValidated(),
-				strings.Join(ip.GetTransports(), ","),
-			)
-		}
-		_ = tw.Flush()
-	}
-	if diagnostics.GetScan() != nil {
-		renderWifiScan(b, diagnostics.GetScan(), command.Options{})
-	}
-}
-
-func renderWifiScan(b *strings.Builder, scan *controlpb.WifiScan, options command.Options) {
-	if scan == nil {
-		return
-	}
-	writeKVSection(b, "Wi-Fi Scan", wifiScanSummaryRows(scan, options)...)
-	writeBlankLine(b)
-	renderScanResults(b, scan.GetResults(), options.WifiScanBrief, options.WifiScanMLO)
-	renderErrors(b, scan.GetErrors())
-}
-
-func wifiScanSummaryRows(scan *controlpb.WifiScan, options command.Options) []kvRow {
-	fields := diagnosticFieldMap(scan.GetFields())
-	if options.WifiScanMLO {
-		mloResults, affiliatedRows, displayRows := wifiScanMLOSummaryCounts(scan.GetResults())
-		rows := []kvRow{
-			kv("requested_band", fields["requested_band"]),
-			kv("mlo_results", mloResults),
-			kv("affiliated_rows", affiliatedRows),
-			kv("display_rows", displayRows),
-			kv("scan_results", firstNonBlank(fields["scan_result_count"], strconv.Itoa(len(scan.GetResults())))),
-			kv("scan_total", firstNonBlank(fields["scan_result_total_count"], strconv.Itoa(len(scan.GetResults())))),
-			kv("errors", len(scan.GetErrors())),
-		}
-		for _, key := range []string{
-			"wifi_enabled",
-			"wifi_state",
-			"scan_always_available",
-			"scan_throttle_enabled",
-			"fresh_scan_receiver_registered",
-			"fresh_scan_start_scan",
-			"fresh_scan_broadcast_received",
-			"fresh_scan_results_updated",
-			"fresh_scan_wait_completed",
-			"fresh_scan_elapsed_ms",
-		} {
-			if value := fields[key]; value != "" {
-				rows = append(rows, kv(key, value))
-			}
-		}
-		return rows
-	}
-	rows := []kvRow{
-		kv("requested_band", fields["requested_band"]),
-		kv("results", firstNonBlank(fields["scan_result_count"], strconv.Itoa(len(scan.GetResults())))),
-		kv("total", firstNonBlank(fields["scan_result_total_count"], strconv.Itoa(len(scan.GetResults())))),
-		kv("errors", len(scan.GetErrors())),
-	}
-	for _, key := range []string{
-		"wifi_enabled",
-		"wifi_state",
-		"scan_always_available",
-		"scan_throttle_enabled",
-		"fresh_scan_receiver_registered",
-		"fresh_scan_start_scan",
-		"fresh_scan_broadcast_received",
-		"fresh_scan_results_updated",
-		"fresh_scan_wait_completed",
-		"fresh_scan_elapsed_ms",
-	} {
-		if value := fields[key]; value != "" {
-			rows = append(rows, kv(key, value))
-		}
-	}
-	return rows
-}
-
-func wifiScanMLOSummaryCounts(results []*controlpb.WifiScanResult) (mloResults int, affiliatedRows int, displayRows int) {
-	for _, result := range results {
-		if wifiScanMLOCapableResult(result) {
-			mloResults++
-		}
-	}
-	displayRows = len(scanDisplayRows(results, true, scanRenderLayoutFor(true, true)))
-	if displayRows > mloResults {
-		affiliatedRows = displayRows - mloResults
-	}
-	return mloResults, affiliatedRows, displayRows
-}
-
 func renderWifiScanDetail(b *strings.Builder, detail *controlpb.WifiScanDetail, options command.Options) {
 	if detail == nil {
 		return
@@ -1219,105 +1036,6 @@ func firstNonBlank(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func renderScanResults(b *strings.Builder, results []*controlpb.WifiScanResult, brief bool, mloOnly bool) {
-	layout := scanRenderLayoutFor(brief, mloOnly)
-	groups := scanDisplayGroups(results, mloOnly, layout)
-	rows := flattenScanDisplayGroups(groups)
-	if len(rows) == 0 {
-		b.WriteString("  no results\n")
-		return
-	}
-	columns := scanDisplayColumns(layout)
-	if mloOnly {
-		writeDisplayTableGroups(b, columns, groups, "")
-	} else {
-		writeDisplayTable(b, columns, rows)
-	}
-	if brief || mloOnly {
-		return
-	}
-	renderScanMLOLinks(b, results)
-	renderScanSecurityDetails(b, results)
-}
-
-type scanRenderLayout struct {
-	includeStandard         bool
-	includeSecurityFeatures bool
-	securityHeader          string
-	includeAPLink           bool
-	includeAffiliated       bool
-	blankLinkDetails        bool
-}
-
-func scanRenderLayoutFor(brief bool, mloOnly bool) scanRenderLayout {
-	layout := scanRenderLayout{
-		includeStandard:         !mloOnly,
-		includeSecurityFeatures: brief || mloOnly,
-		securityHeader:          "SEC_FEATURES",
-		includeAPLink:           true,
-		includeAffiliated:       true,
-	}
-	if mloOnly {
-		layout.includeAPLink = false
-		layout.includeAffiliated = false
-		layout.blankLinkDetails = true
-	}
-	return layout
-}
-
-func scanDisplayColumns(layout scanRenderLayout) []displayTableColumn {
-	columns := []displayTableColumn{
-		displayTableColumn{header: "SSID"},
-		displayTableColumn{header: "BSSID"},
-		displayTableColumn{header: "RSSI"},
-		displayTableColumn{header: "BAND"},
-		displayTableColumn{header: "FREQ"},
-	}
-	if layout.includeStandard {
-		columns = append(columns, displayTableColumn{header: "STANDARD"})
-	}
-	columns = append(columns, displayTableColumn{header: "SECURITY"})
-	if layout.includeSecurityFeatures {
-		columns = append(columns, displayTableColumn{header: layout.securityHeader})
-	}
-	columns = append(columns,
-		displayTableColumn{header: "FLAGS"},
-		displayTableColumn{header: "AP_MLD"},
-	)
-	if layout.includeAPLink {
-		columns = append(columns, displayTableColumn{header: "AP_LINK"})
-	}
-	if layout.includeAffiliated {
-		columns = append(columns, displayTableColumn{header: "AFFILIATED"})
-	}
-	return columns
-}
-
-type scanDisplayGroup struct {
-	rows [][]string
-}
-
-func scanDisplayGroups(results []*controlpb.WifiScanResult, mloOnly bool, layout scanRenderLayout) []scanDisplayGroup {
-	groups := make([]scanDisplayGroup, 0, len(results))
-	for _, group := range scanResultGroups(results, mloOnly) {
-		groupRows := make([][]string, 0, len(group.results))
-		if mloOnly {
-			groupRows = scanMLODisplayRows(group.results, layout)
-			scanSuppressRepeatedGroupSSID(groupRows)
-		} else {
-			for _, result := range group.results {
-				groupRows = append(groupRows, scanResultDisplayRow(result, layout))
-			}
-		}
-		groups = append(groups, scanDisplayGroup{rows: groupRows})
-	}
-	return groups
-}
-
-func scanDisplayRows(results []*controlpb.WifiScanResult, mloOnly bool, layout scanRenderLayout) [][]string {
-	return flattenScanDisplayGroups(scanDisplayGroups(results, mloOnly, layout))
 }
 
 type scanResultGroup struct {
@@ -1384,228 +1102,6 @@ func scanDisplaySSID(result *controlpb.WifiScanResult) string {
 	return empty(result.GetSsid(), "? (SSID presence unavailable)")
 }
 
-func sortedAffiliatedLinks(links []*controlpb.MloLinkInfo) []*controlpb.MloLinkInfo {
-	sorted := append([]*controlpb.MloLinkInfo(nil), links...)
-	sort.SliceStable(sorted, func(i, j int) bool {
-		if sorted[i].GetRssiDbm() != sorted[j].GetRssiDbm() {
-			return sorted[i].GetRssiDbm() > sorted[j].GetRssiDbm()
-		}
-		leftMAC := strings.ToLower(empty(sorted[i].GetApMacAddress(), "unknown"))
-		rightMAC := strings.ToLower(empty(sorted[j].GetApMacAddress(), "unknown"))
-		if leftMAC != rightMAC {
-			return leftMAC < rightMAC
-		}
-		return sorted[i].GetLinkId() < sorted[j].GetLinkId()
-	})
-	return sorted
-}
-
-func scanResultDisplayRow(result *controlpb.WifiScanResult, layout scanRenderLayout) []string {
-	row := []string{
-		empty(result.GetSsid(), "<hidden>"),
-		empty(result.GetBssid(), "unknown"),
-		strconv.Itoa(int(result.GetRssiDbm())),
-		empty(result.GetBand(), wifiBandFromFrequency(result.GetFrequencyMhz())),
-		strconv.Itoa(int(result.GetFrequencyMhz())),
-	}
-	if layout.includeStandard {
-		row = append(row, empty(result.GetWifiStandard(), "-"))
-	}
-	row = append(row, empty(strings.Join(result.GetSecurityTypes(), ","), empty(result.GetCapabilities(), "-")))
-	if layout.includeSecurityFeatures {
-		row = append(row, scanSecurityFeatureCell(result.GetSecurityDetails()))
-	}
-	row = append(row,
-		empty(strings.Join(scanConnectionCapabilityFlags(result), ","), "-"),
-		empty(wifiMLOScanMLDMAC(result), "<none>"),
-	)
-	if layout.includeAPLink {
-		row = append(row, scanMLOLinkID(result))
-	}
-	if layout.includeAffiliated {
-		row = append(row, strconv.Itoa(len(result.GetAffiliatedMloLinks())))
-	}
-	return row
-}
-
-func scanAffiliatedLinkDisplayRow(result *controlpb.WifiScanResult, link *controlpb.MloLinkInfo, layout scanRenderLayout) []string {
-	flags := []string{"affiliated_link"}
-	if state := strings.TrimSpace(link.GetState()); state != "" {
-		flags = append(flags, state)
-	}
-	rssi := ""
-	freq := "-"
-	security := "-"
-	securityFeatures := "-"
-	if layout.blankLinkDetails {
-		freq = ""
-		security = ""
-		securityFeatures = ""
-	}
-	row := []string{
-		empty(result.GetSsid(), "<hidden>"),
-		empty(link.GetApMacAddress(), "unknown"),
-		rssi,
-		empty(link.GetBand(), "unknown"),
-		freq,
-	}
-	if layout.includeStandard {
-		row = append(row, "")
-	}
-	row = append(row, security)
-	if layout.includeSecurityFeatures {
-		row = append(row, securityFeatures)
-	}
-	row = append(row,
-		strings.Join(flags, ","),
-		empty(wifiMLOScanMLDMAC(result), "<none>"),
-	)
-	if layout.includeAPLink {
-		row = append(row, mloLinkID(link.GetLinkId()))
-	}
-	if layout.includeAffiliated {
-		row = append(row, "link")
-	}
-	return row
-}
-
-type scanMLORow struct {
-	row       []string
-	bandOrder int
-	isLink    bool
-	rssi      int32
-	bssid     string
-}
-
-func scanMLODisplayRows(results []*controlpb.WifiScanResult, layout scanRenderLayout) [][]string {
-	rows := make([]scanMLORow, 0, len(results))
-	for _, result := range results {
-		rows = append(rows, scanMLORow{
-			row:       scanResultDisplayRow(result, layout),
-			bandOrder: scanDisplayBandOrder(result.GetBand(), result.GetFrequencyMhz()),
-			isLink:    false,
-			rssi:      result.GetRssiDbm(),
-			bssid:     strings.ToLower(empty(result.GetBssid(), "unknown")),
-		})
-	}
-	for _, result := range results {
-		for _, link := range sortedAffiliatedLinks(result.GetAffiliatedMloLinks()) {
-			if scanAffiliatedLinkMatchesResult(result, link) {
-				continue
-			}
-			rows = append(rows, scanMLORow{
-				row:       scanAffiliatedLinkDisplayRow(result, link, layout),
-				bandOrder: scanDisplayBandOrder(link.GetBand(), 0),
-				isLink:    true,
-				rssi:      link.GetRssiDbm(),
-				bssid:     strings.ToLower(empty(link.GetApMacAddress(), "unknown")),
-			})
-		}
-	}
-	sort.SliceStable(rows, func(i, j int) bool {
-		if rows[i].isLink != rows[j].isLink {
-			return !rows[i].isLink
-		}
-		if rows[i].bandOrder != rows[j].bandOrder {
-			return rows[i].bandOrder < rows[j].bandOrder
-		}
-		if !rows[i].isLink && rows[i].rssi != rows[j].rssi {
-			return rows[i].rssi > rows[j].rssi
-		}
-		if rows[i].bssid != rows[j].bssid {
-			return rows[i].bssid < rows[j].bssid
-		}
-		return rows[i].rssi > rows[j].rssi
-	})
-	out := make([][]string, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, row.row)
-	}
-	return out
-}
-
-func scanDisplayBandOrder(band string, frequencyMhz int32) int {
-	normalized := strings.ToLower(strings.TrimSpace(band))
-	if normalized == "" {
-		normalized = strings.ToLower(strings.TrimSpace(wifiBandFromFrequency(frequencyMhz)))
-	}
-	switch normalized {
-	case "6ghz":
-		return 0
-	case "5ghz":
-		return 1
-	case "2.4ghz":
-		return 2
-	case "60ghz":
-		return 3
-	default:
-		return 4
-	}
-}
-
-func flattenScanDisplayGroups(groups []scanDisplayGroup) [][]string {
-	rows := make([][]string, 0)
-	for _, group := range groups {
-		rows = append(rows, group.rows...)
-	}
-	return rows
-}
-
-func scanSuppressRepeatedGroupSSID(rows [][]string) {
-	if len(rows) <= 1 {
-		return
-	}
-	ssidIndex := 0
-	for i := 1; i < len(rows); i++ {
-		if len(rows[i]) > ssidIndex {
-			rows[i][ssidIndex] = ""
-		}
-	}
-}
-
-func writeDisplayTableGroups(b *strings.Builder, columns []displayTableColumn, groups []scanDisplayGroup, separator string) {
-	if len(columns) == 0 {
-		return
-	}
-	preparedHeaders := make([]string, len(columns))
-	for i, column := range columns {
-		preparedHeaders[i] = fitDisplayCell(column.header, column.maxWidth)
-	}
-	preparedGroups := make([][][]string, 0, len(groups))
-	widths := make([]int, len(columns))
-	for i := range columns {
-		widths[i] = displayWidth(preparedHeaders[i])
-	}
-	for _, group := range groups {
-		preparedRows := make([][]string, 0, len(group.rows))
-		for _, row := range group.rows {
-			prepared := make([]string, len(columns))
-			for i, column := range columns {
-				value := ""
-				if i < len(row) {
-					value = row[i]
-				}
-				prepared[i] = column.fitValue(value)
-				if width := displayWidth(prepared[i]); width > widths[i] {
-					widths[i] = width
-				}
-			}
-			preparedRows = append(preparedRows, prepared)
-		}
-		preparedGroups = append(preparedGroups, preparedRows)
-	}
-	writeDisplayTableRow(b, preparedHeaders, widths)
-	for i, group := range preparedGroups {
-		if i > 0 && separator != "" {
-			b.WriteString(separator)
-			b.WriteByte('\n')
-		}
-		for _, row := range group {
-			writeDisplayTableRow(b, row, widths)
-		}
-	}
-}
-
 func scanSecurityFeatureCell(details *controlpb.WifiSecurityDetails) string {
 	if details == nil {
 		return "-"
@@ -1635,10 +1131,6 @@ func scanSecurityFeatureCell(details *controlpb.WifiSecurityDetails) string {
 	return strings.Join(flags, ",")
 }
 
-func scanAffiliatedLinkMatchesResult(result *controlpb.WifiScanResult, link *controlpb.MloLinkInfo) bool {
-	return bssidEqual(link.GetApMacAddress(), result.GetBssid()) && link.GetLinkId() == result.GetApMloLinkId()
-}
-
 func wifiScanMLOCapableResult(result *controlpb.WifiScanResult) bool {
 	return result != nil &&
 		wifiMLOScanHasMetadata(result)
@@ -1646,56 +1138,6 @@ func wifiScanMLOCapableResult(result *controlpb.WifiScanResult) bool {
 
 func scanConnectionCapabilityFlags(result *controlpb.WifiScanResult) []string {
 	return connectionInformationElementCapabilityNames(result.GetInformationElements())
-}
-
-func renderScanMLOLinks(b *strings.Builder, results []*controlpb.WifiScanResult) {
-	hasLinks := false
-	for _, result := range results {
-		if len(result.GetAffiliatedMloLinks()) > 0 {
-			hasLinks = true
-			break
-		}
-	}
-	if !hasLinks {
-		return
-	}
-	writeSection(b, "Scan Affiliated MLO Links")
-	columns := []displayTableColumn{
-		{header: "SSID"},
-		{header: "BSSID"},
-		{header: "AP_MLD"},
-		{header: "AP_LINK"},
-		{header: "ID"},
-		{header: "STATE"},
-		{header: "BAND"},
-		{header: "CHANNEL"},
-		{header: "RSSI"},
-		{header: "TX"},
-		{header: "RX"},
-		{header: "AP_MAC"},
-		{header: "STA_MAC"},
-	}
-	rows := [][]string{}
-	for _, result := range results {
-		for _, link := range result.GetAffiliatedMloLinks() {
-			rows = append(rows, []string{
-				empty(result.GetSsid(), "<hidden>"),
-				empty(result.GetBssid(), "unknown"),
-				empty(wifiMLOScanMLDMAC(result), "<none>"),
-				scanMLOLinkID(result),
-				strconv.Itoa(int(link.GetLinkId())),
-				empty(link.GetState(), "unknown"),
-				empty(link.GetBand(), "unknown"),
-				strconv.Itoa(int(link.GetChannel())),
-				strconv.Itoa(int(link.GetRssiDbm())),
-				strconv.Itoa(int(link.GetTxLinkSpeedMbps())),
-				strconv.Itoa(int(link.GetRxLinkSpeedMbps())),
-				empty(link.GetApMacAddress(), "unknown"),
-				empty(link.GetStaMacAddress(), "unknown"),
-			})
-		}
-	}
-	writeDisplayTable(b, columns, rows)
 }
 
 func renderScanSecurityDetails(b *strings.Builder, results []*controlpb.WifiScanResult) {
@@ -2170,20 +1612,6 @@ func scanMLOLinkID(result *controlpb.WifiScanResult) string {
 	return "? (link ID presence unavailable)"
 }
 
-func renderWifiCapabilities(b *strings.Builder, capabilities *controlpb.WifiCapabilities) {
-	if capabilities == nil {
-		return
-	}
-	writeSection(b, "Wi-Fi Capabilities")
-	renderDiagnosticFields(b, capabilities.GetFields())
-	writeList(b, "Supported bands", capabilities.GetSupportedBands())
-	writeList(b, "Unsupported bands", capabilities.GetUnsupportedBands())
-	writeList(b, "Supported standards", capabilities.GetSupportedStandards())
-	writeList(b, "Supported security", capabilities.GetSupportedSecurityModes())
-	writeList(b, "Supported features", capabilities.GetSupportedFeatures())
-	renderErrors(b, capabilities.GetErrors())
-}
-
 func renderWifiOperation(b *strings.Builder, result *controlpb.WifiOperationResult) {
 	if result == nil {
 		return
@@ -2303,10 +1731,6 @@ func renderErrors(b *strings.Builder, errors []string) {
 	for _, err := range errors {
 		fmt.Fprintf(b, "  %s\n", err)
 	}
-}
-
-func writeList(b *strings.Builder, label string, values []string) {
-	writeListSection(b, label, values)
 }
 
 func wifiBandFromFrequency(freq int32) string {
