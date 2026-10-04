@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/linuxcli"
+	"dropcheck/controller/internal/version"
 )
 
 func runCLI(ctx context.Context, opts shellOptions, rawArgs []string) error {
@@ -19,6 +21,14 @@ func runCLI(ctx context.Context, opts shellOptions, rawArgs []string) error {
 	command, err := linuxcli.Parse(args)
 	if err != nil {
 		return err
+	}
+	if command.Kind == linuxcli.Version {
+		fmt.Println(version.Version)
+		return nil
+	}
+	if command.Kind == linuxcli.Help {
+		writeCommandHelp(os.Stdout, command.HelpTopic)
+		return nil
 	}
 
 	controlSession, err := startControlSession(ctx, opts)
@@ -51,6 +61,12 @@ func runCLI(ctx context.Context, opts shellOptions, rawArgs []string) error {
 		}
 		fmt.Print(out)
 		return nil
+	case linuxcli.ADBDiagnostics:
+		agents, err := state.commandTargets()
+		if err != nil {
+			return err
+		}
+		return runADBDiagnosticsForAgents(ctx, state, agents, command.ADBKind, commandOutputOptions{format: cliOpts.Format, strict: true})
 	default:
 		agents, err := state.commandTargets()
 		if err != nil {

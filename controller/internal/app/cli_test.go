@@ -67,7 +67,7 @@ func TestCLIMultipleAgentsRequireExplicitTargetOrBroadcast(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts, _, counts := fakeCLISession(t, []string{"serial-a", "serial-b"})
-			args := append(append([]string(nil), tc.flags...), "request", "ping", "example.test", "--count", "1")
+			args := append(append([]string(nil), tc.flags...), "ping", "example.test", "count", "1")
 			_, err := captureStdout(t, func() error { return runCLI(context.Background(), opts, args) })
 			if tc.want == 0 {
 				if err == nil || !strings.Contains(err.Error(), "multiple") {

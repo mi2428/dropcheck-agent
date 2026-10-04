@@ -1,11 +1,6 @@
 package app
 
-import (
-	"time"
-
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/controlpb"
-)
+import "dropcheck/controller/internal/command"
 
 // Operation is the command boundary consumed by app execution code.
 //
@@ -13,11 +8,3 @@ import (
 // lives in internal/command.
 type Operation = command.Operation
 type commandOptions = command.Options
-
-func buildRunCommand(op Operation) (*controlpb.RunCommand, commandOptions, error) {
-	return command.BuildRunCommand(op)
-}
-
-func timeoutFor(cmd *controlpb.RunCommand) time.Duration {
-	return command.TimeoutFor(cmd)
-}

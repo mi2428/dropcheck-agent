@@ -2,123 +2,45 @@ package app
 
 import (
 	"io"
-	"os"
 
 	"dropcheck/controller/internal/shell"
 )
 
-type shellCommandKind int
+type shellCommandKind = shell.CommandKind
 
 const (
-	shellNoop shellCommandKind = iota
-	shellExit
-	shellExitMode
-	shellHelp
-	shellEnterConfigureMode
-	shellEnterRequestMode
-	shellShowDevices
-	shellAgentCommand
-	shellADBDiagnostics
+	shellNoop           = shell.Noop
+	shellExit           = shell.Exit
+	shellHelp           = shell.Help
+	shellShowDevices    = shell.ShowDevices
+	shellAgentCommand   = shell.AgentCommand
+	shellADBDiagnostics = shell.ADBDiagnostics
+	shellVersion        = shell.Version
 )
 
 type shellCommand struct {
 	kind       shellCommandKind
 	operation  Operation
 	adbKind    string
+	helpTopic  string
 	pipeline   pipePipeline
 	rawCommand string
 }
 
 func parseShellLine(line string) (shellCommand, error) {
 	parsed, err := shell.ParseLine(line)
-	return wrapShellCommand(parsed), err
+	return shellCommand{kind: parsed.Kind, operation: parsed.Operation, adbKind: parsed.ADBDiagnosticsKind, helpTopic: parsed.HelpTopic, pipeline: wrapPipePipeline(parsed.Pipeline), rawCommand: parsed.RawCommand}, err
 }
 
-func parseShellRequestLine(line string) (shellCommand, error) {
-	parsed, err := shell.ParseRequestLine(line)
-	return wrapShellCommand(parsed), err
-}
-
-func parseShellConfigureLine(line string) (shellCommand, error) {
-	parsed, err := shell.ParseConfigureLine(line)
-	return wrapShellCommand(parsed), err
-}
-
-func wrapShellCommand(parsed shell.Command) shellCommand {
-	return shellCommand{
-		kind:       shellCommandKind(parsed.Kind),
-		operation:  parsed.Operation,
-		adbKind:    parsed.ADBDiagnosticsKind,
-		pipeline:   wrapPipePipeline(parsed.Pipeline),
-		rawCommand: parsed.RawCommand,
-	}
-}
-
-func isHelpLine(line string) bool {
-	return shell.IsHelpLine(line)
-}
-
-func isShellHelpRune(value rune) bool {
-	return shell.IsHelpRune(value)
-}
-
-func printShellHelp() {
-	shell.PrintHelp()
-}
-
-func printShellContextHelp(line string, states ...*shellState) {
-	state := optionalShellState(states)
-	if state != nil && state.mode == shellModeRequest {
-		shell.WriteRequestContextHelp(os.Stdout, line)
-		return
-	}
-	if state != nil && state.mode == shellModeConfigure {
-		shell.WriteConfigureContextHelp(os.Stdout, line)
-		return
-	}
-	shell.PrintContextHelp(line)
-}
-
-func writeShellContextHelp(w io.Writer, line string, states ...*shellState) {
-	state := optionalShellState(states)
-	if state != nil && state.mode == shellModeRequest {
-		shell.WriteRequestContextHelp(w, line)
-		return
-	}
-	if state != nil && state.mode == shellModeConfigure {
-		shell.WriteConfigureContextHelp(w, line)
-		return
-	}
+func isHelpLine(line string) bool                         { return shell.IsHelpLine(line) }
+func isShellHelpRune(value rune) bool                     { return shell.IsHelpRune(value) }
+func printShellHelp()                                     { shell.PrintHelp() }
+func printShellContextHelp(line string, _ ...*shellState) { shell.PrintContextHelp(line) }
+func writeShellContextHelp(w io.Writer, line string, _ ...*shellState) {
 	shell.WriteContextHelp(w, line)
 }
-
-func optionalShellState(states []*shellState) *shellState {
-	if len(states) == 0 {
-		return nil
-	}
-	return states[0]
-}
-
-func completeShellLine(line string, state *shellState) []string {
-	if state != nil && state.mode == shellModeRequest {
-		return shell.CompleteRequestLine(line)
-	}
-	if state != nil && state.mode == shellModeConfigure {
-		return shell.CompleteConfigureLine(line)
-	}
-	return shell.CompleteLine(line)
-}
-
-func shellCompletionHintLine(line string, state *shellState) string {
-	if state != nil && state.mode == shellModeRequest {
-		return shell.RequestCompletionHintLine(line)
-	}
-	if state != nil && state.mode == shellModeConfigure {
-		return shell.ConfigureCompletionHintLine(line)
-	}
+func completeShellLine(line string, _ *shellState) []string { return shell.CompleteLine(line) }
+func shellCompletionHintLine(line string, _ *shellState) string {
 	return shell.CompletionHintLine(line)
 }
-
-func isPlaceholderCandidate(candidate string) bool {
-	return shell.IsPlaceholderCandidate(candidate)
-}
+func isPlaceholderCandidate(candidate string) bool { return shell.IsPlaceholderCandidate(candidate) }

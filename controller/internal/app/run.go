@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
+	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/session"
 	"dropcheck/controller/internal/version"
@@ -79,7 +81,8 @@ func writeTopLevelHelp(w io.Writer) {
 		{"show devices", "list connected Android agents"},
 		{"show wifi <topic>", "show Wi-Fi status and diagnostics"},
 		{"show ip status", "show IP and routing status"},
-		{"request <command> ...", "run a one-shot agent operation"},
+		{"wifi <command> ...", "run Wi-Fi control"},
+		{"ping|traceroute|path-mtu|global-ip|dns|http|download", "run an agent probe"},
 	})
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "Global flags:")
@@ -100,14 +103,11 @@ func writeTopLevelHelp(w io.Writer) {
 	})
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "Common commands:")
-	writeHelpRows(w, []helpRow{
-		{"show wifi scan fresh [options]", "run a fresh Wi-Fi scan"},
-		{"request wifi connect <ssid>", "connect to Wi-Fi"},
-		{"request ping <host> [options]", "run ICMP ping"},
-		{"request traceroute <host>", "run traceroute"},
-		{"request dns <name> [options]", "resolve DNS"},
-		{"request http <url> [options]", "check HTTP status"},
-	})
+	for _, spec := range command.GrammarTable {
+		if !spec.Unsupported {
+			_, _ = fmt.Fprintln(w, "  "+commandUsage(spec))
+		}
+	}
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, `Notes:
   Top-level flags accept either single or double dash, for example -serial or --serial.
@@ -116,8 +116,44 @@ Examples:
   dropcheck shell
   dropcheck --serial R5CT12345 shell
   dropcheck --format json show devices
-  dropcheck request ping 1.1.1.1 --count 5
-  dropcheck show wifi scan fresh --timeout 9000`)
+  dropcheck ping 1.1.1.1 count 5
+  dropcheck show wifi scan fresh timeout 9000`)
+}
+
+func commandUsage(spec command.Grammar) string {
+	usage := spec.Path
+	for _, positional := range spec.Positionals {
+		usage += " <" + positional + ">"
+	}
+	for _, required := range spec.Required {
+		usage += " " + required + " <value>"
+	}
+	for _, key := range spec.Switches {
+		usage += " [" + key + "]"
+	}
+	for _, key := range spec.Values {
+		if !slices.Contains(spec.Required, key) {
+			usage += " [" + key + " <value>]"
+		}
+	}
+	return usage
+}
+
+func writeCommandHelp(w io.Writer, topic string) {
+	if topic == "" {
+		writeTopLevelHelp(w)
+		return
+	}
+	found := false
+	for _, spec := range command.GrammarTable {
+		if !spec.Unsupported && (spec.Path == topic || strings.HasPrefix(spec.Path, topic+" ")) {
+			_, _ = fmt.Fprintln(w, "  "+commandUsage(spec))
+			found = true
+		}
+	}
+	if !found {
+		_, _ = fmt.Fprintln(w, "unsupported help topic")
+	}
 }
 
 func writeHelpRows(w io.Writer, rows []helpRow) {
@@ -272,21 +308,12 @@ func selectShellStartupTarget(state *shellState, agents []control.AgentInfo, tar
 	}
 }
 
-type shellMode int
-
-const (
-	shellModeOperational shellMode = iota
-	shellModeConfigure
-	shellModeRequest
-)
-
 type shellState struct {
 	server        *control.Server
 	adbPath       string
 	selected      string
 	selectedLabel string
 	targetAll     bool
-	mode          shellMode
 }
 
 func (s *shellState) setSelectedAgent(info control.AgentInfo) {

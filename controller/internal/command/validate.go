@@ -25,7 +25,7 @@ func ValidateOperation(op Operation) error {
 		return err
 	}
 	host := func(value string) error {
-		if value == "" || strings.ContainsAny(value, " \t\r\n\x00") {
+		if value == "" || strings.HasPrefix(value, "-") || strings.ContainsAny(value, " \t\r\n\x00") {
 			return fmt.Errorf("invalid probe host")
 		}
 		return nil

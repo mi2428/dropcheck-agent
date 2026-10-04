@@ -2,6 +2,7 @@ package app
 
 import (
 	"os"
+	"strings"
 
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
@@ -11,7 +12,10 @@ import (
 )
 
 func renderCommandResult(agent string, result *controlpb.CommandResult, options commandOptions, format outputFormat) (string, error) {
-	return render.CommandResult(agent, result, options, format, terminalPresentation())
+	view := terminalPresentation()
+	view.Detail = options.Detail
+	view.DetailAvailable = true
+	return render.CommandResult(agent, result, options, format, view)
 }
 
 func terminalPresentation() render.Presentation {
@@ -31,6 +35,10 @@ func renderCommandResultEnvelope(agent string, commandID string, result *control
 
 func renderCommandError(agent string, commandID string, err error, format outputFormat, includeAgent bool) (string, error) {
 	return render.CommandError(agent, commandID, err, format, includeAgent)
+}
+
+func safeCommandErrorText(text string) string {
+	return strings.TrimSpace(render.TextBlock(text, render.Presentation{}))
 }
 
 func renderAgents(view render.AgentListView, format outputFormat) (string, error) {

@@ -11,8 +11,9 @@ const (
 // they affect presentation or validation in the controller rather than work the
 // Android agent performs.
 type Options struct {
-	// TracerouteRequiredHops lists hop hostnames or addresses that should appear
-	// in rendered traceroute output.
+	// Detail selects the local detail presentation (never a wire option).
+	Detail bool
+	// TracerouteRequiredHops lists typed hop identities required by the common evaluator.
 	TracerouteRequiredHops []string
 	// WifiRenderMode selects a controller-only Wi-Fi diagnostics presentation.
 	WifiRenderMode string

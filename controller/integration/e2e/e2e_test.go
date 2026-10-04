@@ -28,8 +28,7 @@
 // subtest names, for example E2E-001_shell_help, so verbose output remains readable.
 // Commands intentionally use placeholders such as <ssid>, <psk>, <serial>,
 // and <bssid> so lab secrets are not committed.
-// Shell commands prefixed with "request> " or "config> " are
-// executed inside the corresponding interactive submode.
+// Shell commands use the same flat grammar as one-shot argv.
 package e2e
 
 import (
@@ -310,12 +309,6 @@ func (cfg *e2eConfig) runShellCase(tc matrixCase, commandLine string) commandRes
 }
 
 func shellInput(commandLine string) string {
-	if requestLine, ok := requestModeCommand(commandLine); ok {
-		return "request\n" + requestLine + "\n"
-	}
-	if configureLine, ok := configureModeCommand(commandLine); ok {
-		return "configure\n" + configureLine + "\n"
-	}
 	return commandLine + "\n"
 }
 
@@ -479,7 +472,7 @@ func quoteToken(value string) string {
 }
 
 func requiresWiFiSecret(commandLine string) bool {
-	return strings.Contains(commandLine, "passphrase") || strings.Contains(commandLine, "--passphrase") || strings.Contains(commandLine, "wifi connect") || strings.Contains(commandLine, "wifi cycle")
+	return strings.Contains(commandLine, "passphrase") || strings.Contains(commandLine, "wifi connect") || strings.Contains(commandLine, "wifi cycle")
 }
 
 func timeoutFor(tc matrixCase) time.Duration {
@@ -541,8 +534,8 @@ func (cfg *e2eConfig) restoreWiFiConnection() {
 	if cfg.ssid == "" || cfg.psk == "" {
 		return
 	}
-	cfg.runCLICleanup("request", "wifi", "connect", cfg.ssid, "--passphrase", cfg.psk, "--security", "auto", "--timeout", "25000")
-	cfg.runCLICleanup("request", "wifi", "wait", "connected", cfg.ssid, "--ip", "--validated", "--timeout", "30000")
+	cfg.runCLICleanup("wifi", "connect", cfg.ssid, "passphrase", cfg.psk, "security", "auto", "timeout", "25000")
+	cfg.runCLICleanup("wifi", "wait", "connected", "ssid", cfg.ssid, "require-ip", "true", "require-validated", "true", "timeout", "30000")
 }
 
 func (cfg *e2eConfig) resetLiveState() {
@@ -755,49 +748,7 @@ func caseNeedsWiFiSetup(tc matrixCase) bool {
 	if strings.Contains(commandLine, "<ssid>") || strings.Contains(commandLine, "<psk>") || strings.Contains(commandLine, "<bssid>") {
 		return true
 	}
-	wifiOrNetworkCommands := []string{
-		"show wifi",
-		"show ip",
-		"request wifi connect",
-		"request wifi wait",
-		"request wifi assert",
-		"request wifi reconnect",
-		"request wifi cycle",
-		"request wifi disconnect",
-		"request wifi forget",
-		"request> wifi connect",
-		"request> wifi wait",
-		"request> wifi assert",
-		"request> wifi reconnect",
-		"request> wifi cycle",
-		"request> wifi disconnect",
-		"request> wifi forget",
-		"monitor wifi",
-		"request> monitor wifi",
-		"request ping",
-		"request traceroute",
-		"request path-mtu",
-		"request global-ip",
-		"request dns",
-		"request http",
-		"request download",
-		"request> ping",
-		"request> traceroute",
-		"request> path-mtu",
-		"request> global-ip",
-		"request> dns",
-		"request> http",
-		"request> download",
-		"dropcheck request ping",
-		"dropcheck show ip",
-		"dropcheck show wifi",
-		"dropcheck request traceroute",
-		"dropcheck request path-mtu",
-		"dropcheck request global-ip",
-		"dropcheck request dns",
-		"dropcheck request http",
-		"dropcheck request download",
-	}
+	wifiOrNetworkCommands := []string{"show wifi", "show ip", "wifi connect", "wifi wait", "wifi assert", "wifi reconnect", "wifi cycle", "wifi disconnect", "wifi forget", "wifi monitor", "ping ", "traceroute ", "path-mtu ", "global-ip", "dns ", "http ", "download "}
 	for _, needle := range wifiOrNetworkCommands {
 		if strings.Contains(commandLine, needle) {
 			return true

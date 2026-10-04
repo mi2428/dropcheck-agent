@@ -3,6 +3,7 @@ package app
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,9 @@ import (
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
+	"dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/runner"
+	"dropcheck/controller/internal/version"
 	"github.com/chzyer/readline"
 	"google.golang.org/protobuf/proto"
 )
@@ -69,9 +73,7 @@ func replLineEditor(ctx context.Context, state *shellState) error {
 				return err
 			}
 		}
-		if strings.TrimSpace(line) != "" {
-			_ = lineReader.SaveHistory(line)
-		}
+		// Never retain credential-bearing input in readline history.
 		done, err := runReplLine(ctx, state, line)
 		if err != nil || done {
 			return err
@@ -170,7 +172,7 @@ func handleShellHelpKey(w io.Writer, line []rune, pos int, key rune, states ...*
 	helpLine[len(helpLine)-1] = '?'
 	var b strings.Builder
 	b.WriteByte('\n')
-	writeShellContextHelp(&b, string(helpLine), optionalShellState(states))
+	writeShellContextHelp(&b, string(helpLine), states...)
 	_, _ = io.WriteString(w, b.String())
 
 	newLine := append([]rune(nil), line[:questionIndex]...)
@@ -201,14 +203,7 @@ func (s *shellState) prompt() string {
 	} else if s.selectedLabel != "" {
 		label = s.selectedLabel
 	}
-	switch s.mode {
-	case shellModeConfigure:
-		return fmt.Sprintf("%s(config)# ", label)
-	case shellModeRequest:
-		return fmt.Sprintf("%s(request)# ", label)
-	default:
-		return fmt.Sprintf("%s# ", label)
-	}
+	return fmt.Sprintf("%s# ", label)
 }
 
 func (s *shellState) selectedAgentIfConnected() (control.AgentInfo, bool) {
@@ -228,14 +223,7 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 		printShellContextHelp(line, state)
 		return false, nil
 	}
-	parse := parseShellLine
-	switch state.mode {
-	case shellModeConfigure:
-		parse = parseShellConfigureLine
-	case shellModeRequest:
-		parse = parseShellRequestLine
-	}
-	command, err := parse(line)
+	command, err := parseShellLine(line)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return false, nil
@@ -243,19 +231,17 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 	switch command.kind {
 	case shellNoop:
 		return false, nil
-	case shellExitMode:
-		state.mode = shellModeOperational
-		return false, nil
 	case shellExit:
 		return true, nil
 	case shellHelp:
-		printShellHelp()
+		if command.helpTopic == "" {
+			printShellHelp()
+		} else {
+			writeCommandHelp(os.Stdout, command.helpTopic)
+		}
 		return false, nil
-	case shellEnterConfigureMode:
-		state.mode = shellModeConfigure
-		return false, nil
-	case shellEnterRequestMode:
-		state.mode = shellModeRequest
+	case shellVersion:
+		fmt.Println(version.Version)
 		return false, nil
 	case shellShowDevices:
 		return false, printLocalOutput(command, func(format outputFormat) (string, error) {
@@ -374,8 +360,7 @@ func runOperationForAgents(ctx context.Context, state *shellState, agents []cont
 	if len(agents) > 1 {
 		output.includeAgentHeader = true
 	}
-	cmd, options, err := buildRunCommand(op)
-	if err != nil {
+	if err := command.ValidateOperation(op); err != nil {
 		if output.strict {
 			return err
 		}
@@ -388,12 +373,8 @@ func runOperationForAgents(ctx context.Context, state *shellState, agents []cont
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(agents))
 	for _, agent := range agents {
-		// Each goroutine receives its own command clone. The server and render
-		// path currently treat commands as immutable, but cloning here keeps
-		// broadcast execution isolated across agents.
-		agentCmd := proto.Clone(cmd).(*controlpb.RunCommand)
 		wg.Go(func() {
-			if err := runCommandForAgent(ctx, state, agent, agentCmd, options, output, &outputMu, &printedAny); err != nil {
+			if err := runCommandForAgent(ctx, state, agent, op, output, &outputMu, &printedAny); err != nil {
 				errCh <- err
 			}
 		})
@@ -442,7 +423,11 @@ func runADBDiagnosticsForAgent(ctx context.Context, state *shellState, agent con
 	if serial == "" {
 		outputMu.Lock()
 		defer outputMu.Unlock()
-		fmt.Fprintf(os.Stderr, "%s: adb serial is not available for diagnostics\n", agentDisplayName(agent))
+		err := fmt.Errorf("%s: adb serial is not available for diagnostics", agentDisplayName(agent))
+		fmt.Fprintln(os.Stderr, err)
+		if output.strict {
+			return err
+		}
 		return nil
 	}
 	bundle, err := adbdiag.Collect(ctx, adb.Client{Path: state.adbPath, Serial: serial}, agentDisplayName(agent), kind)
@@ -486,29 +471,39 @@ func resultStatusLabel(status controlpb.CommandResult_Status) string {
 	}
 }
 
-func runCommandForAgent(ctx context.Context, state *shellState, agent control.AgentInfo, cmd *controlpb.RunCommand, options commandOptions, output commandOutputOptions, outputMu *sync.Mutex, printedAny *bool) error {
-	commandID, err := control.RandomHex(8)
-	if err != nil {
-		return err
+func runCommandForAgent(ctx context.Context, state *shellState, agent control.AgentInfo, op Operation, output commandOutputOptions, outputMu *sync.Mutex, printedAny *bool) error {
+	exec, err := harness.ExecuteOperation(ctx, runner.New(state.server), agent, op)
+	commandID := ""
+	if len(exec.Parts) != 0 {
+		commandID = exec.Parts[len(exec.Parts)-1].CommandID
 	}
-
-	var freshScan *controlpb.CommandResult
-	if options.WifiEHTFreshScan {
-		freshScan, err = runWifiEHTFreshScan(ctx, state, agent, options)
+	result := exec.Raw
+	options := exec.Options
+	if err == nil && result == nil {
+		err = errors.New("agent returned no result")
 	}
-	var result *controlpb.CommandResult
-	if err == nil && freshScan != nil && (freshScan.GetStatus() == controlpb.CommandResult_STATUS_CANCELED || freshScan.GetWifiScan() == nil) {
-		result = freshScan
-	} else if err == nil {
-		runCtx, cancel := context.WithTimeout(ctx, timeoutFor(cmd))
-		result, err = state.server.Run(runCtx, agent.ID, commandID, cmd)
-		cancel()
-		if err == nil {
-			err = applyWifiEHTFreshScan(result, freshScan)
-		} else if freshScan != nil && freshScan.GetStatus() != controlpb.CommandResult_STATUS_OK {
-			err = fmt.Errorf("%s; wifi eht diagnostics: %w", freshScan.GetMessage(), err)
+	if err == nil && result.GetStatus() == controlpb.CommandResult_STATUS_OK && result.GetPayload() == nil {
+		err = errors.New("agent returned no payload")
+	}
+	if err == nil && op.Name == "wifi.eht" && len(exec.Parts) > 1 && result.GetWifiDiagnostics() == nil {
+		err = errors.New("wifi eht diagnostics: wrong payload")
+	}
+	// Findings from the common typed evaluator are authoritative even when the
+	// agent acquisition itself returned OK. Do not reparse renderer text.
+	failedFinding := false
+	for _, finding := range exec.Findings {
+		if !finding.Passed || finding.Missing {
+			failedFinding = true
 		}
 	}
+	if err == nil && failedFinding && result.GetStatus() == controlpb.CommandResult_STATUS_OK {
+		result = proto.Clone(result).(*controlpb.CommandResult)
+		result.Status = controlpb.CommandResult_STATUS_FAILED
+		result.Message = "local operation assertion failed"
+	}
+	// The old text renderer inspects untrusted process output for via. Core's
+	// typed hop findings, not that heuristic, determine both result and exit.
+	options.TracerouteRequiredHops = nil
 	supplements := commandResultSupplements{}
 	if err == nil {
 		supplements = collectCommandResultSupplements(ctx, state, agent, result, options, output.format)
@@ -524,7 +519,7 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 		if renderErr != nil {
 			return renderErr
 		}
-		out, renderErr = output.pipeline.apply(out)
+		out, renderErr = output.pipeline.apply(redactOperationSecret(op, out))
 		if renderErr != nil {
 			return renderErr
 		}
@@ -536,7 +531,7 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 			*printedAny = true
 		}
 		if output.strict {
-			return fmt.Errorf("%s: %w", agentDisplayName(agent), err)
+			return fmt.Errorf("%s: %s", agentDisplayName(agent), redactOperationSecret(op, safeCommandErrorText(err.Error())))
 		}
 		return nil
 	}
@@ -555,7 +550,38 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 	if err != nil {
 		return err
 	}
-	out, err = output.pipeline.apply(out)
+	if len(exec.Findings) != 0 {
+		if output.format == outputJSON {
+			var body map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(out), &body); err != nil {
+				return err
+			}
+			findings, err := json.Marshal(exec.Findings)
+			if err != nil {
+				return err
+			}
+			body["findings"] = findings
+			data, err := json.Marshal(body)
+			if err != nil {
+				return err
+			}
+			out = string(data) + "\n"
+		} else {
+			for _, finding := range exec.Findings {
+				status := "PASS"
+				if finding.Missing {
+					status = "MISSING"
+				} else if !finding.Passed {
+					status = "FAIL"
+				}
+				out += fmt.Sprintf("%s %s: %s\n", status, finding.Metric, finding.Message)
+			}
+		}
+	}
+	if output.format == outputText && op.Name == "wifi.eht" && len(exec.Parts) > 0 && exec.Parts[0].Raw.GetWifiScan() != nil && exec.Parts[0].Raw.GetStatus() != controlpb.CommandResult_STATUS_OK {
+		out += "Fresh scan: cached (refresh failed); scan data is reference\n"
+	}
+	out, err = output.pipeline.apply(redactOperationSecret(op, out))
 	if err != nil {
 		return err
 	}
@@ -567,91 +593,23 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 		*printedAny = true
 	}
 	if output.strict && result.GetStatus() != controlpb.CommandResult_STATUS_OK {
-		return fmt.Errorf("%s: %s: %s", agentDisplayName(agent), resultStatusLabel(result.GetStatus()), result.GetMessage())
+		return fmt.Errorf("%s: %s: %s", agentDisplayName(agent), resultStatusLabel(result.GetStatus()), redactOperationSecret(op, safeCommandErrorText(result.GetMessage())))
 	}
 	return nil
 }
 
-func runWifiEHTFreshScan(ctx context.Context, state *shellState, agent control.AgentInfo, options commandOptions) (*controlpb.CommandResult, error) {
-	commandID, err := control.RandomHex(8)
-	if err != nil {
-		return nil, err
+func redactOperationSecret(op Operation, text string) string {
+	if op.Command == nil {
+		return text
 	}
-	op, err := command.WifiFreshScanOperation("all", strconv.FormatUint(uint64(options.WifiEHTFreshScanTimeoutMs), 10))
-	if err != nil {
-		return nil, err
+	secret := op.Command.GetConnectWifi().GetPassphrase()
+	if cycle := op.Command.GetCycleWifi(); cycle != nil {
+		secret = cycle.GetConnect().GetPassphrase()
 	}
-	cmd, _, err := buildRunCommand(op)
-	if err != nil {
-		return nil, err
+	if secret != "" {
+		text = strings.ReplaceAll(text, secret, "<redacted>")
 	}
-	cmd.Label = "wifi eht fresh scan"
-	runCtx, cancel := context.WithTimeout(ctx, timeoutFor(cmd))
-	result, err := state.server.Run(runCtx, agent.ID, commandID, cmd)
-	cancel()
-	if err != nil {
-		return nil, fmt.Errorf("wifi eht fresh scan: %w", err)
-	}
-	return prepareWifiEHTFreshScanResult(result)
-}
-
-func prepareWifiEHTFreshScanResult(result *controlpb.CommandResult) (*controlpb.CommandResult, error) {
-	if result == nil {
-		return nil, errors.New("wifi eht fresh scan: agent returned an empty result")
-	}
-	if result.GetWifiScan() == nil && (result.GetStatus() == controlpb.CommandResult_STATUS_OK || result.GetPayload() != nil) {
-		return nil, fmt.Errorf("wifi eht fresh scan: agent returned %s without wifi scan: %s: %s", resultPayloadLabel(result), resultStatusLabel(result.GetStatus()), result.GetMessage())
-	}
-	result = proto.Clone(result).(*controlpb.CommandResult)
-	if result.GetStatus() != controlpb.CommandResult_STATUS_OK {
-		result.Message = fmt.Sprintf("wifi eht fresh scan: %s: %s", resultStatusLabel(result.GetStatus()), result.GetMessage())
-		if result.GetWifiScan() != nil {
-			result.Message += "; scan data is reference; refresh not confirmed"
-		}
-	}
-	if scan := result.GetWifiScan(); scan != nil {
-		source := "fresh"
-		if result.GetStatus() != controlpb.CommandResult_STATUS_OK {
-			source = "cached (refresh failed)"
-		}
-		scan.Fields = append(scan.Fields, &controlpb.DiagnosticField{Key: "scan_source", Value: source})
-	}
-	return result, nil
-}
-
-func applyWifiEHTFreshScan(result *controlpb.CommandResult, freshScan *controlpb.CommandResult) error {
-	if freshScan == nil {
-		return nil
-	}
-	if freshScan.GetWifiScan() == nil {
-		return fmt.Errorf("wifi eht fresh scan: agent returned %s without wifi scan", resultPayloadLabel(freshScan))
-	}
-	diagnostics := result.GetWifiDiagnostics()
-	if diagnostics == nil {
-		return fmt.Errorf("wifi eht diagnostics: agent returned %s without wifi diagnostics: %s; %s", resultPayloadLabel(result), result.GetMessage(), freshScan.GetMessage())
-	}
-	diagnostics.Scan = proto.Clone(freshScan.GetWifiScan()).(*controlpb.WifiScan)
-	result.ElapsedMs += freshScan.GetElapsedMs()
-	if freshScan.GetStatus() != controlpb.CommandResult_STATUS_OK {
-		message := result.GetMessage()
-		if result.GetStatus() == controlpb.CommandResult_STATUS_OK {
-			result.Status = freshScan.GetStatus()
-		} else {
-			message = fmt.Sprintf("wifi eht diagnostics: %s: %s", resultStatusLabel(result.GetStatus()), message)
-		}
-		result.Message = strings.TrimSuffix(freshScan.GetMessage()+"; "+message, "; ")
-	}
-	return nil
-}
-
-func resultPayloadLabel(result *controlpb.CommandResult) string {
-	if result == nil {
-		return "empty result"
-	}
-	if result.GetPayload() == nil {
-		return "empty payload"
-	}
-	return fmt.Sprintf("%T", result.GetPayload())
+	return text
 }
 
 func useLineEditor() bool {
