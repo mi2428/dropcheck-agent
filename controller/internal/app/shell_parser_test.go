@@ -975,6 +975,43 @@ func TestShellReadlineCompletionsAreSingleTokens(t *testing.T) {
 	}
 }
 
+func TestEHTHelpCompletionOnlyOffersAcceptedSyntax(t *testing.T) {
+	for _, line := range []string{"show wifi eht ", "sh wi e ", "config> run show wifi eht ", "config> run sh wi e "} {
+		t.Run(line, func(t *testing.T) {
+			want := []string{"fresh", "ssid", "bssid"}
+			if got := shellCompletionFragmentsForTest(line); !slices.Equal(got, want) {
+				t.Fatalf("completion tokens = %v, want %v", got, want)
+			}
+			var help []string
+			for _, entry := range shellHelpEntriesForTest(line + "?") {
+				help = append(help, entry.token)
+			}
+			if !slices.Equal(help, want) {
+				t.Fatalf("help tokens = %v, want %v", help, want)
+			}
+			for _, token := range want {
+				candidate := line + token
+				switch token {
+				case "ssid":
+					candidate += ` "  MiXeD | SSID\\Tail  "`
+				case "bssid":
+					candidate += " aa:bb:cc:dd:ee:ff"
+				}
+				parsed, err := parseShellLineForTest(candidate)
+				if err != nil || parsed.operation.Command == nil || parsed.operation.Command.GetGetWifiDiagnostics() == nil {
+					t.Fatalf("advertised completion did not parse: %v", err)
+				}
+				if token == "ssid" && parsed.operation.Options.WifiEHTSSID != `  MiXeD | SSID\Tail  ` {
+					t.Fatal("quoted literal was normalized")
+				}
+			}
+			if _, err := parseShellLineForTest(line + "brief"); err == nil {
+				t.Fatal("rejected EHT brief became accepted")
+			}
+		})
+	}
+}
+
 func TestShellOptionCompletion(t *testing.T) {
 	tests := []struct {
 		line string

@@ -81,10 +81,11 @@ internal object AgentShellParser {
     }
 
     private fun parseShow(tokens: List<String>): AgentShellCommand {
+        val keyword = resolveKeyword(tokens.getOrNull(1).orEmpty(), listOf("version", "wifi"))
         return when {
-            tokens.size == 2 && "version".startsWith(tokens[1]) -> AgentShellCommand.ShowVersion
-            tokens.size == 2 && "wifi".startsWith(tokens[1]) -> AgentShellCommand.Invalid("usage: show wifi (status|eht|scan)")
-            tokens.size >= 3 && "wifi".startsWith(tokens[1]) -> parseShowWifi(tokens.drop(2))
+            tokens.size == 2 && keyword == "version" -> AgentShellCommand.ShowVersion
+            tokens.size == 2 && keyword == "wifi" -> AgentShellCommand.Invalid("usage: show wifi (status|eht|scan)")
+            tokens.size >= 3 && keyword == "wifi" -> parseShowWifi(tokens.drop(2))
             else -> AgentShellCommand.Invalid("usage: show (version|wifi status|wifi eht|wifi scan)")
         }
     }
@@ -342,12 +343,7 @@ internal object AgentShellParser {
         return ParsedProbe(host = host, values = values)
     }
 
-    private fun resolveCommandName(value: String): String? {
-        if (value.isBlank()) return null
-        commandNames.firstOrNull { it == value }?.let { return it }
-        val matches = commandNames.filter { it.startsWith(value) }
-        return matches.singleOrNull()
-    }
+    private fun resolveCommandName(value: String): String? = resolveKeyword(value, commandNames)
 
     private data class ParsedProbe(
         val host: String = "",
@@ -363,12 +359,11 @@ internal fun redactAgentShellCommandLine(line: String): String {
     if ("use".startsWith(command) && tokens.size >= 3) {
         return "use ${formatAgentShellToken(tokens[1])} <redacted>"
     }
-    if ("set".startsWith(command) &&
-        tokens.size >= 4 &&
-        resolveKeyword(tokens[1], listOf("default")) == "default" &&
-        resolveKeyword(tokens[2], listOf("passphrase")) == "passphrase"
-    ) {
-        return "set default passphrase <redacted>"
+    if ("set".startsWith(command)) {
+        return if (tokens.size >= 4 &&
+            resolveKeyword(tokens[1], listOf("default")) == "default" &&
+            resolveKeyword(tokens[2], listOf("passphrase")) == "passphrase"
+        ) "set default passphrase <redacted>" else "<redacted malformed command>"
     }
     return line
 }
@@ -422,7 +417,7 @@ internal fun shellSplitWords(line: String): Result<List<String>> {
             }
         }
     }
-    if (escaped) current.append('\\')
+    if (escaped) return Result.failure(IllegalArgumentException("trailing escape"))
     if (quote != null) return Result.failure(IllegalArgumentException("unterminated quote"))
     if (inToken) words += current.toString()
     return Result.success(words)
