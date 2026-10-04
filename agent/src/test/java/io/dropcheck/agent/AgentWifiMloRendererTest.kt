@@ -167,9 +167,9 @@ class AgentWifiMloRendererTest {
         assertTrue("missing full SSID in brief table:\n$out", out.contains(longSsid))
         assertTrue("missing group heading:\n$out", out.contains("  $longSsid"))
         assertTrue("missing MLD line:\n$out", out.contains("    mld  02:00:00:00:00:01"))
-        assertTrue("missing brief table header:\n$out", out.contains("M  L  RSSI  B   FL") && out.contains("EHT") && out.contains("MAC"))
-        assertTrue("missing current link row:\n$out", out.contains("*  2  -45   6G  active  be  sae  320/1,3"))
-        assertTrue("missing peer link row:\n$out", out.contains("+  1  -55   6G  idle") && out.contains("aa:bb:cc:dd:ee:01"))
+        assertTrue("missing complete brief records:\n$out", out.contains("M:") && out.contains("RSSI: -45") && out.contains("EHT: 320/1,3") && out.contains("MAC: aa:bb:cc:dd:ee:ff"))
+        assertTrue("missing current link record:\n$out", out.contains("FL: active") && out.contains("ST: be") && out.contains("SEC: sae"))
+        assertTrue("missing peer link record:\n$out", out.contains("RSSI: -55") && out.contains("FL: idle") && out.contains("aa:bb:cc:dd:ee:01"))
         assertFalse("rendered output still contains the old brief block format:\n$out", out.contains("data   clr") || out.contains("ITEM") || out.contains("ADDR"))
         assertFalse(out.contains("Current AP Relation"))
         assertFalse(out.contains("Connected MLO"))
@@ -439,20 +439,18 @@ class AgentWifiMloRendererTest {
             .build()
 
         val lines = AgentWifiMloRenderer.render(status, scan)
-        val tableLines = lines.dropWhile { it != "Nearby EHT APs" }.drop(1).take(3)
         val out = lines.joinToString("\n")
 
-        assertTrue("rendered output missing capped SSID:\n$out", tableLines.any { it.contains("...") })
-        tableLines.forEach { line ->
-            assertTrue("table line too wide (${line.length}): $line\n$out", line.length <= 80)
-        }
-        assertTrue(out.contains("scan_mlo_metadata_absent 11be_results=2 ap_mld=0 link_id=0"))
+        assertTrue("full safe SSID missing from record projection:\n$out", out.contains("shishimaru-shinyurigaoka-shop"))
+        assertTrue(out.contains("scan_mlo_metadata_unavailable 11be_results=2 observed_ap_mld=0 observed_link_id=0"))
         assertTrue(out.contains("EHT Scan Links"))
         assertFalse(out.contains("[-] 獅子丸新百合ヶ丘店"))
     }
 
     private fun mloConnection(): WifiConnection {
         return WifiConnection.newBuilder()
+            .addObservationFields(field("identity.state", "available"))
+            .addObservationFields(field("ap_mlo_link_id.state", "available"))
             .setSsid("Lab")
             .setBssid("aa:bb:cc:dd:ee:ff")
             .setRssiDbm(-45)

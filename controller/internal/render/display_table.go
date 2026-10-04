@@ -3,14 +3,24 @@ package render
 import (
 	"strings"
 	"unicode"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 type displayTableColumn struct {
 	header   string
 	maxWidth int
+	numeric  bool
 }
 
-func writeDisplayTable(b *strings.Builder, columns []displayTableColumn, rows [][]string) {
+func (column displayTableColumn) fitValue(value string) string {
+	if column.header == "SSID" {
+		return fitDisplayCell(value, column.maxWidth)
+	}
+	return cleanDisplayCell(value)
+}
+
+func writeDisplayTable(b *strings.Builder, columns []displayTableColumn, rows [][]string, gap ...string) {
 	if len(columns) == 0 {
 		return
 	}
@@ -26,7 +36,7 @@ func writeDisplayTable(b *strings.Builder, columns []displayTableColumn, rows []
 			if i < len(row) {
 				value = row[i]
 			}
-			prepared[i] = fitDisplayCell(value, column.maxWidth)
+			prepared[i] = column.fitValue(value)
 		}
 		preparedRows = append(preparedRows, prepared)
 	}
@@ -41,16 +51,25 @@ func writeDisplayTable(b *strings.Builder, columns []displayTableColumn, rows []
 		}
 	}
 
-	writeDisplayTableRow(b, preparedHeaders, widths)
+	writeDisplayTableRow(b, preparedHeaders, widths, gap...)
 	for _, row := range preparedRows {
-		writeDisplayTableRow(b, row, widths)
+		for i, column := range columns {
+			if column.numeric {
+				row[i] = strings.Repeat(" ", widths[i]-displayWidth(row[i])) + row[i]
+			}
+		}
+		writeDisplayTableRow(b, row, widths, gap...)
 	}
 }
 
-func writeDisplayTableRow(b *strings.Builder, row []string, widths []int) {
+func writeDisplayTableRow(b *strings.Builder, row []string, widths []int, gap ...string) {
+	separator := "  "
+	if len(gap) > 0 {
+		separator = gap[0]
+	}
 	for i, value := range row {
 		if i > 0 {
-			b.WriteString("  ")
+			b.WriteString(separator)
 		}
 		if i == len(row)-1 {
 			b.WriteString(value)
@@ -70,26 +89,16 @@ func fitDisplayCell(value string, maxWidth int) string {
 		return strings.Repeat(".", maxWidth)
 	}
 
-	suffix := "..."
-	targetWidth := maxWidth - displayWidth(suffix)
-	var out strings.Builder
-	width := 0
-	for _, r := range cleaned {
-		runeWidth := runeDisplayWidth(r)
-		if width+runeWidth > targetWidth {
-			break
-		}
-		out.WriteRune(r)
-		width += runeWidth
-	}
-	out.WriteString(suffix)
-	return out.String()
+	return ansi.Truncate(cleaned, maxWidth, "...")
 }
 
 func cleanDisplayCell(value string) string {
-	value = strings.ReplaceAll(value, "\t", " ")
-	value = strings.ReplaceAll(value, "\r", " ")
-	return strings.ReplaceAll(value, "\n", " ")
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || r == '\u061c' || r == '\u200b' || r == '\u200e' || r == '\u200f' || r == '\ufeff' || r == '\u2028' || r == '\u2029' || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2060' && r <= '\u2069') {
+			return ' '
+		}
+		return r
+	}, ansi.Strip(value))
 }
 
 func padDisplayEnd(value string, width int) string {
@@ -101,32 +110,5 @@ func padDisplayEnd(value string, width int) string {
 }
 
 func displayWidth(value string) int {
-	width := 0
-	for _, r := range value {
-		width += runeDisplayWidth(r)
-	}
-	return width
-}
-
-func runeDisplayWidth(r rune) int {
-	if unicode.IsControl(r) || unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Me, r) || unicode.Is(unicode.Mc, r) {
-		return 0
-	}
-	if isWideRune(r) {
-		return 2
-	}
-	return 1
-}
-
-func isWideRune(r rune) bool {
-	return r >= 0x1100 && (r <= 0x115f ||
-		r == 0x2329 ||
-		r == 0x232a ||
-		(r >= 0x2e80 && r <= 0xa4cf && r != 0x303f) ||
-		(r >= 0xac00 && r <= 0xd7a3) ||
-		(r >= 0xf900 && r <= 0xfaff) ||
-		(r >= 0xfe10 && r <= 0xfe19) ||
-		(r >= 0xfe30 && r <= 0xfe6f) ||
-		(r >= 0xff00 && r <= 0xff60) ||
-		(r >= 0xffe0 && r <= 0xffe6))
+	return ansi.StringWidth(value)
 }

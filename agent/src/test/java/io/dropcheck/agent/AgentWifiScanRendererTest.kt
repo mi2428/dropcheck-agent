@@ -95,31 +95,22 @@ class AgentWifiScanRendererTest {
         for (want in listOf(
             "Wi-Fi Scan",
             "Lab",
-            "mld  02:00:00:00:00:01",
-            "K  L  RSSI  B   CH  ST  SEC  FL",
-            "s  2  -45   6G  69  be  sae  11k,11v...",
-            "a  1  ?     5G  ?   -   -    ua",
+            "MLD: 02:00:00:00:00:01",
+            "dBm: -45",
+            "BAND: 6G",
+            "CH: 69",
+            "SEC: sae",
+            "Affiliated: 1 unassociated",
             "aa:bb:cc:dd:ee:ff",
             "aa:bb:cc:dd:ee:01",
         )) {
             assertTrue("rendered output missing $want:\n$out", out.contains(want))
         }
-        for ((key, value) in listOf(
-            "requested_band" to "6GHz",
-            "mlo_results" to "1",
-            "affiliated_rows" to "1",
-            "display_rows" to "2",
-            "scan_results" to "3",
-            "scan_total" to "3",
-            "wifi_enabled" to "true",
-            "wifi_state" to "enabled",
-        )) {
-            val line = out.lineSequence().firstOrNull { it.trimStart().startsWith(key) }
-            assertTrue("missing summary row $key:\n$out", line != null)
-            assertTrue("summary row $key missing value $value:\n$out", line!!.contains(value))
-        }
+        assertTrue(out.contains("Band: 6GHz"))
+        assertTrue(out.contains("APs: acquired=2 total=3"))
+        assertTrue(out.contains("LegacyMLO")) // Explicit metadata is not discarded based on PHY alone.
 
-        for (unwanted in listOf("SSID  BSSID", "STANDARD", "AP_LINK", "AFFILIATED", "GhostBE", "LegacyMLO", "flags  ", "sec    ")) {
+        for (unwanted in listOf("SSID  BSSID", "STANDARD", "GhostBE", "flags  ", "sec    ")) {
             assertFalse("rendered output included $unwanted:\n$out", out.contains(unwanted))
         }
     }
@@ -180,9 +171,13 @@ class AgentWifiScanRendererTest {
             "Wi-Fi Scan",
             "Lab",
             "Guest",
-            "RSSI  B   CH  ST  SEC  MLO",
-            "-45   6G  69  be  sae  l2+1  11k,mlo  aa:bb:cc:dd:ee:ff",
-            "-62   2G  11  ax  psk  -    -   11:22:33:44:55:66",
+            "dBm: -45",
+            "BAND: 6G",
+            "CH: 69",
+            "PHY: be",
+            "SEC: sae",
+            "BSSID: aa:bb:cc:dd:ee:ff",
+            "BSSID: 11:22:33:44:55:66",
         )) {
             assertTrue("rendered output missing $want:\n$out", out.contains(want))
         }
