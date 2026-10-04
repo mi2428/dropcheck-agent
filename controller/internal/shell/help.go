@@ -1023,7 +1023,7 @@ func completionCandidatesForArgsInMode(args []string, mode Mode) []string {
 			return []string{"brief", "fresh", "detail", "all", "2.4ghz", "5ghz", "6ghz", "60ghz"}
 		}
 		if resolved[0] == "show" && resolved[1] == "wifi" && resolved[2] == "eht" {
-			return []string{"brief", "fresh", "ssid", "bssid"}
+			return showWifiEHTCompletionCandidates(nil)
 		}
 		if resolved[0] == "show" && resolved[1] == "adb" && resolved[2] == "cmd" {
 			return []string{"wifi"}

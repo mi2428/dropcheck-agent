@@ -108,4 +108,46 @@ class AgentInteractiveShellTest {
         assertEquals("ping example.test", redactAgentShellCommandLine("ping example.test"))
         assertEquals("show wifi status", redactAgentShellCommandLine("show wifi status"))
     }
+
+    @Test
+    fun rejectsEmptyKeywordsWithoutChangingEmptyLiterals() {
+        for (line in listOf(
+            "\"\"", "show \"\"", "sh ''", "show '  '", "show \"\" status",
+            "show wifi \"\"", "show wifi eht \"\"", "set \"\" passphrase value",
+        )) {
+            assertTrue(line, AgentShellParser.parse(line) is AgentShellCommand.Invalid)
+        }
+        assertEquals(AgentShellCommand.SetDefaultPassphrase(""), AgentShellParser.parse("set default passphrase \"\""))
+        assertEquals(AgentShellCommand.Use("show", ""), AgentShellParser.parse("u 'show' \"\""))
+    }
+
+    @Test
+    fun preservesQuotedLiteralSpacesCaseSeparatorsAndEscapes() {
+        val line = """u "  MiXeD | \"SSID\"\\Tail  " '  CaSe \"PSK\"\\tail  '"""
+        val ssid = "  MiXeD | \"SSID\"\\Tail  "
+        val passphrase = "  CaSe \"PSK\"\\tail  "
+        assertEquals(listOf("u", ssid, passphrase), shellSplitWords(line).getOrThrow())
+        assertEquals(AgentShellCommand.Use(ssid, passphrase), AgentShellParser.parse(line))
+        assertEquals(AgentShellCommand.ShowWifiEht(ssid = ssid), AgentShellParser.parse("sh wi e ssid ${formatAgentShellToken(ssid)}"))
+        assertEquals(AgentShellCommand.Use("show", "set"), AgentShellParser.parse("u 'show' 'set'"))
+    }
+
+    @Test
+    fun trailingEscapesRejectBeforeDispatchAndRedactMalformedCredentials() {
+        for (line in listOf(
+            "show version\\", "ping example.test\\", "use TestSSID TEST_ONLY_PSK\\",
+            "u 'Test SSID' TEST_ONLY_PSK\\", "set default passphrase TEST_ONLY_PSK\\",
+            "se d p TEST_ONLY_PSK\\", "use TestSSID \"TEST_ONLY_PSK\\",
+        )) {
+            assertEquals("trailing escape", shellSplitWords(line).exceptionOrNull()?.message)
+            assertEquals(AgentShellCommand.Invalid("trailing escape"), AgentShellParser.parse(line))
+            assertEquals("<redacted malformed command>", redactAgentShellCommandLine(line))
+        }
+        for (line in listOf("set TEST_ONLY_PSK", "set default TEST_ONLY_PSK", "set \"\" passphrase TEST_ONLY_PSK", "se d \"\" TEST_ONLY_PSK")) {
+            val result = AgentShellParser.parse(line)
+            assertTrue(result is AgentShellCommand.Invalid)
+            assertFalse((result as AgentShellCommand.Invalid).message.contains("TEST_ONLY_PSK"))
+            assertEquals("<redacted malformed command>", redactAgentShellCommandLine(line))
+        }
+    }
 }
