@@ -49,7 +49,7 @@ func (e linkNetworkExpectation) Evaluate(r harness.Result) []harness.Finding {
 		return []harness.Finding{harness.MissingFinding("link.network", "<missing>", e.Description(), "selected IP Network Wi-Fi identity unavailable or mismatched")}
 	}
 	if observedSSID := selected.GetWifi().GetSsid(); observedSSID != e.ssid {
-		finding := harness.Fail("wifi.ssid", observedSSID, e.ssid, "selected Wi-Fi SSID differs from requested target")
+		finding := harness.MissingFinding("wifi.ssid", observedSSID, e.ssid, "selected Wi-Fi SSID differs from requested target")
 		finding.ObservedValue, finding.ExpectedValue = observedSSID, e.ssid
 		return []harness.Finding{finding}
 	}
@@ -61,7 +61,7 @@ func (e linkNetworkExpectation) Evaluate(r harness.Result) []harness.Finding {
 	}
 	expected := e.identity.network + "/" + e.identity.iface
 	if e.identity.network == "" || observed != expected {
-		finding := harness.Fail("link.network", observed, expected, "selected Network changed since initial observation")
+		finding := harness.MissingFinding("link.network", observed, expected, "selected Network changed since initial observation")
 		finding.ObservedValue, finding.ExpectedValue = observed, expected
 		return []harness.Finding{finding}
 	}
@@ -134,16 +134,25 @@ func profileReport(profile, reason, agentID string) harness.Report {
 	return harness.Report{RunID: fmt.Sprintf("preflight-%d-%d", now.UnixNano(), preflightSequence.Add(1)), Started: now, Ended: now, State: "failed", Outcome: harness.MissingOutcome, Counts: harness.Counts{Missing: 1}, Steps: []harness.StepReport{{Name: profile + " prerequisite", Outcome: harness.MissingOutcome, Reason: reason, Scope: harness.Scope{Kind: harness.ScopeCheck, AgentID: agentID, TargetID: "target/0", CheckID: "prerequisite"}}}}
 }
 
+func unsupportedProfileReport(profile, reason, agentID string) harness.Report {
+	report := profileReport(profile, reason, agentID)
+	report.Outcome = harness.SkipOutcome
+	report.Counts = harness.Counts{Skipped: 1}
+	report.Steps[0].Outcome = harness.SkipOutcome
+	report.Steps[0].SkipReason = harness.SkipUnsupported
+	return report
+}
+
 func executeProfile(ctx context.Context, state *shellState, name, ssid, family, bssid string, r harness.OperationRunner) (harness.Report, error) {
 	if name != "link" {
 		profile := "unsupported"
 		if name == "lab" || name == "internet" || name == "eht" {
 			profile = name
 		}
-		return profileReport(profile, "profile unsupported; candidates: link, lab, internet, eht", state.selected), nil
+		return unsupportedProfileReport(profile, "profile unsupported; candidates: link, lab, internet, eht", state.selected), nil
 	}
 	if bssid != "" {
-		return profileReport("link", "strict BSSID pinning is unsupported by the SSID-only NetworkSelector", state.selected), nil
+		return unsupportedProfileReport("link", "strict BSSID pinning is unsupported by the SSID-only NetworkSelector", state.selected), nil
 	}
 	if strings.TrimSpace(ssid) == "" || family != "ipv4" && family != "ipv6" {
 		return profileReport("link", "invalid link target/family", state.selected), nil
@@ -182,7 +191,11 @@ func (s *shellState) runCheck(ctx context.Context, name, ssid, family, bssid, re
 		}
 		// Malformed input may have put a credential in an SSID-valued token.
 		ssid = ""
-		report = profileReport(profile, rejection, s.selected)
+		if name != "link" || strings.Contains(rejection, "pinning unsupported") || strings.Contains(rejection, "pinning is unsupported") {
+			report = unsupportedProfileReport(profile, rejection, s.selected)
+		} else {
+			report = profileReport(profile, rejection, s.selected)
+		}
 	} else {
 		report, err = executeProfile(ctx, s, name, ssid, family, bssid, runner.New(s.server))
 	}

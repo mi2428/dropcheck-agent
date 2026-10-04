@@ -48,13 +48,13 @@ func TestLinkExistingWiFiReadOnlyAndRevalidation(t *testing.T) {
 	}{
 		{"ipv4", "Lab", "ipv4", "", "pass", 2},
 		{"ipv6", "Lab", "ipv6", "", "pass", 2},
-		{"wrong-case", "lab", "ipv4", "", "fail", 1},
+		{"wrong-case", "lab", "ipv4", "", "missing", 1},
 		{"unknown", "Lab", "ipv4", "unknown", "missing", 1},
 		{"lost-network", "Lab", "ipv4", "lost", "missing", 1},
 		{"unknown-after-first", "Lab", "ipv4", "unknown-ip", "missing", 2},
 		{"vpn", "Lab", "ipv4", "vpn", "missing", 1},
-		{"changed-after-first", "Lab", "ipv4", "post", "fail", 2},
-		{"changed-interface", "Lab", "ipv4", "iface", "fail", 2},
+		{"changed-after-first", "Lab", "ipv4", "post", "missing", 2},
+		{"changed-interface", "Lab", "ipv4", "iface", "missing", 2},
 		{"lost-after-first", "Lab", "ipv4", "post-lost", "missing", 2},
 		{"missing-dns", "Lab", "ipv4", "dns", "fail", 1},
 	} {
@@ -142,18 +142,24 @@ func TestLinkInvalidPlanAndHistoricalPreflight(t *testing.T) {
 		t.Fatalf("false validation must not fail link or imply internet: %q %v", view, err)
 	}
 	before, _ := json.Marshal(old)
-	for _, tc := range []struct{ name, ssid, family, rejection string }{
-		{"link", "credential-like-ssid", "ipv4", "invalid BSSID; pinning unsupported"},
-		{"unsupported", "", "", "profile unsupported; candidates: link, lab, internet, eht"},
-		{"link", "Lab", "ipv4", ""}, // expired pinned agent; no fallback
-		{"link", "", "invalid", ""}, // zero-config/family
+	for _, tc := range []struct {
+		name, ssid, family, rejection string
+		want                          harness.Outcome
+	}{
+		{"link", "credential-like-ssid", "ipv4", "invalid BSSID; pinning unsupported", harness.SkipOutcome},
+		{"unsupported", "", "", "profile unsupported; candidates: link, lab, internet, eht", harness.SkipOutcome},
+		{"link", "Lab", "ipv4", "", harness.MissingOutcome}, // expired pinned agent; no fallback
+		{"link", "", "invalid", "", harness.MissingOutcome}, // zero-config/family
 	} {
 		previous := s.lastReport
 		if err := s.runCheck(context.Background(), tc.name, tc.ssid, tc.family, "", tc.rejection, outputJSON, pipePipeline{}, true); err == nil {
 			t.Fatal("strict check accepted failed prerequisite")
 		}
-		if s.lastReport == previous || s.lastReport.RunID == previous.RunID || !s.lastReport.Started.After(old.Started) || s.lastReport.Outcome != harness.MissingOutcome || s.lastReport.Passed() {
+		if s.lastReport == previous || s.lastReport.RunID == previous.RunID || !s.lastReport.Started.After(old.Started) || s.lastReport.Outcome != tc.want || s.lastReport.Passed() {
 			t.Fatalf("preflight kept old PASS: %+v", s.lastReport)
+		}
+		if tc.want == harness.SkipOutcome && s.lastReport.Steps[0].SkipReason != harness.SkipUnsupported {
+			t.Fatalf("unsupported check lost skip reason: %+v", s.lastReport.Steps[0])
 		}
 		if strings.Contains(s.lastReport.Steps[0].Name, "secret") || s.lastReport.Steps[0].Scope.AgentID != s.selected {
 			t.Fatal("unsafe/unpinned preflight report")
