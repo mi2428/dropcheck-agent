@@ -16,4 +16,7 @@
     <instrumentation
         android:name="io.dropcheck.agent.ActualActivityPresentationInstrumentation"
         android:targetPackage="io.dropcheck.agent" />
+    <instrumentation
+        android:name="io.dropcheck.agent.LinkProfileLiveInstrumentation"
+        android:targetPackage="io.dropcheck.agent" />
 </manifest>
