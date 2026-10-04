@@ -67,10 +67,10 @@ var GrammarTable = []Grammar{
 	{Path: "help", Positionals: []string{"topic"}},
 	{Path: "set default passphrase", Positionals: []string{"passphrase"}, Unsupported: true},
 	{Path: "clear default passphrase", Unsupported: true},
-	{Path: "use", Positionals: []string{"ssid"}, Unsupported: true},
-	{Path: "check", Unsupported: true},
-	{Path: "show checks", Unsupported: true},
-	{Path: "show check last", Switches: []string{"detail"}, Unsupported: true},
+	{Path: "use", Positionals: []string{"ssid"}, Required: []string{"passphrase"}, Values: []string{"passphrase"}},
+	{Path: "check", Positionals: []string{"name"}, Required: []string{"ssid"}, Values: []string{"ssid", "family", "bssid"}},
+	{Path: "show checks"},
+	{Path: "show check last", Switches: []string{"detail"}},
 }
 
 var aliases = map[string]string{"p": "ping", "tr": "traceroute", "pm": "path-mtu", "gip": "global-ip", "h": "help", "?": "help"}
@@ -96,10 +96,13 @@ func validateAliases(table []Grammar, mapping map[string]string) error {
 
 // Parsed is a validated action. Non-agent actions never dispatch to the runner.
 type Parsed struct {
-	Path      string
-	Topic     string
-	Operation Operation
-	ADBKind   string
+	Path                         string
+	Topic                        string
+	Operation                    Operation
+	ADBKind                      string
+	Profile, SSID, Family, BSSID string
+	Detail                       bool
+	Rejection                    string
 }
 
 func siblings(prefix []string) []string {
@@ -237,8 +240,21 @@ func ParseTokens(args []string) (Parsed, error) {
 	if spec.Unsupported {
 		return Parsed{}, fmt.Errorf("%s is unsupported", spec.Path)
 	}
+	if spec.Path == "check" && len(args) == consumed {
+		return Parsed{Path: "check"}, nil
+	}
+	if spec.Path == "check" && len(args) > consumed && args[consumed] != "link" {
+		name := args[consumed]
+		if !slices.Contains([]string{"lab", "internet", "eht"}, name) {
+			name = "unsupported"
+		}
+		return Parsed{Path: "check", Profile: name, Rejection: "profile unsupported; candidates: link, lab, internet, eht"}, nil
+	}
 	f, via, err := parseFields(spec, args[consumed:])
 	if err != nil {
+		if spec.Path == "check" {
+			return Parsed{Path: "check", Profile: "link", Rejection: "invalid link syntax: " + err.Error()}, nil
+		}
 		return Parsed{}, err
 	}
 	for key, value := range f {
@@ -255,19 +271,28 @@ func ParseTokens(args []string) (Parsed, error) {
 			return Parsed{}, fmt.Errorf("%s must be true or false", key)
 		}
 		if values, ok := enumValues(key, spec.Path); ok && !slices.Contains(values, value) {
+			if spec.Path == "check" {
+				return Parsed{Path: "check", Profile: "link", Rejection: "invalid family; choose ipv4 or ipv6"}, nil
+			}
 			return Parsed{}, fmt.Errorf("invalid %s", key)
 		}
 	}
 	if f["bssid"] != "" {
 		mac, err := net.ParseMAC(f["bssid"])
 		if err != nil || len(mac) != 6 {
+			if spec.Path == "check" {
+				return Parsed{Path: "check", Profile: "link", Rejection: "invalid BSSID; strict BSSID pinning unsupported"}, nil
+			}
 			return Parsed{}, fmt.Errorf("invalid BSSID")
 		}
 	}
-	if f["ssid"] == "" && slices.Contains(spec.Positionals, "ssid") {
+	if f["ssid"] == "" && slices.Contains(spec.Positionals, "ssid") || spec.Path == "check" && strings.TrimSpace(f["ssid"]) == "" {
+		if spec.Path == "check" {
+			return Parsed{Path: "check", Profile: "link", Rejection: "SSID is required"}, nil
+		}
 		return Parsed{}, fmt.Errorf("SSID is required")
 	}
-	if spec.Path == "wifi connect" || spec.Path == "wifi cycle" {
+	if spec.Path == "wifi connect" || spec.Path == "wifi cycle" || spec.Path == "use" {
 		psk := f["passphrase"]
 		validHex := len(psk) == 64
 		for _, r := range psk {
@@ -301,6 +326,20 @@ func ParseTokens(args []string) (Parsed, error) {
 		}
 	}
 	parsed := Parsed{Path: spec.Path}
+	if spec.Path == "check" {
+		if f["bssid"] != "" {
+			return Parsed{Path: "check", Profile: "link", Rejection: "strict BSSID pinning is unsupported by the SSID-only NetworkSelector"}, nil
+		}
+		parsed.Profile, parsed.SSID, parsed.Family = f["name"], f["ssid"], f["family"]
+		if parsed.Family == "" {
+			parsed.Family = "ipv4"
+		}
+		return parsed, nil
+	}
+	if spec.Path == "show checks" || spec.Path == "show check last" {
+		parsed.Detail = f["detail"] != ""
+		return parsed, nil
+	}
 	if spec.Path == "help" {
 		parsed.Topic = f["topic"]
 	}
@@ -342,9 +381,9 @@ func ParseTokens(args []string) (Parsed, error) {
 		op, err = WifiEHTOperationWithOptions(WifiEHTOptions{Fresh: f["fresh"] != "", Timeout: f["timeout"], SSID: f["ssid"], BSSID: f["bssid"]})
 	case "show ip status":
 		op = IPStatusOperation()
-	case "wifi connect", "wifi cycle":
+	case "wifi connect", "wifi cycle", "use":
 		connect := WifiConnectOptions{SSID: f["ssid"], Passphrase: f["passphrase"], Security: f["security"], BSSID: f["bssid"], Band: f["band"], MacRandomization: f["mac-randomization"], Timeout: f["timeout"]}
-		if spec.Path == "wifi connect" {
+		if spec.Path == "wifi connect" || spec.Path == "use" {
 			op, err = WifiConnectOperation(connect)
 		} else {
 			op, err = WifiCycleOperation(WifiCycleOptions{WifiConnectOptions: connect, Count: f["count"], PingHost: f["ping"], HTTPURL: f["http"], Pause: f["pause"], ForgetAfterEach: f["forget-after-each"] == "true"})
@@ -420,6 +459,9 @@ func ParseTokens(args []string) (Parsed, error) {
 func enumValues(key, path string) ([]string, bool) {
 	switch key {
 	case "family":
+		if path == "check" {
+			return []string{"ipv4", "ipv6"}, true
+		}
 		if path == "global-ip" {
 			return []string{"ipv4", "ipv6", "all"}, true
 		}

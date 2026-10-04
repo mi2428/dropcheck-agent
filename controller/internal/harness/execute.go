@@ -326,9 +326,12 @@ func (e *execution) runTarget(agent control.AgentInfo, target compiledTarget, ro
 		e.progress(agent, round, "running", target.preview.Name, outcome)
 		_ = e.emit(Event{Kind: EventTargetFinished, Scope: scope, Round: round, Target: snapshotTarget(target.preview), Status: outcomeStatus(outcome)})
 	}()
-	connect := e.checkAttempted(agent, target, target.connect, round, &attempted)
-	outcome = combineOutcome(outcome, connect.Outcome)
-	ready := connect.Outcome == OutcomePass
+	ready := true
+	if target.connect.id != "" {
+		connect := e.checkAttempted(agent, target, target.connect, round, &attempted)
+		outcome = combineOutcome(outcome, connect.Outcome)
+		ready = connect.Outcome == OutcomePass
+	}
 	if ready && target.wait.id != "" {
 		wait := e.check(agent, target, target.wait, round)
 		outcome = combineOutcome(outcome, wait.Outcome)

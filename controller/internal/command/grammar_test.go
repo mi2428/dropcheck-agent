@@ -95,7 +95,7 @@ func TestGrammarBoundariesAndLiterals(t *testing.T) {
 		{"global-ip family auto", "invalid family"}, {"wifi assert require-i true require-ip false", "specified twice"},
 		{"wifi cycle Lab passphrase 00000000 http fixture.invalid", "invalid HTTP endpoint"},
 		{"traceroute host max-hops 256", "exceeds operation limit"},
-		{"check", "unsupported"}, {"use Lab", "unsupported"},
+		{"use Lab", "requires passphrase"},
 	} {
 		args, err := SplitArgs(tc.input)
 		if err != nil {
@@ -146,6 +146,39 @@ func TestCredentialErrorsNeverEchoOriginalToken(t *testing.T) {
 		if err == nil || strings.Contains(err.Error(), "example-secret") {
 			t.Fatalf("unsafe error: %v", err)
 		}
+	}
+}
+
+func TestProfileGrammarRejectsBeforeAnyOperation(t *testing.T) {
+	bare, err := ParseTokens([]string{"check"})
+	if err != nil || bare.Path != "check" || bare.Profile != "" || bare.Rejection != "" {
+		t.Fatalf("bare check=%+v %v", bare, err)
+	}
+	for _, tc := range []struct {
+		args   []string
+		reject bool
+	}{
+		{[]string{"check", "link", "ssid", "Lab"}, false},
+		{[]string{"check", "link", "ssid", "Lab", "family", "ipv6"}, false},
+		{[]string{"check", "link", "ssid", "Lab", "bssid", "02:00:00:00:00:11"}, true},
+		{[]string{"check", "link", "ssid", "Lab", "bssid", "secret-token"}, true},
+		{[]string{"check", "link", "ssid", "Lab", "family", "auto"}, true},
+		{[]string{"check", "lab", "ssid", "Lab"}, true},
+		{[]string{"check", "Link", "ssid", "Lab"}, true},
+		{[]string{"check", "link"}, true},
+		{[]string{"check", "link", "ssid", "   "}, true},
+	} {
+		parsed, err := ParseTokens(tc.args)
+		if err != nil || (parsed.Rejection != "") != tc.reject || parsed.Operation.Command != nil || strings.Contains(parsed.Rejection, "secret-token") {
+			t.Errorf("%v: %+v %v", tc.args, parsed, err)
+		}
+		if !tc.reject && parsed.Family == "" {
+			t.Errorf("family default missing: %+v", parsed)
+		}
+	}
+	use, err := ParseTokens([]string{"use", "Lab", "passphrase", "synthetic-private-psk"})
+	if err != nil || use.Operation.Name != "wifi.connect" || use.Operation.Command.GetConnectWifi().GetSsid() != "Lab" || strings.Contains(use.Operation.Command.GetLabel(), "synthetic-private-psk") {
+		t.Fatalf("use=%+v err=%v", use, err)
 	}
 }
 

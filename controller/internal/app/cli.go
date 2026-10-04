@@ -30,6 +30,24 @@ func runCLI(ctx context.Context, opts shellOptions, rawArgs []string) error {
 		writeCommandHelp(os.Stdout, command.HelpTopic)
 		return nil
 	}
+	if command.Kind == linuxcli.Profiles {
+		out, err := showProfiles(cliOpts.Format)
+		if err == nil {
+			fmt.Print(out)
+		}
+		return err
+	}
+	if command.Kind == linuxcli.LastReport {
+		fmt.Println("No report in this process; show check last is Shell historical state only.")
+		return nil
+	}
+	if command.Kind == linuxcli.Profile && command.ProfileName == "" {
+		fmt.Println(profileCandidates())
+		return nil
+	}
+	if command.Kind == linuxcli.Profile && command.Rejection != "" {
+		return (&shellState{}).runCheck(ctx, command.ProfileName, command.SSID, command.Family, command.BSSID, command.Rejection, cliOpts.Format, pipePipeline{}, true)
+	}
 
 	controlSession, err := startControlSession(ctx, opts)
 	if err != nil {
@@ -54,6 +72,8 @@ func runCLI(ctx context.Context, opts shellOptions, rawArgs []string) error {
 	}
 
 	switch command.Kind {
+	case linuxcli.Profile:
+		return state.runCheck(ctx, command.ProfileName, command.SSID, command.Family, command.BSSID, command.Rejection, cliOpts.Format, pipePipeline{}, true)
 	case linuxcli.Devices:
 		out, err := renderAgents(agentListView(state), cliOpts.Format)
 		if err != nil {
@@ -72,7 +92,7 @@ func runCLI(ctx context.Context, opts shellOptions, rawArgs []string) error {
 		if err != nil {
 			return err
 		}
-		return runOperationForAgents(ctx, state, agents, command.Operation, commandOutputOptions{format: cliOpts.Format, strict: true})
+		return runOperationForAgents(ctx, state, agents, command.Operation, commandOutputOptions{format: cliOpts.Format, strict: true, use: command.Use})
 	}
 }
 

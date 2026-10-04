@@ -29,12 +29,17 @@ type Network struct {
 	rotation         string
 	connectPolicy    Policy
 	waitPolicy       Policy
+	readOnly         bool
 }
 
 // WiFi starts a network builder.
 func WiFi(name string) Network {
 	return Network{name: name, waitConnected: true, requireIP: true, disconnectAfter: true}
 }
+
+// ObservedWiFi checks an already-connected physical Wi-Fi Network. It never
+// owns the connection, waits for association, or performs cleanup.
+func ObservedWiFi(name string) Network { return Network{name: name, readOnly: true} }
 
 // SSID sets the ESSID used for connection and wait checks.
 func (n Network) SSID(value string) Network {

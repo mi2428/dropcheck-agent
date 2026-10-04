@@ -22,13 +22,20 @@ const (
 	Version
 	Help
 	ADBDiagnostics
+	Profile
+	Profiles
+	LastReport
 )
 
 type Command struct {
-	Kind      Kind
-	Operation command.Operation
-	ADBKind   string
-	HelpTopic string
+	Kind                             Kind
+	Operation                        command.Operation
+	ADBKind                          string
+	HelpTopic                        string
+	ProfileName, SSID, Family, BSSID string
+	Detail                           bool
+	Use                              bool
+	Rejection                        string
 }
 
 // Host options are recognized only before the first network command token.
@@ -84,8 +91,14 @@ func Parse(args []string) (Command, error) {
 	if err != nil {
 		return Command{}, err
 	}
-	result := Command{Kind: AgentCommand, Operation: parsed.Operation, ADBKind: parsed.ADBKind, HelpTopic: parsed.Topic}
+	result := Command{Kind: AgentCommand, Operation: parsed.Operation, ADBKind: parsed.ADBKind, HelpTopic: parsed.Topic, ProfileName: parsed.Profile, SSID: parsed.SSID, Family: parsed.Family, BSSID: parsed.BSSID, Detail: parsed.Detail, Use: parsed.Path == "use", Rejection: parsed.Rejection}
 	switch parsed.Path {
+	case "check":
+		result.Kind = Profile
+	case "show checks":
+		result.Kind = Profiles
+	case "show check last":
+		result.Kind = LastReport
 	case "show devices":
 		result.Kind = Devices
 	case "show version":

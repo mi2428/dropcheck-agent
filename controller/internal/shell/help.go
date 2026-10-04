@@ -36,6 +36,7 @@ func writeHelp(w io.Writer) {
 		fmt.Fprintln(w)
 	}
 	fmt.Fprintln(w, "  exit | quit\n  | display json|set | match <regex> | except <regex> | count | no-more")
+	fmt.Fprintln(w, "  check link: family defaults to ipv4; BSSID pinning unsupported; read-only")
 }
 
 func contains(list []string, word string) bool {

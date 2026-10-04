@@ -247,6 +247,18 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 		return false, printLocalOutput(command, func(format outputFormat) (string, error) {
 			return renderAgents(agentListView(state), format)
 		})
+	case shellProfiles:
+		return false, printLocalOutput(command, showProfiles)
+	case shellLastReport:
+		return false, printLocalOutput(command, func(format outputFormat) (string, error) {
+			return renderProfileReport(state, format, command.detail)
+		})
+	case shellProfile:
+		err := state.runCheck(ctx, command.profileName, command.ssid, command.family, command.bssid, command.rejection, command.pipeline.format(), command.pipeline, false)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		}
+		return false, nil
 	case shellAgentCommand:
 		agents, err := state.commandTargets()
 		if err != nil {
@@ -256,6 +268,7 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 		return false, runOperationForAgents(ctx, state, agents, command.operation, commandOutputOptions{
 			format:   command.pipeline.format(),
 			pipeline: command.pipeline,
+			use:      command.use,
 		})
 	case shellADBDiagnostics:
 		agents, err := state.commandTargets()
@@ -325,6 +338,7 @@ type commandOutputOptions struct {
 	pipeline           pipePipeline
 	includeAgentHeader bool
 	strict             bool
+	use                bool
 }
 
 func separateTextBlock(out string, printedAny bool) string {
@@ -347,6 +361,12 @@ func agentTextBlock(agent string, out string, printedAny bool) string {
 }
 
 func runOperationForAgents(ctx context.Context, state *shellState, agents []control.AgentInfo, op Operation, output commandOutputOptions) error {
+	if output.use && len(agents) != 1 {
+		return fmt.Errorf("use/connect requires one selected agent")
+	}
+	if output.use {
+		state.failedUse = true // Before dispatch, not after a possibly failed connection.
+	}
 	if len(agents) == 0 {
 		fmt.Fprintln(os.Stderr, "no Android agents connected")
 		if output.strict {
@@ -594,6 +614,9 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 	}
 	if output.strict && result.GetStatus() != controlpb.CommandResult_STATUS_OK {
 		return fmt.Errorf("%s: %s: %s", agentDisplayName(agent), resultStatusLabel(result.GetStatus()), redactOperationSecret(op, safeCommandErrorText(result.GetMessage())))
+	}
+	if output.use && result.GetStatus() == controlpb.CommandResult_STATUS_OK {
+		state.failedUse = false
 	}
 	return nil
 }

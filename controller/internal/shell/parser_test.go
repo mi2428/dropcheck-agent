@@ -12,7 +12,7 @@ func TestShellPipelineQuotingAndGrammar(t *testing.T) {
 			t.Fatal(line, err)
 		}
 	}
-	for _, line := range []string{`show wifi scan detail "unfinished`, `show wifi scan detail one\`, `show ""`, "show wifi s", "request ping host", "wifi connect Lab passphrase 00000000 passphrase 00000000", "show wifi eht brief", "check"} {
+	for _, line := range []string{`show wifi scan detail "unfinished`, `show wifi scan detail one\`, `show ""`, "show wifi s", "request ping host", "wifi connect Lab passphrase 00000000 passphrase 00000000", "show wifi eht brief"} {
 		if _, err := ParseLine(line); err == nil {
 			t.Errorf("accepted %q", line)
 		}
@@ -46,6 +46,33 @@ func TestShellPipelineQuotingAndGrammar(t *testing.T) {
 		parsed, err := ParseLine(line)
 		if err != nil || parsed.Kind != ADBDiagnostics || parsed.ADBDiagnosticsKind == "" {
 			t.Fatalf("host ADB extension %q: %+v %v", line, parsed, err)
+		}
+	}
+}
+
+func TestProfileShellUsesSharedLiteralGrammar(t *testing.T) {
+	for _, tc := range []struct {
+		line         string
+		kind         CommandKind
+		ssid, family string
+		reject       bool
+	}{
+		{`check link ssid "Case Sensitive"`, Profile, "Case Sensitive", "ipv4", false},
+		{`check link ssid "Case Sensitive" family ipv6`, Profile, "Case Sensitive", "ipv6", false},
+		{`check link ssid Lab bssid 02:00:00:00:00:11`, Profile, "", "", true},
+		{`check internet`, Profile, "", "", true},
+		{`check`, Profile, "", "", false},
+		{`check link ssid "malformed`, Profile, "", "", true},
+		{`show checks`, Profiles, "", "", false},
+		{`show check last detail`, LastReport, "", "", false},
+		{`use "Case Sensitive" passphrase synthetic-private-psk`, AgentCommand, "", "", false},
+	} {
+		parsed, err := ParseLine(tc.line)
+		if err != nil || parsed.Kind != tc.kind || parsed.SSID != tc.ssid || parsed.Family != tc.family || (parsed.Rejection != "") != tc.reject {
+			t.Errorf("%q: %+v %v", tc.line, parsed, err)
+		}
+		if strings.HasPrefix(tc.line, "use") && parsed.Operation.Name != "wifi.connect" {
+			t.Error("use retained secret-bearing command text or changed connection operation")
 		}
 	}
 }
