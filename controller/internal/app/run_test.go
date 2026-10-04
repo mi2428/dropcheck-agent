@@ -19,8 +19,8 @@ func TestTopLevelHelpIncludesFlagsCommandsAndExamples(t *testing.T) {
 		"--format text|json",
 		"Common commands:",
 		"show devices",
-		"show wifi scan fresh [options]",
-		"request ping 1.1.1.1 --count 5",
+		"show wifi scan [fresh] [brief] [mlo]",
+		"ping 1.1.1.1 count 5",
 	} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("topLevelHelp() missing %q:\n%s", want, help)
@@ -40,11 +40,24 @@ func TestTopLevelHelpIncludesFlagsCommandsAndExamples(t *testing.T) {
 	for _, want := range []string{
 		"  shell                                 start the Controller Shell",
 		"  --format text|json                    output format for one-shot commands",
-		"  request ping <host> [options]         run ICMP ping",
+		"  ping <host> [count <value>]",
 	} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("topLevelHelp() missing aligned row %q:\n%s", want, help)
 		}
+	}
+}
+
+func TestHelpTopicUsesLiveGrammarTable(t *testing.T) {
+	var out bytes.Buffer
+	writeCommandHelp(&out, "wifi")
+	if !strings.Contains(out.String(), "wifi cycle <ssid> passphrase <value>") || !strings.Contains(out.String(), "wifi monitor") || strings.Contains(out.String(), "request") {
+		t.Fatalf("wifi topic drift: %s", out.String())
+	}
+	out.Reset()
+	writeCommandHelp(&out, "check")
+	if !strings.Contains(out.String(), "unsupported") {
+		t.Fatalf("unavailable profile advertised: %s", out.String())
 	}
 }
 

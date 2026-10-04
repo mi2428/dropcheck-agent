@@ -164,7 +164,7 @@ Start with `dropcheck tui [PLAN.yml]` to select, preview, run, review and rerun 
 
 The controller starts an ADB-backed gRPC session to one or more Android agents.
 One-shot CLI commands are scriptable and can emit text or JSON.
-Controller Shell adds prompts, completion, context help, output filters, and request mode on top of the same typed agent operations. Configure mode retains `run show ...` and `run request ...`; obsolete standalone configuration commands are no longer available.
+Controller Shell adds prompts, completion, context help, and output filters on top of the same typed agent operations. Both one-shot argv and Shell use flat `show` (inspection), `wifi` (control), and top-level probes; old request/configure modes and dash-prefixed probe options are removed. Place transport flags (`--adb`, `--serial`, `--package`, `--listen`) first, then one-shot host output/target flags (`--format`, `--target`, `--all`), then the command. `--` ends a host-option group. Network literals after the command are never interpreted as host flags.
 
 The controller builds one host-side binary:
 
@@ -176,8 +176,8 @@ $ make build TARGET=controller
 
 `dist/dropcheck` supports:
 
-- **Wi-Fi and IP inspection:** `wifi status`, `wifi diagnostics`, `wifi eht`, `wifi scan`, `wifi capabilities`, and `ip status`.
-- **Wi-Fi control:** `connect`, `disconnect`, `forget`, `wait connected`, `assert`, `reconnect`, and `cycle`.
+- **Wi-Fi and IP inspection:** `show version`, `show wifi status|diagnostics|capabilities|scan|scan detail|eht`, and `show ip status`.
+- **Wi-Fi control:** `wifi connect|disconnect|forget|wait connected|assert|monitor|reconnect|cycle`.
 - **Network probes from the handset:** `ping`, `traceroute`, `path-mtu`, `global-ip`, `dns`, `http`, and `download`.
 
 Common examples:
@@ -185,8 +185,8 @@ Common examples:
 ```console
 $ controller/dist/dropcheck --serial R5CT12345 shell
 $ controller/dist/dropcheck --serial R5CT12345 --format json show wifi status
-$ controller/dist/dropcheck --serial R5CT12345 show wifi scan fresh all --timeout 9000
-$ controller/dist/dropcheck --serial R5CT12345 request ping 1.1.1.1 --count 5
+$ controller/dist/dropcheck --serial R5CT12345 show wifi scan fresh band all timeout 9000
+$ controller/dist/dropcheck --serial R5CT12345 ping 1.1.1.1 count 5
 ```
 
 In text mode, `show wifi status` appends controller-side ADB IPv6 RA diagnostics when the selected handset is reachable over ADB.
@@ -199,18 +199,18 @@ $ controller/dist/dropcheck --serial R5CT12345 shell
 dropcheck: selected agent=R5CT12345
 press '?' for Controller Shell context help, or type 'help' for commands
 R5CT12345# show wifi ?
-  status                   Current Wi-Fi connection and IP state
-  diagnostics              Wi-Fi status, capabilities, networks, and scan
-  eht                      Connected and nearby EHT state
-  scan                     Cached or fresh scan results
-  capabilities             Device Wi-Fi capabilities
+  status
+  diagnostics
+  capabilities
+  scan
+  eht
 R5CT12345# show wifi status
 R5CT12345# show ip status
-R5CT12345# request
-R5CT12345(request)# ping 192.0.2.1 count 3
-R5CT12345(request)# exit
+R5CT12345# ping 192.0.2.1 count 3
 R5CT12345# exit
 ```
+
+Scalar options use `key value`; `fresh`, `brief`, `mlo`, and `detail` are switches. `mlo` scan requires `brief`; `timeout` on scan/EHT requires `fresh`. `require-ip`, `require-validated`, and `forget-after-each` require explicit `true` or `false`. `traceroute via ADDRESS` may repeat and is checked against typed hops, including in one-shot exit status. Probe family `auto` selects one family, whereas `global-ip family all` checks both; `dns record ALL` requests A+AAAA. Explicit numeric values must be positive and at most 2147483647 (with smaller per-operation limits); omitted options retain Go builder defaults. Wi-Fi passphrases must be 8–63 UTF-8 bytes or 64 hexadecimal digits. Quoting preserves literal SSIDs, hostnames and URLs, including keyword-like names and `|` inside quotes. `use`, `set default`, `check`, and `show checks` are not available on PC until profile semantics are approved; Android's existing `use` is separate.
 
 ### Android Agent and Agent Shell
 
@@ -231,7 +231,7 @@ Wrap SSIDs or PSKs in double quotes when they contain spaces or other shell-sign
 
 - Acquisition `OK` is not a scenario `PASS`. Failed/canceled acquisition and its reason precede reference data; source, selected target, requested fresh, actual scan update, acquisition duration, and observation age are separate facts. Scan age is supplied by Android's monotonic collector, never calculated from a PC wall clock and a device boot timestamp.
 - Wi-Fi status is the L2 view; IP status retains addresses/prefixes, routes/zones, DNS, DHCP, MTU, private DNS, NAT64, and the selected versus Android-default Network. Device capabilities use supported/unsupported lists, not the connected AP. Missing observation metadata is `?`, known empty data is `none`, inapplicable is `n/a`, and an observed false value is `no`.
-- TTY text uses the terminal column budget. Unknown-width/pipe text keeps complete records; JSON retains full safe typed values independently of width. Scan layouts try full tables, SSID groups, radio tables with full MAC continuations, then records. Security sets such as `psk+sae` and unknown enum spellings remain intact. Details stay in the default block until the command adapter actually exposes a reachable detail operation.
+- TTY text uses the terminal column budget. Unknown-width/pipe text keeps complete records; JSON retains full safe typed values independently of width. Scan layouts try full tables, SSID groups, radio tables with full MAC continuations, then records. Security sets such as `psk+sae` and unknown enum spellings remain intact. `detail` on status/diagnostics/capabilities/IP/EHT is reachable and retains the additional fields; default text remains compact.
 - Agent Shell uses the laid-out content width and the output TextView's Paint, native grapheme boundaries and tab-stop spans. Width zero waits for layout. Rotation, split-screen, IME/inset changes and font-scale reflow retained presentation data without another scan/probe.
 - **Output size** selects base/minimum sizes for new blocks. The existing 10sp base is unchanged; 12sp is a selectable candidate, not a device-approved default. Input and unrelated older blocks do not shrink to fit a table. Structural layouts currently require no automatic shrink; any later block-only shrink must stay within 10% and above 10sp/the chosen minimum, preserving system font scale.
 - **Copy full result** copies plain sanitized values, not spans, display tabs, ellipsis, ANSI, artificial zero-width spaces, or credentials. History retains at most 32 whole safe blocks and 262144 UTF-16 characters, without commands/credentials. Table display is capped at 96 rows/240 lines, with omission counts; full copy keeps retained rows. A result exceeding in-memory history keeps its header/target/errors plus **Inspect/copy full safe values**: 25-label pages expose each complete safe value, with exact full identity copy and numbered chunks for long opaque values that cannot fit a clipboard transaction. Only the current oversize result has a private app-cache value file (32MiB quota); replacing it evicts the old file/block as a unit, and a new process clears abandoned files. Storage/quota failures are explicit, never silently clipped results. Appends do not force an older reader to the bottom. Native selection/anchor restoration is best effort.
@@ -241,8 +241,8 @@ Drive the agent from the controller for live measurements (synthetic addresses a
 
 ```console
 $ controller/dist/dropcheck --serial R5CT12345 show devices
-$ controller/dist/dropcheck --serial R5CT12345 show wifi scan fresh all --timeout 9000
-$ controller/dist/dropcheck --serial R5CT12345 request ping 192.0.2.1 --count 1
+$ controller/dist/dropcheck --serial R5CT12345 show wifi scan fresh band all timeout 9000
+$ controller/dist/dropcheck --serial R5CT12345 ping 192.0.2.1 count 1
 ```
 
 ### Controller TUI

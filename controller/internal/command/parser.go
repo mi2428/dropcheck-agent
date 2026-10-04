@@ -103,39 +103,6 @@ func parseOptionalProbeFamily(value string) (controlpb.IpFamily, error) {
 	return parseIPFamily(value)
 }
 
-func normalizeIPFamily(value string) (string, error) {
-	switch family, err := parseIPFamily(value); {
-	case err != nil:
-		return "", err
-	case family == controlpb.IpFamily_IP_FAMILY_IPV4:
-		return "ipv4", nil
-	case family == controlpb.IpFamily_IP_FAMILY_IPV6:
-		return "ipv6", nil
-	default:
-		return "all", nil
-	}
-}
-
-func normalizeDNSQType(value string) (string, error) {
-	normalized := strings.ToUpper(strings.TrimSpace(value))
-	switch normalized {
-	case "A", "AAAA", "ALL":
-		return normalized, nil
-	default:
-		return "", fmt.Errorf("unsupported DNS qtype %q", value)
-	}
-}
-
-// NormalizeIPFamily returns the canonical shell completion spelling for value.
-func NormalizeIPFamily(value string) (string, error) {
-	return normalizeIPFamily(value)
-}
-
-// NormalizeDNSQType returns the canonical DNS record-type spelling for value.
-func NormalizeDNSQType(value string) (string, error) {
-	return normalizeDNSQType(value)
-}
-
 func timeoutFor(cmd *controlpb.RunCommand) time.Duration {
 	switch c := cmd.Command.(type) {
 	case *controlpb.RunCommand_ConnectWifi:

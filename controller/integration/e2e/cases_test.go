@@ -237,38 +237,38 @@ func validateCommandCoverage(cases []matrixCase) error {
 		{name: "shell wifi scan", runner: "shell", text: "show wifi scan"},
 		{name: "shell wifi fresh scan", runner: "shell", text: "show wifi scan fresh"},
 		{name: "shell wifi scan detail", runner: "shell", text: "show wifi scan detail"},
-		{name: "shell wifi connect", runner: "shell", text: "request> wifi connect"},
-		{name: "shell wifi wait", runner: "shell", text: "request> wifi wait"},
-		{name: "shell wifi assert", runner: "shell", text: "request> wifi assert"},
-		{name: "shell wifi reconnect", runner: "shell", text: "request> wifi reconnect"},
-		{name: "shell wifi monitor", runner: "shell", text: "request> monitor wifi"},
-		{name: "shell wifi cycle", runner: "shell", text: "request> wifi cycle"},
-		{name: "shell wifi disconnect", runner: "shell", text: "request> wifi disconnect"},
-		{name: "shell wifi forget", runner: "shell", text: "request> wifi forget"},
-		{name: "shell ping", runner: "shell", text: "request> ping"},
-		{name: "shell traceroute", runner: "shell", text: "request> traceroute"},
-		{name: "shell path mtu", runner: "shell", text: "request> path-mtu"},
-		{name: "shell global ip", runner: "shell", text: "request> global-ip"},
-		{name: "shell dns", runner: "shell", text: "request> dns"},
-		{name: "shell http", runner: "shell", text: "request> http"},
-		{name: "shell download", runner: "shell", text: "request> download"},
+		{name: "shell wifi connect", runner: "shell", text: "wifi connect"},
+		{name: "shell wifi wait", runner: "shell", text: "wifi wait"},
+		{name: "shell wifi assert", runner: "shell", text: "wifi assert"},
+		{name: "shell wifi reconnect", runner: "shell", text: "wifi reconnect"},
+		{name: "shell wifi monitor", runner: "shell", text: "wifi monitor"},
+		{name: "shell wifi cycle", runner: "shell", text: "wifi cycle"},
+		{name: "shell wifi disconnect", runner: "shell", text: "wifi disconnect"},
+		{name: "shell wifi forget", runner: "shell", text: "wifi forget"},
+		{name: "shell ping", runner: "shell", text: "ping"},
+		{name: "shell traceroute", runner: "shell", text: "traceroute"},
+		{name: "shell path mtu", runner: "shell", text: "path-mtu"},
+		{name: "shell global ip", runner: "shell", text: "global-ip"},
+		{name: "shell dns", runner: "shell", text: "dns"},
+		{name: "shell http", runner: "shell", text: "http"},
+		{name: "shell download", runner: "shell", text: "download"},
 		{name: "cli show devices", runner: "cli", text: "dropcheck --serial"},
 		{name: "cli ip status", runner: "cli", text: "dropcheck show ip status"},
 		{name: "cli wifi eht", runner: "cli", text: "dropcheck show wifi eht"},
 		{name: "cli wifi scan", runner: "cli", text: "dropcheck show wifi scan"},
-		{name: "cli wifi connect", runner: "cli", text: "dropcheck request wifi connect"},
-		{name: "cli wifi wait", runner: "cli", text: "dropcheck request wifi wait"},
-		{name: "cli wifi assert", runner: "cli", text: "dropcheck request wifi assert"},
-		{name: "cli wifi monitor", runner: "cli", text: "dropcheck request monitor wifi"},
-		{name: "cli wifi reconnect", runner: "cli", text: "dropcheck request wifi reconnect"},
-		{name: "cli wifi cycle", runner: "cli", text: "dropcheck request wifi cycle"},
-		{name: "cli ping", runner: "cli", text: "dropcheck request ping"},
-		{name: "cli traceroute", runner: "cli", text: "dropcheck request traceroute"},
-		{name: "cli path mtu", runner: "cli", text: "dropcheck request path-mtu"},
-		{name: "cli global ip", runner: "cli", text: "dropcheck request global-ip"},
-		{name: "cli dns", runner: "cli", text: "dropcheck request dns"},
-		{name: "cli http", runner: "cli", text: "dropcheck request http"},
-		{name: "cli download", runner: "cli", text: "dropcheck request download"},
+		{name: "cli wifi connect", runner: "cli", text: "dropcheck wifi connect"},
+		{name: "cli wifi wait", runner: "cli", text: "dropcheck wifi wait"},
+		{name: "cli wifi assert", runner: "cli", text: "dropcheck wifi assert"},
+		{name: "cli wifi monitor", runner: "cli", text: "dropcheck wifi monitor"},
+		{name: "cli wifi reconnect", runner: "cli", text: "dropcheck wifi reconnect"},
+		{name: "cli wifi cycle", runner: "cli", text: "dropcheck wifi cycle"},
+		{name: "cli ping", runner: "cli", text: "dropcheck ping"},
+		{name: "cli traceroute", runner: "cli", text: "dropcheck traceroute"},
+		{name: "cli path mtu", runner: "cli", text: "dropcheck path-mtu"},
+		{name: "cli global ip", runner: "cli", text: "dropcheck global-ip"},
+		{name: "cli dns", runner: "cli", text: "dropcheck dns"},
+		{name: "cli http", runner: "cli", text: "dropcheck http"},
+		{name: "cli download", runner: "cli", text: "dropcheck download"},
 	}
 	for _, want := range required {
 		if !e2eTableHasCommand(cases, want.runner, want.text) {
@@ -277,6 +277,9 @@ func validateCommandCoverage(cases []matrixCase) error {
 	}
 	for _, tc := range cases {
 		commandLine := e2eComparableCommand(tc.Command)
+		if strings.Contains(commandLine, "request>") || strings.Contains(commandLine, "config>") || strings.Contains(commandLine, "dropcheck request ") || strings.Contains(commandLine, "run request ") || strings.Contains(commandLine, "run show ") || strings.Contains(commandLine, "--probe-option") {
+			return fmt.Errorf("%s still references removed command grammar", tc.ID)
+		}
 		if strings.Contains(commandLine, "wifi watch") || strings.Contains(commandLine, "watch wifi") {
 			return fmt.Errorf("%s still references removed wifi watch command: %s", tc.ID, tc.Command)
 		}
@@ -305,63 +308,25 @@ func expandParserPlaceholders(commandLine string) string {
 	return strings.NewReplacer(
 		"<serial>", "SERIAL",
 		"<ssid>", "Lab",
-		"<psk>", "secret",
+		"<psk>", "00000000",
 		"<bssid>", "00:11:22:33:44:55",
 	).Replace(commandLine)
 }
 
 func runShellParser(commandLine string) commandResult {
-	requestLine, requestMode := requestModeCommand(commandLine)
-	configureLine, configureMode := configureModeCommand(commandLine)
-	parseLine := commandLine
-	if requestMode {
-		parseLine = requestLine
-	} else if configureMode {
-		parseLine = configureLine
-	}
-	if shell.IsHelpLine(parseLine) {
+	if shell.IsHelpLine(commandLine) {
 		var out bytes.Buffer
-		switch {
-		case requestMode:
-			shell.WriteRequestContextHelp(&out, parseLine)
-		case configureMode:
-			shell.WriteConfigureContextHelp(&out, parseLine)
-		default:
-			shell.WriteContextHelp(&out, parseLine)
-		}
+		shell.WriteContextHelp(&out, commandLine)
 		if strings.TrimSpace(out.String()) == "" {
 			return commandResult{Output: "help output: <empty>", Code: 1, Err: errors.New("empty help output")}
 		}
 		return commandResult{Output: out.String(), Code: 0}
 	}
-	var err error
-	if requestMode {
-		_, err = shell.ParseRequestLine(parseLine)
-	} else if configureMode {
-		_, err = shell.ParseConfigureLine(parseLine)
-	} else {
-		_, err = shell.ParseLine(parseLine)
-	}
+	_, err := shell.ParseLine(commandLine)
 	if err != nil {
 		return commandResult{Output: err.Error(), Code: 1, Err: err}
 	}
 	return commandResult{Output: "parse ok\n", Code: 0}
-}
-
-func requestModeCommand(commandLine string) (string, bool) {
-	const marker = "request> "
-	if after, ok := strings.CutPrefix(commandLine, marker); ok {
-		return after, true
-	}
-	return commandLine, false
-}
-
-func configureModeCommand(commandLine string) (string, bool) {
-	const marker = "config> "
-	if after, ok := strings.CutPrefix(commandLine, marker); ok {
-		return after, true
-	}
-	return commandLine, false
 }
 
 func runCLIParser(commandLine string) commandResult {

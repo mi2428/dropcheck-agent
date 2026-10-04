@@ -8,747 +8,94 @@ import (
 	"dropcheck/controller/internal/pipeline"
 )
 
-// Options contains dropcheck CLI flags that affect dispatch and presentation.
 type Options struct {
-	// Format selects text or JSON output. The zero value means text.
 	Format pipeline.Format
-	// Target selects one connected agent by ID, prefix, or adb serial.
 	Target string
-	// All sends agent commands to every connected agent.
-	All bool
+	All    bool
 }
 
-// Kind identifies the high-level command parsed from CLI args.
 type Kind int
 
 const (
-	// AgentCommand sends an operation to one or more Android agents.
 	AgentCommand Kind = iota
-	// Devices lists connected agents.
 	Devices
+	Version
+	Help
+	ADBDiagnostics
 )
 
-// Command is the parsed non-interactive CLI command.
 type Command struct {
-	// Kind selects the app action to perform.
-	Kind Kind
-	// Operation is populated when Kind is AgentCommand.
+	Kind      Kind
 	Operation command.Operation
+	ADBKind   string
+	HelpTopic string
 }
 
-// ExtractOptions parses CLI-global flags and returns the remaining command
-// arguments.
-//
-// Supported flags are --format, --target, and --all. Unknown dash-prefixed
-// arguments are left in the returned rest slice so command-specific parsers can
-// handle them.
+// Host options are recognized only before the first network command token.
+// A positional HOST/SSID/URL equal to --target or --format remains literal.
 func ExtractOptions(args []string) (Options, []string, error) {
 	var opts Options
-	var rest []string
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--" {
-			rest = append(rest, args[i+1:]...)
-			break
+			return opts, args[i+1:], nil
 		}
-		name, value, hasValue := strings.Cut(arg, "=")
-		switch name {
-		case "--format":
-			if !hasValue {
-				if i+1 >= len(args) {
-					return opts, nil, fmt.Errorf("--format requires a value")
-				}
-				i++
-				value = args[i]
+		name, value, inline := strings.Cut(arg, "=")
+		if name != "--format" && name != "--target" && name != "--all" {
+			if opts.All && opts.Target != "" {
+				return opts, nil, fmt.Errorf("--all and --target cannot be combined")
 			}
-			switch pipeline.Format(value) {
-			case pipeline.FormatText, pipeline.FormatJSON:
-				opts.Format = pipeline.Format(value)
-			default:
-				return opts, nil, fmt.Errorf("--format must be text or json")
-			}
-		case "--target":
-			if !hasValue {
-				if i+1 >= len(args) {
-					return opts, nil, fmt.Errorf("--target requires a value")
-				}
-				i++
-				value = args[i]
-			}
-			opts.Target = value
-		case "--all":
-			if hasValue {
-				return opts, nil, fmt.Errorf("--all does not take a value")
+			return opts, args[i:], nil
+		}
+		if name == "--all" {
+			if inline || opts.All {
+				return opts, nil, fmt.Errorf("invalid --all")
 			}
 			opts.All = true
-		default:
-			rest = append(rest, arg)
+			continue
+		}
+		if !inline {
+			i++
+			if i >= len(args) {
+				return opts, nil, fmt.Errorf("%s requires a value", name)
+			}
+			value = args[i]
+		}
+		if name == "--target" {
+			if opts.Target != "" || value == "" {
+				return opts, nil, fmt.Errorf("invalid --target")
+			}
+			opts.Target = value
+		} else {
+			if opts.Format != "" || value != "text" && value != "json" {
+				return opts, nil, fmt.Errorf("invalid --format")
+			}
+			opts.Format = pipeline.Format(value)
 		}
 	}
 	if opts.All && opts.Target != "" {
-		return opts, nil, fmt.Errorf("--all and --target cannot be used together")
+		return opts, nil, fmt.Errorf("--all and --target cannot be combined")
 	}
-	return opts, rest, nil
+	return opts, nil, nil
 }
 
-// Parse converts non-interactive CLI args into a Command.
-//
-// Parse expects top-level app flags to have already been removed by
-// ExtractOptions or the app package.
 func Parse(args []string) (Command, error) {
-	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: dropcheck [--adb adb] [--serial SERIAL] [--package PACKAGE] [--listen ADDR] shell [--target TARGET] | <command>")
+	parsed, err := command.ParseTokens(args)
+	if err != nil {
+		return Command{}, err
 	}
-	switch args[0] {
-	case "show":
-		return parseShow(args[1:])
-	case "request":
-		return parseRequest(args[1:])
+	result := Command{Kind: AgentCommand, Operation: parsed.Operation, ADBKind: parsed.ADBKind, HelpTopic: parsed.Topic}
+	switch parsed.Path {
+	case "show devices":
+		result.Kind = Devices
+	case "show version":
+		result.Kind = Version
+	case "help":
+		result.Kind = Help
 	default:
-		return Command{}, fmt.Errorf("unknown command %q", args[0])
-	}
-}
-
-func parseShow(args []string) (Command, error) {
-	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: show <devices|wifi|ip>")
-	}
-	switch args[0] {
-	case "devices":
-		if len(args) != 1 {
-			return Command{}, fmt.Errorf("usage: show devices")
-		}
-		return Command{Kind: Devices}, nil
-	case "wifi":
-		op, err := parseLinuxShowWifi(args[1:])
-		return Command{Kind: AgentCommand, Operation: op}, err
-	case "ip":
-		op, err := parseLinuxShowIP(args[1:])
-		return Command{Kind: AgentCommand, Operation: op}, err
-	default:
-		return Command{}, fmt.Errorf("unknown show command %q", args[0])
-	}
-}
-
-func parseLinuxShowIP(args []string) (command.Operation, error) {
-	if len(args) != 1 || args[0] != "status" {
-		return command.Operation{}, fmt.Errorf("usage: show ip status")
-	}
-	return command.IPStatusOperation(), nil
-}
-
-func parseLinuxShowWifi(args []string) (command.Operation, error) {
-	if len(args) == 0 {
-		return command.Operation{}, fmt.Errorf("usage: show wifi <status|diagnostics|eht|scan|capabilities>")
-	}
-	switch args[0] {
-	case "status", "diagnostics", "capabilities":
-		if len(args) != 1 {
-			return command.Operation{}, fmt.Errorf("usage: show wifi %s", args[0])
-		}
-		switch args[0] {
-		case "status":
-			return command.WifiStatusOperation(), nil
-		case "diagnostics":
-			return command.WifiDiagnosticsOperation(), nil
-		default:
-			return command.WifiCapabilitiesOperation(), nil
-		}
-	case "eht":
-		return parseLinuxWifiEHT(args[1:])
-	case "scan":
-		return parseLinuxWifiScan(args[1:])
-	default:
-		return command.Operation{}, fmt.Errorf("unknown show wifi command %q", args[0])
-	}
-}
-
-func parseRequest(args []string) (Command, error) {
-	if len(args) == 0 {
-		return Command{}, fmt.Errorf("usage: request <wifi|monitor|ping|traceroute|path-mtu|global-ip|dns|http|download> <command>")
-	}
-	if args[0] == "wifi" {
-		op, err := parseLinuxWifi(args[1:])
-		return Command{Kind: AgentCommand, Operation: op}, err
-	}
-	if args[0] == "monitor" {
-		op, err := parseLinuxMonitor(args[1:])
-		return Command{Kind: AgentCommand, Operation: op}, err
-	}
-	if args[0] == "ping" {
-		op, err := parseLinuxPing(args[1:])
-		return Command{Kind: AgentCommand, Operation: op}, err
-	}
-	if args[0] == "traceroute" {
-		op, err := parseLinuxTraceroute(args[1:])
-		return Command{Kind: AgentCommand, Operation: op}, err
-	}
-	if args[0] == "path-mtu" {
-		op, err := parseLinuxPathMtu(args[1:])
-		return Command{Kind: AgentCommand, Operation: op}, err
-	}
-	if args[0] == "global-ip" {
-		op, err := parseLinuxGlobalIP(args[1:])
-		return Command{Kind: AgentCommand, Operation: op}, err
-	}
-	if args[0] == "dns" {
-		op, err := parseLinuxDNS(args[1:])
-		return Command{Kind: AgentCommand, Operation: op}, err
-	}
-	if args[0] == "http" {
-		op, err := parseLinuxHTTP(args[1:])
-		return Command{Kind: AgentCommand, Operation: op}, err
-	}
-	if args[0] == "download" {
-		op, err := parseLinuxDownload(args[1:])
-		return Command{Kind: AgentCommand, Operation: op}, err
-	}
-	return Command{}, fmt.Errorf("usage: request <wifi|monitor|ping|traceroute|path-mtu|global-ip|dns|http|download> <command>")
-}
-
-type dashOptionSpec struct {
-	value    bool
-	multiple bool
-}
-
-type parsedDashOptions struct {
-	positionals []string
-	values      map[string][]string
-	flags       map[string]bool
-}
-
-func parseDashOptions(args []string, specs map[string]dashOptionSpec) (parsedDashOptions, error) {
-	parsed := parsedDashOptions{
-		values: make(map[string][]string),
-		flags:  make(map[string]bool),
-	}
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if !strings.HasPrefix(arg, "--") || arg == "--" {
-			// Linux-style command parsers keep positionals in the order provided
-			// and validate command-specific placement after option extraction.
-			parsed.positionals = append(parsed.positionals, arg)
-			continue
-		}
-		name, value, hasValue := strings.Cut(strings.TrimPrefix(arg, "--"), "=")
-		spec, ok := specs[name]
-		if !ok {
-			return parsedDashOptions{}, fmt.Errorf("unsupported option --%s", name)
-		}
-		if !spec.value {
-			if hasValue {
-				return parsedDashOptions{}, fmt.Errorf("--%s does not take a value", name)
-			}
-			parsed.flags[name] = true
-			continue
-		}
-		if !hasValue {
-			if i+1 >= len(args) {
-				return parsedDashOptions{}, fmt.Errorf("--%s requires a value", name)
-			}
-			// Values may be separated by a space or supplied as --name=value.
-			i++
-			value = args[i]
-		}
-		if !spec.multiple && len(parsed.values[name]) > 0 {
-			return parsedDashOptions{}, fmt.Errorf("--%s can be specified only once", name)
-		}
-		parsed.values[name] = append(parsed.values[name], value)
-	}
-	return parsed, nil
-}
-
-func (p parsedDashOptions) value(name string) string {
-	values := p.values[name]
-	if len(values) == 0 {
-		return ""
-	}
-	return values[len(values)-1]
-}
-
-func parseLinuxWifi(args []string) (command.Operation, error) {
-	if len(args) == 0 {
-		return command.Operation{}, fmt.Errorf("usage: request wifi <connect|disconnect|forget|wait|assert|reconnect|cycle>")
-	}
-	switch args[0] {
-	case "disconnect":
-		if len(args) != 1 {
-			return command.Operation{}, fmt.Errorf("usage: request wifi disconnect")
-		}
-		return command.WifiDisconnectOperation(), nil
-	case "connect":
-		return parseLinuxWifiConnect(args[1:], "connect")
-	case "forget":
-		if len(args) != 2 {
-			return command.Operation{}, fmt.Errorf("usage: request wifi forget <ssid|network_id>")
-		}
-		return command.WifiForgetOperation(args[1]), nil
-	case "wait":
-		return parseLinuxWifiWait(args[1:])
-	case "assert":
-		return parseLinuxWifiAssert(args[1:])
-	case "reconnect":
-		return parseLinuxWifiReconnect(args[1:])
-	case "cycle":
-		return parseLinuxWifiConnect(args[1:], "cycle")
-	default:
-		return command.Operation{}, fmt.Errorf("unknown request wifi command %q", args[0])
-	}
-}
-
-func parseLinuxWifiEHT(args []string) (command.Operation, error) {
-	opts, err := parseDashOptions(args, map[string]dashOptionSpec{
-		"timeout": {value: true},
-		"ssid":    {value: true},
-		"bssid":   {value: true},
-	})
-	if err != nil {
-		return command.Operation{}, err
-	}
-	values := map[string]string{
-		"timeout": opts.value("timeout"),
-		"ssid":    opts.value("ssid"),
-		"bssid":   opts.value("bssid"),
-	}
-	fresh := false
-	pos := opts.positionals
-	for i := 0; i < len(pos); i++ {
-		switch pos[i] {
-		case "fresh":
-			if fresh {
-				return command.Operation{}, fmt.Errorf("fresh specified twice")
-			}
-			fresh = true
-		case "timeout", "ssid", "bssid":
-			if i+1 >= len(pos) {
-				return command.Operation{}, fmt.Errorf("%s requires a value", pos[i])
-			}
-			if values[pos[i]] != "" {
-				return command.Operation{}, fmt.Errorf("%s specified twice", pos[i])
-			}
-			values[pos[i]] = pos[i+1]
-			i++
-		default:
-			if fresh && values["timeout"] == "" && len(pos)-i == 1 {
-				values["timeout"] = pos[i]
-				continue
-			}
-			return command.Operation{}, fmt.Errorf("usage: show wifi eht [fresh [timeout <ms>]] [ssid <ssid>|bssid <bssid>]")
+		if parsed.ADBKind != "" {
+			result.Kind = ADBDiagnostics
 		}
 	}
-	if !fresh && values["timeout"] != "" {
-		return command.Operation{}, fmt.Errorf("--timeout is supported only with wifi eht fresh")
-	}
-	return command.WifiEHTOperationWithOptions(command.WifiEHTOptions{
-		Fresh:   fresh,
-		Timeout: values["timeout"],
-		SSID:    values["ssid"],
-		BSSID:   values["bssid"],
-	})
-}
-
-func parseLinuxWifiScan(args []string) (command.Operation, error) {
-	opts, err := parseDashOptions(args, map[string]dashOptionSpec{
-		"brief":   {},
-		"mlo":     {},
-		"band":    {value: true},
-		"timeout": {value: true},
-	})
-	if err != nil {
-		return command.Operation{}, err
-	}
-	pos := opts.positionals
-	if len(pos) == 0 {
-		if opts.value("timeout") != "" {
-			return command.Operation{}, fmt.Errorf("--timeout is supported only with wifi scan fresh")
-		}
-		if opts.flags["mlo"] && !opts.flags["brief"] {
-			return command.Operation{}, fmt.Errorf("mlo is supported only with wifi scan brief")
-		}
-		return command.WifiScanOperationWithBrief(opts.value("band"), opts.flags["brief"], opts.flags["mlo"])
-	}
-	switch pos[0] {
-	case "fresh":
-		band := opts.value("band")
-		brief := opts.flags["brief"]
-		mlo := opts.flags["mlo"]
-		for _, arg := range pos[1:] {
-			switch arg {
-			case "brief":
-				if brief {
-					return command.Operation{}, fmt.Errorf("brief specified twice")
-				}
-				brief = true
-			case "mlo":
-				if mlo {
-					return command.Operation{}, fmt.Errorf("mlo specified twice")
-				}
-				mlo = true
-			default:
-				if band != "" {
-					return command.Operation{}, fmt.Errorf("wifi scan fresh band specified twice")
-				}
-				band = arg
-			}
-		}
-		if mlo && !brief {
-			return command.Operation{}, fmt.Errorf("mlo is supported only with wifi scan brief")
-		}
-		return command.WifiFreshScanOperationWithBrief(band, opts.value("timeout"), brief, mlo)
-	case "detail":
-		if opts.flags["brief"] {
-			return command.Operation{}, fmt.Errorf("--brief is not supported with wifi scan detail")
-		}
-		if opts.flags["mlo"] {
-			return command.Operation{}, fmt.Errorf("--mlo is supported only with wifi scan brief")
-		}
-		if opts.value("timeout") != "" {
-			return command.Operation{}, fmt.Errorf("--timeout is supported only with wifi scan fresh")
-		}
-		if len(pos) < 2 {
-			return command.Operation{}, fmt.Errorf("usage: show wifi scan detail <ssid|bssid> [--band band]")
-		}
-		band := opts.value("band")
-		if band == "" && len(pos) == 3 {
-			band = pos[2]
-		}
-		if len(pos) > 3 {
-			return command.Operation{}, fmt.Errorf("usage: show wifi scan detail <ssid|bssid> [band]")
-		}
-		return command.WifiScanDetailOperation(pos[1], band)
-	default:
-		if opts.value("timeout") != "" {
-			return command.Operation{}, fmt.Errorf("--timeout is supported only with wifi scan fresh")
-		}
-		band := opts.value("band")
-		brief := opts.flags["brief"]
-		mlo := opts.flags["mlo"]
-		for _, arg := range pos {
-			switch arg {
-			case "brief":
-				if brief {
-					return command.Operation{}, fmt.Errorf("brief specified twice")
-				}
-				brief = true
-			case "mlo":
-				if mlo {
-					return command.Operation{}, fmt.Errorf("mlo specified twice")
-				}
-				mlo = true
-			default:
-				if band != "" {
-					return command.Operation{}, fmt.Errorf("show wifi scan band specified twice")
-				}
-				band = arg
-			}
-		}
-		if mlo && !brief {
-			return command.Operation{}, fmt.Errorf("mlo is supported only with wifi scan brief")
-		}
-		return command.WifiScanOperationWithBrief(band, brief, mlo)
-	}
-}
-
-func parseLinuxWifiConnect(args []string, operation string) (command.Operation, error) {
-	specs := map[string]dashOptionSpec{
-		"passphrase":        {value: true},
-		"security":          {value: true},
-		"bssid":             {value: true},
-		"band":              {value: true},
-		"mac-randomization": {value: true},
-		"timeout":           {value: true},
-	}
-	if operation == "cycle" {
-		specs["count"] = dashOptionSpec{value: true}
-		specs["ping"] = dashOptionSpec{value: true}
-		specs["http"] = dashOptionSpec{value: true}
-		specs["pause"] = dashOptionSpec{value: true}
-		specs["forget"] = dashOptionSpec{}
-	}
-	opts, err := parseDashOptions(args, specs)
-	if err != nil {
-		return command.Operation{}, err
-	}
-	pos := opts.positionals
-	if len(pos) == 0 {
-		return command.Operation{}, fmt.Errorf("usage: request wifi %s <ssid> --passphrase <passphrase>", operation)
-	}
-	ssid := pos[0]
-	passphrase := opts.value("passphrase")
-	switch {
-	case passphrase != "" && len(pos) > 1:
-		return command.Operation{}, fmt.Errorf("too many positional arguments for request wifi %s", operation)
-	case passphrase == "" && len(pos) >= 2:
-		passphrase = pos[1]
-		if len(pos) > 2 {
-			return command.Operation{}, fmt.Errorf("too many positional arguments for request wifi %s", operation)
-		}
-	case passphrase == "":
-		return command.Operation{}, fmt.Errorf("request wifi %s requires --passphrase", operation)
-	}
-	connectOpts := command.WifiConnectOptions{
-		SSID:             ssid,
-		Passphrase:       passphrase,
-		Security:         opts.value("security"),
-		BSSID:            opts.value("bssid"),
-		Band:             opts.value("band"),
-		MacRandomization: opts.value("mac-randomization"),
-		Timeout:          opts.value("timeout"),
-	}
-	if operation == "cycle" {
-		return command.WifiCycleOperation(command.WifiCycleOptions{
-			WifiConnectOptions: connectOpts,
-			Count:              opts.value("count"),
-			PingHost:           opts.value("ping"),
-			HTTPURL:            opts.value("http"),
-			ForgetAfterEach:    opts.flags["forget"],
-			Pause:              opts.value("pause"),
-		})
-	}
-	return command.WifiConnectOperation(connectOpts)
-}
-
-func parseLinuxWifiWait(args []string) (command.Operation, error) {
-	if len(args) == 0 || args[0] != "connected" {
-		return command.Operation{}, fmt.Errorf("usage: request wifi wait connected [ssid] [--bssid bssid] [--security security] [--band band] [--ip] [--validated] [--timeout ms]")
-	}
-	opts, err := parseDashOptions(args[1:], expectationDashSpecs())
-	if err != nil {
-		return command.Operation{}, err
-	}
-	if len(opts.positionals) > 1 {
-		return command.Operation{}, fmt.Errorf("usage: request wifi wait connected [ssid]")
-	}
-	waitOpts := linuxExpectationOptions(opts)
-	if len(opts.positionals) == 1 {
-		if waitOpts.SSID != "" {
-			return command.Operation{}, fmt.Errorf("request wifi wait connected ssid specified twice")
-		}
-		waitOpts.SSID = opts.positionals[0]
-	}
-	return command.WifiWaitConnectedOperation("", waitOpts)
-}
-
-func parseLinuxWifiAssert(args []string) (command.Operation, error) {
-	opts, err := parseDashOptions(args, expectationDashSpecs())
-	if err != nil {
-		return command.Operation{}, err
-	}
-	if len(opts.positionals) != 0 {
-		return command.Operation{}, fmt.Errorf("usage: request wifi assert [--ssid ssid] [--bssid bssid] [--security security] [--band band] [--ip] [--validated] [--timeout ms]")
-	}
-	return command.WifiAssertOperation(linuxExpectationOptions(opts))
-}
-
-func expectationDashSpecs() map[string]dashOptionSpec {
-	return map[string]dashOptionSpec{
-		"ssid":      {value: true},
-		"bssid":     {value: true},
-		"security":  {value: true},
-		"band":      {value: true},
-		"timeout":   {value: true},
-		"ip":        {},
-		"validated": {},
-	}
-}
-
-func linuxExpectationOptions(opts parsedDashOptions) command.WifiExpectationOptions {
-	return command.WifiExpectationOptions{
-		SSID:             opts.value("ssid"),
-		BSSID:            opts.value("bssid"),
-		Security:         opts.value("security"),
-		Band:             opts.value("band"),
-		Timeout:          opts.value("timeout"),
-		RequireIP:        opts.flags["ip"],
-		RequireValidated: opts.flags["validated"],
-	}
-}
-
-func parseLinuxMonitorWifi(args []string) (command.Operation, error) {
-	opts, err := parseDashOptions(args, map[string]dashOptionSpec{
-		"duration": {value: true},
-		"interval": {value: true},
-	})
-	if err != nil {
-		return command.Operation{}, err
-	}
-	if len(opts.positionals) > 2 {
-		return command.Operation{}, fmt.Errorf("usage: request monitor wifi [duration_ms] [interval_ms]")
-	}
-	var duration string
-	if opts.value("duration") != "" {
-		duration = opts.value("duration")
-	} else if len(opts.positionals) >= 1 {
-		duration = opts.positionals[0]
-	}
-	var interval string
-	if opts.value("interval") != "" {
-		if duration == "" {
-			duration = "10000"
-		}
-		interval = opts.value("interval")
-	} else if len(opts.positionals) == 2 {
-		interval = opts.positionals[1]
-	}
-	return command.WifiMonitorOperation(duration, interval)
-}
-
-func parseLinuxWifiReconnect(args []string) (command.Operation, error) {
-	opts, err := parseDashOptions(args, map[string]dashOptionSpec{"timeout": {value: true}})
-	if err != nil {
-		return command.Operation{}, err
-	}
-	if len(opts.positionals) > 1 {
-		return command.Operation{}, fmt.Errorf("usage: request wifi reconnect [timeout_ms]")
-	}
-	timeout := opts.value("timeout")
-	if timeout == "" && len(opts.positionals) == 1 {
-		timeout = opts.positionals[0]
-	}
-	return command.WifiReconnectOperation(timeout)
-}
-
-func parseLinuxMonitor(args []string) (command.Operation, error) {
-	if len(args) == 0 || args[0] != "wifi" {
-		return command.Operation{}, fmt.Errorf("usage: request monitor wifi [duration_ms] [interval_ms]")
-	}
-	return parseLinuxMonitorWifi(args[1:])
-}
-
-func parseLinuxPing(args []string) (command.Operation, error) {
-	opts, err := parseDashOptions(args, map[string]dashOptionSpec{
-		"count":   {value: true},
-		"size":    {value: true},
-		"timeout": {value: true},
-	})
-	if err != nil {
-		return command.Operation{}, err
-	}
-	if len(opts.positionals) == 0 {
-		return command.Operation{}, fmt.Errorf("usage: request ping <host> [--count n] [--size bytes] [--timeout ms]")
-	}
-	if len(opts.positionals) > 2 {
-		return command.Operation{}, fmt.Errorf("too many positional arguments for request ping")
-	}
-	count := opts.value("count")
-	if count == "" && len(opts.positionals) == 2 {
-		count = opts.positionals[1]
-	}
-	return command.PingOperation(command.PingOptions{Host: opts.positionals[0], Count: count, Size: opts.value("size"), Timeout: opts.value("timeout")})
-}
-
-func parseLinuxTraceroute(args []string) (command.Operation, error) {
-	opts, err := parseDashOptions(args, map[string]dashOptionSpec{
-		"max-hops": {value: true},
-		"via":      {value: true, multiple: true},
-		"size":     {value: true},
-		"timeout":  {value: true},
-	})
-	if err != nil {
-		return command.Operation{}, err
-	}
-	if len(opts.positionals) == 0 {
-		return command.Operation{}, fmt.Errorf("usage: request traceroute <host> [--max-hops n] [--via host_or_ip] [--size bytes] [--timeout ms]")
-	}
-	if len(opts.positionals) > 2 {
-		return command.Operation{}, fmt.Errorf("too many positional arguments for request traceroute")
-	}
-	maxHops := opts.value("max-hops")
-	if maxHops == "" && len(opts.positionals) == 2 {
-		maxHops = opts.positionals[1]
-	}
-	return command.TracerouteOperation(command.TracerouteOptions{
-		Host: opts.positionals[0], MaxHops: maxHops, Via: opts.values["via"], Size: opts.value("size"), Timeout: opts.value("timeout"),
-	})
-}
-
-func parseLinuxPathMtu(args []string) (command.Operation, error) {
-	opts, err := parseDashOptions(args, map[string]dashOptionSpec{
-		"min-mtu": {value: true},
-		"max-mtu": {value: true},
-		"timeout": {value: true},
-	})
-	if err != nil {
-		return command.Operation{}, err
-	}
-	if len(opts.positionals) != 1 {
-		return command.Operation{}, fmt.Errorf("usage: request path-mtu <host> [--min-mtu bytes] [--max-mtu bytes] [--timeout ms]")
-	}
-	return command.PathMTUOperation(command.PathMTUOptions{
-		Host: opts.positionals[0], MinMTU: opts.value("min-mtu"), MaxMTU: opts.value("max-mtu"), Timeout: opts.value("timeout"),
-	})
-}
-
-func parseLinuxGlobalIP(args []string) (command.Operation, error) {
-	opts, err := parseDashOptions(args, map[string]dashOptionSpec{
-		"family":  {value: true},
-		"timeout": {value: true},
-	})
-	if err != nil {
-		return command.Operation{}, err
-	}
-	if len(opts.positionals) > 1 {
-		return command.Operation{}, fmt.Errorf("usage: request global-ip [ipv4|ipv6|all] [--family ipv4|ipv6|all] [--timeout ms]")
-	}
-	if len(opts.positionals) == 1 && opts.value("family") != "" {
-		return command.Operation{}, fmt.Errorf("request global-ip family specified twice")
-	}
-	family := opts.value("family")
-	if family == "" && len(opts.positionals) == 1 {
-		family = opts.positionals[0]
-	}
-	return command.GlobalIPOperation(family, opts.value("timeout"))
-}
-
-func parseLinuxDownload(args []string) (command.Operation, error) {
-	opts, err := parseDashOptions(args, map[string]dashOptionSpec{"timeout": {value: true}})
-	if err != nil {
-		return command.Operation{}, err
-	}
-	if len(opts.positionals) != 1 {
-		return command.Operation{}, fmt.Errorf("usage: request download <url> [--timeout ms]")
-	}
-	return command.DownloadOperation(opts.positionals[0], opts.value("timeout"))
-}
-
-func parseLinuxDNS(args []string) (command.Operation, error) {
-	opts, err := parseDashOptions(args, map[string]dashOptionSpec{
-		"type":    {value: true},
-		"timeout": {value: true},
-	})
-	if err != nil {
-		return command.Operation{}, err
-	}
-	if len(opts.positionals) == 0 {
-		return command.Operation{}, fmt.Errorf("usage: request dns <name> [--type A|AAAA|ALL] [--timeout ms]")
-	}
-	if len(opts.positionals) > 2 {
-		return command.Operation{}, fmt.Errorf("too many positional arguments for request dns")
-	}
-	qtype := opts.value("type")
-	if qtype == "" && len(opts.positionals) == 2 {
-		qtype = opts.positionals[1]
-	}
-	return command.DNSOperation(opts.positionals[0], qtype, opts.value("timeout"))
-}
-
-func parseLinuxHTTP(args []string) (command.Operation, error) {
-	opts, err := parseDashOptions(args, map[string]dashOptionSpec{
-		"expected-status": {value: true},
-		"timeout":         {value: true},
-	})
-	if err != nil {
-		return command.Operation{}, err
-	}
-	if len(opts.positionals) == 0 {
-		return command.Operation{}, fmt.Errorf("usage: request http <url> [--expected-status code] [--timeout ms]")
-	}
-	if len(opts.positionals) > 2 {
-		return command.Operation{}, fmt.Errorf("too many positional arguments for request http")
-	}
-	expectedStatus := opts.value("expected-status")
-	if expectedStatus == "" && len(opts.positionals) == 2 {
-		expectedStatus = opts.positionals[1]
-	}
-	return command.HTTPOperation(opts.positionals[0], expectedStatus, opts.value("timeout"))
+	return result, nil
 }

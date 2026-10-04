@@ -494,8 +494,8 @@ func PingOperation(opts PingOptions) (Operation, error) {
 
 // TracerouteOperation builds a traceroute operation.
 //
-// opts.Via is stored as local Options so rendering can check for required hops
-// without sending that presentation-only expectation to the Android agent.
+// opts.Via stays local: the common operation evaluator checks typed hop results
+// without sending this expectation to the Android agent.
 func TracerouteOperation(opts TracerouteOptions) (Operation, error) {
 	maxHops, err := parseOptionalUint32(opts.MaxHops, "max_hops", 30)
 	if err != nil {
