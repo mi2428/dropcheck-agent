@@ -13,6 +13,49 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentInteractiveShellTest {
+    @Test fun controllerCanonicalCommandsMatchAndroidWireCases() {
+        val portable = mapOf(
+            "E2E-015" to RunCommand.CommandCase.GET_WIFI_STATUS,
+            "E2E-016" to RunCommand.CommandCase.GET_IP_STATUS,
+            "E2E-017" to RunCommand.CommandCase.GET_WIFI_DIAGNOSTICS,
+            "E2E-018" to RunCommand.CommandCase.GET_WIFI_CAPABILITIES,
+            "E2E-019" to RunCommand.CommandCase.GET_WIFI_SCAN,
+            "E2E-020" to RunCommand.CommandCase.GET_WIFI_SCAN,
+            "E2E-021" to RunCommand.CommandCase.GET_FRESH_WIFI_SCAN,
+            "E2E-022" to RunCommand.CommandCase.GET_WIFI_SCAN_DETAIL,
+            "E2E-023" to RunCommand.CommandCase.CONNECT_WIFI,
+            "E2E-024" to RunCommand.CommandCase.WAIT_WIFI_CONNECTED,
+            "E2E-025" to RunCommand.CommandCase.ASSERT_WIFI,
+            "E2E-026" to RunCommand.CommandCase.RECONNECT_WIFI,
+            "E2E-027" to RunCommand.CommandCase.MONITOR_WIFI,
+            "E2E-028" to RunCommand.CommandCase.CYCLE_WIFI,
+            "E2E-029" to RunCommand.CommandCase.DISCONNECT_WIFI,
+            "E2E-030" to RunCommand.CommandCase.FORGET_WIFI,
+            "E2E-031" to RunCommand.CommandCase.PING,
+            "E2E-032" to RunCommand.CommandCase.TRACEROUTE,
+            "E2E-033" to RunCommand.CommandCase.PATH_MTU,
+            "E2E-034" to RunCommand.CommandCase.GLOBAL_IP,
+            "E2E-035" to RunCommand.CommandCase.RESOLVE_DNS,
+            "E2E-036" to RunCommand.CommandCase.HTTP_CHECK,
+            "E2E-037" to RunCommand.CommandCase.WGET,
+        )
+        val rejected = setOf("E2E-050", "E2E-053", "E2E-055", "E2E-056", "E2E-059", "E2E-060", "E2E-067", "E2E-081")
+        val matrix = checkNotNull(javaClass.getResourceAsStream("/e2e_cases.tsv"))
+            .bufferedReader().use { reader -> reader.readLines() }
+        var checked = 0
+        for (line in matrix.drop(1)) {
+            val columns = line.split('\t', limit = 6)
+            val expected = portable[columns[0]]
+            if (expected == null && columns[0] !in rejected) continue
+            val shellLine = columns[3].removeSurrounding("\"").replace("\"\"", "\"")
+                .replace("<ssid>", "Example Lab").replace("<psk>", "test-only")
+            if (expected == null) invalid(shellLine)
+            else assertEquals(columns[0], expected, live(shellLine).request.commandCase)
+            checked++
+        }
+        assertEquals(portable.size + rejected.size, checked)
+    }
+
     private fun live(input: String): AgentShellCommand.Execute {
         val parsed = AgentShellParser.parse(input)
         assertTrue("$input: $parsed", parsed is AgentShellCommand.Execute)

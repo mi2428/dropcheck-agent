@@ -223,7 +223,7 @@ $ make install SERIAL=R5CT12345
 ```
 
 The Android agent executes controller requests, records structured local logs, renders widgets, and hosts Agent Shell for direct handset-side inspection.
-Agent Shell focuses on local Wi-Fi inspection plus handset-side probes such as `ping` and `traceroute`.
+Agent Shell accepts the same flat Wi-Fi inspection/control and handset-probe grammar as the controller, excluding PC-only device/ADB/format/pipeline commands; its target is always self. Unsupported profile commands never start an operation.
 For direct handset-side joins, `set default passphrase <psk>` stores a default PSK for later `use <ssid>`, and `use <ssid> <psk>` overrides it per command.
 Wrap SSIDs or PSKs in double quotes when they contain spaces or other shell-significant characters.
 
