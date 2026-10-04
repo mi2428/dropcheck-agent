@@ -17,6 +17,92 @@ import io.dropcheck.agent.grpc.WifiStatus
 
 /** Text renderer used by Agent Shell for `show wifi status`. */
 internal object AgentWifiStatusRenderer {
+    fun securitySummary(details: WifiSecurityDetails): String = wifiSecurityDetailRows(details).joinToString("; ") { "${it.first}=${it.second}" }
+    fun presentation(status: WifiStatus, detail: Boolean = false, detailAvailable: Boolean = false, ipAvailable: Boolean = false, includeIpSnapshot: Boolean = true): List<AgentBlockPart> = buildList {
+        fun text(label: String, value: String) { add(AgentBlockPart.Field(label, value)) }
+        fun observed(label: String, fields: List<io.dropcheck.agent.grpc.DiagnosticField>, field: String, value: String, fullValue: String = value) { add(AgentBlockPart.Field(label, AgentObservationPresentation.value(fields, field, value), fullValue)) }
+        text("Radio", AgentObservationPresentation.value(status.observationFieldsList, "radio", if (status.enabled) "on" else "off"))
+        if (status.hasConnection()) {
+            val conn = status.connection
+            val disconnected = conn.detailedState.equals("DISCONNECTED", ignoreCase = true)
+            text("Link", AgentObservationPresentation.value(status.observationFieldsList, "connection", conn.detailedState.ifEmpty { conn.supplicantState.ifEmpty { "?" } }))
+            observed("SSID", conn.observationFieldsList, "identity", if (disconnected) "none" else conn.ssid.takeUnless { it.isEmpty() || it.equals("<unknown ssid>", ignoreCase = true) } ?: "? (identity unavailable)", conn.ssid)
+            observed("BSSID", conn.observationFieldsList, "identity", if (disconnected) "none" else conn.bssid.takeIf(::isKnownWifiBssid) ?: "?", conn.bssid)
+            text("Band", wifiBandFromFrequency(conn.frequencyMhz))
+            text("CH/BW", "${wifiChannelFromFrequency(conn.frequencyMhz)}/${formatWifiChannelWidth(conn.channelWidth).ifEmpty { "?" }}")
+            text("PHY", conn.wifiStandard.ifEmpty { "?" })
+            observed("RSSI", conn.observationFieldsList, "rssi", "${conn.rssiDbm}dBm")
+            text("Security", conn.securityType.ifEmpty { "?" })
+            if (conn.hasSecurityDetails() && conn.securityDetails.rsnPresent) text("PMF", "capable=${conn.securityDetails.pmfCapable} required=${conn.securityDetails.pmfRequired}")
+            observed("Tx link rate", conn.observationFieldsList, "tx_link_speed_mbps", "${conn.txLinkSpeedMbps}Mbps")
+            observed("Rx link rate", conn.observationFieldsList, "rx_link_speed_mbps", "${conn.rxLinkSpeedMbps}Mbps")
+            observed("MLD", conn.observationFieldsList, "ap_mld_mac_address", conn.apMldMacAddress)
+            text("Associated", AgentObservationPresentation.value(conn.observationFieldsList, "associated_mlo_links", conn.associatedMloLinksCount.toString()))
+            text("Affiliated", AgentObservationPresentation.value(conn.observationFieldsList, "affiliated_mlo_links", conn.affiliatedMloLinksCount.toString()))
+            if (detail || !detailAvailable) {
+                val lines = mutableListOf<String>()
+                renderConnection(lines, conn)
+                addAll(lines.map { AgentBlockPart.Text(it) })
+            }
+            if (conn.applicableRedactions.isNotEmpty() && conn.applicableRedactions != "0") text("Note", "identity redactions=${conn.applicableRedactions}")
+        } else {
+            val connection = AgentObservationPresentation.value(status.observationFieldsList, "connection", "")
+            text("Link", if (connection == "none") "disconnected" else connection)
+            if (connection == "none") text("SSID/BSSID", "none")
+        }
+        status.permissionsList.filterNot { it.endsWith("=granted", ignoreCase = true) }.forEach { text("Note", it) }
+        if (ipAvailable) text("IP", "show ip status") else if (includeIpSnapshot && status.hasIpStatus()) {
+            text("Related IP snapshot", "retained until show ip status is exposed")
+            addAll(ipPresentation(status.ipStatus))
+        } else if (includeIpSnapshot && status.hasConnection() && status.connection.ipv4Address.isNotEmpty()) {
+            text("Related IP snapshot", status.connection.ipv4Address)
+        }
+        if (detailAvailable && !detail) text("More", "show wifi status detail")
+    }
+
+    fun ipPresentation(status: IpStatus, detail: Boolean = false, detailAvailable: Boolean = false): List<AgentBlockPart> = buildList {
+        val fields = status.observationFieldsList
+        val metadata = fields.associate { it.key to it.value }
+        fun text(label: String, value: String) { add(AgentBlockPart.Field(label, value)) }
+        fun observed(label: String, value: String) { add(AgentBlockPart.Field(label, AgentObservationPresentation.value(fields, "link_properties", value), value)) }
+        fun values(label: String, values: List<String>) { add(AgentBlockPart.Field(label, AgentObservationPresentation.list(fields, "link_properties", values), values.joinToString("\n"))) }
+        text("Network", status.networkId.ifEmpty { "?" })
+        observed("Interface", status.interfaceName)
+        text("Default network", AgentObservationPresentation.value(fields, "default_network", metadata["default_network_id"].orEmpty()))
+        val selected = when (metadata["selected_is_default"]) { "true" -> "yes"; "false" -> "no"; else -> "? (selected_is_default not supplied)" }
+        text("Selected is default", AgentObservationPresentation.value(fields, "default_network", selected))
+        if (metadata["default_network.state"] == "available" && metadata["selected_is_default"] == "false") text("Note", "selected Wi-Fi differs from Android default Network")
+        add(AgentBlockPart.Field("Internet", AgentObservationPresentation.bool(fields, "capabilities", status.internet), if (status.internet) "yes" else "no"))
+        add(AgentBlockPart.Field("Validated", AgentObservationPresentation.bool(fields, "capabilities", status.validated), if (status.validated) "yes" else "no"))
+        observed("MTU", status.mtu.toString())
+        val addresses = splitIPAddresses(status.addressesList)
+        add(AgentBlockPart.Text("IPv4")); values("Addr", addresses.ipv4)
+        add(AgentBlockPart.Text("IPv6")); values("Addr", addresses.ipv6)
+        if (addresses.other.isNotEmpty()) values("Other address", addresses.other)
+        values("Routes", status.routesList)
+        values("DNS", status.dnsServersList)
+        observed("DHCP server", status.dhcpServer)
+        observed("Private DNS", if (status.privateDnsActive) "on; server=${status.privateDnsServerName.ifEmpty { "none" }}" else "off")
+        observed("NAT64", status.nat64Prefix)
+        if (detail || !detailAvailable) {
+            text("Capabilities", AgentObservationPresentation.list(fields, "capabilities", status.capabilitiesList))
+            text("Bandwidth", AgentObservationPresentation.value(fields, "capabilities", networkBandwidth(status).orEmpty()))
+            text("Signal strength", AgentObservationPresentation.value(fields, "capabilities", status.signalStrength.toString()))
+            text("Specifier", AgentObservationPresentation.value(fields, "capabilities", status.networkSpecifier))
+            text("Owner uid", AgentObservationPresentation.value(fields, "capabilities", status.ownerUid.toString()))
+            text("Enterprise IDs", AgentObservationPresentation.list(fields, "capabilities", status.enterpriseIdsList))
+            text("Subscription IDs", AgentObservationPresentation.list(fields, "capabilities", status.subscriptionIdsList.map(Int::toString)))
+            observed("Domains", status.domains)
+            observed("Proxy", status.httpProxy)
+            text("Wake on LAN", AgentObservationPresentation.bool(fields, "link_properties", status.wakeOnLanSupported))
+            val lines = mutableListOf<String>()
+            renderIPv6Ra(lines, status.ipv6RaList)
+            addAll(lines.map { AgentBlockPart.Text(it) })
+            if (detail && status.rawLinkProperties.isNotEmpty()) text("Raw LinkProperties", status.rawLinkProperties)
+            if (detail && status.rawCapabilities.isNotEmpty()) text("Raw capabilities", status.rawCapabilities)
+        }
+    }
+
     fun render(status: WifiStatus): List<String> {
         val out = mutableListOf<String>()
         section(out, "Wi-Fi")
@@ -72,11 +158,11 @@ internal object AgentWifiStatusRenderer {
     private fun renderConnection(out: MutableList<String>, conn: WifiConnection) {
         section(out, "Connection")
         kv(out,
-            "ssid" to conn.ssid,
-            "bssid" to empty(conn.bssid, "unknown"),
+            "ssid" to AgentObservationPresentation.value(conn.observationFieldsList, "identity", conn.ssid),
+            "bssid" to AgentObservationPresentation.value(conn.observationFieldsList, "identity", conn.bssid),
             "security" to empty(conn.securityType, "unknown"),
             "standard" to empty(conn.wifiStandard, "unknown"),
-            "rssi" to "${conn.rssiDbm}dBm",
+            "rssi" to AgentObservationPresentation.value(conn.observationFieldsList, "rssi", "${conn.rssiDbm}dBm"),
             "signal" to wifiSignalLevel(conn),
             "band" to wifiBandFromFrequency(conn.frequencyMhz),
             "channel" to wifiChannelFromFrequency(conn.frequencyMhz),
@@ -98,10 +184,9 @@ internal object AgentWifiStatusRenderer {
     }
 
     private fun wifiLinkSpeed(conn: WifiConnection): String {
-        val parts = mutableListOf("${conn.linkSpeedMbps}Mbps")
-        if (conn.txLinkSpeedMbps > 0) parts += "tx=${conn.txLinkSpeedMbps}Mbps"
-        if (conn.rxLinkSpeedMbps > 0) parts += "rx=${conn.rxLinkSpeedMbps}Mbps"
-        return parts.joinToString(" ")
+        val tx = AgentObservationPresentation.value(conn.observationFieldsList, "tx_link_speed_mbps", "${conn.txLinkSpeedMbps}Mbps")
+        val rx = AgentObservationPresentation.value(conn.observationFieldsList, "rx_link_speed_mbps", "${conn.rxLinkSpeedMbps}Mbps")
+        return "tx=$tx rx=$rx"
     }
 
     private fun renderAPCapabilities(out: MutableList<String>, conn: WifiConnection) {
@@ -596,19 +681,6 @@ internal object AgentWifiStatusRenderer {
             } else {
                 out += "  ${key.padEnd(width)}  $value"
             }
-        }
-    }
-
-    private fun table(out: MutableList<String>, headers: List<String>, rows: List<List<String>>) {
-        val widths = headers.indices.map { index ->
-            (listOf(headers[index]) + rows.map { it.getOrElse(index) { "" } }).maxOf { it.length }
-        }
-        out += headers.mapIndexed { index, value -> value.padEnd(widths[index]) }.joinToString("  ").trimEnd()
-        rows.forEach { row ->
-            out += headers.indices
-                .map { index -> row.getOrElse(index) { "" }.padEnd(widths[index]) }
-                .joinToString("  ")
-                .trimEnd()
         }
     }
 

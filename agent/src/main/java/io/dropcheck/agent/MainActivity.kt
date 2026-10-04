@@ -4,6 +4,8 @@ import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Canvas
@@ -25,6 +27,7 @@ import android.text.InputType
 import android.text.SpannableString
 import android.text.SpannableStringBuilder
 import android.text.Spanned
+import android.text.Selection
 import android.text.style.ForegroundColorSpan
 import android.view.Gravity
 import android.view.KeyEvent
@@ -55,6 +58,7 @@ import io.dropcheck.agent.grpc.RunCommand
 import io.dropcheck.agent.grpc.Traceroute
 import io.dropcheck.agent.grpc.WifiBand
 import java.util.concurrent.Executors
+import java.util.IdentityHashMap
 
 private const val TERMINAL_BREAK_OPPORTUNITY = "\u200B"
 internal const val ACTION_OPEN_LOG_VIEWER = "io.dropcheck.agent.action.OPEN_LOG_VIEWER"
@@ -153,11 +157,22 @@ class MainActivity : Activity() {
         runOnUiThread { syncStatusIcons() }
     }
     private val shellExecutor = Executors.newSingleThreadExecutor()
-    private val shellTranscript = ArrayDeque<ShellTranscriptLine>()
+    private var shellTranscript = AgentBlockHistory()
+    private val shellBlockViews = IdentityHashMap<AgentPresentationBlock, LinearLayout>()
+    private var shellContentWidthPx = 0
+    private var shellOutputSizeSp = SHELL_TEXT_SIZE_SP
+    private var shellMinimumSizeSp = 10f
     private var shellTranscriptSeeded = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (lastNonConfigurationInstance == null) AgentSafeValueFile.clearAbandoned(cacheDir)
+        (lastNonConfigurationInstance as? ShellDisplayState)?.let {
+            shellTranscript = it.history
+            shellTranscriptSeeded = true
+            shellOutputSizeSp = it.baseSizeSp
+            shellMinimumSizeSp = it.minimumSizeSp
+        }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
         TerminalLog.compactIfNeeded(this)
@@ -241,7 +256,7 @@ class MainActivity : Activity() {
                 shellSafeTopInset = safeTop
                 shellSafeRightInset = safeRight
                 updateShellContentPadding()
-                if (shellVisible) scrollShellToInput()
+                if (shellVisible && shellInput?.hasFocus() == true && !shellScroll.canScrollVertically(1)) scrollShellToInput()
             }
             insets
         }
@@ -250,7 +265,15 @@ class MainActivity : Activity() {
         updateStatusIcons()
         resetIdleDimTimer()
         showInitialScreen(intent)
+        (lastNonConfigurationInstance as? ShellDisplayState)?.let { state ->
+            shellScroll.post { shellScroll.scrollTo(0, state.scrollY) }
+        }
     }
+
+    @Suppress("DEPRECATION")
+    override fun onRetainNonConfigurationInstance(): Any = ShellDisplayState(
+        shellTranscript, shellOutputSizeSp, shellMinimumSizeSp, if (::shellScroll.isInitialized) shellScroll.scrollY else 0,
+    )
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -538,6 +561,13 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.BLACK)
             excludeFromContentCapture()
+            addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
+                val width = (view.width - view.paddingLeft - view.paddingRight).coerceAtLeast(0)
+                if (width != shellContentWidthPx) {
+                    shellContentWidthPx = width
+                    view.post { renderShell() }
+                }
+            }
         }
         updateShellContentPadding()
         renderShell()
@@ -568,6 +598,13 @@ class MainActivity : Activity() {
     private fun renderShell() {
         if (!::shellContent.isInitialized) return
         seedShellTranscript()
+        val inputFocused = shellInput?.hasFocus() == true
+        val inputSelectionStart = shellInput?.selectionStart ?: -1
+        val inputSelectionEnd = shellInput?.selectionEnd ?: -1
+        val focusedBlock = shellBlockViews.values.firstOrNull { (it.getChildAt(0) as TextView).hasFocus() }
+        val anchor = if (::shellScroll.isInitialized) shellScroll.scrollY else 0
+        val anchoredView = if (::shellScroll.isInitialized) shellTranscript.blocks.mapNotNull { shellBlockViews[it] }.firstOrNull { it.bottom > anchor } else null
+        val anchorOffset = anchoredView?.let { anchor - it.top }
         shellContent.removeAllViews()
         fun addShellView(view: View) {
             shellContent.addView(view)
@@ -576,13 +613,118 @@ class MainActivity : Activity() {
         val controllerState = if (ControllerSessionRuntimeState.heartbeatConnected()) "connected" else "idle"
         val defaults = AgentShellUseDefaultsStore(applicationContext).load()
         addShellView(shellText("surface=agent-shell controller=$controllerState ${AgentShellUsePolicy.statusText(defaults)}", AgentLogStyle.TEXT_COLOR))
+        addShellView(shellText("Output size: ${shellOutputSizeSp}sp (minimum ${shellMinimumSizeSp}sp)", AgentLogStyle.TEXT_COLOR).apply {
+            contentDescription = "Output text size settings. Current ${shellOutputSizeSp}sp, minimum ${shellMinimumSizeSp}sp"
+            setOnClickListener { showShellOutputSizeSettings() }
+            minHeight = dp(48)
+            isFocusable = true
+        })
         addShellView(shellSpacer(8))
-        shellTranscript.takeLast(SHELL_TRANSCRIPT_MAX_LINES).forEach {
-            addShellView(shellText(it.text, it.color))
+        if (shellTranscript.evictedBlocks > 0) addShellView(shellText("History: ${shellTranscript.evictedBlocks} older blocks evicted", AgentLogStyle.TEXT_COLOR))
+        shellBlockViews.keys.toList().filter { block -> shellTranscript.blocks.none { it === block } }.forEach { shellBlockViews.remove(it) }
+        shellTranscript.blocks.forEach { block ->
+            val view = shellBlockViews.getOrPut(block) { shellBlockView(block) }
+            reflowShellBlock(view, block)
+            addShellView(view)
         }
-        if (!shellBusy) {
-            addShellView(ensureShellInputRow())
+        // Keep the same input View attached during acquisition and reflow.
+        // submitShellInput already rejects concurrent execution.
+        addShellView(ensureShellInputRow())
+        if (inputFocused) {
+            shellInput?.requestFocus()
+            val length = shellInput?.text?.length ?: 0
+            if (inputSelectionStart >= 0 && inputSelectionEnd >= 0) shellInput?.setSelection(inputSelectionStart.coerceAtMost(length), inputSelectionEnd.coerceAtMost(length))
         }
+        focusedBlock?.takeIf { it.parent === shellContent }?.getChildAt(0)?.requestFocus()
+        if (::shellScroll.isInitialized) shellScroll.post {
+            val newAnchor = anchoredView?.takeIf { it.parent === shellContent }?.let { it.top + (anchorOffset ?: 0) } ?: anchor
+            shellScroll.scrollTo(0, newAnchor.coerceAtLeast(0))
+        }
+    }
+
+    private fun shellBlockView(block: AgentPresentationBlock): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        addView(shellText("", block.color).apply { setTextIsSelectable(true) })
+        addView(android.widget.Button(this@MainActivity).apply {
+            text = "Copy full result"
+            textSize = SHELL_TEXT_SIZE_SP
+            minHeight = dp(48)
+            contentDescription = "Copy full safe result"
+            if (block.safeValueFile != null) {
+                text = "Inspect/copy full safe values"
+                contentDescription = "Inspect and copy every full safe result value"
+            }
+            setOnClickListener {
+                if (block.safeValueFile != null) showSafeValuePage(block.safeValueFile, 0) else {
+                    getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Dropcheck result", block.fullText))
+                }
+            }
+        })
+    }
+
+    private fun showSafeValuePage(values: AgentSafeValueFile, start: Int) {
+        val labels = try { values.labels(start) } catch (failure: java.io.IOException) {
+            AlertDialog.Builder(this).setTitle("Safe values unavailable").setMessage("The result was evicted or its private cache cannot be read.").setPositiveButton("Close", null).show()
+            return
+        }
+        val dialog = AlertDialog.Builder(this).setTitle("Safe values ${start + 1}–${start + labels.size}/${values.valueCount}")
+            .setItems(labels.toTypedArray()) { _, index -> showSafeValue(values, start + index) }
+            .setNeutralButton("Close", null)
+        if (start > 0) dialog.setNegativeButton("Previous") { _, _ -> showSafeValuePage(values, (start - 25).coerceAtLeast(0)) }
+        if (start + labels.size < values.valueCount) dialog.setPositiveButton("Next") { _, _ -> showSafeValuePage(values, start + labels.size) }
+        dialog.show()
+    }
+
+    private fun showSafeValue(values: AgentSafeValueFile, index: Int, chunkStart: Int = 0) {
+        val value = try { values.value(index) } catch (failure: java.io.IOException) {
+            AlertDialog.Builder(this).setTitle("Safe value unavailable").setMessage("The result was evicted or its private cache cannot be read.").setPositiveButton("Close", null).show()
+            return
+        }
+        // Binder clipboard payloads are bounded. Normal identities fit in one chunk;
+        // long opaque native references remain fully reachable in numbered chunks.
+        var end = (chunkStart + 32768).coerceAtMost(value.length)
+        if (end < value.length && end > chunkStart && Character.isHighSurrogate(value[end - 1])) end--
+        val chunk = value.substring(chunkStart, end)
+        val view = shellText(chunk, AgentLogStyle.TEXT_COLOR).apply { setTextIsSelectable(true) }
+        val range = if (value.isEmpty()) "empty (0 characters)" else "${chunkStart + 1}–$end/${value.length}"
+        val dialog = AlertDialog.Builder(this).setTitle("Full safe value ${index + 1}; $range")
+            .setView(ScrollView(this).apply { addView(view) })
+            .setNegativeButton("Values") { _, _ -> showSafeValuePage(values, (index / 25) * 25) }
+            .setNeutralButton(if (chunkStart == 0 && end == value.length) "Copy full value" else "Copy this numbered chunk") { _, _ ->
+                getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Dropcheck safe value", chunk))
+            }
+        if (end < value.length) dialog.setPositiveButton("Next chunk") { _, _ -> showSafeValue(values, index, end) }
+        else dialog.setPositiveButton("Close", null)
+        dialog.show()
+    }
+
+    private fun reflowShellBlock(view: LinearLayout, block: AgentPresentationBlock) {
+        val textView = view.getChildAt(0) as TextView
+        textView.textSize = block.baseSizeSp
+        val layout = AgentNativeBlockLayout.render(block, shellContentWidthPx, textView.paint) ?: return
+        if (textView.text.toString() == layout.text.toString() && textView.tag == shellContentWidthPx) return
+        val selectionStart = textView.selectionStart
+        val selectionEnd = textView.selectionEnd
+        textView.text = layout.text
+        textView.tag = shellContentWidthPx
+        if (selectionStart >= 0 && selectionEnd >= 0) (textView.text as? android.text.Spannable)?.let {
+            Selection.setSelection(it, selectionStart.coerceAtMost(it.length), selectionEnd.coerceAtMost(it.length))
+        }
+    }
+
+    private fun showShellOutputSizeSettings() {
+        val sizes = listOf(10f, 12f, 14f, 16f, 18f, 20f, 24f)
+        AlertDialog.Builder(this).setTitle("Output base size (new blocks)")
+            .setItems(sizes.map { "${it.toInt()}sp" }.toTypedArray()) { _, index ->
+                val baseSize = sizes[index]
+                val minima = sizes.filter { it <= baseSize }
+                AlertDialog.Builder(this).setTitle("Minimum output size")
+                    .setItems(minima.map { "${it.toInt()}sp" }.toTypedArray()) { _, minimum ->
+                        shellOutputSizeSp = baseSize
+                        shellMinimumSizeSp = minima[minimum]
+                        renderShell()
+                    }.show()
+            }.show()
     }
 
     private fun shellText(text: CharSequence, color: Int): TextView {
@@ -592,6 +734,7 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.BLACK)
             typeface = Typeface.MONOSPACE
             textSize = SHELL_TEXT_SIZE_SP
+            textDirection = View.TEXT_DIRECTION_LTR
             includeFontPadding = false
             minHeight = 0
             minimumHeight = 0
@@ -678,10 +821,8 @@ class MainActivity : Activity() {
                 if (result.hasWifiStatus()) {
                     ShellCommandResult(
                         ok = result.status == CommandResult.Status.STATUS_OK,
-                        lines = AgentShellTextFormatter.formatStructuredResult(
-                            result,
-                            AgentWifiStatusRenderer.render(result.wifiStatus),
-                        ),
+                        block = AgentShellTextFormatter.block(result, AgentWifiStatusRenderer.presentation(result.wifiStatus),
+                            if (result.status == CommandResult.Status.STATUS_OK) AgentLogStyle.TEXT_COLOR else SHELL_ERROR_COLOR),
                     )
                 } else {
                     val message = result.message.ifBlank { result.status.name }
@@ -810,10 +951,8 @@ class MainActivity : Activity() {
         )
         return ShellCommandResult(
             ok = diagnosticsResult.status == CommandResult.Status.STATUS_OK,
-            lines = AgentShellTextFormatter.formatStructuredResult(
-                diagnosticsResult,
-                AgentWifiMloRenderer.render(diagnostics.status, scan, context),
-            ),
+            block = AgentShellTextFormatter.block(diagnosticsResult, AgentWifiMloRenderer.presentation(diagnostics.status, scan, context),
+                if (diagnosticsResult.status == CommandResult.Status.STATUS_OK) AgentLogStyle.TEXT_COLOR else SHELL_ERROR_COLOR, "Wi-Fi EHT"),
         )
     }
 
@@ -842,12 +981,10 @@ class MainActivity : Activity() {
         }
         return ShellCommandResult(
             ok = result.status == CommandResult.Status.STATUS_OK,
-            lines = AgentShellTextFormatter.formatStructuredResult(
+            block = AgentShellTextFormatter.block(
                 result,
-                AgentWifiScanRenderer.render(
-                    result.wifiScan,
-                    AgentWifiScanContext(brief = command.brief, mloOnly = command.mlo),
-                ),
+                AgentWifiScanRenderer.presentation(result.wifiScan, AgentWifiScanContext(brief = command.brief, mloOnly = command.mlo, requestedFresh = command.fresh)),
+                if (result.status == CommandResult.Status.STATUS_OK) AgentLogStyle.TEXT_COLOR else SHELL_ERROR_COLOR,
             ),
         )
     }
@@ -880,10 +1017,8 @@ class MainActivity : Activity() {
             }
             runOnUiThread {
                 shellBusy = false
-                appendShellLines(
-                    result.lines,
-                    if (result.ok) AgentLogStyle.TEXT_COLOR else SHELL_ERROR_COLOR,
-                    focusInput = focusAfterComplete,
+                if (result.block != null) appendShellBlock(result.block, focusAfterComplete) else appendShellLines(
+                    result.lines, if (result.ok) AgentLogStyle.TEXT_COLOR else SHELL_ERROR_COLOR, focusAfterComplete,
                 )
                 syncStatusIcons()
             }
@@ -927,24 +1062,46 @@ class MainActivity : Activity() {
         color: Int = AgentLogStyle.TEXT_COLOR,
         focusInput: Boolean = true,
     ) {
-        lines.forEach { shellTranscript.addLast(ShellTranscriptLine(it, color)) }
-        trimShellTranscript()
+        appendShellBlock(AgentPresentationBlock.create(lines.map { AgentBlockPart.Text(it.toString()) }, color, shellOutputSizeSp, shellMinimumSizeSp), focusInput)
+    }
+
+    private fun appendShellBlock(block: AgentPresentationBlock, focusInput: Boolean) {
+        val follow = !::shellScroll.isInitialized || !shellScroll.canScrollVertically(1)
+        val styled = AgentPresentationBlock.create(block.parts, block.color, shellOutputSizeSp, shellMinimumSizeSp)
+        if (shellTranscript.fits(styled)) {
+            shellTranscript.append(styled)
+        } else {
+            val values = AgentSafeValueFile.write(styled, cacheDir)
+            val important = styled.parts.filterIndexed { index, part ->
+                index == 0 || when (part) {
+                    is AgentBlockPart.Text -> part.value.startsWith("Status:") || part.value.startsWith("Source:") || part.value.startsWith("Error:") || part.value.startsWith("Reason:")
+                    is AgentBlockPart.Field -> part.label in listOf("Source", "Target", "Error", "Reason", "Note")
+                    else -> false
+                }
+            }.take(64).map { part ->
+                when (part) {
+                    is AgentBlockPart.Text -> if (part.value.length > 2048) AgentBlockPart.Text("${part.value.take(2048)}\nDisplay note truncated; full safe value is in Inspect/copy full safe values") else part
+                    is AgentBlockPart.Field -> if (part.value.length > 2048) AgentBlockPart.Field(part.label, "${part.value.take(2048)} (display note abbreviated; full safe value in Inspect/copy)") else part
+                    else -> part
+                }
+            }
+            val retained = AgentPresentationBlock.create(important + AgentBlockPart.Text(
+                "shown=0; ${styled.fullText.length} characters exceed in-memory history. All ${values.valueCount} safe values remain in Inspect/copy full safe values; no identity was clipped.",
+            ), styled.color, shellOutputSizeSp, shellMinimumSizeSp, safeValueFile = values)
+            shellTranscript.evictValueFileBlocks()
+            shellTranscript.append(retained)
+        }
         renderShell()
-        scrollShellToInput()
-        if (focusInput) focusShellInput()
+        if (follow) {
+            scrollShellToInput()
+            if (focusInput) focusShellInput()
+        }
     }
 
     private fun seedShellTranscript() {
         if (shellTranscriptSeeded) return
         shellTranscriptSeeded = true
-        shellHelpLines("").forEach {
-            shellTranscript.addLast(ShellTranscriptLine(it, AgentLogStyle.TEXT_COLOR))
-        }
-        trimShellTranscript()
-    }
-
-    private fun trimShellTranscript() {
-        while (shellTranscript.size > SHELL_TRANSCRIPT_MAX_LINES) shellTranscript.removeFirst()
+        shellTranscript.append(AgentPresentationBlock.create(shellHelpLines("").map { AgentBlockPart.Text(it) }, AgentLogStyle.TEXT_COLOR))
     }
 
     private fun scrollShellToInput() {
@@ -1226,19 +1383,18 @@ class MainActivity : Activity() {
         }
     }
 
-    private data class ShellTranscriptLine(
-        val text: CharSequence,
-        val color: Int,
-    )
-
     private data class ShellCommandResult(
         val ok: Boolean,
-        val lines: List<CharSequence>,
+        val lines: List<CharSequence> = emptyList(),
+        val block: AgentPresentationBlock? = null,
     )
 
-    private companion object {
-        const val SHELL_TRANSCRIPT_MAX_LINES = 240
-    }
+    private data class ShellDisplayState(
+        val history: AgentBlockHistory,
+        val baseSizeSp: Float,
+        val minimumSizeSp: Float,
+        val scrollY: Int,
+    )
 }
 
 private class ShellInputEditText(context: Context) : EditText(context) {

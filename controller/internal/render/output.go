@@ -22,7 +22,7 @@ func formatMillis(values []float64) string {
 	}
 	parts := make([]string, 0, len(values))
 	for _, value := range values {
-		parts = append(parts, fmt.Sprintf("%.2fms", value))
+		parts = append(parts, fmt.Sprintf("%gms", value))
 	}
 	return strings.Join(parts, "/")
 }

@@ -20,6 +20,10 @@ class AgentWifiStatusRendererTest {
             .setWifiNetworkCount(1)
             .addPermissions("fine_location=granted")
             .setConnection(WifiConnection.newBuilder()
+                .addObservationFields(DiagnosticField.newBuilder().setKey("identity.state").setValue("available"))
+                .addObservationFields(DiagnosticField.newBuilder().setKey("rssi.state").setValue("available"))
+                .addObservationFields(DiagnosticField.newBuilder().setKey("tx_link_speed_mbps.state").setValue("available"))
+                .addObservationFields(DiagnosticField.newBuilder().setKey("rx_link_speed_mbps.state").setValue("available"))
                 .setSsid("Lab")
                 .setBssid("aa:bb:cc:dd:ee:ff")
                 .setRssiDbm(-48)
@@ -108,7 +112,7 @@ class AgentWifiStatusRendererTest {
             "permissions\n    all_granted\n    fine_location",
             "Connection",
             "bandwidth   160MHz",
-            "link        1200Mbps tx=900Mbps rx=1200Mbps",
+            "link        tx=900Mbps rx=1200Mbps",
             "sta_mac     02:00:00:00:00:09",
             "AP Capabilities",
             "roaming",

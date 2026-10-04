@@ -1258,16 +1258,16 @@ func wifiMLOMetadataWarnings(candidates []*controlpb.WifiScanResult) []string {
 		if result.GetApMldMacAddress() != "" || wifiMLOMLDMACFromElements(result.GetInformationElements()) != "" {
 			apMLDSeen++
 		}
-		if result.GetApMloLinkId() >= 0 || wifiMLOCurrentLinkIDFromElements(result.GetInformationElements()) != nil {
+		if (diagnosticFieldMap(result.GetObservationFields())["ap_mlo_link_id.state"] == "available" && result.GetApMloLinkId() >= 0) || wifiMLOCurrentLinkIDFromElements(result.GetInformationElements()) != nil {
 			linkIDSeen++
 		}
-		if !wifiMLOScanHasMetadata(result) && result.GetApMloLinkId() < 0 {
+		if !wifiMLOScanHasMetadata(result) {
 			withoutMetadata++
 		}
 	}
 	switch {
 	case apMLDSeen == 0 && linkIDSeen == 0:
-		return []string{fmt.Sprintf("scan_mlo_metadata_absent 11be_results=%d ap_mld=0 link_id=0", len(beResults))}
+		return []string{fmt.Sprintf("scan_mlo_metadata_unavailable 11be_results=%d observed_ap_mld=0 observed_link_id=0", len(beResults))}
 	case withoutMetadata > 0:
 		return []string{fmt.Sprintf("scan_mlo_metadata_partial missing=%d 11be_results=%d", withoutMetadata, len(beResults))}
 	default:
@@ -1291,7 +1291,7 @@ func wifiMLOCapableScanCandidate(result *controlpb.WifiScanResult) bool {
 }
 
 func wifiMLOScanHasMetadata(result *controlpb.WifiScanResult) bool {
-	return result.GetApMloLinkId() >= 0 ||
+	return (diagnosticFieldMap(result.GetObservationFields())["ap_mlo_link_id.state"] == "available" && result.GetApMloLinkId() >= 0) ||
 		result.GetApMldMacAddress() != "" ||
 		len(result.GetAffiliatedMloLinks()) > 0 ||
 		wifiMLOHasElement(result.GetInformationElements())
@@ -1387,7 +1387,7 @@ func wifiMLOSameMLD(conn *controlpb.WifiConnection, result *controlpb.WifiScanRe
 }
 
 func bssidEqual(left string, right string) bool {
-	return left != "" && right != "" && strings.EqualFold(left, right)
+	return wifiMLOKnownBSSID(left) && wifiMLOKnownBSSID(right) && strings.EqualFold(left, right)
 }
 
 func wifiMLOResultMark(group wifiMLOGroup, result *controlpb.WifiScanResult, current *controlpb.WifiConnection) string {
@@ -1397,7 +1397,7 @@ func wifiMLOResultMark(group wifiMLOGroup, result *controlpb.WifiScanResult, cur
 		}
 		return ""
 	}
-	if bssidEqual(result.GetBssid(), current.GetBssid()) {
+	if diagnosticFieldMap(current.GetObservationFields())["identity.state"] == "available" && bssidEqual(result.GetBssid(), current.GetBssid()) {
 		return "*"
 	}
 	for _, candidate := range group.results {
@@ -1415,7 +1415,7 @@ func wifiMLOLinkMark(group wifiMLOGroup, link *controlpb.MloLinkInfo, current *c
 	if current == nil {
 		return "-"
 	}
-	if bssidEqual(link.GetApMacAddress(), current.GetBssid()) {
+	if diagnosticFieldMap(current.GetObservationFields())["identity.state"] == "available" && bssidEqual(link.GetApMacAddress(), current.GetBssid()) {
 		return "*"
 	}
 	for _, result := range group.results {
@@ -1434,31 +1434,17 @@ func wifiMLOBlockMark(mark string) string {
 }
 
 func wifiMLOConnectionLinkID(conn *controlpb.WifiConnection) string {
-	if !wifiConnectionHasMLO(conn) {
-		return "<none>"
-	}
-	if conn.GetApMloLinkId() >= 0 {
-		return fmt.Sprint(conn.GetApMloLinkId())
+	if diagnosticFieldMap(conn.GetObservationFields())["ap_mlo_link_id.state"] != "" {
+		return observedValue(conn.GetObservationFields(), "ap_mlo_link_id", fmt.Sprint(conn.GetApMloLinkId()))
 	}
 	if id := wifiMLOCurrentLinkIDFromElements(conn.GetInformationElements()); id != nil {
 		return fmt.Sprint(*id)
 	}
-	return "<none>"
+	return "? (link ID presence unavailable)"
 }
 
 func wifiMLOScanLinkID(result *controlpb.WifiScanResult) string {
-	explicitMLO := wifiMLOScanHasMetadata(result)
-	elementLinkID := wifiMLOCurrentLinkIDFromElements(result.GetInformationElements())
-	switch {
-	case (explicitMLO || strings.EqualFold(result.GetWifiStandard(), "802.11be")) && result.GetApMloLinkId() >= 0:
-		return fmt.Sprint(result.GetApMloLinkId())
-	case elementLinkID != nil:
-		return fmt.Sprint(*elementLinkID)
-	case explicitMLO || strings.EqualFold(result.GetWifiStandard(), "802.11be"):
-		return "<unknown>"
-	default:
-		return "<none>"
-	}
+	return scanMLOLinkID(result)
 }
 
 func wifiMLOGroupEHTOperationWidths(group wifiMLOGroup) string {
@@ -1516,11 +1502,11 @@ func wifiMLOScanEHTOperationPuncturing(result *controlpb.WifiScanResult) string 
 
 func wifiMLOScanLinkIDs(result *controlpb.WifiScanResult) []int32 {
 	ids := map[int32]bool{}
-	if wifiMLOCapableScanCandidate(result) && result.GetApMloLinkId() >= 0 {
+	if diagnosticFieldMap(result.GetObservationFields())["ap_mlo_link_id.state"] == "available" && result.GetApMloLinkId() >= 0 {
 		ids[result.GetApMloLinkId()] = true
 	}
 	for _, link := range result.GetAffiliatedMloLinks() {
-		if link.GetLinkId() >= 0 {
+		if diagnosticFieldMap(link.GetObservationFields())["identity.state"] == "available" && link.GetLinkId() >= 0 {
 			ids[link.GetLinkId()] = true
 		}
 	}
@@ -1532,11 +1518,11 @@ func wifiMLOScanLinkIDs(result *controlpb.WifiScanResult) []int32 {
 
 func wifiMLOAssociatedLinkIDSet(conn *controlpb.WifiConnection) map[int32]bool {
 	ids := map[int32]bool{}
-	if wifiConnectionHasMLO(conn) && conn.GetApMloLinkId() >= 0 {
+	if diagnosticFieldMap(conn.GetObservationFields())["ap_mlo_link_id.state"] == "available" && conn.GetApMloLinkId() >= 0 {
 		ids[conn.GetApMloLinkId()] = true
 	}
 	for _, link := range conn.GetAssociatedMloLinks() {
-		if link.GetLinkId() >= 0 {
+		if diagnosticFieldMap(link.GetObservationFields())["identity.state"] == "available" && link.GetLinkId() >= 0 {
 			ids[link.GetLinkId()] = true
 		}
 	}
@@ -1720,7 +1706,7 @@ func wifiMLOScanChannelWidth(value string) string {
 func wifiMLOWriteTable(b *strings.Builder, columns []wifiMLOTableColumn, rows [][]string) {
 	displayColumns := make([]displayTableColumn, len(columns))
 	for i, column := range columns {
-		displayColumns[i] = displayTableColumn(column)
+		displayColumns[i] = displayTableColumn{header: column.header, maxWidth: column.maxWidth}
 	}
 	writeDisplayTable(b, displayColumns, rows)
 }
@@ -1785,7 +1771,7 @@ func wifiMLOUniqueStrings(values []string) []string {
 		if value == "" {
 			continue
 		}
-		key := strings.ToLower(value)
+		key := value
 		if seen[key] {
 			continue
 		}

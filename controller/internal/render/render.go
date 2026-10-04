@@ -37,11 +37,20 @@ func renderProtoMessage(message proto.Message) (string, error) {
 // Text output is tailored per payload type and includes command latency. JSON
 // output is the protojson representation of result without an outer agent
 // envelope.
-func CommandResult(agent string, result *controlpb.CommandResult, options command.Options, format pipeline.Format) (string, error) {
+func CommandResult(agent string, result *controlpb.CommandResult, options command.Options, format pipeline.Format, presentation ...Presentation) (string, error) {
+	if result == nil {
+		return "", fmt.Errorf("missing command result")
+	}
+	result = safePresentationProto(result).(*controlpb.CommandResult)
 	if format == pipeline.FormatJSON {
 		return renderProtoMessage(result)
 	}
 	var b strings.Builder
+	view := Presentation{}
+	if len(presentation) > 0 {
+		view = presentation[0]
+	}
+	fmt.Fprintf(&b, "%s  %s  %dms\n", resultTitle(result, options), strings.ToUpper(resultStatus(result.GetStatus())), commandResultLatencyMs(result))
 	if result.GetStatus() != controlpb.CommandResult_STATUS_OK {
 		fmt.Fprintf(&b, "Status: %s", resultStatus(result.GetStatus()))
 		if result.GetMessage() != "" {
@@ -50,13 +59,14 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 		b.WriteByte('\n')
 	}
 	fmt.Fprintf(&b, "Latency: %dms\n", commandResultLatencyMs(result))
+	fmt.Fprintf(&b, "Source: android  Target: %s\n", cleanDisplayCell(agent))
 	switch payload := result.Payload.(type) {
 	case *controlpb.CommandResult_WifiStatus:
-		renderWifiStatus(&b, payload.WifiStatus)
+		renderL2(&b, payload.WifiStatus, view)
 	case *controlpb.CommandResult_ConnectWifi:
 		renderConnectWifi(&b, payload.ConnectWifi)
 	case *controlpb.CommandResult_IpStatus:
-		renderIPStatus(&b, payload.IpStatus)
+		renderIPView(&b, payload.IpStatus, view)
 	case *controlpb.CommandResult_Ping:
 		renderPing(&b, payload.Ping, result.GetStatus())
 	case *controlpb.CommandResult_Traceroute:
@@ -73,14 +83,18 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 		renderWget(&b, payload.Wget)
 	case *controlpb.CommandResult_WifiDiagnostics:
 		if options.WifiRenderMode == command.WifiRenderModeEHT {
-			renderWifiMLO(&b, payload.WifiDiagnostics, options)
+			if view.DetailAvailable && !view.Detail {
+				renderCurrentMLO(&b, payload.WifiDiagnostics, options, view)
+			} else {
+				renderWifiMLO(&b, payload.WifiDiagnostics, options)
+			}
 		} else {
-			renderWifiDiagnostics(&b, payload.WifiDiagnostics)
+			renderDiagnosticBundle(&b, payload.WifiDiagnostics, options, view)
 		}
 	case *controlpb.CommandResult_WifiScan:
-		renderWifiScan(&b, payload.WifiScan, options)
+		renderAdaptiveScan(&b, payload.WifiScan, options, view)
 	case *controlpb.CommandResult_WifiCapabilities:
-		renderWifiCapabilities(&b, payload.WifiCapabilities)
+		renderDeviceCapabilities(&b, payload.WifiCapabilities, view)
 	case *controlpb.CommandResult_WifiOperation:
 		renderWifiOperation(&b, payload.WifiOperation)
 	case *controlpb.CommandResult_WifiAssert:
@@ -99,7 +113,7 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 			fmt.Fprintf(&b, "agent=%s status=%s payload=%T\n", agent, resultStatus(result.GetStatus()), result.Payload)
 		}
 	}
-	return b.String(), nil
+	return wrapPresentation(b.String(), view.Width), nil
 }
 
 func commandResultLatencyMs(result *controlpb.CommandResult) int64 {
@@ -128,6 +142,10 @@ func commandResultLatencyMs(result *controlpb.CommandResult) int64 {
 // CommandResultEnvelope renders a JSON object that includes agent and
 // command_id metadata around a command result.
 func CommandResultEnvelope(agent string, commandID string, result *controlpb.CommandResult) (string, error) {
+	if result == nil {
+		return "", fmt.Errorf("missing command result")
+	}
+	result = safePresentationProto(result).(*controlpb.CommandResult)
 	data, err := protojson.MarshalOptions{
 		Multiline:     true,
 		Indent:        "  ",
@@ -141,8 +159,8 @@ func CommandResultEnvelope(agent string, commandID string, result *controlpb.Com
 		CommandID string          `json:"command_id"`
 		Result    json.RawMessage `json:"result"`
 	}{
-		Agent:     agent,
-		CommandID: commandID,
+		Agent:     cleanDisplayCell(agent),
+		CommandID: cleanDisplayCell(commandID),
 		Result:    json.RawMessage(data),
 	}
 	wrapped, err := json.MarshalIndent(envelope, "", "  ")
@@ -157,10 +175,13 @@ func CommandResultEnvelope(agent string, commandID string, result *controlpb.Com
 // includeAgent controls whether text and JSON output include the agent label;
 // callers use this when a single command is broadcast to multiple agents.
 func CommandError(agent string, commandID string, err error, format pipeline.Format, includeAgent bool) (string, error) {
+	agent = cleanDisplayCell(agent)
+	commandID = cleanDisplayCell(commandID)
+	message := cleanDisplayCell(safePresentationText(err.Error()))
 	if format == pipeline.FormatJSON {
 		value := map[string]any{
 			"command_id": commandID,
-			"error":      err.Error(),
+			"error":      message,
 		}
 		if includeAgent {
 			value["agent"] = agent
@@ -172,9 +193,9 @@ func CommandError(agent string, commandID string, err error, format pipeline.For
 		return string(data) + "\n", nil
 	}
 	if includeAgent {
-		return fmt.Sprintf("Agent: %s\nError: %s\n", agent, err.Error()), nil
+		return fmt.Sprintf("Agent: %s\nError: %s\n", agent, message), nil
 	}
-	return fmt.Sprintf("Error: %s\n", err.Error()), nil
+	return fmt.Sprintf("Error: %s\n", message), nil
 }
 
 // AgentListView is the renderer input for the connected-agent list.
@@ -379,11 +400,11 @@ func wifiPermissionSummary(permissions []string) string {
 
 func renderWifiConnection(b *strings.Builder, conn *controlpb.WifiConnection) {
 	writeKVSection(b, "Connection",
-		kv("ssid", conn.GetSsid()),
-		kv("bssid", empty(conn.GetBssid(), "unknown")),
+		kv("ssid", observedValue(conn.GetObservationFields(), "identity", conn.GetSsid())),
+		kv("bssid", observedValue(conn.GetObservationFields(), "identity", conn.GetBssid())),
 		kv("security", empty(conn.GetSecurityType(), "unknown")),
 		kv("standard", empty(conn.GetWifiStandard(), "unknown")),
-		kv("rssi", fmt.Sprintf("%ddBm", conn.GetRssiDbm())),
+		kv("rssi", observedValue(conn.GetObservationFields(), "rssi", fmt.Sprintf("%ddBm", conn.GetRssiDbm()))),
 		kv("signal", wifiSignalLevel(conn)),
 		kv("band", wifiBandFromFrequency(conn.GetFrequencyMhz())),
 		kv("channel", wifiChannelFromFrequency(conn.GetFrequencyMhz())),
@@ -400,14 +421,9 @@ func renderWifiConnection(b *strings.Builder, conn *controlpb.WifiConnection) {
 }
 
 func wifiLinkSpeed(conn *controlpb.WifiConnection) string {
-	parts := []string{fmt.Sprintf("%dMbps", conn.GetLinkSpeedMbps())}
-	if conn.GetTxLinkSpeedMbps() > 0 {
-		parts = append(parts, fmt.Sprintf("tx=%dMbps", conn.GetTxLinkSpeedMbps()))
-	}
-	if conn.GetRxLinkSpeedMbps() > 0 {
-		parts = append(parts, fmt.Sprintf("rx=%dMbps", conn.GetRxLinkSpeedMbps()))
-	}
-	return strings.Join(parts, " ")
+	tx := observedValue(conn.GetObservationFields(), "tx_link_speed_mbps", fmt.Sprintf("%dMbps", conn.GetTxLinkSpeedMbps()))
+	rx := observedValue(conn.GetObservationFields(), "rx_link_speed_mbps", fmt.Sprintf("%dMbps", conn.GetRxLinkSpeedMbps()))
+	return "tx=" + tx + " rx=" + rx
 }
 
 func wifiSignalLevel(conn *controlpb.WifiConnection) string {
@@ -634,8 +650,7 @@ func wifiConnectionHasMLO(conn *controlpb.WifiConnection) bool {
 	return conn.GetApMldMacAddress() != "" ||
 		len(conn.GetAffiliatedMloLinks()) > 0 ||
 		len(conn.GetAssociatedMloLinks()) > 0 ||
-		wifiMLOHasElement(conn.GetInformationElements()) ||
-		(strings.EqualFold(conn.GetWifiStandard(), "802.11be") && conn.GetApMloLinkId() >= 0)
+		wifiMLOHasElement(conn.GetInformationElements())
 }
 
 func renderMLOLinks(b *strings.Builder, title string, links []*controlpb.MloLinkInfo) {
@@ -643,24 +658,16 @@ func renderMLOLinks(b *strings.Builder, title string, links []*controlpb.MloLink
 		return
 	}
 	writeSection(b, title)
-	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "ID\tSTATE\tBAND\tCHANNEL\tRSSI\tTX\tRX\tMAX_TX\tMAX_RX\tAP_MAC\tSTA_MAC")
 	for _, link := range links {
-		_, _ = fmt.Fprintf(tw, "%d\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t%s\n",
-			link.GetLinkId(),
-			empty(link.GetState(), "unknown"),
-			empty(link.GetBand(), "unknown"),
-			link.GetChannel(),
-			link.GetRssiDbm(),
-			link.GetTxLinkSpeedMbps(),
-			link.GetRxLinkSpeedMbps(),
-			link.GetMaxSupportedTxLinkSpeedMbps(),
-			link.GetMaxSupportedRxLinkSpeedMbps(),
-			empty(link.GetApMacAddress(), "unknown"),
-			empty(link.GetStaMacAddress(), "unknown"),
-		)
+		writeRecord(b, "L", observedValue(link.GetObservationFields(), "identity", fmt.Sprint(link.GetLinkId())))
+		writeRecord(b, "State", observedValue(link.GetObservationFields(), "identity", link.GetState()))
+		writeRecord(b, "Band/CH", observedValue(link.GetObservationFields(), "identity", fmt.Sprintf("%s/%d", link.GetBand(), link.GetChannel())))
+		writeRecord(b, "RSSI", observedValue(link.GetObservationFields(), "rates", fmt.Sprintf("%ddBm", link.GetRssiDbm())))
+		writeRecord(b, "Tx/Rx", observedValue(link.GetObservationFields(), "rates", fmt.Sprintf("%d/%dMbps", link.GetTxLinkSpeedMbps(), link.GetRxLinkSpeedMbps())))
+		writeRecord(b, "Max Tx/Rx", "? (maximum-rate availability metadata not supplied)")
+		writeRecord(b, "AP_MAC", observedValue(link.GetObservationFields(), "identity", link.GetApMacAddress()))
+		writeRecord(b, "STA_MAC", observedValue(link.GetObservationFields(), "identity", link.GetStaMacAddress()))
 	}
-	_ = tw.Flush()
 }
 
 func mloLinkID(id int32) string {
@@ -690,6 +697,8 @@ func renderIPStatusWithOptions(b *strings.Builder, status *controlpb.IpStatus, o
 		return
 	}
 	writeKVSection(b, "Network", networkRows(status, options)...)
+	writeRecord(b, "Default network", "? (default-Network metadata unavailable)")
+	writeRecord(b, "Availability", "? (DHCP/private DNS/NAT64 empty-value presence unavailable)")
 }
 
 func wifiConnectionNetworkRows(conn *controlpb.WifiConnection) []kvRow {
@@ -883,9 +892,9 @@ func networkCapabilitiesForDetail(values []string) []string {
 
 func renderPing(b *strings.Builder, result *controlpb.PingResult, status controlpb.CommandResult_Status) {
 	analysis := analyzePing(result, status)
-	fmt.Fprintf(b, "Ping: host=%s status=%s transmitted=%d received=%d loss=%.1f%% min/avg/max=%.2f/%.2f/%.2fms interface=%s elapsed=%dms\n",
+	fmt.Fprintf(b, "Ping: host=%s status=%s transmitted=%d received=%d loss=%g%% min/avg/max=%g/%g/%gms interface=%s elapsed=%dms\n",
 		analysis.Host,
-		analysis.Status,
+		resultStatus(status),
 		analysis.Transmitted,
 		analysis.Received,
 		analysis.PacketLossPercent,
@@ -896,7 +905,7 @@ func renderPing(b *strings.Builder, result *controlpb.PingResult, status control
 		analysis.ElapsedMs,
 	)
 	if result.GetOutput() != "" {
-		fmt.Fprintf(b, "\n%s\n", strings.TrimRight(result.GetOutput(), "\n"))
+		fmt.Fprintf(b, "\nNative output (reference; not a separate verdict)\n%s\n", strings.TrimRight(result.GetOutput(), "\n"))
 	}
 }
 
@@ -1174,7 +1183,21 @@ func renderWifiScanDetail(b *strings.Builder, detail *controlpb.WifiScanDetail, 
 		kv("requested_band", diagnosticFieldMap(detail.GetFields())["requested_band"]),
 	)
 	writeBlankLine(b)
-	renderScanResults(b, detail.GetResults(), options.WifiScanBrief, false)
+	for _, ap := range detail.GetResults() {
+		writeSection(b, "AP")
+		writeRecord(b, "BSSID", empty(ap.GetBssid(), "?"))
+		writeRecord(b, "SSID", scanDisplaySSID(ap))
+		writeRecord(b, "Observation age", scanObservationAge(ap))
+		writeRecord(b, "Radio", fmt.Sprintf("CH=%s frequency=%dMHz centers=%d/%dMHz BW=%s", wifiChannelFromFrequency(ap.GetFrequencyMhz()), ap.GetFrequencyMhz(), ap.GetCenterFreq0Mhz(), ap.GetCenterFreq1Mhz(), ap.GetChannelWidth()))
+		writeRecord(b, "Security", strings.Join(ap.GetSecurityTypes(), ","))
+		renderWifiSecurityDetails(b, ap.GetSecurityDetails())
+		writeRecord(b, "MLD", observedValue(ap.GetObservationFields(), "ap_mld_mac_address", wifiMLOScanMLDMAC(ap)))
+		writeRecord(b, "Link", scanMLOLinkID(ap))
+		renderMLOLinks(b, "Affiliated", ap.GetAffiliatedMloLinks())
+		conn := &controlpb.WifiConnection{HeCapabilities: ap.GetHeCapabilities(), HeOperation: ap.GetHeOperation(), EhtCapabilities: ap.GetEhtCapabilities(), EhtOperation: ap.GetEhtOperation(), HeUoraParameterSet: ap.GetHeUoraParameterSet(), HeMuEdcaParameterSet: ap.GetHeMuEdcaParameterSet(), HeSpatialReuseParameterSet: ap.GetHeSpatialReuseParameterSet(), He_6GhzCapabilities: ap.GetHe_6GhzCapabilities(), InformationElements: ap.GetInformationElements()}
+		renderWifiConnectionCapabilities(b, conn)
+		renderWifiConnectionDetailedCapabilities(b, conn)
+	}
 	renderErrors(b, detail.GetErrors())
 }
 
@@ -1358,7 +1381,7 @@ func lessScanResult(left *controlpb.WifiScanResult, right *controlpb.WifiScanRes
 }
 
 func scanDisplaySSID(result *controlpb.WifiScanResult) string {
-	return empty(result.GetSsid(), "<hidden>")
+	return empty(result.GetSsid(), "? (SSID presence unavailable)")
 }
 
 func sortedAffiliatedLinks(links []*controlpb.MloLinkInfo) []*controlpb.MloLinkInfo {
@@ -1562,7 +1585,7 @@ func writeDisplayTableGroups(b *strings.Builder, columns []displayTableColumn, g
 				if i < len(row) {
 					value = row[i]
 				}
-				prepared[i] = fitDisplayCell(value, column.maxWidth)
+				prepared[i] = column.fitValue(value)
 				if width := displayWidth(prepared[i]); width > widths[i] {
 					widths[i] = width
 				}
@@ -1618,46 +1641,7 @@ func scanAffiliatedLinkMatchesResult(result *controlpb.WifiScanResult, link *con
 
 func wifiScanMLOCapableResult(result *controlpb.WifiScanResult) bool {
 	return result != nil &&
-		wifiMLOScanHasMetadata(result) &&
-		wifiScanMLOAllowedStandard(result.GetWifiStandard())
-}
-
-func wifiScanMLOAllowedStandard(value string) bool {
-	switch wifiScanNormalizedStandard(value) {
-	case "", "unknown", "be":
-		return true
-	default:
-		return false
-	}
-}
-
-func wifiScanNormalizedStandard(value string) string {
-	normalized := strings.ToLower(strings.TrimSpace(value))
-	switch normalized {
-	case "", "<unknown>", "-", "?":
-		return ""
-	case "unknown":
-		return "unknown"
-	}
-	normalized = strings.TrimPrefix(normalized, "wifi_standard_")
-	normalized = strings.TrimPrefix(normalized, "standard_")
-	normalized = strings.TrimPrefix(normalized, "ieee80211")
-	normalized = strings.TrimPrefix(normalized, "ieee802.11")
-	normalized = strings.TrimPrefix(normalized, "802.11")
-	normalized = strings.TrimPrefix(normalized, "11")
-	normalized = strings.TrimPrefix(normalized, "wifi ")
-	normalized = strings.TrimPrefix(normalized, "wi-fi ")
-	normalized = strings.ReplaceAll(normalized, " ", "")
-	switch normalized {
-	case "", "<unknown>", "-", "?":
-		return ""
-	case "unknown":
-		return "unknown"
-	case "7", "eht":
-		return "be"
-	default:
-		return normalized
-	}
+		wifiMLOScanHasMetadata(result)
 }
 
 func scanConnectionCapabilityFlags(result *controlpb.WifiScanResult) []string {
@@ -2175,24 +2159,15 @@ func wifiTruncatedSuffix(truncated bool) string {
 
 func scanMLOLinkID(result *controlpb.WifiScanResult) string {
 	if result == nil {
-		return "<none>"
+		return "? (scan payload unavailable)"
 	}
-	if result.GetApMloLinkId() >= 0 {
-		if result.GetApMldMacAddress() == "" &&
-			len(result.GetAffiliatedMloLinks()) == 0 &&
-			!wifiMLOHasElement(result.GetInformationElements()) &&
-			!strings.EqualFold(result.GetWifiStandard(), "802.11be") {
-			return "<none>"
-		}
-		return mloLinkID(result.GetApMloLinkId())
+	if diagnosticFieldMap(result.GetObservationFields())["ap_mlo_link_id.state"] != "" {
+		return observedValue(result.GetObservationFields(), "ap_mlo_link_id", fmt.Sprint(result.GetApMloLinkId()))
 	}
 	if id := wifiMLOCurrentLinkIDFromElements(result.GetInformationElements()); id != nil {
 		return fmt.Sprint(*id)
 	}
-	if result.GetApMldMacAddress() == "" && len(result.GetAffiliatedMloLinks()) == 0 {
-		return "<none>"
-	}
-	return "<none>"
+	return "? (link ID presence unavailable)"
 }
 
 func renderWifiCapabilities(b *strings.Builder, capabilities *controlpb.WifiCapabilities) {
@@ -2367,23 +2342,13 @@ func wifiChannelFromFrequency(freq int32) string {
 	return fmt.Sprint(channel)
 }
 
-var (
-	wifiChannelWidthPattern = regexp.MustCompile(`(?i)(?:channel[_ ]?width|channelWidth)\s*[:=]\s*([A-Za-z0-9_./+-]+)`)
-	wifiChannelWidthCore    = regexp.MustCompile(`^[0-9+]+$`)
-)
+var wifiChannelWidthCore = regexp.MustCompile(`^[0-9+]+$`)
 
 func wifiChannelWidth(conn *controlpb.WifiConnection) string {
 	if conn == nil {
 		return ""
 	}
-	if width := formatWifiChannelWidth(conn.GetChannelWidth()); width != "" {
-		return width
-	}
-	match := wifiChannelWidthPattern.FindStringSubmatch(conn.GetRaw())
-	if match == nil {
-		return ""
-	}
-	return formatWifiChannelWidth(match[1])
+	return formatWifiChannelWidth(conn.GetChannelWidth())
 }
 
 func formatWifiChannelWidth(value string) string {

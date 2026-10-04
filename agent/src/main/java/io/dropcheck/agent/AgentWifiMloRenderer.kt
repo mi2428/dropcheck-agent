@@ -33,6 +33,43 @@ internal data class AgentWifiMloContext(
 
 /** EHT-focused renderer for Agent Shell. */
 internal object AgentWifiMloRenderer {
+    fun presentation(status: WifiStatus, scan: WifiScan, context: AgentWifiMloContext, detail: Boolean = false, detailAvailable: Boolean = false): List<AgentBlockPart> = buildList {
+        fun text(label: String, value: String) { add(AgentBlockPart.Field(label, value)) }
+        val filter = MloFilter(context.ssidFilter, context.bssidFilter)
+        val conn = filter.connection(status.connection.takeIf { status.hasConnection() })
+        if (conn == null) text("Current", AgentObservationPresentation.value(status.observationFieldsList, "connection", "")) else {
+            text("SSID", AgentObservationPresentation.value(conn.observationFieldsList, "identity", conn.ssid))
+            text("BSSID", AgentObservationPresentation.value(conn.observationFieldsList, "identity", conn.bssid))
+            text("MLD", AgentObservationPresentation.value(conn.observationFieldsList, "ap_mld_mac_address", conn.apMldMacAddress))
+            text("PHY", conn.wifiStandard.ifEmpty { "?" })
+            for ((label, field, links) in listOf(Triple("Associated", "associated_mlo_links", conn.associatedMloLinksList), Triple("Affiliated", "affiliated_mlo_links", conn.affiliatedMloLinksList))) {
+                text(label, AgentObservationPresentation.value(conn.observationFieldsList, field, links.size.toString()))
+                add(AgentBlockPart.Table(listOf(
+                    AgentBlockPart.Column("L", true), AgentBlockPart.Column("State"), AgentBlockPart.Column("Band"), AgentBlockPart.Column("CH", true), AgentBlockPart.Column("dBm", true),
+                    AgentBlockPart.Column("Tx/Rx Mbps"), AgentBlockPart.Column("AP MAC"),
+                ), links.map { link -> listOf(
+                    AgentObservationPresentation.value(link.observationFieldsList, "identity", link.linkId.toString()),
+                    AgentObservationPresentation.value(link.observationFieldsList, "identity", link.state),
+                    AgentObservationPresentation.value(link.observationFieldsList, "identity", link.band),
+                    AgentObservationPresentation.value(link.observationFieldsList, "identity", link.channel.toString()),
+                    AgentObservationPresentation.value(link.observationFieldsList, "rates", link.rssiDbm.toString()),
+                    AgentObservationPresentation.value(link.observationFieldsList, "rates", "${link.txLinkSpeedMbps}/${link.rxLinkSpeedMbps}"),
+                    AgentObservationPresentation.value(link.observationFieldsList, "identity", link.apMacAddress),
+                ) }))
+            }
+        }
+        val fields = scan.fieldsList.associate { it.key to it.value }
+        text("Scan source", fields["scan_source"] ?: "? (source metadata unavailable)")
+        text("Updated", fields["fresh_scan_results_updated"] ?: "?")
+        val ages = scan.resultsList.filter { it.hasObservationAgeMs() }.map { it.observationAgeMs }.sortedWith { left, right -> java.lang.Long.compareUnsigned(left, right) }
+        val ageSummary = if (ages.isEmpty()) "? (observation timestamps unavailable)" else "${java.lang.Long.toUnsignedString(ages.first())}-${java.lang.Long.toUnsignedString(ages.last())}ms at collection; known=${ages.size}/${scan.resultsCount}"
+        add(AgentBlockPart.Field("Scan age", ageSummary, scan.resultsList.joinToString("; ") { "${it.bssid}=${AgentWifiScanRenderer.observationAge(it)}" }))
+        text("Coverage", "? (comparable relation metadata required)")
+        scan.errorsList.forEach { text("Error", it) }
+        if (detail || !detailAvailable) addAll(render(status, scan, context).map { AgentBlockPart.Text(it) })
+        if (detailAvailable && !detail) text("More", "show wifi eht detail")
+    }
+
     fun render(status: WifiStatus, scan: WifiScan, context: AgentWifiMloContext = AgentWifiMloContext()): List<String> {
         val out = mutableListOf<String>()
         val filter = MloFilter(context.ssidFilter, context.bssidFilter)
@@ -184,14 +221,14 @@ internal object AgentWifiMloRenderer {
     private fun renderNearbyMloTable(out: MutableList<String>, groups: List<MloGroup>) {
         tableWithColumns(out,
             listOf(
-                TableColumn("SSID", 14),
-                TableColumn("BANDS", 8),
-                TableColumn("RSSI", 4),
-                TableColumn("SEC", 7),
-                TableColumn("STANDARD", 8),
-                TableColumn("COLOR", 8),
-                TableColumn("EHT_W", 9),
-                TableColumn("PUNCT", 7),
+                TableColumn("SSID"),
+                TableColumn("BANDS"),
+                TableColumn("RSSI"),
+                TableColumn("SEC"),
+                TableColumn("STANDARD"),
+                TableColumn("COLOR"),
+                TableColumn("EHT_W"),
+                TableColumn("PUNCT"),
             ),
             groups.map { group ->
                 listOf(
@@ -750,11 +787,11 @@ internal object AgentWifiMloRenderer {
     }
 
     private fun briefLinkID(link: MloLinkInfo): String {
-        return if (link.linkId >= 0) link.linkId.toString() else "?"
+        return AgentObservationPresentation.value(link.observationFieldsList, "identity", link.linkId.toString())
     }
 
     private fun briefLinkId(result: WifiScanResult): Int? {
-        if (result.apMloLinkId >= 0) return result.apMloLinkId
+        if (AgentObservationPresentation.available(result.observationFieldsList, "ap_mlo_link_id") && result.apMloLinkId >= 0) return result.apMloLinkId
         return mloCurrentLinkIdFromElements(result.informationElementsList)
     }
 
@@ -778,27 +815,11 @@ internal object AgentWifiMloRenderer {
     }
 
     private fun briefSecurity(value: String): String {
-        return when (value.trim().lowercase()) {
-            "", "<unknown>", "<none>", "-", "?" -> "?"
-            "wpa3_sae", "sae" -> "sae"
-            "wpa2_psk", "psk" -> "psk"
-            "owe" -> "owe"
-            "open" -> "open"
-            else -> when {
-                value.contains("SAE", ignoreCase = true) -> "sae"
-                value.contains("PSK", ignoreCase = true) -> "psk"
-                value.contains("OWE", ignoreCase = true) -> "owe"
-                else -> briefCell(value.lowercase())
-            }
-        }
+        return AgentWifiScanRenderer.security(value.split(','))
     }
 
     private fun briefStandard(value: String): String {
-        val trimmed = value.trim().lowercase()
-        if (trimmed.isBlank() || trimmed == "<unknown>" || trimmed == "-" || trimmed == "?" || trimmed == "unknown") {
-            return "?"
-        }
-        return if (trimmed.startsWith("802.11")) trimmed.removePrefix("802.11").ifBlank { "?" } else trimmed
+        return AgentWifiScanRenderer.phy(value)
     }
 
     private fun briefColor(value: String): String {
@@ -824,15 +845,15 @@ internal object AgentWifiMloRenderer {
         out += "    mld  ${briefCell(group.displayMld)}"
         tableWithColumns(out,
             listOf(
-                TableColumn("M", 1),
-                TableColumn("L", 2),
-                TableColumn("RSSI", 4),
-                TableColumn("B", 2),
-                TableColumn("FL", 6),
-                TableColumn("ST", 3),
-                TableColumn("SEC", 3),
-                TableColumn("EHT", 7),
-                TableColumn("MAC", 17),
+                TableColumn("M"),
+                TableColumn("L"),
+                TableColumn("RSSI"),
+                TableColumn("B"),
+                TableColumn("FL"),
+                TableColumn("ST"),
+                TableColumn("SEC"),
+                TableColumn("EHT"),
+                TableColumn("MAC"),
             ),
             briefLinkRows(group, current).map { link ->
                 listOf(
@@ -1040,11 +1061,11 @@ internal object AgentWifiMloRenderer {
         if (beResults.isEmpty()) return emptyList()
 
         val apMldSeen = beResults.count { it.apMldMacAddress.isNotBlank() || mloMldMacFromElements(it.informationElementsList).isNotBlank() }
-        val linkIdSeen = beResults.count { it.apMloLinkId >= 0 || mloCurrentLinkIdFromElements(it.informationElementsList) != null }
-        val withoutMetadata = beResults.count { !it.hasMloScanMetadata() && it.apMloLinkId < 0 }
+        val linkIdSeen = beResults.count { (AgentObservationPresentation.available(it.observationFieldsList, "ap_mlo_link_id") && it.apMloLinkId >= 0) || mloCurrentLinkIdFromElements(it.informationElementsList) != null }
+        val withoutMetadata = beResults.count { !it.hasMloScanMetadata() }
         return when {
             apMldSeen == 0 && linkIdSeen == 0 ->
-                listOf("scan_mlo_metadata_absent 11be_results=${beResults.size} ap_mld=0 link_id=0")
+                listOf("scan_mlo_metadata_unavailable 11be_results=${beResults.size} observed_ap_mld=0 observed_link_id=0")
             withoutMetadata > 0 ->
                 listOf("scan_mlo_metadata_partial missing=$withoutMetadata 11be_results=${beResults.size}")
             else -> emptyList()
@@ -1114,8 +1135,7 @@ internal object AgentWifiMloRenderer {
         return conn.apMldMacAddress.isNotBlank() ||
             conn.affiliatedMloLinksCount > 0 ||
             conn.associatedMloLinksCount > 0 ||
-            hasMloElement(conn.informationElementsList) ||
-            (conn.wifiStandard.equals("802.11be", ignoreCase = true) && conn.apMloLinkId >= 0)
+            hasMloElement(conn.informationElementsList)
     }
 
     private fun sameMld(conn: WifiConnection, result: WifiScanResult): Boolean {
@@ -1126,13 +1146,13 @@ internal object AgentWifiMloRenderer {
     }
 
     private fun bssidEquals(left: String, right: String): Boolean {
-        return left.isNotBlank() && right.isNotBlank() && left.equals(right, ignoreCase = true)
+        return isKnownWifiBssid(left) && isKnownWifiBssid(right) && left.equals(right, ignoreCase = true)
     }
 
     private fun resultMark(group: MloGroup, result: WifiScanResult, current: WifiConnection?): String {
         if (current == null) return if (result.hasMloScanMetadata()) "-" else ""
         return when {
-            bssidEquals(result.bssid, current.bssid) -> "*"
+            AgentObservationPresentation.available(current.observationFieldsList, "identity") && bssidEquals(result.bssid, current.bssid) -> "*"
             group.results.any { sameMld(current, it) } -> "+"
             result.hasMloScanMetadata() -> "-"
             else -> ""
@@ -1142,7 +1162,7 @@ internal object AgentWifiMloRenderer {
     private fun linkMark(group: MloGroup, link: MloLinkInfo, current: WifiConnection?): String {
         if (current == null) return "-"
         return when {
-            bssidEquals(link.apMacAddress, current.bssid) -> "*"
+            AgentObservationPresentation.available(current.observationFieldsList, "identity") && bssidEquals(link.apMacAddress, current.bssid) -> "*"
             group.results.any { sameMld(current, it) } -> "+"
             else -> "-"
         }
@@ -1150,37 +1170,32 @@ internal object AgentWifiMloRenderer {
 
     private fun scanLinkIds(result: WifiScanResult): Set<Int> {
         val ids = mutableSetOf<Int>()
-        if (isMloCapableCandidate(result) && result.apMloLinkId >= 0) {
+        if (AgentObservationPresentation.available(result.observationFieldsList, "ap_mlo_link_id") && result.apMloLinkId >= 0) {
             ids += result.apMloLinkId
         }
-        result.affiliatedMloLinksList.filter { it.linkId >= 0 }.forEach { ids += it.linkId }
+        result.affiliatedMloLinksList.filter { AgentObservationPresentation.available(it.observationFieldsList, "identity") && it.linkId >= 0 }.forEach { ids += it.linkId }
         ids += mloLinkIdsFromElements(result.informationElementsList)
         return ids
     }
 
     private fun associatedLinkIds(conn: WifiConnection): Set<Int> {
         val ids = mutableSetOf<Int>()
-        if (connectionHasMlo(conn) && conn.apMloLinkId >= 0) ids += conn.apMloLinkId
-        conn.associatedMloLinksList.filter { it.linkId >= 0 }.forEach { ids += it.linkId }
+        if (AgentObservationPresentation.available(conn.observationFieldsList, "ap_mlo_link_id") && conn.apMloLinkId >= 0) ids += conn.apMloLinkId
+        conn.associatedMloLinksList.filter { AgentObservationPresentation.available(it.observationFieldsList, "identity") && it.linkId >= 0 }.forEach { ids += it.linkId }
         ids += mloLinkIdsFromElements(conn.informationElementsList)
         return ids
     }
 
     private fun connectionLinkID(conn: WifiConnection): String {
-        if (!connectionHasMlo(conn)) return "<none>"
-        if (conn.apMloLinkId >= 0) return conn.apMloLinkId.toString()
-        return mloCurrentLinkIdFromElements(conn.informationElementsList)?.toString() ?: "<none>"
+        val fields = conn.observationFieldsList
+        if (fields.any { it.key == "ap_mlo_link_id.state" }) return AgentObservationPresentation.value(fields, "ap_mlo_link_id", conn.apMloLinkId.toString())
+        return mloCurrentLinkIdFromElements(conn.informationElementsList)?.toString() ?: "? (link ID presence unavailable)"
     }
 
     private fun scanLinkID(result: WifiScanResult): String {
-        val explicitMlo = result.hasMloScanMetadata()
-        val elementLinkId = mloCurrentLinkIdFromElements(result.informationElementsList)
-        return when {
-            (explicitMlo || result.wifiStandard.equals("802.11be", ignoreCase = true)) && result.apMloLinkId >= 0 -> result.apMloLinkId.toString()
-            elementLinkId != null -> elementLinkId.toString()
-            explicitMlo || result.wifiStandard.equals("802.11be", ignoreCase = true) -> "<unknown>"
-            else -> "<none>"
-        }
+        val fields = result.observationFieldsList
+        if (fields.any { it.key == "ap_mlo_link_id.state" }) return AgentObservationPresentation.value(fields, "ap_mlo_link_id", result.apMloLinkId.toString())
+        return mloCurrentLinkIdFromElements(result.informationElementsList)?.toString() ?: "? (link ID presence unavailable)"
     }
 
     private fun WifiScanResult.mloMldMac(): String =
@@ -1316,90 +1331,8 @@ internal object AgentWifiMloRenderer {
     }
 
     private fun tableWithColumns(out: MutableList<String>, columns: List<TableColumn>, rows: List<List<String>>) {
-        val preparedRows = rows.map { row ->
-            columns.indices.map { index ->
-                fitCell(row.getOrElse(index) { "" }, columns[index].maxWidth)
-            }
-        }
-        val preparedHeaders = columns.map { fitCell(it.header, it.maxWidth) }
-        val widths = columns.indices.map { index ->
-            (listOf(preparedHeaders[index]) + preparedRows.map { it[index] }).maxOf { displayWidth(it) }
-        }
-        out += preparedHeaders.mapIndexed { index, value -> padDisplayEnd(value, widths[index]) }.joinToString("  ").trimEnd()
         rows.forEach { row ->
-            val prepared = columns.indices.map { index ->
-                fitCell(row.getOrElse(index) { "" }, columns[index].maxWidth)
-            }
-            out += columns.indices
-                .map { index -> padDisplayEnd(prepared[index], widths[index]) }
-                .joinToString("  ")
-                .trimEnd()
-        }
-    }
-
-    private fun fitCell(value: String, maxWidth: Int): String {
-        val cleaned = value.replace('\t', ' ')
-        if (maxWidth == Int.MAX_VALUE || displayWidth(cleaned) <= maxWidth) return cleaned
-        if (maxWidth <= 0) return ""
-        if (maxWidth <= 3) return ".".repeat(maxWidth)
-
-        val suffix = "..."
-        val targetWidth = maxWidth - displayWidth(suffix)
-        val builder = StringBuilder()
-        var width = 0
-        var index = 0
-        while (index < cleaned.length) {
-            val codePoint = cleaned.codePointAt(index)
-            val codePointWidth = codePointDisplayWidth(codePoint)
-            if (width + codePointWidth > targetWidth) break
-            builder.appendCodePoint(codePoint)
-            width += codePointWidth
-            index += Character.charCount(codePoint)
-        }
-        return builder.append(suffix).toString()
-    }
-
-    private fun padDisplayEnd(value: String, width: Int): String {
-        val padding = width - displayWidth(value)
-        return if (padding <= 0) value else value + " ".repeat(padding)
-    }
-
-    private fun displayWidth(value: String): Int {
-        var width = 0
-        var index = 0
-        while (index < value.length) {
-            val codePoint = value.codePointAt(index)
-            width += codePointDisplayWidth(codePoint)
-            index += Character.charCount(codePoint)
-        }
-        return width
-    }
-
-    private fun codePointDisplayWidth(codePoint: Int): Int {
-        val type = Character.getType(codePoint)
-        if (Character.isISOControl(codePoint) ||
-            type == Character.NON_SPACING_MARK.toInt() ||
-            type == Character.ENCLOSING_MARK.toInt() ||
-            type == Character.COMBINING_SPACING_MARK.toInt()
-        ) {
-            return 0
-        }
-        return if (isWideCodePoint(codePoint)) 2 else 1
-    }
-
-    private fun isWideCodePoint(codePoint: Int): Boolean {
-        return when (codePoint) {
-            in 0x1100..0x11FF,
-            in 0x2E80..0xA4CF,
-            in 0xAC00..0xD7A3,
-            in 0xF900..0xFAFF,
-            in 0xFE10..0xFE19,
-            in 0xFE30..0xFE6F,
-            in 0xFF01..0xFF60,
-            in 0xFFE0..0xFFE6,
-            in 0x1F200..0x1F2FF,
-            in 0x20000..0x3FFFD -> true
-            else -> false
+            columns.forEachIndexed { index, column -> out += "${column.header}: ${AgentSafePresentation.cell(row.getOrElse(index) { "?" })}" }
         }
     }
 
@@ -1533,5 +1466,5 @@ internal object AgentWifiMloRenderer {
         }
     }
 
-    private data class TableColumn(val header: String, val maxWidth: Int = Int.MAX_VALUE)
+    private data class TableColumn(val header: String)
 }

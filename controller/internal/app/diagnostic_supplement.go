@@ -10,6 +10,7 @@ import (
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
+	"dropcheck/controller/internal/render"
 )
 
 type commandResultSupplements struct {
@@ -61,7 +62,7 @@ func collectADBIPv6RASupplement(ctx context.Context, state *shellState, agent co
 		Serial:  serial,
 		Timeout: 8 * time.Second,
 	}, iface)
-	return adbdiag.RenderIPv6RASummary(summary)
+	return sourcedADBSupplement(adbdiag.RenderIPv6RASummary(summary))
 }
 
 func collectADBMLOSupplement(ctx context.Context, state *shellState, agent control.AgentInfo) string {
@@ -77,7 +78,19 @@ func collectADBMLOSupplement(ctx context.Context, state *shellState, agent contr
 		Serial:  serial,
 		Timeout: 8 * time.Second,
 	})
-	return adbdiag.RenderMLOSummary(summary)
+	return sourcedADBSupplement(adbdiag.RenderMLOSummary(summary))
+}
+
+func sourcedADBSupplement(text string) string {
+	if text == "" {
+		return ""
+	}
+	lines := strings.SplitN(text, "\n", 2)
+	header := lines[0] + "\nSource: adb (host supplement)\nReceived on controller: " + time.Now().Format(time.RFC3339Nano) + " (not Android observation time)\n"
+	if len(lines) > 1 {
+		header += lines[1]
+	}
+	return header
 }
 
 func (s *commandResultSupplements) addText(text string) {
@@ -100,5 +113,5 @@ func (s commandResultSupplements) appendToText(out string) string {
 		}
 		out += block
 	}
-	return out
+	return render.TextBlock(out, terminalPresentation())
 }

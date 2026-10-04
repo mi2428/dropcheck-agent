@@ -120,7 +120,7 @@ func wifiMLOInformationElementChecklist(result *controlpb.WifiScanResult) string
 		wifiMLOHasInformationElement(elements, 255, new(nonInheritanceIDExt)),
 		wifiMLOHasElement(elements),
 		result.GetApMldMacAddress() != "" || wifiMLOMLDMACFromElements(elements) != "",
-		result.GetApMloLinkId() >= 0 || wifiMLOCurrentLinkIDFromElements(elements) != nil,
+		(diagnosticFieldMap(result.GetObservationFields())["ap_mlo_link_id.state"] == "available" && result.GetApMloLinkId() >= 0) || wifiMLOCurrentLinkIDFromElements(elements) != nil,
 	)
 }
 

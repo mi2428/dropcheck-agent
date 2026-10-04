@@ -10,4 +10,7 @@
     <instrumentation
         android:name="io.dropcheck.agent.ServiceSameUidInstrumentation"
         android:targetPackage="io.dropcheck.agent" />
+    <instrumentation
+        android:name="io.dropcheck.agent.PresentationInstrumentation"
+        android:targetPackage="io.dropcheck.agent" />
 </manifest>
