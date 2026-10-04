@@ -2,6 +2,8 @@ package io.dropcheck.agent
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentShellUsePolicyTest {
@@ -51,6 +53,9 @@ class AgentShellUsePolicyTest {
                 defaults = AgentShellUseDefaults(defaultPassphrase = "hogehoge"),
             ).error,
         )
+        assertEquals("invalid default passphrase length or encoding", AgentShellUsePolicy.resolveUseRequest(
+            ssid = "hp1", explicitPassphrase = null, defaults = AgentShellUseDefaults(defaultPassphrase = "short"),
+        ).error)
     }
 
     @Test
@@ -71,10 +76,16 @@ class AgentShellUsePolicyTest {
     }
 
     @Test
-    fun formatsShellTokensForQuotedDisplay() {
-        assertEquals("hp1", formatAgentShellToken("hp1"))
-        assertEquals("\"hp 1\"", formatAgentShellToken("hp 1"))
-        assertEquals("\"fuga\\\"fuga\"", formatAgentShellToken("fuga\"fuga"))
-        assertEquals("\"path\\\\name\"", formatAgentShellToken("path\\name"))
+    fun passphraseBoundaryUsesUtf8BytesAndHexEncoding() {
+        assertFalse(AgentShellUsePolicy.validPassphrase("x".repeat(7)))
+        assertTrue(AgentShellUsePolicy.validPassphrase("x".repeat(8)))
+        assertTrue(AgentShellUsePolicy.validPassphrase("x".repeat(63)))
+        assertFalse(AgentShellUsePolicy.validPassphrase("z".repeat(64)))
+        assertTrue(AgentShellUsePolicy.validPassphrase("a".repeat(64)))
+        assertTrue(AgentShellUsePolicy.validPassphrase("あ".repeat(3))) // 9 UTF-8 bytes, 3 characters
+        assertTrue(AgentShellUsePolicy.validPassphrase("あ".repeat(21))) // 63 bytes
+        assertFalse(AgentShellUsePolicy.validPassphrase("あ".repeat(22))) // 66 bytes
+        assertFalse(AgentShellUsePolicy.validPassphrase("abc\n12345"))
     }
+
 }

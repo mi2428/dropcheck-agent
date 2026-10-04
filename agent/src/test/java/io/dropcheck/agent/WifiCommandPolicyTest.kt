@@ -124,6 +124,10 @@ class WifiCommandPolicyTest {
                 httpOk = false,
             ),
         )
+        assertFalse(WifiCommandPolicy.cycleStepPassed(
+            connected = true, pingRequested = false, pingOk = false, httpRequested = true,
+            httpOk = NetworkCheckPolicy.httpSucceeded(matched = false, error = ""),
+        ))
 
         assertTrue(
             WifiCommandPolicy.cyclePassed(
