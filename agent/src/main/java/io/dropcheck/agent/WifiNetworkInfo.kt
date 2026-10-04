@@ -29,7 +29,7 @@ internal enum class WifiNetworkMatch(val rejectReason: String) {
 }
 
 internal fun networkWifiSsidMatch(expected: String, actual: String): WifiNetworkMatch {
-    if (expected.isBlank()) return WifiNetworkMatch.MATCH
+    if (expected.isEmpty()) return WifiNetworkMatch.MATCH
     if (!isKnownWifiSsid(actual)) return WifiNetworkMatch.IDENTITY_UNAVAILABLE
     return if (normalizedWifiSsid(actual) == expected) WifiNetworkMatch.MATCH else WifiNetworkMatch.SSID_MISMATCH
 }
@@ -110,7 +110,7 @@ internal fun networkWifiInfo(context: Context, network: Network?, caps: NetworkC
         delivery.quitSafely()
     }
     val usable = info?.takeIf {
-        clockWidgetWifiInfoIsUsable(it.networkId, it.ssid, it.bssid, it.supplicantState?.toString())
+        isKnownWifiSsid(it.ssid.orEmpty()) || clockWidgetWifiInfoIsUsable(it.networkId, it.ssid, it.bssid, it.supplicantState?.toString())
     }
     if (usable == null || (!isKnownWifiSsid(usable.ssid.orEmpty()) && !isKnownWifiBssid(usable.bssid.orEmpty()))) {
         TerminalLog.warnEvent(context, "wifi.identity.unavailable", listOf("network" to network, "reason" to "missing_or_redacted_callback"))

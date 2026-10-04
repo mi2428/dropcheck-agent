@@ -39,7 +39,7 @@ class WifiProtoMapper(
     @SuppressLint("HardwareIds")
     fun wifiConnection(info: WifiInfo): WifiConnection {
         val builder = WifiConnection.newBuilder()
-            .setSsid(info.ssid?.trim('"').orEmpty())
+            .setSsid(normalizedWifiSsid(info.ssid))
             .setBssid(info.bssid.orEmpty())
             .setRssiDbm(info.rssi)
             .setNetworkId(info.networkId)
@@ -66,8 +66,7 @@ class WifiProtoMapper(
             .setApMloLinkId(-1)
             .setRaw(info.toString())
 
-        val identityAvailable = info.ssid != null && info.ssid != WifiManager.UNKNOWN_SSID &&
-            !info.bssid.isNullOrBlank() && info.bssid != "02:00:00:00:00:00"
+        val identityAvailable = isKnownWifiSsid(info.ssid.orEmpty()) && isKnownWifiBssid(info.bssid.orEmpty())
         builder.addAllObservationFields(observationAvailability("identity", identityAvailable, "identity redacted or unavailable"))
         builder.addAllObservationFields(observationAvailability("rssi", info.rssi != -127, "framework RSSI unavailable"))
         builder.addAllObservationFields(observationAvailability("tx_link_speed_mbps", info.txLinkSpeedMbps >= 0, "framework link rate unavailable"))
@@ -122,7 +121,7 @@ class WifiProtoMapper(
         if (results.isEmpty()) return ""
 
         val bssid = info.bssid.orEmpty()
-        val ssid = info.ssid?.trim('"').orEmpty()
+        val ssid = normalizedWifiSsid(info.ssid)
         val matched = results.firstOrNull { result ->
             bssid.isNotEmpty() && result.BSSID.orEmpty().equals(bssid, ignoreCase = true)
         } ?: results.firstOrNull { result ->

@@ -714,7 +714,7 @@ class NetworkRepository(
     private fun networkMatch(network: Network, selector: NetworkSelector): WifiNetworkMatch {
         val caps = connectivity.getNetworkCapabilities(network) ?: return WifiNetworkMatch.NO_CAPABILITIES
         if (!caps.isPhysicalWifiNetwork()) return WifiNetworkMatch.NOT_WIFI
-        if (selector.ssid.isBlank()) return WifiNetworkMatch.MATCH
+        if (selector.ssid.isEmpty()) return WifiNetworkMatch.MATCH
         val actual = networkWifiInfo(context, network, caps)?.ssid.orEmpty()
         return networkWifiSsidMatch(selector.ssid, actual)
     }
@@ -731,7 +731,7 @@ class NetworkRepository(
     }
 
     private fun selectorSummary(selector: NetworkSelector): String {
-        return "ssid=${selector.ssid.ifBlank { "*" }}"
+        return "ssid=${selector.ssid.ifEmpty { "*" }}"
     }
 
     private fun describeNetwork(network: Network): String {
@@ -739,12 +739,12 @@ class NetworkRepository(
         val link = connectivity.getLinkProperties(network)
         val transports = caps?.let { transports(it).joinToString(",") } ?: "none"
         val wifiInfo = networkWifiInfo(context, network, caps)
-        val ssid = wifiInfo?.ssid?.trim('"').orEmpty()
+        val ssid = normalizedWifiSsid(wifiInfo?.ssid)
         val addresses = link?.linkAddresses?.joinToString(",") { it.toString() }.orEmpty()
         val dns = link?.dnsServers?.joinToString(",") { it.hostAddress.orEmpty() }.orEmpty()
         val routes = link?.routes?.joinToString(" | ") { it.toString() }.orEmpty()
         val mtu = link?.let { effectiveLinkMtu(it.mtu, it.interfaceName, ::interfaceMtu) } ?: 0
-        return "transports=$transports validated=${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)} internet=${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)} captive=${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)} metered=${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)?.not()} iface=${link?.interfaceName.orEmpty()} mtu=$mtu ssid=${ssid.ifBlank { "none" }} addresses=${addresses.ifBlank { "none" }} dns=${dns.ifBlank { "none" }} routes=${routes.ifBlank { "none" }}"
+        return "transports=$transports validated=${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)} internet=${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)} captive=${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)} metered=${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)?.not()} iface=${link?.interfaceName.orEmpty()} mtu=$mtu ssid=${ssid.ifEmpty { "none" }} addresses=${addresses.ifBlank { "none" }} dns=${dns.ifBlank { "none" }} routes=${routes.ifBlank { "none" }}"
     }
 
     private fun interfaceMtu(interfaceName: String): Int? {

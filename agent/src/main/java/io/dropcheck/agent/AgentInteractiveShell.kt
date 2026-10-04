@@ -10,6 +10,10 @@ internal sealed class AgentShellCommand {
     data object Noop : AgentShellCommand()
     data class Help(val topic: String = "") : AgentShellCommand()
     data class SetDefaultPassphrase(val passphrase: String) : AgentShellCommand()
+    data object ClearDefaultPassphrase : AgentShellCommand()
+    data class Check(val profile: String, val ssid: String = "", val family: IpFamily = IpFamily.IP_FAMILY_IPV4, val bssid: String = "") : AgentShellCommand()
+    data object ShowChecks : AgentShellCommand()
+    data class ShowCheckLast(val detail: Boolean = false) : AgentShellCommand()
     data object ShowVersion : AgentShellCommand()
     data class ShowWifiEht(val detail: Boolean = false, val fresh: Boolean = false, val timeoutMs: Int = 0, val ssid: String = "", val bssid: String = "") : AgentShellCommand()
     data class Use(val ssid: String, val passphrase: String? = null) : AgentShellCommand()
@@ -61,7 +65,7 @@ internal object AgentShellParser {
         Syntax("download", "URL", values = "timeout ssid"),
         Syntax("help", "[TOPIC]"), Syntax("set default passphrase", "PASSPHRASE"),
         Syntax("clear default passphrase"), Syntax("use", "SSID [PASSPHRASE]"),
-        Syntax("check", "[SCENARIO]"), Syntax("show checks"), Syntax("show check last", switches = "detail"),
+        Syntax("check", "link ssid SSID [family ipv4|ipv6] [bssid BSSID]"), Syntax("show checks"), Syntax("show check last", switches = "detail"),
         Syntax("show devices"),
     )
     private val aliases = mapOf("p" to "ping", "tr" to "traceroute", "pm" to "path-mtu", "gip" to "global-ip", "h" to "help", "?" to "help")
@@ -85,7 +89,7 @@ internal object AgentShellParser {
     fun help(topic: String = ""): List<String> {
         val rows = syntax.filter { topic.isEmpty() || it.parts.first() == topic }
         return listOf("Agent Shell (self); aliases: p tr pm gip h ?", "Options: key value; switches: fresh brief mlo detail; integers: 1..2147483647", "PSK: 8..63 UTF-8 bytes or 64 ASCII hex; PC-only ADB/device/format/pipeline/TTY: unsupported on Android") +
-            rows.map { "  ${it.usage()}" } + listOf("auto selects one family; global-ip all queries both; dns ALL queries A+AAAA", "use/default: connect only; check/profiles: unsupported")
+            rows.map { "  ${it.usage()}" } + listOf("auto selects one family; global-ip all queries both; dns ALL queries A+AAAA", "check link defaults to family ipv4; bssid strict pin unsupported; lab/internet/eht unsupported", "use/default: connect only; check link: read-only, no probes")
     }
 
     fun parse(line: String): AgentShellCommand {
@@ -116,8 +120,51 @@ internal object AgentShellParser {
         }
         val row = remaining.singleOrNull { it.parts == path } ?: throw IllegalArgumentException("incomplete command: ${remaining.map { it.path }.joinToString(", ")}")
         val command = row.path
-        if (command == "show devices" || command == "check" || command == "show checks" || command == "show check last" || command == "clear default passphrase") {
+        if (command == "show devices") {
             return AgentShellCommand.Invalid("$command: unsupported on Android")
+        }
+        if (command == "clear default passphrase") {
+            require(index == tokens.size) { "usage: clear default passphrase" }
+            return AgentShellCommand.ClearDefaultPassphrase
+        }
+        if (command == "show checks") {
+            require(index == tokens.size) { "usage: show checks" }
+            return AgentShellCommand.ShowChecks
+        }
+        if (command == "show check last") {
+            require(index == tokens.size || index + 1 == tokens.size && resolve(tokens[index], listOf("detail")) == "detail") { "usage: show check last [detail]" }
+            return AgentShellCommand.ShowCheckLast(index < tokens.size)
+        }
+        if (command == "check") {
+            if (index == tokens.size) return AgentShellCommand.ShowChecks
+            val profile = tokens[index++] // Profile names are exact literals, not keyword prefixes.
+            if (profile != "link") {
+                require(index == tokens.size) { "unsupported profile; use show checks" }
+                return AgentShellCommand.Check(profile)
+            }
+            require(index + 1 < tokens.size && tokens[index] == "ssid" && tokens[index + 1].isNotEmpty()) {
+                "usage: check link ssid SSID [family ipv4|ipv6] [bssid BSSID]"
+            }
+            val ssid = tokens[index + 1]
+            index += 2
+            var family = IpFamily.IP_FAMILY_IPV4
+            var requestedBssid = ""
+            val seen = mutableSetOf<String>()
+            while (index < tokens.size) {
+                val key = resolve(tokens[index], listOf("family", "bssid"))
+                require(seen.add(key)) { "$key specified twice" }
+                require(index + 1 < tokens.size) { "$key requires a value" }
+                when (key) {
+                    "family" -> family = when (tokens[index + 1]) {
+                        "ipv4" -> IpFamily.IP_FAMILY_IPV4
+                        "ipv6" -> IpFamily.IP_FAMILY_IPV6
+                        else -> throw IllegalArgumentException("check link family must be ipv4 or ipv6")
+                    }
+                    "bssid" -> requestedBssid = tokens[index + 1].also(::bssid)
+                }
+                index += 2
+            }
+            return AgentShellCommand.Check(profile, ssid, family, requestedBssid)
         }
         if (command == "help") {
             require(tokens.size - index <= 1) { "usage: help [TOPIC]" }
@@ -134,14 +181,14 @@ internal object AgentShellParser {
             return AgentShellCommand.SetDefaultPassphrase(tokens[index])
         }
         if (command == "use") {
-            require(tokens.size - index in 1..2 && tokens[index].isNotBlank()) { "usage: use SSID [PASSPHRASE]" }
+            require(tokens.size - index in 1..2 && tokens[index].isNotEmpty()) { "usage: use SSID [PASSPHRASE]" }
             require(tokens.getOrNull(index + 1)?.isEmpty() != true) { "use passphrase cannot be empty" }
             tokens.getOrNull(index + 1)?.let(::validPassphrase)
             return AgentShellCommand.Use(tokens[index], tokens.getOrNull(index + 1))
         }
         val position = if (row.position.isNotEmpty()) {
             val value = tokens.getOrNull(index) ?: throw IllegalArgumentException("usage: ${row.usage()}")
-            require(value.isNotBlank()) { "required literal cannot be empty" }
+            require(if (command in setOf("wifi connect", "wifi cycle", "wifi forget")) value.isNotEmpty() else value.isNotBlank()) { "required literal cannot be empty" }
             index++
             value
         } else ""
@@ -164,7 +211,7 @@ internal object AgentShellParser {
             } else {
                 require(index + 1 < tokens.size) { "$key requires a value" }
                 val value = tokens[index + 1]
-                require(value.isNotBlank()) { "$key requires a nonempty value" }
+                require(if (key == "ssid") value.isNotEmpty() else value.isNotBlank()) { "$key requires a nonempty value" }
                 if (key == "via") via += address(value)
                 else {
                     require(key !in values) { "$key specified twice" }

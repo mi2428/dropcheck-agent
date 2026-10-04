@@ -784,10 +784,15 @@ class MainActivity : Activity() {
                 AgentShellUseDefaultsStore(applicationContext).setDefaultPassphrase(command.passphrase)
                 appendShellLine(AgentShellUsePolicy.setDefaultPassphraseMessage(command.passphrase))
             }
+            AgentShellCommand.ClearDefaultPassphrase -> {
+                AgentShellUseDefaultsStore(applicationContext).setDefaultPassphrase("")
+                appendShellLine(AgentShellUsePolicy.setDefaultPassphraseMessage(""))
+            }
             AgentShellCommand.ShowVersion -> {
                 appendShellLine("version ${BuildConfig.VERSION_NAME}")
             }
-            is AgentShellCommand.Execute, is AgentShellCommand.ShowWifiEht, is AgentShellCommand.Use ->
+            is AgentShellCommand.Execute, is AgentShellCommand.ShowWifiEht, is AgentShellCommand.Use,
+            is AgentShellCommand.Check, AgentShellCommand.ShowChecks, is AgentShellCommand.ShowCheckLast ->
                 runShellLinesCommand {
                     AgentShellAdapter(applicationContext, agentShellLogger()).execute(command)
                 }

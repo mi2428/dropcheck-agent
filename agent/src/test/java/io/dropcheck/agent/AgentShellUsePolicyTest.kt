@@ -88,4 +88,18 @@ class AgentShellUsePolicyTest {
         assertFalse(AgentShellUsePolicy.validPassphrase("abc\n12345"))
     }
 
+    @Test fun usePreservesBlankOnlyLiteralWhileRejectingEmptySsid() {
+        assertEquals(" ", AgentShellUsePolicy.resolveUseRequest(" ", "test-only", AgentShellUseDefaults()).request?.ssid)
+        assertEquals("wifi ssid is required", AgentShellUsePolicy.resolveUseRequest("", "test-only", AgentShellUseDefaults()).error)
+    }
+
+    @Test fun explicitClearLeavesOnlyUnsetStatusAndFutureUseNeedsCredential() {
+        val cleared = AgentShellUseDefaults()
+        assertEquals("default passphrase cleared", AgentShellUsePolicy.setDefaultPassphraseMessage(""))
+        assertEquals("default_passphrase=unset", AgentShellUsePolicy.statusText(cleared))
+        assertEquals(null, AgentShellUsePolicy.resolveUseRequest("Example Lab", null, cleared).request)
+        assertEquals(AgentShellUsePassphraseSource.EXPLICIT,
+            AgentShellUsePolicy.resolveUseRequest("Example Lab", "test-only", cleared).request?.passphraseSource)
+    }
+
 }

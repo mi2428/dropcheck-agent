@@ -38,8 +38,13 @@ internal object WifiConnectorPolicy {
 
     /** WifiConfiguration expects quoted SSID/passphrase strings for legacy addNetwork APIs. */
     fun quoteWifi(value: String): String {
-        return if (value.startsWith("\"") && value.endsWith("\"")) value else "\"$value\""
+        return "\"$value\""
     }
+
+    /** Reject malformed names before WifiManager configuration can target another AP. */
+    fun validConnectSsid(ssid: String): Boolean =
+        ssid.toByteArray(Charsets.UTF_8).size in 1..32 && ssid.none(Character::isISOControl) &&
+            isKnownWifiSsid(quoteWifi(ssid))
 
     /**
      * Resolves an omitted connect security mode from cached scan capabilities.
@@ -139,7 +144,7 @@ internal object WifiConnectorPolicy {
         band: WifiBand,
     ): Boolean {
         if (current == null || current.networkId < 0) return false
-        if (current.ssid != ssid) return false
+        if (!isKnownWifiSsid(current.ssid) || current.ssid != ssid) return false
         if (bssid.isNotBlank() && !current.bssid.equals(bssid, ignoreCase = true)) return false
         if (!frequencyMatchesWifiBand(current.frequencyMhz, band)) return false
         val expectedSecurityTypes = when (security) {
@@ -154,11 +159,11 @@ internal object WifiConnectorPolicy {
 
     /** Reports whether a forget target names the currently connected network. */
     fun currentConnectionMatchesForgetTarget(target: String, current: CurrentConnectionRef?): Boolean {
-        if (target.isBlank() || current == null || current.networkId < 0) return false
+        if (target.isEmpty() || current == null || current.networkId < 0) return false
         val numeric = target.toIntOrNull()
         return numeric == current.networkId ||
-            current.ssid == target ||
-            current.bssid.equals(target, ignoreCase = true)
+            (isKnownWifiSsid(current.ssid) && current.ssid == target) ||
+            (isKnownWifiBssid(current.bssid) && current.bssid.equals(target, ignoreCase = true))
     }
 
     /**
@@ -168,10 +173,11 @@ internal object WifiConnectorPolicy {
      * hide configured networks while still accepting removeNetwork(id).
      */
     fun forgetNetworkIds(target: String, configs: List<ConfiguredNetworkRef>): List<Int> {
-        if (target.isBlank()) return emptyList()
+        if (target.isEmpty()) return emptyList()
         val numeric = target.toIntOrNull()
         val matches = configs.filter { config ->
-            numeric?.let { config.networkId == it } == true || config.ssid.trim('"') == target
+            numeric?.let { config.networkId == it } == true ||
+                (isKnownWifiSsid(config.ssid) && normalizedWifiSsid(config.ssid) == target)
         }
         return when {
             matches.isNotEmpty() -> matches.map { it.networkId }
@@ -190,11 +196,11 @@ internal object WifiConnectorPolicy {
         current: CurrentConnectionRef?,
         configs: List<ConfiguredNetworkRef>,
     ): List<Int> {
-        if (ssid.isBlank() || bssid.isBlank()) return emptyList()
+        if (ssid.isEmpty() || bssid.isBlank()) return emptyList()
         val ids = linkedSetOf<Int>()
         configs.forEach { config ->
             if (config.networkId >= 0 &&
-                config.ssid.trim('"') == ssid &&
+                isKnownWifiSsid(config.ssid) && normalizedWifiSsid(config.ssid) == ssid &&
                 !config.bssid.equals(bssid, ignoreCase = true)
             ) {
                 ids += config.networkId
@@ -205,9 +211,9 @@ internal object WifiConnectorPolicy {
 
     /** Reports whether Android has moved far enough away from an active link for a new connect. */
     fun disconnectSettled(networkId: Int, ssid: String, bssid: String, supplicantState: String?): Boolean {
-        val cleanSsid = ssid.trim('"')
+        val cleanSsid = normalizedWifiSsid(ssid)
         if (networkId < 0) return true
-        if (cleanSsid.isBlank() || cleanSsid == "<unknown ssid>") return true
+        if (cleanSsid.isEmpty() || !isKnownWifiSsid(ssid)) return true
         if (bssid.isBlank() || bssid == "00:00:00:00:00:00") return true
         return supplicantState.orEmpty().uppercase(Locale.US) in setOf(
             "DISCONNECTED",

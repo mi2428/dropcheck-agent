@@ -47,7 +47,7 @@ internal object AgentShellUsePolicy {
         explicitPassphrase: String?,
         defaults: AgentShellUseDefaults,
     ): AgentShellUseDecision {
-        if (ssid.isBlank()) return AgentShellUseDecision(error = "wifi ssid is required")
+        if (ssid.isEmpty()) return AgentShellUseDecision(error = "wifi ssid is required")
         if (explicitPassphrase != null) {
             if (explicitPassphrase.isEmpty()) {
                 return AgentShellUseDecision(error = "use passphrase cannot be empty")
