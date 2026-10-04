@@ -48,7 +48,6 @@ import android.widget.TextView
 import io.dropcheck.agent.grpc.CommandLog
 import io.dropcheck.agent.grpc.CommandResult
 import io.dropcheck.agent.grpc.GetFreshWifiScan
-import io.dropcheck.agent.grpc.GetWifiDiagnostics
 import io.dropcheck.agent.grpc.GetWifiScan
 import io.dropcheck.agent.grpc.GetWifiStatus
 import io.dropcheck.agent.grpc.Ping
@@ -788,26 +787,7 @@ class MainActivity : Activity() {
                 ),
             )
         }
-        val freshScanResult = if (command.fresh) {
-            val scan = GetFreshWifiScan.newBuilder()
-                .setBand(WifiBand.WIFI_BAND_ALL)
-            if (command.timeoutMs > 0) scan.timeoutMs = command.timeoutMs
-            executor.execute(
-                RunCommand.newBuilder()
-                    .setGetFreshWifiScan(scan.build())
-                    .build(),
-            )
-        } else null
-        if (freshScanResult != null && !freshScanResult.hasWifiScan()) {
-            val message = freshScanResult.message.ifBlank { freshScanResult.status.name }
-            return ShellCommandResult(ok = false, lines = listOf("show wifi eht failed: scan unavailable: $message"))
-        }
-
-        val diagnosticsResult = executor.execute(
-            RunCommand.newBuilder()
-                .setGetWifiDiagnostics(GetWifiDiagnostics.getDefaultInstance())
-                .build()
-        )
+        val diagnosticsResult = runWifiEhtDiagnostics(command, executor::execute)
         if (!diagnosticsResult.hasWifiDiagnostics()) {
             val message = diagnosticsResult.message.ifBlank { diagnosticsResult.status.name }
             return ShellCommandResult(ok = false, lines = listOf("show wifi eht failed: diagnostics unavailable: $message"))
@@ -817,18 +797,16 @@ class MainActivity : Activity() {
             val message = diagnosticsResult.message.ifBlank { diagnosticsResult.status.name }
             return ShellCommandResult(ok = false, lines = listOf("show wifi eht failed: status unavailable: $message"))
         }
-        val scan = freshScanResult?.wifiScan ?: diagnostics.scan
+        val scan = diagnostics.scan
 
         val context = AgentWifiMloContext(
             brief = command.brief,
-            scanSource = if (command.fresh) "fresh" else "diagnostics",
+            scanSource = scan.fieldsList.lastOrNull { it.key == "scan_source" }?.value ?: "diagnostics",
             sdkInt = Build.VERSION.SDK_INT,
             wifi7Supported = wifi7StandardSupported(),
             wifiCapabilities = diagnostics.capabilities.takeIf { diagnostics.hasCapabilities() },
             ssidFilter = command.ssid,
             bssidFilter = command.bssid,
-            scanCommandStatus = freshScanResult?.status?.name.orEmpty(),
-            scanCommandMessage = freshScanResult?.message.orEmpty(),
         )
         return ShellCommandResult(
             ok = diagnosticsResult.status == CommandResult.Status.STATUS_OK,
