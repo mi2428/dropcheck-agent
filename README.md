@@ -272,7 +272,50 @@ rtt min/avg/max/mdev = 10.200/12.400/16.300/1.900 ms
 
 ### Controller TUI
 
-`dropcheck watch` starts the Controller TUI and runs a continuous E2E Wi-Fi test loop from the controller.
+Use the explicit `dropcheck tui [PLAN.yml]` workflow to load an existing YAML Plan,
+choose agents/targets/checks, preview it, and start Once, N rounds, or Loop.
+Without a path, enter one inside the TUI. No-argument `dropcheck` still shows help;
+the explicit TUI requires terminal input and output and rejects non-TTY use
+before loading a file or discovering devices.
+
+```console
+$ controller/dist/dropcheck tui examples/watch.yml
+$ controller/dist/dropcheck tui --help
+```
+
+Loading/preview validates through the same core as Go Plans. Agent metadata/session
+setup is not a measurement: no Wi-Fi mutation or probe occurs until explicit
+Preview -> Start. Credentials are not displayed. Preview shows bound agent IDs,
+SSID/BSSID/band, operation and policy budgets, expectations, secret availability,
+and cleanup. Capability support without a prior probe is pending/unknown, not an
+invented unsupported result. Invalid selection or missing secrets disable start.
+
+Tab switches agent/target/check selection; Space toggles, `1` chooses Once, `n`
+edits N, and `l` selects Loop. Enter previews; Enter again starts. Finite completion
+retains review. During execution, `q`/Ctrl-C requests GLOBAL stop, waits for core
+cleanup, and retains review; `q` in review exits. Ctrl-Z pause/resume and Ctrl-N
+skip are GLOBAL. `v` explicitly selects an execution scope; `p`/`s`/`x` then
+pause/skip/cancel that scope. Dashboard focus never changes execution scope.
+
+Existing dashboard filters, pinned details, Japanese labels and narrow layouts
+remain. `i` inspects result rows, measurements, expectations, all attempts,
+retry recovery, skip/missing/cancel reasons and independent cleanup problems.
+`r` previews the inspected selected work; `f` previews failed/missing work.
+Core selection restores connection/wait and required prerequisites. Every start
+creates a new run/report, leaving previous reports intact (`[`/`]` to review).
+Use `e` to reselect and `o` to explicitly reload agent bindings; a lost agent is
+not automatically replaced. Compiled Go Plans can enter the same adapter through
+`tui.RunWorkflow(ctx, tui.WorkflowOptions{Compiled: compiled, Runner: opRunner})`;
+there is no dynamic Go-source interpreter or separate TUI execution loop.
+
+For an authorized local, device-free real-PTY smoke, build the test child in a
+temporary path and run `controller/internal/tui/testdata/pty_smoke.py` with that
+binary. It uses only synthetic compiled Plans/runners and checks keyboard/resize,
+retained finite review/rerun, safe loop stop/cleanup, and terminal restoration.
+Default CI covers fake runner -> core events -> reducer -> TUI; it does not count
+a pure View test as real terminal or real Wi-Fi evidence.
+
+`dropcheck watch` remains the immediate continuous-run entry.
 It is meant for field operation: connection failures and failed `required: true` checks skip the remaining checks for that target, other check failures are recorded as findings, and the next target and round continue.
 Use `--jsonl` when you also want an append-only event log.
 When multiple agents are connected, unassigned targets run on every selected agent.

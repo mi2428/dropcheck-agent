@@ -51,6 +51,9 @@ func Run(args []string) error {
 	if len(rest) > 0 && rest[0] == "watch" {
 		return runWatch(context.Background(), opts, rest[1:])
 	}
+	if len(rest) > 0 && rest[0] == "tui" {
+		return runTUI(context.Background(), opts, rest[1:])
+	}
 	if len(rest) == 0 {
 		writeTopLevelHelp(os.Stdout)
 		return nil
@@ -63,12 +66,14 @@ func writeTopLevelHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "Usage:")
 	_, _ = fmt.Fprintln(w, "  dropcheck [flags] shell [--target TARGET]")
+	_, _ = fmt.Fprintln(w, "  dropcheck [flags] tui [PLAN.yml]")
 	_, _ = fmt.Fprintln(w, "  dropcheck [flags] watch -c CONFIG.yml [--target TARGET|all] [--jsonl PATH] [--no-tui]")
 	_, _ = fmt.Fprintln(w, "  dropcheck [flags] [--format text|json] [--target TARGET|--all] <command>")
 	_, _ = fmt.Fprintln(w, "  dropcheck --version")
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "Commands:")
 	writeHelpRows(w, []helpRow{
+		{"tui [PLAN.yml]", "select, preview, run and review a Plan interactively (requires a TTY)"},
 		{"shell", "start the Controller Shell"},
 		{"watch -c CONFIG.yml", "start the Controller TUI for continuous E2E Wi-Fi checks"},
 		{"show devices", "list connected Android agents"},
