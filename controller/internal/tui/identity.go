@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/watchstate"
 
 	"charm.land/lipgloss/v2"

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 )
 
 func TestFailedCheckRemovesSameRoundPassingCheck(t *testing.T) {
@@ -227,7 +227,7 @@ func TestCheckStatusFutureTargetsKeepHistoricalPassDuringRound(t *testing.T) {
 		{Name: "cs21(5G)", ShortName: "C21_5", SSID: "Lab"},
 		{Name: "ub1(5G)", ShortName: "U1_5", SSID: "Lab"},
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watch.Check{{Name: "connect", Type: "connect"}}, events)
+	m := newModelWithChecks("shownet-watch", targets, []watch.CheckInfo{{Name: "connect", Type: "connect"}}, events)
 	future := watch.TargetSnapshot{Name: "ub1(5G)", ShortName: "U1_5", SSID: "Lab"}
 	m.apply(watch.Event{
 		Time:     time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC),
@@ -331,7 +331,7 @@ func TestCheckStatusRendersPartialNonFailedStatusPercent(t *testing.T) {
 func TestOperatorSkippedStepRendersPendingInCheckStatus(t *testing.T) {
 	events := make(chan watch.Event)
 	target := watch.TargetSnapshot{Name: "u7-5ghz", SSID: "SHIZK RADIO"}
-	m := newModelWithChecks("shownet-watch", []watch.Target{{Name: "u7-5ghz", SSID: "SHIZK RADIO"}}, []watch.Check{{Name: "ping cloudflare", Type: "ping"}}, events)
+	m := newModelWithChecks("shownet-watch", []watch.Target{{Name: "u7-5ghz", SSID: "SHIZK RADIO"}}, []watch.CheckInfo{{Name: "ping cloudflare", Type: "ping"}}, events)
 	m.apply(watch.Event{
 		Kind:   watch.EventTargetStarted,
 		Round:  1,
@@ -382,7 +382,7 @@ func TestCheckStatusShortNameModeCompactsHeadersAndTokens(t *testing.T) {
 		{Name: "cs5(5G)", ShortName: "C5_5", SSID: "SHIZK RADIO"},
 		{Name: "cs6(5G)", ShortName: "C6_5", SSID: "SHIZK RADIO"},
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watch.Check{{Name: "connect", Type: "connect"}}, events, agents)
+	m := newModelWithChecks("shownet-watch", targets, []watch.CheckInfo{{Name: "connect", Type: "connect"}}, events, agents)
 	m.apply(watch.Event{
 		Kind:     watch.EventStepFinished,
 		Agent:    agents[0],
@@ -464,7 +464,7 @@ func TestCheckStatusUsesContiguousInitialWindow(t *testing.T) {
 		{Name: "ap7(5G)", ShortName: "A7", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 		{Name: "ap8(5G)", ShortName: "A8", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watch.Check{}, events, agents)
+	m := newModelWithChecks("shownet-watch", targets, []watch.CheckInfo{}, events, agents)
 	for i := range 6 {
 		target := watch.TargetSnapshot{Name: targets[i].Name, ShortName: targets[i].ShortName, SSID: targets[i].SSID}
 		for _, step := range []string{"connect", "wait_connected"} {
@@ -503,7 +503,7 @@ func TestCheckStatusAutoWindowTracksRunningTargetContiguously(t *testing.T) {
 		{Name: "ap5(5G)", ShortName: "A5", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 		{Name: "ap6(5G)", ShortName: "A6", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watch.Check{}, events, agents)
+	m := newModelWithChecks("shownet-watch", targets, []watch.CheckInfo{}, events, agents)
 	for i := range 4 {
 		target := watch.TargetSnapshot{Name: targets[i].Name, ShortName: targets[i].ShortName, SSID: targets[i].SSID}
 		for _, step := range []string{"connect", "wait_connected"} {
@@ -556,7 +556,7 @@ func TestCheckStatusAutoWindowTracksFailedTargetContiguously(t *testing.T) {
 		{Name: "ap5(5G)", ShortName: "A5", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 		{Name: "ap6(5G)", ShortName: "A6", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watch.Check{}, events, agents)
+	m := newModelWithChecks("shownet-watch", targets, []watch.CheckInfo{}, events, agents)
 	for i := range 4 {
 		target := watch.TargetSnapshot{Name: targets[i].Name, ShortName: targets[i].ShortName, SSID: targets[i].SSID}
 		for _, step := range []string{"connect", "wait_connected"} {
@@ -614,7 +614,7 @@ func TestCheckStatusHorizontalScrollPinsVisibleWindow(t *testing.T) {
 		{Name: "ap5(5G)", ShortName: "A5", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 		{Name: "ap6(5G)", ShortName: "A6", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watch.Check{}, events, agents)
+	m := newModelWithChecks("shownet-watch", targets, []watch.CheckInfo{}, events, agents)
 	m.width = 28
 	m.moveCheckStatusHorizontal(2)
 
@@ -678,7 +678,7 @@ func TestCheckStatusLeftScrollFromAutoWindowPinsPreviousWindow(t *testing.T) {
 		{Name: "ap5(5G)", ShortName: "A5", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 		{Name: "ap6(5G)", ShortName: "A6", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watch.Check{}, events, agents)
+	m := newModelWithChecks("shownet-watch", targets, []watch.CheckInfo{}, events, agents)
 	for i := range 4 {
 		target := watch.TargetSnapshot{Name: targets[i].Name, ShortName: targets[i].ShortName, SSID: targets[i].SSID}
 		for _, step := range []string{"connect", "wait_connected"} {
@@ -737,7 +737,7 @@ func TestCheckStatusAutoWindowStaysStableBetweenStepTransitions(t *testing.T) {
 		{Name: "ap5(5G)", ShortName: "A5", SSID: "Lab"},
 		{Name: "ap6(5G)", ShortName: "A6", SSID: "Lab"},
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watch.Check{}, events, agents)
+	m := newModelWithChecks("shownet-watch", targets, []watch.CheckInfo{}, events, agents)
 	m.width = 28
 	target := watch.TargetSnapshot{Name: targets[4].Name, ShortName: targets[4].ShortName, SSID: targets[4].SSID}
 	m.apply(watch.Event{
@@ -800,7 +800,7 @@ func TestCheckStatusAutoWindowRepositionsAfterResize(t *testing.T) {
 			SSID:      "Lab",
 		}
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watch.Check{{Name: "connect", Type: "connect"}}, events, agents)
+	m := newModelWithChecks("shownet-watch", targets, []watch.CheckInfo{{Name: "connect", Type: "connect"}}, events, agents)
 	for _, run := range []struct {
 		agent watch.AgentSnapshot
 		index int
@@ -859,7 +859,7 @@ func TestCheckStatusManualScrollUnpinsWhenFocusLeaves(t *testing.T) {
 		{Name: "ap5(5G)", ShortName: "A5", SSID: "Lab"},
 		{Name: "ap6(5G)", ShortName: "A6", SSID: "Lab"},
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watch.Check{}, events, agents)
+	m := newModelWithChecks("shownet-watch", targets, []watch.CheckInfo{}, events, agents)
 	m.width = 28
 	m.focus = focusCheckStatus
 	m.moveCheckStatusHorizontal(1)
@@ -883,7 +883,7 @@ func TestAssignedTargetsUseAssignedAgentAsCheckStatusDenominator(t *testing.T) {
 		{Name: "ap-5g", ShortName: "A5", Agent: "35251JEHN00258", SSID: "Lab"},
 		{Name: "ap-6g", ShortName: "A6", Agent: "45240DLAQ007HG", SSID: "Lab"},
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watch.Check{{Name: "connect", Type: "connect"}}, events, agents)
+	m := newModelWithChecks("shownet-watch", targets, []watch.CheckInfo{{Name: "connect", Type: "connect"}}, events, agents)
 	m.apply(watch.Event{
 		Kind:     watch.EventStepFinished,
 		Agent:    agents[0],

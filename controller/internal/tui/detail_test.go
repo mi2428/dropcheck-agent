@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -81,6 +81,9 @@ func TestFailedRequiredStepDetailShowsWifiAssertFailurePoint(t *testing.T) {
 		Step:   watch.StepSnapshot{Name: "wait_connected", Type: "wait_connected", Operation: "wifi.wait", Status: "failed", Message: message},
 		Status: "failed",
 	})
+	m.apply(watch.Event{Time: at, Kind: watch.EventFinding, Round: 1, Target: target,
+		Step:    watch.StepSnapshot{Name: "wait_connected", Type: "wait_connected", Operation: "wifi.wait", Status: "failed"},
+		Finding: &watch.Finding{Target: target.Name, Check: "wait_connected", Metric: "status", Observed: "failed", Expected: "== ok", Message: message}})
 	m.apply(watch.Event{
 		Time:    at.Add(time.Second),
 		Kind:    watch.EventLog,

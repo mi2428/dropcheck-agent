@@ -1,9 +1,12 @@
 package tui
 
-import "dropcheck/controller/internal/watch"
+import watch "dropcheck/controller/internal/harness"
 
 func (m *model) apply(event watch.Event) {
 	m.Apply(event)
+	if event.Kind == watch.EventControlApplied {
+		m.paused = m.State.Phase == "paused"
+	}
 	if event.Kind == watch.EventRoundStarted && !m.checkStatusPinned {
 		m.checkStatusOffset = 0
 	}

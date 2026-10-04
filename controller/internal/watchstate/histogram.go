@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 )
 
 // RecentEventHistogram builds a fixed-width histogram over the recent time

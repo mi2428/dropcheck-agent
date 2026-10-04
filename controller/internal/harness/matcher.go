@@ -57,6 +57,15 @@ func (a customAssertion) Evaluate(result Result) []Finding {
 	return []Finding{Pass(metric, "passed", "custom assertion passed")}
 }
 
+func (a customAssertion) Validate() error {
+	if a.fn == nil || a.name == "" {
+		return fmt.Errorf("invalid custom assertion")
+	}
+	return nil
+}
+
+func (a customAssertion) Description() string { return "Go assertion: " + a.name }
+
 // Observer extracts a metric value from a result.
 type Observer[T any] func(Result) (value T, ok bool, reason string)
 
@@ -72,6 +81,7 @@ type OrderedMetric[T cmp.Ordered] struct {
 	observe     Observer[T]
 	format      func(T) string
 	constraints []orderedConstraint[T]
+	validation  error
 }
 
 // Ordered creates a chainable ordered metric.
@@ -84,6 +94,26 @@ func (m OrderedMetric[T]) Format(format func(T) string) OrderedMetric[T] {
 	m.format = format
 	return m
 }
+
+func (m OrderedMetric[T]) Validate() error {
+	if m.validation != nil {
+		return m.validation
+	}
+	if m.observe == nil {
+		return fmt.Errorf("metric observer is nil")
+	}
+	return nil
+}
+
+func (m OrderedMetric[T]) Description() string {
+	parts := make([]string, 0, len(m.constraints))
+	for _, constraint := range m.constraints {
+		parts = append(parts, constraint.op+" "+m.format(constraint.value))
+	}
+	return m.name + ": " + strings.Join(parts, " AND ")
+}
+
+func (m OrderedMetric[T]) Validated(err error) OrderedMetric[T] { m.validation = err; return m }
 
 // Eq requires the metric to equal value.
 func (m OrderedMetric[T]) Eq(value T) OrderedMetric[T] {
@@ -117,6 +147,9 @@ func (m OrderedMetric[T]) Le(value T) OrderedMetric[T] {
 
 // Between requires the metric to be within [min, max].
 func (m OrderedMetric[T]) Between(minValue T, maxValue T) OrderedMetric[T] {
+	if minValue > maxValue {
+		m.validation = fmt.Errorf("invalid Between bounds")
+	}
 	return m.Ge(minValue).Le(maxValue)
 }
 
@@ -134,7 +167,7 @@ func (m OrderedMetric[T]) Evaluate(result Result) []Finding {
 	if !ok {
 		findings := make([]Finding, 0, len(m.constraints))
 		for _, constraint := range m.constraints {
-			findings = append(findings, Fail(m.name, "<missing>", constraint.op+" "+m.format(constraint.value), reason))
+			findings = append(findings, MissingFinding(m.name, "<missing>", constraint.op+" "+m.format(constraint.value), reason))
 		}
 		return findings
 	}
@@ -142,10 +175,14 @@ func (m OrderedMetric[T]) Evaluate(result Result) []Finding {
 	for _, constraint := range m.constraints {
 		expected := constraint.op + " " + m.format(constraint.value)
 		if constraint.pass(observed, constraint.value) {
-			findings = append(findings, Pass(m.name, m.format(observed), expected))
+			finding := Pass(m.name, m.format(observed), expected)
+			finding.ObservedValue, finding.ExpectedValue = observed, constraint.value
+			findings = append(findings, finding)
 			continue
 		}
-		findings = append(findings, Fail(m.name, m.format(observed), expected, "constraint failed"))
+		finding := Fail(m.name, m.format(observed), expected, "constraint failed")
+		finding.ObservedValue, finding.ExpectedValue = observed, constraint.value
+		findings = append(findings, finding)
 	}
 	return findings
 }
@@ -155,6 +192,21 @@ type BoolMetric struct {
 	name        string
 	observe     Observer[bool]
 	constraints []boolConstraint
+}
+
+func (m BoolMetric) Validate() error {
+	if m.observe == nil {
+		return fmt.Errorf("metric observer is nil")
+	}
+	return nil
+}
+
+func (m BoolMetric) Description() string {
+	parts := make([]string, 0, len(m.constraints))
+	for _, constraint := range m.constraints {
+		parts = append(parts, fmt.Sprintf("== %t", constraint.expected))
+	}
+	return m.name + ": " + strings.Join(parts, " AND ")
 }
 
 type boolConstraint struct {
@@ -191,7 +243,7 @@ func (m BoolMetric) Evaluate(result Result) []Finding {
 	if !ok {
 		findings := make([]Finding, 0, len(m.constraints))
 		for _, constraint := range m.constraints {
-			findings = append(findings, Fail(m.name, "<missing>", fmt.Sprintf("== %t", constraint.expected), reason))
+			findings = append(findings, MissingFinding(m.name, "<missing>", fmt.Sprintf("== %t", constraint.expected), reason))
 		}
 		return findings
 	}
@@ -199,10 +251,14 @@ func (m BoolMetric) Evaluate(result Result) []Finding {
 	for _, constraint := range m.constraints {
 		expected := fmt.Sprintf("== %t", constraint.expected)
 		if observed == constraint.expected {
-			findings = append(findings, Pass(m.name, fmt.Sprintf("%t", observed), expected))
+			finding := Pass(m.name, fmt.Sprintf("%t", observed), expected)
+			finding.ObservedValue, finding.ExpectedValue = observed, constraint.expected
+			findings = append(findings, finding)
 			continue
 		}
-		findings = append(findings, Fail(m.name, fmt.Sprintf("%t", observed), expected, "constraint failed"))
+		finding := Fail(m.name, fmt.Sprintf("%t", observed), expected, "constraint failed")
+		finding.ObservedValue, finding.ExpectedValue = observed, constraint.expected
+		findings = append(findings, finding)
 	}
 	return findings
 }

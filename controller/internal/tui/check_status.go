@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/watchstate"
 
 	"charm.land/lipgloss/v2"
@@ -28,7 +28,7 @@ func (m model) checkStatusView(width int, height int) string {
 		return dimStyle.Render("no checks or targets match")
 	}
 	agents := m.outcomeAgents(m.outcomeEvents())
-	layout := checkStatusTableLayout(width, checks, targets, agents)
+	layout := checkStatusTableLayout(width, m.checkLabels(checks), targets, agents)
 	targets = m.checkStatusVisibleTargets(targets, layout)
 	var lines []string
 	var header strings.Builder
@@ -54,7 +54,7 @@ func (m model) checkStatusView(width int, height int) string {
 			break
 		}
 		var b strings.Builder
-		b.WriteString(valueStyle.Render(padVisible(displayCheckName(check), layout.LabelWidth)))
+		b.WriteString(valueStyle.Render(padVisible(m.State.CheckLabel(check), layout.LabelWidth)))
 		b.WriteString(valueStyle.Render(" "))
 		for i, target := range targets {
 			if i > 0 {
@@ -219,7 +219,7 @@ func (m model) checkStatusWindowMetrics(width int) ([]watch.TargetSnapshot, chec
 		return nil, checkStatusLayout{}, 0
 	}
 	agents := m.outcomeAgents(m.outcomeEvents())
-	layout := checkStatusTableLayout(width, checks, targets, agents)
+	layout := checkStatusTableLayout(width, m.checkLabels(checks), targets, agents)
 	return targets, layout, intMax(0, len(targets)-layout.VisibleTargets)
 }
 
@@ -454,6 +454,14 @@ func maxCheckStatusLabelWidth(checks []string) int {
 		width = intMax(width, lipgloss.Width(displayCheckName(check)))
 	}
 	return width
+}
+
+func (m model) checkLabels(checks []string) []string {
+	labels := make([]string, len(checks))
+	for i, check := range checks {
+		labels[i] = m.State.CheckLabel(check)
+	}
+	return labels
 }
 
 func outcomeCounts(events []outcomeEvent) (ok int, failed int) {

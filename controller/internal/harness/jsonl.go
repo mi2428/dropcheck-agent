@@ -1,4 +1,4 @@
-package watch
+package harness
 
 import (
 	"context"
@@ -231,17 +231,16 @@ func (w *JSONLWriter) contextError(ctx context.Context) error {
 // MultiSink emits each event to multiple sinks in order.
 type MultiSink []Sink
 
-// Emit sends event to every non-nil sink and stops at the first error.
+// Emit sends event to every sink: a failed file must not suppress UI results.
 func (sinks MultiSink) Emit(ctx context.Context, event Event) error {
+	var failures []error
 	for _, sink := range sinks {
 		if sink == nil {
 			continue
 		}
-		if err := sink.Emit(ctx, event); err != nil {
-			return err
-		}
+		failures = append(failures, sink.Emit(ctx, event))
 	}
-	return nil
+	return errors.Join(failures...)
 }
 
 // ChannelSink sends watch events to a channel until the context is canceled.

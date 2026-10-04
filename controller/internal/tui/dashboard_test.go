@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 
 	"charm.land/lipgloss/v2"
 )
@@ -205,7 +205,7 @@ func TestRoundTimelineRunningRoundKeepsPreviousRoundHistory(t *testing.T) {
 		{Name: "cs12(5G)", ShortName: "C12_5", SSID: "Lab"},
 		{Name: "ub1(5G)", ShortName: "U1_5", SSID: "Lab"},
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watch.Check{{Name: "connect", Type: "connect"}}, events)
+	m := newModelWithChecks("shownet-watch", targets, []watch.CheckInfo{{Name: "connect", Type: "connect"}}, events)
 	current := watch.TargetSnapshot{Name: "cs12(5G)", ShortName: "C12_5", SSID: "Lab"}
 	future := watch.TargetSnapshot{Name: "ub1(5G)", ShortName: "U1_5", SSID: "Lab"}
 	m.apply(watch.Event{
@@ -269,7 +269,7 @@ func TestRunningRoundDashboardKeepsPreviousPassesVisible(t *testing.T) {
 		{Name: "ft1(5G)", ShortName: "F1_5", Agent: "pixel-7a", SSID: "Lab"},
 		{Name: "ft1(6G)", ShortName: "F1_6", Agent: "pixel-9", SSID: "Lab"},
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watch.Check{{Name: "connect", Type: "connect"}}, events, agents)
+	m := newModelWithChecks("shownet-watch", targets, []watch.CheckInfo{{Name: "connect", Type: "connect"}}, events, agents)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	futureTargets := []watch.TargetSnapshot{
 		{Name: "ym1(5G)", ShortName: "Y1_5", Agent: "pixel-7a", SSID: "Lab"},
@@ -586,7 +586,7 @@ func TestCheckStatusFooterShowsLiveConnectStateByAgent(t *testing.T) {
 		{ID: "agent-b", Name: "45240DLAQ007HG", ADBSerial: "45240DLAQ007HG", DeviceModel: "Pixel 9"},
 		{ID: "agent-c", Name: "extra-agent"},
 	}
-	m := newModelWithChecks("shownet-watch", []watch.Target{{Name: "ub1(5G)", SSID: "SHIZK RADIO"}}, []watch.Check{{Name: "connect", Type: "connect"}}, events, agents)
+	m := newModelWithChecks("shownet-watch", []watch.Target{{Name: "ub1(5G)", SSID: "SHIZK RADIO"}}, []watch.CheckInfo{{Name: "connect", Type: "connect"}}, events, agents)
 	m.apply(watch.Event{
 		Time:    time.Date(2026, 5, 18, 11, 0, 0, 0, time.UTC),
 		Kind:    watch.EventLog,
@@ -629,7 +629,7 @@ func TestAgentPanelTitlesUseDeviceModelAndSerial(t *testing.T) {
 		{ID: "agent-a", Name: "35251JEHN00258", ADBSerial: "35251JEHN00258", DeviceModel: "Pixel 7a"},
 		{ID: "agent-b", Name: "45240DLAQ007HG", ADBSerial: "45240DLAQ007HG", DeviceModel: "Pixel 9"},
 	}
-	m := newModelWithChecks("shownet-watch", []watch.Target{{Name: "ub1(5G)", SSID: "SHIZK RADIO"}}, []watch.Check{{Name: "connect", Type: "connect"}}, events, agents)
+	m := newModelWithChecks("shownet-watch", []watch.Target{{Name: "ub1(5G)", SSID: "SHIZK RADIO"}}, []watch.CheckInfo{{Name: "connect", Type: "connect"}}, events, agents)
 	m.width = 220
 	m.height = 60
 

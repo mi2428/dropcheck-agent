@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 )
 
 func TestRunQueueTreeExpandsOnlyRunningTargets(t *testing.T) {
@@ -209,7 +209,7 @@ func TestRunQueuePanelsSplitByAgent(t *testing.T) {
 		{ID: "agent-a", Name: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b"},
 	}
-	m := newModelWithChecks("shownet-watch", []watch.Target{{Name: "u7-5ghz", SSID: "SHIZK RADIO"}}, []watch.Check{{Name: "wifi link", Type: "wifi_status"}}, events, agents)
+	m := newModelWithChecks("shownet-watch", []watch.Target{{Name: "u7-5ghz", SSID: "SHIZK RADIO"}}, []watch.CheckInfo{{Name: "wifi link", Type: "wifi_status"}}, events, agents)
 	m.width = 120
 	m.height = 30
 	m.Targets[0].Status = "running"

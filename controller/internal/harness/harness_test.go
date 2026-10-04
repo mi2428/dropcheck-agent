@@ -254,7 +254,7 @@ func TestRunFailureChild(t *testing.T) {
 	if scenario == "" {
 		return
 	}
-	want := []string{"wifi.connect", "wifi.wait", "wifi.forget", "wifi.disconnect"}
+	want := []string{"wifi.connect", "wifi.wait", "wifi.disconnect", "wifi.forget"}
 	failedOperation := "wifi.wait"
 	var replies, observed []uint32
 	check := harness.Ping("8.8.8.8").Count(5).Expect(ping.Received().Eq(5), ping.Assert("scripted replies", func(r ping.Result) error {
@@ -264,18 +264,18 @@ func TestRunFailureChild(t *testing.T) {
 	switch scenario {
 	case "connect_status", "connect_error":
 		failedOperation = "wifi.connect"
-		want = []string{"wifi.connect", "wifi.forget", "wifi.disconnect"}
+		want = []string{"wifi.connect", "wifi.disconnect", "wifi.forget"}
 	case "wait_status", "wait_error":
 	case "retry_exhausted":
 		failedOperation = ""
 		replies = []uint32{0, 1}
 		check = check.Retry(2, 0)
-		want = []string{"wifi.connect", "wifi.wait", "ping", "ping", "dns", "wifi.forget", "wifi.disconnect"}
+		want = []string{"wifi.connect", "wifi.wait", "ping", "ping", "dns", "wifi.disconnect", "wifi.forget"}
 	case "repeat_failed":
 		failedOperation = ""
 		replies = []uint32{5, 0}
 		check = check.Repeat(2)
-		want = []string{"wifi.connect", "wifi.wait", "ping", "ping", "dns", "wifi.forget", "wifi.disconnect"}
+		want = []string{"wifi.connect", "wifi.wait", "ping", "ping", "dns", "wifi.disconnect", "wifi.forget"}
 	case "missing_network":
 		want = nil
 	default:
@@ -488,6 +488,12 @@ func (r *retryRunner) Run(_ context.Context, _ control.AgentInfo, op command.Ope
 func fakeResult(name string) *controlpb.CommandResult {
 	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK}
 	switch name {
+	case "wifi.connect":
+		result.Payload = &controlpb.CommandResult_ConnectWifi{ConnectWifi: &controlpb.ConnectWifiResult{Connected: true, Ssid: "Lab"}}
+	case "wifi.wait":
+		result.Payload = &controlpb.CommandResult_WifiAssert{WifiAssert: &controlpb.WifiAssertResult{Passed: true, Status: fakeResult("wifi.status").GetWifiStatus()}}
+	case "wifi.disconnect", "wifi.forget":
+		result.Payload = &controlpb.CommandResult_WifiOperation{WifiOperation: &controlpb.WifiOperationResult{Ok: true}}
 	case "ping":
 		result.Payload = &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{
 			Host:              "8.8.8.8",
@@ -522,6 +528,7 @@ func fakeResult(name string) *controlpb.CommandResult {
 		}}
 	case "ip.status":
 		result.Payload = &controlpb.CommandResult_IpStatus{IpStatus: &controlpb.IpStatus{
+			ObservationFields:    []*controlpb.DiagnosticField{{Key: "capabilities.state", Value: "available"}, {Key: "link_properties.state", Value: "available"}},
 			NetworkId:            "100",
 			Transports:           []string{"wifi"},
 			Validated:            true,
@@ -540,9 +547,11 @@ func fakeResult(name string) *controlpb.CommandResult {
 		}}
 	case "wifi.status":
 		result.Payload = &controlpb.CommandResult_WifiStatus{WifiStatus: &controlpb.WifiStatus{
-			Enabled: true,
-			State:   "enabled",
+			ObservationFields: []*controlpb.DiagnosticField{{Key: "radio.state", Value: "available"}},
+			Enabled:           true,
+			State:             "enabled",
 			Connection: &controlpb.WifiConnection{
+				ObservationFields:  []*controlpb.DiagnosticField{{Key: "identity.state", Value: "available"}, {Key: "rssi.state", Value: "available"}, {Key: "tx_link_speed_mbps.state", Value: "available"}, {Key: "rx_link_speed_mbps.state", Value: "available"}, {Key: "associated_mlo_links.state", Value: "available"}, {Key: "affiliated_mlo_links.state", Value: "available"}, {Key: "ap_mld_mac_address.state", Value: "available"}, {Key: "ap_mlo_link_id.state", Value: "available"}},
 				Ssid:               "Lab",
 				Bssid:              "aa:bb:cc:dd:ee:ff",
 				RssiDbm:            -45,
@@ -563,17 +572,18 @@ func fakeResult(name string) *controlpb.CommandResult {
 	case "wifi.scan.fresh", "wifi.scan":
 		result.Payload = &controlpb.CommandResult_WifiScan{WifiScan: &controlpb.WifiScan{
 			Results: []*controlpb.WifiScanResult{{
-				Ssid:            "Lab",
-				Bssid:           "aa:bb:cc:dd:ee:ff",
-				Capabilities:    "[RSN-SAE-CCMP][EHT][ESS]",
-				RssiDbm:         -41,
-				FrequencyMhz:    6135,
-				Band:            "6GHz",
-				ChannelWidth:    "320MHz",
-				WifiStandard:    "802.11be",
-				SecurityTypes:   []string{"wpa3_sae"},
-				ApMldMacAddress: "02:00:00:00:00:01",
-				ApMloLinkId:     1,
+				ObservationFields: []*controlpb.DiagnosticField{{Key: "ap_mlo_link_id.state", Value: "available"}},
+				Ssid:              "Lab",
+				Bssid:             "aa:bb:cc:dd:ee:ff",
+				Capabilities:      "[RSN-SAE-CCMP][EHT][ESS]",
+				RssiDbm:           -41,
+				FrequencyMhz:      6135,
+				Band:              "6GHz",
+				ChannelWidth:      "320MHz",
+				WifiStandard:      "802.11be",
+				SecurityTypes:     []string{"wpa3_sae"},
+				ApMldMacAddress:   "02:00:00:00:00:01",
+				ApMloLinkId:       1,
 				AffiliatedMloLinks: []*controlpb.MloLinkInfo{{
 					LinkId:  2,
 					Band:    "5ghz",

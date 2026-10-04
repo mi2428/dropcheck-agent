@@ -1,4 +1,4 @@
-package watch
+package harness
 
 import (
 	"fmt"
@@ -20,7 +20,7 @@ func AgentSnapshotFromInfo(agent control.AgentInfo) AgentSnapshot {
 		name = name[:12]
 	}
 	return AgentSnapshot{
-		ID:          agent.ID,
+		ID:          agentKey(agent),
 		SessionID:   agent.SessionID,
 		Name:        name,
 		ADBSerial:   serial,

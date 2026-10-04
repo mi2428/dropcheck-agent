@@ -38,6 +38,7 @@ class WifiConnector(
         val message: String,
         val fields: List<Pair<String, String>> = emptyList(),
         val errors: List<String> = emptyList(),
+        val alreadyAbsent: Boolean = false,
     )
 
     /**
@@ -283,10 +284,10 @@ class WifiConnector(
         if (target.isBlank()) {
             return Operation(operation = "forget", ok = false, message = "wifi forget target is required")
         }
-        val configs = runCatching { wifi.configuredNetworks.orEmpty() }.getOrElse {
-            logger.warn("wifi configuredNetworks failed error=$it")
-            emptyList()
-        }
+        val configs = runCatching { wifi.configuredNetworks }.getOrElse {
+            return Operation(operation = "forget", ok = false, message = "configured networks unavailable",
+                errors = listOf("get_configured_networks=${errorSummary(it)}"))
+        } ?: return Operation(operation = "forget", ok = false, message = "configured networks unavailable")
         val current = currentConnectionRef(wifi.connectionInfo)
         val refs = configs.map { config ->
             WifiConnectorPolicy.ConfiguredNetworkRef(
@@ -323,9 +324,10 @@ class WifiConnector(
             }
             return Operation(
                 operation = "forget",
-                ok = false,
-                message = "wifi network not found",
+                ok = true,
+                message = "wifi network already absent",
                 fields = listOf("target" to target, "configured_network_count" to configs.size.toString()),
+                alreadyAbsent = true,
             )
         }
         val fields = mutableListOf<Pair<String, String>>(

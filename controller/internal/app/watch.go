@@ -15,10 +15,10 @@ import (
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
+	"dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/runner"
 	"dropcheck/controller/internal/tui"
 	"dropcheck/controller/internal/watch"
-	"dropcheck/controller/internal/watchstate"
 )
 
 type watchOptions struct {
@@ -70,49 +70,31 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) (retErr err
 	if err != nil {
 		return err
 	}
-	agentPlans, uiPlan, err := watchAgentPlans(plan, agents)
+	compiled, err := harness.Compile(plan, agents)
 	if err != nil {
 		return err
 	}
-	agents = watchAgentsFromPlans(agentPlans)
-	agentSnapshots := watchAgentSnapshots(agents)
+	preview := compiled.Preview()
 
 	watchCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	pauseControl := watch.NewPauseController()
-	skipControl := watch.NewSkipController()
-	roundBarrier := watch.NewRoundBarrier(len(agentPlans))
+	controls := harness.NewControls()
 
-	var sinks watch.MultiSink
+	var sinks []harness.Sink
 	if watchOpts.jsonlPath != "" {
-		jsonlWriter, err := watch.OpenJSONLFile(watchOpts.jsonlPath)
+		jsonlWriter, err := harness.OpenJSONLFile(watchOpts.jsonlPath)
 		if err != nil {
 			return fmt.Errorf("open jsonl output: %w", err)
 		}
-		defer func() {
-			closeCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-			defer stop()
-			if closeErr := jsonlWriter.Close(closeCtx); closeErr != nil {
-				retErr = errors.Join(retErr, fmt.Errorf("close jsonl output: %w", closeErr))
-			}
-		}()
 		sinks = append(sinks, jsonlWriter)
 	}
-	sinks = append(sinks, watch.ChannelSink{C: eventPipe.C})
+	sinks = append(sinks, harness.ChannelSink{C: eventPipe.C})
 
-	errCh := make(chan error, len(agentPlans))
-	var wg sync.WaitGroup
-	for _, agentPlan := range agentPlans {
-		wg.Go(func() {
-			opRunner := watchOperationRunner{operation: runner.New(controlSession.Server), adbPath: opts.ADBPath}
-			if err := watch.RunWithOptions(watchCtx, agentPlan.Plan, opRunner, agentPlan.Agent, sinks, watch.RunOptions{Pause: pauseControl, Skip: skipControl, RoundBarrier: roundBarrier}); err != nil {
-				errCh <- fmt.Errorf("%s: %w", agentDisplayName(agentPlan.Agent), err)
-				cancel()
-			}
-		})
-	}
+	errCh := make(chan error, 1)
 	go func() {
-		wg.Wait()
+		opRunner := watchOperationRunner{operation: runner.New(controlSession.Server), adbPath: opts.ADBPath}
+		_, runErr := harness.Execute(watchCtx, compiled, opRunner, harness.ExecuteOptions{Loop: true, RoundInterval: plan.RoundInterval, Controls: controls, Sinks: sinks})
+		errCh <- runErr
 		eventPipe.Close()
 		close(errCh)
 	}()
@@ -121,7 +103,7 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) (retErr err
 		for event := range eventPipe.C {
 			printWatchNoTUIEvent(os.Stdout, event, len(agents) > 1)
 		}
-	} else if err := tui.RunWithControls(watchCtx, uiPlan.Name, uiPlan.Targets, uiPlan.Checks, agentSnapshots, eventPipe.C, pauseControl, skipControl); err != nil {
+	} else if err := tui.RunWithControls(ctx, preview.Name, preview.Targets, preview.Checks, preview.Agents, eventPipe.C, controls); err != nil {
 		cancel()
 		return errors.Join(err, collectWatchErrors(errCh))
 	}
@@ -132,7 +114,7 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) (retErr err
 	return nil
 }
 
-func printWatchNoTUIEvent(w io.Writer, event watch.Event, multiAgent bool) {
+func printWatchNoTUIEvent(w io.Writer, event harness.Event, multiAgent bool) {
 	finding, ok := watchNoTUIFinding(event)
 	if !ok {
 		return
@@ -153,14 +135,11 @@ func printWatchNoTUIEvent(w io.Writer, event watch.Event, multiAgent bool) {
 	)
 }
 
-func watchNoTUIFinding(event watch.Event) (watch.Finding, bool) {
-	if event.Kind == watch.EventFinding && event.Finding != nil {
+func watchNoTUIFinding(event harness.Event) (harness.Finding, bool) {
+	if event.Kind == harness.EventFinding && event.Finding != nil {
 		return *event.Finding, true
 	}
-	if event.Kind != watch.EventStepFinished {
-		return watch.Finding{}, false
-	}
-	return watchstate.RequiredStepFailedCheck(event)
+	return harness.Finding{}, false
 }
 
 type watchOperationRunner struct {
@@ -177,7 +156,7 @@ func (r watchOperationRunner) Run(ctx context.Context, agent control.AgentInfo, 
 	return r.operation.Run(ctx, agent, op)
 }
 
-func (r watchOperationRunner) FailureCause(ctx context.Context, agent control.AgentInfo, cause watch.FailureCauseContext) string {
+func (r watchOperationRunner) FailureCause(ctx context.Context, agent control.AgentInfo, cause harness.FailureCauseContext) string {
 	if !watchFailureCauseUsesWifiDiagnostics(cause) {
 		return ""
 	}
@@ -188,7 +167,7 @@ func (r watchOperationRunner) FailureCause(ctx context.Context, agent control.Ag
 	return r.collectWifiFailureCause(ctx, serial, 2*time.Second)
 }
 
-func (r watchOperationRunner) WatchFailureCause(ctx context.Context, agent control.AgentInfo, cause watch.FailureCauseContext, emit func(string)) func() {
+func (r watchOperationRunner) WatchFailureCause(ctx context.Context, agent control.AgentInfo, cause harness.FailureCauseContext, emit func(string)) func() {
 	if !watchFailureCauseUsesWifiDiagnostics(cause) {
 		return nil
 	}
@@ -297,7 +276,7 @@ func watchAgentADBSerial(agent control.AgentInfo) string {
 	return agent.Hello.GetAdbSerial()
 }
 
-func watchFailureCauseUsesWifiDiagnostics(cause watch.FailureCauseContext) bool {
+func watchFailureCauseUsesWifiDiagnostics(cause harness.FailureCauseContext) bool {
 	switch cause.Operation.Name {
 	case "wifi.connect", "wifi.wait":
 		return true
@@ -306,16 +285,16 @@ func watchFailureCauseUsesWifiDiagnostics(cause watch.FailureCauseContext) bool 
 }
 
 type watchEventPipe struct {
-	C      chan watch.Event
+	C      chan harness.Event
 	mu     sync.Mutex
 	closed bool
 }
 
 func newWatchEventPipe(size int) *watchEventPipe {
-	return &watchEventPipe{C: make(chan watch.Event, size)}
+	return &watchEventPipe{C: make(chan harness.Event, size)}
 }
 
-func (p *watchEventPipe) Emit(event watch.Event) {
+func (p *watchEventPipe) Emit(event harness.Event) {
 	if p == nil {
 		return
 	}
@@ -353,14 +332,14 @@ func watchSessionLogHandler(pipe *watchEventPipe) func(control.LogEvent) {
 	}
 }
 
-func watchSessionLogEvent(event control.LogEvent) (watch.Event, bool) {
+func watchSessionLogEvent(event control.LogEvent) (harness.Event, bool) {
 	if event.Level == controlpb.CommandLog_LEVEL_DEBUG || event.Level == controlpb.CommandLog_LEVEL_INFO {
-		return watch.Event{}, false
+		return harness.Event{}, false
 	}
-	return watch.Event{
+	return harness.Event{
 		Time: event.Time,
-		Kind: watch.EventLog,
-		Agent: watch.AgentSnapshot{
+		Kind: harness.EventLog,
+		Agent: harness.AgentSnapshot{
 			ID:        event.AgentID,
 			SessionID: event.SessionID,
 		},
@@ -397,110 +376,12 @@ func watchTargetAgents(state *shellState) ([]control.AgentInfo, error) {
 	return state.commandTargets()
 }
 
-type watchAgentPlan struct {
-	Agent control.AgentInfo
-	Plan  watch.Plan
-}
-
-func watchAgentPlans(plan watch.Plan, agents []control.AgentInfo) ([]watchAgentPlan, watch.Plan, error) {
-	if len(agents) == 0 {
-		return nil, plan, fmt.Errorf("no Android agents connected")
-	}
-	snapshots := watchAgentSnapshots(agents)
-	plans := make([]watchAgentPlan, len(agents))
-	active := make([]bool, len(agents))
-	for i, agent := range agents {
-		agentPlan := plan
-		agentPlan.Targets = nil
-		plans[i] = watchAgentPlan{Agent: agent, Plan: agentPlan}
-	}
-	uiPlan := plan
-	uiPlan.Targets = append([]watch.Target(nil), plan.Targets...)
-	for targetIndex, target := range plan.Targets {
-		selector := strings.TrimSpace(target.Agent)
-		if selector == "" {
-			for i := range plans {
-				plans[i].Plan.Targets = append(plans[i].Plan.Targets, target)
-				active[i] = true
-			}
-			continue
-		}
-		agentIndex, err := resolveWatchPlanAgent(selector, snapshots)
-		if err != nil {
-			return nil, plan, fmt.Errorf("targets[%d] %s agent %q: %w", targetIndex, target.DisplayName(), selector, err)
-		}
-		resolved := watchAgentStableSelector(snapshots[agentIndex])
-		target.Agent = resolved
-		uiPlan.Targets[targetIndex].Agent = resolved
-		plans[agentIndex].Plan.Targets = append(plans[agentIndex].Plan.Targets, target)
-		active[agentIndex] = true
-	}
-	result := make([]watchAgentPlan, 0, len(plans))
-	for i, agentPlan := range plans {
-		if active[i] {
-			result = append(result, agentPlan)
-		}
-	}
-	if len(result) == 0 {
-		return nil, plan, fmt.Errorf("watch plan has no targets for the selected agents")
-	}
-	return result, uiPlan, nil
-}
-
-func resolveWatchPlanAgent(selector string, agents []watch.AgentSnapshot) (int, error) {
-	resolved, err := watch.ResolveAgentSnapshot(selector, agents)
-	if err != nil {
-		return 0, err
-	}
-	for i, agent := range agents {
-		if sameWatchAgentSnapshot(agent, resolved) {
-			return i, nil
-		}
-	}
-	return 0, fmt.Errorf("agent serial %q is not selected", selector)
-}
-
-func sameWatchAgentSnapshot(a watch.AgentSnapshot, b watch.AgentSnapshot) bool {
-	return a.ID == b.ID &&
-		a.SessionID == b.SessionID &&
-		a.Name == b.Name &&
-		a.ADBSerial == b.ADBSerial &&
-		a.DeviceModel == b.DeviceModel
-}
-
-func watchAgentStableSelector(agent watch.AgentSnapshot) string {
-	for _, value := range []string{agent.ADBSerial, agent.ID, agent.Name, agent.SessionID} {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return agent.DisplayName()
-}
-
-func watchAgentsFromPlans(plans []watchAgentPlan) []control.AgentInfo {
-	agents := make([]control.AgentInfo, 0, len(plans))
-	for _, plan := range plans {
-		agents = append(agents, plan.Agent)
-	}
-	return agents
-}
-
-func watchAgentSnapshots(agents []control.AgentInfo) []watch.AgentSnapshot {
-	snapshots := make([]watch.AgentSnapshot, 0, len(agents))
-	for _, agent := range agents {
-		snapshots = append(snapshots, watch.AgentSnapshotFromInfo(agent))
-	}
-	return snapshots
-}
-
 func collectWatchErrors(errCh <-chan error) error {
-	var first error
+	var failures []error
 	for err := range errCh {
-		if err != nil && first == nil {
-			first = err
-		}
+		failures = append(failures, err)
 	}
-	return first
+	return errors.Join(failures...)
 }
 
 func parseWatchOptions(args []string) (watchOptions, error) {

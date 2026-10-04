@@ -97,7 +97,7 @@ func parseIPFamily(value string) (controlpb.IpFamily, error) {
 }
 
 func parseOptionalProbeFamily(value string) (controlpb.IpFamily, error) {
-	if strings.TrimSpace(value) == "" {
+	if strings.TrimSpace(value) == "" || value == "auto" {
 		return controlpb.IpFamily_IP_FAMILY_UNSPECIFIED, nil
 	}
 	return parseIPFamily(value)

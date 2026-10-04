@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 
 	"charm.land/lipgloss/v2"
 )
@@ -24,6 +24,10 @@ func TestConnectFailedCheckAppearsInFailedChecks(t *testing.T) {
 		Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "failed", Message: "wifi connect failed"},
 		Status: "failed",
 	})
+	m.apply(watch.Event{Time: at, Kind: watch.EventFinding, Agent: agent, Round: 1,
+		Target:  watch.TargetSnapshot{Name: "SHIZK RADIO", SSID: "SHIZK RADIO"},
+		Step:    watch.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
+		Finding: &watch.Finding{Target: "SHIZK RADIO", Check: "connect", Metric: "status", Observed: "failed", Expected: "== ok", Message: "wifi connect failed"}})
 
 	rows := m.failedCheckSummaries()
 	if len(rows) != 1 {

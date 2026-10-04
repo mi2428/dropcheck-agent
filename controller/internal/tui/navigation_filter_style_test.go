@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -213,21 +213,24 @@ func TestRunQueueFocusScrollsVertically(t *testing.T) {
 
 func TestPauseResumeAndRightAlignedStatusItems(t *testing.T) {
 	events := make(chan watch.Event)
-	control := watch.NewPauseController()
+	control := watch.NewControls()
 	m := newModel([]watch.Target{}, events)
-	m.pauseControl = control
+	m.controls = control
 	m.width = 120
 	m.focus = focusFailedChecks
 	m.failedSearchQuery = "hop2"
 
 	m = updateKey(t, m, tea.Key{Code: 'w', Text: "w"})
-	if m.paused || control.Paused() {
-		t.Fatalf("w should not pause model or controller: model=%v controller=%v", m.paused, control.Paused())
+	if m.paused || control.Paused(watch.Scope{Kind: watch.ScopeRun}) {
+		t.Fatalf("w should not pause model or controller: model=%v", m.paused)
 	}
 	m = updateKey(t, m, tea.Key{Code: 'z', Mod: tea.ModCtrl})
-	if !m.paused || !control.Paused() {
-		t.Fatalf("ctrl-z should pause model and controller: model=%v controller=%v", m.paused, control.Paused())
+	if m.paused {
+		t.Fatal("rejected/inactive pause must not claim execution is paused")
 	}
+	m.apply(watch.Event{Kind: watch.EventControlApplied, Status: "paused", Scope: watch.Scope{Kind: watch.ScopeRun}})
+	m.State.Phase = "paused"
+	m.paused = true
 	status := stripANSI(m.statusBar(120))
 	if !strings.HasSuffix(strings.TrimRight(status, " "), "Paused filter=/hop2") {
 		t.Fatalf("paused/filter status should be right aligned at end:\n%q", status)
@@ -238,20 +241,20 @@ func TestPauseResumeAndRightAlignedStatusItems(t *testing.T) {
 	}
 
 	m = updateKey(t, m, tea.Key{Code: tea.KeyEscape})
-	if m.paused || control.Paused() {
-		t.Fatalf("esc should resume model and controller: model=%v controller=%v", m.paused, control.Paused())
+	if m.paused || control.Paused(watch.Scope{Kind: watch.ScopeRun}) {
+		t.Fatalf("esc should resume model and controller: model=%v", m.paused)
 	}
 }
 
 func TestCtrlNSkipsCurrentWatchOperation(t *testing.T) {
 	events := make(chan watch.Event)
-	control := watch.NewSkipController()
+	control := watch.NewControls()
 	m := newModel([]watch.Target{}, events)
-	m.skipControl = control
+	m.controls = control
 
 	m = updateKey(t, m, tea.Key{Code: 'n', Mod: tea.ModCtrl})
-	if got := control.Requests(); got != 1 {
-		t.Fatalf("ctrl-n skip requests = %d, want 1", got)
+	if len(m.Logs) == 0 {
+		t.Fatal("inactive scoped control must report its rejection")
 	}
 	help := stripANSI(m.helpBar(120))
 	if !strings.Contains(help, "Ctrl-N=Skip") {
@@ -342,7 +345,7 @@ func TestSlashFilterAppliesToFocusedCheckStatusAxes(t *testing.T) {
 	m := newModelWithChecks("shownet-watch", []watch.Target{
 		{Name: "alpha-5g", SSID: "Lab"},
 		{Name: "beta-6g", SSID: "Lab"},
-	}, []watch.Check{
+	}, []watch.CheckInfo{
 		{Name: "connect", Type: "connect"},
 		{Name: "download_cf_ipv4", Type: "download"},
 	}, events)

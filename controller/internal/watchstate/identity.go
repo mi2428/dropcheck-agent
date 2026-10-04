@@ -5,11 +5,14 @@ import (
 	"strings"
 	"time"
 
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 )
 
 // FailedCheckKey returns the stable identity for one finding.
 func FailedCheckKey(finding watch.Finding) string {
+	if finding.CheckID != "" {
+		return strings.Join([]string{finding.TargetID, finding.CheckID, finding.Metric, finding.Expected}, "\x00")
+	}
 	return strings.Join([]string{finding.Target, finding.Check, finding.Metric, finding.Expected, finding.Message}, "\x00")
 }
 
@@ -95,6 +98,9 @@ func RoundAgentKey(agent watch.AgentSnapshot) string {
 
 // TargetStateKey returns the map key for one configured or live target state.
 func TargetStateKey(agent watch.AgentSnapshot, target watch.TargetSnapshot) string {
+	if target.ID != "" {
+		return strings.Join([]string{AgentKey(agent), target.ID}, "\x00")
+	}
 	targetName := FirstNonEmpty(target.Name, target.SSID, target.BSSID)
 	return strings.Join([]string{AgentKey(agent), targetName, target.SSID, target.BSSID, target.Band}, "\x00")
 }
@@ -137,6 +143,9 @@ func DisplayCheckName(name string) string {
 // aggregation. It deliberately omits band so late events with partial target
 // snapshots still land on the configured target row.
 func CheckStatusTargetKey(target watch.TargetSnapshot) string {
+	if target.ID != "" {
+		return target.ID
+	}
 	return FirstNonEmpty(target.Name, target.SSID, target.BSSID)
 }
 
@@ -174,27 +183,11 @@ func PassingCheckEvent(event watch.Event) bool {
 
 // RequiredStepFailedCheck converts failed required connection steps into
 // findings.
-func RequiredStepFailedCheck(event watch.Event) (watch.Finding, bool) {
-	status := FirstNonEmpty(event.Step.Status, event.Status)
-	if status != "failed" {
-		return watch.Finding{}, false
-	}
-	stepType := FirstNonEmpty(event.Step.Type, event.Step.Name)
-	if stepType != "connect" && stepType != "wait_connected" {
-		return watch.Finding{}, false
-	}
-	return watch.Finding{
-		Target:   FirstNonEmpty(event.Target.Name, event.Target.SSID, event.Target.BSSID),
-		Check:    FirstNonEmpty(event.Step.Name, stepType),
-		Metric:   "status",
-		Observed: status,
-		Expected: "== ok",
-		Message:  FirstNonEmpty(event.Step.Message, event.Step.Error, event.Message, "step failed"),
-	}, true
-}
-
 // PassingCheckKey returns the full per-agent passing-check identity.
 func PassingCheckKey(agent watch.AgentSnapshot, target watch.TargetSnapshot, step watch.StepSnapshot) string {
+	if target.ID != "" && step.ID != "" {
+		return strings.Join([]string{AgentKey(agent), target.ID, step.ID}, "\x00")
+	}
 	targetName := FirstNonEmpty(target.Name, target.SSID, target.BSSID)
 	stepName := FirstNonEmpty(step.Name, step.Type)
 	if targetName == "" || stepName == "" {
@@ -263,6 +256,8 @@ func NormalizeStatus(status string) string {
 		return "running"
 	case "failed", "fail", "failure":
 		return "failed"
+	case "missing", "canceled":
+		return strings.ToLower(status)
 	case "skipped", "skip":
 		return "skipped"
 	default:

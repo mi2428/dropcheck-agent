@@ -366,6 +366,36 @@ Use WithRunner to inject scripted operations in ordinary device-free Go tests.
 
 Available check builders include Wi-Fi status, EHT diagnostics, scan and scan-detail, Wi-Fi capabilities, IP status, ping, DNS, HTTP, download, traceroute, path MTU, and global IP.
 
+Scenario execution is independent of `testing.T`: `h.Compile(plan, agents)` validates
+all operations, secrets, policies, and selectors before device dispatch.
+`compiled.Preview()` is credential-free; `compiled.Select(h.Selection{AgentIDs: ..., TargetIDs: ..., CheckIDs: ...})`
+preserves connection/wait/required prerequisites and rejects empty or expired agent selection.
+Preview check metadata includes the actual compiled network destination and per-attempt
+traffic (HTTP downloads have no Plan response-size cap); multiply by the displayed
+Attempts/Repeat and any Eventually/StableFor samples, rounds or Loop. YAML's existing
+default ping/DNS/HTTP/download destinations remain external when those checks are configured;
+the core does not insert any new probes. A BSSID-only Go target is rejected before
+connect because an SSID-less probe selector could measure Android's default Network.
+`h.Execute(ctx, compiled, operationRunner, h.ExecuteOptions{Rounds: 1})` returns
+a structured report; `Rounds: N` and explicit `Loop: true` use that same engine.
+`h.Run(t, ...)` is only the Go-test adapter, not a second runner.
+
+Use `h.WithPolicy(check, h.Policy{Attempts: 2, Repeat: 3, Eventually: 30*time.Second,
+StableFor: 5*time.Second, Interval: time.Second}, required)` for a common policy.
+Attempts includes the initial call, Repeat is independent, Eventually has a deadline,
+and StableFor permits retry recovery within each sample; it does not prove uninterrupted connectivity.
+Reports retain successful values, every attempt and recovery, missing/skip/cancel reasons,
+and separate primary, cleanup, and delivery errors. Owned target cleanup is bounded
+disconnect-then-forget, each at most once, including cancellation.
+
+YAML uses `watch.Parse`/`watch.LoadFile` to produce this same Plan, then `h.Compile`;
+there is no YAML-specific evaluator. Unknown fields/options and invalid plans fail
+before connect/probe. Typed/custom Go assertions, AP/MLO/IP selectors, raw result
+access and collection/CIDR matching remain Go capabilities rather than being reduced
+to named profiles. Arbitrary Go closures are not portable YAML/Android definitions.
+The operation-runner injection point is unchanged, but callers must consume the
+new structured reports instead of relying on nested Go subtest execution or LIFO cleanup.
+
 ```go
 //go:build harness
 

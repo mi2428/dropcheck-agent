@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/watchstate"
 )
 

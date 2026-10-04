@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 
 	"charm.land/lipgloss/v2"
 )

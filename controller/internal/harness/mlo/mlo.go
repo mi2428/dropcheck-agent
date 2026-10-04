@@ -90,11 +90,18 @@ type assertion struct {
 	fn   func(Result) error
 }
 
+func (a assertion) Validate() error {
+	if a.fn == nil || a.name == "" {
+		return fmt.Errorf("invalid MLO assertion")
+	}
+	return nil
+}
+
 func (a assertion) Evaluate(result harness.Result) []harness.Finding {
 	mlo, ok, reason := from(result)
 	metric := "mlo.assert." + a.name
 	if !ok {
-		return []harness.Finding{harness.Fail(metric, "<missing>", "custom assertion passed", reason)}
+		return []harness.Finding{harness.MissingFinding(metric, "<missing>", "custom assertion passed", reason)}
 	}
 	if err := a.fn(mlo); err != nil {
 		return []harness.Finding{harness.Fail(metric, "failed", "custom assertion passed", err.Error())}
@@ -111,7 +118,14 @@ func (ConnectedSelector) Present() harness.Expectation {
 		metric:   "mlo.connected.present",
 		expected: true,
 		observe: func(r Result) (bool, bool, string) {
-			return r.Connection.MLOPresent, r.Connection.Raw != nil, "wifi diagnostics do not contain connection"
+			if r.Connection.Raw == nil {
+				return false, false, "wifi diagnostics do not contain connection"
+			}
+			if r.Connection.MLOPresent {
+				return true, true, ""
+			}
+			known, reason := harness.Availability(r.Connection.Raw.ObservationFields, "ap_mld_mac_address")
+			return false, known, reason
 		},
 	}
 }
@@ -155,7 +169,11 @@ func (ConnectedSelector) APMLOLinkID() IntField {
 func (ConnectedSelector) AssociatedLinkCount() harness.OrderedMetric[int] {
 	return harness.Ordered[int]("mlo.connected.associated_link_count", func(result harness.Result) (int, bool, string) {
 		mlo, ok, reason := from(result)
-		return len(mlo.Connection.AssociatedLinks), ok, reason
+		if !ok || mlo.Connection.Raw == nil {
+			return 0, false, reason
+		}
+		known, reason := harness.Availability(mlo.Connection.Raw.ObservationFields, "associated_mlo_links")
+		return len(mlo.Connection.AssociatedLinks), known, reason
 	})
 }
 
@@ -163,7 +181,11 @@ func (ConnectedSelector) AssociatedLinkCount() harness.OrderedMetric[int] {
 func (ConnectedSelector) AffiliatedLinkCount() harness.OrderedMetric[int] {
 	return harness.Ordered[int]("mlo.connected.affiliated_link_count", func(result harness.Result) (int, bool, string) {
 		mlo, ok, reason := from(result)
-		return len(mlo.Connection.AffiliatedLinks), ok, reason
+		if !ok || mlo.Connection.Raw == nil {
+			return 0, false, reason
+		}
+		known, reason := harness.Availability(mlo.Connection.Raw.ObservationFields, "affiliated_mlo_links")
+		return len(mlo.Connection.AffiliatedLinks), known, reason
 	})
 }
 
@@ -241,7 +263,7 @@ type groupExists struct {
 func (e groupExists) Evaluate(result harness.Result) []harness.Finding {
 	mlo, ok, reason := from(result)
 	if !ok {
-		return []harness.Finding{harness.Fail("mlo.scan.group", "<missing>", "exists", reason)}
+		return []harness.Finding{harness.MissingFinding("mlo.scan.group", "<missing>", "exists", reason)}
 	}
 	matches := e.selector.matches(mlo.Groups)
 	if len(matches) > 0 {
@@ -280,6 +302,9 @@ func (CurrentRelationSelector) ConnectedMLDSeenInScan() harness.BoolMetric {
 		if !ok {
 			return false, false, reason
 		}
+		if mlo.Connection.Raw == nil || mlo.Raw.GetScan() == nil {
+			return false, false, "connection/scan relation unavailable"
+		}
 		return connectedMLDSeenInScan(mlo), true, ""
 	})
 }
@@ -289,6 +314,12 @@ func (CurrentRelationSelector) AssociatedLinksCoveredByScan() harness.BoolMetric
 	return harness.Bool("mlo.relation.associated_links_covered_by_scan", func(result harness.Result) (bool, bool, string) {
 		mlo, ok, reason := from(result)
 		if !ok {
+			return false, false, reason
+		}
+		if mlo.Connection.Raw == nil || mlo.Raw.GetScan() == nil {
+			return false, false, "connection/scan relation unavailable"
+		}
+		if known, reason := harness.Availability(mlo.Connection.Raw.ObservationFields, "associated_mlo_links"); !known {
 			return false, false, reason
 		}
 		return associatedLinksCoveredByScan(mlo), true, ""
@@ -304,6 +335,14 @@ func (MetadataSelector) Complete() harness.BoolMetric {
 		mlo, ok, reason := from(result)
 		if !ok {
 			return false, false, reason
+		}
+		if mlo.Raw.GetScan() == nil {
+			return false, false, "scan metadata unavailable"
+		}
+		for _, candidate := range mlo.ScanCandidates {
+			if known, reason := harness.Availability(candidate.Raw.ObservationFields, "ap_mlo_link_id"); !known {
+				return false, false, reason
+			}
 		}
 		return scanMetadataComplete(mlo.ScanCandidates), true, ""
 	})
@@ -334,11 +373,11 @@ type stringExpectation struct {
 func (e stringExpectation) Evaluate(result harness.Result) []harness.Finding {
 	mlo, ok, reason := from(result)
 	if !ok {
-		return []harness.Finding{harness.Fail(e.field.metric, "<missing>", e.op, reason)}
+		return []harness.Finding{harness.MissingFinding(e.field.metric, "<missing>", e.op, reason)}
 	}
 	value, ok, reason := e.field.observe(mlo)
 	if !ok {
-		return []harness.Finding{harness.Fail(e.field.metric, "<missing>", e.op, reason)}
+		return []harness.Finding{harness.MissingFinding(e.field.metric, "<missing>", e.op, reason)}
 	}
 	if e.pass(value) {
 		return []harness.Finding{harness.Pass(e.field.metric, value, e.op)}
@@ -371,11 +410,11 @@ type intExpectation struct {
 func (e intExpectation) Evaluate(result harness.Result) []harness.Finding {
 	mlo, ok, reason := from(result)
 	if !ok {
-		return []harness.Finding{harness.Fail(e.field.metric, "<missing>", e.op, reason)}
+		return []harness.Finding{harness.MissingFinding(e.field.metric, "<missing>", e.op, reason)}
 	}
 	value, ok, reason := e.field.observe(mlo)
 	if !ok {
-		return []harness.Finding{harness.Fail(e.field.metric, "<missing>", e.op, reason)}
+		return []harness.Finding{harness.MissingFinding(e.field.metric, "<missing>", e.op, reason)}
 	}
 	if e.pass(value) {
 		return []harness.Finding{harness.Pass(e.field.metric, fmt.Sprint(value), e.op)}
@@ -392,11 +431,11 @@ type boolExpectation struct {
 func (e boolExpectation) Evaluate(result harness.Result) []harness.Finding {
 	mlo, ok, reason := from(result)
 	if !ok {
-		return []harness.Finding{harness.Fail(e.metric, "<missing>", fmt.Sprintf("== %t", e.expected), reason)}
+		return []harness.Finding{harness.MissingFinding(e.metric, "<missing>", fmt.Sprintf("== %t", e.expected), reason)}
 	}
 	value, ok, reason := e.observe(mlo)
 	if !ok {
-		return []harness.Finding{harness.Fail(e.metric, "<missing>", fmt.Sprintf("== %t", e.expected), reason)}
+		return []harness.Finding{harness.MissingFinding(e.metric, "<missing>", fmt.Sprintf("== %t", e.expected), reason)}
 	}
 	if value == e.expected {
 		return []harness.Finding{harness.Pass(e.metric, fmt.Sprintf("%t", value), fmt.Sprintf("== %t", e.expected))}
@@ -441,8 +480,7 @@ func normalizeConnection(conn *controlpb.WifiConnection) Connection {
 	}
 	out.MLOPresent = out.APMLDMacAddress != "" ||
 		len(out.AssociatedLinks) > 0 ||
-		len(out.AffiliatedLinks) > 0 ||
-		(out.Standard == "be" && out.APMLOLinkID >= 0)
+		len(out.AffiliatedLinks) > 0
 	return out
 }
 

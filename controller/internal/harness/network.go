@@ -1,7 +1,7 @@
 package harness
 
 import (
-	"testing"
+	"fmt"
 	"time"
 
 	"dropcheck/controller/internal/command"
@@ -24,6 +24,11 @@ type Network struct {
 	disconnectAfter  bool
 	forgetAfter      bool
 	checks           []Check
+	agent            string
+	shortName        string
+	rotation         string
+	connectPolicy    Policy
+	waitPolicy       Policy
 }
 
 // WiFi starts a network builder.
@@ -134,14 +139,17 @@ func (n Network) displayName() string {
 	}
 }
 
-func (n Network) connectOperation(t *testing.T) command.Operation {
-	t.Helper()
+func (n Network) connectOperation() (command.Operation, error) {
 	if n.ssid == "" && n.bssid == "" {
-		t.Fatalf("%s must set SSID or BSSID", n.displayName())
+		return command.Operation{}, fmt.Errorf("target must set SSID or BSSID")
 	}
-	passphrase, err := n.psk.resolve()
-	if err != nil {
-		t.Fatalf("%s psk: %v", n.displayName(), err)
+	passphrase := n.psk.value
+	if n.psk.env != "" {
+		var err error
+		passphrase, err = n.psk.resolve()
+		if err != nil {
+			return command.Operation{}, err
+		}
 	}
 	op, err := command.WifiConnectOperation(command.WifiConnectOptions{
 		SSID:             n.ssid,
@@ -152,14 +160,10 @@ func (n Network) connectOperation(t *testing.T) command.Operation {
 		MacRandomization: n.macRandomization,
 		Timeout:          durationMS(n.connectTimeout),
 	})
-	if err != nil {
-		t.Fatalf("%s connect operation: %v", n.displayName(), err)
-	}
-	return op
+	return op, err
 }
 
-func (n Network) waitOperation(t *testing.T) command.Operation {
-	t.Helper()
+func (n Network) waitOperation() (command.Operation, error) {
 	op, err := command.WifiWaitConnectedOperation(n.ssid, command.WifiExpectationOptions{
 		BSSID:            n.bssid,
 		Security:         n.security,
@@ -168,8 +172,11 @@ func (n Network) waitOperation(t *testing.T) command.Operation {
 		RequireValidated: n.requireValidated,
 		Timeout:          durationMS(n.waitTimeout),
 	})
-	if err != nil {
-		t.Fatalf("%s wait operation: %v", n.displayName(), err)
-	}
-	return op
+	return op, err
 }
+
+func (n Network) Agent(selector string) Network   { n.agent = selector; return n }
+func (n Network) ShortName(name string) Network   { n.shortName = name; return n }
+func (n Network) ConnectPolicy(p Policy) Network  { n.connectPolicy = p; return n }
+func (n Network) WaitPolicy(p Policy) Network     { n.waitPolicy = p; return n }
+func (n Network) MACRotation(mode string) Network { n.rotation = mode; return n }

@@ -347,6 +347,7 @@ message WifiStatus {
   WifiConnection connection = 5;
   IpStatus ip_status = 6;
   repeated string permissions = 7;
+  repeated DiagnosticField observation_fields = 8;
 }
 
 message WifiConnection {
@@ -391,6 +392,8 @@ message WifiConnection {
   WifiHeSpatialReuseParameterSet he_spatial_reuse_parameter_set = 39;
   WifiHe6GhzCapabilities he_6ghz_capabilities = 40;
   WifiSecurityDetails security_details = 41;
+  // Narrow collector availability/provenance, never inferred from scalar zero.
+  repeated DiagnosticField observation_fields = 42;
 }
 
 message IpStatus {
@@ -422,6 +425,7 @@ message IpStatus {
   bool wake_on_lan_supported = 26;
   string raw_link_properties = 27;
   repeated DiagnosticField ipv6_ra = 28;
+  repeated DiagnosticField observation_fields = 29;
 }
 
 message WifiDiagnostics {
@@ -492,6 +496,9 @@ message WifiScanResult {
   WifiHeSpatialReuseParameterSet he_spatial_reuse_parameter_set = 33;
   WifiHe6GhzCapabilities he_6ghz_capabilities = 34;
   WifiSecurityDetails security_details = 35;
+  // Collector boot-clock age. Absent means unknown; zero is a known fresh age.
+  optional uint64 observation_age_ms = 36;
+  repeated DiagnosticField observation_fields = 37;
 }
 
 message MloLinkInfo {
@@ -507,6 +514,7 @@ message MloLinkInfo {
   string raw = 10;
   int32 max_supported_tx_link_speed_mbps = 11;
   int32 max_supported_rx_link_speed_mbps = 12;
+  repeated DiagnosticField observation_fields = 13;
 }
 
 message WifiInformationElement {
@@ -866,6 +874,8 @@ message WifiOperationResult {
   repeated DiagnosticField fields = 4;
   WifiStatus status = 5;
   repeated string errors = 6;
+  // Set only after a successful configuration lookup proves absence.
+  bool already_absent = 7;
 }
 
 message WifiAssertResult {
@@ -942,6 +952,17 @@ message TracerouteResult {
   string output = 7;
   string error = 8;
   string executable = 9;
+  repeated TracerouteHop hops = 10;
+  optional bool reached_target = 11;
+  string observation_error = 12;
+}
+
+message TracerouteHop {
+  uint32 index = 1;
+  repeated string addresses = 2;
+  repeated string hostnames = 3;
+  repeated double rtt_ms = 4;
+  bool timed_out = 5;
 }
 
 message PathMtuProbe {

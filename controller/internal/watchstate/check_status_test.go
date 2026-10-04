@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 )
 
 func TestCheckStatusTargetCellKeepsHistoricalResultUntilCurrentStepArrives(t *testing.T) {
@@ -140,7 +140,7 @@ func TestNewPreservesConfiguredTargetOrderAcrossAssignedAgents(t *testing.T) {
 		{Name: "n1(6G)", Agent: "45240DLAQ007HG", SSID: "Lab"},
 		{Name: "n2(5G)", Agent: "35251JEHN00258", SSID: "Lab"},
 		{Name: "n2(6G)", Agent: "45240DLAQ007HG", SSID: "Lab"},
-	}, []watch.Check{}, agents, time.Now())
+	}, []watch.CheckInfo{}, agents, time.Now())
 
 	var got []string
 	for _, target := range state.CheckStatusTargets() {

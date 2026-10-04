@@ -1,4 +1,4 @@
-package watch
+package harness
 
 import (
 	"context"
@@ -27,22 +27,33 @@ const (
 	// EventFinding reports one failed expectation or observation.
 	EventFinding EventKind = "finding"
 	// EventLog reports a runner log line or informational status message.
-	EventLog EventKind = "log"
+	EventLog              EventKind = "log"
+	EventAttemptFinished  EventKind = "attempt_finished"
+	EventControlRequested EventKind = "control_requested"
+	EventControlApplied   EventKind = "control_applied"
+	EventRunEnding        EventKind = "run_ending"
+	EventRunFinished      EventKind = "run_finished"
 )
 
 // Event is one structured state transition, finding, or log item emitted by a watch run.
 type Event struct {
-	Time     time.Time      `json:"time"`
-	Kind     EventKind      `json:"kind"`
-	Plan     string         `json:"plan,omitempty"`
-	Agent    AgentSnapshot  `json:"agent"`
-	Round    uint64         `json:"round,omitempty"`
-	Target   TargetSnapshot `json:"target"`
-	Step     StepSnapshot   `json:"step"`
-	Finding  *Finding       `json:"finding,omitempty"`
-	Status   string         `json:"status,omitempty"`
-	Message  string         `json:"message,omitempty"`
-	Duration int64          `json:"duration_ms,omitempty"`
+	Seq      uint64          `json:"seq"`
+	RunID    string          `json:"run_id"`
+	Scope    Scope           `json:"scope"`
+	Attempt  *Attempt        `json:"attempt,omitempty"`
+	Report   *StepReport     `json:"report,omitempty"`
+	Agents   []AgentProgress `json:"agents,omitempty"`
+	Time     time.Time       `json:"time"`
+	Kind     EventKind       `json:"kind"`
+	Plan     string          `json:"plan,omitempty"`
+	Agent    AgentSnapshot   `json:"agent"`
+	Round    uint64          `json:"round,omitempty"`
+	Target   TargetSnapshot  `json:"target"`
+	Step     StepSnapshot    `json:"step"`
+	Finding  *Finding        `json:"finding,omitempty"`
+	Status   string          `json:"status,omitempty"`
+	Message  string          `json:"message,omitempty"`
+	Duration int64           `json:"duration_ms,omitempty"`
 }
 
 // AgentSnapshot captures the stable agent identity and display metadata stored with events.
@@ -84,6 +95,7 @@ func (snapshot AgentSnapshot) DisplayName() string {
 
 // TargetSnapshot captures the stable target identity stored with events.
 type TargetSnapshot struct {
+	ID        string `json:"id,omitempty"`
 	Name      string `json:"name,omitempty"`
 	ShortName string `json:"short_name,omitempty"`
 	Agent     string `json:"agent,omitempty"`
@@ -94,13 +106,16 @@ type TargetSnapshot struct {
 
 // StepSnapshot captures one watch step state stored with events.
 type StepSnapshot struct {
-	Name      string `json:"name,omitempty"`
-	Type      string `json:"type,omitempty"`
-	Operation string `json:"operation,omitempty"`
-	Status    string `json:"status,omitempty"`
-	Message   string `json:"message,omitempty"`
-	Error     string `json:"error,omitempty"`
-	Skipped   bool   `json:"skipped,omitempty"`
+	ID         string     `json:"id,omitempty"`
+	Outcome    Outcome    `json:"outcome,omitempty"`
+	SkipReason SkipReason `json:"skip_reason,omitempty"`
+	Name       string     `json:"name,omitempty"`
+	Type       string     `json:"type,omitempty"`
+	Operation  string     `json:"operation,omitempty"`
+	Status     string     `json:"status,omitempty"`
+	Message    string     `json:"message,omitempty"`
+	Error      string     `json:"error,omitempty"`
+	Skipped    bool       `json:"skipped,omitempty"`
 }
 
 // Emitter receives watch events without returning delivery errors.
@@ -113,6 +128,7 @@ type Sink interface {
 
 func snapshotTarget(target Target) TargetSnapshot {
 	return TargetSnapshot{
+		ID:        target.ID,
 		Name:      target.DisplayName(),
 		ShortName: target.ShortName,
 		Agent:     target.Agent,

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 )
 
 // Apply folds one watch event into target state, histories, and event-log
@@ -25,16 +25,26 @@ func (s *State) Apply(event watch.Event) {
 		s.RoundStatus = "running"
 		s.Phase = fmt.Sprintf("round %d", event.Round)
 		for i := range s.Targets {
-			if s.MultiAgent && !SameAgent(s.Targets[i].Agent, event.Agent) {
+			if s.MultiAgent && AgentKey(event.Agent) != "" && !SameAgent(s.Targets[i].Agent, event.Agent) {
 				continue
 			}
 			s.Targets[i].Status = "pending"
 			s.Targets[i].CurrentStep = ""
+			s.Targets[i].CurrentStepID = ""
 			s.Targets[i].Steps = nil
 		}
 	case watch.EventRoundFinished:
-		s.RoundStatus = event.Status
-		s.Phase = "idle"
+		if len(event.Agents) > 0 {
+			s.AgentProgress = append([]watch.AgentProgress(nil), event.Agents...)
+			s.RoundStatus = event.Status
+			s.Phase = "idle"
+		} else if !s.MultiAgent {
+			s.RoundStatus = event.Status
+			s.Phase = "idle"
+		} else {
+			s.setAgentProgress(event.Agent, event.Round, "completed", event.Status)
+			s.aggregateAgents()
+		}
 	case watch.EventTargetStarted:
 		target := s.EnsureTarget(event.Agent, event.Target)
 		target.Status = FirstNonEmpty(event.Status, "running")
@@ -66,6 +76,8 @@ func (s *State) Apply(event watch.Event) {
 	case watch.EventStepStarted:
 		target := s.EnsureTarget(event.Agent, event.Target)
 		target.CurrentStep = event.Step.Name
+		target.CurrentStepID = event.Step.ID
+		target.Status = "running"
 		s.Phase = s.EventTargetLabel(event) + "/" + event.Step.Name
 		upsertStep(target, event.Step)
 		s.EventLogTarget = s.EventTargetLabel(event)
@@ -73,12 +85,14 @@ func (s *State) Apply(event watch.Event) {
 		s.EventLogLast = event.Step.Name + " running"
 	case watch.EventStepFinished:
 		target := s.EnsureTarget(event.Agent, event.Target)
-		if event.Step.Status != "running" && target.CurrentStep == event.Step.Name {
+		if event.Step.Status != "running" && (event.Step.ID != "" && target.CurrentStepID == event.Step.ID || event.Step.ID == "" && target.CurrentStep == event.Step.Name) {
 			target.CurrentStep = ""
+			target.CurrentStepID = ""
 		}
 		upsertStep(target, event.Step)
 		if PassingCheckEvent(event) {
 			s.RecordPassingCheck(PassingCheck{
+				Report:   event.Report,
 				Round:    event.Round,
 				When:     EventTime(event),
 				Agent:    event.Agent,
@@ -87,8 +101,9 @@ func (s *State) Apply(event watch.Event) {
 				Duration: event.Duration,
 			})
 		}
-		if finding, ok := RequiredStepFailedCheck(event); ok {
-			s.AddFailedCheck(event.Agent, event.Target, event.Round, EventTime(event), finding)
+		if event.Step.Status == "failed" || event.Step.Status == "missing" || event.Step.Status == "canceled" {
+			target.Status = event.Step.Status
+			s.RemovePassingCheckForFailedCheck(event)
 		}
 		s.EventLogTarget = s.EventTargetLabel(event)
 		s.EventLogStep = event.Step.Name
@@ -106,6 +121,15 @@ func (s *State) Apply(event watch.Event) {
 			s.EventLogLast = FirstNonEmpty(event.Finding.Check, event.Step.Name) + " " + FirstNonEmpty(event.Finding.Message, event.Finding.Metric+"="+event.Finding.Observed)
 		}
 	case watch.EventLog:
+	case watch.EventControlRequested:
+		if event.Status == "pause" {
+			s.Phase = "pausing"
+		}
+	case watch.EventControlApplied:
+		s.setAgentProgress(event.Agent, event.Round, event.Status, event.Status)
+		s.aggregateAgents()
+	case watch.EventRunFinished:
+		s.Phase = event.Status
 	}
 }
 
@@ -139,6 +163,9 @@ func (s *State) EnsureTarget(agent watch.AgentSnapshot, snapshot watch.TargetSna
 
 // MergeTargetSnapshot fills non-empty fields from update into base.
 func MergeTargetSnapshot(base watch.TargetSnapshot, update watch.TargetSnapshot) watch.TargetSnapshot {
+	if update.ID != "" {
+		base.ID = update.ID
+	}
 	if update.Name != "" {
 		base.Name = update.Name
 	}
@@ -179,12 +206,56 @@ func upsertStep(target *TargetState, snapshot watch.StepSnapshot) {
 		name = snapshot.Type
 	}
 	for i := range target.Steps {
-		if target.Steps[i].Name == name {
-			target.Steps[i] = StepState{Name: name, Type: snapshot.Type, Status: snapshot.Status, Message: FirstNonEmpty(snapshot.Message, snapshot.Error)}
+		if snapshot.ID != "" && target.Steps[i].ID == snapshot.ID || snapshot.ID == "" && target.Steps[i].Name == name {
+			target.Steps[i] = StepState{ID: snapshot.ID, Name: name, Type: snapshot.Type, Status: snapshot.Status, Message: FirstNonEmpty(snapshot.Message, snapshot.Error)}
 			return
 		}
 	}
-	target.Steps = append(target.Steps, StepState{Name: name, Type: snapshot.Type, Status: snapshot.Status, Message: FirstNonEmpty(snapshot.Message, snapshot.Error)})
+	target.Steps = append(target.Steps, StepState{ID: snapshot.ID, Name: name, Type: snapshot.Type, Status: snapshot.Status, Message: FirstNonEmpty(snapshot.Message, snapshot.Error)})
+}
+
+func (s *State) setAgentProgress(agent watch.AgentSnapshot, round uint64, state, status string) {
+	for i := range s.AgentProgress {
+		if SameAgent(s.AgentProgress[i].Agent, agent) {
+			s.AgentProgress[i].Round, s.AgentProgress[i].State, s.AgentProgress[i].Phase = round, state, status
+			return
+		}
+	}
+	s.AgentProgress = append(s.AgentProgress, watch.AgentProgress{Agent: agent, Round: round, State: state, Phase: status})
+}
+
+func (s *State) aggregateAgents() {
+	completed, paused := 0, 0
+	failed := false
+	for _, agent := range s.Agents {
+		for _, progress := range s.AgentProgress {
+			if !SameAgent(agent, progress.Agent) || progress.Round != s.Round {
+				continue
+			}
+			if progress.State == "completed" {
+				completed++
+				if progress.Phase == "failed" || progress.Phase == "missing" {
+					failed = true
+				}
+			}
+			if progress.State == "paused" {
+				paused++
+			}
+		}
+	}
+	switch {
+	case completed == len(s.Agents):
+		s.Phase = "idle"
+		s.RoundStatus = "ok"
+		if failed {
+			s.RoundStatus = "failed"
+		}
+	case paused+completed == len(s.Agents):
+		s.Phase = "paused"
+	default:
+		s.Phase = "multi-agent running"
+		s.RoundStatus = "running"
+	}
 }
 
 // RecordPassingCheck appends one successful check and enforces the bounded

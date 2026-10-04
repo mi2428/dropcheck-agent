@@ -1,23 +1,26 @@
 package watchstate
 
 import (
+	"slices"
 	"time"
 
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 )
 
 // TargetState is the latest watch state for one agent/target pair.
 type TargetState struct {
-	Agent        watch.AgentSnapshot
-	Target       watch.TargetSnapshot
-	Status       string
-	CurrentStep  string
-	Steps        []StepState
-	PlannedSteps []StepState
+	Agent         watch.AgentSnapshot
+	Target        watch.TargetSnapshot
+	Status        string
+	CurrentStep   string
+	CurrentStepID string
+	Steps         []StepState
+	PlannedSteps  []StepState
 }
 
 // StepState is the compact per-step state kept for run queue rendering.
 type StepState struct {
+	ID      string
 	Name    string
 	Type    string
 	Status  string
@@ -25,11 +28,14 @@ type StepState struct {
 }
 
 // PlannedStepsForTarget expands configured checks into the run queue shape shown before live events arrive.
-func PlannedStepsForTarget(target watch.Target, checks []watch.Check) []StepState {
+func PlannedStepsForTarget(target watch.Target, checks []watch.CheckInfo) []StepState {
 	if checks == nil {
 		return nil
 	}
 	steps := PlannedStepsForChecks(checks)
+	if target.Checks != nil {
+		steps = PlannedStepsForChecks(target.Checks)
+	}
 	if target.DisconnectAfter == nil || *target.DisconnectAfter {
 		steps = append(steps, StepState{Name: "disconnect", Type: "cleanup"})
 	}
@@ -40,13 +46,13 @@ func PlannedStepsForTarget(target watch.Target, checks []watch.Check) []StepStat
 }
 
 // PlannedStepsForChecks returns the stable required-step prefix followed by configured checks.
-func PlannedStepsForChecks(checks []watch.Check) []StepState {
+func PlannedStepsForChecks(checks []watch.CheckInfo) []StepState {
 	if checks == nil {
 		return nil
 	}
-	steps := []StepState{{Name: "connect", Type: "connect"}, {Name: "wait_connected", Type: "wait_connected"}}
+	steps := []StepState{{ID: "connect", Name: "connect", Type: "connect"}, {ID: "wait_connected", Name: "wait_connected", Type: "wait_connected"}}
 	for _, check := range checks {
-		steps = append(steps, StepState{Name: check.DisplayName(), Type: check.Type})
+		steps = append(steps, StepState{ID: check.ID, Name: check.DisplayName(), Type: check.Type})
 	}
 	return steps
 }
@@ -73,6 +79,7 @@ type FailedCheckSummary struct {
 
 // PassingCheck records one successful check or target completion.
 type PassingCheck struct {
+	Report   *watch.StepReport
 	Round    uint64
 	When     time.Time
 	Agent    watch.AgentSnapshot
@@ -204,6 +211,7 @@ const (
 
 // State tracks watch progress and derived histories without depending on terminal UI packages.
 type State struct {
+	AgentProgress   []watch.AgentProgress
 	Now             time.Time
 	Round           uint64
 	RoundStatus     string
@@ -211,7 +219,7 @@ type State struct {
 	Targets         []TargetState
 	TargetIndex     map[string]int
 	Agents          []watch.AgentSnapshot
-	Checks          []watch.Check
+	Checks          []watch.CheckInfo
 	MultiAgent      bool
 	FailedChecks    []FailedCheck
 	PassingChecks   []PassingCheck
@@ -224,11 +232,11 @@ type State struct {
 }
 
 // New constructs the initial state for one watch plan and the selected agents.
-func New(targets []watch.Target, checks []watch.Check, agents []watch.AgentSnapshot, now time.Time) State {
+func New(targets []watch.Target, checks []watch.CheckInfo, agents []watch.AgentSnapshot, now time.Time) State {
 	states := make([]TargetState, 0, Max(1, len(agents))*len(targets))
 	index := make(map[string]int, Max(1, len(agents))*len(targets))
 	addTarget := func(agent watch.AgentSnapshot, target watch.Target) {
-		snapshot := watch.TargetSnapshot{Name: target.DisplayName(), ShortName: target.ShortName, Agent: target.Agent, SSID: target.SSID, BSSID: target.BSSID, Band: target.Band}
+		snapshot := watch.TargetSnapshot{ID: target.ID, Name: target.DisplayName(), ShortName: target.ShortName, Agent: target.Agent, SSID: target.SSID, BSSID: target.BSSID, Band: target.Band}
 		key := TargetStateKey(agent, snapshot)
 		index[key] = len(states)
 		states = append(states, TargetState{Agent: agent, Target: snapshot, Status: "pending", PlannedSteps: PlannedStepsForTarget(target, checks)})
@@ -240,6 +248,9 @@ func New(targets []watch.Target, checks []watch.Check, agents []watch.AgentSnaps
 	} else {
 		for _, target := range targets {
 			for _, agent := range agents {
+				if len(target.BoundAgentIDs) > 0 && !slices.Contains(target.BoundAgentIDs, AgentKey(agent)) {
+					continue
+				}
 				if target.Agent != "" && !watch.AgentSnapshotMatches(agent, target.Agent) {
 					continue
 				}
@@ -247,5 +258,5 @@ func New(targets []watch.Target, checks []watch.Check, agents []watch.AgentSnaps
 			}
 		}
 	}
-	return State{Targets: states, TargetIndex: index, Agents: append([]watch.AgentSnapshot(nil), agents...), Checks: append([]watch.Check(nil), checks...), MultiAgent: len(agents) > 1, Now: now, RoundStatus: "starting", Phase: "starting"}
+	return State{Targets: states, TargetIndex: index, Agents: append([]watch.AgentSnapshot(nil), agents...), Checks: append([]watch.CheckInfo(nil), checks...), MultiAgent: len(agents) > 1, Now: now, RoundStatus: "starting", Phase: "starting"}
 }

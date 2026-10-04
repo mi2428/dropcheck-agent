@@ -8,7 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"dropcheck/controller/internal/watch"
+	watch "dropcheck/controller/internal/harness"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"

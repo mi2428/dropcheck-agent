@@ -1,4 +1,4 @@
-package watch
+package harness
 
 import (
 	"testing"

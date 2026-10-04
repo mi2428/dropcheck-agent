@@ -6,6 +6,7 @@ import android.net.wifi.ScanResult
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.SystemClock
 import io.dropcheck.agent.grpc.MloLinkInfo
 import io.dropcheck.agent.grpc.WifiConnection
 import io.dropcheck.agent.grpc.WifiInformationElement
@@ -65,6 +66,13 @@ class WifiProtoMapper(
             .setApMloLinkId(-1)
             .setRaw(info.toString())
 
+        val identityAvailable = info.ssid != null && info.ssid != WifiManager.UNKNOWN_SSID &&
+            !info.bssid.isNullOrBlank() && info.bssid != "02:00:00:00:00:00"
+        builder.addAllObservationFields(observationAvailability("identity", identityAvailable, "identity redacted or unavailable"))
+        builder.addAllObservationFields(observationAvailability("rssi", info.rssi != -127, "framework RSSI unavailable"))
+        builder.addAllObservationFields(observationAvailability("tx_link_speed_mbps", info.txLinkSpeedMbps >= 0, "framework link rate unavailable"))
+        builder.addAllObservationFields(observationAvailability("rx_link_speed_mbps", info.rxLinkSpeedMbps >= 0, "framework link rate unavailable"))
+
         if (Build.VERSION.SDK_INT >= 33) {
             builder.restricted = info.isRestricted
         }
@@ -73,22 +81,26 @@ class WifiProtoMapper(
         }
         if (Build.VERSION.SDK_INT >= 33) {
             runCatching { info.apMldMacAddress?.toString().orEmpty() }
-                .onSuccess { builder.apMldMacAddress = it }
-                .onFailure { warnMloUnavailable("api_call_failed", "scope" to "connection", "field" to "ap_mld_mac_address", "error" to errorSummary(it)) }
+                .onSuccess { builder.apMldMacAddress = it; builder.addAllObservationFields(observationAvailability("ap_mld_mac_address", identityAvailable, "identity redacted")) }
+                .onFailure { builder.addAllObservationFields(observationAvailability("ap_mld_mac_address", false, errorSummary(it))); warnMloUnavailable("api_call_failed", "scope" to "connection", "field" to "ap_mld_mac_address", "error" to errorSummary(it)) }
             runCatching { info.apMloLinkId }
-                .onSuccess { builder.apMloLinkId = it }
-                .onFailure { warnMloUnavailable("api_call_failed", "scope" to "connection", "field" to "ap_mlo_link_id", "error" to errorSummary(it)) }
+                .onSuccess { builder.apMloLinkId = it; builder.addAllObservationFields(observationAvailability("ap_mlo_link_id", identityAvailable, "identity redacted")) }
+                .onFailure { builder.addAllObservationFields(observationAvailability("ap_mlo_link_id", false, errorSummary(it))); warnMloUnavailable("api_call_failed", "scope" to "connection", "field" to "ap_mlo_link_id", "error" to errorSummary(it)) }
             runCatching { info.affiliatedMloLinks.map { mloLinkInfo(it) } }
-                .onSuccess { builder.addAllAffiliatedMloLinks(it) }
-                .onFailure { warnMloUnavailable("api_call_failed", "scope" to "connection", "field" to "affiliated_mlo_links", "error" to errorSummary(it)) }
+                .onSuccess { builder.addAllAffiliatedMloLinks(it); builder.addAllObservationFields(observationAvailability("affiliated_mlo_links", identityAvailable, "identity redacted")) }
+                .onFailure { builder.addAllObservationFields(observationAvailability("affiliated_mlo_links", false, errorSummary(it))); warnMloUnavailable("api_call_failed", "scope" to "connection", "field" to "affiliated_mlo_links", "error" to errorSummary(it)) }
         } else {
+            listOf("ap_mld_mac_address", "ap_mlo_link_id", "affiliated_mlo_links").forEach {
+                builder.addAllObservationFields(observationAvailability(it, false, "requires API 33"))
+            }
             warnMloUnavailable("android_api_unavailable", "scope" to "connection", "required_sdk" to 33)
         }
         if (Build.VERSION.SDK_INT >= 34) {
             runCatching { info.associatedMloLinks.map { mloLinkInfo(it) } }
-                .onSuccess { builder.addAllAssociatedMloLinks(it) }
-                .onFailure { warnMloUnavailable("api_call_failed", "scope" to "connection", "field" to "associated_mlo_links", "error" to errorSummary(it)) }
+                .onSuccess { builder.addAllAssociatedMloLinks(it); builder.addAllObservationFields(observationAvailability("associated_mlo_links", identityAvailable, "identity redacted")) }
+                .onFailure { builder.addAllObservationFields(observationAvailability("associated_mlo_links", false, errorSummary(it))); warnMloUnavailable("api_call_failed", "scope" to "connection", "field" to "associated_mlo_links", "error" to errorSummary(it)) }
         } else {
+            builder.addAllObservationFields(observationAvailability("associated_mlo_links", false, "requires API 34"))
             warnMloUnavailable("android_api_unavailable", "scope" to "connection", "field" to "associated_mlo_links", "required_sdk" to 34)
         }
         val informationElements = info.informationElements.orEmpty().map { informationElement(it) }
@@ -147,19 +159,26 @@ class WifiProtoMapper(
             .setApMloLinkId(-1)
             .setRaw(result.toString())
 
+        observationAgeMs(result.timestamp, SystemClock.elapsedRealtimeNanos() / 1000)?.let {
+            builder.observationAgeMs = it
+        }
+
         if (Build.VERSION.SDK_INT >= 33) {
             builder.wifiSsid = result.wifiSsid?.toString().orEmpty()
             builder.addAllSecurityTypes(result.securityTypes.map { securityTypeName(it) })
             runCatching { result.apMldMacAddress?.toString().orEmpty() }
-                .onSuccess { builder.apMldMacAddress = it }
-                .onFailure { warnMloUnavailable("api_call_failed", "scope" to "scan", "field" to "ap_mld_mac_address", "error" to errorSummary(it)) }
+                .onSuccess { builder.apMldMacAddress = it; builder.addAllObservationFields(observationAvailability("ap_mld_mac_address", true)) }
+                .onFailure { builder.addAllObservationFields(observationAvailability("ap_mld_mac_address", false, errorSummary(it))); warnMloUnavailable("api_call_failed", "scope" to "scan", "field" to "ap_mld_mac_address", "error" to errorSummary(it)) }
             runCatching { result.apMloLinkId }
-                .onSuccess { builder.apMloLinkId = it }
-                .onFailure { warnMloUnavailable("api_call_failed", "scope" to "scan", "field" to "ap_mlo_link_id", "error" to errorSummary(it)) }
+                .onSuccess { builder.apMloLinkId = it; builder.addAllObservationFields(observationAvailability("ap_mlo_link_id", true)) }
+                .onFailure { builder.addAllObservationFields(observationAvailability("ap_mlo_link_id", false, errorSummary(it))); warnMloUnavailable("api_call_failed", "scope" to "scan", "field" to "ap_mlo_link_id", "error" to errorSummary(it)) }
             runCatching { result.affiliatedMloLinks.map { mloLinkInfo(it) } }
-                .onSuccess { builder.addAllAffiliatedMloLinks(it) }
-                .onFailure { warnMloUnavailable("api_call_failed", "scope" to "scan", "field" to "affiliated_mlo_links", "error" to errorSummary(it)) }
+                .onSuccess { builder.addAllAffiliatedMloLinks(it); builder.addAllObservationFields(observationAvailability("affiliated_mlo_links", true)) }
+                .onFailure { builder.addAllObservationFields(observationAvailability("affiliated_mlo_links", false, errorSummary(it))); warnMloUnavailable("api_call_failed", "scope" to "scan", "field" to "affiliated_mlo_links", "error" to errorSummary(it)) }
         } else {
+            listOf("ap_mld_mac_address", "ap_mlo_link_id", "affiliated_mlo_links").forEach {
+                builder.addAllObservationFields(observationAvailability(it, false, "requires API 33"))
+            }
             warnMloUnavailable("android_api_unavailable", "scope" to "scan", "required_sdk" to 33)
         }
         if (Build.VERSION.SDK_INT >= 35) {
@@ -193,12 +212,17 @@ class WifiProtoMapper(
                 .setChannel(link.channel)
                 .setApMacAddress(link.apMacAddress?.toString().orEmpty())
                 .setStaMacAddress(link.staMacAddress?.toString().orEmpty())
+                .addAllObservationFields(observationAvailability("identity", true))
         }
         if (Build.VERSION.SDK_INT >= 34) {
             builder
                 .setRssiDbm(link.rssi)
                 .setTxLinkSpeedMbps(link.txLinkSpeedMbps)
                 .setRxLinkSpeedMbps(link.rxLinkSpeedMbps)
+                .addAllObservationFields(observationAvailability("rates", link.txLinkSpeedMbps >= 0 && link.rxLinkSpeedMbps >= 0 && link.rssi != -127,
+                    "framework link measurements unavailable"))
+        } else {
+            builder.addAllObservationFields(observationAvailability("rates", false, "requires API 34"))
         }
         builder
             .setMaxSupportedTxLinkSpeedMbps(intGetterOrDefault(link, "getMaxSupportedTxLinkSpeedMbps", 0))
