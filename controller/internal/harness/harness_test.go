@@ -2,9 +2,12 @@ package harness_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,7 +26,6 @@ import (
 	"dropcheck/controller/internal/harness/trace"
 	"dropcheck/controller/internal/harness/wifi"
 	"dropcheck/controller/internal/runner"
-	"google.golang.org/protobuf/proto"
 )
 
 func TestRunExecutesNetworkAndChecksWithInjectedRunner(t *testing.T) {
@@ -186,6 +188,7 @@ func TestRunBuildsSupportedCheckOperations(t *testing.T) {
 
 func TestRunRetriesAndRepeatsChecks(t *testing.T) {
 	fake := &retryRunner{}
+	var observed []uint32
 	harness.Run(t, harness.Plan{
 		Networks: []harness.Network{
 			harness.WiFi("lab").
@@ -199,7 +202,10 @@ func TestRunRetriesAndRepeatsChecks(t *testing.T) {
 				Count(5).
 				Retry(2, 0).
 				Repeat(2).
-				Expect(ping.Received().Eq(5)),
+				Expect(ping.Received().Ge(4), ping.Assert("scripted replies", func(r ping.Result) error {
+					observed = append(observed, r.Received)
+					return nil
+				})),
 		},
 	}, harness.WithRunner(fake, control.AgentInfo{ID: "agent-1"}))
 
@@ -207,6 +213,109 @@ func TestRunRetriesAndRepeatsChecks(t *testing.T) {
 	if !reflect.DeepEqual(fake.operations, want) {
 		t.Fatalf("operations = %#v, want %#v", fake.operations, want)
 	}
+	if !reflect.DeepEqual(observed, []uint32{0, 5, 4}) {
+		t.Fatalf("observed = %v, want [0 5 4]", observed)
+	}
+}
+
+func TestRunFailureGatingAndCleanup(t *testing.T) {
+	for _, scenario := range []string{"connect_status", "connect_error", "wait_status", "wait_error", "retry_exhausted", "repeat_failed", "missing_network"} {
+		t.Run(scenario, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRunFailureChild$", "-test.v")
+			cmd.Env = append(os.Environ(), "DROPCHECK_HARNESS_FAILURE_CHILD="+scenario)
+			out, err := cmd.CombinedOutput()
+			var exit *exec.ExitError
+			if !errors.As(err, &exit) || exit.ExitCode() != 1 || ctx.Err() != nil {
+				t.Fatalf("failure child: err=%v context=%v\n%s", err, ctx.Err(), out)
+			}
+			if !strings.Contains(string(out), "operation sequence verified") {
+				t.Fatalf("failure child did not verify gating/cleanup/results:\n%s", out)
+			}
+			want := "forced failure"
+			switch scenario {
+			case "retry_exhausted":
+				want = "after 2 attempts"
+			case "repeat_failed":
+				want = "ping.received"
+			case "missing_network":
+				want = "must set networks"
+			}
+			if !strings.Contains(string(out), want) {
+				t.Fatalf("failure child missing %q:\n%s", want, out)
+			}
+		})
+	}
+}
+
+func TestRunFailureChild(t *testing.T) {
+	scenario := os.Getenv("DROPCHECK_HARNESS_FAILURE_CHILD")
+	if scenario == "" {
+		return
+	}
+	want := []string{"wifi.connect", "wifi.wait", "wifi.forget", "wifi.disconnect"}
+	failedOperation := "wifi.wait"
+	var replies, observed []uint32
+	check := harness.Ping("8.8.8.8").Count(5).Expect(ping.Received().Eq(5), ping.Assert("scripted replies", func(r ping.Result) error {
+		observed = append(observed, r.Received)
+		return nil
+	}))
+	switch scenario {
+	case "connect_status", "connect_error":
+		failedOperation = "wifi.connect"
+		want = []string{"wifi.connect", "wifi.forget", "wifi.disconnect"}
+	case "wait_status", "wait_error":
+	case "retry_exhausted":
+		failedOperation = ""
+		replies = []uint32{0, 1}
+		check = check.Retry(2, 0)
+		want = []string{"wifi.connect", "wifi.wait", "ping", "ping", "dns", "wifi.forget", "wifi.disconnect"}
+	case "repeat_failed":
+		failedOperation = ""
+		replies = []uint32{5, 0}
+		check = check.Repeat(2)
+		want = []string{"wifi.connect", "wifi.wait", "ping", "ping", "dns", "wifi.forget", "wifi.disconnect"}
+	case "missing_network":
+		want = nil
+	default:
+		t.Fatalf("unknown failure scenario %q", scenario)
+	}
+	pingCalls := 0
+	fake := &fakeRunner{respond: func(op command.Operation) (*controlpb.CommandResult, error) {
+		if op.Name == failedOperation {
+			if strings.HasSuffix(scenario, "_error") {
+				return nil, fmt.Errorf("forced failure")
+			}
+			return &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_FAILED, Message: "forced failure"}, nil
+		}
+		result := fakeResult(op.Name)
+		if op.Name == "ping" {
+			if pingCalls >= len(replies) {
+				return nil, fmt.Errorf("unexpected ping call")
+			}
+			result.GetPing().Received = replies[pingCalls]
+			pingCalls++
+		}
+		return result, nil
+	}}
+	t.Cleanup(func() {
+		if !reflect.DeepEqual(fake.operations, want) || !reflect.DeepEqual(observed, replies) || pingCalls != len(replies) {
+			t.Errorf("operations=%v want=%v observed=%v want=%v calls=%d", fake.operations, want, observed, replies, pingCalls)
+			return
+		}
+		t.Log("operation sequence verified")
+	})
+	plan := harness.Plan{
+		Networks: []harness.Network{harness.WiFi("lab").SSID("Lab").PSK("secret").ForgetAfter(true)},
+		Checks:   []harness.Check{check, harness.DNS("example.com")},
+	}
+	if scenario == "missing_network" {
+		plan.Networks = nil
+		harness.Run(t, plan, harness.WithADBPath("/nonexistent/dropcheck-test-adb"))
+		return
+	}
+	harness.Run(t, plan, harness.WithRunner(fake, control.AgentInfo{ID: "agent-1"}))
 }
 
 func TestRunSamplesStableChecks(t *testing.T) {
@@ -236,103 +345,6 @@ func TestRunSamplesStableChecks(t *testing.T) {
 	}
 	if pingRuns < 2 {
 		t.Fatalf("ping runs = %d, want at least 2; operations = %#v", pingRuns, fake.operations)
-	}
-}
-
-func TestRunEvaluatesStandaloneArchiveResults(t *testing.T) {
-	archive := standaloneArchiveFixture()
-	harness.Run(t, harness.Plan{
-		Results: []harness.ResultSource{
-			harness.StandaloneArchive("standalone-smoke", archive),
-		},
-		Checks: []harness.Check{
-			harness.Ping("8.8.8.8").
-				Count(3).
-				Expect(
-					ping.Received().Ge(3),
-					ping.LossPercent().Eq(0),
-					ping.AvgLatency().Le(50*time.Millisecond),
-				),
-			harness.DNS("example.com").
-				A().
-				Expect(dns.AnswerCount().Ge(1), dns.Elapsed().Le(time.Second)),
-			harness.HTTP("http://example.com/health").
-				ExpectedStatus(204).
-				Expect(harness.Assert("http matched", func(r harness.Result) error {
-					if !r.Run.Raw.GetHttpCheck().GetMatched() {
-						return fmt.Errorf("http check did not match")
-					}
-					return nil
-				})),
-		},
-	})
-}
-
-func TestStandaloneArchiveRepeatAndRetryConsumeDistinctObservations(t *testing.T) {
-	for _, retry := range []bool{false, true} {
-		t.Run(fmt.Sprintf("retry=%v", retry), func(t *testing.T) {
-			archive := standaloneArchiveFixture()
-			first := archive.Steps[3]
-			second := proto.Clone(first).(*controlpb.StandaloneMeasurementStep)
-			second.StepIndex = 6
-			if retry {
-				first.Result.GetPing().Received = 0
-			}
-			// Deliberately store the later observation first.
-			archive.Steps = append([]*controlpb.StandaloneMeasurementStep{second}, archive.Steps...)
-			var observed []uint32
-			check := harness.Ping("8.8.8.8").Count(3).Expect(ping.Assert("recorded sequence", func(r ping.Result) error {
-				observed = append(observed, r.Received)
-				if r.Received == 0 {
-					return fmt.Errorf("no replies")
-				}
-				return nil
-			}))
-			if retry {
-				check = check.Retry(2, 0)
-			} else {
-				check = check.Repeat(2)
-			}
-			harness.Run(t, harness.Plan{
-				Results: []harness.ResultSource{harness.StandaloneArchive("two-observations", archive)},
-				Checks:  []harness.Check{check},
-			})
-			want := []uint32{3, 3}
-			if retry {
-				want[0] = 0
-			}
-			if !reflect.DeepEqual(observed, want) {
-				t.Fatalf("observed = %v, want %v", observed, want)
-			}
-		})
-	}
-}
-
-func TestStandaloneArchiveResultSourcesLoadProtobufBinary(t *testing.T) {
-	archive := standaloneArchiveFixture()
-	data, err := proto.Marshal(archive)
-	if err != nil {
-		t.Fatalf("marshal archive: %v", err)
-	}
-
-	targets, err := harness.StandaloneArchiveBytes("bytes", data).Targets()
-	if err != nil {
-		t.Fatalf("StandaloneArchiveBytes targets: %v", err)
-	}
-	if len(targets) != 1 || targets[0].Name != "lab" || len(targets[0].Steps) != 5 {
-		t.Fatalf("byte targets = %#v", targets)
-	}
-
-	path := t.TempDir() + "/standalone.pb"
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		t.Fatalf("write archive: %v", err)
-	}
-	targets, err = harness.StandaloneArchiveFile(path).Targets()
-	if err != nil {
-		t.Fatalf("StandaloneArchiveFile targets: %v", err)
-	}
-	if len(targets) != 1 || targets[0].SourceName != "standalone.pb" {
-		t.Fatalf("file targets = %#v", targets)
 	}
 }
 
@@ -438,10 +450,15 @@ func TestScanMatcherReportsMissingAP(t *testing.T) {
 
 type fakeRunner struct {
 	operations []string
+	respond    func(command.Operation) (*controlpb.CommandResult, error)
 }
 
 func (r *fakeRunner) Run(_ context.Context, _ control.AgentInfo, op command.Operation) (runner.Result, error) {
 	r.operations = append(r.operations, op.Name)
+	if r.respond != nil {
+		result, err := r.respond(op)
+		return runner.Result{Operation: op, Result: result}, err
+	}
 	return runner.Result{Operation: op, Result: fakeResult(op.Name)}, nil
 }
 
@@ -452,147 +469,20 @@ type retryRunner struct {
 
 func (r *retryRunner) Run(_ context.Context, _ control.AgentInfo, op command.Operation) (runner.Result, error) {
 	r.operations = append(r.operations, op.Name)
+	result := fakeResult(op.Name)
 	if op.Name == "ping" {
+		replies := []uint32{0, 5, 4}
+		if r.pingCalls >= len(replies) {
+			return runner.Result{}, fmt.Errorf("unexpected ping call")
+		}
+		result.GetPing().Received = replies[r.pingCalls]
 		r.pingCalls++
 		if r.pingCalls == 1 {
-			return runner.Result{Operation: op, Result: &controlpb.CommandResult{
-				Status:  controlpb.CommandResult_STATUS_FAILED,
-				Message: "temporary ping failure",
-			}}, nil
+			result.Status = controlpb.CommandResult_STATUS_FAILED
+			result.Message = "temporary ping failure"
 		}
 	}
-	return runner.Result{Operation: op, Result: fakeResult(op.Name)}, nil
-}
-
-func standaloneArchiveFixture() *controlpb.StandaloneRunArchive {
-	const group = "lab"
-	return &controlpb.StandaloneRunArchive{
-		Summary: &controlpb.StandaloneRunSummary{
-			RunId:           "run-1",
-			FestaName:       "smoke",
-			Status:          "ok",
-			WifiGroupCount:  1,
-			StepCount:       5,
-			FailedStepCount: 0,
-		},
-		Festa: &controlpb.StandaloneFesta{
-			Name: "smoke",
-			WifiGroups: []*controlpb.StandaloneWifiGroup{{
-				Name:       group,
-				Essid:      "Lab",
-				Passphrase: "secret",
-				Security:   controlpb.ConnectWifi_SECURITY_WPA2_PSK,
-				Band:       controlpb.WifiBand_WIFI_BAND_5_GHZ,
-				RequireIp:  true,
-			}},
-		},
-		Steps: []*controlpb.StandaloneMeasurementStep{
-			standaloneStep(1, "connect", &controlpb.RunCommand{
-				Label: "standalone connect lab",
-				Command: &controlpb.RunCommand_ConnectWifi{ConnectWifi: &controlpb.ConnectWifi{
-					Ssid:       "Lab",
-					Passphrase: "secret",
-					Security:   controlpb.ConnectWifi_SECURITY_WPA2_PSK,
-					Band:       controlpb.WifiBand_WIFI_BAND_5_GHZ,
-					TimeoutMs:  35000,
-				}},
-			}, &controlpb.CommandResult{
-				Status:  controlpb.CommandResult_STATUS_OK,
-				Message: "connected",
-				Payload: &controlpb.CommandResult_ConnectWifi{ConnectWifi: &controlpb.ConnectWifiResult{
-					Ssid:      "Lab",
-					Connected: true,
-				}},
-			}),
-			standaloneStep(2, "wait_connected", &controlpb.RunCommand{
-				Label: "standalone wait lab",
-				Command: &controlpb.RunCommand_WaitWifiConnected{WaitWifiConnected: &controlpb.WaitWifiConnected{
-					Ssid:      "Lab",
-					Security:  controlpb.ConnectWifi_SECURITY_WPA2_PSK,
-					Band:      controlpb.WifiBand_WIFI_BAND_5_GHZ,
-					RequireIp: true,
-					TimeoutMs: 35000,
-				}},
-			}, &controlpb.CommandResult{
-				Status:  controlpb.CommandResult_STATUS_OK,
-				Message: "connected",
-				Payload: &controlpb.CommandResult_WifiAssert{WifiAssert: &controlpb.WifiAssertResult{
-					Passed: true,
-				}},
-			}),
-			standaloneStep(3, "dns", &controlpb.RunCommand{
-				Label: "standalone dns example.com",
-				Command: &controlpb.RunCommand_ResolveDns{ResolveDns: &controlpb.ResolveDns{
-					Name:      "example.com",
-					Qtypes:    []controlpb.DnsRecordType{controlpb.DnsRecordType_DNS_RECORD_TYPE_A},
-					TimeoutMs: 10000,
-					Selector:  &controlpb.NetworkSelector{Ssid: "Lab"},
-				}},
-			}, &controlpb.CommandResult{
-				Status: controlpb.CommandResult_STATUS_OK,
-				Payload: &controlpb.CommandResult_ResolveDns{ResolveDns: &controlpb.ResolveDnsResult{
-					Name:      "example.com",
-					ElapsedMs: 80,
-					Answers: []*controlpb.DnsAnswer{{
-						Type:    controlpb.DnsRecordType_DNS_RECORD_TYPE_A,
-						Address: "93.184.216.34",
-					}},
-				}},
-			}),
-			standaloneStep(4, "ping", &controlpb.RunCommand{
-				Label: "standalone ping 8.8.8.8",
-				Command: &controlpb.RunCommand_Ping{Ping: &controlpb.Ping{
-					Host:      "8.8.8.8",
-					Count:     3,
-					TimeoutMs: 10000,
-					Selector:  &controlpb.NetworkSelector{Ssid: "Lab"},
-				}},
-			}, &controlpb.CommandResult{
-				Status: controlpb.CommandResult_STATUS_OK,
-				Payload: &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{
-					Host:              "8.8.8.8",
-					Count:             3,
-					Transmitted:       3,
-					Received:          3,
-					PacketLossPercent: 0,
-					MinMs:             10,
-					AvgMs:             25,
-					MaxMs:             40,
-					ElapsedMs:         120,
-				}},
-			}),
-			standaloneStep(5, "http", &controlpb.RunCommand{
-				Label: "standalone http http://example.com/health",
-				Command: &controlpb.RunCommand_HttpCheck{HttpCheck: &controlpb.HttpCheck{
-					Url:            "http://example.com/health",
-					ExpectedStatus: 204,
-					TimeoutMs:      10000,
-					Selector:       &controlpb.NetworkSelector{Ssid: "Lab"},
-				}},
-			}, &controlpb.CommandResult{
-				Status: controlpb.CommandResult_STATUS_OK,
-				Payload: &controlpb.CommandResult_HttpCheck{HttpCheck: &controlpb.HttpCheckResult{
-					Url:            "http://example.com/health",
-					Status:         204,
-					ExpectedStatus: 204,
-					Matched:        true,
-					ElapsedMs:      100,
-				}},
-			}),
-		},
-	}
-}
-
-func standaloneStep(stepIndex uint32, name string, command *controlpb.RunCommand, result *controlpb.CommandResult) *controlpb.StandaloneMeasurementStep {
-	return &controlpb.StandaloneMeasurementStep{
-		WifiGroupIndex: 1,
-		WifiGroupName:  "lab",
-		StepIndex:      stepIndex,
-		StepName:       name,
-		Attempt:        1,
-		Command:        command,
-		Result:         result,
-	}
+	return runner.Result{Operation: op, Result: result}, nil
 }
 
 func fakeResult(name string) *controlpb.CommandResult {

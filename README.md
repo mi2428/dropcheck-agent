@@ -19,7 +19,6 @@ sequenceDiagram
   participant Harness as Dropcheck Harness
   participant App as Android App
   participant WiFi as Wi-Fi under test
-  participant O11y as O11y Stack
 
   par NOC live control through controller surfaces
     NOC->>Controller: CLI, Shell, or TUI command
@@ -35,9 +34,6 @@ sequenceDiagram
     WiFi-->>App: link and probe result
     App-->>Harness: typed result
     Harness-->>NOC: Go test output
-   and Historical measurements collected into O11y
-    NOC->>O11y: ingest saved historical archives
-    O11y-->>NOC: metrics and dashboards
   and NOC direct control through Agent Shell
     NOC->>App: Agent Shell command
     App->>WiFi: inspect or probe from the handset
@@ -167,14 +163,12 @@ The controller starts an ADB-backed gRPC session to one or more Android agents.
 One-shot CLI commands are scriptable and can emit text or JSON.
 Controller Shell adds prompts, completion, context help, output filters, and request mode on top of the same typed agent operations. Configure mode retains `run show ...` and `run request ...`; obsolete standalone configuration commands are no longer available.
 
-The controller builds two host-side binaries:
+The controller builds one host-side binary:
 
 ```console
 $ make build TARGET=controller
 + mkdir -p dist
 + go build -ldflags -X\ dropcheck/controller/internal/version.Version=0.9.0-dirty -o dist/dropcheck ./cmd/dropcheck
-+ mkdir -p dist
-+ go build -ldflags -X\ dropcheck/controller/internal/version.Version=0.9.0-dirty -o dist/dropcheck-ingester ./cmd/dropcheck-ingester
 ```
 
 `dist/dropcheck` supports:
@@ -344,190 +338,28 @@ checks:
 For `ping`, `traceroute`, and `path_mtu`, `family: ipv4` or `family: ipv6` pins a dual-stack hostname probe to one address family.
 Leave `family` unset when the agent should auto-select based on DNS answers and usable source addresses.
 
-### Historical archives and observability
+### Removed archive and observability support
 
-Android standalone scheduling, run-once, storage retrieval, and upload control have
-been removed. The controller no longer exposes standalone commands or `show config`.
-Use Controller TUI/watch or Dropcheck Harness for current measurements.
+Historical standalone archive ingestion/replay and the external MinIO,
+Pushgateway, Prometheus, Grafana, and Compose stack are no longer supported.
+Use Controller TUI/watch or Dropcheck Harness for live measurements; local
+diagnostic logs, JSONL output, and in-memory TUI history remain available.
 
-Saved historical standalone protobuf archives remain supported for offline Harness
-replay and ingestion. `dist/dropcheck-ingester` consumes stored archives through
-MinIO notifications or batch backfills, converts them into metrics, and pushes them
-to Pushgateway for Prometheus and Grafana. This does not require or restore Android
-standalone mode.
-
-Set `DROPCHECK_INGESTER_WEBHOOK_TOKEN` to a randomly generated single bearer token
-before starting either Compose stack (for example, `openssl rand -hex 32`). Both
-MinIO's `MINIO_NOTIFY_WEBHOOK_AUTH_TOKEN_INGESTER` and the ingester receive that
-same required value; there is no unauthenticated mode or default token. With a
-separate MinIO deployment, configure that sender variable explicitly. Use HTTPS
-or an isolated trusted network for delivery; a bearer token does not encrypt it.
-POST `/minio/events` requires exactly `Authorization: Bearer <token>`. All records
-must name the configured bucket and contain valid object keys/sizes before any
-fetch or metrics write. Notifications are limited to 1 MiB, body reads to 5 seconds,
-and processing to 30 seconds; failures return 400/401/413/408/504 as appropriate
-(502 for store/push failures). `/healthz` and GET/HEAD notification readiness probes
-remain unauthenticated and never process objects. Token/header values are not logged.
-
-Backfill streams the MinIO listing rather than retaining every object reference.
-It reports total failures with at most ten example errors, retries failed objects,
-and removes deleted-object deduplication signatures only after a complete listing.
-Incomplete/canceled listings preserve that state; concurrent notifications refresh it.
-Latest-measurement fences remain per stable group even when its objects are deleted.
-
-The synthetic scale-check envelope is 1,000–100,000 retained archives per configured
-prefix, with five steps and one stable group, not a production RSS guarantee.
-At 100,000 objects, sampled initial heap growth was about 51 MB; replacing all keys
-kept 100,000 cached signatures instead of accumulating 200,000. All-fetch-failure
-error output stayed below 1 KB instead of growing to 6.6 MB. Allocation totals are
-not retained heap, and a retention scan may temporarily hold both generations.
-Deduplication memory still scales with retained keys plus notifications since the
-last complete scan; ordering state scales with stable groups. Choose object-store
-lifecycle retention/prefix scope to fit the deployment's memory budget. The ingester
-does not delete archives or impose a new archive-count cap. The existing per-object
-64 MiB limit does not bound total heap or concurrent notification payloads.
-Reproduce the scale check from `controller/`:
-
-```sh
-go test -p 1 ./internal/ingester -run '^$' -bench '^BenchmarkBackfillScale$' -benchtime=1x -benchmem
-```
-
-### Local archive/observability stack
-
-Both Compose files are trusted-local development stacks, not an internet-facing
-deployment. Choose dedicated credentials before starting; there are no default
-MinIO root or Grafana admin passwords. Supply these variables through your secret
-manager or a protected, untracked environment file. For a disposable local stack:
-
-```sh
-export MINIO_ROOT_USER=archive-admin
-export MINIO_ROOT_PASSWORD="$(openssl rand -hex 24)"
-export GRAFANA_ADMIN_USER=dashboard-admin
-export GRAFANA_ADMIN_PASSWORD="$(openssl rand -hex 24)"
-export DROPCHECK_INGESTER_WEBHOOK_TOKEN="$(openssl rand -hex 32)"
-docker compose config --quiet
-docker compose -f docker-compose.test.yml config --quiet
-docker compose up -d --build
-```
-
-Retain the chosen credentials for the lifetime of the stack; do not regenerate
-them while reusing its volumes. The test Compose file does not require Grafana
-credentials. Local defaults publish only MinIO's S3 API (`127.0.0.1:8080`), its
-console (`127.0.0.1:8081`), Prometheus (`127.0.0.1:9090`), and, in the normal stack,
-Grafana (`127.0.0.1:3000`). The ingester webhook/health endpoint and unauthenticated
-Pushgateway writer are container-to-container only, with no host publishing.
-Query metrics through Prometheus; Grafana's provisioned Prometheus datasource
-uses the private Compose network.
-
-`minio-init` permits anonymous `s3:PutObject` only for `*.pb` archive keys in
-`MINIO_BUCKET` (default `dropcheck`); anonymous reads, listings, deletes, and other
-file extensions are denied. Existing saved archives can still be uploaded:
-
-```sh
-curl --fail --upload-file archive.pb http://127.0.0.1:8080/dropcheck/incoming/archive.pb
-curl --fail --get --data-urlencode 'query=dropcheck_success' http://127.0.0.1:9090/api/v1/query
-```
-
-Anonymous writers can overwrite a known `.pb` key and consume storage: this is
-only suitable for trusted upload clients and bounded disposable storage. For
-phone/LAN uploads, explicitly set `MINIO_API_BIND` to the intended host interface
-and `MINIO_API_PORT` if needed. Do not expose it on an untrusted network; use
-authenticated or presigned S3 uploads and TLS there. Management overrides are
-separate: `MINIO_CONSOLE_BIND`, `PROMETHEUS_HTTP_BIND`, and `GRAFANA_HTTP_BIND`
-(each defaults to `127.0.0.1`), with matching existing `*_PORT` variables.
-`0.0.0.0` explicitly exposes all interfaces. MinIO/Grafana need strong unique
-credentials and TLS before such exposure; Prometheus has no authentication in
-this configuration and needs an authenticated TLS proxy. Changing only the
-upload bind does not expose the consoles or metrics writer. Never commit
-credentials or a deployment-specific override.
-
-### Container image inputs and updates
-
-Remote images are pinned to multi-platform manifest digests, not mutable tags.
-The common supported platforms are Linux `amd64` and `arm64`. The manifest
-inventory below lists all runnable platforms (provenance attestations are not
-platforms):
-
-| Input | Version / immutable reference | Linux platforms |
-| --- | --- | --- |
-| Pushgateway | `prom/pushgateway:v1.11.3@sha256:74fa117cef2d7e383112d25139ff1c2d2e309c35389a9e0554a47136a1482e48` | amd64, arm64, arm/v7, ppc64le, s390x |
-| Prometheus | `prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e` | amd64, arm64, arm/v7, ppc64le, riscv64, s390x |
-| Grafana (normal stack only) | `grafana/grafana:13.2.3@sha256:b28bae15e219c998fb0e0424ed724930cc61b1f61fb404d47c862f9a23f9e572` | amd64, arm64, arm/v7 |
-| Go builder (ingester, MinIO, mc) | `golang:1.26.8-alpine3.23@sha256:a8fa79c5bd40d880b52bd3b6d7669ecdcfd00e85facdd427d279efb5ddd79cb1` | amd64, arm/v6, arm/v7, arm64/v8, 386, ppc64le, riscv64, s390x |
-| Ingester / MinIO runtime | `gcr.io/distroless/static-debian13:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3` | amd64, arm64/v8, arm/v7, s390x, ppc64le, riscv64 |
-| mc shell runtime | `alpine:3.23.6@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0` | amd64, arm/v6, arm/v7, arm64/v8, 386, ppc64le, riscv64, s390x |
-
-MinIO community is now [source-only and no longer maintained](https://github.com/minio/minio#source-only-distribution).
-Its DockerHub/Quay server and mc release manifests could not be pulled anonymously
-when checked. Neither stack relies on those unavailable images or another vendor:
-`docker/minio/Dockerfile` builds the official source, verifies each archive's
-SHA-256, and uses digest-pinned build/runtime bases. The local image names identify
-source commits; `pull_policy: build` ensures Compose builds them rather than
-pulling an unrelated registry tag. These are local builds, not official prebuilt
-images. MinIO runs nonroot, as does mc.
-
-| Official source | Release | Commit | Source archive SHA-256 |
-| --- | --- | --- | --- |
-| [minio/minio](https://github.com/minio/minio/releases/tag/RELEASE.2025-10-15T17-29-55Z) | `RELEASE.2025-10-15T17-29-55Z` | `9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a` | `45521908307306e925c98d629e1c17d78c8b72b6ee242b1bfb1409f7d8ee5841` |
-| [minio/mc](https://github.com/minio/mc/releases/tag/RELEASE.2025-08-13T08-35-41Z) | `RELEASE.2025-08-13T08-35-41Z` | `7394ce0dd2a80935aded936b09fa12cbb3cb8096` | `95cd293c7119f16921a6dc515a1fb74a2227f19fd994b9c8b770a154e802ac44` |
-
-The direct integration helper builds the same MinIO Dockerfile/target and source
-image name before starting a disposable loopback-only container with test-only
-credentials. Build/daemon failures fail `make integration`, rather than silently
-skipping it. First builds download and compile MinIO's modules; builds use Go
-1.26.8, `GOFLAGS=-p=1`, and two Go workers. Source/module/base inputs are fixed;
-local image layer timestamps and image IDs need not be byte-identical between
-container builders. AGPL obligations and the upstream maintenance status remain
-the operator's responsibility, including reviewing future security advisories.
-
-For updates, review the official [Pushgateway](https://github.com/prometheus/pushgateway/releases),
-[Prometheus](https://github.com/prometheus/prometheus/releases),
-[Grafana](https://github.com/grafana/grafana/releases),
-[Go image](https://github.com/docker-library/official-images/blob/master/library/golang),
-[Alpine image](https://github.com/docker-library/official-images/blob/master/library/alpine),
-and [distroless](https://github.com/GoogleContainerTools/distroless) metadata.
-Resolve the release's public manifest digest and confirm both `amd64` and `arm64`
-entries, then update both Compose files, Dockerfiles, this inventory, and the
-helper together. For MinIO/mc, review the official release, resolve its full
-commit, and recheck the `codeload.github.com/minio/<repo>/tar.gz/<commit>` archive
-hash. Do not substitute `latest` or bypass checksum verification. In an authorized
-disposable runtime, validate both configs and rebuild:
-
-```sh
-python3 docker/check-config.py
-docker compose config --quiet
-docker compose -f docker-compose.test.yml config --quiet
-docker compose build minio minio-init ingester
-make integration GOFLAGS=-p=1
-# In the disposable stack's environment, disable periodic backfills so the
-# archive check proves notification delivery rather than a polling fallback.
-export DROPCHECK_INGESTER_POLL_INTERVAL=1h
-docker compose -p image-check up -d --build
-python3 docker/check-stack.py --project image-check
-# Repeat with -f docker-compose.test.yml and a separate project/port set.
-```
-
-Then exercise real uploads/notifications, replacement metrics and Prometheus
-scrapes, and Grafana's datasource health in the normal stack. A manifest listing
-is architecture availability, not proof that every architecture was executed.
-Record actual tested platforms and results with the change; do not count a
-skipped integration test or a successful pull as a working-stack test.
-
-This pinned set was exercised on Linux `arm64` with Podman 6.1.3's Docker API
-and Compose 5.5.1 (`DOCKER_BUILDKIT=0` for that runtime): both Compose stacks
-passed archive-only upload permissions, actual MinIO notifications, ingestion,
-same-group replacement/removal of old metrics, stale-archive ordering, and
-Prometheus scrapes. The normal stack also passed Grafana authentication and
-datasource health. All three direct ingester integration tests passed without
-skips. `amd64` is present in the pinned base/service manifests, but was not
-executed in this verification; run the same checks on the deployment platform.
+Update the controller and Android APK together; mixed-version compatibility and
+archive decoding are not provided. Existing user `.pb` archives, saved Compose
+volumes, old preferences, and Device Owner state are not automatically deleted
+or migrated. Back up any data you need before manually retiring an old deployment.
+Agent Shell now reads only `agent-shell-use-defaults`; a default PSK previously
+inherited from old preferences may need to be entered again with
+`set default passphrase <psk>` or `use <ssid> <psk>`. Old preferences are left intact;
+do not include PSKs in migration reports or logs.
 
 ### Dropcheck Harness
 
 Dropcheck Harness is a Go test harness for ADB-backed Android network checks.
 Harness tests connect to a requested Wi-Fi target, wait for the expected link state, run typed checks, and fail with normal Go test output.
-Live checks support retries and stability checks. Offline replay consumes distinct
-saved observations for repetition and retries; `StableFor` requires live measurements.
+Live checks support Retry, Repeat, and StableFor with new measurements.
+Use WithRunner to inject scripted operations in ordinary device-free Go tests.
 
 Available check builders include Wi-Fi status, EHT diagnostics, scan and scan-detail, Wi-Fi capabilities, IP status, ping, DNS, HTTP, download, traceroute, path MTU, and global IP.
 
@@ -720,7 +552,7 @@ git diff --exit-code -- controller/internal/controlpb
 
 CI can run this once its owner provisions the pinned protoc and Go tools.
 For schema edits, reserve both removed field numbers and names, preserve enum
-numbers and archive/wire compatibility, regenerate Go, and validate both
+numbers and retained wire identities, regenerate Go, and validate both
 consumers with `make test TARGET=controller` and
 `make build test TARGET=agent`. The Android tasks regenerate through Gradle;
 do not use the host Go generator versions to override Android's toolchain.
@@ -748,37 +580,6 @@ it does not run the source-rewriting
 `make quality` target. The Android job runs the existing agent build,
 unit-test, and lint Make targets with the SDK installed. No secrets, connected
 handset, or Wi-Fi credentials are needed by either job.
-
-Docker-backed `make integration` is an explicit, separate check: it needs a
-Docker daemon and disposable MinIO containers, and is not run by this workflow.
-Image/source inputs and the update checks are listed above.
-Run it in an authorized isolated environment when changing ingestion or
-container images. Setup failures fail the suite rather than skipping it.
-The default `make integration` runs three real-MinIO tests: backfill, authenticated
-handler ingestion/deduplication, and decode failure. It does not expose a webhook
-listener or verify delivery from the MinIO sender. An explicitly provisioned
-MinIO can replace the Docker helper via `DROPCHECK_INGESTER_INTEGRATION_MINIO_ENDPOINT`.
-
-Actual sender delivery is a separate opt-in scenario, adding a fourth test:
-
-```sh
-make integration
-# After provisioning an isolated external MinIO and its matched webhook target:
-export DROPCHECK_INGESTER_INTEGRATION_MINIO_ENDPOINT="${MINIO_ENDPOINT:?set an isolated external MinIO endpoint}"
-export DROPCHECK_INGESTER_INTEGRATION_WEBHOOK_ADDR="${WEBHOOK_ADDR:?set a numeric loopback webhook address}"
-go -C controller test -v -count=1 -tags integration,minionotify -timeout 10m ./integration/ingester
-go -C controller test -race -v -count=1 -tags integration,minionotify -timeout 10m ./integration/ingester
-```
-
-`minionotify` requires both `DROPCHECK_INGESTER_INTEGRATION_MINIO_ENDPOINT` and
-`DROPCHECK_INGESTER_INTEGRATION_WEBHOOK_ADDR`. The receiver address must be an
-explicit numeric loopback address with a nonzero port. Provision the MinIO target
-`arn:minio:sqs::INGESTER:webhook` to reach that receiver's `/minio/events`, using
-the public integration fixture token `synthetic-webhook-token` and fixture S3
-credentials. Missing/invalid configuration fails before Docker startup; there
-is no host-wide listener, host-gateway fallback, or skipped sender check. This
-scenario verifies real MinIO notification authentication, object retrieval and
-metrics delivery to an HTTP capture sink, not an additional Pushgateway daemon.
 
 Live `make e2e` and `-tags harness` device tests are excluded: they require
 dedicated authorized handsets and network credentials, never an ordinary PR

@@ -23,9 +23,6 @@ type Plan struct {
 	Name string
 	// Networks are visited in order. Each network gets its own subtest.
 	Networks []Network
-	// Results are saved standalone measurement archives evaluated without a
-	// connected Android agent. Results and Networks are mutually exclusive.
-	Results []ResultSource
 	// Checks run for every network after connect and wait-connected succeed.
 	Checks []Check
 }
@@ -120,16 +117,6 @@ func Run(t *testing.T, plan Plan, opts ...RunOption) {
 	if err := validatePlan(plan); err != nil {
 		t.Fatalf("Dropcheck Harness plan: %v", err)
 	}
-	if len(plan.Results) > 0 {
-		if plan.Name != "" {
-			t.Run(testName(plan.Name), func(t *testing.T) {
-				runResultPlan(cfg.Context, t, plan)
-			})
-			return
-		}
-		runResultPlan(cfg.Context, t, plan)
-		return
-	}
 	opRunner, agent := cfg.Runner, cfg.Agent
 	if opRunner == nil {
 		controlSession := startSession(t, cfg)
@@ -147,14 +134,10 @@ func Run(t *testing.T, plan Plan, opts ...RunOption) {
 }
 
 func validatePlan(plan Plan) error {
-	switch {
-	case len(plan.Networks) == 0 && len(plan.Results) == 0:
-		return fmt.Errorf("must set networks or results")
-	case len(plan.Networks) > 0 && len(plan.Results) > 0:
-		return fmt.Errorf("networks and results cannot be used together")
-	default:
-		return nil
+	if len(plan.Networks) == 0 {
+		return fmt.Errorf("must set networks")
 	}
+	return nil
 }
 
 func runPlan(ctx context.Context, t *testing.T, opRunner OperationRunner, agent control.AgentInfo, plan Plan) {
@@ -163,71 +146,6 @@ func runPlan(ctx context.Context, t *testing.T, opRunner OperationRunner, agent 
 		t.Run(testName(network.displayName()), func(t *testing.T) {
 			runNetwork(ctx, t, opRunner, agent, network, plan.Checks)
 		})
-	}
-}
-
-func runResultPlan(ctx context.Context, t *testing.T, plan Plan) {
-	t.Helper()
-	for _, source := range plan.Results {
-		sourceName := resultSourceName(source)
-		t.Run(testName(sourceName), func(t *testing.T) {
-			t.Helper()
-			if source == nil {
-				t.Fatalf("result source is nil")
-			}
-			targets, err := source.Targets()
-			if err != nil {
-				t.Fatalf("load result source: %v", err)
-			}
-			if len(targets) == 0 {
-				t.Fatalf("result source has no targets")
-			}
-			for _, target := range targets {
-				t.Run(testName(target.displayName()), func(t *testing.T) {
-					runResultTarget(ctx, t, target, plan.Checks)
-				})
-			}
-		})
-	}
-}
-
-func runResultTarget(ctx context.Context, t *testing.T, target ResultTarget, planChecks []Check) {
-	t.Helper()
-	if !t.Run("connect", func(t *testing.T) {
-		runRecordedRequiredStep(t, target, "connect")
-	}) {
-		return
-	}
-	if !t.Run("wait_connected", func(t *testing.T) {
-		runRecordedRequiredStep(t, target, "wait_connected")
-	}) {
-		return
-	}
-	network := target.syntheticNetwork()
-	opRunner := &archiveRunner{target: target}
-	agent := target.syntheticAgent()
-	for _, check := range planChecks {
-		t.Run(testName(check.Name()), func(t *testing.T) {
-			runCheck(ctx, t, opRunner, agent, network, check)
-		})
-	}
-}
-
-func runRecordedRequiredStep(t *testing.T, target ResultTarget, name string) {
-	t.Helper()
-	step := target.stepNamed(name)
-	if step == nil {
-		t.Fatalf("%s missing from standalone result", name)
-	}
-	if step.GetError() != "" {
-		t.Fatalf("%s error=%s", name, step.GetError())
-	}
-	result := step.GetResult()
-	if result == nil {
-		t.Fatalf("%s has no command result", name)
-	}
-	if result.GetStatus() != controlpb.CommandResult_STATUS_OK {
-		t.Fatalf("%s status=%s message=%s", name, result.GetStatus(), result.GetMessage())
 	}
 }
 
@@ -358,9 +276,6 @@ func runCheck(ctx context.Context, t *testing.T, opRunner OperationRunner, agent
 	step, err := check.build()
 	if err != nil {
 		t.Fatalf("build check: %v", err)
-	}
-	if _, archived := opRunner.(*archiveRunner); archived && step.policy.stableFor > 0 {
-		t.Fatal("StableFor is unsupported for offline archive replay; use Repeat with recorded observations")
 	}
 	repeat := normalizedRepeat(step.policy.repeat)
 	if repeat == 1 {

@@ -117,13 +117,6 @@ internal fun RunCommand.logFields(): List<Pair<String, Any?>> {
             RunCommand.CommandCase.WGET -> addAll(wget.logFields())
             RunCommand.CommandCase.RESOLVE_DNS -> addAll(resolveDns.logFields())
             RunCommand.CommandCase.HTTP_CHECK -> addAll(httpCheck.logFields())
-            RunCommand.CommandCase.EDIT_STANDALONE_CONFIG,
-            RunCommand.CommandCase.GET_STANDALONE_CONFIG,
-            RunCommand.CommandCase.GET_STANDALONE_STATUS,
-            RunCommand.CommandCase.LIST_STANDALONE_RUNS,
-            RunCommand.CommandCase.GET_STANDALONE_RUN,
-            RunCommand.CommandCase.CLEAR_STANDALONE_RUNS,
-            RunCommand.CommandCase.RUN_STANDALONE_ONCE -> add("legacy_command" to true)
             RunCommand.CommandCase.COMMAND_NOT_SET -> Unit
         }
     }
@@ -242,11 +235,6 @@ internal fun CommandResult.logFields(): List<Pair<String, Any?>> {
             CommandResult.PayloadCase.PATH_MTU -> addAll(pathMtu.logFields())
             CommandResult.PayloadCase.GLOBAL_IP -> addAll(globalIp.logFields())
             CommandResult.PayloadCase.WGET -> addAll(wget.logFields())
-            CommandResult.PayloadCase.STANDALONE_CONFIG,
-            CommandResult.PayloadCase.STANDALONE_STATUS,
-            CommandResult.PayloadCase.STANDALONE_RUNS,
-            CommandResult.PayloadCase.STANDALONE_RUN,
-            CommandResult.PayloadCase.STANDALONE_CLEAR -> add("legacy_payload" to true)
             CommandResult.PayloadCase.PAYLOAD_NOT_SET -> Unit
         }
     }
