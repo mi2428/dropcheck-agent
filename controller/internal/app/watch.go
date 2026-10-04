@@ -394,21 +394,7 @@ func watchSessionLogLevelName(level controlpb.CommandLog_Level) string {
 }
 
 func watchTargetAgents(state *shellState) ([]control.AgentInfo, error) {
-	if state.targetAll || state.selected == "" {
-		agents := state.server.Agents()
-		if len(agents) == 0 {
-			return nil, fmt.Errorf("no Android agents connected")
-		}
-		if state.selected == "" && len(agents) == 1 {
-			state.setSelectedAgent(agents[0])
-		}
-		return agents, nil
-	}
-	info, err := selectedAgent(state)
-	if err != nil {
-		return nil, err
-	}
-	return []control.AgentInfo{info}, nil
+	return state.commandTargets()
 }
 
 type watchAgentPlan struct {

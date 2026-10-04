@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestRenderAgentsAndTargetFromConnectedAgent(t *testing.T) {
@@ -265,88 +267,369 @@ func TestRunOperationForAgentsSeparatesMultiAgentTextOutput(t *testing.T) {
 	}
 }
 
-func TestRunOperationForAgentsWifiEHTFreshScansBeforeDiagnostics(t *testing.T) {
+func TestTargetResolutionContracts(t *testing.T) {
+	for _, resolve := range []struct {
+		name string
+		run  func(*shellState) ([]control.AgentInfo, error)
+	}{{"command", (*shellState).commandTargets}, {"watch", watchTargetAgents}} {
+		for _, scenario := range []string{"single", "multiple", "explicit", "broadcast", "lost", "lost prefix"} {
+			t.Run(resolve.name+"/"+scenario, func(t *testing.T) {
+				state, _, cleanupA := connectedShellStateWithStream(t)
+				if scenario == "single" {
+					defer cleanupA()
+					state.selected = ""
+				} else {
+					id := "agent-b"
+					if scenario == "lost prefix" {
+						id = "agent-a-other"
+					}
+					streamB, cleanupB := connectAdditionalTestAgent(t, state.server, "session-b", id, "serial-b", 35)
+					defer cleanupB()
+					state.adbPath = filepath.Join(t.TempDir(), "missing-adb")
+					switch scenario {
+					case "lost", "lost prefix":
+						cleanupA()
+						if state.selected != "agent-a" || state.prompt() != state.selectedLabel+"# " {
+							t.Fatal("disconnected selection or prompt changed identity")
+						}
+						ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+						defer cancel()
+						for _, line := range []string{"request ping example.test count 1", "show adb wifi status"} {
+							if _, err := parseShellLine(line); err != nil {
+								t.Fatal(err)
+							}
+							if _, err := runReplLine(ctx, state, line); err != nil {
+								t.Fatal(err)
+							}
+						}
+						for len(streamB.sent) > 0 {
+							if frame := <-streamB.sent; frame.GetRunCommand() != nil {
+								t.Fatal("lost selection dispatched to replacement")
+							}
+						}
+					default:
+						defer cleanupA()
+						state.selected = ""
+						if scenario == "explicit" {
+							state.selected = id
+						}
+						state.targetAll = scenario == "broadcast"
+					}
+				}
+				agents, err := resolve.run(state)
+				if scenario == "multiple" || strings.HasPrefix(scenario, "lost") {
+					want := "multiple"
+					if strings.HasPrefix(scenario, "lost") {
+						want = `selected Android agent "agent-a" is not connected`
+					}
+					if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "token") || len(agents) != 0 {
+						t.Fatalf("targets = %v, error = %v", agents, err)
+					}
+					return
+				}
+				wantCount, wantID := 1, "agent-a"
+				if scenario == "broadcast" {
+					wantCount = 2
+				} else if scenario == "explicit" {
+					wantID = "agent-b"
+				}
+				if err != nil || len(agents) != wantCount || wantCount == 1 && agents[0].ID != wantID {
+					t.Fatalf("targets = %v, error = %v", agents, err)
+				}
+			})
+		}
+	}
+}
+
+func TestWifiEHTFreshContextCancellationStopsComposition(t *testing.T) {
 	state, stream, cleanup := connectedShellStateWithStream(t)
 	defer cleanup()
-
-	agent, err := state.server.ResolveAgent("agent-a")
+	agent, err := selectedAgent(state)
 	if err != nil {
-		t.Fatalf("ResolveAgent() error = %v", err)
+		t.Fatal(err)
 	}
-
-	frameCh := make(chan *controlpb.ControllerFrame, 2)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	frames := make(chan *controlpb.ControllerFrame, 4)
 	go func() {
 		for frame := range stream.sent {
-			cmd := frame.GetRunCommand()
-			if cmd == nil {
-				continue
+			if frame.GetRunCommand() != nil || frame.GetCancelCommand() != nil {
+				frames <- frame
 			}
-			frameCh <- frame
-			switch {
-			case cmd.GetGetFreshWifiScan() != nil:
-				stream.recv <- &controlpb.AgentFrame{
-					CommandId: frame.GetCommandId(),
-					Body: &controlpb.AgentFrame_Result{Result: &controlpb.CommandResult{
-						Status:  controlpb.CommandResult_STATUS_FAILED,
-						Message: "fresh scan incomplete",
-						Payload: &controlpb.CommandResult_WifiScan{WifiScan: &controlpb.WifiScan{
-							Fields: []*controlpb.DiagnosticField{
-								{Key: "scan_result_count", Value: "1"},
-								{Key: "fresh_scan_elapsed_ms", Value: "123"},
-							},
-							Results: []*controlpb.WifiScanResult{{Ssid: "Lab", Bssid: "aa:bb:cc:dd:ee:ff", FrequencyMhz: 5975, RssiDbm: -45}},
-						}},
-					}},
-				}
-			case cmd.GetGetWifiDiagnostics() != nil:
-				stream.recv <- &controlpb.AgentFrame{
-					CommandId: frame.GetCommandId(),
-					Body: &controlpb.AgentFrame_Result{Result: &controlpb.CommandResult{
-						Status: controlpb.CommandResult_STATUS_OK,
-						Payload: &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{
-							Scan: &controlpb.WifiScan{Fields: []*controlpb.DiagnosticField{{Key: "scan_result_count", Value: "99"}}},
-						}},
-					}},
-				}
-				return
+			if frame.GetRunCommand().GetGetFreshWifiScan() != nil {
+				cancel()
 			}
 		}
 	}()
-
-	op, err := command.WifiEHTOperationWithOptions(command.WifiEHTOptions{Fresh: true, Timeout: "9000"})
+	op, err := command.WifiEHTOperationWithOptions(command.WifiEHTOptions{Fresh: true})
 	if err != nil {
-		t.Fatalf("WifiEHTOperationWithOptions() error = %v", err)
+		t.Fatal(err)
 	}
 	out, err := captureStdout(t, func() error {
-		return runOperationForAgents(
-			context.Background(),
-			state,
-			[]control.AgentInfo{agent},
-			op,
-			commandOutputOptions{},
-		)
+		return runOperationForAgents(ctx, state, []control.AgentInfo{agent}, op, commandOutputOptions{format: outputJSON, strict: true})
 	})
-	if err != nil {
-		t.Fatalf("runOperationForAgents() error = %v", err)
+	if err == nil || !strings.Contains(out, "context canceled") {
+		t.Fatalf("error = %v, output = %s", err, out)
 	}
+	first := receiveTestControllerFrame(t, frames)
+	second := receiveTestControllerFrame(t, frames)
+	if first.GetRunCommand().GetGetFreshWifiScan() == nil || second.GetCancelCommand() == nil || first.GetCommandId() != second.GetCommandId() || len(frames) != 0 {
+		t.Fatal("canceled scan did not stop diagnostics and send its cancel frame")
+	}
+}
 
-	first := receiveTestControllerFrame(t, frameCh)
-	if scan := first.GetRunCommand().GetGetFreshWifiScan(); scan == nil ||
-		scan.GetBand() != controlpb.WifiBand_WIFI_BAND_ALL ||
-		scan.GetTimeoutMs() != 9000 {
-		t.Fatalf("first command fresh scan = %#v", first.GetRunCommand())
-	}
-	second := receiveTestControllerFrame(t, frameCh)
-	if second.GetRunCommand().GetGetWifiDiagnostics() == nil {
-		t.Fatalf("second command = %#v, want wifi diagnostics", second.GetRunCommand())
-	}
-	for _, want := range []string{"EHT Scan", "source", "fresh", "fresh_scan_elapsed_ms", "123"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("runOperationForAgents output = %q, missing %q", out, want)
+func TestApplyWifiEHTFreshScanPreservesDiagnosticsFailureAndIsolation(t *testing.T) {
+	for _, scanStatus := range []controlpb.CommandResult_Status{controlpb.CommandResult_STATUS_FAILED, controlpb.CommandResult_STATUS_CANCELED} {
+		for _, diagStatus := range []controlpb.CommandResult_Status{controlpb.CommandResult_STATUS_FAILED, controlpb.CommandResult_STATUS_CANCELED} {
+			fresh, err := prepareWifiEHTFreshScanResult(&controlpb.CommandResult{
+				Status: scanStatus, Message: "fresh incomplete",
+				Payload: &controlpb.CommandResult_WifiScan{WifiScan: &controlpb.WifiScan{Results: []*controlpb.WifiScanResult{{Ssid: "reference"}}}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result := &controlpb.CommandResult{
+				Status:  diagStatus,
+				Payload: &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{}},
+			}
+			if err := applyWifiEHTFreshScan(result, fresh); err != nil {
+				t.Fatal(err)
+			}
+			if result.GetStatus() != diagStatus || !strings.Contains(result.Message, "wifi eht fresh scan: "+resultStatusLabel(scanStatus)) || !strings.Contains(result.Message, "wifi eht diagnostics: "+resultStatusLabel(diagStatus)) {
+				t.Fatalf("composite = %v", result)
+			}
+			result.GetWifiDiagnostics().Scan.Results[0].Ssid = "mutated"
+			if fresh.GetWifiScan().Results[0].Ssid != "reference" {
+				t.Fatal("composition aliased fresh scan payload")
+			}
+			if err := applyWifiEHTFreshScan(nil, fresh); err == nil {
+				t.Fatal("nil diagnostics accepted")
+			}
+			if err := applyWifiEHTFreshScan(result, &controlpb.CommandResult{}); err == nil {
+				t.Fatal("missing scan accepted")
+			}
 		}
 	}
-	if strings.Contains(out, "99") {
-		t.Fatalf("runOperationForAgents output used stale diagnostics scan: %q", out)
+}
+
+func TestWifiEHTFreshResultRejectsNilAndWrongPayload(t *testing.T) {
+	for _, result := range []*controlpb.CommandResult{
+		nil,
+		{Status: controlpb.CommandResult_STATUS_OK},
+		{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{}}},
+	} {
+		if got, err := prepareWifiEHTFreshScanResult(result); got != nil || err == nil {
+			t.Fatalf("invalid fresh result accepted: %v, error = %v", got, err)
+		}
+	}
+}
+
+func TestWifiEHTFreshScanUsesExistingBuilderTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		value  string
+		ms     uint32
+		budget time.Duration
+	}{{"", 10000, 15 * time.Second}, {"9000", 9000, 14 * time.Second}, {"12000", 12000, 17 * time.Second}} {
+		t.Run("timeout="+tc.value, func(t *testing.T) {
+			state, stream, cleanup := connectedShellStateWithStream(t)
+			defer cleanup()
+			agent, err := selectedAgent(state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			op, err := command.WifiEHTOperationWithOptions(command.WifiEHTOptions{Fresh: true, Timeout: tc.value})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, options := operationCommand(t, op)
+			expectedOp, err := command.WifiFreshScanOperation("all", tc.value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			expected, _ := operationCommand(t, expectedOp)
+			frames := make(chan *controlpb.ControllerFrame, 1)
+			go func() {
+				for frame := range stream.sent {
+					if frame.GetRunCommand() != nil {
+						frames <- frame
+						stream.recv <- &controlpb.AgentFrame{CommandId: frame.GetCommandId(), Body: &controlpb.AgentFrame_Result{Result: &controlpb.CommandResult{
+							Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_WifiScan{WifiScan: &controlpb.WifiScan{}},
+						}}}
+						return
+					}
+				}
+			}()
+			if _, err := runWifiEHTFreshScan(context.Background(), state, agent, options); err != nil {
+				t.Fatal(err)
+			}
+			actual := receiveTestControllerFrame(t, frames).GetRunCommand()
+			if !proto.Equal(actual.GetGetFreshWifiScan(), expected.GetGetFreshWifiScan()) || timeoutFor(actual) != timeoutFor(expected) || actual.GetGetFreshWifiScan().GetTimeoutMs() != tc.ms || timeoutFor(actual) != tc.budget {
+				t.Fatalf("EHT scan timeout differs from existing fresh-scan builder: %v vs %v", actual, expected)
+			}
+		})
+	}
+	if _, err := command.WifiEHTOperationWithOptions(command.WifiEHTOptions{Fresh: true, Timeout: "0"}); err == nil {
+		t.Fatal("zero timeout must retain the existing builder rejection")
+	}
+}
+
+func TestWifiEHTFreshDiagnosticsFailuresStayVisible(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		result *controlpb.CommandResult
+		want   string
+	}{
+		{"nil", nil, "empty response"},
+		{"OK wrong payload", &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{}}}, "without wifi diagnostics"},
+		{"failed", &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_FAILED, Message: "diagnostics failed", Payload: &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{}}}, "wifi eht diagnostics: FAILED"},
+		{"canceled blank message", &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_CANCELED, Payload: &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{}}}, "wifi eht diagnostics: CANCELED"},
+	} {
+		for _, format := range []outputFormat{outputText, outputJSON} {
+			t.Run(tc.name+"/"+string(format), func(t *testing.T) {
+				state, stream, cleanup := connectedShellStateWithStream(t)
+				defer cleanup()
+				state.adbPath = filepath.Join(t.TempDir(), "missing-adb")
+				agent, err := selectedAgent(state)
+				if err != nil {
+					t.Fatal(err)
+				}
+				go func() {
+					for frame := range stream.sent {
+						if frame.GetRunCommand() == nil {
+							continue
+						}
+						result := tc.result
+						if frame.GetRunCommand().GetGetFreshWifiScan() != nil {
+							result = &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_FAILED, Message: "fresh scan incomplete", Payload: &controlpb.CommandResult_WifiScan{WifiScan: &controlpb.WifiScan{}}}
+						}
+						stream.recv <- &controlpb.AgentFrame{CommandId: frame.GetCommandId(), Body: &controlpb.AgentFrame_Result{Result: result}}
+						if frame.GetRunCommand().GetGetWifiDiagnostics() != nil {
+							return
+						}
+					}
+				}()
+				op, err := command.WifiEHTOperationWithOptions(command.WifiEHTOptions{Fresh: true})
+				if err != nil {
+					t.Fatal(err)
+				}
+				out, err := captureStdout(t, func() error {
+					return runOperationForAgents(context.Background(), state, []control.AgentInfo{agent}, op, commandOutputOptions{format: format, strict: true})
+				})
+				if err == nil || !strings.Contains(out, tc.want) || !strings.Contains(out, "wifi eht fresh scan: FAILED: fresh scan incomplete") {
+					t.Fatalf("error = %v, output = %s", err, out)
+				}
+			})
+		}
+	}
+}
+
+func TestRunOperationForAgentsWifiEHTFreshResults(t *testing.T) {
+	scan := &controlpb.WifiScan{
+		Fields:  []*controlpb.DiagnosticField{{Key: "fresh_scan_elapsed_ms", Value: "123"}},
+		Results: []*controlpb.WifiScanResult{{Ssid: "Lab", Bssid: "aa:bb:cc:dd:ee:ff", WifiStandard: "802.11be"}},
+	}
+	for _, tc := range []struct {
+		name        string
+		status      controlpb.CommandResult_Status
+		payload     *controlpb.WifiScan
+		commandErr  string
+		empty       bool
+		diagnostics bool
+		want        string
+	}{
+		{"failed cached", controlpb.CommandResult_STATUS_FAILED, scan, "", false, true, "fresh scan incomplete"},
+		{"failed no payload", controlpb.CommandResult_STATUS_FAILED, nil, "", false, false, "fresh scan incomplete"},
+		{"canceled", controlpb.CommandResult_STATUS_CANCELED, scan, "", false, false, "CANCELED"},
+		{"transport", 0, nil, "scan transport failure", false, false, "scan transport failure"},
+		{"nil", 0, nil, "", true, false, "empty response"},
+		{"ok no payload", controlpb.CommandResult_STATUS_OK, nil, "", false, false, "without wifi scan"},
+		{"success", controlpb.CommandResult_STATUS_OK, scan, "", false, true, "fresh"},
+	} {
+		for _, format := range []outputFormat{outputText, outputJSON} {
+			t.Run(tc.name+"/"+string(format), func(t *testing.T) {
+				state, stream, cleanup := connectedShellStateWithStream(t)
+				defer cleanup()
+				state.adbPath = filepath.Join(t.TempDir(), "missing-adb")
+				agent, err := selectedAgent(state)
+				if err != nil {
+					t.Fatal(err)
+				}
+				frameCh := make(chan *controlpb.ControllerFrame, 4)
+				go func() {
+					for frame := range stream.sent {
+						cmd := frame.GetRunCommand()
+						if cmd == nil {
+							continue
+						}
+						frameCh <- frame
+						response := &controlpb.AgentFrame{CommandId: frame.GetCommandId()}
+						if cmd.GetGetFreshWifiScan() != nil {
+							result := &controlpb.CommandResult{Status: tc.status}
+							if tc.status != controlpb.CommandResult_STATUS_OK {
+								result.Message = "fresh scan incomplete"
+							}
+							if tc.payload != nil {
+								result.Payload = &controlpb.CommandResult_WifiScan{WifiScan: proto.Clone(tc.payload).(*controlpb.WifiScan)}
+							}
+							if tc.empty {
+								result = nil
+							}
+							response.Body = &controlpb.AgentFrame_Result{Result: result}
+							if tc.commandErr != "" {
+								response.Body = &controlpb.AgentFrame_Error{Error: &controlpb.CommandError{Message: tc.commandErr}}
+							}
+						} else {
+							response.Body = &controlpb.AgentFrame_Result{Result: &controlpb.CommandResult{
+								Status: controlpb.CommandResult_STATUS_OK,
+								Payload: &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{
+									Scan: &controlpb.WifiScan{Results: []*controlpb.WifiScanResult{{Ssid: "STALE"}}},
+								}},
+							}}
+						}
+						stream.recv <- response
+					}
+				}()
+				op, err := command.WifiEHTOperationWithOptions(command.WifiEHTOptions{Fresh: true, Timeout: "9000"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				out, err := captureStdout(t, func() error {
+					return runOperationForAgents(context.Background(), state, []control.AgentInfo{agent}, op, commandOutputOptions{format: format, strict: true})
+				})
+				if (err == nil) != (tc.name == "success") || !strings.Contains(strings.ToLower(out), strings.ToLower(tc.want)) {
+					t.Fatalf("error = %v, output = %q", err, out)
+				}
+				first := receiveTestControllerFrame(t, frameCh)
+				if fresh := first.GetRunCommand().GetGetFreshWifiScan(); fresh == nil || fresh.GetTimeoutMs() != 9000 || fresh.GetBand() != controlpb.WifiBand_WIFI_BAND_ALL {
+					t.Fatalf("fresh command = %v", first.GetRunCommand())
+				}
+				if tc.diagnostics {
+					if second := receiveTestControllerFrame(t, frameCh); second.GetRunCommand().GetGetWifiDiagnostics() == nil {
+						t.Fatalf("second command = %v", second.GetRunCommand())
+					}
+					for _, want := range []string{"123", "Lab"} {
+						if !strings.Contains(out, want) {
+							t.Fatalf("output missing %q: %s", want, out)
+						}
+					}
+				}
+				if len(frameCh) != 0 || strings.Contains(out, "STALE") {
+					t.Fatalf("unexpected follow-up or stale scan: %s", out)
+				}
+				if tc.name == "failed cached" && (!strings.Contains(out, "cached (refresh failed)") || !strings.Contains(out, "refresh not confirmed")) {
+					t.Fatalf("cached provenance missing: %s", out)
+				}
+				if format == outputJSON {
+					var body map[string]any
+					if err := json.Unmarshal([]byte(out), &body); err != nil {
+						t.Fatal(err)
+					}
+					if tc.name == "failed cached" && body["status"] != "STATUS_FAILED" || tc.name == "canceled" && body["status"] != "STATUS_CANCELED" {
+						t.Fatalf("JSON status = %v", body["status"])
+					}
+				}
+			})
+		}
 	}
 }
 

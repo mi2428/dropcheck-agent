@@ -198,7 +198,7 @@ class AgentWifiMloRendererTest {
             status,
             scan,
             AgentWifiMloContext(
-                scanSource = "fresh",
+                scanSource = "cached (refresh failed)",
                 sdkInt = 32,
                 wifi7Supported = false,
                 scanCommandStatus = "STATUS_FAILED",
@@ -217,6 +217,7 @@ class AgentWifiMloRendererTest {
             "scan_error=get_scan_results=SecurityException",
             "scan_command_status=STATUS_FAILED",
             "scan_command_message=fresh scan incomplete",
+            "cached (refresh failed)",
             "connected_mlo_present=false",
             "eht_scan_results=0",
         ).forEach { want ->

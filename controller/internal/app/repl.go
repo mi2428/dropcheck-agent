@@ -14,6 +14,7 @@ import (
 
 	"dropcheck/controller/internal/adb"
 	"dropcheck/controller/internal/adbdiag"
+	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
 	"github.com/chzyer/readline"
@@ -214,7 +215,7 @@ func (s *shellState) selectedAgentIfConnected() (control.AgentInfo, bool) {
 	if s.selected == "" || s.server == nil {
 		return control.AgentInfo{}, false
 	}
-	info, err := s.server.ResolveAgent(s.selected)
+	info, err := selectedAgent(s)
 	return info, err == nil
 }
 
@@ -299,12 +300,16 @@ func printLocalOutput(command shellCommand, render func(outputFormat) (string, e
 }
 
 func selectedAgent(state *shellState) (control.AgentInfo, error) {
-	if state.selected != "" {
-		if info, err := state.server.ResolveAgent(state.selected); err == nil {
-			return info, nil
-		}
-	}
 	agents := state.server.Agents()
+	if state.selected != "" {
+		// Selection is pinned to an ID, not a selector that may match a new peer.
+		for _, info := range agents {
+			if info.ID == state.selected {
+				return info, nil
+			}
+		}
+		return control.AgentInfo{}, fmt.Errorf("selected Android agent %q is not connected", state.selected)
+	}
 	switch len(agents) {
 	case 0:
 		return control.AgentInfo{}, errors.New("no Android agents connected")
@@ -314,7 +319,7 @@ func selectedAgent(state *shellState) (control.AgentInfo, error) {
 		state.setSelectedAgent(agents[0])
 		return agents[0], nil
 	default:
-		return control.AgentInfo{}, errors.New("no selected Android agent; restart shell with --target <agent|serial|number|all>")
+		return control.AgentInfo{}, errors.New("multiple Android agents connected; select --target <agent|serial|number> or deliberate broadcast (--all / --target all)")
 	}
 }
 
@@ -487,17 +492,21 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 		return err
 	}
 
-	var freshScan *controlpb.WifiScan
+	var freshScan *controlpb.CommandResult
 	if options.WifiEHTFreshScan {
 		freshScan, err = runWifiEHTFreshScan(ctx, state, agent, options)
 	}
 	var result *controlpb.CommandResult
-	if err == nil {
+	if err == nil && freshScan != nil && (freshScan.GetStatus() == controlpb.CommandResult_STATUS_CANCELED || freshScan.GetWifiScan() == nil) {
+		result = freshScan
+	} else if err == nil {
 		runCtx, cancel := context.WithTimeout(ctx, timeoutFor(cmd))
 		result, err = state.server.Run(runCtx, agent.ID, commandID, cmd)
 		cancel()
 		if err == nil {
-			applyWifiEHTFreshScan(result, freshScan)
+			err = applyWifiEHTFreshScan(result, freshScan)
+		} else if freshScan != nil && freshScan.GetStatus() != controlpb.CommandResult_STATUS_OK {
+			err = fmt.Errorf("%s; wifi eht diagnostics: %w", freshScan.GetMessage(), err)
 		}
 	}
 	supplements := commandResultSupplements{}
@@ -563,40 +572,76 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 	return nil
 }
 
-func runWifiEHTFreshScan(ctx context.Context, state *shellState, agent control.AgentInfo, options commandOptions) (*controlpb.WifiScan, error) {
+func runWifiEHTFreshScan(ctx context.Context, state *shellState, agent control.AgentInfo, options commandOptions) (*controlpb.CommandResult, error) {
 	commandID, err := control.RandomHex(8)
 	if err != nil {
 		return nil, err
 	}
-	cmd := &controlpb.RunCommand{
-		Label: "wifi eht fresh scan",
-		Command: &controlpb.RunCommand_GetFreshWifiScan{GetFreshWifiScan: &controlpb.GetFreshWifiScan{
-			Band:      controlpb.WifiBand_WIFI_BAND_ALL,
-			TimeoutMs: options.WifiEHTFreshScanTimeoutMs,
-		}},
+	op, err := command.WifiFreshScanOperation("all", strconv.FormatUint(uint64(options.WifiEHTFreshScanTimeoutMs), 10))
+	if err != nil {
+		return nil, err
 	}
+	cmd, _, err := buildRunCommand(op)
+	if err != nil {
+		return nil, err
+	}
+	cmd.Label = "wifi eht fresh scan"
 	runCtx, cancel := context.WithTimeout(ctx, timeoutFor(cmd))
 	result, err := state.server.Run(runCtx, agent.ID, commandID, cmd)
 	cancel()
 	if err != nil {
 		return nil, fmt.Errorf("wifi eht fresh scan: %w", err)
 	}
-	scan := result.GetWifiScan()
-	if scan == nil {
-		return nil, fmt.Errorf("wifi eht fresh scan: agent returned %s without wifi scan", resultPayloadLabel(result))
-	}
-	return scan, nil
+	return prepareWifiEHTFreshScanResult(result)
 }
 
-func applyWifiEHTFreshScan(result *controlpb.CommandResult, freshScan *controlpb.WifiScan) {
+func prepareWifiEHTFreshScanResult(result *controlpb.CommandResult) (*controlpb.CommandResult, error) {
+	if result == nil {
+		return nil, errors.New("wifi eht fresh scan: agent returned an empty result")
+	}
+	if result.GetWifiScan() == nil && (result.GetStatus() == controlpb.CommandResult_STATUS_OK || result.GetPayload() != nil) {
+		return nil, fmt.Errorf("wifi eht fresh scan: agent returned %s without wifi scan: %s: %s", resultPayloadLabel(result), resultStatusLabel(result.GetStatus()), result.GetMessage())
+	}
+	result = proto.Clone(result).(*controlpb.CommandResult)
+	if result.GetStatus() != controlpb.CommandResult_STATUS_OK {
+		result.Message = fmt.Sprintf("wifi eht fresh scan: %s: %s", resultStatusLabel(result.GetStatus()), result.GetMessage())
+		if result.GetWifiScan() != nil {
+			result.Message += "; scan data is reference; refresh not confirmed"
+		}
+	}
+	if scan := result.GetWifiScan(); scan != nil {
+		source := "fresh"
+		if result.GetStatus() != controlpb.CommandResult_STATUS_OK {
+			source = "cached (refresh failed)"
+		}
+		scan.Fields = append(scan.Fields, &controlpb.DiagnosticField{Key: "scan_source", Value: source})
+	}
+	return result, nil
+}
+
+func applyWifiEHTFreshScan(result *controlpb.CommandResult, freshScan *controlpb.CommandResult) error {
 	if freshScan == nil {
-		return
+		return nil
+	}
+	if freshScan.GetWifiScan() == nil {
+		return fmt.Errorf("wifi eht fresh scan: agent returned %s without wifi scan", resultPayloadLabel(freshScan))
 	}
 	diagnostics := result.GetWifiDiagnostics()
 	if diagnostics == nil {
-		return
+		return fmt.Errorf("wifi eht diagnostics: agent returned %s without wifi diagnostics: %s; %s", resultPayloadLabel(result), result.GetMessage(), freshScan.GetMessage())
 	}
-	diagnostics.Scan = proto.Clone(freshScan).(*controlpb.WifiScan)
+	diagnostics.Scan = proto.Clone(freshScan.GetWifiScan()).(*controlpb.WifiScan)
+	result.ElapsedMs += freshScan.GetElapsedMs()
+	if freshScan.GetStatus() != controlpb.CommandResult_STATUS_OK {
+		message := result.GetMessage()
+		if result.GetStatus() == controlpb.CommandResult_STATUS_OK {
+			result.Status = freshScan.GetStatus()
+		} else {
+			message = fmt.Sprintf("wifi eht diagnostics: %s: %s", resultStatusLabel(result.GetStatus()), message)
+		}
+		result.Message = strings.TrimSuffix(freshScan.GetMessage()+"; "+message, "; ")
+	}
+	return nil
 }
 
 func resultPayloadLabel(result *controlpb.CommandResult) string {

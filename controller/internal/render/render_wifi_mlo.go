@@ -335,6 +335,9 @@ func renderWifiMLOScanSummary(b *strings.Builder, scan *controlpb.WifiScan, cand
 }
 
 func wifiMLOScanSource(fields map[string]string) string {
+	if source := fields["scan_source"]; source != "" {
+		return source
+	}
 	for key := range fields {
 		if strings.HasPrefix(key, "fresh_scan_") {
 			return "fresh"
