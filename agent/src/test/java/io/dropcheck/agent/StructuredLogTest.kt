@@ -100,7 +100,7 @@ class StructuredLogTest {
     @Test
     fun commandFieldsDoNotExposeWifiPassphrases() {
         val command = RunCommand.newBuilder()
-            .setLabel("request wifi connect Lab passphrase super-secret")
+            .setLabel("wifi connect Lab passphrase super-secret")
             .setConnectWifi(ConnectWifi.newBuilder()
                 .setSsid("Lab")
                 .setPassphrase("super-secret")
@@ -110,7 +110,7 @@ class StructuredLogTest {
         val line = StructuredLog.format("command.received", command.logFields())
 
         assertFalse(line.contains("super-secret"))
-        assertTrue(line.contains("label=\"request wifi connect Lab passphrase <redacted>\""))
+        assertTrue(line.contains("label=\"wifi connect Lab passphrase <redacted>\""))
         assertTrue(line.contains("passphrase_present=true"))
         assertTrue(line.contains("passphrase_len=12"))
     }

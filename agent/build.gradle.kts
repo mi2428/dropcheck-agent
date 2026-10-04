@@ -28,6 +28,9 @@ android {
         buildConfig = true
     }
 
+    // Use the controller's canonical device-free command matrix for Shell parity.
+    sourceSets.getByName("test").resources.directories.add("../controller/integration/e2e/testdata")
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
