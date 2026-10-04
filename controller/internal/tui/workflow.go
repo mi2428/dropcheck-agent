@@ -101,43 +101,43 @@ type retainedRun struct {
 }
 
 type workflowModel struct {
-	ctx        context.Context
-	options    WorkflowOptions
-	lifetime   *workflowLifetime
-	phase      workflowPhase
-	path       string
-	loading    bool
-	compiled   *harness.CompiledPlan
-	source     *harness.CompiledPlan
-	selected   *harness.CompiledPlan
-	runner     harness.OperationRunner
-	selection  harness.Selection
-	group      int
-	cursor     int
-	count      string
-	countEdit  bool
-	loop       bool
-	message    string
-	width      int
-	height     int
-	active     *workflowRun
-	controls   *harness.Controls
-	dashboard  model
-	liveReport harness.Report
-	liveEvicted uint64
-	runs       []retainedRun
-	review     int
-	inspect    bool
-	stepCursor int
-	detail     bool
-	detailLine int
-	scroll     int
-	scope      harness.Scope
-	scopes     []harness.Scope
-	scopePick  bool
-	scopeIndex int
+	ctx           context.Context
+	options       WorkflowOptions
+	lifetime      *workflowLifetime
+	phase         workflowPhase
+	path          string
+	loading       bool
+	compiled      *harness.CompiledPlan
+	source        *harness.CompiledPlan
+	selected      *harness.CompiledPlan
+	runner        harness.OperationRunner
+	selection     harness.Selection
+	group         int
+	cursor        int
+	count         string
+	countEdit     bool
+	loop          bool
+	message       string
+	width         int
+	height        int
+	active        *workflowRun
+	controls      *harness.Controls
+	dashboard     model
+	liveReport    harness.Report
+	liveEvicted   uint64
+	runs          []retainedRun
+	review        int
+	inspect       bool
+	stepCursor    int
+	detail        bool
+	detailLine    int
+	scroll        int
+	scope         harness.Scope
+	scopes        []harness.Scope
+	scopePick     bool
+	scopeIndex    int
 	globalControl string
-	pauseAcks map[string]bool
+	pauseAcks     map[string]bool
 }
 
 func newWorkflow(ctx context.Context, options WorkflowOptions, lifetime *workflowLifetime) workflowModel {
@@ -184,7 +184,7 @@ func (m *workflowModel) preflight() error {
 	if m.compiled == nil || m.runner == nil {
 		return fmt.Errorf("load a validated Plan and select a connected agent")
 	}
-	if len(m.compiled.Preview().Checks) > 0 && len(m.selection.CheckIDs) == 0 {
+	if len(m.compiled.Preview().Checks) > 0 && len(m.selection.CheckIDs) == 0 && len(m.selection.Scopes) == 0 {
 		return fmt.Errorf("select at least one check")
 	}
 	selected, err := m.compiled.Select(m.selection)
@@ -238,16 +238,18 @@ func (m *workflowModel) start() tea.Cmd {
 }
 
 type workflowSink struct {
-	uiCtx context.Context
+	uiCtx  context.Context
 	events chan<- harness.Event
 }
 
-func (sink workflowSink) Emit(_ context.Context, event harness.Event) error {
+func (sink workflowSink) Emit(ctx context.Context, event harness.Event) error {
 	// Run cancellation must not drop its final results/cleanup events. An exited
 	// UI cancels this separate delivery context so a producer cannot deadlock.
 	select {
 	case sink.events <- event:
 		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	case <-sink.uiCtx.Done():
 		return sink.uiCtx.Err()
 	}
@@ -289,22 +291,36 @@ func (m workflowModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.liveReport.Steps = append(m.liveReport.Steps, *event.Report)
 			// ponytail: live inspector keeps 512 completed steps; canonical final
 			// Report/core reducer own long retention, not another UI evaluator.
-			if len(m.liveReport.Steps)>512 {m.liveReport.Steps=slices.Clone(m.liveReport.Steps[len(m.liveReport.Steps)-512:]);m.liveEvicted++}
+			if len(m.liveReport.Steps) > 512 {
+				m.liveReport.Steps = slices.Clone(m.liveReport.Steps[len(m.liveReport.Steps)-512:])
+				m.liveEvicted++
+			}
 		}
 		m.rememberScope(event.Scope)
 		if event.Scope.Kind == harness.ScopeRun {
 			switch event.Kind {
 			case harness.EventControlRequested:
 				m.globalControl = event.Status + " requested"
-				if event.Status == "pause" { clear(m.pauseAcks); m.globalControl = "pausing" }
+				if event.Status == "pause" {
+					clear(m.pauseAcks)
+					m.globalControl = "pausing"
+				}
 			case harness.EventControlApplied:
 				m.globalControl = event.Status
 			}
 		}
 		if event.Kind == harness.EventControlApplied && event.Scope.AgentID != "" {
-			if event.Status == "paused" { m.pauseAcks[event.Scope.AgentID] = true } else if event.Status == "running" { delete(m.pauseAcks, event.Scope.AgentID) }
-			if m.controls.Paused(harness.Scope{Kind: harness.ScopeRun}) && len(m.pauseAcks) == len(m.selected.Preview().Agents) { m.globalControl = "paused" }
-			if !m.controls.Paused(harness.Scope{Kind: harness.ScopeRun}) && len(m.pauseAcks) == 0 { m.globalControl = "running" }
+			if event.Status == "paused" {
+				m.pauseAcks[event.Scope.AgentID] = true
+			} else if event.Status == "running" {
+				delete(m.pauseAcks, event.Scope.AgentID)
+			}
+			if m.controls.Paused(harness.Scope{Kind: harness.ScopeRun}) && len(m.pauseAcks) == len(m.selected.Preview().Agents) {
+				m.globalControl = "paused"
+			}
+			if !m.controls.Paused(harness.Scope{Kind: harness.ScopeRun}) && len(m.pauseAcks) == 0 {
+				m.globalControl = "running"
+			}
 		}
 		return m, waitWorkflow(m.active)
 	case workflowFinished:
@@ -312,9 +328,9 @@ func (m workflowModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.runs = append(m.runs, retainedRun{msg.report, m.selected, m.dashboard})
-		m.review = len(m.runs)-1
+		m.review = len(m.runs) - 1
 		m.phase, m.active, m.scopePick = workflowReview, nil, false
-		m.stepCursor = min(m.stepCursor,max(0,len(msg.report.Steps)-1))
+		m.stepCursor = min(m.stepCursor, max(0, len(msg.report.Steps)-1))
 		if msg.err != nil {
 			m.message = msg.err.Error()
 		}
@@ -347,7 +363,9 @@ func (m workflowModel) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	if m.phase == workflowLoad {
-		if m.loading { return m, nil }
+		if m.loading {
+			return m, nil
+		}
 		switch stroke {
 		case "enter":
 			if m.options.Load == nil || strings.TrimSpace(m.path) == "" || m.loading {
@@ -483,13 +501,25 @@ func (m workflowModel) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.inspect {
 		switch stroke {
 		case "up", "k":
-			if m.detail { m.detailLine = max(0, m.detailLine-1) } else { m.stepCursor = max(0, m.stepCursor-1) }
+			if m.detail {
+				m.detailLine = max(0, m.detailLine-1)
+			} else {
+				m.stepCursor = max(0, m.stepCursor-1)
+			}
 		case "down", "j":
-			if m.detail { m.detailLine++ } else { m.stepCursor = min(max(0, len(m.currentReport().Steps)-1), m.stepCursor+1) }
+			if m.detail {
+				m.detailLine++
+			} else {
+				m.stepCursor = min(max(0, len(m.currentReport().Steps)-1), m.stepCursor+1)
+			}
 		case "enter":
 			m.detail, m.detailLine = true, 0
 		case "esc":
-			if m.detail { m.detail = false } else { m.inspect = false }
+			if m.detail {
+				m.detail = false
+			} else {
+				m.inspect = false
+			}
 		}
 		return m, nil
 	}
@@ -510,7 +540,9 @@ func (m workflowModel) dashboardKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *workflowModel) visibleDashboard() *model {
-	if m.phase == workflowReview && len(m.runs) > 0 { return &m.runs[m.review].dashboard }
+	if m.phase == workflowReview && len(m.runs) > 0 {
+		return &m.runs[m.review].dashboard
+	}
 	return &m.dashboard
 }
 
@@ -526,20 +558,34 @@ func (m *workflowModel) control(action string, scope harness.Scope) {
 			m.message = "GLOBAL pause is active; Ctrl-Z resumes GLOBAL, not the selected scope"
 			return
 		}
-		if m.controls.Paused(scope) { err = m.controls.Resume(scope) } else { err = m.controls.Pause(scope) }
+		if m.controls.Paused(scope) {
+			err = m.controls.Resume(scope)
+		} else {
+			err = m.controls.Pause(scope)
+		}
 	case "skip":
 		err = m.controls.Skip(scope)
 	case "cancel":
 		err = m.controls.Cancel(scope)
 	}
-	if err != nil { m.message = err.Error() } else { m.message = action+" requested for "+workflowScopeLabel(scope) }
+	if err != nil {
+		m.message = err.Error()
+	} else {
+		m.message = action + " requested for " + workflowScopeLabel(scope)
+	}
 }
 
 func (m *workflowModel) rememberScope(scope harness.Scope) {
-	if scope.AgentID == "" || scope.Kind == harness.ScopeRun || scope.Kind == "" { return }
+	if scope.AgentID == "" || scope.Kind == harness.ScopeRun || scope.Kind == "" {
+		return
+	}
 	for _, candidate := range []harness.Scope{{Kind: harness.ScopeAgent, AgentID: scope.AgentID}, {Kind: harness.ScopeTarget, AgentID: scope.AgentID, TargetID: scope.TargetID}, scope} {
-		if candidate.Kind == harness.ScopeTarget && candidate.TargetID == "" { continue }
-		if !slices.Contains(m.scopes, candidate) { m.scopes = append(m.scopes, candidate) }
+		if candidate.Kind == harness.ScopeTarget && candidate.TargetID == "" {
+			continue
+		}
+		if !slices.Contains(m.scopes, candidate) {
+			m.scopes = append(m.scopes, candidate)
+		}
 	}
 }
 
@@ -552,46 +598,45 @@ func (m *workflowModel) prepareRerun(failed bool) {
 			m.message = "i=inspect results; choose a target/check row, then r=preview selected rerun"
 			return
 		}
-		index := min(max(0,m.stepCursor),len(steps)-1)
-		steps = steps[index:index+1]
+		index := min(max(0, m.stepCursor), len(steps)-1)
+		steps = steps[index : index+1]
 	}
 	for _, step := range steps {
-		if failed && step.Outcome != harness.FailOutcome && step.Outcome != harness.MissingOutcome { continue }
-		if !slices.Contains(selection.AgentIDs, step.Scope.AgentID) { selection.AgentIDs = append(selection.AgentIDs, step.Scope.AgentID) }
-		if !slices.Contains(selection.TargetIDs, step.Scope.TargetID) { selection.TargetIDs = append(selection.TargetIDs, step.Scope.TargetID) }
-		if step.Scope.CheckID != "connect" && step.Scope.CheckID != "wait_connected" && !slices.Contains(selection.CheckIDs, step.Scope.CheckID) { selection.CheckIDs = append(selection.CheckIDs, step.Scope.CheckID) }
+		if failed && step.Outcome != harness.FailOutcome && step.Outcome != harness.MissingOutcome {
+			continue
+		}
+		scope := step.Scope
+		if scope.AgentID == "" || scope.TargetID == "" {
+			continue
+		}
+		if scope.CheckID == "connect" || scope.CheckID == "wait_connected" || scope.Kind == harness.ScopeTarget {
+			scope.Kind, scope.CheckID = harness.ScopeTarget, ""
+		} else {
+			scope.Kind = harness.ScopeCheck
+		}
+		if !slices.Contains(selection.Scopes, scope) {
+			selection.Scopes = append(selection.Scopes, scope)
+		}
 	}
-	if len(selection.TargetIDs) == 0 {
+	if len(selection.Scopes) == 0 {
 		m.message = "no failed/missing work selected"
 		return
 	}
 	selected, err := entry.compiled.Select(selection)
-	if err != nil { m.message = err.Error(); return }
-	if failed {
-		// Flat ID sets must not silently broaden heterogeneous failed scopes into
-		// a cross-product containing previously successful work. Prerequisites
-		// are restored by core, not reconstructed by this UI.
-		for _,target := range selected.Preview().Targets {
-			for _,agentID := range target.BoundAgentIDs {
-				for _,check := range target.Checks {
-					if check.Required { continue }
-					wanted := false
-					for _,step := range steps {
-						if (step.Outcome==harness.FailOutcome||step.Outcome==harness.MissingOutcome)&&step.Scope.AgentID==agentID&&step.Scope.TargetID==target.ID&&(step.Scope.CheckID==check.ID||step.Scope.CheckID=="connect"||step.Scope.CheckID=="wait_connected") {wanted=true;break}
-					}
-					if !wanted {m.message="failed scopes cannot be broadened to passed work; inspect a failed row and r to select its exact agent/target/check";return}
-				}
-			}
-		}
+	if err != nil {
+		m.message = err.Error()
+		return
 	}
-	m.compiled, m.selected, m.selection = selected, selected, selection
+	m.compiled, m.selected, m.selection = entry.compiled, selected, selection
 	m.phase, m.count, m.loop, m.message = workflowPreview, "1", false, "new run; prerequisites restored by core; agent binding retained"
 }
 
 func workflowEditInput(value string, key tea.KeyPressMsg) string {
 	if key.Keystroke() == "backspace" {
 		_, size := utf8.DecodeLastRuneInString(value)
-		if size > 0 { return value[:len(value)-size] }
+		if size > 0 {
+			return value[:len(value)-size]
+		}
 	}
 	if key.Text != "" && utf8.RuneCountInString(value)+utf8.RuneCountInString(key.Text) <= 4096 {
 		return value + sanitizeLogText(key.Text)

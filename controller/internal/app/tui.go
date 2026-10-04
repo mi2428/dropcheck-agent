@@ -40,33 +40,43 @@ func runTUIFiles(ctx context.Context, options shellOptions, args []string, input
 		cancel()
 		mu.Lock()
 		defer mu.Unlock()
-		if controlSession != nil { controlSession.Close() }
+		if controlSession != nil {
+			controlSession.Close()
+		}
 	}()
 	load := func(loadCtx context.Context, path string) (*harness.CompiledPlan, harness.OperationRunner, error) {
 		plan, err := watch.LoadFile(path)
 		if err != nil {
 			// YAML decode errors may echo malformed credential values. Keep the
 			// stage visible without returning unsafe parser text to the screen.
-			return nil,nil,fmt.Errorf("YAML Plan could not be loaded or validated; check its path, syntax and values (credential details withheld)")
+			return nil, nil, fmt.Errorf("YAML Plan could not be loaded or validated; check its path, syntax and values (credential details withheld)")
 		}
 		mu.Lock()
 		defer mu.Unlock()
-		if err := loadCtx.Err(); err != nil { return nil,nil,err }
+		if err := loadCtx.Err(); err != nil {
+			return nil, nil, err
+		}
 		if controlSession == nil {
 			controlSession, err = startControlSession(loadCtx, options)
-			if err != nil { return nil,nil,fmt.Errorf("agent metadata session could not start; check connection and authorization") }
+			if err != nil {
+				return nil, nil, fmt.Errorf("agent metadata session could not start; check connection and authorization")
+			}
 		}
 		compiled, err := harness.Compile(plan, controlSession.Server.Agents())
-		if err != nil { return nil,nil,err } // Core returns a credential-masked error.
-		return compiled,runner.New(controlSession.Server),nil
+		if err != nil {
+			return nil, nil, err
+		} // Core returns a credential-masked error.
+		return compiled, runner.New(controlSession.Server), nil
 	}
 	path := ""
-	if len(args) == 1 { path = args[0] }
-	return tui.RunWorkflow(uiCtx,tui.WorkflowOptions{Path:path,Load:load})
+	if len(args) == 1 {
+		path = args[0]
+	}
+	return tui.RunWorkflow(uiCtx, tui.WorkflowOptions{Path: path, Load: load})
 }
 
 func writeTUIHelp(w io.Writer) {
-	_,_ = fmt.Fprintln(w,`Usage: dropcheck [flags] tui [PLAN.yml]
+	_, _ = fmt.Fprintln(w, `Usage: dropcheck [flags] tui [PLAN.yml]
 
 Requires terminal input and output. Without a path, enter an existing YAML Plan
 inside the TUI. Loading validates the shared Plan and may establish an agent
