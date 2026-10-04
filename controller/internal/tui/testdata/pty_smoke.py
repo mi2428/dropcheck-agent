@@ -24,7 +24,9 @@ def main():
     parser.add_argument("binary")
     args = parser.parse_args()
     master, slave = pty.openpty()
-    original = termios.tcgetattr(slave)
+    # Darwin can return ENOTTY for the slave after its controlling session
+    # exits; the master retains the same PTY termios for the restoration check.
+    original = termios.tcgetattr(master)
 
     def resize(rows, columns):
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
@@ -94,10 +96,13 @@ def main():
         wait_for(b"Review 3/3")
         send(b"q")
         wait_for(b"--- PASS: TestWorkflowPTYChild")
-        assert process.wait(timeout=8) == 0, "PTY child failed its fake execution assertions"
-        # Drain the final renderer/test output after process exit, including the
-        # alternate-screen leave sequence. Never write captured bytes to disk.
-        while select.select([master], [], [], 0.1)[0]:
+        # Continue draining while the child exits; a full PTY buffer otherwise
+        # blocks its final write and makes wait() time out before it can exit.
+        deadline = time.monotonic() + 8
+        while process.poll() is None and time.monotonic() < deadline:
+            readable, _, _ = select.select([master], [], [], 0.1)
+            if not readable:
+                continue
             try:
                 data = os.read(master, 65536)
             except OSError as error:
@@ -107,12 +112,18 @@ def main():
             if not data:
                 break
             captured.extend(data)
-        assert termios.tcgetattr(slave) == original, "PTY termios was not restored"
+            if len(captured) > 1024 * 1024:
+                raise AssertionError("PTY output exceeded bounded smoke budget")
+        assert process.wait(timeout=1) == 0, "PTY child failed its fake execution assertions"
+        assert termios.tcgetattr(master) == original, "PTY termios was not restored"
         assert b"\x1b[?1049l" in captured or b"\x1b[?1047l" in captured, "alternate screen was not restored"
         print("PTY PASS: selection/preview, finite-review-rerun, loop-cancel-cleanup, resize, exit, termios+alternate-screen restoration")
     finally:
         if process.poll() is None:
-            os.killpg(process.pid, signal.SIGTERM)
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except (PermissionError, ProcessLookupError):
+                process.terminate()
             process.wait(timeout=5)
         os.close(master)
         os.close(slave)
