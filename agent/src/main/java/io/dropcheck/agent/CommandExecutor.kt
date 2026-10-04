@@ -82,13 +82,6 @@ class CommandExecutor(
             RunCommand.CommandCase.WGET -> networkChecks.download(command.wget)
             RunCommand.CommandCase.RESOLVE_DNS -> networkChecks.dns(command.resolveDns)
             RunCommand.CommandCase.HTTP_CHECK -> networkChecks.http(command.httpCheck)
-            RunCommand.CommandCase.EDIT_STANDALONE_CONFIG,
-            RunCommand.CommandCase.GET_STANDALONE_CONFIG,
-            RunCommand.CommandCase.GET_STANDALONE_STATUS,
-            RunCommand.CommandCase.LIST_STANDALONE_RUNS,
-            RunCommand.CommandCase.GET_STANDALONE_RUN,
-            RunCommand.CommandCase.CLEAR_STANDALONE_RUNS,
-            RunCommand.CommandCase.RUN_STANDALONE_ONCE -> unsupportedStandalone(command.commandCase)
             RunCommand.CommandCase.COMMAND_NOT_SET -> failed("command is not set")
         }
         val elapsedMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis()
@@ -100,10 +93,6 @@ class CommandExecutor(
             "executor_elapsed_ms" to elapsedMs,
         ) + timedResult.logFields())
         return timedResult
-    }
-
-    private fun unsupportedStandalone(commandCase: RunCommand.CommandCase): CommandResult {
-        return failed("legacy controller command is not supported by the Android agent (${commandCase.name})")
     }
 
     private fun wifiStatus(): CommandResult {

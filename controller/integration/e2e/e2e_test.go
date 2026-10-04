@@ -27,8 +27,8 @@
 // The case table is testdata/e2e_cases.tsv. The title column is included in Go
 // subtest names, for example E2E-001_shell_help, so verbose output remains readable.
 // Commands intentionally use placeholders such as <ssid>, <psk>, <serial>,
-// <bssid> and <sync-dir> so lab secrets and machine-local paths are
-// not committed. Shell commands prefixed with "request> " or "config> " are
+// and <bssid> so lab secrets are not committed.
+// Shell commands prefixed with "request> " or "config> " are
 // executed inside the corresponding interactive submode.
 package e2e
 
@@ -49,20 +49,11 @@ import (
 	"time"
 
 	commandparse "dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/controlpb"
 	f "dropcheck/controller/internal/harness"
-	"dropcheck/controller/internal/harness/capabilities"
 	"dropcheck/controller/internal/harness/dns"
-	"dropcheck/controller/internal/harness/globalip"
-	"dropcheck/controller/internal/harness/ip"
 	"dropcheck/controller/internal/harness/ping"
-	"dropcheck/controller/internal/harness/pmtu"
-	"dropcheck/controller/internal/harness/scan"
-	"dropcheck/controller/internal/harness/trace"
-	"dropcheck/controller/internal/harness/wifi"
 	"dropcheck/controller/internal/linuxcli"
 	"dropcheck/controller/internal/shell"
-	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -83,11 +74,9 @@ const (
 	defaultPkg    = "io.dropcheck.agent"
 	defaultPSKEnv = "DROPCHECK_E2E_WIFI_PSK"
 
-	standaloneDNSName  = "example.com"
-	standalonePingHost = "1.1.1.1"
-	standaloneHTTPURL  = "http://connectivitycheck.gstatic.com/generate_204"
-
-	harnessReplayChildEnv = "DROPCHECK_E2E_HARNESS_REPLAY_CHILD"
+	liveDNSName  = "example.com"
+	livePingHost = "1.1.1.1"
+	liveHTTPURL  = "http://connectivitycheck.gstatic.com/generate_204"
 )
 
 type matrixCase struct {
@@ -210,106 +199,29 @@ func TestHarnessLive(t *testing.T) {
 				WaitTimeout(30 * time.Second).
 				DisconnectAfter(false),
 		},
-		Checks: standaloneHarnessChecks(),
+		Checks: liveHarnessChecks(),
 	}, f.WithADBPath(cfg.adb), f.WithSerial(cfg.serial), f.WithPackageName(cfg.packageName))
 }
 
-func TestHarnessStandaloneResultReplayScenarios(t *testing.T) {
-	archive := standaloneReplayArchiveFixture()
-	f.Run(t, f.Plan{
-		Name: "standalone-replay-e2e-fixture",
-		Results: []f.ResultSource{
-			f.StandaloneArchive("full-standalone-archive", archive),
-			f.StandaloneArchiveBytes("full-standalone-archive-bytes", mustMarshalStandaloneArchive(t, archive)),
-		},
-		Checks: standaloneReplayChecks(),
-	})
-
-	for _, tc := range []struct {
-		name string
-		want string
-	}{
-		{name: "missing_wait", want: "wait_connected missing from standalone result"},
-		{name: "failed_connect", want: "connect status=STATUS_FAILED"},
-		{name: "missing_ping", want: "no archived ping step"},
-		{name: "repeat_exhausted", want: "no archived ping step"},
-		{name: "repeat_failed", want: "command status=STATUS_FAILED"},
-		{name: "retry_exhausted", want: "no archived ping step"},
-		{name: "stable_unsupported", want: "StableFor is unsupported for offline archive replay"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			runHarnessReplayFailureChild(t, tc.name, tc.want)
-		})
-	}
-}
-
-func TestHarnessStandaloneResultReplayFailureChild(t *testing.T) {
-	name := os.Getenv(harnessReplayChildEnv)
-	if name == "" {
-		t.Skipf("set %s to run a failing replay fixture child", harnessReplayChildEnv)
-	}
-	archive := standaloneReplayArchiveFixture()
-	checks := standaloneReplayChecks()
-	pingCheck := f.Ping(standalonePingHost).Count(1).Expect(ping.Received().Ge(1))
-	switch name {
-	case "missing_wait":
-		archive.Steps = removeStandaloneStep(archive.GetSteps(), "wait_connected")
-	case "failed_connect":
-		step := archive.GetSteps()[0]
-		step.Result = &controlpb.CommandResult{
-			Status:  controlpb.CommandResult_STATUS_FAILED,
-			Message: "forced connect failure",
-		}
-	case "missing_ping":
-		archive.Steps = removeStandaloneStep(archive.GetSteps(), "ping")
-	case "repeat_exhausted":
-		checks = []f.Check{pingCheck.Repeat(2)}
-	case "repeat_failed":
-		for _, step := range archive.Steps {
-			if step.GetStepName() == "ping" {
-				failed := proto.Clone(step).(*controlpb.StandaloneMeasurementStep)
-				failed.StepIndex = 100
-				failed.Result.Status = controlpb.CommandResult_STATUS_FAILED
-				archive.Steps = append(archive.Steps, failed)
-				break
-			}
-		}
-		checks = []f.Check{pingCheck.Repeat(2)}
-	case "retry_exhausted":
-		checks = []f.Check{f.Ping(standalonePingHost).Count(1).Retry(2, 0).Expect(ping.Received().Gt(1))}
-	case "stable_unsupported":
-		checks = []f.Check{pingCheck.StableFor(time.Nanosecond)}
-	default:
-		t.Fatalf("unknown replay failure fixture %q", name)
-	}
-	f.Run(t, f.Plan{
-		Name: "standalone-replay-failure-" + name,
-		Results: []f.ResultSource{
-			f.StandaloneArchive(name, archive),
-		},
-		Checks: checks,
-	})
-}
-
-func standaloneHarnessChecks() []f.Check {
+func liveHarnessChecks() []f.Check {
 	return []f.Check{
-		f.DNS(standaloneDNSName).
+		f.DNS(liveDNSName).
 			A().
 			Timeout(8*time.Second).
 			Expect(dns.AnswerCount().Ge(1), dns.Elapsed().Le(8*time.Second)),
-		f.Ping(standalonePingHost).
+		f.Ping(livePingHost).
 			Count(1).
 			Timeout(8 * time.Second).
 			Expect(ping.Assert("payload matches request", func(result ping.Result) error {
-				if result.Host != standalonePingHost {
-					return fmt.Errorf("host=%s want %s", result.Host, standalonePingHost)
+				if result.Host != livePingHost {
+					return fmt.Errorf("host=%s want %s", result.Host, livePingHost)
 				}
 				if result.Count != 1 {
 					return fmt.Errorf("count=%d want 1", result.Count)
 				}
 				return nil
 			})),
-		f.HTTP(standaloneHTTPURL).
+		f.HTTP(liveHTTPURL).
 			ExpectedStatus(204).
 			Timeout(10 * time.Second).
 			Expect(f.Assert("http matched", func(result f.Result) error {
@@ -323,364 +235,6 @@ func standaloneHarnessChecks() []f.Check {
 				return nil
 			})),
 	}
-}
-
-func standaloneReplayChecks() []f.Check {
-	checks := []f.Check{
-		f.IPStatus().
-			Expect(
-				ip.Validated().IsTrue(),
-				ip.Internet().IsTrue(),
-				ip.IPv4Address().InCIDR("192.168.10.0/24"),
-				ip.MTU().Ge(1280),
-			),
-		f.WiFiStatus().
-			Expect(
-				wifi.Enabled().IsTrue(),
-				wifi.SSID().Eq("Lab"),
-				wifi.BSSID().Eq("aa:bb:cc:dd:ee:ff"),
-				wifi.Standard().Eq("be"),
-				wifi.Band().Eq("6ghz"),
-			),
-		f.WiFiScan().
-			Fresh().
-			Band("6ghz").
-			Timeout(5 * time.Second).
-			Expect(
-				scan.APs().
-					SSID("Lab").
-					BSSID("aa:bb:cc:dd:ee:ff").
-					Standard("be").
-					Channel(37).
-					Security("wpa3_sae").
-					Exists(),
-			),
-		f.WiFiCapabilities().
-			Expect(
-				capabilities.Band("6ghz").Supported(),
-				capabilities.Standard("be").Supported(),
-				capabilities.Security("wpa3_sae").Supported(),
-				capabilities.ErrorCount().Eq(0),
-			),
-		f.GlobalIP().
-			IPv4().
-			Expect(globalip.AddressCount().Ge(1)),
-		f.PathMTU("8.8.8.8").
-			Min(1200).
-			Max(1500).
-			Expect(pmtu.Discovered().IsTrue(), pmtu.PathMTU().Ge(1200)),
-		f.Traceroute("8.8.8.8").
-			MaxHops(30).
-			Expect(trace.OutputContains("8.8.8.8")),
-	}
-	return append(checks, standaloneHarnessChecks()...)
-}
-
-func runHarnessReplayFailureChild(t *testing.T, name string, want string) {
-	t.Helper()
-	cmd := exec.Command(os.Args[0], "-test.run=^TestHarnessStandaloneResultReplayFailureChild$", "-test.v")
-	cmd.Env = append(os.Environ(), harnessReplayChildEnv+"="+name)
-	cmd.Dir = packageDir(t)
-	out, err := cmd.CombinedOutput()
-	if err == nil {
-		t.Fatalf("harness replay failure child %s unexpectedly passed:\n%s", name, out)
-	}
-	if !strings.Contains(string(out), want) {
-		t.Fatalf("harness replay failure child %s output missing %q:\n%s", name, want, out)
-	}
-}
-
-func mustMarshalStandaloneArchive(t *testing.T, archive *controlpb.StandaloneRunArchive) []byte {
-	t.Helper()
-	data, err := proto.Marshal(archive)
-	if err != nil {
-		t.Fatalf("marshal standalone archive fixture: %v", err)
-	}
-	return data
-}
-
-func removeStandaloneStep(steps []*controlpb.StandaloneMeasurementStep, name string) []*controlpb.StandaloneMeasurementStep {
-	filtered := make([]*controlpb.StandaloneMeasurementStep, 0, len(steps))
-	for _, step := range steps {
-		if step.GetStepName() != name {
-			filtered = append(filtered, step)
-		}
-	}
-	return filtered
-}
-
-func standaloneReplayArchiveFixture() *controlpb.StandaloneRunArchive {
-	const (
-		group = "lab"
-		ssid  = "Lab"
-	)
-	selector := &controlpb.NetworkSelector{Ssid: ssid}
-	steps := []*controlpb.StandaloneMeasurementStep{
-		standaloneReplayStep(1, group, 1, "connect", &controlpb.RunCommand{
-			Label: "standalone connect lab",
-			Command: &controlpb.RunCommand_ConnectWifi{ConnectWifi: &controlpb.ConnectWifi{
-				Ssid:       ssid,
-				Passphrase: "secret",
-				Security:   controlpb.ConnectWifi_SECURITY_WPA2_PSK,
-				Band:       controlpb.WifiBand_WIFI_BAND_5_GHZ,
-				TimeoutMs:  35000,
-			}},
-		}, &controlpb.CommandResult{
-			Status:  controlpb.CommandResult_STATUS_OK,
-			Message: "connected",
-			Payload: &controlpb.CommandResult_ConnectWifi{ConnectWifi: &controlpb.ConnectWifiResult{
-				Ssid:      ssid,
-				Connected: true,
-			}},
-		}),
-		standaloneReplayStep(1, group, 2, "wait_connected", &controlpb.RunCommand{
-			Label: "standalone wait lab",
-			Command: &controlpb.RunCommand_WaitWifiConnected{WaitWifiConnected: &controlpb.WaitWifiConnected{
-				Ssid:             ssid,
-				Security:         controlpb.ConnectWifi_SECURITY_WPA2_PSK,
-				Band:             controlpb.WifiBand_WIFI_BAND_5_GHZ,
-				RequireIp:        true,
-				RequireValidated: true,
-				TimeoutMs:        35000,
-			}},
-		}, &controlpb.CommandResult{
-			Status:  controlpb.CommandResult_STATUS_OK,
-			Message: "connected",
-			Payload: &controlpb.CommandResult_WifiAssert{WifiAssert: &controlpb.WifiAssertResult{
-				Passed: true,
-			}},
-		}),
-		standaloneReplayStep(1, group, 3, "ip", &controlpb.RunCommand{
-			Label:   "standalone ip status",
-			Command: &controlpb.RunCommand_GetIpStatus{GetIpStatus: &controlpb.GetIpStatus{Selector: selector}},
-		}, standaloneReplayResult("ip.status")),
-		standaloneReplayStep(1, group, 4, "wifi", &controlpb.RunCommand{
-			Label:   "standalone wifi status",
-			Command: &controlpb.RunCommand_GetWifiStatus{GetWifiStatus: &controlpb.GetWifiStatus{}},
-		}, standaloneReplayResult("wifi.status")),
-		standaloneReplayStep(1, group, 5, "wifi_scan", &controlpb.RunCommand{
-			Label: "standalone wifi scan fresh",
-			Command: &controlpb.RunCommand_GetFreshWifiScan{GetFreshWifiScan: &controlpb.GetFreshWifiScan{
-				Band:      controlpb.WifiBand_WIFI_BAND_6_GHZ,
-				TimeoutMs: 5000,
-			}},
-		}, standaloneReplayResult("wifi.scan.fresh")),
-		standaloneReplayStep(1, group, 6, "wifi_capabilities", &controlpb.RunCommand{
-			Label:   "standalone wifi capabilities",
-			Command: &controlpb.RunCommand_GetWifiCapabilities{GetWifiCapabilities: &controlpb.GetWifiCapabilities{}},
-		}, standaloneReplayResult("wifi.capabilities")),
-		standaloneReplayStep(1, group, 7, "global_ip", &controlpb.RunCommand{
-			Label: "standalone global-ip",
-			Command: &controlpb.RunCommand_GlobalIp{GlobalIp: &controlpb.GlobalIp{
-				Family:    controlpb.IpFamily_IP_FAMILY_IPV4,
-				TimeoutMs: 10000,
-				Selector:  selector,
-			}},
-		}, standaloneReplayResult("global-ip")),
-		standaloneReplayStep(1, group, 8, "path_mtu", &controlpb.RunCommand{
-			Label: "standalone path-mtu 8.8.8.8",
-			Command: &controlpb.RunCommand_PathMtu{PathMtu: &controlpb.PathMtu{
-				Host:        "8.8.8.8",
-				TimeoutMs:   20000,
-				Selector:    selector,
-				MinMtuBytes: 1200,
-				MaxMtuBytes: 1500,
-			}},
-		}, standaloneReplayResult("path-mtu")),
-		standaloneReplayStep(1, group, 9, "traceroute", &controlpb.RunCommand{
-			Label: "standalone traceroute 8.8.8.8",
-			Command: &controlpb.RunCommand_Traceroute{Traceroute: &controlpb.Traceroute{
-				Host:      "8.8.8.8",
-				MaxHops:   30,
-				TimeoutMs: 30000,
-				Selector:  selector,
-			}},
-		}, standaloneReplayResult("traceroute")),
-		standaloneReplayStep(1, group, 10, "dns", &controlpb.RunCommand{
-			Label: "standalone dns " + standaloneDNSName,
-			Command: &controlpb.RunCommand_ResolveDns{ResolveDns: &controlpb.ResolveDns{
-				Name:      standaloneDNSName,
-				Qtypes:    []controlpb.DnsRecordType{controlpb.DnsRecordType_DNS_RECORD_TYPE_A},
-				TimeoutMs: 8000,
-				Selector:  selector,
-			}},
-		}, standaloneReplayResult("dns")),
-		standaloneReplayStep(1, group, 11, "ping", &controlpb.RunCommand{
-			Label: "standalone ping " + standalonePingHost,
-			Command: &controlpb.RunCommand_Ping{Ping: &controlpb.Ping{
-				Host:      standalonePingHost,
-				Count:     1,
-				TimeoutMs: 8000,
-				Selector:  selector,
-			}},
-		}, standaloneReplayResult("ping")),
-		standaloneReplayStep(1, group, 12, "http", &controlpb.RunCommand{
-			Label: "standalone http " + standaloneHTTPURL,
-			Command: &controlpb.RunCommand_HttpCheck{HttpCheck: &controlpb.HttpCheck{
-				Url:            standaloneHTTPURL,
-				ExpectedStatus: 204,
-				TimeoutMs:      10000,
-				Selector:       selector,
-			}},
-		}, standaloneReplayResult("http")),
-	}
-	return &controlpb.StandaloneRunArchive{
-		Summary: &controlpb.StandaloneRunSummary{
-			RunId:           "replay-run-1",
-			FestaName:       "replay",
-			Status:          "ok",
-			WifiGroupCount:  1,
-			StepCount:       uint32(len(steps)),
-			FailedStepCount: 0,
-		},
-		Festa: &controlpb.StandaloneFesta{
-			Name: "replay",
-			WifiGroups: []*controlpb.StandaloneWifiGroup{{
-				Name:             group,
-				Essid:            ssid,
-				Passphrase:       "secret",
-				Security:         controlpb.ConnectWifi_SECURITY_WPA2_PSK,
-				Band:             controlpb.WifiBand_WIFI_BAND_5_GHZ,
-				RequireIp:        true,
-				RequireValidated: true,
-			}},
-		},
-		Steps: steps,
-		Device: &controlpb.DeviceInfo{
-			Manufacturer: "Dropcheck",
-			Model:        "Replay",
-		},
-	}
-}
-
-func standaloneReplayStep(groupIndex uint32, groupName string, stepIndex uint32, name string, command *controlpb.RunCommand, result *controlpb.CommandResult) *controlpb.StandaloneMeasurementStep {
-	return &controlpb.StandaloneMeasurementStep{
-		WifiGroupIndex: groupIndex,
-		WifiGroupName:  groupName,
-		StepIndex:      stepIndex,
-		StepName:       name,
-		Attempt:        1,
-		Command:        command,
-		Result:         result,
-	}
-}
-
-func standaloneReplayResult(name string) *controlpb.CommandResult {
-	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK}
-	switch name {
-	case "ip.status":
-		result.Payload = &controlpb.CommandResult_IpStatus{IpStatus: &controlpb.IpStatus{
-			NetworkId:         "100",
-			Transports:        []string{"wifi"},
-			Validated:         true,
-			Internet:          true,
-			InterfaceName:     "wlan0",
-			Mtu:               1500,
-			Addresses:         []string{"192.168.10.23/24", "fe80::123/64"},
-			DnsServers:        []string{"192.168.10.1"},
-			DhcpServer:        "192.168.10.1",
-			Routes:            []string{"0.0.0.0/0 -> 192.168.10.1 wlan0"},
-			Capabilities:      []string{"internet", "validated"},
-			RawLinkProperties: "LinkProperties{LinkAddresses: [192.168.10.23/24]}",
-		}}
-	case "wifi.status":
-		result.Payload = &controlpb.CommandResult_WifiStatus{WifiStatus: &controlpb.WifiStatus{
-			Enabled: true,
-			State:   "enabled",
-			Connection: &controlpb.WifiConnection{
-				Ssid:            "Lab",
-				Bssid:           "aa:bb:cc:dd:ee:ff",
-				RssiDbm:         -45,
-				FrequencyMhz:    6135,
-				LinkSpeedMbps:   2401,
-				TxLinkSpeedMbps: 2401,
-				RxLinkSpeedMbps: 2401,
-				WifiStandard:    "802.11be",
-				ChannelWidth:    "160MHz",
-				SecurityType:    "wpa3_sae",
-			},
-		}}
-	case "wifi.scan.fresh":
-		result.Payload = &controlpb.CommandResult_WifiScan{WifiScan: &controlpb.WifiScan{
-			Results: []*controlpb.WifiScanResult{{
-				Ssid:          "Lab",
-				Bssid:         "aa:bb:cc:dd:ee:ff",
-				Capabilities:  "[RSN-SAE-CCMP][EHT][ESS]",
-				RssiDbm:       -41,
-				FrequencyMhz:  6135,
-				Band:          "6GHz",
-				ChannelWidth:  "320MHz",
-				WifiStandard:  "802.11be",
-				SecurityTypes: []string{"wpa3_sae"},
-			}},
-		}}
-	case "wifi.capabilities":
-		result.Payload = &controlpb.CommandResult_WifiCapabilities{WifiCapabilities: &controlpb.WifiCapabilities{
-			SupportedBands:         []string{"2.4GHz", "5GHz", "6GHz"},
-			SupportedStandards:     []string{"802.11ax", "802.11be"},
-			SupportedSecurityModes: []string{"wpa3_sae"},
-		}}
-	case "global-ip":
-		result.Payload = &controlpb.CommandResult_GlobalIp{GlobalIp: &controlpb.GlobalIpResult{
-			RequestedFamily: controlpb.IpFamily_IP_FAMILY_IPV4,
-			ElapsedMs:       100,
-			Addresses: []*controlpb.GlobalIpAddress{{
-				Family: controlpb.IpFamily_IP_FAMILY_IPV4,
-				Ip:     "203.0.113.10",
-				Global: true,
-				Status: 200,
-			}},
-		}}
-	case "path-mtu":
-		result.Payload = &controlpb.CommandResult_PathMtu{PathMtu: &controlpb.PathMtuResult{
-			Host:         "8.8.8.8",
-			Discovered:   true,
-			PathMtuBytes: 1400,
-			Probes: []*controlpb.PathMtuProbe{{
-				MtuBytes: 1400,
-				Passed:   true,
-			}},
-		}}
-	case "traceroute":
-		result.Payload = &controlpb.CommandResult_Traceroute{Traceroute: &controlpb.TracerouteResult{
-			Host:      "8.8.8.8",
-			MaxHops:   30,
-			Output:    "1 192.0.2.1 1.0 ms\n2 8.8.8.8 5.0 ms\n",
-			ElapsedMs: 500,
-		}}
-	case "dns":
-		result.Payload = &controlpb.CommandResult_ResolveDns{ResolveDns: &controlpb.ResolveDnsResult{
-			Name:      standaloneDNSName,
-			ElapsedMs: 80,
-			Answers: []*controlpb.DnsAnswer{{
-				Type:    controlpb.DnsRecordType_DNS_RECORD_TYPE_A,
-				Address: "93.184.216.34",
-			}},
-		}}
-	case "ping":
-		result.Payload = &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{
-			Host:              standalonePingHost,
-			Count:             1,
-			Transmitted:       1,
-			Received:          1,
-			PacketLossPercent: 0,
-			MinMs:             10,
-			AvgMs:             20,
-			MaxMs:             30,
-			ElapsedMs:         80,
-		}}
-	case "http":
-		result.Payload = &controlpb.CommandResult_HttpCheck{HttpCheck: &controlpb.HttpCheckResult{
-			Url:            standaloneHTTPURL,
-			Status:         204,
-			ExpectedStatus: 204,
-			Matched:        true,
-			ElapsedMs:      100,
-		}}
-	default:
-		result.Message = name
-	}
-	return result
 }
 
 func loadCases(t *testing.T) []matrixCase {
@@ -993,7 +547,6 @@ func isShellErrorOutput(output string) bool {
 		strings.Contains(lower, "must ") ||
 		strings.Contains(lower, "specified twice") ||
 		strings.Contains(lower, "cannot ") ||
-		strings.Contains(lower, "outside uint32 millisecond range") ||
 		strings.Contains(lower, "error parsing regexp") ||
 		strings.Contains(lower, "unsupported ") ||
 		strings.Contains(lower, "unexpected ") ||
@@ -1547,7 +1100,7 @@ func TestE2ECaseTableParsesShellAndCLIExpectations(t *testing.T) {
 }
 
 func TestE2EFailureClassifiers(t *testing.T) {
-	configFailure := "Status: failed  Message: festa enabled must be true or false"
+	configFailure := "Status: failed  Message: wifi ssid is required"
 	if !isFailureStatusOutput(configFailure) {
 		t.Fatalf("config failure status was not detected")
 	}
@@ -1568,9 +1121,6 @@ func TestE2EFailureClassifiers(t *testing.T) {
 	}
 	if !isShellErrorOutput("match regex: error parsing regexp: missing closing ]: `[`") {
 		t.Fatalf("regexp parse errors must count as shell errors")
-	}
-	if !isShellErrorOutput("retention_ms is outside uint32 millisecond range") {
-		t.Fatalf("retention range validation must count as a shell error")
 	}
 }
 

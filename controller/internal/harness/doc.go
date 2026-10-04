@@ -5,15 +5,8 @@
 // DNS, global IP, path MTU, and traceroute, then evaluates metric matchers and
 // custom assertions against the raw agent result.
 //
-// Plans can also evaluate saved standalone measurements by setting Results to
-// StandaloneArchive, StandaloneArchiveBytes, or StandaloneArchiveFile sources.
-// In that mode Run does not start an Android session; it replays archived
-// command results through the same Check and Expect matcher path used by live
-// Networks.
-// Offline Repeat and Retry consume matching observations once per target in
-// step_index, attempt order (archive order breaks ties), including failed results.
-// Checks share that consumption state; insufficient observations fail the check.
-// StableFor is rejected offline: replay elapsed time is not measurement time.
+// WithRunner injects an operation runner for device-free tests or callers that
+// already manage a live session. Retry, Repeat, and StableFor take new measurements.
 //
 // Run integrates the plan with testing.T so callers get Go subtests, -run
 // filtering, -json output, t.Cleanup, and standard failure reporting.

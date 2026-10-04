@@ -123,15 +123,9 @@ internal fun formatAgentShellToken(value: String): String {
 
 internal class AgentShellUseDefaultsStore(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    private val legacyPrefs = context.applicationContext.getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
 
     fun load(): AgentShellUseDefaults {
-        val passphrase = when {
-            prefs.contains(KEY_DEFAULT_PASSPHRASE) -> prefs.getString(KEY_DEFAULT_PASSPHRASE, "").orEmpty()
-            legacyPrefs.contains(KEY_DEFAULT_PASSPHRASE) -> legacyPrefs.getString(KEY_DEFAULT_PASSPHRASE, "").orEmpty()
-            else -> ""
-        }
-        return AgentShellUseDefaults(defaultPassphrase = passphrase)
+        return AgentShellUseDefaults(defaultPassphrase = prefs.getString(KEY_DEFAULT_PASSPHRASE, "").orEmpty())
     }
 
     fun setDefaultPassphrase(passphrase: String) {
@@ -142,12 +136,10 @@ internal class AgentShellUseDefaultsStore(context: Context) {
                 putString(KEY_DEFAULT_PASSPHRASE, passphrase)
             }
         }.apply()
-        legacyPrefs.edit().remove(KEY_DEFAULT_PASSPHRASE).apply()
     }
 
     private companion object {
         const val PREFS_NAME = "agent-shell-use-defaults"
-        const val LEGACY_PREFS_NAME = "standalone-use-defaults"
         const val KEY_DEFAULT_PASSPHRASE = "default_passphrase"
     }
 }
