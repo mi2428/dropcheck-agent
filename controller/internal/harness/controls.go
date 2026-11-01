@@ -90,6 +90,17 @@ func (c *Controls) Resume(scope Scope) error { return c.request("resume", scope)
 func (c *Controls) Skip(scope Scope) error   { return c.request("skip", scope) }
 func (c *Controls) Cancel(scope Scope) error { return c.request("cancel", scope) }
 
+// HasScope reports whether the compiled run accepts a control for this exact scope.
+func (c *Controls) HasScope(scope Scope) bool {
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, ok := c.valid[scope.key()]
+	return ok
+}
+
 func (c *Controls) request(action string, scope Scope) error {
 	if c == nil {
 		return fmt.Errorf("controls are nil")

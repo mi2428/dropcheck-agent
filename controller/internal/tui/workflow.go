@@ -112,6 +112,7 @@ type workflowModel struct {
 	compiled      *harness.CompiledPlan
 	source        *harness.CompiledPlan
 	selected      *harness.CompiledPlan
+	rerunReview   bool
 	runner        harness.OperationRunner
 	selection     harness.Selection
 	group         int
@@ -155,6 +156,7 @@ func newWorkflow(ctx context.Context, options WorkflowOptions, lifetime *workflo
 
 func (m *workflowModel) setCompiled(compiled *harness.CompiledPlan, runner harness.OperationRunner) {
 	m.compiled, m.source, m.runner, m.selected = compiled, compiled, runner, nil
+	m.rerunReview = false
 	m.selection = harness.Selection{}
 	view := compiled.Preview()
 	for _, agent := range view.Agents {
@@ -224,6 +226,7 @@ func (m *workflowModel) start() tea.Cmd {
 	m.scope, m.scopes, m.scopePick = harness.Scope{}, nil, false
 	m.inspect, m.detail, m.message, m.globalControl = false, false, "", "running"
 	m.phase = workflowRunning
+	m.rerunReview = false
 	m.liveReport = harness.Report{State: "running"}
 	m.liveEvicted = 0
 	view := m.selected.Preview()
@@ -439,7 +442,11 @@ func (m workflowModel) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			cmd := m.start()
 			return m, cmd
 		case "esc":
-			m.phase = workflowSelect
+			if m.rerunReview {
+				m.phase, m.rerunReview = workflowReview, false
+			} else {
+				m.phase = workflowSelect
+			}
 		case "up", "k":
 			m.scroll = max(0, m.scroll-1)
 		case "down", "j":
@@ -597,7 +604,7 @@ func (m *workflowModel) rememberScope(scope harness.Scope) {
 		if candidate.Kind == harness.ScopeTarget && candidate.TargetID == "" {
 			continue
 		}
-		if !slices.Contains(m.scopes, candidate) {
+		if m.controls.HasScope(candidate) && !slices.Contains(m.scopes, candidate) {
 			m.scopes = append(m.scopes, candidate)
 		}
 	}
@@ -657,6 +664,7 @@ func (m *workflowModel) prepareRerun(failed bool) {
 		return
 	}
 	m.compiled, m.selected, m.selection = entry.compiled, selected, selection
+	m.rerunReview = true
 	m.phase, m.count, m.loop, m.message = workflowPreview, "1", false, "new run; prerequisites restored by core; agent binding retained"
 }
 

@@ -113,6 +113,13 @@ internal object NetworkCheckPolicy {
         }
     }
 
+    /** Native child processes must receive a selected-Network IP literal, never resolve on the process default. */
+    fun probeDestination(host: String, family: IpFamily, resolved: List<InetAddress>): String? {
+        val literal = parseIpLiteral(host)
+        if (literal != null && !addressMatchesFamily(literal, family)) return null
+        return resolved.firstOrNull { addressMatchesFamily(it, family) }?.hostAddress
+    }
+
     /**
      * Picks the most specific ping binding target for the selected network.
      *
@@ -299,7 +306,12 @@ internal object NetworkCheckPolicy {
 
     fun parseIpLiteral(value: String): InetAddress? {
         val trimmed = value.trim()
-        if (trimmed.isBlank() || !trimmed.all { it.isDigit() || it == '.' || it == ':' || it.lowercaseChar() in 'a'..'f' }) {
+        val octets = trimmed.split('.')
+        val numericV4 = octets.size == 4 && octets.all { part ->
+            part.length in 1..3 && part.all(Char::isDigit) && (part.toIntOrNull() ?: 256) <= 255
+        }
+        val numericV6 = trimmed.contains(':') && trimmed.all { it.isDigit() || it == '.' || it == ':' || it.lowercaseChar() in 'a'..'f' }
+        if (!numericV4 && !numericV6) {
             return null
         }
         return runCatching { InetAddress.getByName(trimmed) }.getOrNull()

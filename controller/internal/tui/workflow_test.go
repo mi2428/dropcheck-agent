@@ -138,6 +138,10 @@ func TestWorkflowFailedRerunDoesNotBroadenAgentCheckPairs(t *testing.T) {
 	if m.phase != workflowPreview || len(m.selection.Scopes) != 2 {
 		t.Fatalf("exact failed rerun not previewed: phase=%s message=%s selection=%+v", m.phase, m.message, m.selection)
 	}
+	back := workflowKey(t, m, tea.Key{Code: tea.KeyEscape})
+	if back.phase != workflowReview || back.review != 0 || len(back.runs) != 1 {
+		t.Fatalf("canceling rerun preview lost retained review: phase=%s review=%d", back.phase, back.review)
+	}
 	if err := m.preflight(); err != nil {
 		t.Fatal(err)
 	}
@@ -157,6 +161,24 @@ func TestWorkflowFailedRerunDoesNotBroadenAgentCheckPairs(t *testing.T) {
 		if !slices.Contains(operations, required) {
 			t.Fatalf("failed rerun omitted %q: %v", required, operations)
 		}
+	}
+}
+
+func TestWorkflowNarrowSelectionKeepsWrappedRowVisible(t *testing.T) {
+	m := workflowFixture(t, workflowPlan(), &workflowFake{}, workflowAgents())
+	m.width, m.height = 18, 6
+	m.group, m.cursor = 0, 1
+	if frame := m.renderWorkflow(); !strings.Contains(frame, "> [x] Synthetic") || !strings.Contains(frame, "[agent-b]") {
+		t.Fatalf("selected wrapped agent row hidden: %q", frame)
+	}
+	m.phase = workflowReview
+	m.runs = []retainedRun{{report: harness.Report{Steps: []harness.StepReport{
+		{Scope: harness.Scope{Kind: harness.ScopeCheck, AgentID: "agent-a", TargetID: "target/0", CheckID: "check/0"}, Name: strings.Repeat("long ", 12)},
+		{Scope: harness.Scope{Kind: harness.ScopeCheck, AgentID: "agent-b", TargetID: "target/0", CheckID: "check/0"}, Name: "last"},
+	}}}}
+	m.inspect, m.stepCursor = true, 1
+	if frame := m.renderWorkflow(); !strings.Contains(frame, "> round=0") {
+		t.Fatalf("selected wrapped result row hidden: %q", frame)
 	}
 }
 
@@ -491,6 +513,11 @@ func TestWorkflowScopedPauseReachesCoreBoundaryAndResumes(t *testing.T) {
 	m = workflowKey(t, m, tea.Key{Code: tea.KeyEnter})
 	scope := harness.Scope{Kind: harness.ScopeTarget, AgentID: "agent-a", TargetID: "target/0"}
 	pumpWorkflow(t, &m, func(m workflowModel) bool { return slices.Contains(m.scopes, scope) })
+	invalid := harness.Scope{Kind: harness.ScopeCheck, AgentID: "agent-a", TargetID: "preflight", CheckID: "capabilities"}
+	m.rememberScope(invalid)
+	if slices.Contains(m.scopes, invalid) || slices.Contains(m.scopes, harness.Scope{Kind: harness.ScopeTarget, AgentID: "agent-a", TargetID: "preflight"}) {
+		t.Fatal("scope picker exposed a scope rejected by compiled controls")
+	}
 	select {
 	case <-fake.started:
 	case <-time.After(5 * time.Second):

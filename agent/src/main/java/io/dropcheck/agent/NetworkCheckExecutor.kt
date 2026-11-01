@@ -1016,6 +1016,8 @@ class NetworkCheckExecutor(
 
     /** Builds traceroute argv for the first installed implementation that supports the applet. */
     private fun tracerouteArgs(host: String, maxHops: Int, sizeBytes: Int, iface: String): List<String>? {
+        // Unlike ping -I, traceroute has no source-address binding on these binaries.
+        if (iface.isBlank()) return null
         val candidates = listOf(
             listOf("/system/bin/traceroute") to true,
             listOf("/system/xbin/traceroute") to true,
@@ -1074,17 +1076,9 @@ class NetworkCheckExecutor(
             }
             resolvedAddresses
         }
-        if (literal != null && requested != null && !NetworkCheckPolicy.addressMatchesFamily(literal, requested)) {
-            logger.warn("probe family mismatch host=$host requested=${requested.name} literal=${literal.hostAddress}")
-        }
-        if (requested != null && resolved.isNotEmpty() && resolved.none { NetworkCheckPolicy.addressMatchesFamily(it, requested) }) {
-            logger.warn("probe target missing requested family host=$host requested=${requested.name} resolved=${resolved.joinToString(",") { it.hostAddress.orEmpty() }}")
-        }
         val family = requested ?: NetworkCheckPolicy.probeFamily(host, sourceAddresses, resolved)
-        val destination = resolved.firstOrNull { NetworkCheckPolicy.addressMatchesFamily(it, family) }
-            ?.hostAddress
-            .orEmpty()
-            .ifBlank { host }
+        val destination = NetworkCheckPolicy.probeDestination(host, family, resolved)
+            ?: error("probe target unavailable on selected Network for ${family.name}")
         logger.debug("probe target resolved host=$host requested_family=${requestedFamily.name} family=${family.name} destination=$destination resolved=${resolved.joinToString(",") { it.hostAddress.orEmpty() }}")
         logger.debugEvent("network.probe.resolve", listOf(
             "host" to host,
@@ -1117,7 +1111,7 @@ class NetworkCheckExecutor(
         }
         val waitMs = timeoutMs.coerceAtMost(PROBE_SOURCE_ADDRESS_WAIT_MS)
         if (waitMs <= 0) {
-            return ip
+            error("$probe source address unavailable on selected Network for ${family.name}")
         }
         val started = System.nanoTime()
         var attempts = 0
@@ -1137,8 +1131,7 @@ class NetworkCheckExecutor(
                 return ip
             }
         }
-        logger.warn("source address unavailable probe=$probe family=${family.name} iface=${ip.interfaceName.ifBlank { "default" }} addresses=${ip.addressesList.joinToString(",")} wait_ms=$waitMs; using interface bind")
-        return ip
+        error("$probe source address unavailable on selected Network for ${family.name}")
     }
 
     /**

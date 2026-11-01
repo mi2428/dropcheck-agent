@@ -105,6 +105,16 @@ class WifiExpectationEvaluatorTest {
     }
 
     @Test
+    fun wifiInfoAddressCannotReplaceMissingSelectedNetworkLinkProperties() {
+        val status = WifiStatus.newBuilder()
+            .setConnection(WifiConnection.newBuilder().setSsid("Lab").setIpv4Address("192.0.2.10"))
+            .build()
+        val result = WifiExpectationEvaluator.evaluate(status, WifiExpectation(ssid = "Lab", requireIp = true), 0)
+        assertFalse(result.passed)
+        assertFalse(result.checksList.single { it.key == "ip" }.passed)
+    }
+
+    @Test
     fun classifiesWifiBandsByFrequency() {
         assertTrue(frequencyMatchesWifiBand(2412, WifiBand.WIFI_BAND_2_4_GHZ))
         assertFalse(frequencyMatchesWifiBand(2412, WifiBand.WIFI_BAND_5_GHZ))
