@@ -52,6 +52,9 @@ func TestConfiguredLabUsesExistingNetworkAndStopsAfterFailedPrerequisite(t *test
 	if preview.Targets[0].Connect != nil || preview.Targets[0].Wait != nil || *preview.Targets[0].DisconnectAfter || *preview.Targets[0].ForgetAfter || len(preview.Targets[0].Checks) != 5 {
 		t.Fatalf("lab owns Wi-Fi or lacks checks: %+v", preview.Targets[0])
 	}
+	if checks := preview.Targets[0].Checks; !strings.Contains(checks[1].Traffic, "family=ipv4") || !strings.Contains(checks[2].Traffic, "selected Network configured resolver") || !strings.Contains(checks[2].Traffic, "DNS_RECORD_TYPE_A") || !strings.Contains(checks[3].Traffic, "expected status=204") || checks[3].Destination != config.HTTP {
+		t.Fatalf("configured family/resolver/status/destination absent from preview: %+v", checks)
+	}
 	for _, tc := range []struct {
 		name    string
 		failAt  int

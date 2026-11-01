@@ -355,14 +355,16 @@ func stepInfo(s compiledStep) CheckInfo {
 		switch cmd := s.operation.Command.Command.(type) {
 		case *controlpb.RunCommand_Ping:
 			info.Destination, info.Traffic = cmd.Ping.Host, fmt.Sprintf("%d ICMP packets per attempt", cmd.Ping.Count)
+			info.Traffic += "; family=" + strings.ToLower(strings.TrimPrefix(cmd.Ping.Family.String(), "IP_FAMILY_"))
 		case *controlpb.RunCommand_Traceroute:
 			info.Destination, info.Traffic = cmd.Traceroute.Host, fmt.Sprintf("up to %d hops per attempt", cmd.Traceroute.MaxHops)
 		case *controlpb.RunCommand_PathMtu:
 			info.Destination, info.Traffic = cmd.PathMtu.Host, "multiple MTU probes per attempt"
 		case *controlpb.RunCommand_ResolveDns:
-			info.Destination, info.Traffic = cmd.ResolveDns.Name, "DNS query per attempt"
+			info.Destination = cmd.ResolveDns.Name
+			info.Traffic = fmt.Sprintf("%d DNS qtype request(s) per attempt via selected Network configured resolver: %v", len(cmd.ResolveDns.Qtypes), cmd.ResolveDns.Qtypes)
 		case *controlpb.RunCommand_HttpCheck:
-			info.Destination, info.Traffic = cmd.HttpCheck.Url, "HTTP request per attempt"
+			info.Destination, info.Traffic = cmd.HttpCheck.Url, fmt.Sprintf("HTTP request per attempt; expected status=%d; redirects disabled", cmd.HttpCheck.ExpectedStatus)
 		case *controlpb.RunCommand_Wget:
 			info.Destination, info.Traffic = cmd.Wget.Url, "HTTP download per attempt; response bytes not bounded by Plan"
 		case *controlpb.RunCommand_CycleWifi:

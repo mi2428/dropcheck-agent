@@ -228,11 +228,13 @@ R5CT12345# exit
 
 Scalar options use `key value`; `fresh`, `brief`, `mlo`, and `detail` are switches. `mlo` scan requires `brief`; `timeout` on scan/EHT requires `fresh`. `require-ip`, `require-validated`, and `forget-after-each` require explicit `true` or `false`. `traceroute via ADDRESS` may repeat and is checked against typed hops, including in one-shot exit status. Probe family `auto` selects one family, whereas `global-ip family all` checks both; `dns record ALL` requests A+AAAA. Explicit numeric values must be positive and at most 2147483647 (with smaller per-operation limits); omitted options retain Go builder defaults. Wi-Fi passphrases must be 8–63 UTF-8 bytes or 64 hexadecimal digits. Quoting preserves literal SSIDs, hostnames and URLs, including keyword-like names and `|` inside quotes.
 
-#### Named checks: read-only first release
+#### Named checks: observed and configured active
 
-`check link ssid "Example Lab" [family ipv4|ipv6|all]` inspects an **existing** physical Wi-Fi Network. Omitting family means IPv4; `all` checks both families using the same two observations. Both must report the same Network/interface, the requested case-sensitive SSID, and an address, default route and DNS server for each requested family. Android's `validated` flag is observation only, not a passed internet probe. `link` never connects, disconnects, forgets a network or contacts an external endpoint. A requested `bssid` is rejected before device access: the current SSID-only selector cannot guarantee BSSID or uninterrupted Network pinning. A detected wrong/unknown Network is MISSING, not a pass. This does **not** prove that no transient roam occurred between observations.
+`check link ssid "Example Lab" [family ipv4|ipv6|all]` inspects an **existing** physical Wi-Fi Network. Omitting family means IPv4; PC `all` checks both families using the same two observations (Android Shell accepts ipv4/ipv6 only). Both must report the same Network/interface, the requested case-sensitive SSID, and an address, default route and DNS server for each requested family. Android's `validated` flag is observation only, not a passed internet probe. `link` never connects, disconnects, forgets a network or contacts an external endpoint. A requested `bssid` is rejected before device access: the current SSID-only selector cannot guarantee BSSID or uninterrupted Network pinning. A detected wrong/unknown Network is MISSING, not a pass. This does **not** prove that no transient roam occurred between observations.
 
-`use` is connect-only; on PC it needs an explicit passphrase for that invocation, and no PC default PSK is stored. Android retains its private default with explicit `clear default passphrase`. Bare `check` lists candidates without executing; `show checks` lists supported and unsupported profiles and costs; `show check last [detail]` reads the in-process historical report without re-running it or granting current readiness. One-shot PC processes do not share Shell report or connection context. `lab`, `internet`, `eht`, strict BSSID pinning, and Go-only callbacks on Android remain explicitly unsupported until their endpoint/portability/continuity contracts are implemented; they do not fall back to a public service or run a partial check.
+Configured `lab` is available on PC and Android Shell with the same operation order: `check lab ssid "Example Lab" family ipv4 gateway 192.0.2.1 dns lab.example.test resolver selected http https://lab.example.test/health expected-status 204 timeout 5000`. Supply **your own approved endpoints**; no defaults or public fallback exist. An existing physical Wi-Fi is observed before and after three gateway ICMP packets, one A (or AAAA for ipv6) query through the selected Network's configured resolver, and one HTTP request. Failed required stages stop later probes. The URL must have no userinfo, query or fragment; redirects are disabled. No Wi-Fi configuration is changed. HTTP hostname address family and uninterrupted roaming are **not** pinned or proven.
+
+`use` is connect-only; on PC it needs an explicit passphrase for that invocation, and no PC default PSK is stored. Android retains its private default with explicit `clear default passphrase`. Bare `check` lists candidates without executing; `show checks` lists profiles and costs; `show check last [detail]` reads the in-process historical report without re-running it or granting current readiness. One-shot PC processes do not share Shell report or connection context. Unconfigured `lab`, `internet`, `eht`, strict BSSID pinning, and Go-only callbacks on Android do not fall back to a public service or run a partial check.
 
 ### Android Agent and Agent Shell
 
@@ -331,6 +333,11 @@ For an existing connection, set `observe: true` on a target and use only
 `wifi_status` or `ip_status` checks. Observed targets never connect, disconnect,
 forget, or send active probes; connection and cleanup options are rejected before
 execution. This does not prove that no roam occurred between observations.
+To **explicitly** authorize traffic on that existing connection, also set
+`active_probes: true` and supply every probe host, DNS name or URL. Missing
+destinations and the fixed global-IP endpoint are rejected; Wi-Fi configuration
+still cannot be changed. Unlike configured `lab`, generic active YAML does not
+implicitly add the two Network identity snapshots.
 
 ```console
 $ controller/dist/dropcheck --serial R5CT12345 watch -c examples/watch.yml --jsonl watch.jsonl
