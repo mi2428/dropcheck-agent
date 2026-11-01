@@ -63,6 +63,37 @@ func TestYAMLObservedWiFiExecutesOnlyReadOnlyStatus(t *testing.T) {
 	}
 }
 
+func TestYAMLActiveObservationRequiresExplicitConsentAndDestination(t *testing.T) {
+	for _, input := range []string{
+		"targets: [{ssid: Lab, active_probes: true}]\nchecks: [{type: ping, host: 192.0.2.1}]\n",
+		"targets: [{ssid: Lab, observe: true, active_probes: true}]\nchecks: [{type: ping}]\n",
+		"targets: [{ssid: Lab, observe: true, active_probes: true}]\nchecks: [{type: http}]\n",
+		"targets: [{ssid: Lab, observe: true, active_probes: true}]\nchecks: [{type: global_ip}]\n",
+		"targets: [{ssid: Lab, observe: true, active_probes: true, disconnect_after: true}]\nchecks: [{type: ping, host: 192.0.2.1}]\n",
+	} {
+		if _, err := Parse([]byte(input)); err == nil {
+			t.Fatalf("unsafe active observation accepted: %s", input)
+		}
+	}
+	plan, err := Parse([]byte("targets: [{ssid: Lab, observe: true, active_probes: true}]\nchecks: [{type: ping, host: 192.0.2.1}]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := harness.Compile(plan, []control.AgentInfo{{ID: "a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview := p.Preview().Targets[0]
+	if preview.Connect != nil || preview.Wait != nil || *preview.DisconnectAfter || *preview.ForgetAfter || preview.Checks[0].Destination != "192.0.2.1" {
+		t.Fatalf("active existing Wi-Fi preview hides mutation or destination: %+v", preview)
+	}
+	r := &parityRunner{}
+	_, _ = harness.Execute(context.Background(), p, r, harness.ExecuteOptions{Rounds: 1})
+	if len(r.operations) != 1 || r.operations[0].Name != "ping" || r.operations[0].Command.GetPing().GetSelector().GetSsid() != "Lab" {
+		t.Fatalf("active observation dispatched outside selected Wi-Fi: %+v", r.operations)
+	}
+}
+
 func TestLegacyYAMLExternalDefaultsAreExplicitInPreview(t *testing.T) {
 	plan, err := Parse([]byte(`targets: [{ssid: Lab}]
 checks:

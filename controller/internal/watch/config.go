@@ -43,6 +43,7 @@ type TargetDefaults struct {
 type Target struct {
 	Name             string            `yaml:"name"`
 	Observe          bool              `yaml:"observe"`
+	ActiveProbes     bool              `yaml:"active_probes"`
 	ShortName        string            `yaml:"short_name"`
 	Agent            string            `yaml:"agent"`
 	SSID             string            `yaml:"ssid"`
@@ -140,6 +141,9 @@ func (cfg Config) Plan() (harness.Plan, error) {
 		if target.Observe && (target.Passphrase != "" || target.PassphraseEnv != "" || target.BSSID != "" || target.Band != "" || target.Security != "" || target.MacRandomization != "" || target.MacRotation != "" || target.ConnectTimeout.Duration != 0 || target.WaitTimeout.Duration != 0 || target.RequireIP != nil || target.RequireValidated != nil || target.DisconnectAfter != nil || target.ForgetAfter != nil || target.WaitConnected != nil) {
 			return harness.Plan{}, fmt.Errorf("targets[%d]: observed Wi-Fi cannot specify connection or cleanup options", i)
 		}
+		if target.ActiveProbes && !target.Observe {
+			return harness.Plan{}, fmt.Errorf("targets[%d]: active_probes requires observe: true", i)
+		}
 		if err := normalizeTargetMacRotation(&target, i); err != nil {
 			return harness.Plan{}, err
 		}
@@ -155,7 +159,12 @@ func (cfg Config) Plan() (harness.Plan, error) {
 		target = resolvedTarget
 		var network harness.Network
 		if target.Observe {
-			network = harness.ObservedWiFi(target.DisplayName()).SSID(target.SSID).Agent(target.Agent).ShortName(target.ShortName)
+			if target.ActiveProbes {
+				network = harness.ActiveObservedWiFi(target.DisplayName())
+			} else {
+				network = harness.ObservedWiFi(target.DisplayName())
+			}
+			network = network.SSID(target.SSID).Agent(target.Agent).ShortName(target.ShortName)
 		} else {
 			network = harness.WiFi(target.DisplayName()).SSID(target.SSID).BSSID(target.BSSID).Band(target.Band).Security(target.Security).MacRandomization(target.MacRandomization).
 				ConnectTimeout(target.ConnectTimeout.Duration).WaitTimeout(target.WaitTimeout.Duration).RequireIP(target.requireIP()).RequireValidated(target.requireValidated()).
@@ -178,6 +187,24 @@ func (cfg Config) Plan() (harness.Plan, error) {
 			resolved, resolveErr := resolveCheckForTarget(check, target)
 			if resolveErr != nil {
 				return harness.Plan{}, fmt.Errorf("target %d check %d: %w", i, j, resolveErr)
+			}
+			if target.ActiveProbes {
+				switch resolved.Type {
+				case "ping", "traceroute", "path_mtu":
+					if resolved.Host == "" {
+						return harness.Plan{}, fmt.Errorf("target %d check %d: active probe requires explicit host", i, j)
+					}
+				case "dns":
+					if resolved.Query == "" && resolved.Host == "" {
+						return harness.Plan{}, fmt.Errorf("target %d check %d: active probe requires explicit DNS name", i, j)
+					}
+				case "http", "download":
+					if resolved.URL == "" {
+						return harness.Plan{}, fmt.Errorf("target %d check %d: active probe requires explicit URL", i, j)
+					}
+				case "global_ip":
+					return harness.Plan{}, fmt.Errorf("target %d check %d: fixed global-IP endpoint not authorized for active observation", i, j)
+				}
 			}
 			id := fmt.Sprintf("check/%d", j)
 			if j >= len(cfg.Checks) {
