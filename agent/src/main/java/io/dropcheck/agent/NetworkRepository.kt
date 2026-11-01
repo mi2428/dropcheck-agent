@@ -134,13 +134,16 @@ class NetworkRepository(
      * the first Wi-Fi network Android reports.
      */
     @SuppressLint("MissingPermission")
-    fun wifiStatus(): WifiStatus {
+    fun wifiStatus(selector: NetworkSelector? = null): WifiStatus {
         val active = connectivity.activeNetwork
         val wifiNetworks = connectivity.allNetworks.filter { network ->
             val caps = connectivity.getNetworkCapabilities(network) ?: return@filter false
             caps.isPhysicalWifiNetwork()
         }
-        val selected = wifiNetworks.firstOrNull { it == active } ?: wifiNetworks.firstOrNull()
+        // An explicit SSID must never fall back to the default or another Wi-Fi.
+        val selected = selectedStatusNetwork(selector?.ssid?.isNotEmpty() == true,
+            selector?.takeIf { it.ssid.isNotEmpty() }?.let(::selectNetwork),
+            wifiNetworks.firstOrNull { it == active } ?: wifiNetworks.firstOrNull())
         logger.debug("wifiStatus active=${active ?: "none"} wifi_networks=${wifiNetworks.size} selected=${selected ?: "none"} manager_enabled=${wifi.isWifiEnabled} manager_state=${wifiStateName(wifi.wifiState)}")
         wifiNetworks.forEachIndexed { index, network ->
             logger.debug("wifiStatus wifi_candidate[$index] network=$network ${describeNetwork(network)}")
@@ -863,3 +866,6 @@ class NetworkRepository(
         return "${error.javaClass.simpleName}:${error.message.orEmpty()}"
     }
 }
+
+/** Never replace an explicitly selected, missing Network with the default. */
+internal fun <T> selectedStatusNetwork(explicit: Boolean, matched: T?, fallback: T?): T? = if (explicit) matched else fallback

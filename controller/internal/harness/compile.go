@@ -162,8 +162,13 @@ func compilePlan(plan Plan, agents []control.AgentInfo, bind bool) (*CompiledPla
 			if compileErr != nil {
 				return nil, fmt.Errorf("target %d check %d: %s", i, j, p.redact(compileErr.Error()))
 			}
-			if network.readOnly && (compiled.gateway != nil || compiled.operation.Command.GetGetWifiStatus() == nil && compiled.operation.Command.GetGetIpStatus() == nil) {
+			if network.readOnly && !network.activeProbes && (compiled.gateway != nil || compiled.operation.Command.GetGetWifiStatus() == nil && compiled.operation.Command.GetGetIpStatus() == nil) {
 				return nil, fmt.Errorf("target %d check %d: read-only target supports Wi-Fi/IP status observations only", i, j)
+			}
+			if network.activeProbes {
+				if compiled.gateway != nil || !activeObservationCommand(compiled.operation.Command) {
+					return nil, fmt.Errorf("target %d check %d: active observation permits probes/status only; no Wi-Fi mutation or wait", i, j)
+				}
 			}
 			if compiled.gateway == nil {
 				compiled.operation, err = bindSelector(compiled.operation, network.ssid)
@@ -189,6 +194,23 @@ func compilePlan(plan Plan, agents []control.AgentInfo, bind bool) (*CompiledPla
 		p.targets = append(p.targets, target)
 	}
 	return p, nil
+}
+
+func activeObservationCommand(cmd *controlpb.RunCommand) bool {
+	if cmd == nil {
+		return false
+	}
+	switch cmd.Command.(type) {
+	case *controlpb.RunCommand_GetWifiStatus, *controlpb.RunCommand_GetIpStatus,
+		*controlpb.RunCommand_GetWifiDiagnostics, *controlpb.RunCommand_GetWifiScan,
+		*controlpb.RunCommand_GetWifiCapabilities, *controlpb.RunCommand_GetFreshWifiScan,
+		*controlpb.RunCommand_GetWifiScanDetail, *controlpb.RunCommand_Ping,
+		*controlpb.RunCommand_ResolveDns, *controlpb.RunCommand_HttpCheck,
+		*controlpb.RunCommand_Traceroute, *controlpb.RunCommand_PathMtu,
+		*controlpb.RunCommand_GlobalIp, *controlpb.RunCommand_Wget:
+		return true
+	}
+	return false
 }
 
 func compileStep(s step, id, typeName string) (compiledStep, error) {
@@ -343,6 +365,21 @@ func stepInfo(s compiledStep) CheckInfo {
 			info.Destination, info.Traffic = cmd.HttpCheck.Url, "HTTP request per attempt"
 		case *controlpb.RunCommand_Wget:
 			info.Destination, info.Traffic = cmd.Wget.Url, "HTTP download per attempt; response bytes not bounded by Plan"
+		case *controlpb.RunCommand_CycleWifi:
+			cycles := max(uint32(1), cmd.CycleWifi.GetCount())
+			cleanup := "disconnect"
+			if cmd.CycleWifi.ForgetAfterEach {
+				cleanup = "forget"
+			}
+			info.Traffic = fmt.Sprintf("%d connect/wait/%s cycles per attempt", cycles, cleanup)
+			if cmd.CycleWifi.PingHost != "" {
+				info.Destination = cmd.CycleWifi.PingHost
+				info.Traffic += "; up to " + fmt.Sprint(cycles*3) + " ICMP packets"
+			}
+			if cmd.CycleWifi.HttpUrl != "" {
+				info.Destination = strings.TrimSpace(info.Destination + " " + cmd.CycleWifi.HttpUrl)
+				info.Traffic += fmt.Sprintf("; up to %d HTTP requests", cycles)
+			}
 		case *controlpb.RunCommand_GlobalIp:
 			info.Destination, info.Traffic = "http://ifconfig.me/ip", "HTTP request per selected address family per attempt"
 		}

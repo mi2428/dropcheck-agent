@@ -100,6 +100,8 @@ type retainedRun struct {
 	dashboard model
 }
 
+const maxRetainedRuns = 8
+
 type workflowModel struct {
 	ctx           context.Context
 	options       WorkflowOptions
@@ -126,6 +128,7 @@ type workflowModel struct {
 	liveReport    harness.Report
 	liveEvicted   uint64
 	runs          []retainedRun
+	runEvictions  uint64
 	review        int
 	inspect       bool
 	stepCursor    int
@@ -196,6 +199,11 @@ func (m *workflowModel) preflight() error {
 		if err != nil || count == 0 {
 			return fmt.Errorf("round count must be a positive integer")
 		}
+		if _, err := selected.Cost(count, false); err != nil {
+			return err
+		}
+	} else if _, err := selected.Cost(0, true); err != nil {
+		return err
 	}
 	m.selected = selected
 	return nil
@@ -328,6 +336,12 @@ func (m workflowModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.runs = append(m.runs, retainedRun{msg.report, m.selected, m.dashboard})
+		if len(m.runs) > maxRetainedRuns {
+			m.runs[0] = retainedRun{}
+			m.runs = m.runs[1:]
+			m.runEvictions++
+			m.message = "oldest whole-run report evicted (retention limit: 8)"
+		}
 		m.review = len(m.runs) - 1
 		m.phase, m.active, m.scopePick = workflowReview, nil, false
 		m.stepCursor = min(m.stepCursor, max(0, len(msg.report.Steps)-1))
@@ -606,10 +620,25 @@ func (m *workflowModel) prepareRerun(failed bool) {
 			continue
 		}
 		scope := step.Scope
-		if scope.AgentID == "" || scope.TargetID == "" {
+		if scope.AgentID == "" {
 			continue
 		}
-		if scope.CheckID == "connect" || scope.CheckID == "wait_connected" || scope.Kind == harness.ScopeTarget {
+		if scope.TargetID == "preflight" && scope.CheckID == "capabilities" {
+			for _, target := range entry.compiled.Preview().Targets {
+				if len(target.CapabilityPreflight) == 0 || !slices.Contains(target.BoundAgentIDs, scope.AgentID) {
+					continue
+				}
+				candidate := harness.Scope{Kind: harness.ScopeTarget, AgentID: scope.AgentID, TargetID: target.ID}
+				if !slices.Contains(selection.Scopes, candidate) {
+					selection.Scopes = append(selection.Scopes, candidate)
+				}
+			}
+			continue
+		}
+		if scope.TargetID == "" {
+			continue
+		}
+		if scope.CheckID == "connect" || scope.CheckID == "wait_connected" || strings.HasPrefix(scope.CheckID, "rotation/") || scope.Kind == harness.ScopeTarget {
 			scope.Kind, scope.CheckID = harness.ScopeTarget, ""
 		} else {
 			scope.Kind = harness.ScopeCheck

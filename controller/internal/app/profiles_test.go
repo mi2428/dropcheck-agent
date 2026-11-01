@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -39,6 +40,63 @@ func linkResult(ssid, network, family string) *controlpb.CommandResult {
 	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK}
 	result.Payload = &controlpb.CommandResult_IpStatus{IpStatus: ip}
 	return result
+}
+
+func TestConfiguredLabUsesExistingNetworkAndStopsAfterFailedPrerequisite(t *testing.T) {
+	config := command.LabConfig{Gateway: "192.0.2.1", DNS: "lab.example.test", Resolver: "selected", HTTP: "https://lab.example.test/health", ExpectedStatus: 204, TimeoutMs: 5000}
+	compiled, err := harness.Compile(labPlan("Lab", "ipv4", config), []control.AgentInfo{{ID: "agent-a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview := compiled.Preview()
+	if preview.Targets[0].Connect != nil || preview.Targets[0].Wait != nil || *preview.Targets[0].DisconnectAfter || *preview.Targets[0].ForgetAfter || len(preview.Targets[0].Checks) != 5 {
+		t.Fatalf("lab owns Wi-Fi or lacks checks: %+v", preview.Targets[0])
+	}
+	for _, tc := range []struct {
+		name    string
+		failAt  int
+		want    []string
+		outcome harness.Outcome
+	}{
+		{"pass", 0, []string{"ip.status", "ping", "dns", "http", "ip.status"}, harness.OutcomePass},
+		{"lost-before-probe", 1, []string{"ip.status"}, harness.MissingOutcome},
+		{"dns-failure", 3, []string{"ip.status", "ping", "dns"}, harness.FailOutcome},
+		{"http-wrong-status", 4, []string{"ip.status", "ping", "dns", "http"}, harness.FailOutcome},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &linkRunner{change: func(op command.Operation, n int) *controlpb.CommandResult {
+				cmd := op.Command
+				if cmd.GetPing() != nil && (cmd.GetPing().GetSelector().GetSsid() != "Lab" || cmd.GetPing().GetHost() != config.Gateway || cmd.GetPing().GetCount() != 3) || cmd.GetResolveDns() != nil && (cmd.GetResolveDns().GetSelector().GetSsid() != "Lab" || cmd.GetResolveDns().GetName() != config.DNS || len(cmd.GetResolveDns().GetQtypes()) != 1) || cmd.GetHttpCheck() != nil && (cmd.GetHttpCheck().GetSelector().GetSsid() != "Lab" || cmd.GetHttpCheck().GetUrl() != config.HTTP || cmd.GetHttpCheck().GetExpectedStatus() != 204) {
+					t.Error("lab command does not match configured selected-network contract")
+				}
+				switch op.Name {
+				case "ip.status":
+					result := linkResult("Lab", "101", "ipv4")
+					if n == tc.failAt {
+						result.GetIpStatus().NetworkId = ""
+					}
+					return result
+				case "ping":
+					v := uint32(1)
+					return &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{Received: &v}}}
+				case "dns":
+					answers := []*controlpb.DnsAnswer{{Type: controlpb.DnsRecordType_DNS_RECORD_TYPE_A, Address: "192.0.2.5"}}
+					if n == tc.failAt {
+						answers = nil
+					}
+					return &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_ResolveDns{ResolveDns: &controlpb.ResolveDnsResult{Answers: answers}}}
+				case "http":
+					return &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_HttpCheck{HttpCheck: &controlpb.HttpCheckResult{Status: 204, Matched: n != tc.failAt}}}
+				}
+				t.Fatalf("unexpected %s", op.Name)
+				return nil
+			}}
+			report, err := harness.Execute(context.Background(), compiled, r, harness.ExecuteOptions{Rounds: 1})
+			if err != nil || report.Outcome != tc.outcome || !slices.Equal(r.operations, tc.want) {
+				t.Fatalf("ops=%v outcome=%s err=%v want=%v/%s", r.operations, report.Outcome, err, tc.want, tc.outcome)
+			}
+		})
+	}
 }
 
 func TestLinkExistingWiFiReadOnlyAndRevalidation(t *testing.T) {

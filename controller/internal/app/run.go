@@ -118,6 +118,7 @@ func writeTopLevelHelp(w io.Writer) {
 		}
 	}
 	_, _ = fmt.Fprintln(w, "  check link: family defaults to ipv4; ipv6/all available; BSSID pinning unsupported; no external traffic or Wi-Fi changes")
+	_, _ = fmt.Fprintln(w, "  check lab ssid SSID family ipv4|ipv6 gateway IP dns NAME resolver selected http URL expected-status STATUS timeout MS: configured active probes on existing Wi-Fi; no Wi-Fi changes")
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, `Notes:
   Top-level flags accept either single or double dash, for example -serial or --serial.

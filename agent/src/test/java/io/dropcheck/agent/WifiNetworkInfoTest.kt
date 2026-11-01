@@ -10,6 +10,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WifiNetworkInfoTest {
+    @Test fun requestedStatusNetworkNeverFallsBack() {
+        assertNull(selectedStatusNetwork(true, null as String?, "cellular"))
+        assertEquals("selected", selectedStatusNetwork(true, "selected", "other"))
+        assertEquals("default", selectedStatusNetwork(false, null as String?, "default"))
+    }
     @Test
     fun allNetworkIdentityCallersUseAssociationInsteadOfGlobalSnapshot() {
         val sourceDir = listOf(File("src/main/java/io/dropcheck/agent"),

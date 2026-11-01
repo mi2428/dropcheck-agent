@@ -254,7 +254,7 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 			return renderProfileReport(state, format, command.detail)
 		})
 	case shellProfile:
-		err := state.runCheck(ctx, command.profileName, command.ssid, command.family, command.bssid, command.rejection, command.pipeline.format(), command.pipeline, false)
+		err := state.runCheck(ctx, command.profileName, command.ssid, command.family, command.bssid, command.rejection, command.pipeline.format(), command.pipeline, false, command.lab)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 		}

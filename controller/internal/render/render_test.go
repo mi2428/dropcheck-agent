@@ -1649,6 +1649,17 @@ func TestRenderWifiMLOHidesPlaceholderConnectionAndCapsNearbyTable(t *testing.T)
 	}
 }
 
+func TestAdvertisedEHTLinkIsNotAnAssociatedLink(t *testing.T) {
+	ie := detailedEHTMultiLinkTestIE()
+	if ids := wifiMLOLinkIDsFromElements([]*controlpb.WifiInformationElement{ie}); len(ids) == 0 {
+		t.Fatalf("fixture needs an advertised link, got %v", ids)
+	}
+	connection := &controlpb.WifiConnection{InformationElements: []*controlpb.WifiInformationElement{ie}}
+	if got := wifiMLOAssociatedLinkIDSet(connection); len(got) != 0 {
+		t.Fatalf("advertised profile was promoted to associated: %v", got)
+	}
+}
+
 func ehtMultiLinkTestIE() *controlpb.WifiInformationElement {
 	return &controlpb.WifiInformationElement{
 		Id:        255,

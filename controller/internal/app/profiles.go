@@ -15,7 +15,9 @@ import (
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
 	"dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/harness/dns"
 	"dropcheck/controller/internal/harness/ip"
+	"dropcheck/controller/internal/harness/ping"
 	"dropcheck/controller/internal/render"
 	"dropcheck/controller/internal/runner"
 )
@@ -88,6 +90,39 @@ func linkPlan(ssid, family string) harness.Plan {
 	return harness.Plan{Name: "link", Networks: []harness.Network{harness.ObservedWiFi("link " + ssid).SSID(ssid)}, Checks: checks}
 }
 
+// labPlan permits traffic on an existing connection but never owns Wi-Fi
+// configuration. Its two identity snapshots detect only observed changes.
+func labPlan(ssid, family string, config command.LabConfig) harness.Plan {
+	base := linkPlan(ssid, family)
+	policy := harness.Policy{Attempts: 1, Repeat: 1}
+	queryType := "A"
+	if family == "ipv6" {
+		queryType = "AAAA"
+	}
+	checks := []harness.Check{base.Checks[0],
+		harness.WithPolicy(harness.Ping(config.Gateway).Family(family).Count(3).Timeout(time.Duration(config.TimeoutMs)*time.Millisecond).Expect(ping.Received().Ge(1)), policy, true),
+		harness.WithPolicy(harness.DNS(config.DNS).Type(queryType).Timeout(time.Duration(config.TimeoutMs)*time.Millisecond).Expect(dns.AnswerCount().Ge(1)), policy, true),
+		harness.WithPolicy(harness.HTTP(config.HTTP).ExpectedStatus(config.ExpectedStatus).Timeout(time.Duration(config.TimeoutMs)*time.Millisecond).Expect(labHTTPStatus(config.ExpectedStatus)), policy, true),
+		base.Checks[1],
+	}
+	return harness.Plan{Name: "lab", Networks: []harness.Network{harness.ActiveObservedWiFi("lab " + ssid).SSID(ssid)}, Checks: checks}
+}
+
+type labHTTPStatus uint32
+
+func (s labHTTPStatus) Description() string { return fmt.Sprintf("HTTP status=%d and matched=true", s) }
+
+func (s labHTTPStatus) Evaluate(result harness.Result) []harness.Finding {
+	value := result.Run.Raw.GetHttpCheck()
+	if value == nil {
+		return []harness.Finding{harness.MissingFinding("http.status", "<missing>", s.Description(), "HTTP result unavailable")}
+	}
+	if value.GetStatus() != uint32(s) || !value.GetMatched() {
+		return []harness.Finding{harness.Fail("http.status", fmt.Sprint(value.GetStatus()), s.Description(), "expected HTTP response not matched")}
+	}
+	return []harness.Finding{harness.Pass("http.status", fmt.Sprint(value.GetStatus()), s.Description())}
+}
+
 var profileCatalogue = []struct {
 	Name          string `json:"name"`
 	Status        string `json:"status"`
@@ -97,7 +132,7 @@ var profileCatalogue = []struct {
 	Cost          string `json:"cost"`
 }{
 	{"link", "supported", "existing physical Wi-Fi identity/IP/default route/DNS >=1; validated observation only", "literal SSID and selected Network/interface; BSSID pin unsupported", "ipv4 default, or explicit ipv6/all", "two read-only observations; no external traffic/mutation"},
-	{"lab", "unsupported", "gateway, lab DNS and lab HTTP", "endpoint/resolver/expected status/portable contract not configured", "unconfigured", "zero operations"},
+	{"lab", "configured only", "existing-network gateway ping, selected-resolver DNS, lab HTTP with two identity snapshots", "explicit SSID/family/gateway/dns/resolver selected/http/expected-status/timeout; no URL query", "ipv4 or ipv6; HTTP hostname address family is not pinned", "2 IP reads, 3 ping packets, 1 DNS query, 1 HTTP request; no Wi-Fi mutation"},
 	{"internet", "unsupported", "external DNS/HTTP/global-IP", "authorized endpoints and portable contract not configured; no public fallback", "unconfigured", "zero operations"},
 	{"eht", "unsupported", "EHT band/MLO/scan", "required expectations and portable contract not configured", "n/a", "zero operations"},
 }
@@ -175,7 +210,7 @@ func executeProfile(ctx context.Context, state *shellState, name, ssid, family, 
 	return harness.Execute(ctx, compiled, r, harness.ExecuteOptions{Rounds: 1})
 }
 
-func (s *shellState) runCheck(ctx context.Context, name, ssid, family, bssid, rejection string, format outputFormat, pipe pipePipeline, strict bool) error {
+func (s *shellState) runCheck(ctx context.Context, name, ssid, family, bssid, rejection string, format outputFormat, pipe pipePipeline, strict bool, lab ...command.LabConfig) error {
 	if name == "" {
 		fmt.Fprintln(os.Stdout, profileCandidates())
 		return nil
@@ -197,6 +232,16 @@ func (s *shellState) runCheck(ctx context.Context, name, ssid, family, bssid, re
 		} else {
 			report = profileReport(profile, rejection, s.selected)
 		}
+	} else if name == "lab" {
+		if len(lab) != 1 || !lab[0].ValidFor(family) || ssid == "" || s.targetAll || s.failedUse {
+			report = profileReport("lab", "lab configuration or selected target unavailable", s.selected)
+		} else if agent, selectedErr := selectedAgent(s); selectedErr != nil {
+			report = profileReport("lab", "selected agent unavailable or ambiguous", s.selected)
+		} else if compiled, compileErr := harness.Compile(labPlan(ssid, family, lab[0]), []control.AgentInfo{agent}); compileErr != nil {
+			report = profileReport("lab", "lab plan cannot compile", s.selected)
+		} else {
+			report, err = harness.Execute(ctx, compiled, runner.New(s.server), harness.ExecuteOptions{Rounds: 1})
+		}
 	} else {
 		report, err = executeProfile(ctx, s, name, ssid, family, bssid, runner.New(s.server))
 	}
@@ -205,7 +250,7 @@ func (s *shellState) runCheck(ctx context.Context, name, ssid, family, bssid, re
 	}
 	s.lastReport = &report
 	s.lastProfile, s.lastSSID = name, ssid
-	if name != "link" {
+	if name != "link" && name != "lab" {
 		s.lastSSID = ""
 		if name != "lab" && name != "internet" && name != "eht" {
 			s.lastProfile = "unsupported"

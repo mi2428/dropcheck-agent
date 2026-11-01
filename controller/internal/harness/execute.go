@@ -58,29 +58,8 @@ func execute(ctx context.Context, plan *CompiledPlan, r OperationRunner, opts Ex
 	if len(plan.targets) == 0 || len(plan.agents) == 0 {
 		return Report{}, fmt.Errorf("compiled plan has no selected targets or agents")
 	}
-	var attempts uint64
-	for _, target := range plan.targets {
-		for _, step := range append([]compiledStep{target.connect, target.wait}, target.checks...) {
-			if step.id == "" {
-				continue
-			}
-			samples := uint64(1)
-			if window := step.policy.Eventually + step.policy.StableFor; window > 0 {
-				samples += uint64(window/step.policy.Interval) + 1
-			}
-			count, countErr := checkedProduct(uint64(step.policy.Attempts), uint64(step.policy.Repeat), samples, uint64(len(target.agents)))
-			if countErr != nil {
-				return Report{}, countErr
-			}
-			total, sumErr := checkedSum(attempts, count)
-			if sumErr != nil || total > maxRetainedAttempts {
-				return Report{}, fmt.Errorf("plan exceeds retained attempt budget")
-			}
-			attempts = total
-		}
-	}
-	if !opts.Loop && opts.Rounds > maxRetainedAttempts/max(uint64(1), attempts) {
-		return Report{}, fmt.Errorf("finite rounds exceed retained report budget")
+	if _, err := plan.Cost(opts.Rounds, opts.Loop); err != nil {
+		return Report{}, err
 	}
 	for i, agent := range plan.agents {
 		for _, other := range plan.agents[:i] {

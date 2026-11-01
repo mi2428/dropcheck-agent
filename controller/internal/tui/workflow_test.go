@@ -34,6 +34,10 @@ func TestPreviewIncludesTypedDestinationTrafficWithoutURLCredentials(t *testing.
 	if strings.Contains(preview, "credential") {
 		t.Fatalf("preview leaked URL credential: %s", preview)
 	}
+	mixed := workflowCheckPreview(harness.CheckInfo{Destination: "example.test https://example.test/?token=credential", Traffic: "3 cycles per attempt"})
+	if strings.Contains(mixed, "credential") || !strings.Contains(mixed, "3 cycles per attempt") {
+		t.Fatalf("compound URL preview leaked or lost cost: %s", mixed)
+	}
 	if literal := workflowCheckPreview(harness.CheckInfo{Destination: "password=Guest Case"}); !strings.Contains(literal, "password=Guest Case") {
 		t.Fatalf("literal destination was treated as a credential: %s", literal)
 	}
@@ -170,6 +174,29 @@ func workflowFixture(t *testing.T, plan harness.Plan, fake *workflowFake, agents
 	lifetime := &workflowLifetime{}
 	t.Cleanup(func() { cancel(); lifetime.stop() })
 	return newWorkflow(ctx, WorkflowOptions{Compiled: compiled, Runner: fake}, lifetime)
+}
+
+func TestWorkflowWholeRunHistoryEvictsOldestAndKeepsCurrentReview(t *testing.T) {
+	m := workflowFixture(t, workflowPlan(), &workflowFake{}, workflowAgents())
+	for i := 0; i < maxRetainedRuns+2; i++ {
+		run := &workflowRun{}
+		m.active = run
+		message, _ := m.Update(workflowFinished{run: run, report: harness.Report{RunID: fmt.Sprint(i)}})
+		m = message.(workflowModel)
+	}
+	if len(m.runs) != maxRetainedRuns || m.runEvictions != 2 || m.runs[0].report.RunID != "2" || m.runs[m.review].report.RunID != "9" || !strings.Contains(m.renderWorkflow(), "2 oldest evicted") {
+		t.Fatalf("whole-run eviction failed: runs=%d evicted=%d review=%d view=%s", len(m.runs), m.runEvictions, m.review, m.renderWorkflow())
+	}
+}
+
+func TestWorkflowFailedAuxiliaryRerunRestoresTargetBoundary(t *testing.T) {
+	m := workflowFixture(t, harness.Plan{Networks: []harness.Network{harness.WiFi("lab").SSID("Lab").Band("5ghz")}, Checks: []harness.Check{harness.Ping("example.test")}}, &workflowFake{}, workflowAgents()[:1])
+	m.phase, m.inspect = workflowReview, true
+	m.runs = []retainedRun{{compiled: m.compiled, report: harness.Report{Steps: []harness.StepReport{{Outcome: harness.MissingOutcome, Scope: harness.Scope{Kind: harness.ScopeCheck, AgentID: m.compiled.Preview().Agents[0].ID, TargetID: "preflight", CheckID: "capabilities"}}}}}}
+	m.prepareRerun(true)
+	if m.phase != workflowPreview || m.selected == nil || len(m.selected.Preview().Targets) != 1 || len(m.selected.Preview().Targets[0].Checks) != 1 {
+		t.Fatalf("preflight rerun lost its target: phase=%s message=%s", m.phase, m.message)
+	}
 }
 
 func workflowKey(t *testing.T, m workflowModel, key tea.Key) workflowModel {
@@ -430,6 +457,9 @@ func TestWorkflowFiniteNTwoAgentCoreRounds(t *testing.T) {
 	m = workflowKey(t, m, tea.Key{Code: tea.KeyEnter})
 	if !strings.Contains(strings.Join(workflowPreviewLines(m.selected.Preview()), "\n"), "Round interval: 50ms") {
 		t.Fatal("preview lost configured round interval")
+	}
+	if view := m.renderWorkflow(); !strings.Contains(view, "Cost upper bound:") || !strings.Contains(view, "across 2 rounds") {
+		t.Fatalf("finite cost not visible before Start: %s", view)
 	}
 	m = workflowKey(t, m, tea.Key{Code: tea.KeyEnter})
 	pumpWorkflow(t, &m, func(m workflowModel) bool { return m.phase == workflowReview })

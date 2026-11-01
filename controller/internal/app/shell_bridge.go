@@ -3,6 +3,7 @@ package app
 import (
 	"io"
 
+	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/shell"
 )
 
@@ -28,6 +29,7 @@ type shellCommand struct {
 	helpTopic                        string
 	pipeline                         pipePipeline
 	profileName, ssid, family, bssid string
+	lab                              command.LabConfig
 	detail                           bool
 	use                              bool
 	rejection                        string
@@ -35,7 +37,7 @@ type shellCommand struct {
 
 func parseShellLine(line string) (shellCommand, error) {
 	parsed, err := shell.ParseLine(line)
-	return shellCommand{kind: parsed.Kind, operation: parsed.Operation, adbKind: parsed.ADBDiagnosticsKind, helpTopic: parsed.HelpTopic, pipeline: wrapPipePipeline(parsed.Pipeline), profileName: parsed.ProfileName, ssid: parsed.SSID, family: parsed.Family, bssid: parsed.BSSID, detail: parsed.Detail, use: parsed.Use, rejection: parsed.Rejection}, err
+	return shellCommand{kind: parsed.Kind, operation: parsed.Operation, adbKind: parsed.ADBDiagnosticsKind, helpTopic: parsed.HelpTopic, pipeline: wrapPipePipeline(parsed.Pipeline), profileName: parsed.ProfileName, ssid: parsed.SSID, family: parsed.Family, bssid: parsed.BSSID, lab: parsed.Lab, detail: parsed.Detail, use: parsed.Use, rejection: parsed.Rejection}, err
 }
 
 func isHelpLine(line string) bool                         { return shell.IsHelpLine(line) }

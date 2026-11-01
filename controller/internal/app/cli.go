@@ -49,7 +49,7 @@ func runCLI(ctx context.Context, opts shellOptions, rawArgs []string) error {
 		return nil
 	}
 	if command.Kind == linuxcli.Profile && command.Rejection != "" {
-		return (&shellState{}).runCheck(ctx, command.ProfileName, command.SSID, command.Family, command.BSSID, command.Rejection, cliOpts.Format, pipePipeline{}, true)
+		return (&shellState{}).runCheck(ctx, command.ProfileName, command.SSID, command.Family, command.BSSID, command.Rejection, cliOpts.Format, pipePipeline{}, true, command.Lab)
 	}
 	if command.Kind == linuxcli.Devices {
 		if cliOpts.Target != "" || cliOpts.All {
@@ -124,7 +124,7 @@ func runCLI(ctx context.Context, opts shellOptions, rawArgs []string) error {
 	}
 	switch command.Kind {
 	case linuxcli.Profile:
-		return state.runCheck(ctx, command.ProfileName, command.SSID, command.Family, command.BSSID, command.Rejection, cliOpts.Format, pipePipeline{}, true)
+		return state.runCheck(ctx, command.ProfileName, command.SSID, command.Family, command.BSSID, command.Rejection, cliOpts.Format, pipePipeline{}, true, command.Lab)
 	case linuxcli.ADBDiagnostics:
 		agents, err := state.commandTargets()
 		if err != nil {

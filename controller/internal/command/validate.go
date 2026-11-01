@@ -70,6 +70,9 @@ func ValidateOperation(op Operation) error {
 		if err := connect(c.CycleWifi.GetConnect()); err != nil {
 			return err
 		}
+		if c.CycleWifi.Count > 100 || c.CycleWifi.PauseMs > 60000 {
+			return fmt.Errorf("Wi-Fi cycle count or pause exceeds agent limit")
+		}
 		if c.CycleWifi.PingHost != "" {
 			if err := host(c.CycleWifi.PingHost); err != nil {
 				return err

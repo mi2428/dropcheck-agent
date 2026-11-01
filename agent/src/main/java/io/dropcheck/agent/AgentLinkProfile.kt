@@ -2,6 +2,10 @@ package io.dropcheck.agent
 
 import io.dropcheck.agent.grpc.CommandResult
 import io.dropcheck.agent.grpc.GetIpStatus
+import io.dropcheck.agent.grpc.Ping
+import io.dropcheck.agent.grpc.ResolveDns
+import io.dropcheck.agent.grpc.DnsRecordType
+import io.dropcheck.agent.grpc.HttpCheck
 import io.dropcheck.agent.grpc.IpFamily
 import io.dropcheck.agent.grpc.IpStatus
 import io.dropcheck.agent.grpc.NetworkSelector
@@ -31,7 +35,7 @@ internal data class LinkReport(
     val validated: Boolean? = null,
 ) {
     fun lines(detail: Boolean = false, historical: Boolean = false): List<String> = buildList {
-        add("${if (historical) "Historical last check" else "Check"}: ${safe(profile)} ${outcome.name} (self; observed only)")
+        add("${if (historical) "Historical last check" else "Check"}: ${safe(profile)} ${outcome.name} (self; ${if (profile == "lab") "explicit active probes" else "observed only"})")
         add("Target SSID: ${safe(ssid)}; family: ${if (family == IpFamily.IP_FAMILY_IPV6) "ipv6" else "ipv4"}")
         add("Started: $startedMs; ended: $endedMs; source: Android selected physical Wi-Fi")
         add("Network: ${networkId?.let(::safe) ?: "?"}; interface: ${interfaceName?.let(::safe) ?: "?"}; validated (observed, not required): ${validated?.toString() ?: "?"}")
@@ -39,7 +43,7 @@ internal data class LinkReport(
             add("${stage.name}: ${stage.outcome.name}${stage.reason.takeIf(String::isNotEmpty)?.let { " (${safe(it)})" } ?: ""}")
             if (detail) stage.metrics.forEach { metric -> add("  ${metric.name}: ${metric.outcome.name} actual=${metric.actual ?: "?"} expected=>=${metric.required}") }
         }
-        if (detail) add("No probe, connect, disconnect or forget; same-Network checks are point-in-time, not uninterrupted roam/BSSID pinning.")
+        if (detail) add(if (profile == "lab") "No connect, disconnect or forget; snapshots cannot prove uninterrupted Network continuity or HTTP hostname address family." else "No probe, connect, disconnect or forget; same-Network checks are point-in-time, not uninterrupted roam/BSSID pinning.")
     }
 }
 
@@ -47,7 +51,7 @@ private fun safe(value: String): String = AgentSafePresentation.text(value.take(
 
 /** One fixed portable definition matching the PC link read order; no generic scenario runner. */
 internal object AgentLinkProfile {
-    private val stageNames = listOf("ip_before", "ip_after")
+    private val linkStages = listOf("ip_before", "ip_after")
     private var last: LinkReport? = null
 
     fun catalogue(): List<String> = listOf(
@@ -55,7 +59,9 @@ internal object AgentLinkProfile {
         "link: supported self; check link ssid SSID [family ipv4|ipv6] [bssid BSSID]; default family ipv4.",
         "  SSID-selected physical Wi-Fi/Network/interface plus IP family address>=1, default route>=1, DNS>=1, repeated on the same Network/interface.",
         "  2 read-only IP snapshots, not continuous roam proof; validated observed only; no endpoints, probes, connect or cleanup. bssid strict pin unsupported.",
-        "lab, internet, eht, Go-only callbacks: unsupported on Android (zero operations; no partial run).",
+        "lab: configured only; check lab ssid SSID family ipv4|ipv6 gateway IP dns NAME resolver selected http URL expected-status STATUS timeout MS.",
+        "  2 IP snapshots, 3 ICMP packets, 1 selected-resolver DNS query, 1 HTTP request; no Wi-Fi mutation; HTTP hostname address family not pinned.",
+        "internet, eht, Go-only callbacks: unsupported on Android (zero operations; no partial run).",
     )
 
     @Synchronized fun lastReport(): LinkReport? = last
@@ -64,12 +70,14 @@ internal object AgentLinkProfile {
         val started = System.currentTimeMillis()
         val stages = mutableListOf<LinkStage>()
         var network: LinkIdentity? = null
+        val lab = command.lab?.takeIf { command.profile == "lab" }
+        val stageNames = if (lab != null) listOf("ip_before", "gateway_ping", "dns", "http", "ip_after") else linkStages
         fun finish(outcome: LinkOutcome): LinkReport {
             while (stages.size < stageNames.size) stages += LinkStage(stageNames[stages.size], LinkOutcome.SKIP, "required predecessor did not pass")
             return LinkReport(command.profile.take(96), command.ssid.take(96), command.family, started, System.currentTimeMillis(),
                 outcome, stages.toList(), network?.networkId?.take(96), network?.interfaceName?.take(96), network?.validated).also { last = it }
         }
-        if (command.profile != "link") {
+        if (command.profile != "link" && command.profile != "lab" || command.profile == "lab" && lab == null) {
             stages += LinkStage(stageNames.first(), LinkOutcome.UNSUPPORTED, "profile is not portable on Android")
             return finish(LinkOutcome.UNSUPPORTED)
         }
@@ -79,6 +87,10 @@ internal object AgentLinkProfile {
         }
         if (command.ssid.isEmpty() || command.family !in listOf(IpFamily.IP_FAMILY_IPV4, IpFamily.IP_FAMILY_IPV6)) {
             stages += LinkStage(stageNames.first(), LinkOutcome.MISSING, "SSID and ipv4/ipv6 family required")
+            return finish(LinkOutcome.MISSING)
+        }
+        if (command.profile == "lab" && !lab!!.valid(command.family)) {
+            stages += LinkStage(stageNames.first(), LinkOutcome.MISSING, "lab configuration incomplete")
             return finish(LinkOutcome.MISSING)
         }
         val ipRequest = RunCommand.newBuilder().setGetIpStatus(GetIpStatus.newBuilder()
@@ -102,7 +114,37 @@ internal object AgentLinkProfile {
         }
         val first = snapshot(stageNames[0], null)
         if (first != LinkOutcome.PASS) return finish(first)
-        return finish(snapshot(stageNames[1], network))
+        if (lab != null) {
+            val selector = NetworkSelector.newBuilder().setSsid(command.ssid).build()
+            fun probe(name: String, request: RunCommand, valid: (CommandResult) -> Boolean): LinkOutcome {
+                val read = read(request, execute)
+                val outcome = when {
+                    read.failure == LinkOutcome.CANCELED -> LinkOutcome.CANCELED
+                    read.result == null || !valid(read.result) -> LinkOutcome.MISSING
+                    read.result.status == CommandResult.Status.STATUS_OK && name == "gateway_ping" && !read.result.ping.hasReceived() -> LinkOutcome.MISSING
+                    read.failure != null || read.result.status != CommandResult.Status.STATUS_OK || when (name) {
+                        "gateway_ping" -> !read.result.ping.hasReceived() || read.result.ping.received == 0
+                        "dns" -> read.result.resolveDns.answersCount == 0
+                        else -> !read.result.httpCheck.matched || read.result.httpCheck.status != lab.expectedStatus
+                    } -> LinkOutcome.FAIL
+                    else -> LinkOutcome.PASS
+                }
+                stages += LinkStage(name, outcome, read.reason.ifEmpty { if (outcome == LinkOutcome.MISSING) "typed result unavailable" else if (outcome == LinkOutcome.FAIL) "required probe failed" else "" })
+                return outcome
+            }
+            val ping = RunCommand.newBuilder().setPing(Ping.newBuilder().setHost(lab.gateway).setFamily(command.family).setCount(3).setTimeoutMs(lab.timeoutMs).setSelector(selector)).build()
+            val dns = RunCommand.newBuilder().setResolveDns(ResolveDns.newBuilder().setName(lab.dns).addQtypes(if (command.family == IpFamily.IP_FAMILY_IPV6) DnsRecordType.DNS_RECORD_TYPE_AAAA else DnsRecordType.DNS_RECORD_TYPE_A).setTimeoutMs(lab.timeoutMs).setSelector(selector)).build()
+            val http = RunCommand.newBuilder().setHttpCheck(HttpCheck.newBuilder().setUrl(lab.http).setExpectedStatus(lab.expectedStatus).setTimeoutMs(lab.timeoutMs).setSelector(selector)).build()
+            for ((name, request, valid) in listOf<Triple<String, RunCommand, (CommandResult) -> Boolean>>(
+                Triple("gateway_ping", ping, { it.hasPing() }),
+                Triple("dns", dns, { it.hasResolveDns() }),
+                Triple("http", http, { it.hasHttpCheck() }),
+            )) {
+                val outcome = probe(name, request, valid)
+                if (outcome != LinkOutcome.PASS) return finish(outcome)
+            }
+        }
+        return finish(snapshot(stageNames.last(), network))
     }
 
     private data class LinkRead(val result: CommandResult? = null, val failure: LinkOutcome? = null, val reason: String = "")
@@ -111,7 +153,7 @@ internal object AgentLinkProfile {
         when (result.status) {
             CommandResult.Status.STATUS_OK -> LinkRead(result)
             CommandResult.Status.STATUS_CANCELED -> LinkRead(failure = LinkOutcome.CANCELED, reason = "acquisition canceled")
-            else -> LinkRead(failure = LinkOutcome.MISSING, reason = "acquisition failed")
+            else -> LinkRead(result = result, failure = LinkOutcome.MISSING, reason = "acquisition failed")
         }
     } catch (_: InterruptedException) {
         Thread.currentThread().interrupt()

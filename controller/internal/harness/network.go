@@ -30,6 +30,7 @@ type Network struct {
 	connectPolicy    Policy
 	waitPolicy       Policy
 	readOnly         bool
+	activeProbes     bool
 }
 
 // WiFi starts a network builder.
@@ -40,6 +41,12 @@ func WiFi(name string) Network {
 // ObservedWiFi checks an already-connected physical Wi-Fi Network. It never
 // owns the connection, waits for association, or performs cleanup.
 func ObservedWiFi(name string) Network { return Network{name: name, readOnly: true} }
+
+// ActiveObservedWiFi retains the existing connection without changing Wi-Fi
+// configuration, but explicitly permits network traffic from checks.
+func ActiveObservedWiFi(name string) Network {
+	return Network{name: name, readOnly: true, activeProbes: true}
+}
 
 // SSID sets the ESSID used for connection and wait checks.
 func (n Network) SSID(value string) Network {
