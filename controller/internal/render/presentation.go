@@ -310,6 +310,9 @@ func renderDeviceCapabilities(b *strings.Builder, capabilities *controlpb.WifiCa
 			case "PHY":
 				return compactPHY(value)
 			case "Security":
+				if value == "wpa2_psk" || value == "psk" {
+					return "WPA2-PSK"
+				}
 				return compactSecuritySet([]string{value})
 			default:
 				return value

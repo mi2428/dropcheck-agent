@@ -929,12 +929,12 @@ message WifiCycleResult {
 message PingResult {
   string host = 1;
   uint32 count = 2;
-  uint32 transmitted = 3;
-  uint32 received = 4;
-  double packet_loss_percent = 5;
-  double min_ms = 6;
-  double avg_ms = 7;
-  double max_ms = 8;
+  optional uint32 transmitted = 3;
+  optional uint32 received = 4;
+  optional double packet_loss_percent = 5;
+  optional double min_ms = 6;
+  optional double avg_ms = 7;
+  optional double max_ms = 8;
   int64 elapsed_ms = 9;
   int32 exit_code = 10;
   string interface_name = 11;

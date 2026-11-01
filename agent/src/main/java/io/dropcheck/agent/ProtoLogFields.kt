@@ -250,6 +250,13 @@ internal fun RunCommand.safeLabel(): String {
     for (secret in secrets) {
         if (secret.isNotBlank()) rendered = rendered.replace(secret, "<redacted>")
     }
+    val endpoint = when (commandCase) {
+        RunCommand.CommandCase.HTTP_CHECK -> httpCheck.url
+        RunCommand.CommandCase.WGET -> wget.url
+        RunCommand.CommandCase.CYCLE_WIFI -> cycleWifi.httpUrl
+        else -> ""
+    }
+    if (endpoint.isNotBlank()) rendered = rendered.replace(endpoint, AgentSafePresentation.text(endpoint))
     return rendered
 }
 
@@ -287,7 +294,7 @@ internal fun GlobalIp.logFields(): List<Pair<String, Any?>> = buildList {
 }
 
 internal fun Wget.logFields(): List<Pair<String, Any?>> = buildList {
-    add("url" to url)
+    add("url" to AgentSafePresentation.text(url))
     addAll(urlFields(url))
     add("timeout_ms" to timeoutMs)
     addAll(selector.logFields())
@@ -301,7 +308,7 @@ internal fun ResolveDns.logFields(): List<Pair<String, Any?>> = buildList {
 }
 
 internal fun HttpCheck.logFields(): List<Pair<String, Any?>> = buildList {
-    add("url" to url)
+    add("url" to AgentSafePresentation.text(url))
     addAll(urlFields(url))
     add("expected_status" to expectedStatus)
     add("timeout_ms" to timeoutMs)
@@ -311,12 +318,12 @@ internal fun HttpCheck.logFields(): List<Pair<String, Any?>> = buildList {
 internal fun PingResult.logFields(): List<Pair<String, Any?>> = buildList {
     add("host" to host)
     add("count" to count)
-    add("transmitted" to transmitted)
-    add("received" to received)
-    add("packet_loss_percent" to packetLossPercent)
-    add("min_ms" to minMs)
-    add("avg_ms" to avgMs)
-    add("max_ms" to maxMs)
+    if (hasTransmitted()) add("transmitted" to transmitted)
+    if (hasReceived()) add("received" to received)
+    if (hasPacketLossPercent()) add("packet_loss_percent" to packetLossPercent)
+    if (hasMinMs()) add("min_ms" to minMs)
+    if (hasAvgMs()) add("avg_ms" to avgMs)
+    if (hasMaxMs()) add("max_ms" to maxMs)
     add("elapsed_ms" to elapsedMs)
     add("exit_code" to exitCode)
     add("iface" to interfaceName)
@@ -363,7 +370,7 @@ internal fun GlobalIpResult.logFields(): List<Pair<String, Any?>> = buildList {
 }
 
 internal fun WgetResult.logFields(): List<Pair<String, Any?>> = buildList {
-    add("url" to url)
+    add("url" to AgentSafePresentation.text(url))
     addAll(urlFields(url))
     add("http_status" to status)
     add("content_type" to contentType)
@@ -372,7 +379,7 @@ internal fun WgetResult.logFields(): List<Pair<String, Any?>> = buildList {
     add("elapsed_ms" to elapsedMs)
     add("throughput_bps" to throughputBps)
     add("iface" to interfaceName)
-    add("error" to error)
+    add("error" to AgentSafePresentation.text(error))
 }
 
 internal fun ResolveDnsResult.logFields(): List<Pair<String, Any?>> = buildList {
@@ -384,13 +391,13 @@ internal fun ResolveDnsResult.logFields(): List<Pair<String, Any?>> = buildList 
 }
 
 internal fun HttpCheckResult.logFields(): List<Pair<String, Any?>> = buildList {
-    add("url" to url)
+    add("url" to AgentSafePresentation.text(url))
     addAll(urlFields(url))
     add("http_status" to status)
     add("expected_status" to expectedStatus)
     add("matched" to matched)
     add("elapsed_ms" to elapsedMs)
-    add("error" to error)
+    add("error" to AgentSafePresentation.text(error))
 }
 
 private fun GetWifiScan.logFields(): List<Pair<String, Any?>> = listOf("band" to band.name)
@@ -443,7 +450,7 @@ private fun CycleWifi.logFields(): List<Pair<String, Any?>> = buildList {
     add("forget_after_each" to forgetAfterEach)
     add("pause_ms" to pauseMs)
     add("ping_host" to pingHost)
-    add("http_url" to httpUrl)
+    add("http_url" to AgentSafePresentation.text(httpUrl))
     if (httpUrl.isNotBlank()) addAll(urlFields(httpUrl, "http_url_"))
     addAll(connect.logFields("connect_"))
 }

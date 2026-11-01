@@ -26,6 +26,7 @@ import (
 	"dropcheck/controller/internal/harness/trace"
 	"dropcheck/controller/internal/harness/wifi"
 	"dropcheck/controller/internal/runner"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestRunExecutesNetworkAndChecksWithInjectedRunner(t *testing.T) {
@@ -294,7 +295,7 @@ func TestRunFailureChild(t *testing.T) {
 			if pingCalls >= len(replies) {
 				return nil, fmt.Errorf("unexpected ping call")
 			}
-			result.GetPing().Received = replies[pingCalls]
+			result.GetPing().Received = proto.Uint32(replies[pingCalls])
 			pingCalls++
 		}
 		return result, nil
@@ -357,8 +358,8 @@ func TestPingMatcherReportsFailedConstraint(t *testing.T) {
 			Payload: &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{
 				Host:        "8.8.8.8",
 				Count:       5,
-				Transmitted: 5,
-				Received:    4,
+				Transmitted: proto.Uint32(5),
+				Received:    proto.Uint32(4),
 			}},
 		}},
 	})
@@ -386,6 +387,35 @@ func TestMatcherReportsMissingPayload(t *testing.T) {
 	}
 	if findings[0].Passed || findings[0].Observed != "<missing>" {
 		t.Fatalf("finding = %#v, want missing failure", findings[0])
+	}
+}
+
+func TestScanAPMaximumAgeUsesCollectorPresence(t *testing.T) {
+	selector := scan.APs().SSID("Lab").MaxAge(time.Second)
+	for _, tc := range []struct {
+		name    string
+		age     *uint64
+		missing bool
+		passed  bool
+	}{
+		{"fresh-zero", proto.Uint64(0), false, true},
+		{"fresh", proto.Uint64(999), false, true},
+		{"stale", proto.Uint64(1001), false, false},
+		{"unknown", nil, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_WifiScan{WifiScan: &controlpb.WifiScan{Results: []*controlpb.WifiScanResult{{Ssid: "Lab", ObservationAgeMs: tc.age}}}}}
+			result := harness.Result{Run: harness.RunResult{Raw: raw}}
+			for _, expectation := range []harness.Expectation{selector.Exists(), selector.Count().Eq(1)} {
+				findings := expectation.Evaluate(result)
+				if len(findings) != 1 || findings[0].Missing != tc.missing || findings[0].Passed != tc.passed {
+					t.Fatalf("age=%v finding=%+v", tc.age, findings)
+				}
+			}
+		})
+	}
+	if err := selector.MaxAge(-time.Second).Exists().(interface{ Validate() error }).Validate(); err == nil {
+		t.Fatal("negative maximum age accepted")
 	}
 }
 
@@ -475,7 +505,7 @@ func (r *retryRunner) Run(_ context.Context, _ control.AgentInfo, op command.Ope
 		if r.pingCalls >= len(replies) {
 			return runner.Result{}, fmt.Errorf("unexpected ping call")
 		}
-		result.GetPing().Received = replies[r.pingCalls]
+		result.GetPing().Received = proto.Uint32(replies[r.pingCalls])
 		r.pingCalls++
 		if r.pingCalls == 1 {
 			result.Status = controlpb.CommandResult_STATUS_FAILED
@@ -498,12 +528,12 @@ func fakeResult(name string) *controlpb.CommandResult {
 		result.Payload = &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{
 			Host:              "8.8.8.8",
 			Count:             5,
-			Transmitted:       5,
-			Received:          5,
-			PacketLossPercent: 0,
-			MinMs:             10,
-			AvgMs:             20,
-			MaxMs:             40,
+			Transmitted:       proto.Uint32(5),
+			Received:          proto.Uint32(5),
+			PacketLossPercent: proto.Float64(0),
+			MinMs:             proto.Float64(10),
+			AvgMs:             proto.Float64(20),
+			MaxMs:             proto.Float64(40),
 			ElapsedMs:         120,
 		}}
 	case "dns":

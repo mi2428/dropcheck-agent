@@ -26,6 +26,9 @@ class AgentProbeRendererTest {
         assertTrue(out.contains("Ping"))
         assertTrue(out.contains("payload_size   64"))
         assertTrue(out.contains("3 packets transmitted, 3 received"))
+        assertTrue(out.contains("received       ?"))
+        val known = AgentProbeRenderer.renderPing(PingResult.newBuilder().setReceived(0).build(), CommandResult.Status.STATUS_FAILED, "lost").joinToString("\n")
+        assertTrue(known.contains("received       0"))
     }
 
     @Test

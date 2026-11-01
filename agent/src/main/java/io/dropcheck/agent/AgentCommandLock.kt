@@ -1,7 +1,6 @@
 package io.dropcheck.agent
 
 import java.util.concurrent.locks.ReentrantLock
-import kotlin.concurrent.withLock
 
 /**
  * Serializes Android-side command execution across controller and local shell work.
@@ -13,5 +12,8 @@ import kotlin.concurrent.withLock
 internal object AgentCommandLock {
     private val lock = ReentrantLock()
 
-    fun <T> run(block: () -> T): T = lock.withLock(block)
+    fun <T> run(block: () -> T): T {
+        lock.lockInterruptibly()
+        return try { block() } finally { lock.unlock() }
+    }
 }

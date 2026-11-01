@@ -180,7 +180,8 @@ type CheckInfo struct {
 	Required                  bool
 	Policy                    Policy
 	OperationTimeout          time.Duration
-	Destination, Traffic      string // Per-attempt network destination/cost; policy bounds repetition.
+	Operations                []string // Actual constituent acquisitions per attempt.
+	Destination, Traffic      string   // Per-attempt network destination/cost; policy bounds repetition.
 	Expectations              []string
 }
 
@@ -202,15 +203,17 @@ type CapabilityPreflight struct{ Operation, Band, State, Reason string }
 func (t Target) DisplayName() string { return t.Name }
 
 type Preview struct {
-	Name    string
-	Targets []Target
-	Checks  []CheckInfo
-	Agents  []AgentSnapshot
+	Name          string
+	RoundInterval time.Duration
+	Targets       []Target
+	Checks        []CheckInfo
+	Agents        []AgentSnapshot
 }
 
 type compiledStep struct {
-	id       string
-	typeName string
+	id               string
+	typeName         string
+	operationTimeout time.Duration
 	step
 }
 
@@ -223,10 +226,11 @@ type compiledTarget struct {
 }
 
 type CompiledPlan struct {
-	name    string
-	targets []compiledTarget
-	agents  []control.AgentInfo
-	secrets []string
+	name          string
+	roundInterval time.Duration
+	targets       []compiledTarget
+	agents        []control.AgentInfo
+	secrets       []string
 }
 
 type ExecuteOptions struct {

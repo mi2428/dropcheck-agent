@@ -1,46 +1,36 @@
 package render
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
 
-func TestParsePingOutputLinuxStats(t *testing.T) {
-	output := `
-PING example.test (93.184.216.34) 56(84) bytes of data.
-64 bytes from 93.184.216.34: icmp_seq=1 ttl=57 time=12.3 ms
+	"dropcheck/controller/internal/command"
+	"dropcheck/controller/internal/controlpb"
+	"dropcheck/controller/internal/pipeline"
+	"google.golang.org/protobuf/proto"
+)
 
---- example.test ping statistics ---
-3 packets transmitted, 3 received, 0% packet loss, time 2002ms
-rtt min/avg/max/mdev = 12.345/20.456/33.789/1.000 ms
-`
-	stats, ok := parsePingOutput(output)
-
-	if !ok {
-		t.Fatalf("parsePingOutput() ok = false")
+func TestPingPresentationUsesTypedPresenceNotNativeText(t *testing.T) {
+	p := &controlpb.PingResult{Output: "3 packets transmitted, 3 received, 0% packet loss"}
+	r := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_Ping{Ping: p}}
+	text, err := CommandResult("agent", r, command.Options{}, pipeline.FormatText)
+	if err != nil || !strings.Contains(text, "transmitted=? received=? loss=?%") {
+		t.Fatalf("unknown stats rendered as known: %s (%v)", text, err)
 	}
-	if stats.transmitted != 3 || stats.received != 3 {
-		t.Fatalf("packets = %d/%d", stats.transmitted, stats.received)
+	p.Transmitted, p.Received, p.PacketLossPercent = proto.Uint32(3), proto.Uint32(0), proto.Float64(100)
+	text, err = CommandResult("agent", r, command.Options{}, pipeline.FormatText)
+	if err != nil || !strings.Contains(text, "transmitted=3 received=0 loss=100%") {
+		t.Fatalf("known zero was lost: %s (%v)", text, err)
 	}
-	if stats.lossPercent != 0 {
-		t.Fatalf("loss = %f", stats.lossPercent)
+	jsonText, err := CommandResult("agent", r, command.Options{}, pipeline.FormatJSON)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if stats.minMs != 12.345 || stats.avgMs != 20.456 || stats.maxMs != 33.789 {
-		t.Fatalf("rtt = %f/%f/%f", stats.minMs, stats.avgMs, stats.maxMs)
+	var data struct {
+		Ping map[string]json.RawMessage `json:"ping"`
 	}
-}
-
-func TestParsePingOutputToyboxSummary(t *testing.T) {
-	output := "2 packets transmitted, 1 packets received, 50% packet loss"
-	stats, ok := parsePingOutput(output)
-
-	if !ok {
-		t.Fatalf("parsePingOutput() ok = false")
-	}
-	if stats.transmitted != 2 || stats.received != 1 || stats.lossPercent != 50 {
-		t.Fatalf("stats = %#v", stats)
-	}
-}
-
-func TestParsePingOutputMissingSummary(t *testing.T) {
-	if _, ok := parsePingOutput("permission denied"); ok {
-		t.Fatalf("parsePingOutput() ok = true")
+	if err := json.Unmarshal([]byte(jsonText), &data); err != nil || string(data.Ping["received"]) != "0" || data.Ping["min_ms"] != nil {
+		t.Fatalf("JSON presence mismatch: %s (%v)", jsonText, err)
 	}
 }

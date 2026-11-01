@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -55,6 +56,43 @@ func TestCLICustomADBSessionAndSupplements(t *testing.T) {
 	}
 }
 
+func TestCLIShowDevicesListsADBWithoutStartingAgent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "adb")
+	logPath := filepath.Join(t.TempDir(), "calls")
+	t.Setenv("DROPCHECK_INVENTORY_LOG", logPath)
+	script := `#!/bin/sh
+printf '%s\n' "$*" >> "$DROPCHECK_INVENTORY_LOG"
+[ "$*" = 'devices -l' ] || exit 1
+printf 'List of devices attached\nserial-a device model:Pixel_Test\nserial-b offline model:Other_Test\n'
+`
+	if err := os.WriteFile(path, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, format := range []string{"text", "json"} {
+		out, err := captureStdout(t, func() error {
+			return runCLI(context.Background(), shellOptions{ADBPath: path}, []string{"--format", format, "show", "devices"})
+		})
+		if err != nil || !strings.Contains(out, "serial-a") || !strings.Contains(out, "serial-b") {
+			t.Fatalf("%s inventory = %q, %v", format, out, err)
+		}
+		if format == "json" {
+			var result struct {
+				Devices []struct {
+					Serial string `json:"serial"`
+					State  string `json:"state"`
+				} `json:"devices"`
+			}
+			if err := json.Unmarshal([]byte(out), &result); err != nil || len(result.Devices) != 2 || result.Devices[1].State != "offline" {
+				t.Fatalf("JSON inventory = %q, %v", out, err)
+			}
+		}
+	}
+	calls, err := os.ReadFile(logPath)
+	if err != nil || string(calls) != "devices -l\ndevices -l\n" {
+		t.Fatalf("inventory caused other ADB operations: %q, %v", calls, err)
+	}
+}
+
 func TestCLIMultipleAgentsRequireExplicitTargetOrBroadcast(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -66,7 +104,7 @@ func TestCLIMultipleAgentsRequireExplicitTargetOrBroadcast(t *testing.T) {
 		{"broadcast", []string{"--all"}, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			opts, _, counts := fakeCLISession(t, []string{"serial-a", "serial-b"})
+			opts, logPath, counts := fakeCLISession(t, []string{"serial-a", "serial-b"})
 			args := append(append([]string(nil), tc.flags...), "ping", "example.test", "count", "1")
 			_, err := captureStdout(t, func() error { return runCLI(context.Background(), opts, args) })
 			if tc.want == 0 {
@@ -77,17 +115,61 @@ func TestCLIMultipleAgentsRequireExplicitTargetOrBroadcast(t *testing.T) {
 				t.Fatal(err)
 			}
 			total := 0
-			for range 2 {
+			for range tc.want {
 				got := <-counts
 				total += got.count
-				if tc.name == "target" && got.serial == "serial-a" && got.count != 0 {
-					t.Fatal("explicit target dispatched to serial-a")
+				if tc.name == "target" && got.serial != "serial-b" {
+					t.Fatal("explicit target started the wrong agent")
 				}
+			}
+			log, readErr := os.ReadFile(logPath)
+			if readErr != nil && !os.IsNotExist(readErr) {
+				t.Fatal(readErr)
+			}
+			if started := strings.Count(string(log), "session-start"); started != tc.want {
+				t.Fatalf("started %d agents, want %d", started, tc.want)
 			}
 			if total != tc.want {
 				t.Fatalf("control operations = %d, want %d", total, tc.want)
 			}
 		})
+	}
+}
+
+func TestCLIRejectsUnknownOrAmbiguousSerialBeforeStartup(t *testing.T) {
+	for _, target := range []string{"missing", "serial-"} {
+		t.Run(target, func(t *testing.T) {
+			opts, logPath, _ := fakeCLISession(t, []string{"serial-a", "serial-b"})
+			_, err := captureStdout(t, func() error {
+				return runCLI(context.Background(), opts, []string{"--target", target, "ping", "example.test"})
+			})
+			if err == nil {
+				t.Fatal("invalid target did not fail preflight")
+			}
+			if log, readErr := os.ReadFile(logPath); readErr == nil && strings.Contains(string(log), "session-start") {
+				t.Fatalf("invalid target started an agent: %s", log)
+			} else if readErr != nil && !os.IsNotExist(readErr) {
+				t.Fatal(readErr)
+			}
+		})
+	}
+}
+
+func TestCLIMissingPassphraseEnvFailsBeforeADB(t *testing.T) {
+	t.Setenv("DROPCHECK_TEST_MISSING_ENV", "")
+	adbPath := filepath.Join(t.TempDir(), "adb")
+	marker := filepath.Join(t.TempDir(), "adb-called")
+	if err := os.WriteFile(adbPath, []byte("#!/bin/sh\ntouch '"+marker+"'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := captureStdout(t, func() error {
+		return runCLI(context.Background(), shellOptions{ADBPath: adbPath}, []string{"wifi", "connect", "Lab", "passphrase-env", "DROPCHECK_TEST_MISSING_ENV"})
+	})
+	if err == nil {
+		t.Fatal("missing env credential accepted")
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("missing credential reached adb: %v", err)
 	}
 }
 
@@ -168,7 +250,8 @@ esac
 				}
 				select {
 				case <-ctx.Done():
-					done <- ctx.Err()
+					// Untargeted fake agents never receive a service start.
+					done <- nil
 					return
 				case <-ticker.C:
 				}

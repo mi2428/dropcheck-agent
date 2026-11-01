@@ -224,10 +224,9 @@ internal object WifiConnectorPolicy {
         )
     }
 
-    /** A forget operation needs at least one successful remove and no framework exceptions. */
+    /** Every matched configuration must be removed without a framework error. */
     fun forgetSucceeded(fields: List<Pair<String, String>>, errors: List<String>): Boolean {
-        return errors.isEmpty() && fields.any {
-            it.first.startsWith("remove_") && it.second == "true"
-        }
+        val removals = fields.filter { it.first.startsWith("remove_") }
+        return errors.isEmpty() && removals.isNotEmpty() && removals.all { it.second == "true" }
     }
 }

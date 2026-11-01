@@ -31,6 +31,38 @@ func TestYAMLKnownFieldsAndInvalidOperationsFailBeforeDispatch(t *testing.T) {
 	}
 }
 
+func TestYAMLObservedWiFiExecutesOnlyReadOnlyStatus(t *testing.T) {
+	plan, err := Parse([]byte("targets: [{ssid: Lab, observe: true}]\nchecks: [{type: ip_status, policy: {attempts: 1}}]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := harness.Compile(plan, []control.AgentInfo{{ID: "a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := compiled.Preview().Targets[0]
+	if target.Connect != nil || target.Wait != nil || *target.DisconnectAfter || *target.ForgetAfter {
+		t.Fatalf("observed target owns the connection: %+v", target)
+	}
+	r := &parityRunner{}
+	_, _ = harness.Execute(context.Background(), compiled, r, harness.ExecuteOptions{Rounds: 1})
+	if len(r.operations) != 1 || r.operations[0].Name != "ip.status" || r.operations[0].Command.GetGetIpStatus().GetSelector().GetSsid() != "Lab" {
+		t.Fatalf("observed target performed unexpected operations: %+v", r.operations)
+	}
+	for _, option := range []string{"passphrase: placeholder", "passphrase_env: UNUSED", "disconnect_after: true", "bssid: 02:00:00:00:00:01", "wait_connected: true", "mac_rotation: per_round"} {
+		if _, err := Parse([]byte("targets: [{ssid: Lab, observe: true, " + option + "}]\nchecks: [{type: ip_status}]\n")); err == nil {
+			t.Errorf("observed target accepted mutation option %s", option)
+		}
+	}
+	probe, err := Parse([]byte("targets: [{ssid: Lab, observe: true}]\nchecks: [{type: ping, host: example.test}]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := harness.Compile(probe, []control.AgentInfo{{ID: "a"}}); err == nil {
+		t.Fatal("observed target accepted active probe")
+	}
+}
+
 func TestLegacyYAMLExternalDefaultsAreExplicitInPreview(t *testing.T) {
 	plan, err := Parse([]byte(`targets: [{ssid: Lab}]
 checks:
@@ -106,7 +138,7 @@ func (r *parityRunner) Run(_ context.Context, _ control.AgentInfo, op command.Op
 	case *controlpb.RunCommand_WaitWifiConnected:
 		result.Payload = &controlpb.CommandResult_WifiAssert{WifiAssert: &controlpb.WifiAssertResult{Passed: true}}
 	case *controlpb.RunCommand_Ping:
-		result.Payload = &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{Received: 0, Output: "3 packets transmitted, 3 received, 100% packet loss"}}
+		result.Payload = &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{Received: new(uint32), Output: "3 packets transmitted, 3 received, 100% packet loss"}}
 	case *controlpb.RunCommand_DisconnectWifi:
 		result.Payload = &controlpb.CommandResult_WifiOperation{WifiOperation: &controlpb.WifiOperationResult{Ok: true}}
 	}

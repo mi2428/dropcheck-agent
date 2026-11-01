@@ -27,6 +27,9 @@ func (s *Server) RunPinned(ctx context.Context, agent AgentInfo, commandID strin
 }
 
 func (s *Server) run(ctx context.Context, agentID, expectedSession, commandID string, cmd *controlpb.RunCommand) (*controlpb.CommandResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	respCh := make(chan CommandResponse, 1)
 
 	s.mu.Lock()
@@ -42,6 +45,10 @@ func (s *Server) run(ctx context.Context, agentID, expectedSession, commandID st
 	if _, exists := s.waiters[commandID]; exists {
 		s.mu.Unlock()
 		return nil, fmt.Errorf("command %q is already running", commandID)
+	}
+	if err := ctx.Err(); err != nil {
+		s.mu.Unlock()
+		return nil, err
 	}
 	// Register the waiter before enqueueing the frame so an immediate result
 	// from the agent cannot race ahead of the receiver setup.

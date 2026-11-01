@@ -816,18 +816,23 @@ func networkCapabilitiesForDetail(values []string) []string {
 }
 
 func renderPing(b *strings.Builder, result *controlpb.PingResult, status controlpb.CommandResult_Status) {
-	analysis := analyzePing(result, status)
-	fmt.Fprintf(b, "Ping: host=%s status=%s transmitted=%d received=%d loss=%g%% min/avg/max=%g/%g/%gms interface=%s elapsed=%dms\n",
-		analysis.Host,
+	observed := func(present bool, value any) string {
+		if !present {
+			return "?"
+		}
+		return fmt.Sprint(value)
+	}
+	fmt.Fprintf(b, "Ping: host=%s status=%s transmitted=%s received=%s loss=%s%% min/avg/max=%s/%s/%sms interface=%s elapsed=%dms\n",
+		result.GetHost(),
 		resultStatus(status),
-		analysis.Transmitted,
-		analysis.Received,
-		analysis.PacketLossPercent,
-		analysis.MinMs,
-		analysis.AvgMs,
-		analysis.MaxMs,
-		empty(analysis.InterfaceName, "default"),
-		analysis.ElapsedMs,
+		observed(result.Transmitted != nil, result.GetTransmitted()),
+		observed(result.Received != nil, result.GetReceived()),
+		observed(result.PacketLossPercent != nil, result.GetPacketLossPercent()),
+		observed(result.MinMs != nil, result.GetMinMs()),
+		observed(result.AvgMs != nil, result.GetAvgMs()),
+		observed(result.MaxMs != nil, result.GetMaxMs()),
+		empty(result.GetInterfaceName(), "default"),
+		result.GetElapsedMs(),
 	)
 	if result.GetOutput() != "" {
 		fmt.Fprintf(b, "\nNative output (reference; not a separate verdict)\n%s\n", strings.TrimRight(result.GetOutput(), "\n"))

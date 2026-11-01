@@ -338,7 +338,7 @@ class CommandExecutor(
         val builder = WifiCycleResult.newBuilder()
             .setRequestedCount(count)
         var passed = 0
-        logger.info("wifi cycle requested ssid=${command.connect.ssid} count=$count security=${command.connect.security} bssid=${command.connect.bssid.ifBlank { "*" }} band=${command.connect.band} mac_randomization=${command.connect.macRandomization} ping=${command.pingHost.ifBlank { "none" }} http=${command.httpUrl.ifBlank { "none" }} forget_after_each=${command.forgetAfterEach} pause_ms=$pauseMs")
+        logger.info("wifi cycle requested ssid=${command.connect.ssid} count=$count security=${command.connect.security} bssid=${command.connect.bssid.ifBlank { "*" }} band=${command.connect.band} mac_randomization=${command.connect.macRandomization} ping=${command.pingHost.ifBlank { "none" }} http=${AgentSafePresentation.text(command.httpUrl).ifBlank { "none" }} forget_after_each=${command.forgetAfterEach} pause_ms=$pauseMs")
         for (index in 1..count) {
             throwIfInterrupted()
             val started = System.nanoTime()
@@ -347,64 +347,72 @@ class CommandExecutor(
             var stepConnected = false
             var pingOk = false
             var httpOk = false
-            val setup = wifi.connect(command.connect)
-            if (setup.error != null) {
-                step.addErrors("setup=${setup.error}")
-                step.setConnect(ConnectWifiResult.newBuilder()
-                    .setSsid(command.connect.ssid)
-                    .setConnected(false)
-                    .setMessage(setup.error)
-                    .build())
-            } else {
-                val assertion = waitForExpectation(
-                    WifiCommandPolicy.connectExpectation(command.connect),
-                    WifiCommandPolicy.effectiveTimeoutMs(
-                        command.connect.timeoutMs,
-                        WifiCommandPolicy.DEFAULT_CONNECT_TIMEOUT_MS,
-                    ),
-                )
-                stepConnected = assertion.passed
-                step.connected = stepConnected
-                val connectResult = ConnectWifiResult.newBuilder()
-                    .setSsid(command.connect.ssid)
-                    .setConnected(assertion.passed)
-                    .setMessage(if (assertion.passed) "connected" else "connect assertion failed")
-                if (assertion.hasStatus() && assertion.status.hasIpStatus()) {
-                    connectResult.ipStatus = assertion.status.ipStatus
-                }
-                step.connect = connectResult.build()
-                if (!assertion.passed) {
-                    assertion.checksList.filterNot { it.passed }.forEach {
-                        step.addErrors("check_${it.key}=expected:${it.expected} actual:${it.actual}")
+            try {
+                val setup = wifi.connect(command.connect)
+                if (setup.error != null) {
+                    step.addErrors("setup=${setup.error}")
+                    step.setConnect(ConnectWifiResult.newBuilder()
+                        .setSsid(command.connect.ssid)
+                        .setConnected(false)
+                        .setMessage(setup.error)
+                        .build())
+                } else {
+                    val assertion = waitForExpectation(
+                        WifiCommandPolicy.connectExpectation(command.connect),
+                        WifiCommandPolicy.effectiveTimeoutMs(
+                            command.connect.timeoutMs,
+                            WifiCommandPolicy.DEFAULT_CONNECT_TIMEOUT_MS,
+                        ),
+                    )
+                    stepConnected = assertion.passed
+                    step.connected = stepConnected
+                    val connectResult = ConnectWifiResult.newBuilder()
+                        .setSsid(command.connect.ssid)
+                        .setConnected(assertion.passed)
+                        .setMessage(if (assertion.passed) "connected" else "connect assertion failed")
+                    if (assertion.hasStatus() && assertion.status.hasIpStatus()) {
+                        connectResult.ipStatus = assertion.status.ipStatus
+                    }
+                    step.connect = connectResult.build()
+                    if (!assertion.passed) {
+                        assertion.checksList.filterNot { it.passed }.forEach {
+                            step.addErrors("check_${it.key}=expected:${it.expected} actual:${it.actual}")
+                        }
+                    }
+                    if (assertion.passed && command.pingHost.isNotBlank()) {
+                        val pingResult = networkChecks.ping(Ping.newBuilder()
+                            .setHost(command.pingHost)
+                            .setCount(3)
+                            .setTimeoutMs(9000)
+                            .setSelector(NetworkSelector.newBuilder()
+                                .setSsid(command.connect.ssid)
+                                .build())
+                            .build())
+                        pingOk = pingResult.status == CommandResult.Status.STATUS_OK
+                        step.pingOk = pingOk
+                        if (pingResult.hasPing()) step.ping = pingResult.ping
+                        if (!pingOk) step.addErrors("ping=${pingResult.message}")
+                    }
+                    if (assertion.passed && command.httpUrl.isNotBlank()) {
+                        val httpResult = networkChecks.http(HttpCheck.newBuilder()
+                            .setUrl(command.httpUrl)
+                            .setExpectedStatus(200)
+                            .setTimeoutMs(5000)
+                            .setSelector(NetworkSelector.newBuilder()
+                                .setSsid(command.connect.ssid)
+                                .build())
+                            .build())
+                        httpOk = httpResult.status == CommandResult.Status.STATUS_OK
+                        step.httpOk = httpOk
+                        if (httpResult.hasHttpCheck()) step.http = httpResult.httpCheck
+                        if (!httpOk) step.addErrors("http=${httpResult.message}")
                     }
                 }
-                if (assertion.passed && command.pingHost.isNotBlank()) {
-                    val pingResult = networkChecks.ping(Ping.newBuilder()
-                        .setHost(command.pingHost)
-                        .setCount(3)
-                        .setTimeoutMs(9000)
-                        .setSelector(NetworkSelector.newBuilder()
-                            .setSsid(command.connect.ssid)
-                            .build())
-                        .build())
-                    pingOk = pingResult.status == CommandResult.Status.STATUS_OK
-                    step.pingOk = pingOk
-                    if (pingResult.hasPing()) step.ping = pingResult.ping
-                    if (!pingOk) step.addErrors("ping=${pingResult.message}")
-                }
-                if (assertion.passed && command.httpUrl.isNotBlank()) {
-                    val httpResult = networkChecks.http(HttpCheck.newBuilder()
-                        .setUrl(command.httpUrl)
-                        .setExpectedStatus(200)
-                        .setTimeoutMs(5000)
-                        .setSelector(NetworkSelector.newBuilder()
-                            .setSsid(command.connect.ssid)
-                            .build())
-                        .build())
-                    httpOk = httpResult.status == CommandResult.Status.STATUS_OK
-                    step.httpOk = httpOk
-                    if (httpResult.hasHttpCheck()) step.http = httpResult.httpCheck
-                    if (!httpOk) step.addErrors("http=${httpResult.message}")
+            } finally {
+                val cleanup = if (command.forgetAfterEach) wifi.forget(command.connect.ssid) else wifi.disconnect()
+                if (!cleanup.ok) {
+                    step.addErrors("${cleanup.operation}=${cleanup.message}")
+                    logger.warn("wifi cycle cleanup failed index=$index operation=${cleanup.operation} message=${cleanup.message} errors=${cleanup.errors.joinToString(",")}")
                 }
             }
             val stepPassed = WifiCommandPolicy.cycleStepPassed(
@@ -414,14 +422,7 @@ class CommandExecutor(
                 httpRequested = command.httpUrl.isNotBlank(),
                 httpOk = httpOk,
             )
-            if (stepPassed) passed += 1
-            if (command.forgetAfterEach) {
-                val forget = wifi.forget(command.connect.ssid)
-                if (!forget.ok) step.addErrors("forget=${forget.message}")
-            } else {
-                val disconnect = wifi.disconnect()
-                if (!disconnect.ok) step.addErrors("disconnect=${disconnect.message}")
-            }
+            if (stepPassed && step.errorsCount == 0) passed += 1
             step.elapsedMs = Duration.ofNanos(System.nanoTime() - started).toMillis()
             builder.addSteps(step)
             builder.completedCount = index

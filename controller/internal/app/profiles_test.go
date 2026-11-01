@@ -48,6 +48,8 @@ func TestLinkExistingWiFiReadOnlyAndRevalidation(t *testing.T) {
 	}{
 		{"ipv4", "Lab", "ipv4", "", "pass", 2},
 		{"ipv6", "Lab", "ipv6", "", "pass", 2},
+		{"all", "Lab", "all", "", "pass", 2},
+		{"all-missing-dns", "Lab", "all", "dns", "fail", 1},
 		{"wrong-case", "lab", "ipv4", "", "missing", 1},
 		{"unknown", "Lab", "ipv4", "unknown", "missing", 1},
 		{"lost-network", "Lab", "ipv4", "lost", "missing", 1},
@@ -110,6 +112,12 @@ func TestLinkExistingWiFiReadOnlyAndRevalidation(t *testing.T) {
 			if tc.want == "pass" {
 				if !report.Passed() || report.Counts.Passed != 2 || len(report.Steps[0].Attempts[0].Findings) < 4 {
 					t.Fatalf("typed link report=%+v", report)
+				}
+				if tc.family == "all" {
+					view, err := renderProfileReport(&shellState{lastProfile: "link", lastSSID: tc.ssid, lastReport: &report}, outputText, false)
+					if err != nil || !strings.Contains(view, "Android validated: false (observation only)") {
+						t.Fatalf("all-family validation observation lost: %s (%v)", view, err)
+					}
 				}
 			}
 		})

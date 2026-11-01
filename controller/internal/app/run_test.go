@@ -2,7 +2,10 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -45,6 +48,22 @@ func TestTopLevelHelpIncludesFlagsCommandsAndExamples(t *testing.T) {
 		if !strings.Contains(help, want) {
 			t.Fatalf("topLevelHelp() missing aligned row %q:\n%s", want, help)
 		}
+	}
+}
+
+func TestCanceledEntryContextDoesNotStartAgent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "adb")
+	marker := filepath.Join(t.TempDir(), "called")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\ntouch '"+marker+"'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := runWithContext(ctx, []string{"--adb", path, "--serial", "serial-test", "ping", "example.test"}); err == nil {
+		t.Fatal("canceled entry started a one-shot operation")
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("canceled entry ran adb: %v", err)
 	}
 }
 

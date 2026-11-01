@@ -59,7 +59,10 @@ func Validate(plan Plan) error {
 }
 
 func compilePlan(plan Plan, agents []control.AgentInfo, bind bool) (*CompiledPlan, error) {
-	p := &CompiledPlan{name: plan.Name, agents: append([]control.AgentInfo(nil), agents...)}
+	p := &CompiledPlan{name: plan.Name, roundInterval: plan.RoundInterval, agents: append([]control.AgentInfo(nil), agents...)}
+	if plan.RoundInterval < 0 {
+		return nil, fmt.Errorf("negative round interval")
+	}
 	if len(plan.Networks) == 0 {
 		return nil, fmt.Errorf("plan must set networks")
 	}
@@ -204,11 +207,19 @@ func compileStep(s step, id, typeName string) (compiledStep, error) {
 		options.TracerouteRequiredHops = append([]string(nil), options.TracerouteRequiredHops...)
 		s.operation = command.NewOperation(s.operation.Name, cmd, options)
 		timeout = command.TimeoutFor(cmd)
+		if options.WifiEHTFreshScan {
+			fresh, err := command.WifiFreshScanOperation("all", fmt.Sprint(options.WifiEHTFreshScanTimeoutMs))
+			if err != nil {
+				return compiledStep{}, err
+			}
+			timeout += command.TimeoutFor(fresh.Command)
+		}
 	} else {
-		if err := s.gateway.validate(); err != nil {
+		var err error
+		timeout, err = s.gateway.operationTimeout()
+		if err != nil {
 			return compiledStep{}, err
 		}
-		timeout += s.gateway.Timeout
 	}
 	for _, expectation := range s.expectations {
 		if nilValue(expectation) {
@@ -225,7 +236,7 @@ func compileStep(s step, id, typeName string) (compiledStep, error) {
 	if err != nil {
 		return compiledStep{}, err
 	}
-	return compiledStep{id: id, typeName: typeName, step: s}, nil
+	return compiledStep{id: id, typeName: typeName, operationTimeout: timeout, step: s}, nil
 }
 
 func nilValue(value any) bool {
@@ -304,13 +315,21 @@ func bindSelector(op command.Operation, ssid string) (command.Operation, error) 
 }
 
 func stepInfo(s compiledStep) CheckInfo {
-	info := CheckInfo{ID: s.id, Name: s.name, Type: s.typeName, Operation: s.operation.Name, Required: s.required, Policy: s.policy}
+	info := CheckInfo{ID: s.id, Name: s.name, Type: s.typeName, Operation: s.operation.Name, Required: s.required, Policy: s.policy, OperationTimeout: s.operationTimeout, Operations: []string{s.operation.Name}}
 	if s.gateway != nil {
+		info.Operation, info.Operations = "gateway.ping", []string{"ip.status", "ping"}
 		info.Destination = "selected Network's observed default gateway (" + firstNonEmpty(s.gateway.Family, "ipv4") + ")"
-		info.Traffic = fmt.Sprintf("up to %d ICMP packets per attempt, after an IP lookup", max(uint32(1), s.gateway.Count))
+		packets := s.gateway.Count
+		if packets == 0 {
+			packets = 3 // PingOperation's default.
+		}
+		info.Traffic = fmt.Sprintf("up to %d ICMP packets per attempt, after an IP lookup", packets)
 	}
 	if s.operation.Command != nil {
-		info.OperationTimeout = command.TimeoutFor(s.operation.Command)
+		if s.operation.Options.WifiEHTFreshScan {
+			info.Operations = []string{"wifi.scan.fresh", s.operation.Name}
+			info.Traffic = "one active Wi-Fi scan, then on-device diagnostics per attempt"
+		}
 		switch cmd := s.operation.Command.Command.(type) {
 		case *controlpb.RunCommand_Ping:
 			info.Destination, info.Traffic = cmd.Ping.Host, fmt.Sprintf("%d ICMP packets per attempt", cmd.Ping.Count)
@@ -339,7 +358,7 @@ func stepInfo(s compiledStep) CheckInfo {
 }
 
 func (p *CompiledPlan) Preview() Preview {
-	view := Preview{Name: p.redact(p.name)}
+	view := Preview{Name: p.redact(p.name), RoundInterval: p.roundInterval}
 	seen := map[string]bool{}
 	for _, target := range p.targets {
 		t := target.preview
@@ -362,6 +381,11 @@ func (p *CompiledPlan) Preview() Preview {
 		t.Name, t.ShortName, t.SSID, t.BSSID, t.Band = p.redact(t.Name), p.redact(t.ShortName), p.redact(t.SSID), p.redact(t.BSSID), p.redact(t.Band)
 		for i := range t.Checks {
 			t.Checks[i].Name = p.redact(t.Checks[i].Name)
+			t.Checks[i].Operation = p.redact(t.Checks[i].Operation)
+			t.Checks[i].Operations = append([]string(nil), t.Checks[i].Operations...)
+			for j := range t.Checks[i].Operations {
+				t.Checks[i].Operations[j] = p.redact(t.Checks[i].Operations[j])
+			}
 			t.Checks[i].Destination, t.Checks[i].Traffic = p.redact(t.Checks[i].Destination), p.redact(t.Checks[i].Traffic)
 			t.Checks[i].Expectations = append([]string(nil), t.Checks[i].Expectations...)
 			for j := range t.Checks[i].Expectations {
@@ -395,7 +419,7 @@ func (p *CompiledPlan) Select(selection Selection) (*CompiledPlan, error) {
 	if len(selection.TargetIDs) == 0 {
 		return nil, fmt.Errorf("select at least one target")
 	}
-	result := &CompiledPlan{name: p.name, secrets: append([]string(nil), p.secrets...)}
+	result := &CompiledPlan{name: p.name, roundInterval: p.roundInterval, secrets: append([]string(nil), p.secrets...)}
 	knownAgents := map[string]bool{}
 	for _, agent := range p.agents {
 		id := agentKey(agent)
@@ -410,6 +434,7 @@ func (p *CompiledPlan) Select(selection Selection) (*CompiledPlan, error) {
 		}
 	}
 	knownTargets, knownChecks := map[string]bool{}, map[string]bool{}
+	matchedCheck := false
 	for _, t := range p.targets {
 		knownTargets[t.preview.ID] = true
 		for _, c := range t.checks {
@@ -430,6 +455,7 @@ func (p *CompiledPlan) Select(selection Selection) (*CompiledPlan, error) {
 		t.agents = bindings
 		if len(selection.CheckIDs) > 0 {
 			t = selectedChecks(t, selection.CheckIDs, false)
+			matchedCheck = matchedCheck || len(t.checks) > 0
 		}
 		result.targets = append(result.targets, t)
 	}
@@ -442,6 +468,9 @@ func (p *CompiledPlan) Select(selection Selection) (*CompiledPlan, error) {
 		if !knownChecks[id] {
 			return nil, fmt.Errorf("unknown check identity")
 		}
+	}
+	if len(selection.CheckIDs) > 0 && !matchedCheck {
+		return nil, fmt.Errorf("selected checks do not belong to selected targets")
 	}
 	return result, nil
 }
@@ -518,7 +547,7 @@ func (p *CompiledPlan) selectScopes(scopes []Scope) (*CompiledPlan, error) {
 		}
 		groups[key] = request
 	}
-	result := &CompiledPlan{name: p.name, secrets: append([]string(nil), p.secrets...)}
+	result := &CompiledPlan{name: p.name, roundInterval: p.roundInterval, secrets: append([]string(nil), p.secrets...)}
 	active := map[string]bool{}
 	for _, target := range p.targets {
 		for _, agent := range target.agents {

@@ -17,11 +17,27 @@ import (
 	"dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/harness/ping"
 	"dropcheck/controller/internal/runner"
+	"google.golang.org/protobuf/proto"
 
 	tea "charm.land/bubbletea/v2"
 )
 
 const workflowTestSecret = "synthetic-private-psk"
+
+func TestPreviewIncludesTypedDestinationTrafficWithoutURLCredentials(t *testing.T) {
+	preview := workflowCheckPreview(harness.CheckInfo{ID: "check/0", Operations: []string{"wifi.scan.fresh", "wifi.eht"}, Destination: "https://user:credential@example.test/Case?token=credential&ordinary=Keep", Traffic: "HTTP request per attempt"})
+	for _, want := range []string{"ops=[wifi.scan.fresh,wifi.eht]", "destination=", "ordinary=Keep", "traffic=HTTP request per attempt"} {
+		if !strings.Contains(preview, want) {
+			t.Fatalf("preview missing %q: %s", want, preview)
+		}
+	}
+	if strings.Contains(preview, "credential") {
+		t.Fatalf("preview leaked URL credential: %s", preview)
+	}
+	if literal := workflowCheckPreview(harness.CheckInfo{Destination: "password=Guest Case"}); !strings.Contains(literal, "password=Guest Case") {
+		t.Fatalf("literal destination was treated as a credential: %s", literal)
+	}
+}
 
 type workflowFake struct {
 	mu               sync.Mutex
@@ -75,7 +91,7 @@ func (f *workflowFake) Run(ctx context.Context, agent control.AgentInfo, op comm
 	case "wifi.wait":
 		raw.Payload = &controlpb.CommandResult_WifiAssert{WifiAssert: &controlpb.WifiAssertResult{Passed: true}}
 	case "ping":
-		raw.Payload = &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{Host: "8.8.8.8", Count: 5, Transmitted: 5, Received: 5}}
+		raw.Payload = &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{Host: "8.8.8.8", Count: 5, Transmitted: proto.Uint32(5), Received: proto.Uint32(5)}}
 	case "ip.status":
 		raw.Payload = &controlpb.CommandResult_IpStatus{IpStatus: &controlpb.IpStatus{Validated: true, Internet: true}}
 	case "wifi.forget", "wifi.disconnect":
@@ -407,11 +423,19 @@ func TestWorkflowLoopStopReviewAndLostAgentNoReplacement(t *testing.T) {
 
 func TestWorkflowFiniteNTwoAgentCoreRounds(t *testing.T) {
 	fake := &workflowFake{}
-	m := workflowFixture(t, workflowPlan(), fake, workflowAgents())
+	plan := workflowPlan()
+	plan.RoundInterval = 50 * time.Millisecond
+	m := workflowFixture(t, plan, fake, workflowAgents())
 	m.count = "2"
 	m = workflowKey(t, m, tea.Key{Code: tea.KeyEnter})
+	if !strings.Contains(strings.Join(workflowPreviewLines(m.selected.Preview()), "\n"), "Round interval: 50ms") {
+		t.Fatal("preview lost configured round interval")
+	}
 	m = workflowKey(t, m, tea.Key{Code: tea.KeyEnter})
 	pumpWorkflow(t, &m, func(m workflowModel) bool { return m.phase == workflowReview })
+	if elapsed := m.currentReport().Ended.Sub(m.currentReport().Started); elapsed < plan.RoundInterval {
+		t.Fatalf("execution skipped configured round interval: elapsed=%s", elapsed)
+	}
 	if len(m.currentReport().Agents) != 2 {
 		t.Fatal("multi-agent progress collapsed into latest agent")
 	}

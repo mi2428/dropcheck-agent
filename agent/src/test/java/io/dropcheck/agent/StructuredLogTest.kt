@@ -23,6 +23,25 @@ import org.junit.Test
 
 class StructuredLogTest {
     @Test
+    fun urlBearingCommandAndResultLogsHideCredentialsBeforeFormatting() {
+        val endpoint = "https://user:pwd@example.test/Case?token=credential&ordinary=Keep"
+        val request = RunCommand.newBuilder().setLabel("test http $endpoint")
+            .setHttpCheck(HttpCheck.newBuilder().setUrl(endpoint)).build()
+        val response = HttpCheckResult.newBuilder().setUrl(endpoint).setError("request failed: $endpoint").build()
+        for (line in listOf(
+            StructuredLog.format("command.received", request.logFields()),
+            StructuredLog.format("command.result", response.logFields()),
+            AgentSafePresentation.text("request failed: $endpoint"),
+        )) {
+            assertFalse(line.contains("pwd"))
+            assertFalse(line.contains("credential"))
+            assertTrue(line.contains("ordinary=Keep"))
+        }
+        val safe = "https://example.test/Case?ordinary=Keep"
+        assertTrue(StructuredLog.format("command.received", HttpCheck.newBuilder().setUrl(safe).build().logFields()).contains(safe))
+    }
+
+    @Test
     fun rendersLogfmtStyleFieldsWithEscaping() {
         val line = StructuredLog.format(
             "grpc.rx",

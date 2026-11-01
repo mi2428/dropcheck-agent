@@ -6,6 +6,7 @@ import (
 	"net"
 	"slices"
 	"strings"
+	"time"
 
 	"dropcheck/controller/internal/controlpb"
 	"dropcheck/controller/internal/harness"
@@ -151,7 +152,21 @@ type APSelector struct {
 	mloLinkID             *int32
 	affiliatedMLOLinkID   *int32
 	minAffiliatedMLOLinks *int
+	maxAgeMs              *uint64
+	invalidAge            bool
 	capabilityFragments   []string
+}
+
+// MaxAge requires an Android boot-clock observation no older than max.
+// An AP without collector-reported age is unknown, not fresh.
+func (s APSelector) MaxAge(max time.Duration) APSelector {
+	if max < 0 {
+		s.invalidAge = true
+		return s
+	}
+	age := uint64(max / time.Millisecond)
+	s.maxAgeMs = &age
+	return s
 }
 
 // SSID restricts matches to one SSID.
@@ -260,7 +275,11 @@ func (s APSelector) Count() harness.OrderedMetric[int] {
 		if !ok {
 			return 0, false, reason
 		}
-		return len(s.matches(scan.Results)), true, ""
+		matches, unknown := s.matches(scan.Results)
+		if unknown {
+			return 0, false, "selected AP observation age is unavailable"
+		}
+		return len(matches), true, ""
 	}).Validated(s.validate())
 }
 
@@ -270,6 +289,9 @@ type apExists struct {
 
 func (e apExists) Validate() error { return e.selector.validate() }
 func (s APSelector) validate() error {
+	if s.invalidAge {
+		return fmt.Errorf("negative AP maximum observation age")
+	}
 	if s.bssid != "" {
 		mac, err := net.ParseMAC(s.bssid)
 		if err != nil || len(mac) != 6 {
@@ -301,21 +323,35 @@ func (e apExists) Evaluate(result harness.Result) []harness.Finding {
 	if !ok {
 		return []harness.Finding{harness.MissingFinding(e.selector.metric, "<missing>", "exists", reason)}
 	}
-	matches := e.selector.matches(scan.Results)
+	matches, unknown := e.selector.matches(scan.Results)
 	if len(matches) > 0 {
 		return []harness.Finding{harness.Pass(e.selector.metric, describeAP(matches[0]), "exists")}
+	}
+	if unknown {
+		return []harness.Finding{harness.MissingFinding(e.selector.metric, "<missing>", "exists", "selected AP observation age is unavailable")}
 	}
 	return []harness.Finding{harness.Fail(e.selector.metric, describeAPs(scan.Results), "exists", "no scan result matched selector")}
 }
 
-func (s APSelector) matches(results []AP) []AP {
+func (s APSelector) matches(results []AP) ([]AP, bool) {
 	matches := make([]AP, 0, len(results))
+	unknown := false
 	for _, result := range results {
-		if s.matchesOne(result) {
-			matches = append(matches, result)
+		if !s.matchesOne(result) {
+			continue
 		}
+		if s.maxAgeMs != nil {
+			if result.Raw == nil || result.Raw.ObservationAgeMs == nil {
+				unknown = true
+				continue
+			}
+			if result.Raw.GetObservationAgeMs() > *s.maxAgeMs {
+				continue
+			}
+		}
+		matches = append(matches, result)
 	}
-	return matches
+	return matches, unknown
 }
 
 func (s APSelector) matchesOne(result AP) bool {

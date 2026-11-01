@@ -223,20 +223,26 @@ func addPingMetrics(metrics map[string]Value, ping *controlpb.PingResult) {
 	if ping == nil {
 		return
 	}
-	transmitted := uint64(ping.GetTransmitted())
-	received := uint64(ping.GetReceived())
-	lossPercent := ping.GetPacketLossPercent()
-	minLatency := ping.GetMinMs()
-	avgLatency := ping.GetAvgMs()
-	maxLatency := ping.GetMaxMs()
 	metrics["host"] = stringValue(ping.GetHost())
 	metrics["count"] = uintValue(uint64(ping.GetCount()))
-	metrics["transmitted"] = uintValue(transmitted)
-	metrics["received"] = uintValue(received)
-	metrics["loss_percent"] = floatValue(lossPercent)
-	metrics["min_latency_ms"] = floatValue(minLatency)
-	metrics["avg_latency_ms"] = floatValue(avgLatency)
-	metrics["max_latency_ms"] = floatValue(maxLatency)
+	if ping.Transmitted != nil {
+		metrics["transmitted"] = uintValue(uint64(*ping.Transmitted))
+	}
+	if ping.Received != nil {
+		metrics["received"] = uintValue(uint64(*ping.Received))
+	}
+	if ping.PacketLossPercent != nil {
+		metrics["loss_percent"] = floatValue(*ping.PacketLossPercent)
+	}
+	if ping.MinMs != nil {
+		metrics["min_latency_ms"] = floatValue(*ping.MinMs)
+	}
+	if ping.AvgMs != nil {
+		metrics["avg_latency_ms"] = floatValue(*ping.AvgMs)
+	}
+	if ping.MaxMs != nil {
+		metrics["max_latency_ms"] = floatValue(*ping.MaxMs)
+	}
 	metrics["elapsed_ms"] = intValue(ping.GetElapsedMs())
 }
 

@@ -454,5 +454,7 @@ class WifiConnectorPolicyTest {
                 errors = listOf("disable_7=SecurityException"),
             ),
         )
+        assertFalse(WifiConnectorPolicy.forgetSucceeded(listOf("remove_7" to "true", "remove_8" to "false"), emptyList()))
+        assertTrue(WifiConnectorPolicy.forgetSucceeded(listOf("remove_7" to "true", "remove_8" to "true"), emptyList()))
     }
 }

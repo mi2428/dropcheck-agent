@@ -318,12 +318,16 @@ func selectedAgent(state *shellState) (control.AgentInfo, error) {
 		state.setSelectedAgent(agents[0])
 		return agents[0], nil
 	default:
-		return control.AgentInfo{}, errors.New("multiple Android agents connected; select --target <agent|serial|number> or deliberate broadcast (--all / --target all)")
+		return control.AgentInfo{}, errors.New("multiple Android agents connected; select --target <agent|serial|#number> or deliberate broadcast (--all / --target all)")
 	}
 }
 
 func resolveShellAgent(state *shellState, target string) (control.AgentInfo, error) {
-	if index, err := strconv.Atoi(target); err == nil {
+	if strings.HasPrefix(target, "#") {
+		index, err := strconv.Atoi(strings.TrimPrefix(target, "#"))
+		if err != nil {
+			return control.AgentInfo{}, fmt.Errorf("invalid agent number %q", target)
+		}
 		agents := state.server.Agents()
 		if index < 1 || index > len(agents) {
 			return control.AgentInfo{}, fmt.Errorf("agent number %d is out of range", index)
@@ -560,7 +564,7 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 		out, err = renderCommandResultEnvelope(agentDisplayName(agent), commandID, result)
 	} else {
 		out, err = renderCommandResult(agentDisplayName(agent), result, options, output.format)
-		if err == nil {
+		if err == nil && output.format == outputText {
 			out = supplements.appendToText(out)
 		}
 		if err == nil && output.includeAgentHeader && output.format == outputText {

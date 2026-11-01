@@ -232,8 +232,12 @@ class WifiConnector(
         logger.info("wifi disconnect requested result=$ok settled=$settled previous_network_id=${before?.networkId} previous_ssid=${before?.ssid} previous_bssid=${before?.bssid} current_network_id=${after?.networkId} current_ssid=${after?.ssid} current_bssid=${after?.bssid} current_supplicant=${after?.supplicantState}")
         return Operation(
             operation = "disconnect",
-            ok = true,
-            message = if (ok) "disconnect requested" else "disconnect request not permitted by framework",
+            ok = ok && settled,
+            message = when {
+                !ok -> "disconnect request not permitted by framework"
+                !settled -> "disconnect did not settle"
+                else -> "disconnect requested"
+            },
             fields = listOf(
                 "framework_result" to ok.toString(),
                 "settled" to settled.toString(),
@@ -316,7 +320,7 @@ class WifiConnector(
                     .getOrDefault(false)
                 return Operation(
                     operation = "forget",
-                    ok = errors.isEmpty(),
+                    ok = removed && errors.isEmpty(),
                     message = if (removed) "wifi network removed" else "wifi forget not permitted by framework",
                     fields = fields,
                     errors = errors,

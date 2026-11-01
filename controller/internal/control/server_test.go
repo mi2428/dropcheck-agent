@@ -182,6 +182,21 @@ func TestRunSendsCancelWhenContextEnds(t *testing.T) {
 	}
 }
 
+func TestPreCanceledRunNeverEnqueuesCommand(t *testing.T) {
+	server := NewServer("token", nil)
+	conn := addTestConn(server, "agent-a", "session-a")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for range 20 {
+		if _, err := server.Run(ctx, "agent-a", "cmd-canceled", &controlpb.RunCommand{}); !errors.Is(err, context.Canceled) {
+			t.Fatalf("pre-canceled Run = %v", err)
+		}
+	}
+	if len(conn.sendCh) != 0 || len(server.waiters) != 0 {
+		t.Fatalf("pre-canceled Run queued %d frames and %d waiters", len(conn.sendCh), len(server.waiters))
+	}
+}
+
 func TestRunCancellationWithFullQueueReturnsWithinBound(t *testing.T) {
 	server := NewServer("token", nil)
 	conn := addTestConn(server, "agent-a", "session-a")

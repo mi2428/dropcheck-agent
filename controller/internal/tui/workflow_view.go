@@ -212,7 +212,7 @@ func (m workflowModel) renderWorkflow() string {
 }
 
 func workflowPreviewLines(view harness.Preview) []string {
-	lines := []string{"Validated Plan: " + view.Name, "Preview only; operations=0 until Start."}
+	lines := []string{"Validated Plan: " + view.Name, "Preview only; operations=0 until Start.", fmt.Sprintf("Round interval: %s", view.RoundInterval)}
 	for _, a := range view.Agents {
 		lines = append(lines, "agent "+a.ID+" / "+a.DisplayName())
 	}
@@ -238,7 +238,11 @@ func workflowPreviewLines(view harness.Preview) []string {
 
 func workflowCheckPreview(check harness.CheckInfo) string {
 	p := check.Policy
-	return fmt.Sprintf("  %s %s op=%s required=%t operation_timeout=%s policy: attempts=%d repeat=%d delay=%s eventual=%s stable=%s interval=%s timeout=%s expected=[%s]", check.ID, check.Name, check.Operation, check.Required, check.OperationTimeout, p.Attempts, p.Repeat, p.Delay, p.Eventually, p.StableFor, p.Interval, p.Timeout, strings.Join(check.Expectations, "; "))
+	destination := check.Destination
+	if strings.HasPrefix(destination, "https://") || strings.HasPrefix(destination, "http://") {
+		destination = render.TextBlock(destination, render.Presentation{})
+	}
+	return fmt.Sprintf("  %s %s ops=[%s] required=%t destination=%s traffic=%s operation_timeout=%s policy: attempts=%d repeat=%d delay=%s eventual=%s stable=%s interval=%s timeout=%s expected=[%s]", check.ID, check.Name, strings.Join(check.Operations, ","), check.Required, destination, check.Traffic, check.OperationTimeout, p.Attempts, p.Repeat, p.Delay, p.Eventually, p.StableFor, p.Interval, p.Timeout, strings.Join(check.Expectations, "; "))
 }
 
 func workflowReportLines(report harness.Report, cursor int, detail bool) []string {

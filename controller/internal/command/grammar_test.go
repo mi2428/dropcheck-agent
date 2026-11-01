@@ -149,6 +149,29 @@ func TestCredentialErrorsNeverEchoOriginalToken(t *testing.T) {
 	}
 }
 
+func TestConnectPassphraseEnvResolvesBeforeDispatchWithoutDisclosure(t *testing.T) {
+	const secret = "synthetic-env-credential"
+	t.Setenv("DROPCHECK_TEST_PSK", secret)
+	parsed, err := ParseTokens([]string{"wifi", "connect", "Lab", "passphrase-env", "DROPCHECK_TEST_PSK", "security", "wpa3"})
+	if err != nil || parsed.Operation.Command.GetConnectWifi().GetPassphrase() != secret || strings.Contains(parsed.Operation.Command.GetLabel(), secret) {
+		t.Fatalf("env connection was not resolved safely: %v", err)
+	}
+	for _, args := range [][]string{
+		{"wifi", "connect", "Lab", "security", "wpa3"},
+		{"wifi", "connect", "Lab", "passphrase", "another-credential", "passphrase-env", "DROPCHECK_TEST_PSK"},
+		{"wifi", "connect", "Lab", "passphrase-env", "DROPCHECK_TEST_MISSING"},
+		{"wifi", "connect", "Lab", "passphrase-env", "BAD=NAME"},
+	} {
+		if _, err := ParseTokens(args); err == nil || strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), "another-credential") {
+			t.Fatalf("invalid env reference accepted or disclosed a value: %v (%v)", args, err)
+		}
+	}
+	t.Setenv("DROPCHECK_TEST_PSK", "short")
+	if _, err := ParseTokens([]string{"wifi", "connect", "Lab", "passphrase-env", "DROPCHECK_TEST_PSK"}); err == nil || strings.Contains(err.Error(), "short") {
+		t.Fatalf("invalid env value accepted or echoed: %v", err)
+	}
+}
+
 func TestProfileGrammarRejectsBeforeAnyOperation(t *testing.T) {
 	bare, err := ParseTokens([]string{"check"})
 	if err != nil || bare.Path != "check" || bare.Profile != "" || bare.Rejection != "" {
@@ -160,6 +183,7 @@ func TestProfileGrammarRejectsBeforeAnyOperation(t *testing.T) {
 	}{
 		{[]string{"check", "link", "ssid", "Lab"}, false},
 		{[]string{"check", "link", "ssid", "Lab", "family", "ipv6"}, false},
+		{[]string{"check", "link", "ssid", "Lab", "family", "all"}, false},
 		{[]string{"check", "link", "ssid", "Lab", "bssid", "02:00:00:00:00:11"}, true},
 		{[]string{"check", "link", "ssid", "Lab", "bssid", "secret-token"}, true},
 		{[]string{"check", "link", "ssid", "Lab", "family", "auto"}, true},
