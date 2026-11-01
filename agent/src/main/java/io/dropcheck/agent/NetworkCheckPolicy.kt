@@ -13,6 +13,29 @@ import java.net.InetAddress
  * owns defaults, argument construction, and pass/fail classification.
  */
 internal object NetworkCheckPolicy {
+    data class PingStatistics(
+        val transmitted: Int,
+        val received: Int,
+        val lossPercent: Double,
+        val minMs: Double? = null,
+        val avgMs: Double? = null,
+        val maxMs: Double? = null,
+    )
+
+    private val pingSummary = Regex("""(?m)^(\d+) packets transmitted, (\d+) (?:packets )?received,[^\n]*?([\d.]+)% packet loss""")
+    private val pingRtt = Regex("""(?m)^(?:rtt|round-trip) min/avg/max/(?:mdev|stddev) = ([\d.]+)/([\d.]+)/([\d.]+)/[\d.]+ ms""")
+
+    fun pingStatistics(output: String): PingStatistics? {
+        val match = pingSummary.find(output) ?: return null
+        val transmitted = match.groupValues[1].toIntOrNull() ?: return null
+        val received = match.groupValues[2].toIntOrNull() ?: return null
+        val loss = match.groupValues[3].toDoubleOrNull()?.takeIf { it.isFinite() && it in 0.0..100.0 } ?: return null
+        if (received > transmitted) return null
+        val rtt = if (received > 0) pingRtt.find(output)?.groupValues?.drop(1)?.map { it.toDoubleOrNull() } else null
+        val times = rtt?.takeIf { it.size == 3 && it.all { value -> value != null && value.isFinite() } }
+        return PingStatistics(transmitted, received, loss, times?.get(0), times?.get(1), times?.get(2))
+    }
+
     /** Three packets gives a small signal without making every failed ping slow. */
     private const val DEFAULT_PING_COUNT = 3
     private const val PING_PER_PACKET_TIMEOUT_MS = 2_000L
@@ -33,6 +56,8 @@ internal object NetworkCheckPolicy {
     const val DEFAULT_PATH_MTU_MAX_BYTES = 1500
     const val IPV4_PING_OVERHEAD_BYTES = 28
     const val IPV6_PING_OVERHEAD_BYTES = 48
+
+    fun downloadThroughputBps(bytesRead: Long, elapsedMs: Long): Double = bytesRead.toDouble() * 8_000.0 / elapsedMs
 
     private const val DEFAULT_IPV4_PATH_MTU_MIN_BYTES = 576
     private const val DEFAULT_IPV6_PATH_MTU_MIN_BYTES = 1280

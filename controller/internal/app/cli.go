@@ -2,9 +2,12 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
+	"dropcheck/controller/internal/adb"
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/linuxcli"
 	"dropcheck/controller/internal/version"
@@ -48,6 +51,63 @@ func runCLI(ctx context.Context, opts shellOptions, rawArgs []string) error {
 	if command.Kind == linuxcli.Profile && command.Rejection != "" {
 		return (&shellState{}).runCheck(ctx, command.ProfileName, command.SSID, command.Family, command.BSSID, command.Rejection, cliOpts.Format, pipePipeline{}, true)
 	}
+	if command.Kind == linuxcli.Devices {
+		if cliOpts.Target != "" || cliOpts.All {
+			return fmt.Errorf("show devices lists the ADB inventory; --target and --all require an agent session")
+		}
+		devices, err := (adb.Client{Path: opts.ADBPath}).ListDevices(ctx)
+		if err != nil {
+			return err
+		}
+		if cliOpts.Format == outputJSON {
+			type deviceRow struct {
+				Serial string `json:"serial"`
+				State  string `json:"state"`
+				Model  string `json:"model,omitempty"`
+			}
+			rows := make([]deviceRow, 0, len(devices))
+			for _, device := range devices {
+				rows = append(rows, deviceRow{device.Serial, device.State, device.Details["model"]})
+			}
+			return json.NewEncoder(os.Stdout).Encode(struct {
+				Devices []deviceRow `json:"devices"`
+			}{rows})
+		}
+		for _, device := range devices {
+			fmt.Printf("%s\t%s\t%s\n", device.Serial, device.State, device.Details["model"])
+		}
+		return nil
+	}
+	if !cliOpts.All {
+		targets, err := discoverADBTargets(ctx, adb.Client{Path: opts.ADBPath}, opts.Serial)
+		if err != nil {
+			return err
+		}
+		if cliOpts.Target == "" && len(targets) != 1 {
+			return fmt.Errorf("multiple Android agents available; specify --target, --serial or --all")
+		}
+		selected := ""
+		if cliOpts.Target == "" {
+			selected = targets[0].Serial
+		} else {
+			for _, target := range targets {
+				if target.Serial == cliOpts.Target {
+					selected = target.Serial
+					break
+				}
+				if strings.HasPrefix(target.Serial, cliOpts.Target) {
+					if selected != "" {
+						return fmt.Errorf("ambiguous target serial prefix")
+					}
+					selected = target.Serial
+				}
+			}
+			if selected == "" {
+				return fmt.Errorf("target serial not found")
+			}
+		}
+		opts.Serial = selected
+	}
 
 	controlSession, err := startControlSession(ctx, opts)
 	if err != nil {
@@ -62,25 +122,9 @@ func runCLI(ctx context.Context, opts shellOptions, rawArgs []string) error {
 	if cliOpts.All {
 		state.targetAll = true
 	}
-	if cliOpts.Target != "" {
-		info, err := resolveShellAgent(state, cliOpts.Target)
-		if err != nil {
-			return err
-		}
-		state.setSelectedAgent(info)
-		state.targetAll = false
-	}
-
 	switch command.Kind {
 	case linuxcli.Profile:
 		return state.runCheck(ctx, command.ProfileName, command.SSID, command.Family, command.BSSID, command.Rejection, cliOpts.Format, pipePipeline{}, true)
-	case linuxcli.Devices:
-		out, err := renderAgents(agentListView(state), cliOpts.Format)
-		if err != nil {
-			return err
-		}
-		fmt.Print(out)
-		return nil
 	case linuxcli.ADBDiagnostics:
 		agents, err := state.commandTargets()
 		if err != nil {

@@ -222,7 +222,7 @@ func (m *workflowModel) start() tea.Cmd {
 	m.dashboard = newModelWithChecks(view.Name, view.Targets, view.Checks, nil, view.Agents)
 	m.dashboard.width, m.dashboard.height = m.width, max(1, m.height-3)
 	compiled, runner, controls, feedCtx := m.selected, m.runner, m.controls, m.ctx
-	options := harness.ExecuteOptions{Loop: m.loop, Controls: controls, Sinks: []harness.Sink{workflowSink{feedCtx, run.events}}}
+	options := harness.ExecuteOptions{Loop: m.loop, RoundInterval: view.RoundInterval, Controls: controls, Sinks: []harness.Sink{workflowSink{feedCtx, run.events}}}
 	if !m.loop {
 		options.Rounds, _ = strconv.ParseUint(m.count, 10, 64) // Checked by preflight.
 	}

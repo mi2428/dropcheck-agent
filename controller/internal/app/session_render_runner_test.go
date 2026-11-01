@@ -49,6 +49,17 @@ func TestRenderAgentsAndTargetFromConnectedAgent(t *testing.T) {
 
 }
 
+func TestAgentNumberRequiresExplicitMarker(t *testing.T) {
+	state, cleanup := connectedShellState(t)
+	defer cleanup()
+	if agent, err := resolveShellAgent(state, "#1"); err != nil || agent.ID != "agent-a" {
+		t.Fatalf("explicit display number = %v, %v", agent.ID, err)
+	}
+	if _, err := resolveShellAgent(state, "1"); err == nil {
+		t.Fatal("bare numeric selector silently chose display number instead of serial")
+	}
+}
+
 func TestStatusDetailSwitchChangesPCPresentation(t *testing.T) {
 	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_WifiStatus{WifiStatus: &controlpb.WifiStatus{Enabled: true, State: "connected", Connection: &controlpb.WifiConnection{Ssid: "Lab", SupplicantState: "COMPLETED"}}}}
 	base, err := renderCommandResult("fixture", result, command.Options{}, outputText)
@@ -125,9 +136,12 @@ func TestRunOperationForAgentsDispatchesAndRendersResult(t *testing.T) {
 				Body: &controlpb.AgentFrame_Result{Result: &controlpb.CommandResult{
 					Status: controlpb.CommandResult_STATUS_OK,
 					Payload: &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{
-						Host:      "example.test",
-						Count:     1,
-						ElapsedMs: 4,
+						Host:              "example.test",
+						Count:             1,
+						Transmitted:       proto.Uint32(1),
+						Received:          proto.Uint32(1),
+						PacketLossPercent: proto.Float64(0),
+						ElapsedMs:         4,
 						Output: "1 packets transmitted, 1 packets received, 0% packet loss\n" +
 							"rtt min/avg/max/mdev = 1.000/1.500/2.000/0.100 ms\n",
 					}},
@@ -216,6 +230,74 @@ func TestRunOperationForAgentsStrictFailure(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+func TestOneShotHTTPJSONIsValidAndPreservesPublicURL(t *testing.T) {
+	const target = "https://www.google.com/generate_204"
+	state, stream, cleanup := connectedShellStateWithStream(t)
+	defer cleanup()
+	agent, err := state.server.ResolveAgent("agent-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sentURL := make(chan string, 1)
+	go func() {
+		for frame := range stream.sent {
+			if frame.GetRunCommand() != nil {
+				sentURL <- frame.GetRunCommand().GetHttpCheck().GetUrl()
+				stream.recv <- &controlpb.AgentFrame{CommandId: frame.GetCommandId(), Body: &controlpb.AgentFrame_Result{Result: &controlpb.CommandResult{
+					Status:  controlpb.CommandResult_STATUS_OK,
+					Payload: &controlpb.CommandResult_HttpCheck{HttpCheck: &controlpb.HttpCheckResult{Url: frame.GetRunCommand().GetHttpCheck().GetUrl(), Status: 204, ExpectedStatus: 204, Matched: true}},
+				}}}
+				return
+			}
+		}
+	}()
+	op, err := command.HTTPOperation(target, "204", "10000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := captureStdout(t, func() error {
+		return runOperationForAgents(context.Background(), state, []control.AgentInfo{agent}, op, commandOutputOptions{format: outputJSON, strict: true})
+	})
+	if url := <-sentURL; url != target {
+		t.Fatalf("sent URL changed: %q", url)
+	}
+	var body struct {
+		HTTP struct {
+			URL string `json:"url"`
+		} `json:"http_check"`
+	}
+	if err != nil || json.Unmarshal([]byte(out), &body) != nil || body.HTTP.URL != target {
+		t.Fatalf("public HTTP JSON corrupt: %q (%v)", out, err)
+	}
+}
+
+func TestOneShotWrongNonemptyPayloadCannotPass(t *testing.T) {
+	state, stream, cleanup := connectedShellStateWithStream(t)
+	defer cleanup()
+	agent, err := state.server.ResolveAgent("agent-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		for frame := range stream.sent {
+			if frame.GetRunCommand() != nil {
+				stream.recv <- &controlpb.AgentFrame{CommandId: frame.GetCommandId(), Body: &controlpb.AgentFrame_Result{Result: &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_IpStatus{IpStatus: &controlpb.IpStatus{}}}}}
+				return
+			}
+		}
+	}()
+	op, err := command.PingOperation(command.PingOptions{Host: "example.test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := captureStdout(t, func() error {
+		return runOperationForAgents(context.Background(), state, []control.AgentInfo{agent}, op, commandOutputOptions{strict: true})
+	})
+	if err == nil || !strings.Contains(out, "MISSING payload") || !strings.Contains(out, "FAILED") {
+		t.Fatalf("wrong typed response accepted: %s (%v)", out, err)
 	}
 }
 
@@ -823,9 +905,12 @@ func respondToPingCommand(stream *testControlSessionStream, elapsedMs int64) {
 				Body: &controlpb.AgentFrame_Result{Result: &controlpb.CommandResult{
 					Status: controlpb.CommandResult_STATUS_OK,
 					Payload: &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{
-						Host:      ping.GetHost(),
-						Count:     ping.GetCount(),
-						ElapsedMs: elapsedMs,
+						Host:              ping.GetHost(),
+						Count:             ping.GetCount(),
+						Transmitted:       proto.Uint32(1),
+						Received:          proto.Uint32(1),
+						PacketLossPercent: proto.Float64(0),
+						ElapsedMs:         elapsedMs,
 						Output: "1 packets transmitted, 1 packets received, 0% packet loss\n" +
 							"rtt min/avg/max/mdev = 1.000/1.500/2.000/0.100 ms\n",
 					}},

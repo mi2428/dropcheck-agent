@@ -52,6 +52,9 @@ internal fun awaitDnsAnswer(latch: CountDownLatch, timeoutMs: Int, cancel: () ->
     }
 }
 
+internal fun <T> withHttpConnection(connection: HttpURLConnection, block: (HttpURLConnection) -> T): T =
+    try { block(connection) } finally { connection.disconnect() }
+
 /**
  * Executes local network probes on a selected Android [android.net.Network].
  *
@@ -175,12 +178,19 @@ class NetworkCheckExecutor(
             .setInterfaceName(iface)
             .setOutput(run.output.take(4000))
             .setSizeBytes(command.sizeBytes)
-            .build()
+        NetworkCheckPolicy.pingStatistics(run.output)?.let { stats ->
+            result.setTransmitted(stats.transmitted)
+                .setReceived(stats.received)
+                .setPacketLossPercent(stats.lossPercent)
+            stats.minMs?.let(result::setMinMs)
+            stats.avgMs?.let(result::setAvgMs)
+            stats.maxMs?.let(result::setMaxMs)
+        }
 
         logger.debugEvent("network.probe.result", listOf(
             "probe" to "ping",
             "ok" to ok,
-        ) + result.logFields())
+        ) + result.build().logFields())
         return CommandResult.newBuilder()
             .setStatus(if (ok) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
             .setMessage(if (ok) "ping passed" else "ping failed")
@@ -673,7 +683,7 @@ class NetworkCheckExecutor(
         val iface = ip.interfaceName
         logger.execEvent("probe.exec", listOf(
             "probe" to "download",
-            "url" to command.url,
+            "url" to AgentSafePresentation.text(command.url),
             "timeout_ms" to timeoutMs,
             "iface" to iface.ifBlank { "default" },
         ))
@@ -691,65 +701,67 @@ class NetworkCheckExecutor(
         val result = WgetResult.newBuilder()
             .setUrl(command.url)
             .setInterfaceName(iface)
-        var conn: HttpURLConnection? = null
         try {
-            conn = network.openConnection(URL(command.url)) as HttpURLConnection
-            conn.connectTimeout = timeoutMs
-            conn.readTimeout = timeoutMs
-            conn.instanceFollowRedirects = true
-            conn.requestMethod = "GET"
-            logger.debugEvent("network.http.request", listOf(
-                "probe" to "download",
-                "method" to conn.requestMethod,
-                "follow_redirects" to conn.instanceFollowRedirects,
-                "connect_timeout_ms" to conn.connectTimeout,
-                "read_timeout_ms" to conn.readTimeout,
-                "iface" to iface.ifBlank { "default" },
-            ) + command.logFields())
-            val status = conn.responseCode
-            logger.debugEvent("network.http.response", listOf(
-                "probe" to "download",
-                "url" to command.url,
-                "http_status" to status,
-                "content_type" to conn.contentType.orEmpty(),
-                "content_length" to conn.contentLengthLong,
-            ) + urlFields(command.url))
-            result.status = status
-            result.contentType = conn.contentType.orEmpty()
-            result.contentLength = conn.contentLengthLong
-            val input = if (status >= 400) conn.errorStream ?: conn.inputStream else conn.inputStream
-            val buffer = ByteArray(64 * 1024)
-            var bytes = 0L
-            input.use { stream ->
-                while (true) {
-                    throwIfInterrupted()
-                    if (timeoutMs > 0 && Duration.ofNanos(System.nanoTime() - started).toMillis() > timeoutMs) {
-                        result.error = "download_timeout=${timeoutMs}ms"
-                        break
+            withHttpConnection(network.openConnection(URL(command.url)) as HttpURLConnection) { conn ->
+                conn.connectTimeout = timeoutMs
+                conn.readTimeout = timeoutMs
+                conn.instanceFollowRedirects = true
+                conn.requestMethod = "GET"
+                logger.debugEvent("network.http.request", listOf(
+                    "probe" to "download",
+                    "method" to conn.requestMethod,
+                    "follow_redirects" to conn.instanceFollowRedirects,
+                    "connect_timeout_ms" to conn.connectTimeout,
+                    "read_timeout_ms" to conn.readTimeout,
+                    "iface" to iface.ifBlank { "default" },
+                ) + command.logFields())
+                val status = conn.responseCode
+                logger.debugEvent("network.http.response", listOf(
+                    "probe" to "download",
+                    "url" to AgentSafePresentation.text(command.url),
+                    "http_status" to status,
+                    "content_type" to conn.contentType.orEmpty(),
+                    "content_length" to conn.contentLengthLong,
+                ) + urlFields(command.url))
+                result.status = status
+                result.contentType = conn.contentType.orEmpty()
+                result.contentLength = conn.contentLengthLong
+                val input = if (status >= 400) conn.errorStream ?: conn.inputStream else conn.inputStream
+                val buffer = ByteArray(64 * 1024)
+                var bytes = 0L
+                input.use { stream ->
+                    while (true) {
+                        throwIfInterrupted()
+                        if (timeoutMs > 0 && Duration.ofNanos(System.nanoTime() - started).toMillis() > timeoutMs) {
+                            result.error = "download_timeout=${timeoutMs}ms"
+                            break
+                        }
+                        val read = stream.read(buffer)
+                        if (read < 0) break
+                        bytes += read.toLong()
                     }
-                    val read = stream.read(buffer)
-                    if (read < 0) break
-                    bytes += read.toLong()
+                }
+                throwIfInterrupted()
+                result.bytesRead = bytes
+                if (status >= 400 && result.error.isBlank()) {
+                    result.error = "http_status=$status"
                 }
             }
-            result.bytesRead = bytes
-            if (status >= 400 && result.error.isBlank()) {
-                result.error = "http_status=$status"
-            }
+        } catch (e: InterruptedException) {
+            throw e
         } catch (e: Exception) {
-            result.error = e.toString()
-            logger.warn("download error url=${command.url} error=$e")
-        } finally {
-            conn?.disconnect()
+            throwIfInterrupted()
+            result.error = AgentSafePresentation.text(e.toString())
+            logger.warn("download error url=${AgentSafePresentation.text(command.url)} error=${result.error}")
         }
         val elapsedMs = Duration.ofNanos(System.nanoTime() - started).toMillis()
         result.elapsedMs = elapsedMs
         if (elapsedMs > 0) {
-            result.throughputBps = result.bytesRead.toDouble() * 1000.0 / elapsedMs.toDouble()
+            result.throughputBps = NetworkCheckPolicy.downloadThroughputBps(result.bytesRead, elapsedMs)
         }
         val built = result.build()
         val ok = NetworkCheckPolicy.downloadSucceeded(built.error, built.status)
-        logger.debug("download finished url=${command.url} status=${built.status} bytes=${built.bytesRead} elapsed_ms=${built.elapsedMs} throughput_bps=${built.throughputBps} error=${built.error.ifBlank { "none" }}")
+        logger.debug("download finished url=${AgentSafePresentation.text(command.url)} status=${built.status} bytes=${built.bytesRead} elapsed_ms=${built.elapsedMs} throughput_bps=${built.throughputBps} error=${built.error.ifBlank { "none" }}")
         logger.debugEvent("network.probe.result", listOf(
             "probe" to "download",
             "ok" to ok,
@@ -948,45 +960,49 @@ class NetworkCheckExecutor(
         try {
             logger.execEvent("probe.exec", listOf(
                 "probe" to "http",
-                "url" to command.url,
+                "url" to AgentSafePresentation.text(command.url),
                 "expected_status" to expected,
                 "timeout_ms" to timeoutMs,
             ))
-            val conn = network.openConnection(URL(command.url)) as HttpURLConnection
-            conn.connectTimeout = timeoutMs
-            conn.readTimeout = timeoutMs
-            conn.instanceFollowRedirects = false
-            logger.debug("http connection prepared method=${conn.requestMethod} follow_redirects=${conn.instanceFollowRedirects} connect_timeout=${conn.connectTimeout} read_timeout=${conn.readTimeout}")
-            logger.debugEvent("network.http.request", listOf(
-                "probe" to "http",
-                "method" to conn.requestMethod,
-                "effective_expected_status" to expected,
-                "follow_redirects" to conn.instanceFollowRedirects,
-                "connect_timeout_ms" to conn.connectTimeout,
-                "read_timeout_ms" to conn.readTimeout,
-                "iface" to ip.interfaceName.ifBlank { "default" },
-            ) + command.logFields())
-            val status = conn.responseCode
-            logger.debug("http response headers status=$status content_type=${conn.contentType.orEmpty()} content_length=${conn.contentLengthLong}")
-            logger.debugEvent("network.http.response", listOf(
-                "probe" to "http",
-                "url" to command.url,
-                "http_status" to status,
-                "expected_status" to expected,
-                "matched" to (status == expected),
-                "content_type" to conn.contentType.orEmpty(),
-                "content_length" to conn.contentLengthLong,
-            ) + urlFields(command.url))
-            conn.disconnect()
-            result.status = status
-            result.matched = status == expected
+            withHttpConnection(network.openConnection(URL(command.url)) as HttpURLConnection) { conn ->
+                conn.connectTimeout = timeoutMs
+                conn.readTimeout = timeoutMs
+                conn.instanceFollowRedirects = false
+                logger.debug("http connection prepared method=${conn.requestMethod} follow_redirects=${conn.instanceFollowRedirects} connect_timeout=${conn.connectTimeout} read_timeout=${conn.readTimeout}")
+                logger.debugEvent("network.http.request", listOf(
+                    "probe" to "http",
+                    "method" to conn.requestMethod,
+                    "effective_expected_status" to expected,
+                    "follow_redirects" to conn.instanceFollowRedirects,
+                    "connect_timeout_ms" to conn.connectTimeout,
+                    "read_timeout_ms" to conn.readTimeout,
+                    "iface" to ip.interfaceName.ifBlank { "default" },
+                ) + command.logFields())
+                val status = conn.responseCode
+                throwIfInterrupted()
+                logger.debug("http response headers status=$status content_type=${conn.contentType.orEmpty()} content_length=${conn.contentLengthLong}")
+                logger.debugEvent("network.http.response", listOf(
+                    "probe" to "http",
+                    "url" to AgentSafePresentation.text(command.url),
+                    "http_status" to status,
+                    "expected_status" to expected,
+                    "matched" to (status == expected),
+                    "content_type" to conn.contentType.orEmpty(),
+                    "content_length" to conn.contentLengthLong,
+                ) + urlFields(command.url))
+                result.status = status
+                result.matched = status == expected
+            }
+        } catch (e: InterruptedException) {
+            throw e
         } catch (e: Exception) {
-            result.error = e.toString()
-            logger.warn("http error url=${command.url} error=$e")
+            throwIfInterrupted()
+            result.error = AgentSafePresentation.text(e.toString())
+            logger.warn("http error url=${AgentSafePresentation.text(command.url)} error=${result.error}")
         }
         result.elapsedMs = Duration.ofNanos(System.nanoTime() - started).toMillis()
         val built = result.build()
-        logger.debug("http finished url=${command.url} status=${built.status} expected=${built.expectedStatus} matched=${built.matched} error=${built.error.ifBlank { "none" }} elapsed_ms=${built.elapsedMs}")
+        logger.debug("http finished url=${AgentSafePresentation.text(command.url)} status=${built.status} expected=${built.expectedStatus} matched=${built.matched} error=${built.error.ifBlank { "none" }} elapsed_ms=${built.elapsedMs}")
         logger.debugEvent("network.probe.result", listOf(
             "probe" to "http",
             "ok" to NetworkCheckPolicy.httpSucceeded(built.matched, built.error),

@@ -73,6 +73,9 @@ func ExecuteOperation(ctx context.Context, r OperationRunner, agent control.Agen
 	if err != nil {
 		return result, err
 	}
+	if result.Raw != nil && result.Raw.GetStatus() == controlpb.CommandResult_STATUS_OK && !payloadMatches(atomic, result.Raw) {
+		result.Findings = append(result.Findings, MissingFinding("payload", "<missing>", "expected typed payload", "wrong or missing payload"))
+	}
 	if options.WifiEHTFreshScan {
 		if result.Raw != nil && result.Raw.GetWifiDiagnostics() != nil && fresh.GetWifiScan() != nil {
 			result.Raw.GetWifiDiagnostics().Scan = proto.Clone(fresh.GetWifiScan()).(*controlpb.WifiScan)

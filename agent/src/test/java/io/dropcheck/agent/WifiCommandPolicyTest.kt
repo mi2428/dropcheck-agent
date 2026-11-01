@@ -15,6 +15,16 @@ import org.junit.Test
 
 class WifiCommandPolicyTest {
     @Test
+    fun cycleCleanupErrorCannotPass() {
+        val clean = io.dropcheck.agent.grpc.WifiCycleResult.newBuilder()
+            .setRequestedCount(1).setCompletedCount(1).setPassedCount(1)
+            .addSteps(io.dropcheck.agent.grpc.WifiCycleStep.newBuilder().setIndex(1))
+        assertTrue(WifiCommandPolicy.cyclePassed(clean.build()))
+        clean.setSteps(0, clean.getSteps(0).toBuilder().addErrors("disconnect failed"))
+        assertFalse(WifiCommandPolicy.cyclePassed(clean.build()))
+    }
+
+    @Test
     fun registrationExceptionReturnsDiagnosticsWithoutStartingScan() {
         var scanStarted = false
         val cached = WifiScan.newBuilder()
@@ -135,9 +145,13 @@ class WifiCommandPolicyTest {
                     .setRequestedCount(2)
                     .setCompletedCount(2)
                     .setPassedCount(2)
+                    .addSteps(io.dropcheck.agent.grpc.WifiCycleStep.newBuilder().setIndex(1))
+                    .addSteps(io.dropcheck.agent.grpc.WifiCycleStep.newBuilder().setIndex(2))
                     .build(),
             ),
         )
+        assertFalse(WifiCommandPolicy.cyclePassed(io.dropcheck.agent.grpc.WifiCycleResult.newBuilder()
+            .setRequestedCount(2).setCompletedCount(2).setPassedCount(2).build()))
         assertFalse(
             WifiCommandPolicy.cyclePassed(
                 WifiCycleResult.newBuilder()

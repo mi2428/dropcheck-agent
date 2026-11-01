@@ -22,15 +22,18 @@ func GatewayPing(name, sourceID string, opts GatewayPingOptions, policy Policy, 
 	return operationCheck{step{name: name, sourceID: sourceID, gateway: &opts, policy: policy, required: required, expectations: append([]Expectation(nil), expect...)}}
 }
 
-func (o GatewayPingOptions) validate() error {
+func (o GatewayPingOptions) operationTimeout() (time.Duration, error) {
 	if o.Timeout < 0 {
-		return fmt.Errorf("negative gateway timeout")
+		return 0, fmt.Errorf("negative gateway timeout")
 	}
 	if _, err := gatewayFamily(o.Family); err != nil {
-		return err
+		return 0, err
 	}
-	_, err := command.PingOperation(command.PingOptions{Host: "validation.invalid", Count: optionalNumber(o.Count), Size: optionalNumber(o.SizeBytes), Timeout: durationMS(o.Timeout)})
-	return err
+	probe, err := command.PingOperation(command.PingOptions{Host: "validation.invalid", Count: optionalNumber(o.Count), Size: optionalNumber(o.SizeBytes), Timeout: durationMS(o.Timeout)})
+	if err != nil {
+		return 0, err
+	}
+	return command.TimeoutFor(command.IPStatusOperation().Command) + command.TimeoutFor(probe.Command), nil
 }
 
 func optionalNumber(v uint32) string {

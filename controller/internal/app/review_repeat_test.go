@@ -9,6 +9,7 @@ import (
 	"dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/runner"
 	"dropcheck/controller/internal/watchstate"
+	"google.golang.org/protobuf/proto"
 	"testing"
 	"time"
 )
@@ -30,7 +31,7 @@ func (r *repeatReviewRunner) Run(_ context.Context, _ control.AgentInfo, op comm
 			received = 5
 		}
 		r.ping++
-		raw.Payload = &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{Received: received}}
+		raw.Payload = &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{Received: proto.Uint32(received)}}
 	}
 	return runner.Result{Result: raw}, nil
 }

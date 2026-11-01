@@ -11,6 +11,21 @@ import org.junit.Test
 
 class NetworkCheckPolicyTest {
     @Test
+    fun pingStatisticsKeepKnownZeroAndUnknownSeparate() {
+        val success = NetworkCheckPolicy.pingStatistics("3 packets transmitted, 3 received, 0% packet loss, time 402ms\nrtt min/avg/max/mdev = 6.096/22.947/56.030/23.394 ms")!!
+        assertEquals(3, success.transmitted)
+        assertEquals(0.0, success.lossPercent, 0.0)
+        assertEquals(22.947, success.avgMs!!, 0.0)
+        val noReplies = NetworkCheckPolicy.pingStatistics("3 packets transmitted, 0 received, 100% packet loss")!!
+        assertEquals(0, noReplies.received)
+        assertNull(noReplies.avgMs)
+        assertNull(NetworkCheckPolicy.pingStatistics("1 packets transmitted, 0 received, 100% packet loss\nrtt min/avg/max/mdev = 1/1/1/0 ms")?.avgMs)
+        assertEquals(1, NetworkCheckPolicy.pingStatistics("2 packets transmitted, 1 packets received, 50% packet loss")?.received)
+        assertNull(NetworkCheckPolicy.pingStatistics("permission denied"))
+        assertNull(NetworkCheckPolicy.pingStatistics("1 packets transmitted, 2 received, 0% packet loss"))
+    }
+
+    @Test
     fun appliesPingDefaultsAndBuildsProcessArguments() {
         val count = NetworkCheckPolicy.pingCount(0)
 
@@ -81,6 +96,12 @@ class NetworkCheckPolicyTest {
         assertFalse(NetworkCheckPolicy.httpSucceeded(matched = false, error = ""))
         assertFalse(NetworkCheckPolicy.httpSucceeded(matched = true, error = "boom"))
 
+    }
+
+    @Test
+    fun reportsDownloadThroughputInBitsPerSecond() {
+        assertEquals(8_000.0, NetworkCheckPolicy.downloadThroughputBps(1_000, 1_000), 0.0)
+        assertEquals(4_000.0, NetworkCheckPolicy.downloadThroughputBps(500, 1_000), 0.0)
     }
 
     @Test

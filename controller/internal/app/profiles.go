@@ -74,15 +74,16 @@ func (e linkNetworkExpectation) Evaluate(r harness.Result) []harness.Finding {
 // snapshots detect observed changes, not transient roaming during an operation.
 func linkPlan(ssid, family string) harness.Plan {
 	identity := &linkIdentity{}
-	var address, route, dns harness.Expectation
-	if family == "ipv6" {
-		address, route, dns = ip.IPv6AddressCount().Ge(1), ip.IPv6ParsedRoute().Default().Count().Ge(1), ip.IPv6DNSServerCount().Ge(1)
-	} else {
-		address, route, dns = ip.IPv4AddressCount().Ge(1), ip.IPv4ParsedRoute().Default().Count().Ge(1), ip.IPv4DNSServerCount().Ge(1)
+	expectations := []harness.Expectation{linkNetworkExpectation{identity, ssid}}
+	if family == "ipv4" || family == "all" {
+		expectations = append(expectations, ip.IPv4AddressCount().Ge(1), ip.IPv4ParsedRoute().Default().Count().Ge(1), ip.IPv4DNSServerCount().Ge(1))
+	}
+	if family == "ipv6" || family == "all" {
+		expectations = append(expectations, ip.IPv6AddressCount().Ge(1), ip.IPv6ParsedRoute().Default().Count().Ge(1), ip.IPv6DNSServerCount().Ge(1))
 	}
 	checks := []harness.Check{
-		harness.NewCheck("link "+family+" provisioning", "", command.IPStatusOperation(), harness.Policy{}, true, linkNetworkExpectation{identity, ssid}, address, route, dns),
-		harness.NewCheck("link "+family+" final observation", "", command.IPStatusOperation(), harness.Policy{}, true, linkNetworkExpectation{identity, ssid}, address, route, dns),
+		harness.NewCheck("link "+family+" provisioning", "", command.IPStatusOperation(), harness.Policy{}, true, expectations...),
+		harness.NewCheck("link "+family+" final observation", "", command.IPStatusOperation(), harness.Policy{}, true, expectations...),
 	}
 	return harness.Plan{Name: "link", Networks: []harness.Network{harness.ObservedWiFi("link " + ssid).SSID(ssid)}, Checks: checks}
 }
@@ -95,7 +96,7 @@ var profileCatalogue = []struct {
 	Family        string `json:"family"`
 	Cost          string `json:"cost"`
 }{
-	{"link", "supported", "existing physical Wi-Fi identity/IP/default route/DNS >=1; validated observation only", "literal SSID and selected Network/interface; BSSID pin unsupported", "ipv4 default, or explicit ipv6", "two read-only observations; no external traffic/mutation"},
+	{"link", "supported", "existing physical Wi-Fi identity/IP/default route/DNS >=1; validated observation only", "literal SSID and selected Network/interface; BSSID pin unsupported", "ipv4 default, or explicit ipv6/all", "two read-only observations; no external traffic/mutation"},
 	{"lab", "unsupported", "gateway, lab DNS and lab HTTP", "endpoint/resolver/expected status/portable contract not configured", "unconfigured", "zero operations"},
 	{"internet", "unsupported", "external DNS/HTTP/global-IP", "authorized endpoints and portable contract not configured; no public fallback", "unconfigured", "zero operations"},
 	{"eht", "unsupported", "EHT band/MLO/scan", "required expectations and portable contract not configured", "n/a", "zero operations"},
@@ -154,7 +155,7 @@ func executeProfile(ctx context.Context, state *shellState, name, ssid, family, 
 	if bssid != "" {
 		return unsupportedProfileReport("link", "strict BSSID pinning is unsupported by the SSID-only NetworkSelector", state.selected), nil
 	}
-	if strings.TrimSpace(ssid) == "" || family != "ipv4" && family != "ipv6" {
+	if strings.TrimSpace(ssid) == "" || family != "ipv4" && family != "ipv6" && family != "all" {
 		return profileReport("link", "invalid link target/family", state.selected), nil
 	}
 	if state.targetAll {
@@ -249,7 +250,7 @@ func renderProfileReport(s *shellState, format outputFormat, detail bool) (strin
 	}
 	validated := "?"
 	for _, step := range s.lastReport.Steps {
-		if !strings.HasPrefix(step.Name, "link ipv") || len(step.Attempts) == 0 {
+		if !strings.HasPrefix(step.Name, "link ") || len(step.Attempts) == 0 {
 			continue
 		}
 		result := step.Attempts[len(step.Attempts)-1].Result.Raw

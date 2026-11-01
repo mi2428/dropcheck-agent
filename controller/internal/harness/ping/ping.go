@@ -45,6 +45,9 @@ type Result struct {
 func Transmitted() harness.OrderedMetric[uint32] {
 	return harness.Ordered[uint32]("ping.transmitted", func(result harness.Result) (uint32, bool, string) {
 		ping, ok, reason := from(result)
+		if ok && ping.Raw.Transmitted == nil {
+			return 0, false, "ping transmitted is unavailable"
+		}
 		return ping.Transmitted, ok, reason
 	})
 }
@@ -53,6 +56,9 @@ func Transmitted() harness.OrderedMetric[uint32] {
 func Received() harness.OrderedMetric[uint32] {
 	return harness.Ordered[uint32]("ping.received", func(result harness.Result) (uint32, bool, string) {
 		ping, ok, reason := from(result)
+		if ok && ping.Raw.Received == nil {
+			return 0, false, "ping received is unavailable"
+		}
 		return ping.Received, ok, reason
 	})
 }
@@ -61,28 +67,31 @@ func Received() harness.OrderedMetric[uint32] {
 func LossPercent() harness.OrderedMetric[float64] {
 	return harness.Ordered[float64]("ping.loss_percent", func(result harness.Result) (float64, bool, string) {
 		ping, ok, reason := from(result)
+		if ok && ping.Raw.PacketLossPercent == nil {
+			return 0, false, "ping loss is unavailable"
+		}
 		return ping.LossPercent, ok, reason
 	})
 }
 
 // MinLatency matches the minimum ping latency.
 func MinLatency() harness.OrderedMetric[time.Duration] {
-	return durationMetric("ping.min_latency", func(result Result) time.Duration { return result.MinLatency })
+	return durationMetric("ping.min_latency", func(raw *controlpb.PingResult) bool { return raw.MinMs != nil }, func(result Result) time.Duration { return result.MinLatency })
 }
 
 // AvgLatency matches the average ping latency.
 func AvgLatency() harness.OrderedMetric[time.Duration] {
-	return durationMetric("ping.avg_latency", func(result Result) time.Duration { return result.AvgLatency })
+	return durationMetric("ping.avg_latency", func(raw *controlpb.PingResult) bool { return raw.AvgMs != nil }, func(result Result) time.Duration { return result.AvgLatency })
 }
 
 // MaxLatency matches the maximum ping latency.
 func MaxLatency() harness.OrderedMetric[time.Duration] {
-	return durationMetric("ping.max_latency", func(result Result) time.Duration { return result.MaxLatency })
+	return durationMetric("ping.max_latency", func(raw *controlpb.PingResult) bool { return raw.MaxMs != nil }, func(result Result) time.Duration { return result.MaxLatency })
 }
 
 // Elapsed matches the agent-reported elapsed time.
 func Elapsed() harness.OrderedMetric[time.Duration] {
-	return durationMetric("ping.elapsed", func(result Result) time.Duration { return result.Elapsed })
+	return durationMetric("ping.elapsed", nil, func(result Result) time.Duration { return result.Elapsed })
 }
 
 // ExitCode matches the ping process exit code.
@@ -122,9 +131,12 @@ func (a assertion) Evaluate(result harness.Result) []harness.Finding {
 	return []harness.Finding{harness.Pass(metric, "passed", "custom assertion passed")}
 }
 
-func durationMetric(name string, observe func(Result) time.Duration) harness.OrderedMetric[time.Duration] {
+func durationMetric(name string, present func(*controlpb.PingResult) bool, observe func(Result) time.Duration) harness.OrderedMetric[time.Duration] {
 	return harness.Ordered[time.Duration](name, func(result harness.Result) (time.Duration, bool, string) {
 		ping, ok, reason := from(result)
+		if ok && present != nil && !present(ping.Raw) {
+			return 0, false, "ping latency is unavailable"
+		}
 		return observe(ping), ok, reason
 	})
 }

@@ -15,6 +15,7 @@ import (
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
 	"dropcheck/controller/internal/runner"
+	"google.golang.org/protobuf/proto"
 )
 
 type cleanupRunnerFunc func(context.Context, command.Operation) (runner.Result, error)
@@ -58,7 +59,7 @@ func runtimeFixture(op command.Operation) *controlpb.CommandResult {
 	case *controlpb.RunCommand_GetWifiDiagnostics:
 		r.Payload = &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{Status: wifi, Scan: &controlpb.WifiScan{}, Capabilities: &controlpb.WifiCapabilities{}}}
 	case *controlpb.RunCommand_Ping:
-		r.Payload = &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{Host: c.Ping.Host, Count: c.Ping.Count, Transmitted: c.Ping.Count, Received: c.Ping.Count}}
+		r.Payload = &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{Host: c.Ping.Host, Count: c.Ping.Count, Transmitted: proto.Uint32(c.Ping.Count), Received: proto.Uint32(c.Ping.Count)}}
 	case *controlpb.RunCommand_Traceroute:
 		r.Payload = &controlpb.CommandResult_Traceroute{Traceroute: &controlpb.TracerouteResult{Host: c.Traceroute.Host, ReachedTarget: new(true), Hops: []*controlpb.TracerouteHop{{Index: 1, Addresses: []string{"192.0.2.1"}}}}}
 	case *controlpb.RunCommand_PathMtu:
@@ -174,6 +175,61 @@ func TestPreviewDisclosesActualProbeDestinationsWithoutSecrets(t *testing.T) {
 	}
 }
 
+func TestCompoundPreviewMatchesAcquisitionPartsAndTimeout(t *testing.T) {
+	eht, err := command.WifiEHTOperationWithOptions(command.WifiEHTOptions{Fresh: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checks := []Check{
+		NewCheck("fresh eht", "", eht, Policy{}, false),
+		GatewayPing("gateway", "", GatewayPingOptions{}, Policy{}, false),
+	}
+	p := compiledFixture(t, Plan{Networks: []Network{WiFi("lab").SSID("Lab")}, Checks: checks})
+	view := p.Preview().Targets[0].Checks
+	if len(view) != 2 {
+		t.Fatalf("preview checks=%+v", view)
+	}
+	fresh, err := command.WifiFreshScanOperation("all", "10000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ping, err := command.PingOperation(command.PingOptions{Host: "validation.invalid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wants := []struct {
+		parts   []string
+		timeout time.Duration
+		traffic string
+	}{
+		{[]string{"wifi.scan.fresh", "wifi.eht"}, command.TimeoutFor(fresh.Command) + command.TimeoutFor(eht.Command), "one active Wi-Fi scan"},
+		{[]string{"ip.status", "ping"}, command.TimeoutFor(command.IPStatusOperation().Command) + command.TimeoutFor(ping.Command), "3 ICMP packets"},
+	}
+	r := agentRunnerFunc(func(_ context.Context, _ control.AgentInfo, op command.Operation) (runner.Result, error) {
+		return runner.Result{Result: runtimeFixture(op)}, nil
+	})
+	for i, want := range wants {
+		info := view[i]
+		if !reflect.DeepEqual(info.Operations, want.parts) || info.OperationTimeout != want.timeout || info.Policy.Timeout < want.timeout || !strings.Contains(info.Traffic, want.traffic) {
+			t.Fatalf("compound preview[%d]=%+v want parts=%v timeout=%v", i, info, want.parts, want.timeout)
+		}
+		var result OperationResult
+		if i == 0 {
+			result, err = ExecuteOperation(context.Background(), r, control.AgentInfo{ID: "a"}, p.targets[0].checks[i].operation)
+		} else {
+			result, err = executeGateway(context.Background(), r, control.AgentInfo{ID: "a"}, p.targets[0].network, *p.targets[0].checks[i].gateway)
+		}
+		if err != nil || len(result.Parts) != len(want.parts) {
+			t.Fatalf("actual compound[%d]=%+v err=%v", i, result.Parts, err)
+		}
+		for j, part := range result.Parts {
+			if part.Name != want.parts[j] {
+				t.Fatalf("actual part[%d][%d]=%s, want %s", i, j, part.Name, want.parts[j])
+			}
+		}
+	}
+}
+
 func TestRuntimeMissingTransportAndCleanupRemainVisible(t *testing.T) {
 	primary, cleanup, delivery := errors.New("primary"), errors.New("cleanup"), errors.New("delivery")
 	compiled := compiledFixture(t, Plan{Networks: []Network{WiFi("lab").SSID("Lab").ForgetAfter(true)}, Checks: []Check{Ping("example.test")}})
@@ -224,6 +280,20 @@ func TestRuntimeOrdinalIdentityAndAgentSelectionFailClosed(t *testing.T) {
 	selected, err := p.Select(Selection{AgentIDs: []string{"b"}, TargetIDs: []string{view.Targets[1].ID}})
 	if err != nil || len(selected.targets[0].agents) != 1 || selected.targets[0].agents[0].ID != "b" || len(p.targets[1].agents) != 2 {
 		t.Fatalf("selection mutated source: %v", err)
+	}
+}
+
+func TestDisjointCheckSelectionCannotPassWithoutMeasurements(t *testing.T) {
+	p, err := Compile(Plan{Networks: []Network{
+		ObservedWiFi("first").SSID("First").Checks(IPStatus()),
+		ObservedWiFi("second").SSID("Second").Checks(IPStatus()),
+	}}, []control.AgentInfo{{ID: "a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := p.Preview()
+	if _, err := p.Select(Selection{AgentIDs: []string{"a"}, TargetIDs: []string{view.Targets[0].ID}, CheckIDs: []string{view.Targets[1].Checks[0].ID}}); err == nil {
+		t.Fatal("disjoint check selection accepted with zero measurements")
 	}
 }
 
@@ -283,6 +353,19 @@ type agentRunnerFunc func(context.Context, control.AgentInfo, command.Operation)
 func (f agentRunnerFunc) Run(ctx context.Context, a control.AgentInfo, op command.Operation) (runner.Result, error) {
 	return f(ctx, a, op)
 }
+
+func TestOneShotAcquisitionReportsWrongPayload(t *testing.T) {
+	op, err := command.PingOperation(command.PingOptions{Host: "example.test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := ExecuteOperation(context.Background(), agentRunnerFunc(func(context.Context, control.AgentInfo, command.Operation) (runner.Result, error) {
+		return runner.Result{Result: &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_IpStatus{IpStatus: &controlpb.IpStatus{}}}}, nil
+	}), control.AgentInfo{ID: "a"}, op)
+	if err != nil || len(result.Findings) != 1 || !result.Findings[0].Missing {
+		t.Fatalf("wrong payload accepted: %+v (%v)", result.Findings, err)
+	}
+}
 func countString(values []string, want string) int {
 	count := 0
 	for _, value := range values {
@@ -303,10 +386,15 @@ func TestRuntimeTypedZeroAndContradictoryRawAreNotFallbacks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{Output: "3 packets transmitted, 3 received, 100% packet loss"}}}
+	raw := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{Received: proto.Uint32(0), PacketLossPercent: proto.Float64(0), Output: "3 packets transmitted, 3 received, 100% packet loss"}}}
 	findings, outcome, _ := evaluateAttempt(Network{}, s, OperationResult{Raw: raw}, nil, nil)
 	if outcome != OutcomePass || len(findings) != 2 {
 		t.Fatalf("typed zero overwritten: %s %v", outcome, findings)
+	}
+	raw.GetPing().Received, raw.GetPing().PacketLossPercent = nil, nil
+	findings, outcome, _ = evaluateAttempt(Network{}, s, OperationResult{Raw: raw}, nil, nil)
+	if outcome != MissingOutcome || len(findings) != 2 {
+		t.Fatalf("unreported ping stats became known zero: %s %v", outcome, findings)
 	}
 	_, outcome, _ = evaluateAttempt(Network{}, s, OperationResult{}, nil, nil)
 	if outcome != MissingOutcome {
@@ -520,7 +608,7 @@ func TestMutatingSinkCannotChangeNextSinkOrRetainedReport(t *testing.T) {
 	p := compiledFixture(t, Plan{Networks: []Network{WiFi("lab").SSID("Lab")}, Checks: []Check{Ping("example.test")}})
 	mutator := cleanupSinkFunc(func(_ context.Context, event Event) error {
 		if event.Attempt != nil && event.Attempt.Result.Raw.GetPing() != nil {
-			event.Attempt.Result.Raw.GetPing().Received = 999
+			event.Attempt.Result.Raw.GetPing().Received = proto.Uint32(999)
 			event.Attempt.Result.Parts[0].Raw.Message = "mutated part"
 		}
 		if event.Report != nil && len(event.Report.Attempts) > 0 {
@@ -538,7 +626,7 @@ func TestMutatingSinkCannotChangeNextSinkOrRetainedReport(t *testing.T) {
 	observer := cleanupSinkFunc(func(_ context.Context, event Event) error {
 		if event.Attempt != nil && event.Attempt.Result.Raw.GetPing() != nil {
 			seen = true
-			if event.Attempt.Result.Raw.GetPing().Received == 999 || event.Attempt.Result.Parts[0].Raw.Message == "mutated part" {
+			if event.Attempt.Result.Raw.GetPing().GetReceived() == 999 || event.Attempt.Result.Parts[0].Raw.Message == "mutated part" {
 				t.Error("first sink changed second sink")
 			}
 		}

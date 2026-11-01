@@ -110,6 +110,8 @@ internal object WifiCommandPolicy {
 
     /** The whole cycle passes only if every requested step completed and passed. */
     fun cyclePassed(result: WifiCycleResult): Boolean {
-        return result.completedCount == result.requestedCount && result.passedCount == result.requestedCount
+        return result.requestedCount > 0 && result.stepsCount == result.requestedCount &&
+            result.completedCount == result.requestedCount && result.passedCount == result.requestedCount &&
+            result.stepsList.none { it.errorsCount > 0 }
     }
 }

@@ -161,6 +161,20 @@ func TestCapabilityListsArePresenceAuthority(t *testing.T) {
 	}
 }
 
+func TestCapabilityLabelIsNotMistakenForCredential(t *testing.T) {
+	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_WifiCapabilities{WifiCapabilities: &controlpb.WifiCapabilities{SupportedSecurityModes: []string{"wpa2_psk"}}}}
+	out, err := CommandResult("self", result, command.Options{}, pipeline.FormatText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "WPA2-PSK: yes") || strings.Contains(out, "WPA2-PSK: <redacted>") {
+		t.Fatalf("capability label was redacted: %s", out)
+	}
+	if got := safePresentationText("psk: credential-value"); !strings.Contains(got, "psk: <redacted>") {
+		t.Fatalf("credential text was not redacted: %q", got)
+	}
+}
+
 func TestObservationMetadataNeverGuessesScalarPresence(t *testing.T) {
 	available := []*controlpb.DiagnosticField{{Key: "field.state", Value: "available"}}
 	unavailable := []*controlpb.DiagnosticField{{Key: "field.state", Value: "unavailable"}, {Key: "field.reason", Value: "permission denied"}}

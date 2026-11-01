@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"slices"
 	"strings"
+	"syscall"
 
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/control"
@@ -29,6 +31,12 @@ type helpRow struct {
 // Controller Shell, Controller TUI, or one-shot CLI mode, starts the required
 // control session, and returns any user-facing error to the executable wrapper.
 func Run(args []string) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runWithContext(ctx, args)
+}
+
+func runWithContext(ctx context.Context, args []string) error {
 	if len(args) == 1 && (args[0] == "--version" || args[0] == "-version") {
 		fmt.Println(version.Version)
 		return nil
@@ -46,22 +54,22 @@ func Run(args []string) error {
 		return nil
 	}
 	if len(rest) == 1 && rest[0] == "shell" {
-		return runShell(context.Background(), opts, nil)
+		return runShell(ctx, opts, nil)
 	}
 	if len(rest) > 0 && rest[0] == "shell" {
-		return runShell(context.Background(), opts, rest[1:])
+		return runShell(ctx, opts, rest[1:])
 	}
 	if len(rest) > 0 && rest[0] == "watch" {
-		return runWatch(context.Background(), opts, rest[1:])
+		return runWatch(ctx, opts, rest[1:])
 	}
 	if len(rest) > 0 && rest[0] == "tui" {
-		return runTUI(context.Background(), opts, rest[1:])
+		return runTUI(ctx, opts, rest[1:])
 	}
 	if len(rest) == 0 {
 		writeTopLevelHelp(os.Stdout)
 		return nil
 	}
-	return runCLI(context.Background(), opts, rest)
+	return runCLI(ctx, opts, rest)
 }
 
 func writeTopLevelHelp(w io.Writer) {
@@ -79,7 +87,7 @@ func writeTopLevelHelp(w io.Writer) {
 		{"tui [PLAN.yml]", "select, preview, run and review a Plan interactively (requires a TTY)"},
 		{"shell", "start the Controller Shell"},
 		{"watch -c CONFIG.yml", "start the Controller TUI for continuous E2E Wi-Fi checks"},
-		{"show devices", "list connected Android agents"},
+		{"show devices", "list ADB devices without starting agent services"},
 		{"show wifi <topic>", "show Wi-Fi status and diagnostics"},
 		{"show ip status", "show IP and routing status"},
 		{"wifi <command> ...", "run Wi-Fi control"},
@@ -99,7 +107,7 @@ func writeTopLevelHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "CLI output and target flags:")
 	writeHelpRows(w, []helpRow{
 		{"--format text|json", "output format for one-shot commands"},
-		{"--target TARGET", "select one agent by ID, prefix, or adb serial"},
+		{"--target TARGET", "select one agent by adb serial or unique prefix before startup"},
 		{"--all", "run agent commands on all connected agents"},
 	})
 	_, _ = fmt.Fprintln(w)
@@ -109,7 +117,7 @@ func writeTopLevelHelp(w io.Writer) {
 			_, _ = fmt.Fprintln(w, "  "+commandUsage(spec))
 		}
 	}
-	_, _ = fmt.Fprintln(w, "  check link: family defaults to ipv4; BSSID pinning unsupported; no external traffic or Wi-Fi changes")
+	_, _ = fmt.Fprintln(w, "  check link: family defaults to ipv4; ipv6/all available; BSSID pinning unsupported; no external traffic or Wi-Fi changes")
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, `Notes:
   Top-level flags accept either single or double dash, for example -serial or --serial.
@@ -157,7 +165,7 @@ func writeCommandHelp(w io.Writer, topic string) {
 		_, _ = fmt.Fprintln(w, "unsupported help topic")
 	}
 	if topic == "check" || topic == "check link" {
-		_, _ = fmt.Fprintln(w, "  link: family defaults to ipv4; existing physical Wi-Fi only; BSSID pinning unsupported")
+		_, _ = fmt.Fprintln(w, "  link: family defaults to ipv4; ipv6/all available; existing physical Wi-Fi only; BSSID pinning unsupported")
 	}
 }
 
@@ -309,7 +317,7 @@ func selectShellStartupTarget(state *shellState, agents []control.AgentInfo, tar
 		fmt.Fprintf(os.Stderr, "dropcheck: selected agent=%s\n", agentDisplayName(agents[0]))
 		return nil
 	default:
-		return fmt.Errorf("multiple agents connected; start shell with --target <agent|serial|number|all>")
+		return fmt.Errorf("multiple agents connected; start shell with --target <agent|serial|#number|all>")
 	}
 }
 

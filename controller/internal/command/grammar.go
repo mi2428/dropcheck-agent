@@ -3,6 +3,8 @@ package command
 import (
 	"fmt"
 	"net"
+	"os"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -21,6 +23,8 @@ type Grammar struct {
 	Values      []string
 	Unsupported bool
 }
+
+var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 var GrammarTable = []Grammar{
 	{Path: "show version"},
@@ -49,7 +53,7 @@ var GrammarTable = []Grammar{
 	{Path: "show wifi scan detail", Positionals: []string{"target"}, Values: []string{"band"}},
 	{Path: "show wifi eht", Switches: []string{"detail", "fresh"}, Values: []string{"ssid", "bssid", "timeout"}},
 	{Path: "show ip status", Switches: []string{"detail"}, Values: []string{"ssid"}},
-	{Path: "wifi connect", Positionals: []string{"ssid"}, Required: []string{"passphrase"}, Values: []string{"passphrase", "security", "bssid", "band", "mac-randomization", "timeout"}},
+	{Path: "wifi connect", Positionals: []string{"ssid"}, Values: []string{"passphrase", "passphrase-env", "security", "bssid", "band", "mac-randomization", "timeout"}},
 	{Path: "wifi disconnect"},
 	{Path: "wifi forget", Positionals: []string{"target"}},
 	{Path: "wifi wait connected", Values: []string{"ssid", "bssid", "security", "band", "require-ip", "require-validated", "timeout"}},
@@ -272,7 +276,7 @@ func ParseTokens(args []string) (Parsed, error) {
 		}
 		if values, ok := enumValues(key, spec.Path); ok && !slices.Contains(values, value) {
 			if spec.Path == "check" {
-				return Parsed{Path: "check", Profile: "link", Rejection: "invalid family; choose ipv4 or ipv6"}, nil
+				return Parsed{Path: "check", Profile: "link", Rejection: "invalid family; choose ipv4, ipv6 or all"}, nil
 			}
 			return Parsed{}, fmt.Errorf("invalid %s", key)
 		}
@@ -293,6 +297,21 @@ func ParseTokens(args []string) (Parsed, error) {
 		return Parsed{}, fmt.Errorf("SSID is required")
 	}
 	if spec.Path == "wifi connect" || spec.Path == "wifi cycle" || spec.Path == "use" {
+		if spec.Path == "wifi connect" {
+			if f["passphrase"] == "" && f["passphrase-env"] == "" || f["passphrase"] != "" && f["passphrase-env"] != "" {
+				return Parsed{}, fmt.Errorf("specify exactly one of passphrase or passphrase-env")
+			}
+			if name := f["passphrase-env"]; name != "" {
+				if !envName.MatchString(name) {
+					return Parsed{}, fmt.Errorf("invalid passphrase-env variable name")
+				}
+				var found bool
+				f["passphrase"], found = os.LookupEnv(name)
+				if !found || f["passphrase"] == "" {
+					return Parsed{}, fmt.Errorf("passphrase-env variable is missing or empty")
+				}
+			}
+		}
 		psk := f["passphrase"]
 		validHex := len(psk) == 64
 		for _, r := range psk {
@@ -460,7 +479,7 @@ func enumValues(key, path string) ([]string, bool) {
 	switch key {
 	case "family":
 		if path == "check" {
-			return []string{"ipv4", "ipv6"}, true
+			return []string{"ipv4", "ipv6", "all"}, true
 		}
 		if path == "global-ip" {
 			return []string{"ipv4", "ipv6", "all"}, true
