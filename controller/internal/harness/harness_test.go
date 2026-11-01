@@ -220,7 +220,7 @@ func TestRunRetriesAndRepeatsChecks(t *testing.T) {
 }
 
 func TestRunFailureGatingAndCleanup(t *testing.T) {
-	for _, scenario := range []string{"connect_status", "connect_error", "wait_status", "wait_error", "retry_exhausted", "repeat_failed", "missing_network"} {
+	for _, scenario := range []string{"connect_status", "connect_error", "wait_status", "wait_error", "retry_exhausted", "repeat_failed", "missing_network", "pre_canceled"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
@@ -242,6 +242,8 @@ func TestRunFailureGatingAndCleanup(t *testing.T) {
 				want = "ping.received"
 			case "missing_network":
 				want = "must set networks"
+			case "pre_canceled":
+				want = "scenario: canceled"
 			}
 			if !strings.Contains(string(out), want) {
 				t.Fatalf("failure child missing %q:\n%s", want, out)
@@ -279,6 +281,8 @@ func TestRunFailureChild(t *testing.T) {
 		want = []string{"wifi.connect", "wifi.wait", "ping", "ping", "dns", "wifi.disconnect", "wifi.forget"}
 	case "missing_network":
 		want = nil
+	case "pre_canceled":
+		want = nil
 	default:
 		t.Fatalf("unknown failure scenario %q", scenario)
 	}
@@ -314,6 +318,12 @@ func TestRunFailureChild(t *testing.T) {
 	if scenario == "missing_network" {
 		plan.Networks = nil
 		harness.Run(t, plan, harness.WithADBPath("/nonexistent/dropcheck-test-adb"))
+		return
+	}
+	if scenario == "pre_canceled" {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		harness.Run(t, plan, harness.WithContext(ctx), harness.WithRunner(fake, control.AgentInfo{ID: "agent-1"}))
 		return
 	}
 	harness.Run(t, plan, harness.WithRunner(fake, control.AgentInfo{ID: "agent-1"}))

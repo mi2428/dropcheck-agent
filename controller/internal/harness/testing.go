@@ -86,6 +86,9 @@ func Run(t *testing.T, plan Plan, options ...RunOption) {
 	if err != nil {
 		t.Errorf("execution: %v", err)
 	}
+	if !report.Passed() {
+		t.Errorf("scenario: %s", report.Outcome)
+	}
 	for _, result := range report.Steps {
 		if result.Outcome != OutcomePass && result.Outcome != SkipOutcome {
 			t.Errorf("%s: %s: %s", result.Name, result.Outcome, result.Reason)

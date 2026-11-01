@@ -651,10 +651,14 @@ func cloneRaw(result *controlpb.CommandResult) *controlpb.CommandResult {
 // sanitizeRaw operates on an owned clone: known credentials are removed from
 // all free-text protobuf fields before reports, JSONL or renderers receive it.
 func (p *CompiledPlan) sanitizeRaw(raw *controlpb.CommandResult) *controlpb.CommandResult {
-	result := cloneRaw(raw)
-	if result == nil {
+	if raw == nil {
 		return nil
 	}
+	return p.sanitizeProto(raw).(*controlpb.CommandResult)
+}
+
+func (p *CompiledPlan) sanitizeProto(raw proto.Message) proto.Message {
+	result := proto.Clone(raw)
 	var walk func(protoreflect.Message)
 	walk = func(message protoreflect.Message) {
 		message.Range(func(field protoreflect.FieldDescriptor, value protoreflect.Value) bool {
@@ -711,6 +715,23 @@ func (p *CompiledPlan) safeValue(value any) any {
 			copy[i] = p.redact(copy[i])
 		}
 		return copy
+	case []any:
+		copy := make([]any, len(v))
+		for i, item := range v {
+			copy[i] = p.safeValue(item)
+		}
+		return copy
+	case map[string]any:
+		copy := make(map[string]any, len(v))
+		for key, item := range v {
+			copy[p.redact(key)] = p.safeValue(item)
+		}
+		return copy
+	case proto.Message:
+		if nilValue(v) {
+			return nil
+		}
+		return p.sanitizeProto(v)
 	}
 	return value
 }
