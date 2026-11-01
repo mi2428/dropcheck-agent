@@ -124,7 +124,7 @@ func (c LabConfig) ValidFor(family string) bool {
 	u, err := url.Parse(c.HTTP)
 	return (family == "ipv4" || family == "ipv6") && ip != nil && (ip.To4() != nil) == (family == "ipv4") &&
 		c.DNS != "" && !strings.ContainsAny(c.DNS, " \t\r\n\x00") && !strings.HasPrefix(c.DNS, "-") &&
-		c.Resolver == "selected" && err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != "" && u.User == nil && u.RawQuery == "" && u.Fragment == "" &&
+		c.Resolver == "selected" && err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != "" && u.User == nil && u.RawQuery == "" && !u.ForceQuery && u.Fragment == "" &&
 		c.ExpectedStatus >= 100 && c.ExpectedStatus <= 599 && c.TimeoutMs >= 1 && c.TimeoutMs <= 30000
 }
 

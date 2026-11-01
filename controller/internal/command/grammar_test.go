@@ -213,7 +213,7 @@ func TestLabRequiresAllExplicitEndpointsAndKeepsRejectionsSecretFree(t *testing.
 		t.Fatalf("lab parsed=%+v err=%v", parsed, err)
 	}
 	for _, tc := range []struct{ key, value string }{
-		{"resolver", "8.8.8.8"}, {"gateway", "example.test"}, {"http", "https://lab.example.test/?token=synthetic-private"}, {"expected-status", "700"}, {"family", "all"},
+		{"resolver", "8.8.8.8"}, {"gateway", "example.test"}, {"gateway", "192.0.2"}, {"http", "https://lab.example.test/?token=synthetic-private"}, {"http", "https://lab.example.test/?"}, {"expected-status", "700"}, {"family", "all"},
 	} {
 		changed := append([]string(nil), args...)
 		for i, arg := range changed {
