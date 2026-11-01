@@ -901,3 +901,17 @@ func TestRawAndFreeTextCredentialRedactionAtProducer(t *testing.T) {
 		t.Fatal("retained report/raw message leaked")
 	}
 }
+
+func TestStructuredFindingCredentialRedactionAtProducer(t *testing.T) {
+	secret := "synthetic-only-credential"
+	p := compiledFixture(t, Plan{Networks: []Network{WiFi("lab").SSID("Lab").PSK(secret)}})
+	value := map[string]any{"nested": []any{secret, &controlpb.CommandResult{Message: secret}}, "key-" + secret: []string{secret}}
+	result := p.sanitizeResult(OperationResult{Findings: []Finding{{ObservedValue: value, ExpectedValue: value}}})
+	encoded, err := json.Marshal(result)
+	if err != nil || strings.Contains(string(encoded), secret) {
+		t.Fatalf("structured finding leaked a known credential: %s, %v", encoded, err)
+	}
+	if value["nested"].([]any)[1].(*controlpb.CommandResult).Message != secret || value["key-"+secret].([]string)[0] != secret {
+		t.Fatal("redaction changed the evaluator's original typed values")
+	}
+}
