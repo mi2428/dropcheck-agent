@@ -462,10 +462,11 @@ class CommandExecutor(
     private fun waitForExpectation(expectation: WifiExpectation, timeoutMs: Int): WifiAssertResult {
         val started = System.nanoTime()
         val deadline = System.currentTimeMillis() + timeoutMs
-        var last = evaluateExpectation(networks.wifiStatus(), expectation, started)
+        val selector = expectation.ssid.takeIf(String::isNotEmpty)?.let { NetworkSelector.newBuilder().setSsid(it).build() }
+        var last = evaluateExpectation(networks.wifiStatus(selector), expectation, started)
         while (!last.passed && timeoutMs > 0 && System.currentTimeMillis() < deadline) {
             Thread.sleep(500)
-            last = evaluateExpectation(networks.wifiStatus(), expectation, started)
+            last = evaluateExpectation(networks.wifiStatus(selector), expectation, started)
         }
         if (!last.passed && timeoutMs > 0) {
             return last.toBuilder()

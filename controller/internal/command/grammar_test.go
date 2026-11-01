@@ -206,6 +206,29 @@ func TestProfileGrammarRejectsBeforeAnyOperation(t *testing.T) {
 	}
 }
 
+func TestLabRequiresAllExplicitEndpointsAndKeepsRejectionsSecretFree(t *testing.T) {
+	args := []string{"check", "lab", "ssid", "Lab", "family", "ipv4", "gateway", "192.0.2.1", "dns", "lab.example.test", "resolver", "selected", "http", "https://lab.example.test/health", "expected-status", "204", "timeout", "5000"}
+	parsed, err := ParseTokens(args)
+	if err != nil || parsed.Rejection != "" || parsed.Lab.Resolver != "selected" || parsed.Lab.ExpectedStatus != 204 || parsed.Lab.TimeoutMs != 5000 || parsed.Operation.Command != nil {
+		t.Fatalf("lab parsed=%+v err=%v", parsed, err)
+	}
+	for _, tc := range []struct{ key, value string }{
+		{"resolver", "8.8.8.8"}, {"gateway", "example.test"}, {"http", "https://lab.example.test/?token=synthetic-private"}, {"expected-status", "700"}, {"family", "all"},
+	} {
+		changed := append([]string(nil), args...)
+		for i, arg := range changed {
+			if arg == tc.key {
+				changed[i+1] = tc.value
+				break
+			}
+		}
+		got, err := ParseTokens(changed)
+		if err == nil && got.Rejection == "" || got.Operation.Command != nil || strings.Contains(got.Rejection, "synthetic-private") {
+			t.Fatalf("accepted invalid %s: %+v err=%v", tc.key, got, err)
+		}
+	}
+}
+
 // Retain the old adapter's capability assertions, but exercise only canonical
 // tokens and the actual wire command plus local options.
 func TestCanonicalWireArgumentsAndPolicyDefaults(t *testing.T) {

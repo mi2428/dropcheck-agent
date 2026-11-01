@@ -3,6 +3,7 @@ package command
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"regexp"
 	"slices"
@@ -72,7 +73,7 @@ var GrammarTable = []Grammar{
 	{Path: "set default passphrase", Positionals: []string{"passphrase"}, Unsupported: true},
 	{Path: "clear default passphrase", Unsupported: true},
 	{Path: "use", Positionals: []string{"ssid"}, Required: []string{"passphrase"}, Values: []string{"passphrase"}},
-	{Path: "check", Positionals: []string{"name"}, Required: []string{"ssid"}, Values: []string{"ssid", "family", "bssid"}},
+	{Path: "check", Positionals: []string{"name"}, Required: []string{"ssid"}, Values: []string{"ssid", "family", "bssid", "gateway", "dns", "resolver", "http", "expected-status", "timeout"}},
 	{Path: "show checks"},
 	{Path: "show check last", Switches: []string{"detail"}},
 }
@@ -105,8 +106,26 @@ type Parsed struct {
 	Operation                    Operation
 	ADBKind                      string
 	Profile, SSID, Family, BSSID string
+	Lab                          LabConfig
 	Detail                       bool
 	Rejection                    string
+}
+
+// LabConfig contains only operator-supplied, non-credential endpoints.
+// The selected Network's own DNS resolver is the only portable resolver mode.
+type LabConfig struct {
+	Gateway, DNS, Resolver, HTTP string
+	ExpectedStatus, TimeoutMs    uint32
+}
+
+// ValidFor refuses implicit destinations and URL secrets before any dispatch.
+func (c LabConfig) ValidFor(family string) bool {
+	ip := net.ParseIP(c.Gateway)
+	u, err := url.Parse(c.HTTP)
+	return (family == "ipv4" || family == "ipv6") && ip != nil && (ip.To4() != nil) == (family == "ipv4") &&
+		c.DNS != "" && !strings.ContainsAny(c.DNS, " \t\r\n\x00") && !strings.HasPrefix(c.DNS, "-") &&
+		c.Resolver == "selected" && err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != "" && u.User == nil && u.RawQuery == "" && u.Fragment == "" &&
+		c.ExpectedStatus >= 100 && c.ExpectedStatus <= 599 && c.TimeoutMs >= 1 && c.TimeoutMs <= 30000
 }
 
 func siblings(prefix []string) []string {
@@ -247,7 +266,7 @@ func ParseTokens(args []string) (Parsed, error) {
 	if spec.Path == "check" && len(args) == consumed {
 		return Parsed{Path: "check"}, nil
 	}
-	if spec.Path == "check" && len(args) > consumed && args[consumed] != "link" {
+	if spec.Path == "check" && len(args) > consumed && args[consumed] != "link" && args[consumed] != "lab" {
 		name := args[consumed]
 		if !slices.Contains([]string{"lab", "internet", "eht"}, name) {
 			name = "unsupported"
@@ -257,7 +276,7 @@ func ParseTokens(args []string) (Parsed, error) {
 	f, via, err := parseFields(spec, args[consumed:])
 	if err != nil {
 		if spec.Path == "check" {
-			return Parsed{Path: "check", Profile: "link", Rejection: "invalid link syntax: " + err.Error()}, nil
+			return Parsed{Path: "check", Profile: args[consumed], Rejection: "invalid check syntax"}, nil
 		}
 		return Parsed{}, err
 	}
@@ -276,10 +295,28 @@ func ParseTokens(args []string) (Parsed, error) {
 		}
 		if values, ok := enumValues(key, spec.Path); ok && !slices.Contains(values, value) {
 			if spec.Path == "check" {
-				return Parsed{Path: "check", Profile: "link", Rejection: "invalid family; choose ipv4, ipv6 or all"}, nil
+				return Parsed{Path: "check", Profile: f["name"], Rejection: "invalid check family"}, nil
 			}
 			return Parsed{}, fmt.Errorf("invalid %s", key)
 		}
+	}
+	if spec.Path == "check" && f["name"] == "lab" {
+		reject := func() (Parsed, error) {
+			return Parsed{Path: "check", Profile: "lab", Rejection: "lab requires literal ssid, family ipv4|ipv6, gateway IP, dns name, resolver selected, http URL without credentials/query, expected-status 100..599 and timeout 1..30000 ms"}, nil
+		}
+		if f["bssid"] != "" || f["family"] != "ipv4" && f["family"] != "ipv6" || f["gateway"] == "" || f["dns"] == "" || f["resolver"] != "selected" || f["http"] == "" || f["expected-status"] == "" || f["timeout"] == "" || strings.TrimSpace(f["ssid"]) == "" {
+			return reject()
+		}
+		status, statusErr := strconv.ParseUint(f["expected-status"], 10, 32)
+		timeout, timeoutErr := strconv.ParseUint(f["timeout"], 10, 32)
+		config := LabConfig{f["gateway"], f["dns"], f["resolver"], f["http"], uint32(status), uint32(timeout)}
+		if statusErr != nil || timeoutErr != nil || !config.ValidFor(f["family"]) {
+			return reject()
+		}
+		return Parsed{Path: "check", Profile: "lab", SSID: f["ssid"], Family: f["family"], Lab: config}, nil
+	}
+	if spec.Path == "check" && (f["gateway"] != "" || f["dns"] != "" || f["resolver"] != "" || f["http"] != "" || f["expected-status"] != "" || f["timeout"] != "") {
+		return Parsed{Path: "check", Profile: "link", Rejection: "link does not accept active probe options"}, nil
 	}
 	if f["bssid"] != "" {
 		mac, err := net.ParseMAC(f["bssid"])

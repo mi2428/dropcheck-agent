@@ -33,6 +33,7 @@ type Command struct {
 	ADBKind                          string
 	HelpTopic                        string
 	ProfileName, SSID, Family, BSSID string
+	Lab                              command.LabConfig
 	Detail                           bool
 	Use                              bool
 	Rejection                        string
@@ -91,7 +92,7 @@ func Parse(args []string) (Command, error) {
 	if err != nil {
 		return Command{}, err
 	}
-	result := Command{Kind: AgentCommand, Operation: parsed.Operation, ADBKind: parsed.ADBKind, HelpTopic: parsed.Topic, ProfileName: parsed.Profile, SSID: parsed.SSID, Family: parsed.Family, BSSID: parsed.BSSID, Detail: parsed.Detail, Use: parsed.Path == "use", Rejection: parsed.Rejection}
+	result := Command{Kind: AgentCommand, Operation: parsed.Operation, ADBKind: parsed.ADBKind, HelpTopic: parsed.Topic, ProfileName: parsed.Profile, SSID: parsed.SSID, Family: parsed.Family, BSSID: parsed.BSSID, Lab: parsed.Lab, Detail: parsed.Detail, Use: parsed.Path == "use", Rejection: parsed.Rejection}
 	switch parsed.Path {
 	case "check":
 		result.Kind = Profile

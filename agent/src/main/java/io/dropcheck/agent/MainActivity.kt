@@ -47,7 +47,6 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import io.dropcheck.agent.grpc.CommandLog
-import java.util.concurrent.Executors
 import java.util.IdentityHashMap
 
 private const val TERMINAL_BREAK_OPPORTUNITY = "\u200B"
@@ -112,7 +111,17 @@ class MainActivity : Activity() {
     private var controllerHeartbeatConnected = false
     private var screenDimmed = false
     private var shellVisible = false
-    private var shellBusy = false
+    private val shellBusy get() = shellOwner.busy
+    private var shellOwner = ShellActionOwner()
+    private val shellCompletionListener: (AgentShellResult) -> Unit = { result ->
+        if (result.block != null) appendShellBlock(result.block, true) else appendShellLines(
+            result.lines, if (result.ok) AgentLogStyle.TEXT_COLOR else SHELL_ERROR_COLOR,
+        )
+        renderShell()
+        syncStatusIcons()
+    }
+    private var shellActionStatus: TextView? = null
+    private var viewerToggle: TextView? = null
     private var swipeStartX = 0f
     private var swipeStartY = 0f
     private val shellTapSlopPx: Int by lazy { ViewConfiguration.get(this).scaledTouchSlop }
@@ -121,6 +130,7 @@ class MainActivity : Activity() {
     private val statusRefresh = object : Runnable {
         override fun run() {
             syncStatusIcons()
+            shellActionStatus?.text = "Shell operation: ${shellOwner.status()}"
             statusRefreshHandler.postDelayed(this, 1_000)
         }
     }
@@ -131,15 +141,14 @@ class MainActivity : Activity() {
     private val displayLineLengths = ArrayDeque<Int>()
     private var displayLogChars = 0
     private var logStartIndex = 0
+    private var lastLogLine: String? = null
     private val autoScroll = TerminalAutoScrollState()
 
-    private val terminalLogListener: (String) -> Unit = { line ->
-        runOnUiThread { append(line) }
-    }
+    private var logGeneration = 0L
+    private var terminalLogListener: ((String) -> Unit)? = null
     private val statusListener: () -> Unit = {
         runOnUiThread { syncStatusIcons() }
     }
-    private val shellExecutor = Executors.newSingleThreadExecutor()
     private var shellTranscript = AgentBlockHistory()
     private val shellBlockViews = IdentityHashMap<AgentPresentationBlock, LinearLayout>()
     private var shellContentWidthPx = 0
@@ -155,6 +164,7 @@ class MainActivity : Activity() {
             shellTranscriptSeeded = true
             shellOutputSizeSp = it.baseSizeSp
             shellMinimumSizeSp = it.minimumSizeSp
+            shellOwner = it.owner
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
@@ -201,6 +211,10 @@ class MainActivity : Activity() {
             addView(logView)
             setOnTouchListener { view, event ->
                 captureSwipeStart(event)
+                if (event.actionMasked == MotionEvent.ACTION_MOVE) autoScroll.onUserScrollMove()
+                if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                    autoScroll.onUserScrollEnd(scrollY >= bottomScrollY() - 2)
+                }
                 if (event.actionMasked == MotionEvent.ACTION_UP && maybeHandleSwipe(event, SwipeDirection.RIGHT)) {
                     return@setOnTouchListener true
                 }
@@ -209,6 +223,7 @@ class MainActivity : Activity() {
                 }
                 false
             }
+            setOnScrollChangeListener { _, _, y, _, _ -> autoScroll.onScrollChanged(y >= bottomScrollY() - 2) }
         }
         shellScroll = shellScreen().apply {
             visibility = View.GONE
@@ -220,6 +235,13 @@ class MainActivity : Activity() {
             addView(scroll, matchParentLayout())
             addView(shellScroll, matchParentLayout())
             addView(statusIconRow(), statusIconLayout())
+            viewerToggle = shellText("Agent Shell", AgentLogStyle.TEXT_COLOR).apply {
+                contentDescription = "Switch to Agent Shell"
+                isFocusable = true
+                minHeight = dp(48)
+                setOnClickListener { showShell() }
+            }
+            addView(viewerToggle, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END).apply { topMargin = dp(48); marginEnd = dp(12) })
         }
         root.setOnApplyWindowInsetsListener { _, insets ->
             val imeBottom = insets.getInsets(WindowInsets.Type.ime()).bottom
@@ -251,11 +273,12 @@ class MainActivity : Activity() {
         (lastNonConfigurationInstance as? ShellDisplayState)?.let { state ->
             shellScroll.post { shellScroll.scrollTo(0, state.scrollY) }
         }
+        shellOwner.attach(shellCompletionListener)
     }
 
     @Suppress("DEPRECATION")
     override fun onRetainNonConfigurationInstance(): Any = ShellDisplayState(
-        shellTranscript, shellOutputSizeSp, shellMinimumSizeSp, if (::shellScroll.isInitialized) shellScroll.scrollY else 0,
+        shellTranscript, shellOutputSizeSp, shellMinimumSizeSp, if (::shellScroll.isInitialized) shellScroll.scrollY else 0, shellOwner,
     )
 
     override fun onNewIntent(intent: Intent) {
@@ -266,7 +289,11 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
-        TerminalLog.addListener(terminalLogListener)
+        val generation = ++logGeneration
+        val listener: (String) -> Unit = { line -> runOnUiThread { if (logGeneration == generation) append(line) } }
+        terminalLogListener = listener
+        val snapshot = TerminalLog.addListenerWithTail(this, listener, TerminalDisplayPolicy.STARTUP_TAIL_LINES)
+        terminalCatchUp(lastLogLine, snapshot).forEach(::appendLogLine)
         AgentStatusBroadcast.addListener(statusListener)
         statusRefreshHandler.post(statusRefresh)
     }
@@ -297,15 +324,18 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
+        logGeneration++
         statusRefreshHandler.removeCallbacks(statusRefresh)
         stopIdleDimTimer()
-        TerminalLog.removeListener(terminalLogListener)
+        terminalLogListener?.let(TerminalLog::removeListener)
+        terminalLogListener = null
         AgentStatusBroadcast.removeListener(statusListener)
         super.onStop()
     }
 
     override fun onDestroy() {
-        shellExecutor.shutdownNow()
+        shellOwner.detach(shellCompletionListener)
+        if (!isChangingConfigurations) shellOwner.cancel()
         super.onDestroy()
     }
 
@@ -316,13 +346,16 @@ class MainActivity : Activity() {
     }
 
     private fun appendLogLine(line: String) {
+        lastLogLine = line
+        val follow = !::scroll.isInitialized || scroll.visibility != View.VISIBLE && autoScroll.isFollowingTail ||
+            ::scroll.isInitialized && scroll.visibility == View.VISIBLE && autoScroll.shouldFollowTail(scroll.scrollY >= bottomScrollY() - 2)
         val displayLine = boundedLine(line)
         val terminalLine = terminalDisplayText(displayLine)
         logView.append(colored(displayLine, terminalLine))
         displayLineLengths.addLast(terminalLine.length)
         displayLogChars += terminalLine.length
         trimDisplayIfNeeded()
-        requestScrollToBottom()
+        if (follow) requestScrollToBottom()
     }
 
     private fun ensureWifiLocationPermissions() {
@@ -586,9 +619,23 @@ class MainActivity : Activity() {
             shellContent.addView(view)
         }
         addShellView(shellText("Agent Shell", AgentLogStyle.TEXT_COLOR))
+        addShellView(shellText("Log Viewer", AgentLogStyle.TEXT_COLOR).apply {
+            contentDescription = "Switch to Log Viewer"
+            isFocusable = true
+            minHeight = dp(48)
+            setOnClickListener { showViewer() }
+        })
         val controllerState = if (ControllerSessionRuntimeState.heartbeatConnected()) "connected" else "idle"
         val defaults = AgentShellUseDefaultsStore(applicationContext).load()
         addShellView(shellText("surface=agent-shell controller=$controllerState ${AgentShellUsePolicy.statusText(defaults)}", AgentLogStyle.TEXT_COLOR))
+        shellActionStatus = shellText("Shell operation: ${shellOwner.status()}", AgentLogStyle.TEXT_COLOR)
+        addShellView(shellActionStatus!!)
+        if (shellBusy) addShellView(shellText("Cancel current Shell operation", AgentLogStyle.TEXT_COLOR).apply {
+            contentDescription = "Cancel current Agent Shell operation"
+            isFocusable = true
+            minHeight = dp(48)
+            setOnClickListener { shellOwner.cancel() }
+        })
         addShellView(shellText("Output size: ${shellOutputSizeSp}sp (minimum ${shellMinimumSizeSp}sp)", AgentLogStyle.TEXT_COLOR).apply {
             contentDescription = "Output text size settings. Current ${shellOutputSizeSp}sp, minimum ${shellMinimumSizeSp}sp"
             setOnClickListener { showShellOutputSizeSettings() }
@@ -793,42 +840,38 @@ class MainActivity : Activity() {
             }
             is AgentShellCommand.Execute, is AgentShellCommand.ShowWifiEht, is AgentShellCommand.Use,
             is AgentShellCommand.Check, AgentShellCommand.ShowChecks, is AgentShellCommand.ShowCheckLast ->
-                runShellLinesCommand {
-                    AgentShellAdapter(applicationContext, agentShellLogger()).execute(command)
+                AgentShellAdapter(applicationContext, agentShellLogger()).let { adapter ->
+                    val name = when (command) {
+                        is AgentShellCommand.Execute -> command.request.commandCase.name.lowercase().replace('_', '.')
+                        is AgentShellCommand.Check -> "check ${command.profile.takeIf { it in listOf("link", "lab", "internet", "eht") } ?: "unsupported"}"
+                        is AgentShellCommand.Use -> "wifi.connect"
+                        is AgentShellCommand.ShowWifiEht -> "wifi.eht"
+                        else -> "show checks"
+                    }
+                    runShellLinesCommand(name) { adapter.execute(command) }
                 }
             is AgentShellCommand.Invalid -> appendShellLine(command.message, SHELL_ERROR_COLOR)
         }
     }
 
-    private fun runShellLinesCommand(action: () -> AgentShellResult) {
-        shellBusy = true
+    private fun runShellLinesCommand(name: String, action: () -> AgentShellResult) {
+        if (!shellOwner.start(name, action)) return
         renderShell()
-        shellExecutor.submit {
-            val result = runCatching { action() }.getOrElse { AgentShellResult(false, listOf("command failed (execution error)")) }
-            runOnUiThread {
-                shellBusy = false
-                if (result.block != null) appendShellBlock(result.block, true) else appendShellLines(
-                    result.lines, if (result.ok) AgentLogStyle.TEXT_COLOR else SHELL_ERROR_COLOR,
-                )
-                syncStatusIcons()
-            }
-        }
     }
 
     private fun agentShellLogger(): CommandLogger {
+        val app = applicationContext
         return object : CommandLogger {
             override fun log(level: CommandLog.Level, message: String, scope: CommandLogScope) {
-                TerminalLog.log(applicationContext, terminalLevelName(level), CommandTerminalLog.agentShell(scope, message))
+                val name = when (level) {
+                    CommandLog.Level.LEVEL_DEBUG -> "DEBUG"
+                    CommandLog.Level.LEVEL_WARN -> "WARN"
+                    CommandLog.Level.LEVEL_ERROR -> "ERROR"
+                    else -> "INFO"
+                }
+                TerminalLog.log(app, name, CommandTerminalLog.agentShell(scope, message))
             }
         }
-    }
-
-    private fun terminalLevelName(level: CommandLog.Level): String = when (level) {
-        CommandLog.Level.LEVEL_DEBUG -> "DEBUG"
-        CommandLog.Level.LEVEL_INFO -> "INFO"
-        CommandLog.Level.LEVEL_WARN -> "WARN"
-        CommandLog.Level.LEVEL_ERROR -> "ERROR"
-        else -> "INFO"
     }
 
     private fun shellCommandLine(command: String): CharSequence {
@@ -1017,6 +1060,7 @@ class MainActivity : Activity() {
     private fun showShell() {
         if (shellVisible) return
         shellVisible = true
+        viewerToggle?.visibility = View.GONE
         renderShell()
         shellScroll.visibility = View.VISIBLE
         scroll.visibility = View.GONE
@@ -1035,15 +1079,16 @@ class MainActivity : Activity() {
 
     private fun showViewer() {
         if (!shellVisible) {
-            requestScrollToBottom()
+            if (autoScroll.isFollowingTail) requestScrollToBottom()
             resetIdleDimTimer()
             return
         }
         shellVisible = false
+        viewerToggle?.visibility = View.VISIBLE
         hideShellInputIme()
         shellScroll.visibility = View.GONE
         scroll.visibility = View.VISIBLE
-        requestScrollToBottom()
+        if (autoScroll.isFollowingTail) requestScrollToBottom()
         resetIdleDimTimer()
     }
 
@@ -1072,7 +1117,16 @@ class MainActivity : Activity() {
         val baseSizeSp: Float,
         val minimumSizeSp: Float,
         val scrollY: Int,
+        val owner: ShellActionOwner,
     )
+}
+
+/** A bounded tail is enough to catch up without rereading the whole log. */
+internal fun terminalCatchUp(last: String?, snapshot: String): List<String> {
+    if (last == null || snapshot.isEmpty()) return emptyList()
+    val lines = snapshot.lineSequence().toList()
+    val marker = lines.indexOfLast { it == last }
+    return (if (marker < 0) listOf("[older stopped log lines omitted]") else emptyList()) + lines.drop(marker + 1)
 }
 
 private class ShellInputEditText(context: Context) : EditText(context) {

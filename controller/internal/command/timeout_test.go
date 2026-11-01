@@ -39,6 +39,13 @@ func TestTimeoutForControllerDeadlines(t *testing.T) {
 			want: 43*time.Second + 750*time.Millisecond,
 		},
 		{
+			name: "cycle includes optional ping and HTTP work in each round",
+			cmd: &controlpb.RunCommand{Command: &controlpb.RunCommand_CycleWifi{
+				CycleWifi: &controlpb.CycleWifi{Count: 3, Connect: &controlpb.ConnectWifi{TimeoutMs: 1000}, PauseMs: 250, PingHost: "example.test", HttpUrl: "https://example.test/"},
+			}},
+			want: 100*time.Second + 750*time.Millisecond,
+		},
+		{
 			name: "global ip all families runs both family probes",
 			cmd: &controlpb.RunCommand{Command: &controlpb.RunCommand_GlobalIp{
 				GlobalIp: &controlpb.GlobalIp{Family: controlpb.IpFamily_IP_FAMILY_ALL},
@@ -98,5 +105,19 @@ func TestTimeoutForControllerDeadlines(t *testing.T) {
 				t.Fatalf("TimeoutFor() = %s, want %s", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestCycleRejectsValuesAgentWouldSilentlyClamp(t *testing.T) {
+	cycle := &controlpb.CycleWifi{Connect: &controlpb.ConnectWifi{Ssid: "Lab"}}
+	op := NewOperation("wifi.cycle", &controlpb.RunCommand{Command: &controlpb.RunCommand_CycleWifi{CycleWifi: cycle}}, Options{})
+	op.Command.GetCycleWifi().Count = 101
+	if err := ValidateOperation(op); err == nil {
+		t.Fatal("count above Android limit accepted")
+	}
+	op.Command.GetCycleWifi().Count = 1
+	op.Command.GetCycleWifi().PauseMs = 60001
+	if err := ValidateOperation(op); err == nil {
+		t.Fatal("pause above Android limit accepted")
 	}
 }

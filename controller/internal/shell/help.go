@@ -37,6 +37,7 @@ func writeHelp(w io.Writer) {
 	}
 	fmt.Fprintln(w, "  exit | quit\n  | display json|set | match <regex> | except <regex> | count | no-more")
 	fmt.Fprintln(w, "  check link: family defaults to ipv4; BSSID pinning unsupported; read-only")
+	fmt.Fprintln(w, "  check lab: explicit ssid/family/gateway/dns/resolver selected/http/expected-status/timeout; active traffic, no Wi-Fi changes")
 }
 
 func contains(list []string, word string) bool {

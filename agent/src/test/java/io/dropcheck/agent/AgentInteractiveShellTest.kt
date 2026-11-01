@@ -225,6 +225,9 @@ class AgentInteractiveShellTest {
         assertEquals(AgentShellCommand.Check("link", "Lab", IpFamily.IP_FAMILY_IPV6, "aa:bb:cc:dd:ee:ff"),
             AgentShellParser.parse("check link ssid Lab bssid aa:bb:cc:dd:ee:ff family ipv6"))
         assertEquals(AgentShellCommand.Check("lab"), AgentShellParser.parse("check lab"))
+        val configured = AgentShellParser.parse("check lab ssid Lab family ipv4 gateway 192.0.2.1 dns lab.example.test resolver selected http https://lab.example.test/health expected-status 204 timeout 5000") as AgentShellCommand.Check
+        assertEquals(LabConfig("192.0.2.1", "lab.example.test", "selected", "https://lab.example.test/health", 204, 5000), configured.lab)
+        for (invalidLab in listOf("check lab ssid Lab", "check lab ssid Lab family ipv4 gateway example.test dns lab.example.test resolver selected http https://lab.example.test/health expected-status 204 timeout 5000", "check lab ssid Lab family ipv4 gateway 192.0.2.1 dns lab.example.test resolver selected http https://lab.example.test/?token=synthetic-private expected-status 204 timeout 5000")) invalid(invalidLab)
         assertEquals(AgentShellCommand.Check("LINK"), AgentShellParser.parse("check LINK")) // exact name only
         for (input in listOf("check link", "check link ssid", "check link ssid Lab family auto",
             "check link ssid Lab bssid invalid", "check link ssid Lab family ipv4 family ipv6", "show checks extra", "clear default passphrase extra")) invalid(input)

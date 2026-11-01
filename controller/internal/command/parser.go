@@ -128,7 +128,13 @@ func timeoutFor(cmd *controlpb.RunCommand) time.Duration {
 		if count == 0 {
 			count = 1
 		}
-		perCycle := durationFromMillis(c.CycleWifi.GetConnect().GetTimeoutMs(), 60*time.Second) + durationFromMillis(c.CycleWifi.PauseMs, time.Second) + 10*time.Second
+		perCycle := durationFromMillis(c.CycleWifi.GetConnect().GetTimeoutMs(), 60*time.Second) + time.Duration(c.CycleWifi.PauseMs)*time.Millisecond + 10*time.Second
+		if c.CycleWifi.PingHost != "" {
+			perCycle += 9 * time.Second
+		}
+		if c.CycleWifi.HttpUrl != "" {
+			perCycle += 10 * time.Second // HTTP connect and read each have a 5s agent timeout.
+		}
 		return time.Duration(count)*perCycle + 10*time.Second
 	case *controlpb.RunCommand_Ping:
 		return durationFromMillis(c.Ping.TimeoutMs, 20*time.Second) + 3*time.Second

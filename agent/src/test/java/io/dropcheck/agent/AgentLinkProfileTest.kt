@@ -3,6 +3,11 @@ package io.dropcheck.agent
 import io.dropcheck.agent.grpc.CommandResult
 import io.dropcheck.agent.grpc.IpFamily
 import io.dropcheck.agent.grpc.IpStatus
+import io.dropcheck.agent.grpc.DnsAnswer
+import io.dropcheck.agent.grpc.DnsRecordType
+import io.dropcheck.agent.grpc.PingResult
+import io.dropcheck.agent.grpc.ResolveDnsResult
+import io.dropcheck.agent.grpc.HttpCheckResult
 import io.dropcheck.agent.grpc.RunCommand
 import io.dropcheck.agent.grpc.WifiConnection
 import org.junit.Assert.assertEquals
@@ -33,6 +38,41 @@ class AgentLinkProfileTest {
             calls += command
             replies.next()
         }
+    }
+
+    @Test fun configuredLabMatchesPcSequenceAndStopsAfterFailure() {
+        val config = LabConfig("192.0.2.1", "lab.example.test", "selected", "https://lab.example.test/health", 204, 5000)
+        val check = AgentShellCommand.Check("lab", target, IpFamily.IP_FAMILY_IPV4, lab = config)
+        val ping = CommandResult.newBuilder().setStatus(CommandResult.Status.STATUS_OK).setPing(PingResult.newBuilder().setReceived(1)).build()
+        val dns = CommandResult.newBuilder().setStatus(CommandResult.Status.STATUS_OK).setResolveDns(ResolveDnsResult.newBuilder().addAnswers(DnsAnswer.newBuilder().setType(DnsRecordType.DNS_RECORD_TYPE_A).setAddress("192.0.2.5"))).build()
+        val http = CommandResult.newBuilder().setStatus(CommandResult.Status.STATUS_OK).setHttpCheck(HttpCheckResult.newBuilder().setStatus(204).setMatched(true)).build()
+        val calls = mutableListOf<RunCommand>()
+        val pass = run(ipResult(), ping, dns, http, ipResult(), check = check, calls = calls)
+        assertEquals(LinkOutcome.PASS, pass.outcome)
+        assertEquals(listOf("ip_before", "gateway_ping", "dns", "http", "ip_after"), pass.stages.map { it.name })
+        assertEquals(listOf(RunCommand.CommandCase.GET_IP_STATUS, RunCommand.CommandCase.PING, RunCommand.CommandCase.RESOLVE_DNS, RunCommand.CommandCase.HTTP_CHECK, RunCommand.CommandCase.GET_IP_STATUS), calls.map { it.commandCase })
+        assertTrue(calls.all { when (it.commandCase) {
+            RunCommand.CommandCase.GET_IP_STATUS -> it.getIpStatus.selector.ssid == target
+            RunCommand.CommandCase.PING -> it.ping.selector.ssid == target && it.ping.host == config.gateway && it.ping.count == 3
+            RunCommand.CommandCase.RESOLVE_DNS -> it.resolveDns.selector.ssid == target && it.resolveDns.name == config.dns && it.resolveDns.qtypesList == listOf(DnsRecordType.DNS_RECORD_TYPE_A)
+            RunCommand.CommandCase.HTTP_CHECK -> it.httpCheck.selector.ssid == target && it.httpCheck.expectedStatus == 204 && it.httpCheck.url == config.http
+            else -> false
+        } })
+        calls.clear()
+        assertEquals(LinkOutcome.FAIL, run(ipResult(), ping, CommandResult.newBuilder().setStatus(CommandResult.Status.STATUS_FAILED).setResolveDns(ResolveDnsResult.getDefaultInstance()).build(), check = check, calls = calls).outcome)
+        assertEquals(3, calls.size)
+        calls.clear()
+        assertEquals(LinkOutcome.FAIL, run(ipResult(), ping, dns, http.toBuilder().setHttpCheck(HttpCheckResult.newBuilder().setStatus(204).setMatched(false)).build(), check = check, calls = calls).outcome)
+        assertEquals(4, calls.size)
+        calls.clear()
+        assertEquals(LinkOutcome.MISSING, run(ipResult(), CommandResult.newBuilder().setStatus(CommandResult.Status.STATUS_OK).setPing(PingResult.getDefaultInstance()).build(), check = check, calls = calls).outcome)
+        assertEquals(2, calls.size)
+        calls.clear()
+        assertEquals(LinkOutcome.MISSING, run(ipResult(ip(network = "")), check = check, calls = calls).outcome)
+        assertEquals(1, calls.size)
+        calls.clear()
+        assertEquals(LinkOutcome.UNSUPPORTED, run(check = AgentShellCommand.Check("lab", target), calls = calls).outcome)
+        assertTrue(calls.isEmpty())
     }
 
     @Test fun twoReadOnlyIpSnapshotsAndTypedFamilyFixture() {

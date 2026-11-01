@@ -230,6 +230,70 @@ func TestCompoundPreviewMatchesAcquisitionPartsAndTimeout(t *testing.T) {
 	}
 }
 
+func TestCostMatchesFakeOperationPartsAndBlocksExcessiveRounds(t *testing.T) {
+	eht, err := command.WifiEHTOperationWithOptions(command.WifiEHTOptions{Fresh: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := compiledFixture(t, Plan{Networks: []Network{WiFi("lab").SSID("Lab").WaitConnected(false)}, Checks: []Check{
+		NewCheck("fresh eht", "", eht, Policy{}, false),
+		GatewayPing("gateway", "", GatewayPingOptions{}, Policy{}, false),
+	}})
+	cost, err := p.Cost(2, false)
+	if err != nil || cost.AttemptsPerRound != 3 || cost.OperationsPerRound != 6 || cost.OperationsTotal != 12 || cost.UnboundedDownload {
+		t.Fatalf("cost=%+v err=%v", cost, err)
+	}
+	var calls uint64
+	_, err = Execute(context.Background(), p, agentRunnerFunc(func(_ context.Context, _ control.AgentInfo, op command.Operation) (runner.Result, error) {
+		calls++
+		return runner.Result{Result: runtimeFixture(op)}, nil
+	}), ExecuteOptions{Rounds: 2})
+	if err != nil || calls != cost.OperationsTotal {
+		t.Fatalf("actual acquisitions=%d cost=%+v err=%v", calls, cost, err)
+	}
+	if _, err := p.Cost(maxRetainedAttempts, false); err == nil {
+		t.Fatal("excessive finite run accepted before Start")
+	}
+	loop, err := p.Cost(0, true)
+	if err != nil || loop.OperationsPerRound != 6 || loop.OperationsTotal != 0 {
+		t.Fatalf("loop cost=%+v err=%v", loop, err)
+	}
+}
+
+func TestExistingWiFiActiveProbeRequiresExplicitBoundaryWithoutMutation(t *testing.T) {
+	agent := []control.AgentInfo{{ID: "agent-a"}}
+	checks := []Check{Ping("192.0.2.1")}
+	if _, err := Compile(Plan{Networks: []Network{ObservedWiFi("status").SSID("Lab").Checks(checks...)}}, agent); err == nil {
+		t.Fatal("status-only observation accepted active traffic")
+	}
+	compiled, err := Compile(Plan{Networks: []Network{ActiveObservedWiFi("probe").SSID("Lab").Checks(checks...)}}, agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compiled.Preview().Targets[0].Connect != nil || compiled.Preview().Targets[0].Wait != nil || *compiled.Preview().Targets[0].DisconnectAfter {
+		t.Fatal("active observation acquired connection ownership")
+	}
+	if _, err := Compile(Plan{Networks: []Network{ActiveObservedWiFi("probe").SSID("Lab").Checks(NewCheck("mutate", "", command.WifiDisconnectOperation(), Policy{}, true))}}, agent); err == nil {
+		t.Fatal("active observation accepted Wi-Fi mutation")
+	}
+}
+
+func TestCostIncludesRotationAndPreflightRetainedAttempts(t *testing.T) {
+	p := compiledFixture(t, Plan{Networks: []Network{WiFi("lab").SSID("Lab").Band("5ghz").MACRotation("per_round")}, Checks: []Check{IPStatus()}})
+	cost, err := p.Cost(1, false)
+	if err != nil || cost.AttemptsPerRound != 6 || cost.OperationsPerRound != 7 {
+		t.Fatalf("cost=%+v err=%v", cost, err)
+	}
+	var dispatches uint64
+	_, err = Execute(context.Background(), p, agentRunnerFunc(func(_ context.Context, _ control.AgentInfo, op command.Operation) (runner.Result, error) {
+		dispatches++
+		return runner.Result{Result: runtimeFixture(op)}, nil
+	}), ExecuteOptions{Rounds: 1})
+	if err != nil || dispatches != cost.OperationsTotal {
+		t.Fatalf("dispatches=%d cost=%+v err=%v", dispatches, cost, err)
+	}
+}
+
 func TestRuntimeMissingTransportAndCleanupRemainVisible(t *testing.T) {
 	primary, cleanup, delivery := errors.New("primary"), errors.New("cleanup"), errors.New("delivery")
 	compiled := compiledFixture(t, Plan{Networks: []Network{WiFi("lab").SSID("Lab").ForgetAfter(true)}, Checks: []Check{Ping("example.test")}})

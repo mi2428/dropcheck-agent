@@ -1526,9 +1526,6 @@ func wifiMLOAssociatedLinkIDSet(conn *controlpb.WifiConnection) map[int32]bool {
 			ids[link.GetLinkId()] = true
 		}
 	}
-	for _, id := range wifiMLOLinkIDsFromElements(conn.GetInformationElements()) {
-		ids[id] = true
-	}
 	return ids
 }
 

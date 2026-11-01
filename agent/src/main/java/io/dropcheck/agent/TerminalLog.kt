@@ -33,6 +33,13 @@ object TerminalLog {
         listeners.add(listener)
     }
 
+    /** Atomically returns a bounded tail and subscribes to later lines. */
+    @Synchronized fun addListenerWithTail(context: Context, listener: (String) -> Unit, maxLines: Int): String {
+        val snapshot = tail(context, maxLines)
+        listeners.add(listener)
+        return snapshot
+    }
+
     fun removeListener(listener: (String) -> Unit) {
         listeners.remove(listener)
     }

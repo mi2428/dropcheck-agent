@@ -11,7 +11,7 @@ internal sealed class AgentShellCommand {
     data class Help(val topic: String = "") : AgentShellCommand()
     data class SetDefaultPassphrase(val passphrase: String) : AgentShellCommand()
     data object ClearDefaultPassphrase : AgentShellCommand()
-    data class Check(val profile: String, val ssid: String = "", val family: IpFamily = IpFamily.IP_FAMILY_IPV4, val bssid: String = "") : AgentShellCommand()
+    data class Check(val profile: String, val ssid: String = "", val family: IpFamily = IpFamily.IP_FAMILY_IPV4, val bssid: String = "", val lab: LabConfig? = null) : AgentShellCommand()
     data object ShowChecks : AgentShellCommand()
     data class ShowCheckLast(val detail: Boolean = false) : AgentShellCommand()
     data object ShowVersion : AgentShellCommand()
@@ -27,6 +27,20 @@ internal sealed class AgentShellCommand {
         val secret: String = "",
     ) : AgentShellCommand()
     data class Invalid(val message: String) : AgentShellCommand()
+}
+
+internal data class LabConfig(val gateway: String, val dns: String, val resolver: String, val http: String, val expectedStatus: Int, val timeoutMs: Int)
+
+internal fun LabConfig.valid(family: IpFamily): Boolean {
+    val address = gateway.takeIf { it.matches(Regex("[0-9.]+")) || ':' in it && it.all { ch -> ch.isDigit() || ch.lowercaseChar() in 'a'..'f' || ch == ':' || ch == '.' } }
+        ?.let { runCatching { java.net.InetAddress.getByName(it) }.getOrNull() }
+    val uri = runCatching { URI(http) }.getOrNull()
+    return family in listOf(IpFamily.IP_FAMILY_IPV4, IpFamily.IP_FAMILY_IPV6) && address != null &&
+        (address is java.net.Inet4Address) == (family == IpFamily.IP_FAMILY_IPV4) &&
+        dns.isNotBlank() && dns.none { it.isWhitespace() } && !dns.startsWith('-') &&
+        resolver == "selected" && uri?.scheme in listOf("http", "https") && !uri?.host.isNullOrEmpty() &&
+        uri?.rawUserInfo == null && uri?.rawQuery == null && uri?.rawFragment == null &&
+        expectedStatus in 100..599 && timeoutMs in 1..30000
 }
 
 /** The same rows drive parsing and help; the registry remains the executor capability table. */
@@ -65,7 +79,7 @@ internal object AgentShellParser {
         Syntax("download", "URL", values = "timeout ssid"),
         Syntax("help", "[TOPIC]"), Syntax("set default passphrase", "PASSPHRASE"),
         Syntax("clear default passphrase"), Syntax("use", "SSID [PASSPHRASE]"),
-        Syntax("check", "link ssid SSID [family ipv4|ipv6] [bssid BSSID]"), Syntax("show checks"), Syntax("show check last", switches = "detail"),
+        Syntax("check", "link ssid SSID [family ipv4|ipv6] [bssid BSSID] | lab ssid SSID family ipv4|ipv6 gateway IP dns NAME resolver selected http URL expected-status STATUS timeout MS"), Syntax("show checks"), Syntax("show check last", switches = "detail"),
         Syntax("show devices"),
     )
     private val aliases = mapOf("p" to "ping", "tr" to "traceroute", "pm" to "path-mtu", "gip" to "global-ip", "h" to "help", "?" to "help")
@@ -89,7 +103,7 @@ internal object AgentShellParser {
     fun help(topic: String = ""): List<String> {
         val rows = syntax.filter { topic.isEmpty() || it.parts.first() == topic }
         return listOf("Agent Shell (self); aliases: p tr pm gip h ?", "Options: key value; switches: fresh brief mlo detail; integers: 1..2147483647", "PSK: 8..63 UTF-8 bytes or 64 ASCII hex; PC-only ADB/device/format/pipeline/TTY: unsupported on Android") +
-            rows.map { "  ${it.usage()}" } + listOf("auto selects one family; global-ip all queries both; dns ALL queries A+AAAA", "check link defaults to family ipv4; bssid strict pin unsupported; lab/internet/eht unsupported", "use/default: connect only; check link: read-only, no probes")
+            rows.map { "  ${it.usage()}" } + listOf("auto selects one family; global-ip all queries both; dns ALL queries A+AAAA", "check link defaults to family ipv4; bssid strict pin unsupported; lab requires all endpoints and sends active traffic; internet/eht unsupported", "use/default: connect only; check link: read-only, no probes")
     }
 
     fun parse(line: String): AgentShellCommand {
@@ -138,6 +152,25 @@ internal object AgentShellParser {
         if (command == "check") {
             if (index == tokens.size) return AgentShellCommand.ShowChecks
             val profile = tokens[index++] // Profile names are exact literals, not keyword prefixes.
+            if (profile == "lab") {
+                if (index == tokens.size) return AgentShellCommand.Check(profile)
+                val fields = mutableMapOf<String, String>()
+                while (index < tokens.size) {
+                    val key = resolve(tokens[index++], listOf("ssid", "family", "gateway", "dns", "resolver", "http", "expected-status", "timeout"))
+                    require(!fields.containsKey(key) && index < tokens.size && tokens[index].isNotEmpty()) { "invalid lab configuration" }
+                    fields[key] = tokens[index++]
+                }
+                val family = when (fields["family"]) {
+                    "ipv4" -> IpFamily.IP_FAMILY_IPV4
+                    "ipv6" -> IpFamily.IP_FAMILY_IPV6
+                    else -> throw IllegalArgumentException("lab family must be ipv4 or ipv6")
+                }
+                val status = fields["expected-status"]?.toIntOrNull()
+                val timeout = fields["timeout"]?.toIntOrNull()
+                val lab = LabConfig(fields["gateway"].orEmpty(), fields["dns"].orEmpty(), fields["resolver"].orEmpty(), fields["http"].orEmpty(), status ?: 0, timeout ?: 0)
+                require(fields["ssid"]?.isNotBlank() == true && lab.valid(family)) { "lab requires literal SSID, family, gateway IP, DNS, resolver selected, query-free HTTP URL, expected status and timeout" }
+                return AgentShellCommand.Check(profile, fields.getValue("ssid"), family, lab = lab)
+            }
             if (profile != "link") {
                 require(index == tokens.size) { "unsupported profile; use show checks" }
                 return AgentShellCommand.Check(profile)

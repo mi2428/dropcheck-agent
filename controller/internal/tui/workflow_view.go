@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"dropcheck/controller/internal/harness"
@@ -133,6 +134,22 @@ func (m workflowModel) renderWorkflow() string {
 		help = "Enter=START explicitly  j/k=Scroll  Esc=Selection  q=Exit"
 		header += " / Preview / " + m.modeLabel()
 		body = workflowPreviewLines(m.selected.Preview())
+		rounds := uint64(0)
+		if !m.loop {
+			rounds, _ = strconv.ParseUint(m.count, 10, 64) // preflight validated this.
+		}
+		if cost, err := m.selected.Cost(rounds, m.loop); err == nil {
+			label := fmt.Sprintf("Cost upper bound: %d retained attempts and %d controller dispatches per round", cost.AttemptsPerRound, cost.OperationsPerRound)
+			if m.loop {
+				label += "; Loop has no finite total"
+			} else {
+				label += fmt.Sprintf("; %d controller dispatches across %d rounds", cost.OperationsTotal, rounds)
+			}
+			if cost.UnboundedDownload {
+				label += "; download response bytes unbounded"
+			}
+			body = slices.Insert(body, 3, label)
+		}
 		scroll = m.scroll
 	case workflowRunning, workflowStopping, workflowReview:
 		report := m.currentReport()
@@ -196,6 +213,9 @@ func (m workflowModel) renderWorkflow() string {
 		body = wrapped
 	}
 	lines := []string{fitText(header, width), fitText(help, width)}
+	if m.phase == workflowReview && m.runEvictions > 0 {
+		lines = append(lines, fitText(fmt.Sprintf("Whole-run retention: last %d reports; %d oldest evicted", maxRetainedRuns, m.runEvictions), width))
+	}
 	if m.message != "" {
 		lines = append(lines, fitText(m.message, width))
 	}
@@ -239,7 +259,7 @@ func workflowPreviewLines(view harness.Preview) []string {
 func workflowCheckPreview(check harness.CheckInfo) string {
 	p := check.Policy
 	destination := check.Destination
-	if strings.HasPrefix(destination, "https://") || strings.HasPrefix(destination, "http://") {
+	if strings.Contains(destination, "https://") || strings.Contains(destination, "http://") {
 		destination = render.TextBlock(destination, render.Presentation{})
 	}
 	return fmt.Sprintf("  %s %s ops=[%s] required=%t destination=%s traffic=%s operation_timeout=%s policy: attempts=%d repeat=%d delay=%s eventual=%s stable=%s interval=%s timeout=%s expected=[%s]", check.ID, check.Name, strings.Join(check.Operations, ","), check.Required, destination, check.Traffic, check.OperationTimeout, p.Attempts, p.Repeat, p.Delay, p.Eventually, p.StableFor, p.Interval, p.Timeout, strings.Join(check.Expectations, "; "))
