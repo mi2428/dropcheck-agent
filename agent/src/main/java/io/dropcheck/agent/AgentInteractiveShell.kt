@@ -32,7 +32,8 @@ internal sealed class AgentShellCommand {
 internal data class LabConfig(val gateway: String, val dns: String, val resolver: String, val http: String, val expectedStatus: Int, val timeoutMs: Int)
 
 internal fun LabConfig.valid(family: IpFamily): Boolean {
-    val address = gateway.takeIf { it.matches(Regex("[0-9.]+")) || ':' in it && it.all { ch -> ch.isDigit() || ch.lowercaseChar() in 'a'..'f' || ch == ':' || ch == '.' } }
+    val ipv4Literal = gateway.split('.').let { parts -> parts.size == 4 && parts.all { part -> part.isNotEmpty() && part.length <= 3 && part.all { it in '0'..'9' } && part.toIntOrNull() in 0..255 } }
+    val address = gateway.takeIf { ipv4Literal || ':' in it && it.all { ch -> ch in '0'..'9' || ch.lowercaseChar() in 'a'..'f' || ch == ':' || ch == '.' } }
         ?.let { runCatching { java.net.InetAddress.getByName(it) }.getOrNull() }
     val uri = runCatching { URI(http) }.getOrNull()
     return family in listOf(IpFamily.IP_FAMILY_IPV4, IpFamily.IP_FAMILY_IPV6) && address != null &&
