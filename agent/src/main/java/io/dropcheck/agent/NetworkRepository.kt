@@ -134,15 +134,16 @@ class NetworkRepository(
      * the first Wi-Fi network Android reports.
      */
     @SuppressLint("MissingPermission")
-    fun wifiStatus(selector: NetworkSelector? = null): WifiStatus {
+    fun wifiStatus(selector: NetworkSelector? = null, bssid: String = ""): WifiStatus {
         val active = connectivity.activeNetwork
         val wifiNetworks = connectivity.allNetworks.filter { network ->
             val caps = connectivity.getNetworkCapabilities(network) ?: return@filter false
             caps.isPhysicalWifiNetwork()
         }
-        // An explicit SSID must never fall back to the default or another Wi-Fi.
-        val selected = selectedStatusNetwork(selector?.ssid?.isNotEmpty() == true,
-            selector?.takeIf { it.ssid.isNotEmpty() }?.let(::selectNetwork),
+        // An explicit identity must never fall back to the default or another Wi-Fi.
+        val explicit = selector?.let { it.ssid.isNotEmpty() || it.bssid.isNotEmpty() || it.networkId.isNotEmpty() } == true || bssid.isNotEmpty()
+        val selected = selectedStatusNetwork(explicit,
+            if (explicit) selectNetwork(selector ?: NetworkSelector.getDefaultInstance(), bssid, true) else null,
             wifiNetworks.firstOrNull { it == active } ?: wifiNetworks.firstOrNull())
         logger.debug("wifiStatus active=${active ?: "none"} wifi_networks=${wifiNetworks.size} selected=${selected ?: "none"} manager_enabled=${wifi.isWifiEnabled} manager_state=${wifiStateName(wifi.wifiState)}")
         wifiNetworks.forEachIndexed { index, network ->
@@ -629,12 +630,17 @@ class NetworkRepository(
 
     @SuppressLint("MissingPermission")
     private fun selectNetwork(selector: NetworkSelector, dumpCandidates: Boolean): Network? {
+        return selectNetwork(selector, "", dumpCandidates)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun selectNetwork(selector: NetworkSelector, bssid: String, dumpCandidates: Boolean): Network? {
         val active = connectivity.activeNetwork
         if (dumpCandidates) {
             logger.debug("selectNetwork selector=${selectorSummary(selector)} active=${active ?: "none"} all_networks=${connectivity.allNetworks.size}")
         }
         val candidates = (listOfNotNull(active) + connectivity.allNetworks).distinct()
-        val selected = selectWifiCandidate(candidates, classify = { networkMatch(it, selector) }) { network, match ->
+        val selected = selectWifiCandidate(candidates, classify = { networkMatch(it, selector, bssid) }) { network, match ->
             if (dumpCandidates) {
                 logger.debug("selectNetwork candidate network=$network match=${match == WifiNetworkMatch.MATCH} reject_reason=${match.rejectReason} ${describeNetwork(network)}")
             }
@@ -714,12 +720,15 @@ class NetworkRepository(
         return built
     }
 
-    private fun networkMatch(network: Network, selector: NetworkSelector): WifiNetworkMatch {
+    private fun networkMatch(network: Network, selector: NetworkSelector, bssid: String = ""): WifiNetworkMatch {
         val caps = connectivity.getNetworkCapabilities(network) ?: return WifiNetworkMatch.NO_CAPABILITIES
         if (!caps.isPhysicalWifiNetwork()) return WifiNetworkMatch.NOT_WIFI
-        if (selector.ssid.isEmpty()) return WifiNetworkMatch.MATCH
-        val actual = networkWifiInfo(context, network, caps)?.ssid.orEmpty()
-        return networkWifiSsidMatch(selector.ssid, actual)
+        val idMatch = networkWifiIdMatch(selector.networkId, network.toString())
+        if (idMatch != WifiNetworkMatch.MATCH) return idMatch
+        val expectedBssid = bssid.ifEmpty { selector.bssid }
+        if (selector.ssid.isEmpty() && expectedBssid.isEmpty()) return WifiNetworkMatch.MATCH
+        val info = networkWifiInfo(context, network, caps)
+        return networkWifiIdentityMatch(selector.ssid, expectedBssid, info?.ssid.orEmpty(), info?.bssid.orEmpty())
     }
 
     private fun transports(caps: NetworkCapabilities): List<String> = buildList {
@@ -734,7 +743,7 @@ class NetworkRepository(
     }
 
     private fun selectorSummary(selector: NetworkSelector): String {
-        return "ssid=${selector.ssid.ifEmpty { "*" }}"
+        return "ssid=${selector.ssid.ifEmpty { "*" }} bssid=${selector.bssid.ifEmpty { "*" }} network_id=${selector.networkId.ifEmpty { "*" }}"
     }
 
     private fun describeNetwork(network: Network): String {

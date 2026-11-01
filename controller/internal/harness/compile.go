@@ -67,13 +67,16 @@ func compilePlan(plan Plan, agents []control.AgentInfo, bind bool) (*CompiledPla
 		return nil, fmt.Errorf("plan must set networks")
 	}
 	for i, network := range plan.Networks {
-		// Probes select a Network by SSID. A BSSID-only connect would leave
-		// their selector empty and could measure Android's default Network.
+		// Owned connections still require an SSID; optional BSSID/Network ID
+		// strengthen selection-time identity without promising roam continuity.
 		if strings.TrimSpace(network.ssid) == "" {
 			return nil, fmt.Errorf("target %d: SSID is required to pin network-bound probes", i)
 		}
-		if network.readOnly && (network.bssid != "" || network.psk.value != "" || network.psk.env != "" || network.band != "" || network.security != "" || network.macRandomization != "" || network.rotation != "" || network.waitConnected || network.disconnectAfter || network.forgetAfter || network.connectTimeout != 0 || network.waitTimeout != 0 || network.requireIP || network.requireValidated || network.connectPolicy != (Policy{}) || network.waitPolicy != (Policy{})) {
-			return nil, fmt.Errorf("target %d: read-only target cannot request connection, BSSID pinning, or cleanup", i)
+		if !network.readOnly && network.networkID != "" {
+			return nil, fmt.Errorf("target %d: an owned connection cannot preselect its Android Network ID", i)
+		}
+		if network.readOnly && (network.psk.value != "" || network.psk.env != "" || network.band != "" || network.security != "" || network.macRandomization != "" || network.rotation != "" || network.waitConnected || network.disconnectAfter || network.forgetAfter || network.connectTimeout != 0 || network.waitTimeout != 0 || network.requireIP || network.requireValidated || network.connectPolicy != (Policy{}) || network.waitPolicy != (Policy{})) {
+			return nil, fmt.Errorf("target %d: read-only target cannot request connection or cleanup", i)
 		}
 		if network.connectTimeout < 0 || network.waitTimeout < 0 {
 			return nil, fmt.Errorf("target %d: negative timeout", i)
@@ -110,7 +113,7 @@ func compilePlan(plan Plan, agents []control.AgentInfo, bind bool) (*CompiledPla
 		}
 		network.rotation = rotation
 		id := fmt.Sprintf("target/%d", i)
-		target := compiledTarget{network: network, preview: Target{ID: id, Name: network.displayName(), ShortName: network.shortName, Agent: network.agent, SSID: network.ssid, BSSID: network.bssid, Band: network.band, DisconnectAfter: new(network.disconnectAfter), ForgetAfter: new(network.forgetAfter), SecretPresent: passphrase != ""}}
+		target := compiledTarget{network: network, preview: Target{ID: id, Name: network.displayName(), ShortName: network.shortName, Agent: network.agent, SSID: network.ssid, BSSID: network.bssid, NetworkID: network.networkID, Band: network.band, DisconnectAfter: new(network.disconnectAfter), ForgetAfter: new(network.forgetAfter), SecretPresent: passphrase != ""}}
 		var err error
 		if !network.readOnly {
 			connect, buildErr := network.connectOperation()
@@ -171,7 +174,7 @@ func compilePlan(plan Plan, agents []control.AgentInfo, bind bool) (*CompiledPla
 				}
 			}
 			if compiled.gateway == nil {
-				compiled.operation, err = bindSelector(compiled.operation, network.ssid)
+				compiled.operation, err = bindSelector(compiled.operation, network)
 				if err != nil {
 					return nil, fmt.Errorf("target %d check %d: %w", i, j, err)
 				}
@@ -301,7 +304,7 @@ func bindAgents(selector string, agents []control.AgentInfo) ([]control.AgentInf
 	return nil, fmt.Errorf("selected agent is not connected")
 }
 
-func bindSelector(op command.Operation, ssid string) (command.Operation, error) {
+func bindSelector(op command.Operation, network Network) (command.Operation, error) {
 	cmd, options, err := command.BuildRunCommand(op)
 	if err != nil {
 		return command.Operation{}, err
@@ -325,13 +328,31 @@ func bindSelector(op command.Operation, ssid string) (command.Operation, error) 
 	case *controlpb.RunCommand_Wget:
 		selector = &c.Wget.Selector
 	}
+	if selector == nil && (network.bssid != "" || network.networkID != "") {
+		return command.Operation{}, fmt.Errorf("check cannot apply an explicit BSSID or Network ID")
+	}
 	if selector != nil {
-		if *selector != nil && (*selector).Ssid != "" && ssid != "" && (*selector).Ssid != ssid {
+		previous := *selector
+		if previous != nil && previous.Ssid != "" && network.ssid != "" && previous.Ssid != network.ssid {
 			return command.Operation{}, fmt.Errorf("probe selector differs from target")
 		}
-		if ssid != "" {
-			*selector = &controlpb.NetworkSelector{Ssid: ssid}
+		if previous.GetBssid() != "" && network.bssid != "" && !strings.EqualFold(previous.GetBssid(), network.bssid) || previous.GetNetworkId() != "" && network.networkID != "" && previous.GetNetworkId() != network.networkID {
+			return command.Operation{}, fmt.Errorf("probe selector differs from target")
 		}
+		bound := &controlpb.NetworkSelector{Ssid: previous.GetSsid(), Bssid: previous.GetBssid(), NetworkId: previous.GetNetworkId()}
+		if network.ssid != "" {
+			bound.Ssid = network.ssid
+		}
+		if network.bssid != "" {
+			bound.Bssid = network.bssid
+		}
+		if network.networkID != "" {
+			bound.NetworkId = network.networkID
+		}
+		*selector = bound
+	}
+	if err := command.ValidateOperation(command.NewOperation(op.Name, cmd, options)); err != nil {
+		return command.Operation{}, err
 	}
 	return command.NewOperation(op.Name, cmd, options), nil
 }
@@ -417,7 +438,7 @@ func (p *CompiledPlan) Preview() Preview {
 			t.CapabilityPreflight = []CapabilityPreflight{{Operation: "wifi.capabilities", Band: target.network.band, State: "pending", Reason: "support observed only after explicit Start; unknown is not unsupported"}}
 		}
 		t.Checks = append([]CheckInfo(nil), t.Checks...)
-		t.Name, t.ShortName, t.SSID, t.BSSID, t.Band = p.redact(t.Name), p.redact(t.ShortName), p.redact(t.SSID), p.redact(t.BSSID), p.redact(t.Band)
+		t.Name, t.ShortName, t.SSID, t.BSSID, t.NetworkID, t.Band = p.redact(t.Name), p.redact(t.ShortName), p.redact(t.SSID), p.redact(t.BSSID), p.redact(t.NetworkID), p.redact(t.Band)
 		for i := range t.Checks {
 			t.Checks[i].Name = p.redact(t.Checks[i].Name)
 			t.Checks[i].Operation = p.redact(t.Checks[i].Operation)

@@ -53,7 +53,7 @@ var GrammarTable = []Grammar{
 	{Path: "show wifi scan", Switches: []string{"fresh", "brief", "mlo"}, Values: []string{"band", "timeout"}},
 	{Path: "show wifi scan detail", Positionals: []string{"target"}, Values: []string{"band"}},
 	{Path: "show wifi eht", Switches: []string{"detail", "fresh"}, Values: []string{"ssid", "bssid", "timeout"}},
-	{Path: "show ip status", Switches: []string{"detail"}, Values: []string{"ssid"}},
+	{Path: "show ip status", Switches: []string{"detail"}, Values: []string{"ssid", "bssid", "network-id"}},
 	{Path: "wifi connect", Positionals: []string{"ssid"}, Values: []string{"passphrase", "passphrase-env", "security", "bssid", "band", "mac-randomization", "timeout"}},
 	{Path: "wifi disconnect"},
 	{Path: "wifi forget", Positionals: []string{"target"}},
@@ -62,13 +62,13 @@ var GrammarTable = []Grammar{
 	{Path: "wifi monitor", Values: []string{"duration", "interval"}},
 	{Path: "wifi reconnect", Values: []string{"timeout"}},
 	{Path: "wifi cycle", Positionals: []string{"ssid"}, Required: []string{"passphrase"}, Values: []string{"passphrase", "security", "bssid", "band", "mac-randomization", "timeout", "count", "ping", "http", "forget-after-each", "pause"}},
-	{Path: "ping", Positionals: []string{"host"}, Values: []string{"count", "size", "family", "timeout", "ssid"}},
-	{Path: "traceroute", Positionals: []string{"host"}, Values: []string{"max-hops", "via", "size", "family", "timeout", "ssid"}},
-	{Path: "path-mtu", Positionals: []string{"host"}, Values: []string{"min-mtu", "max-mtu", "family", "timeout", "ssid"}},
-	{Path: "global-ip", Values: []string{"family", "timeout", "ssid"}},
-	{Path: "dns", Positionals: []string{"name"}, Values: []string{"record", "timeout", "ssid"}},
-	{Path: "http", Positionals: []string{"url"}, Values: []string{"expected-status", "timeout", "ssid"}},
-	{Path: "download", Positionals: []string{"url"}, Values: []string{"timeout", "ssid"}},
+	{Path: "ping", Positionals: []string{"host"}, Values: []string{"count", "size", "family", "timeout", "ssid", "bssid", "network-id"}},
+	{Path: "traceroute", Positionals: []string{"host"}, Values: []string{"max-hops", "via", "size", "family", "timeout", "ssid", "bssid", "network-id"}},
+	{Path: "path-mtu", Positionals: []string{"host"}, Values: []string{"min-mtu", "max-mtu", "family", "timeout", "ssid", "bssid", "network-id"}},
+	{Path: "global-ip", Values: []string{"family", "timeout", "ssid", "bssid", "network-id"}},
+	{Path: "dns", Positionals: []string{"name"}, Values: []string{"record", "timeout", "ssid", "bssid", "network-id"}},
+	{Path: "http", Positionals: []string{"url"}, Values: []string{"expected-status", "timeout", "ssid", "bssid", "network-id"}},
+	{Path: "download", Positionals: []string{"url"}, Values: []string{"timeout", "ssid", "bssid", "network-id"}},
 	{Path: "help", Positionals: []string{"topic"}},
 	{Path: "set default passphrase", Positionals: []string{"passphrase"}, Unsupported: true},
 	{Path: "clear default passphrase", Unsupported: true},
@@ -484,8 +484,8 @@ func ParseTokens(args []string) (Parsed, error) {
 		return Parsed{}, fmt.Errorf("unsupported command")
 	}
 	op.Options.Detail = f["detail"] != ""
-	if f["ssid"] != "" && (spec.Path == "show ip status" || slices.Contains([]string{"ping", "traceroute", "path-mtu", "global-ip", "dns", "http", "download"}, spec.Path)) {
-		selector := &controlpb.NetworkSelector{Ssid: f["ssid"]}
+	if (f["ssid"] != "" || f["bssid"] != "" || f["network-id"] != "") && (spec.Path == "show ip status" || slices.Contains([]string{"ping", "traceroute", "path-mtu", "global-ip", "dns", "http", "download"}, spec.Path)) {
+		selector := &controlpb.NetworkSelector{Ssid: f["ssid"], Bssid: f["bssid"], NetworkId: f["network-id"]}
 		switch c := op.Command.Command.(type) {
 		case *controlpb.RunCommand_GetIpStatus:
 			c.GetIpStatus.Selector = selector

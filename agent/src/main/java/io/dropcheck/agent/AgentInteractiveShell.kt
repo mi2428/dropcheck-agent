@@ -64,20 +64,20 @@ internal object AgentShellParser {
         Syntax("show wifi scan", switches = "fresh brief mlo", values = "band timeout"),
         Syntax("show wifi scan detail", "TARGET", values = "band"),
         Syntax("show wifi eht", switches = "detail fresh", values = "ssid bssid timeout"),
-        Syntax("show ip status", switches = "detail", values = "ssid"),
+        Syntax("show ip status", switches = "detail", values = "ssid bssid network-id"),
         Syntax("wifi connect", "SSID passphrase PSK", values = "security bssid band mac-randomization timeout"),
         Syntax("wifi disconnect"), Syntax("wifi forget", "TARGET"),
         Syntax("wifi wait connected", values = "ssid bssid security band require-ip require-validated timeout"),
         Syntax("wifi assert", values = "ssid bssid security band require-ip require-validated timeout"),
         Syntax("wifi monitor", values = "duration interval"), Syntax("wifi reconnect", values = "timeout"),
         Syntax("wifi cycle", "SSID passphrase PSK", values = "security bssid band mac-randomization timeout count ping http forget-after-each pause"),
-        Syntax("ping", "HOST", values = "count size family timeout ssid"),
-        Syntax("traceroute", "HOST", values = "max-hops via size family timeout ssid"),
-        Syntax("path-mtu", "HOST", values = "min-mtu max-mtu family timeout ssid"),
-        Syntax("global-ip", values = "family timeout ssid"),
-        Syntax("dns", "NAME", values = "record timeout ssid"),
-        Syntax("http", "URL", values = "expected-status timeout ssid"),
-        Syntax("download", "URL", values = "timeout ssid"),
+        Syntax("ping", "HOST", values = "count size family timeout ssid bssid network-id"),
+        Syntax("traceroute", "HOST", values = "max-hops via size family timeout ssid bssid network-id"),
+        Syntax("path-mtu", "HOST", values = "min-mtu max-mtu family timeout ssid bssid network-id"),
+        Syntax("global-ip", values = "family timeout ssid bssid network-id"),
+        Syntax("dns", "NAME", values = "record timeout ssid bssid network-id"),
+        Syntax("http", "URL", values = "expected-status timeout ssid bssid network-id"),
+        Syntax("download", "URL", values = "timeout ssid bssid network-id"),
         Syntax("help", "[TOPIC]"), Syntax("set default passphrase", "PASSPHRASE"),
         Syntax("clear default passphrase"), Syntax("use", "SSID [PASSPHRASE]"),
         Syntax("check", "link ssid SSID [family ipv4|ipv6] [bssid BSSID] | lab ssid SSID family ipv4|ipv6 gateway IP dns NAME resolver selected http URL expected-status STATUS timeout MS"), Syntax("show checks"), Syntax("show check last", switches = "detail"),
@@ -285,7 +285,11 @@ internal object AgentShellParser {
             "all" -> { require(global) { "family all is only supported for global-ip" }; IpFamily.IP_FAMILY_ALL }
             else -> throw IllegalArgumentException("invalid family (ipv4, ipv6, ${if (global) "all" else "auto"})")
         }
-        fun selector() = NetworkSelector.newBuilder().setSsid(value("ssid")).build()
+        fun selector(): NetworkSelector {
+            value("bssid").takeIf { it.isNotEmpty() }?.let(::bssid)
+            return NetworkSelector.newBuilder().setSsid(value("ssid")).setBssid(value("bssid"))
+                .setNetworkId(value("network-id").takeIf { it.isNotEmpty() }?.let { number("network-id").toString() }.orEmpty()).build()
+        }
         fun connect() = ConnectWifi.newBuilder().setSsid(ssid).setPassphrase(passphrase).setSecurity(security()).setBand(band())
             .setBssid(value("bssid").also { if (it.isNotEmpty()) bssid(it) }).setMacRandomization(when (value("mac-randomization").lowercase(Locale.ROOT)) {
                 "" -> ConnectWifi.MacRandomization.MAC_RANDOMIZATION_UNSPECIFIED

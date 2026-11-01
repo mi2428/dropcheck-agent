@@ -5,7 +5,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
+	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/pipeline"
 	"dropcheck/controller/internal/render"
@@ -162,13 +164,16 @@ func (m workflowModel) renderWorkflow() string {
 		report := m.currentReport()
 		if m.phase == workflowReview {
 			header = fmt.Sprintf("Review %d/%d run=%s state=%s outcome=%s", m.review+1, len(m.runs), report.RunID, report.State, report.Outcome)
-			help = "i=Inspect r=Selected rerun f=Failed rerun e=Selection o=Reload [ / ]=Reports q=Exit"
+			help = "i=Inspect r=Selected rerun f=Failed rerun e=Selection o=Reload w=Export W=Overwrite [ / ]=Reports q=Exit"
 		} else {
 			dashboardFrame = true
 			header += " / run=" + report.RunID + " / " + m.globalControl
 			help = "GLOBAL Ctrl-Z=Pause/Resume Ctrl-N=Skip q/Ctrl-C=Stop+Cleanup / v=Scope p/s/x=Scoped Pause/Skip/Cancel i=Inspect"
 		}
-		if m.scopePick {
+		if m.exportInput {
+			help = "Report JSON destination: Enter=Save Esc=Cancel; " + map[bool]string{false: "existing file rejected", true: "replace existing regular file"}[m.exportOverwrite]
+			body = []string{"Export retained run " + report.RunID, "path> " + m.exportPath}
+		} else if m.scopePick {
 			body = []string{"Confirm explicit execution scope (Enter); Esc=back", "Dashboard focus never changes execution scope."}
 			for i, scope := range m.scopes {
 				prefix := "  "
@@ -230,6 +235,44 @@ func (m workflowModel) renderWorkflow() string {
 		body = wrapped
 	}
 	lines := []string{fitText(header, width), fitText(help, width)}
+	if m.options.Transport != nil && (m.phase == workflowRunning || m.phase == workflowStopping || m.phase == workflowReview) {
+		statusByAgent := map[string]control.TransportStatus{}
+		for _, status := range m.options.Transport() {
+			statusByAgent[status.AgentID] = status
+		}
+		agents := reportAgentsForTransport(m)
+		if len(agents) > max(1, height-4) {
+			lines = append(lines, fitText(fmt.Sprintf("Transport now: %d agents; detail requires taller viewport", len(agents)), width))
+			agents = nil
+		}
+		for _, agent := range agents {
+			status, ok := statusByAgent[agent]
+			if !ok {
+				lines = append(lines, fitText("Transport now agent="+agent+" stream=disconnected", width))
+				continue
+			}
+			state := "idle"
+			if status.Pending > 0 {
+				state = "busy"
+			}
+			age := func(value time.Time) string {
+				if value.IsZero() {
+					return "never"
+				}
+				return time.Since(value).Truncate(time.Second).String()
+			}
+			lines = append(lines, fitText(fmt.Sprintf("Transport now agent=%s stream=connected %s last_frame=%s last_accepted=%s pending=%d", agent, state, age(status.LastSeen), age(status.LastAccepted), status.Pending), width))
+		}
+		failures := 0
+		for _, problem := range m.currentReport().Problems {
+			if problem.Kind == "cleanup" {
+				failures++
+			}
+		}
+		if failures > 0 && len(lines) < height-2 {
+			lines = append(lines, fitText(fmt.Sprintf("Cleanup (separate from Wi-Fi verdict): %d errors; inspect Report for details", failures), width))
+		}
+	}
 	if m.phase == workflowReview && m.runEvictions > 0 {
 		lines = append(lines, fitText(fmt.Sprintf("Whole-run retention: last %d reports; %d oldest evicted", maxRetainedRuns, m.runEvictions), width))
 	}
@@ -255,13 +298,28 @@ func (m workflowModel) renderWorkflow() string {
 	return strings.Join(lines[:min(height, len(lines))], "\n")
 }
 
+func reportAgentsForTransport(m workflowModel) []string {
+	if m.phase == workflowReview {
+		var agents []string
+		for _, agent := range m.runs[m.review].report.Agents {
+			agents = append(agents, agent.Agent.ID)
+		}
+		return agents
+	}
+	var agents []string
+	for _, agent := range m.selected.Preview().Agents {
+		agents = append(agents, agent.ID)
+	}
+	return agents
+}
+
 func workflowPreviewLines(view harness.Preview) []string {
 	lines := []string{"Validated Plan: " + view.Name, "Preview only; operations=0 until Start.", fmt.Sprintf("Round interval: %s", view.RoundInterval)}
 	for _, a := range view.Agents {
 		lines = append(lines, "agent "+a.ID+" / "+a.DisplayName())
 	}
 	for _, t := range view.Targets {
-		lines = append(lines, fmt.Sprintf("target %s / %s ssid=%s bssid=%s band=%s agents=%s secret_present=%t cleanup: disconnect=%t forget=%t", t.ID, t.Name, t.SSID, t.BSSID, t.Band, strings.Join(t.BoundAgentIDs, ","), t.SecretPresent, t.DisconnectAfter != nil && *t.DisconnectAfter, t.ForgetAfter != nil && *t.ForgetAfter))
+		lines = append(lines, fmt.Sprintf("target %s / %s ssid=%s bssid=%s network_id=%s band=%s agents=%s secret_present=%t cleanup: disconnect=%t forget=%t", t.ID, t.Name, t.SSID, t.BSSID, t.NetworkID, t.Band, strings.Join(t.BoundAgentIDs, ","), t.SecretPresent, t.DisconnectAfter != nil && *t.DisconnectAfter, t.ForgetAfter != nil && *t.ForgetAfter))
 		if t.Connect != nil {
 			lines = append(lines, workflowCheckPreview(*t.Connect))
 		}

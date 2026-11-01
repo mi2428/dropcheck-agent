@@ -9,6 +9,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/harness"
 
 	tea "charm.land/bubbletea/v2"
@@ -18,10 +19,11 @@ import (
 // Load may establish a metadata session, but must not dispatch any operation.
 // Returned errors and all compiled previews/reports must be credential-free.
 type WorkflowOptions struct {
-	Path     string
-	Compiled *harness.CompiledPlan
-	Runner   harness.OperationRunner
-	Load     func(context.Context, string) (*harness.CompiledPlan, harness.OperationRunner, error)
+	Path      string
+	Compiled  *harness.CompiledPlan
+	Runner    harness.OperationRunner
+	Load      func(context.Context, string) (*harness.CompiledPlan, harness.OperationRunner, error)
+	Transport func() []control.TransportStatus // Host-local snapshot; no new agent session or probe.
 }
 
 // RunWorkflow uses the shared runtime; this UI never owns a measurement loop.
@@ -103,45 +105,48 @@ type retainedRun struct {
 const maxRetainedRuns = 8
 
 type workflowModel struct {
-	ctx           context.Context
-	options       WorkflowOptions
-	lifetime      *workflowLifetime
-	phase         workflowPhase
-	path          string
-	loading       bool
-	compiled      *harness.CompiledPlan
-	source        *harness.CompiledPlan
-	selected      *harness.CompiledPlan
-	rerunReview   bool
-	runner        harness.OperationRunner
-	selection     harness.Selection
-	group         int
-	cursor        int
-	count         string
-	countEdit     bool
-	loop          bool
-	message       string
-	width         int
-	height        int
-	active        *workflowRun
-	controls      *harness.Controls
-	dashboard     model
-	liveReport    harness.Report
-	liveEvicted   uint64
-	runs          []retainedRun
-	runEvictions  uint64
-	review        int
-	inspect       bool
-	stepCursor    int
-	detail        bool
-	detailLine    int
-	scroll        int
-	scope         harness.Scope
-	scopes        []harness.Scope
-	scopePick     bool
-	scopeIndex    int
-	globalControl string
-	pauseAcks     map[string]bool
+	ctx             context.Context
+	options         WorkflowOptions
+	lifetime        *workflowLifetime
+	phase           workflowPhase
+	path            string
+	loading         bool
+	compiled        *harness.CompiledPlan
+	source          *harness.CompiledPlan
+	selected        *harness.CompiledPlan
+	rerunReview     bool
+	runner          harness.OperationRunner
+	selection       harness.Selection
+	group           int
+	cursor          int
+	count           string
+	countEdit       bool
+	exportInput     bool
+	exportPath      string
+	exportOverwrite bool
+	loop            bool
+	message         string
+	width           int
+	height          int
+	active          *workflowRun
+	controls        *harness.Controls
+	dashboard       model
+	liveReport      harness.Report
+	liveEvicted     uint64
+	runs            []retainedRun
+	runEvictions    uint64
+	review          int
+	inspect         bool
+	stepCursor      int
+	detail          bool
+	detailLine      int
+	scroll          int
+	scope           harness.Scope
+	scopes          []harness.Scope
+	scopePick       bool
+	scopeIndex      int
+	globalControl   string
+	pauseAcks       map[string]bool
 }
 
 func newWorkflow(ctx context.Context, options WorkflowOptions, lifetime *workflowLifetime) workflowModel {
@@ -157,6 +162,7 @@ func newWorkflow(ctx context.Context, options WorkflowOptions, lifetime *workflo
 func (m *workflowModel) setCompiled(compiled *harness.CompiledPlan, runner harness.OperationRunner) {
 	m.compiled, m.source, m.runner, m.selected = compiled, compiled, runner, nil
 	m.rerunReview = false
+	m.exportInput, m.exportPath, m.exportOverwrite = false, "", false
 	m.selection = harness.Selection{}
 	view := compiled.Preview()
 	for _, agent := range view.Agents {
@@ -370,6 +376,23 @@ func (m workflowModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m workflowModel) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	stroke := key.Keystroke()
+	if m.exportInput {
+		switch stroke {
+		case "esc":
+			m.exportInput = false
+		case "enter":
+			if len(m.runs) == 0 || strings.TrimSpace(m.exportPath) == "" {
+				m.message = "enter an export destination"
+			} else if path, err := exportReportJSON(m.exportPath, m.runs[m.review].report, m.exportOverwrite); err != nil {
+				m.message = "export failed: " + err.Error()
+			} else {
+				m.exportInput, m.message = false, "Report JSON saved to "+path
+			}
+		default:
+			m.exportPath = workflowEditInput(m.exportPath, key)
+		}
+		return m, nil
+	}
 	dashboard := m.visibleDashboard()
 	if stroke == "ctrl+c" || stroke == "q" && m.phase != workflowLoad && !m.countEdit && !dashboard.searchEditing {
 		if m.active != nil {
@@ -506,6 +529,9 @@ func (m workflowModel) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "e":
 			m.setCompiled(m.source, m.runner)
+			return m, nil
+		case "w", "W", "shift+w":
+			m.exportInput, m.exportOverwrite, m.exportPath, m.message = true, stroke != "w", "", ""
 			return m, nil
 		case "o":
 			m.phase, m.loading = workflowLoad, false

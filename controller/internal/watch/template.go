@@ -119,6 +119,7 @@ func targetBuiltinValues(target Target) map[string]string {
 		"agent":      strings.TrimSpace(target.Agent),
 		"ssid":       target.SSID,
 		"bssid":      strings.TrimSpace(target.BSSID),
+		"network_id": strings.TrimSpace(target.NetworkID),
 		"band":       strings.TrimSpace(target.Band),
 	}
 	return values

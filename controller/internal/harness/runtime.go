@@ -189,13 +189,13 @@ func (c CheckInfo) DisplayName() string { return c.Name }
 
 // Target is a credential-free preview, also used by reducers and the TUI.
 type Target struct {
-	ID, Name, ShortName, Agent, SSID, BSSID, Band string
-	DisconnectAfter, ForgetAfter                  *bool
-	Checks                                        []CheckInfo
-	SecretPresent                                 bool
-	Connect, Wait                                 *CheckInfo
-	BoundAgentIDs                                 []string
-	CapabilityPreflight                           []CapabilityPreflight
+	ID, Name, ShortName, Agent, SSID, BSSID, NetworkID, Band string
+	DisconnectAfter, ForgetAfter                             *bool
+	Checks                                                   []CheckInfo
+	SecretPresent                                            bool
+	Connect, Wait                                            *CheckInfo
+	BoundAgentIDs                                            []string
+	CapabilityPreflight                                      []CapabilityPreflight
 }
 
 type CapabilityPreflight struct{ Operation, Band, State, Reason string }

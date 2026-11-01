@@ -48,6 +48,7 @@ func (s *Server) Session(stream controlpb.DropcheckControl_SessionServer) error 
 		done:      make(chan struct{}),
 	}
 	info := AgentInfo{ID: agentID, SessionID: sessionID, Hello: hello, Connected: time.Now()}
+	conn.lastSeen = info.Connected
 
 	s.mu.Lock()
 	if previous := s.conns[agentID]; previous != nil {
@@ -149,6 +150,14 @@ func (s *Server) Session(stream controlpb.DropcheckControl_SessionServer) error 
 }
 
 func (s *Server) handleAgentFrame(conn *agentConn, frame *controlpb.AgentFrame) {
+	s.mu.Lock()
+	if s.conns[conn.id] == conn {
+		conn.lastSeen = time.Now()
+		if frame.GetAccepted() != nil {
+			conn.lastAccepted = conn.lastSeen
+		}
+	}
+	s.mu.Unlock()
 	switch body := frame.Body.(type) {
 	case *controlpb.AgentFrame_Log:
 		if s.onLog != nil {

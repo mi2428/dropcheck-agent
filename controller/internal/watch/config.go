@@ -48,6 +48,7 @@ type Target struct {
 	Agent            string            `yaml:"agent"`
 	SSID             string            `yaml:"ssid"`
 	BSSID            string            `yaml:"bssid"`
+	NetworkID        string            `yaml:"network_id"`
 	Band             string            `yaml:"band"`
 	Vars             map[string]string `yaml:"vars"`
 	Passphrase       string            `yaml:"passphrase"`
@@ -138,7 +139,7 @@ func (cfg Config) Plan() (harness.Plan, error) {
 		if strings.TrimSpace(target.SSID) == "" {
 			return harness.Plan{}, fmt.Errorf("targets[%d] must set ssid", i)
 		}
-		if target.Observe && (target.Passphrase != "" || target.PassphraseEnv != "" || target.BSSID != "" || target.Band != "" || target.Security != "" || target.MacRandomization != "" || target.MacRotation != "" || target.ConnectTimeout.Duration != 0 || target.WaitTimeout.Duration != 0 || target.RequireIP != nil || target.RequireValidated != nil || target.DisconnectAfter != nil || target.ForgetAfter != nil || target.WaitConnected != nil) {
+		if target.Observe && (target.Passphrase != "" || target.PassphraseEnv != "" || target.Band != "" || target.Security != "" || target.MacRandomization != "" || target.MacRotation != "" || target.ConnectTimeout.Duration != 0 || target.WaitTimeout.Duration != 0 || target.RequireIP != nil || target.RequireValidated != nil || target.DisconnectAfter != nil || target.ForgetAfter != nil || target.WaitConnected != nil) {
 			return harness.Plan{}, fmt.Errorf("targets[%d]: observed Wi-Fi cannot specify connection or cleanup options", i)
 		}
 		if target.ActiveProbes && !target.Observe {
@@ -164,8 +165,11 @@ func (cfg Config) Plan() (harness.Plan, error) {
 			} else {
 				network = harness.ObservedWiFi(target.DisplayName())
 			}
-			network = network.SSID(target.SSID).Agent(target.Agent).ShortName(target.ShortName)
+			network = network.SSID(target.SSID).BSSID(target.BSSID).NetworkID(target.NetworkID).Agent(target.Agent).ShortName(target.ShortName)
 		} else {
+			if target.NetworkID != "" {
+				return harness.Plan{}, fmt.Errorf("targets[%d]: network_id requires observe: true", i)
+			}
 			network = harness.WiFi(target.DisplayName()).SSID(target.SSID).BSSID(target.BSSID).Band(target.Band).Security(target.Security).MacRandomization(target.MacRandomization).
 				ConnectTimeout(target.ConnectTimeout.Duration).WaitTimeout(target.WaitTimeout.Duration).RequireIP(target.requireIP()).RequireValidated(target.requireValidated()).
 				DisconnectAfter(target.disconnectAfter()).ForgetAfter(target.forgetAfter()).Agent(target.Agent).ShortName(target.ShortName).MACRotation(target.MacRotation).

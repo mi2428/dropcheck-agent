@@ -463,10 +463,10 @@ class CommandExecutor(
         val started = System.nanoTime()
         val deadline = System.currentTimeMillis() + timeoutMs
         val selector = expectation.ssid.takeIf(String::isNotEmpty)?.let { NetworkSelector.newBuilder().setSsid(it).build() }
-        var last = evaluateExpectation(networks.wifiStatus(selector), expectation, started)
+        var last = evaluateExpectation(networks.wifiStatus(selector, expectation.bssid), expectation, started)
         while (!last.passed && timeoutMs > 0 && System.currentTimeMillis() < deadline) {
             Thread.sleep(500)
-            last = evaluateExpectation(networks.wifiStatus(selector), expectation, started)
+            last = evaluateExpectation(networks.wifiStatus(selector, expectation.bssid), expectation, started)
         }
         if (!last.passed && timeoutMs > 0) {
             return last.toBuilder()

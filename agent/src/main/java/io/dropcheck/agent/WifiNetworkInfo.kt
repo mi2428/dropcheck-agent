@@ -23,6 +23,8 @@ internal fun NetworkCapabilities.isPhysicalWifiNetwork(): Boolean = isPhysicalWi
 internal enum class WifiNetworkMatch(val rejectReason: String) {
     MATCH("none"),
     SSID_MISMATCH("ssid_mismatch"),
+    BSSID_MISMATCH("bssid_mismatch"),
+    NETWORK_ID_MISMATCH("network_id_mismatch"),
     IDENTITY_UNAVAILABLE("wifi_identity_unavailable"),
     NOT_WIFI("not_physical_wifi"),
     NO_CAPABILITIES("no_capabilities"),
@@ -33,6 +35,16 @@ internal fun networkWifiSsidMatch(expected: String, actual: String): WifiNetwork
     if (!isKnownWifiSsid(actual)) return WifiNetworkMatch.IDENTITY_UNAVAILABLE
     return if (normalizedWifiSsid(actual) == expected) WifiNetworkMatch.MATCH else WifiNetworkMatch.SSID_MISMATCH
 }
+
+internal fun networkWifiIdentityMatch(ssid: String, bssid: String, actualSsid: String, actualBssid: String): WifiNetworkMatch {
+    val ssidMatch = networkWifiSsidMatch(ssid, actualSsid)
+    if (ssidMatch != WifiNetworkMatch.MATCH || bssid.isEmpty()) return ssidMatch
+    if (!isKnownWifiBssid(actualBssid)) return WifiNetworkMatch.IDENTITY_UNAVAILABLE
+    return if (bssid.equals(actualBssid, ignoreCase = true)) WifiNetworkMatch.MATCH else WifiNetworkMatch.BSSID_MISMATCH
+}
+
+internal fun networkWifiIdMatch(expected: String, actual: String): WifiNetworkMatch =
+    if (expected.isEmpty() || expected == actual) WifiNetworkMatch.MATCH else WifiNetworkMatch.NETWORK_ID_MISMATCH
 
 internal fun <N : Any> selectWifiCandidate(
     candidates: Iterable<N>,
@@ -46,10 +58,10 @@ internal fun <N : Any> selectWifiCandidate(
         when (match) {
             WifiNetworkMatch.MATCH -> return candidate
             WifiNetworkMatch.IDENTITY_UNAVAILABLE -> identityUnavailable = true
-            WifiNetworkMatch.SSID_MISMATCH, WifiNetworkMatch.NOT_WIFI, WifiNetworkMatch.NO_CAPABILITIES -> Unit
+            WifiNetworkMatch.SSID_MISMATCH, WifiNetworkMatch.BSSID_MISMATCH, WifiNetworkMatch.NETWORK_ID_MISMATCH, WifiNetworkMatch.NOT_WIFI, WifiNetworkMatch.NO_CAPABILITIES -> Unit
         }
     }
-    check(!identityUnavailable) { "wifi identity unavailable; cannot select SSID" }
+    check(!identityUnavailable) { "wifi identity unavailable; cannot select requested Network" }
     return null
 }
 

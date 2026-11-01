@@ -456,7 +456,7 @@ private fun CycleWifi.logFields(): List<Pair<String, Any?>> = buildList {
 }
 
 internal fun NetworkSelector.logFields(): List<Pair<String, Any?>> {
-    return listOf("selector_ssid" to ssid.ifBlank { "*" })
+    return listOf("selector_ssid" to ssid.ifBlank { "*" }, "selector_bssid" to bssid.ifBlank { "*" }, "selector_network_id" to networkId.ifBlank { "*" })
 }
 
 internal fun urlFields(rawUrl: String, prefix: String = "url_"): List<Pair<String, Any?>> {

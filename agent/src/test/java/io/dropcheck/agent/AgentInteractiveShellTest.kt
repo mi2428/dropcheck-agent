@@ -114,6 +114,8 @@ class AgentInteractiveShellTest {
         assertEquals(listOf(DnsRecordType.DNS_RECORD_TYPE_A, DnsRecordType.DNS_RECORD_TYPE_AAAA), live("dns example.test").request.resolveDns.qtypesList)
         assertEquals("Lab", live("ping example.test ssid Lab").request.ping.selector.ssid)
         assertEquals("Lab", live("show ip status ssid Lab").request.getIpStatus.selector.ssid)
+        assertEquals("aa:bb:cc:dd:ee:ff", live("ping example.test bssid aa:bb:cc:dd:ee:ff network-id 949").request.ping.selector.bssid)
+        assertEquals("949", live("ping example.test bssid aa:bb:cc:dd:ee:ff network-id 949").request.ping.selector.networkId)
     }
 
     @Test fun literalsQuotingSwitchesAndRepeatingVia() {

@@ -12,6 +12,7 @@ type Network struct {
 	name             string
 	ssid             string
 	bssid            string
+	networkID        string
 	psk              Secret
 	security         string
 	band             string
@@ -59,6 +60,10 @@ func (n Network) BSSID(value string) Network {
 	n.bssid = value
 	return n
 }
+
+// NetworkID requires the Android Network identity observed before the run.
+// This is a selection-time check, not uninterrupted roam detection.
+func (n Network) NetworkID(value string) Network { n.networkID = value; return n }
 
 // PSK sets the passphrase directly.
 func (n Network) PSK(value string) Network {

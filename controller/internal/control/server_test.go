@@ -67,6 +67,30 @@ func TestAgentsAreSortedAndResolvedByExactOrPrefix(t *testing.T) {
 	}
 }
 
+func TestTransportStatusesUseOnlyCurrentHostLocalFrames(t *testing.T) {
+	server := NewServer("token", nil)
+	old := addTestConn(server, "agent-a", "old")
+	server.mu.Lock()
+	server.waiters["request"] = commandWaiter{conn: old, ch: make(chan CommandResponse, 1)}
+	server.mu.Unlock()
+	server.handleAgentFrame(old, &controlpb.AgentFrame{Body: &controlpb.AgentFrame_Heartbeat{Heartbeat: &controlpb.AgentHeartbeat{}}})
+	server.handleAgentFrame(old, &controlpb.AgentFrame{Body: &controlpb.AgentFrame_Accepted{Accepted: &controlpb.CommandAccepted{}}})
+	status := server.TransportStatuses()
+	if len(status) != 1 || status[0].Pending != 1 || status[0].LastSeen.IsZero() || status[0].LastAccepted.IsZero() {
+		t.Fatalf("host status lost heartbeat/accepted/pending: %+v", status)
+	}
+	newConn := addTestConn(server, "agent-a", "new")
+	server.handleAgentFrame(old, &controlpb.AgentFrame{Body: &controlpb.AgentFrame_Heartbeat{Heartbeat: &controlpb.AgentHeartbeat{}}})
+	status = server.TransportStatuses()
+	if len(status) != 1 || status[0].Pending != 0 || !status[0].LastSeen.IsZero() {
+		t.Fatalf("old session contaminated replacement: %+v", status)
+	}
+	server.handleAgentFrame(newConn, &controlpb.AgentFrame{Body: &controlpb.AgentFrame_Heartbeat{Heartbeat: &controlpb.AgentHeartbeat{}}})
+	if server.TransportStatuses()[0].LastSeen.IsZero() {
+		t.Fatal("replacement heartbeat not observed")
+	}
+}
+
 func TestWaitAgentsReturnsExistingAndContextPartial(t *testing.T) {
 	server := NewServer("token", nil)
 	addTestAgent(server, AgentInfo{

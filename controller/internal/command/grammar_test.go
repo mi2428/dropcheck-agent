@@ -70,6 +70,34 @@ func TestCanonicalInventoryAndDefaults(t *testing.T) {
 	}
 }
 
+func TestNetworkSelectorIdentityOptionsRejectInvalidInputBeforeDispatch(t *testing.T) {
+	for _, line := range []string{
+		"show ip status ssid Lab bssid aa:bb:cc:dd:ee:ff network-id 949",
+		"ping example.test ssid Lab bssid aa:bb:cc:dd:ee:ff network-id 949",
+		"dns example.test bssid aa:bb:cc:dd:ee:ff",
+	} {
+		parsed, err := ParseTokens(strings.Fields(line))
+		if err != nil {
+			t.Fatalf("%q: %v", line, err)
+		}
+		selector := parsed.Operation.Command.GetGetIpStatus().GetSelector()
+		if selector == nil {
+			selector = parsed.Operation.Command.GetPing().GetSelector()
+		}
+		if selector == nil {
+			selector = parsed.Operation.Command.GetResolveDns().GetSelector()
+		}
+		if selector.GetBssid() != "aa:bb:cc:dd:ee:ff" {
+			t.Fatalf("lost BSSID in %q", line)
+		}
+	}
+	for _, line := range []string{"ping example.test bssid invalid", "ping example.test bssid aabb.ccdd.eeff", "show ip status network-id negative", "show ip status network-id 0949"} {
+		if _, err := ParseTokens(strings.Fields(line)); err == nil {
+			t.Fatalf("accepted invalid %q", line)
+		}
+	}
+}
+
 func TestGrammarBoundariesAndLiterals(t *testing.T) {
 	if err := validateAliases(GrammarTable, map[string]string{"show": "ping"}); err == nil {
 		t.Fatal("canonical collision accepted")

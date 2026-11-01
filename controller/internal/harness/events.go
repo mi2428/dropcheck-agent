@@ -101,6 +101,7 @@ type TargetSnapshot struct {
 	Agent     string `json:"agent,omitempty"`
 	SSID      string `json:"ssid,omitempty"`
 	BSSID     string `json:"bssid,omitempty"`
+	NetworkID string `json:"network_id,omitempty"`
 	Band      string `json:"band,omitempty"`
 }
 
@@ -134,6 +135,7 @@ func snapshotTarget(target Target) TargetSnapshot {
 		Agent:     target.Agent,
 		SSID:      target.SSID,
 		BSSID:     target.BSSID,
+		NetworkID: target.NetworkID,
 		Band:      target.Band,
 	}
 }

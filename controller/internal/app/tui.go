@@ -7,6 +7,7 @@ import (
 	"os"
 	"sync"
 
+	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/runner"
 	"dropcheck/controller/internal/session"
@@ -72,7 +73,15 @@ func runTUIFiles(ctx context.Context, options shellOptions, args []string, input
 	if len(args) == 1 {
 		path = args[0]
 	}
-	return tui.RunWorkflow(uiCtx, tui.WorkflowOptions{Path: path, Load: load})
+	transport := func() []control.TransportStatus {
+		mu.Lock()
+		defer mu.Unlock()
+		if controlSession == nil {
+			return nil
+		}
+		return controlSession.Server.TransportStatuses()
+	}
+	return tui.RunWorkflow(uiCtx, tui.WorkflowOptions{Path: path, Load: load, Transport: transport})
 }
 
 func writeTUIHelp(w io.Writer) {
@@ -89,6 +98,9 @@ GLOBAL Ctrl-Z pauses/resumes; GLOBAL Ctrl-N skips. v explicitly chooses a scope;
 p/s/x pause/skip/cancel only that confirmed scope. Dashboard focus is not scope.
 i inspects measurements/expectations/attempts/cleanup; r previews selected rerun,
 f previews failed/missing rerun; e reselects, o explicitly reloads agent bindings.
+In Review, w exports one retained Report as new private JSON; W explicitly
+replaces an existing regular file. Transport now shows host-observed stream
+heartbeat/acceptance and pending commands, independently of the Wi-Fi verdict.
 No automatic device replacement. Existing filters and pinned details remain.
 No-argument dropcheck continues to show help.`)
 }
