@@ -101,6 +101,8 @@ func (m workflowModel) renderWorkflow() string {
 	header := "Dropcheck TUI / " + string(m.phase)
 	var body []string
 	scroll := 0
+	selectedRow := -1
+	rowStart, rowEnd := 0, 0
 	dashboardFrame := false
 	switch m.phase {
 	case workflowLoad:
@@ -129,9 +131,14 @@ func (m workflowModel) renderWorkflow() string {
 		if m.countEdit {
 			body = append(body, "N> "+m.count+" (Enter=apply)")
 		}
-		scroll = max(0, m.cursor-(height-6))
+		if len(m.selectionRows()) > 0 {
+			selectedRow = 2 + m.cursor
+		}
 	case workflowPreview:
 		help = "Enter=START explicitly  j/k=Scroll  Esc=Selection  q=Exit"
+		if m.rerunReview {
+			help = "Enter=START explicitly  j/k=Scroll  Esc=Review  q=Exit"
+		}
 		header += " / Preview / " + m.modeLabel()
 		body = workflowPreviewLines(m.selected.Preview())
 		rounds := uint64(0)
@@ -170,7 +177,9 @@ func (m workflowModel) renderWorkflow() string {
 				}
 				body = append(body, prefix+workflowScopeLabel(scope))
 			}
-			scroll = max(0, m.scopeIndex-(height-5))
+			if len(m.scopes) > 0 {
+				selectedRow = 2 + m.scopeIndex
+			}
 		} else if m.inspect {
 			body = workflowReportLines(report, m.stepCursor, m.detail)
 			if m.active != nil && m.liveEvicted > 0 {
@@ -179,7 +188,9 @@ func (m workflowModel) renderWorkflow() string {
 			if m.detail {
 				scroll = m.detailLine
 			} else {
-				scroll = max(0, m.stepCursor-(height-8))
+				if len(report.Steps) > 0 {
+					selectedRow = 1 + len(report.Agents) + m.stepCursor
+				}
 			}
 			help = "j/k=Result or detail scroll Enter=Attempts+Measurements Esc=Back r=Selected rerun i=Dashboard q=Safe stop/exit"
 		} else {
@@ -202,12 +213,18 @@ func (m workflowModel) renderWorkflow() string {
 	}
 	if !dashboardFrame {
 		var wrapped []string
-		for _, line := range body {
+		for i, line := range body {
+			if i == selectedRow {
+				rowStart = len(wrapped)
+			}
 			plain := sanitizeLogText(ansi.Strip(line))
 			if plain == "" {
 				wrapped = append(wrapped, "")
 			} else {
 				wrapped = append(wrapped, detailWrapLogBody(plain, width)...)
+			}
+			if i == selectedRow {
+				rowEnd = len(wrapped)
 			}
 		}
 		body = wrapped
@@ -220,6 +237,13 @@ func (m workflowModel) renderWorkflow() string {
 		lines = append(lines, fitText(m.message, width))
 	}
 	available := max(0, height-len(lines))
+	if selectedRow >= 0 {
+		// Anchor the selected row in physical lines, after header and messages are known.
+		scroll = rowStart
+		if rowEnd-rowStart <= available {
+			scroll = max(0, rowEnd-available)
+		}
+	}
 	start := min(max(0, scroll), max(0, len(body)-available))
 	for _, line := range body[start:min(len(body), start+available)] {
 		if dashboardFrame {

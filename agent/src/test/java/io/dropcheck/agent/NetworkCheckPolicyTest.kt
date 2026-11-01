@@ -83,6 +83,16 @@ class NetworkCheckPolicyTest {
     }
 
     @Test
+    fun nativeProbeDestinationNeverFallsBackToDefaultResolverOrWrongFamily() {
+        val ipv4 = InetAddress.getByName("192.0.2.1")
+        val ipv6 = InetAddress.getByName("2001:db8::1")
+        assertNull(NetworkCheckPolicy.probeDestination("example.test", IpFamily.IP_FAMILY_IPV4, emptyList()))
+        assertNull(NetworkCheckPolicy.probeDestination("example.test", IpFamily.IP_FAMILY_IPV4, listOf(ipv6)))
+        assertNull(NetworkCheckPolicy.probeDestination("192.0.2.1", IpFamily.IP_FAMILY_IPV6, listOf(ipv4)))
+        assertEquals("192.0.2.1", NetworkCheckPolicy.probeDestination("example.test", IpFamily.IP_FAMILY_IPV4, listOf(ipv6, ipv4)))
+    }
+
+    @Test
     fun classifiesProcessAndProbeResults() {
         assertTrue(NetworkCheckPolicy.processSucceeded(finished = true, exitCode = 0))
         assertFalse(NetworkCheckPolicy.processSucceeded(finished = false, exitCode = 0))
@@ -193,5 +203,8 @@ class NetworkCheckPolicyTest {
         assertFalse(NetworkCheckPolicy.isGlobalUnicast(ulaV6))
         assertEquals(publicV4, NetworkCheckPolicy.parseIpLiteral("8.8.8.8"))
         assertNull(NetworkCheckPolicy.parseIpLiteral("example.test"))
+        assertNull(NetworkCheckPolicy.parseIpLiteral("dead"))
+        assertNull(NetworkCheckPolicy.parseIpLiteral("abcd.abcd"))
+        assertNull(NetworkCheckPolicy.parseIpLiteral("999.999.999.999"))
     }
 }

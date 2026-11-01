@@ -63,8 +63,9 @@ internal object WifiExpectationEvaluator {
             )
         }
         if (expectation.requireIp) {
-            val hasIp = ip?.addressesList?.isNotEmpty() == true || connection?.ipv4Address?.isNotBlank() == true
-            val actual = if (ip != null) ip.addressesList.joinToString(",") else connection?.ipv4Address.orEmpty()
+            // WifiInfo's IPv4 value is not evidence of LinkProperties on the selected Network.
+            val hasIp = ip?.addressesList?.isNotEmpty() == true
+            val actual = ip?.addressesList?.joinToString(",").orEmpty()
             checks += diagnosticCheck("ip", "present", actual.ifBlank { "absent" }, hasIp)
         }
         if (expectation.requireValidated) {
