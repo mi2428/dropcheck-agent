@@ -1660,6 +1660,32 @@ func TestAdvertisedEHTLinkIsNotAnAssociatedLink(t *testing.T) {
 	}
 }
 
+func TestEHTScanComparisonNeedsActualUpdateAndKnownRecentAge(t *testing.T) {
+	connected := &controlpb.WifiConnection{
+		ApMldMacAddress:    "02:00:00:00:00:01",
+		ObservationFields:  testObservationFields("ap_mld_mac_address", "associated_mlo_links"),
+		AssociatedMloLinks: []*controlpb.MloLinkInfo{{LinkId: 2, ObservationFields: testObservationFields("identity")}},
+	}
+	scan := &controlpb.WifiScan{Fields: []*controlpb.DiagnosticField{{Key: "fresh_scan_results_updated", Value: "true"}}}
+	ap := &controlpb.WifiScanResult{ApMldMacAddress: connected.ApMldMacAddress}
+	if got := wifiMLOComparison(connected, scan, []*controlpb.WifiScanResult{ap}); got != "unknown_scan_age" {
+		t.Fatalf("unknown boot age was considered comparable: %s", got)
+	}
+	age := uint64(0)
+	ap.ObservationAgeMs = &age
+	if got := wifiMLOComparison(connected, scan, []*controlpb.WifiScanResult{ap}); got != "updated_scan_age_le_10s" {
+		t.Fatalf("known-zero boot age was discarded: %s", got)
+	}
+	age = 10001
+	if got := wifiMLOComparison(connected, scan, []*controlpb.WifiScanResult{ap}); got != "unknown_scan_age" {
+		t.Fatalf("stale scan was considered comparable: %s", got)
+	}
+	deleteFresh := &controlpb.WifiScan{}
+	if got := wifiMLOComparison(connected, deleteFresh, []*controlpb.WifiScanResult{ap}); got != "unknown_scan_update" {
+		t.Fatalf("requested scan without actual update was considered comparable: %s", got)
+	}
+}
+
 func ehtMultiLinkTestIE() *controlpb.WifiInformationElement {
 	return &controlpb.WifiInformationElement{
 		Id:        255,

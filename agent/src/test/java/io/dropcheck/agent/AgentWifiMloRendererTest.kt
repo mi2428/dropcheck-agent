@@ -21,6 +21,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentWifiMloRendererTest {
+    @Test fun advertisedIeNeverBecomesAssociatedAndOnlyUpdatedRecentScanIsComparable() {
+        val advertised = WifiConnection.newBuilder().addInformationElements(detailedEhtMultiLinkIe()).build()
+        assertTrue(AgentWifiMloRenderer.associatedLinkIds(advertised).isEmpty())
+        val current = mloConnection().toBuilder()
+            .addObservationFields(field("ap_mld_mac_address.state", "available"))
+            .addObservationFields(field("associated_mlo_links.state", "available"))
+            .build()
+        val fresh = WifiScan.newBuilder().addFields(field("fresh_scan_results_updated", "true")).build()
+        val ap = mloScanResult("Lab", "aa:bb:cc:dd:ee:ff", -45, current.apMldMacAddress, 2)
+        assertTrue(AgentWifiMloRenderer.scanComparison(current, fresh, listOf(ap)) == "unknown_scan_age")
+        val knownZero = ap.toBuilder().setObservationAgeMs(0).build()
+        assertTrue(AgentWifiMloRenderer.scanComparison(current, fresh, listOf(knownZero)) == "updated_scan_age_le_10s")
+        assertTrue(AgentWifiMloRenderer.scanComparison(current, fresh, listOf(knownZero.toBuilder().setObservationAgeMs(10001).build())) == "unknown_scan_age")
+        assertTrue(AgentWifiMloRenderer.scanComparison(current, WifiScan.getDefaultInstance(), listOf(knownZero)) == "unknown_scan_update")
+    }
     @Test
     fun rendersConnectedAndNearbyMloState() {
         val status = WifiStatus.newBuilder()
