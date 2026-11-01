@@ -41,7 +41,7 @@ func renderWifiMLO(b *strings.Builder, diagnostics *controlpb.WifiDiagnostics, o
 	current := filter.connection(wifiMLOCurrentConnection(status))
 	groups := wifiMLOGroups(candidates)
 
-	renderWifiMLOCurrentRelation(b, current, candidates)
+	renderWifiMLOCurrentRelation(b, current, scan, candidates)
 	renderWifiMLOConnected(b, current)
 	renderWifiMLOConnectedSecurity(b, current)
 	renderWifiMLOConnectedRoaming(b, current)
@@ -169,7 +169,7 @@ func wifiMLOKnownBSSID(value string) bool {
 		!strings.EqualFold(normalized, "00:00:00:00:00:00")
 }
 
-func renderWifiMLOCurrentRelation(b *strings.Builder, current *controlpb.WifiConnection, candidates []*controlpb.WifiScanResult) {
+func renderWifiMLOCurrentRelation(b *strings.Builder, current *controlpb.WifiConnection, scan *controlpb.WifiScan, candidates []*controlpb.WifiScanResult) {
 	if current == nil {
 		writeSection(b, "Current AP Relation")
 		b.WriteString("  no active Wi-Fi connection\n")
@@ -198,6 +198,11 @@ func renderWifiMLOCurrentRelation(b *strings.Builder, current *controlpb.WifiCon
 			missingLinks[id] = true
 		}
 	}
+	comparison := wifiMLOComparison(current, scan, candidates)
+	missingText := "<unknown>"
+	if comparison == "updated_scan_age_le_10s" {
+		missingText = wifiMLOJoinIntSet(missingLinks)
+	}
 	writeKVSection(b, "Current AP Relation",
 		kv("connected_bssid", empty(current.GetBssid(), "<unknown>")),
 		kv("connected_ap_mld", empty(wifiMLOConnectionMLDMAC(current), "<none>")),
@@ -206,8 +211,27 @@ func renderWifiMLOCurrentRelation(b *strings.Builder, current *controlpb.WifiCon
 		kv("same_mld_results", len(sameMLDResults)),
 		kv("visible_links", wifiMLOJoinIntSet(visibleLinks)),
 		kv("associated_links", wifiMLOJoinIntSet(associatedLinks)),
-		kv("missing_associated", wifiMLOJoinIntSet(missingLinks)),
+		kv("scan_comparison", comparison),
+		kv("missing_associated", missingText),
 	)
+}
+
+// Only a successful update with known, recent per-AP boot-clock ages supports
+// a point-in-time scan comparison. It is not a continuity or roam guarantee.
+func wifiMLOComparison(current *controlpb.WifiConnection, scan *controlpb.WifiScan, candidates []*controlpb.WifiScanResult) string {
+	fields := diagnosticFieldMap(current.GetObservationFields())
+	if fields["ap_mld_mac_address.state"] != "available" || fields["associated_mlo_links.state"] != "available" || !wifiMLOKnownBSSID(current.GetApMldMacAddress()) {
+		return "unknown_connection_identity"
+	}
+	if wifiMLOFieldMap(scan.GetFields())["fresh_scan_results_updated"] != "true" || len(scan.GetErrors()) > 0 {
+		return "unknown_scan_update"
+	}
+	for _, candidate := range candidates {
+		if wifiMLOSameMLD(current, candidate) && (candidate.ObservationAgeMs == nil || candidate.GetObservationAgeMs() > 10000) {
+			return "unknown_scan_age"
+		}
+	}
+	return "updated_scan_age_le_10s"
 }
 
 func renderWifiMLOConnected(b *strings.Builder, current *controlpb.WifiConnection) {
@@ -1198,7 +1222,7 @@ func renderWifiMLODiagnostics(b *strings.Builder, status *controlpb.WifiStatus, 
 	if len(candidates) == 0 {
 		warnings = append(warnings, "eht_scan_results=0")
 	}
-	if current != nil && current.GetApMldMacAddress() != "" {
+	if current != nil && wifiMLOComparison(current, scan, candidates) == "updated_scan_age_le_10s" {
 		seen := false
 		for _, result := range candidates {
 			if wifiMLOSameMLD(current, result) {
@@ -1211,7 +1235,7 @@ func renderWifiMLODiagnostics(b *strings.Builder, status *controlpb.WifiStatus, 
 		}
 	}
 	warnings = append(warnings, wifiMLOMetadataWarnings(candidates)...)
-	if current != nil {
+	if current != nil && wifiMLOComparison(current, scan, candidates) == "updated_scan_age_le_10s" {
 		visibleLinks := map[int32]bool{}
 		for _, result := range candidates {
 			if wifiMLOSameMLD(current, result) {

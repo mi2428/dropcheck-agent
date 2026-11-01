@@ -64,7 +64,8 @@ internal object AgentWifiMloRenderer {
         val ages = scan.resultsList.filter { it.hasObservationAgeMs() }.map { it.observationAgeMs }.sortedWith { left, right -> java.lang.Long.compareUnsigned(left, right) }
         val ageSummary = if (ages.isEmpty()) "? (observation timestamps unavailable)" else "${java.lang.Long.toUnsignedString(ages.first())}-${java.lang.Long.toUnsignedString(ages.last())}ms at collection; known=${ages.size}/${scan.resultsCount}"
         add(AgentBlockPart.Field("Scan age", ageSummary, scan.resultsList.joinToString("; ") { "${it.bssid}=${AgentWifiScanRenderer.observationAge(it)}" }))
-        text("Coverage", "? (comparable relation metadata required)")
+        val comparison = scanComparison(conn, scan, filter.scanResults(scan.resultsList).filter(::isMloCapableCandidate))
+        text("Coverage", if (comparison == "updated_scan_age_le_10s") "point-in-time scan comparison only (not roam proof)" else "? ($comparison)")
         scan.errorsList.forEach { text("Error", it) }
         if (detail || !detailAvailable) addAll(render(status, scan, context).map { AgentBlockPart.Text(it) })
         if (detailAvailable && !detail) text("More", "show wifi eht detail")
@@ -82,7 +83,7 @@ internal object AgentWifiMloRenderer {
             return out
         }
 
-        renderCurrentRelation(out, current, candidates)
+        renderCurrentRelation(out, current, scan, candidates)
         renderConnectedMlo(out, current)
         renderConnectedSecurityDetails(out, current)
         renderConnectedRoamingDetails(out, current)
@@ -966,7 +967,7 @@ internal object AgentWifiMloRenderer {
         )
     }
 
-    private fun renderCurrentRelation(out: MutableList<String>, current: WifiConnection?, candidates: List<WifiScanResult>) {
+    private fun renderCurrentRelation(out: MutableList<String>, current: WifiConnection?, scan: WifiScan, candidates: List<WifiScanResult>) {
         section(out, "Current AP Relation")
         if (current == null) {
             out += "  no active Wi-Fi connection"
@@ -976,6 +977,7 @@ internal object AgentWifiMloRenderer {
         val visibleLinks = sameMldResults.flatMap { scanLinkIds(it) }.toSet()
         val associatedLinks = associatedLinkIds(current)
         val missingAssociatedLinks = associatedLinks - visibleLinks
+        val comparison = scanComparison(current, scan, candidates)
         kv(out,
             "connected_bssid" to empty(current.bssid, "<unknown>"),
             "connected_ap_mld" to empty(connectionMldMac(current), "<none>"),
@@ -984,7 +986,8 @@ internal object AgentWifiMloRenderer {
             "same_mld_results" to sameMldResults.size.toString(),
             "visible_links" to joined(visibleLinks.map { it.toString() }, "<none>"),
             "associated_links" to joined(associatedLinks.map { it.toString() }, "<none>"),
-            "missing_associated" to joined(missingAssociatedLinks.map { it.toString() }, "<none>"),
+            "scan_comparison" to comparison,
+            "missing_associated" to if (comparison == "updated_scan_age_le_10s") joined(missingAssociatedLinks.map { it.toString() }, "<none>") else "<unknown>",
         )
     }
 
@@ -1037,11 +1040,11 @@ internal object AgentWifiMloRenderer {
         if (candidates.isEmpty()) {
             warnings += "eht_scan_results=0"
         }
-        if (current != null && current.apMldMacAddress.isNotBlank() && candidates.none { sameMld(current, it) }) {
+        if (current != null && scanComparison(current, scan, candidates) == "updated_scan_age_le_10s" && candidates.none { sameMld(current, it) }) {
             warnings += "connected_ap_mld_not_seen_in_scan"
         }
         warnings += mloMetadataWarnings(candidates)
-        if (current != null) {
+        if (current != null && scanComparison(current, scan, candidates) == "updated_scan_age_le_10s") {
             val visibleLinks = candidates.filter { sameMld(current, it) }.flatMap { scanLinkIds(it) }.toSet()
             val missingLinks = associatedLinkIds(current) - visibleLinks
             if (missingLinks.isNotEmpty()) {
@@ -1179,12 +1182,20 @@ internal object AgentWifiMloRenderer {
         return ids
     }
 
-    private fun associatedLinkIds(conn: WifiConnection): Set<Int> {
+    internal fun associatedLinkIds(conn: WifiConnection): Set<Int> {
         val ids = mutableSetOf<Int>()
         if (AgentObservationPresentation.available(conn.observationFieldsList, "ap_mlo_link_id") && conn.apMloLinkId >= 0) ids += conn.apMloLinkId
         conn.associatedMloLinksList.filter { AgentObservationPresentation.available(it.observationFieldsList, "identity") && it.linkId >= 0 }.forEach { ids += it.linkId }
-        ids += mloLinkIdsFromElements(conn.informationElementsList)
         return ids
+    }
+
+    /** Only a known, recent boot-clock scan after an actual update is comparable. */
+    internal fun scanComparison(current: WifiConnection?, scan: WifiScan, candidates: List<WifiScanResult>): String {
+        if (current == null || !AgentObservationPresentation.available(current.observationFieldsList, "ap_mld_mac_address") ||
+            !AgentObservationPresentation.available(current.observationFieldsList, "associated_mlo_links") || !isKnownWifiBssid(current.apMldMacAddress)) return "unknown_connection_identity"
+        if (scan.fieldsList.none { it.key == "fresh_scan_results_updated" && it.value == "true" } || scan.errorsCount > 0) return "unknown_scan_update"
+        if (candidates.any { sameMld(current, it) && (!it.hasObservationAgeMs() || java.lang.Long.compareUnsigned(it.observationAgeMs, 10000L) > 0) }) return "unknown_scan_age"
+        return "updated_scan_age_le_10s"
     }
 
     private fun connectionLinkID(conn: WifiConnection): String {
