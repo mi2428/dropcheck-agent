@@ -50,6 +50,13 @@ type CommandResponse struct {
 	Error *controlpb.CommandError
 }
 
+// TransportStatus is host-local stream evidence, independent of a Wi-Fi verdict.
+type TransportStatus struct {
+	AgentID                string
+	LastSeen, LastAccepted time.Time
+	Pending                int
+}
+
 // Server tracks authenticated agents and dispatches commands over gRPC.
 //
 // Server is safe for concurrent use by the app shell, CLI execution path, and
@@ -70,11 +77,30 @@ type Server struct {
 }
 
 type agentConn struct {
-	id        string
-	sessionID string
-	sendCh    chan *controlpb.ControllerFrame
-	done      chan struct{}
-	closeOnce sync.Once
+	id                     string
+	sessionID              string
+	sendCh                 chan *controlpb.ControllerFrame
+	done                   chan struct{}
+	closeOnce              sync.Once
+	lastSeen, lastAccepted time.Time // Protected by Server.mu.
+}
+
+// TransportStatuses reads existing authenticated streams; it never contacts an agent.
+func (s *Server) TransportStatuses() []TransportStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	statuses := make([]TransportStatus, 0, len(s.conns))
+	for id, conn := range s.conns {
+		status := TransportStatus{AgentID: id, LastSeen: conn.lastSeen, LastAccepted: conn.lastAccepted}
+		for _, waiter := range s.waiters {
+			if waiter.conn == conn {
+				status.Pending++
+			}
+		}
+		statuses = append(statuses, status)
+	}
+	sort.Slice(statuses, func(i, j int) bool { return statuses[i].AgentID < statuses[j].AgentID })
+	return statuses
 }
 
 type commandWaiter struct {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"dropcheck/controller/internal/controlpb"
@@ -35,10 +36,46 @@ func ValidateOperation(op Operation) error {
 			return nil
 		}
 		mac, err := net.ParseMAC(value)
-		if err != nil || len(mac) != 6 {
+		if err != nil || len(mac) != 6 || mac.String() != strings.ToLower(value) {
 			return fmt.Errorf("invalid BSSID")
 		}
 		return nil
+	}
+	selector := func(value *controlpb.NetworkSelector) error {
+		if value == nil {
+			return nil
+		}
+		if err := address(value.GetBssid()); err != nil {
+			return err
+		}
+		if value.GetNetworkId() != "" {
+			id, err := strconv.ParseUint(value.GetNetworkId(), 10, 31)
+			if err != nil || id == 0 || strconv.FormatUint(id, 10) != value.GetNetworkId() {
+				return fmt.Errorf("invalid Android Network ID")
+			}
+		}
+		return nil
+	}
+	switch c := cmd.Command.(type) {
+	case *controlpb.RunCommand_GetIpStatus:
+		err = selector(c.GetIpStatus.GetSelector())
+	case *controlpb.RunCommand_Ping:
+		err = selector(c.Ping.GetSelector())
+	case *controlpb.RunCommand_Traceroute:
+		err = selector(c.Traceroute.GetSelector())
+	case *controlpb.RunCommand_PathMtu:
+		err = selector(c.PathMtu.GetSelector())
+	case *controlpb.RunCommand_GlobalIp:
+		err = selector(c.GlobalIp.GetSelector())
+	case *controlpb.RunCommand_ResolveDns:
+		err = selector(c.ResolveDns.GetSelector())
+	case *controlpb.RunCommand_HttpCheck:
+		err = selector(c.HttpCheck.GetSelector())
+	case *controlpb.RunCommand_Wget:
+		err = selector(c.Wget.GetSelector())
+	}
+	if err != nil {
+		return err
 	}
 	endpoint := func(value string) error {
 		u, err := url.Parse(value)

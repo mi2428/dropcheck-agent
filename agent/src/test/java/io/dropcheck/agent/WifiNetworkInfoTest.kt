@@ -53,12 +53,42 @@ class WifiNetworkInfoTest {
                 networkWifiSsidMatch("FixtureB", "<unknown ssid>")
             }, onCandidate = { _, _ -> })
         }
-        assertEquals("wifi identity unavailable; cannot select SSID", failure.message)
+        assertEquals("wifi identity unavailable; cannot select requested Network", failure.message)
         assertEquals("physical", selectWifiCandidate(listOf("vpn", "physical"), classify = {
             if (!isPhysicalWifiNetwork(true, it == "vpn")) WifiNetworkMatch.NOT_WIFI else networkWifiSsidMatch("", "")
         }, onCandidate = { _, _ -> }))
         assertNull(selectWifiCandidate(listOf("other"), classify = { networkWifiSsidMatch("FixtureB", "Other") },
             onCandidate = { _, _ -> }))
+    }
+
+    @Test fun bssidSelectionRejectsSameSsidRoamAndRedactedIdentity() {
+        val target = "aa:bb:cc:dd:ee:ff"
+        assertEquals(WifiNetworkMatch.BSSID_MISMATCH,
+            networkWifiIdentityMatch("Lab", target, "Lab", "aa:bb:cc:dd:ee:01"))
+        assertEquals(WifiNetworkMatch.IDENTITY_UNAVAILABLE,
+            networkWifiIdentityMatch("Lab", target, "Lab", "02:00:00:00:00:00"))
+        val selected = selectWifiCandidate(listOf("old", "redacted", "new"), classify = {
+            networkWifiIdentityMatch("Lab", target, "Lab", when (it) {
+                "old" -> "aa:bb:cc:dd:ee:01"
+                "redacted" -> "02:00:00:00:00:00"
+                else -> target.uppercase()
+            })
+        }, onCandidate = { _, _ -> })
+        assertEquals("new", selected)
+        assertThrows(IllegalStateException::class.java) {
+            selectWifiCandidate(listOf("redacted"), classify = {
+                networkWifiIdentityMatch("Lab", target, "Lab", "02:00:00:00:00:00")
+            }, onCandidate = { _, _ -> })
+        }
+    }
+
+    @Test fun networkIdRejectsSameSsidOnAnotherAndroidNetwork() {
+        assertEquals(WifiNetworkMatch.NETWORK_ID_MISMATCH, networkWifiIdMatch("949", "950"))
+        assertEquals(WifiNetworkMatch.MATCH, networkWifiIdMatch("949", "949"))
+        assertEquals(WifiNetworkMatch.MATCH, networkWifiIdMatch("", "950"))
+        assertEquals("new", selectWifiCandidate(listOf("old", "new"), classify = {
+            networkWifiIdMatch("949", if (it == "old") "948" else "949")
+        }, onCandidate = { _, _ -> }))
     }
 
     @Test fun literalSsidSelectionNeverFallsBackToWrongWifiOrVpn() {
@@ -101,7 +131,7 @@ class WifiNetworkInfoTest {
         val sourceDir = listOf(File("src/main/java/io/dropcheck/agent"),
             File("agent/src/main/java/io/dropcheck/agent")).first { it.isDirectory }
         val source = File(sourceDir, "NetworkRepository.kt").readText()
-        assertTrue(source.contains("if (selector.ssid.isEmpty()) return WifiNetworkMatch.MATCH"))
+        assertTrue(source.contains("if (selector.ssid.isEmpty() && expectedBssid.isEmpty()) return WifiNetworkMatch.MATCH"))
         assertFalse(source.contains("selector.ssid.isBlank()"))
     }
 

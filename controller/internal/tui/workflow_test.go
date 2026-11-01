@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -208,6 +210,77 @@ func TestWorkflowWholeRunHistoryEvictsOldestAndKeepsCurrentReview(t *testing.T) 
 	}
 	if len(m.runs) != maxRetainedRuns || m.runEvictions != 2 || m.runs[0].report.RunID != "2" || m.runs[m.review].report.RunID != "9" || !strings.Contains(m.renderWorkflow(), "2 oldest evicted") {
 		t.Fatalf("whole-run eviction failed: runs=%d evicted=%d review=%d view=%s", len(m.runs), m.runEvictions, m.review, m.renderWorkflow())
+	}
+}
+
+func TestWorkflowReportExportIsExplicitSecretSafeAndNeverOverwritesByDefault(t *testing.T) {
+	m := workflowFixture(t, workflowPlan(), &workflowFake{}, workflowAgents()[:1])
+	report, err := harness.Execute(context.Background(), m.compiled, &workflowFake{}, harness.ExecuteOptions{Rounds: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.phase, m.runs = workflowReview, []retainedRun{{report: report, compiled: m.compiled}}
+	before, _ := json.Marshal(m.currentReport())
+	path := filepath.Join(t.TempDir(), "report.json")
+	m = workflowKey(t, m, tea.Key{Code: 'w', Text: "w"})
+	if !m.exportInput || m.exportOverwrite {
+		t.Fatal("new-file export did not require a destination")
+	}
+	m.exportPath = path
+	m = workflowKey(t, m, tea.Key{Code: tea.KeyEnter})
+	data, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(data), report.RunID) || strings.Contains(string(data), workflowTestSecret) || m.exportInput {
+		t.Fatalf("unsafe or missing export: err=%v message=%s", err, m.message)
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("export mode: info=%v err=%v", info, err)
+	}
+	m = workflowKey(t, m, tea.Key{Code: 'w', Text: "w"})
+	m.exportPath = path
+	m = workflowKey(t, m, tea.Key{Code: tea.KeyEnter})
+	if !m.exportInput || !strings.Contains(m.message, "export failed") {
+		t.Fatal("implicit overwrite was allowed")
+	}
+	m = workflowKey(t, m, tea.Key{Code: tea.KeyEscape})
+	m = workflowKey(t, m, tea.Key{Code: 'W', Text: "W"})
+	if !m.exportOverwrite || !strings.Contains(m.renderWorkflow(), "replace existing regular file") {
+		t.Fatal("explicit overwrite not visible")
+	}
+	m.exportPath = path
+	m = workflowKey(t, m, tea.Key{Code: tea.KeyEnter})
+	if m.exportInput || !strings.Contains(m.message, "saved to") {
+		t.Fatalf("explicit overwrite failed: %s", m.message)
+	}
+	after, _ := json.Marshal(m.currentReport())
+	if string(before) != string(after) {
+		t.Fatal("export mutated the retained report")
+	}
+	if _, err := exportReportJSON(filepath.Join(path, "not-a-directory"), report, false); err == nil {
+		t.Fatal("invalid destination was accepted")
+	}
+	link := filepath.Join(filepath.Dir(path), "link.json")
+	if err := os.Symlink(path, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := exportReportJSON(link, report, true); err == nil {
+		t.Fatal("symlink overwrite was accepted")
+	}
+}
+
+func TestWorkflowTransportStatusIsCurrentAndIndependentOfRetainedVerdict(t *testing.T) {
+	m := workflowFixture(t, workflowPlan(), &workflowFake{}, workflowAgents())
+	m.phase, m.width, m.height = workflowReview, 140, 12
+	m.runs = []retainedRun{{report: harness.Report{Outcome: harness.FailOutcome, Problems: []harness.Problem{{Kind: "cleanup", Message: "restore failed"}}, Agents: []harness.AgentProgress{
+		{Agent: harness.AgentSnapshot{ID: "agent-a"}}, {Agent: harness.AgentSnapshot{ID: "agent-b"}},
+	}}}}
+	m.options.Transport = func() []control.TransportStatus {
+		return []control.TransportStatus{{AgentID: "agent-a", LastSeen: time.Now(), Pending: 1}}
+	}
+	frame := m.renderWorkflow()
+	for _, want := range []string{"outcome=fail", "agent=agent-a stream=connected busy", "last_accepted=never", "agent=agent-b stream=disconnected", "Cleanup (separate from Wi-Fi verdict): 1 errors"} {
+		if !strings.Contains(frame, want) {
+			t.Fatalf("transport status missing %q: %s", want, frame)
+		}
 	}
 }
 

@@ -49,7 +49,7 @@ func TestYAMLObservedWiFiExecutesOnlyReadOnlyStatus(t *testing.T) {
 	if len(r.operations) != 1 || r.operations[0].Name != "ip.status" || r.operations[0].Command.GetGetIpStatus().GetSelector().GetSsid() != "Lab" {
 		t.Fatalf("observed target performed unexpected operations: %+v", r.operations)
 	}
-	for _, option := range []string{"passphrase: placeholder", "passphrase_env: UNUSED", "disconnect_after: true", "bssid: 02:00:00:00:00:01", "wait_connected: true", "mac_rotation: per_round"} {
+	for _, option := range []string{"passphrase: placeholder", "passphrase_env: UNUSED", "disconnect_after: true", "wait_connected: true", "mac_rotation: per_round"} {
 		if _, err := Parse([]byte("targets: [{ssid: Lab, observe: true, " + option + "}]\nchecks: [{type: ip_status}]\n")); err == nil {
 			t.Errorf("observed target accepted mutation option %s", option)
 		}
@@ -60,6 +60,39 @@ func TestYAMLObservedWiFiExecutesOnlyReadOnlyStatus(t *testing.T) {
 	}
 	if _, err := harness.Compile(probe, []control.AgentInfo{{ID: "a"}}); err == nil {
 		t.Fatal("observed target accepted active probe")
+	}
+}
+
+func TestYAMLObservedNetworkIdentityFailsClosedAndReachesProbe(t *testing.T) {
+	plan, err := Parse([]byte("targets: [{ssid: Lab, observe: true, active_probes: true, bssid: 'aa:bb:cc:dd:ee:ff', network_id: '949'}]\nchecks: [{type: ping, host: 192.0.2.1}]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := harness.Compile(plan, []control.AgentInfo{{ID: "a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview := compiled.Preview().Targets[0]
+	if preview.NetworkID != "949" || preview.BSSID != "aa:bb:cc:dd:ee:ff" || preview.Connect != nil {
+		t.Fatalf("unexpected preview: %+v", preview)
+	}
+	r := &parityRunner{}
+	_, _ = harness.Execute(context.Background(), compiled, r, harness.ExecuteOptions{Rounds: 1})
+	if len(r.operations) != 1 || r.operations[0].Command.GetPing().GetSelector().GetNetworkId() != "949" || r.operations[0].Command.GetPing().GetSelector().GetBssid() != "aa:bb:cc:dd:ee:ff" {
+		t.Fatalf("identity lost before dispatch: %+v", r.operations)
+	}
+	for _, input := range []string{
+		"targets: [{ssid: Lab, network_id: '949'}]\nchecks: [{type: ip_status}]\n",
+		"targets: [{ssid: Lab, observe: true, network_id: '0949'}]\nchecks: [{type: ip_status}]\n",
+		"targets: [{ssid: Lab, observe: true, bssid: 'aa:bb:cc:dd:ee:ff'}]\nchecks: [{type: wifi_status}]\n",
+	} {
+		plan, err := Parse([]byte(input))
+		if err == nil {
+			err = harness.Validate(plan)
+		}
+		if err == nil {
+			t.Fatalf("accepted unselectable network: %s", input)
+		}
 	}
 }
 

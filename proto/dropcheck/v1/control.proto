@@ -276,6 +276,9 @@ message HttpCheck {
 message NetworkSelector {
   reserved 1, 3;
   string ssid = 2;
+  // These identities are checked at selection time; they do not prove uninterrupted association.
+  string bssid = 4;
+  string network_id = 5;
 }
 
 enum WifiBand {

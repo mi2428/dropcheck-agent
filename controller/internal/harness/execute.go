@@ -182,7 +182,7 @@ func (e *execution) emit(event Event) error {
 		}
 	}
 	event.Message = e.plan.redact(event.Message)
-	event.Target.Name, event.Target.ShortName, event.Target.SSID, event.Target.BSSID = e.plan.redact(event.Target.Name), e.plan.redact(event.Target.ShortName), e.plan.redact(event.Target.SSID), e.plan.redact(event.Target.BSSID)
+	event.Target.Name, event.Target.ShortName, event.Target.SSID, event.Target.BSSID, event.Target.NetworkID = e.plan.redact(event.Target.Name), e.plan.redact(event.Target.ShortName), e.plan.redact(event.Target.SSID), e.plan.redact(event.Target.BSSID), e.plan.redact(event.Target.NetworkID)
 	event.Step.Name, event.Step.Message, event.Step.Error = e.plan.redact(event.Step.Name), e.plan.redact(event.Step.Message), e.plan.redact(event.Step.Error)
 	var failures []error
 	for _, sink := range e.opts.Sinks {

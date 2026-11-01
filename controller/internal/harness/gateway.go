@@ -44,7 +44,7 @@ func optionalNumber(v uint32) string {
 }
 
 func executeGateway(ctx context.Context, r OperationRunner, agent control.AgentInfo, target Network, opts GatewayPingOptions) (OperationResult, error) {
-	ipOp, err := bindSelector(command.IPStatusOperation(), target.ssid)
+	ipOp, err := bindSelector(command.IPStatusOperation(), target)
 	if err != nil {
 		return OperationResult{}, err
 	}
@@ -79,7 +79,7 @@ func executeGateway(ctx context.Context, r OperationRunner, agent control.AgentI
 	if err != nil {
 		return ip, err
 	}
-	op, err = bindSelector(op, target.ssid)
+	op, err = bindSelector(op, target)
 	if err != nil {
 		return ip, err
 	}
