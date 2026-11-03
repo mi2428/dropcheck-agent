@@ -57,7 +57,7 @@ func OperationResult(agent string, result harness.OperationResult, format pipeli
 			writeRecord(&b, "Result", strings.ToUpper(resultStatus(part.Raw.GetStatus())))
 		}
 		if part.Raw != nil && part.Raw.GetStatus() == controlpb.CommandResult_STATUS_CANCELED {
-			writeRecord(&b, "Reason", part.Raw.GetMessage())
+			writeRecord(&b, "Reason", safePresentationText(part.Raw.GetMessage()))
 		}
 		writeRecord(&b, "Acquisition elapsed", acquisitionElapsed(part.Started, part.Ended))
 		if part.Error != "" {
