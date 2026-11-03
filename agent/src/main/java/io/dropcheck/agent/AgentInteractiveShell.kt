@@ -66,7 +66,7 @@ internal object AgentShellParser {
     fun help(topic: String = ""): List<String> {
         val rows = syntax.filter { topic.isEmpty() || it.parts.first() == topic }
         return listOf("Agent Shell (self); aliases: p tr pm gip h ?", "Options: key value; switches: fresh brief mlo detail; integers: 1..2147483647", "PSK: 8..63 UTF-8 bytes or 64 ASCII hex; PC-only ADB/device/TTY commands are not available") +
-            rows.map { "  ${it.usage()}  ${it.description}" } + listOf("| begin <pattern> | match <pattern> | except <pattern> | count", "| display json (alone; safe presentation JSON)", "auto selects one family; global-ip all queries both; dns ALL queries A+AAAA", "check link defaults to family ipv4; ipv6/all supported; bssid strict pin unsupported; lab requires all endpoints and sends active traffic", "use/default and command history are session-only; credentials are not retained in history")
+            rows.map { "  ${it.usage()}  ${it.description}" } + listOf("| find <pattern> | except <pattern> | last <lines> | match <pattern> | trim <start-column> | count", "| display json (alone; safe presentation JSON)", "auto selects one family; global-ip all queries both; dns ALL queries A+AAAA", "check link defaults to family ipv4; ipv6/all supported; bssid strict pin unsupported; lab requires all endpoints and sends active traffic", "use/default and command history are session-only; credentials are not retained in history")
     }
 
     fun parse(line: String): AgentShellCommand {
@@ -99,9 +99,11 @@ internal object AgentShellParser {
         val start = current?.start ?: line.length
         val args = (if (current != null) tokens.dropLast(1) else tokens).map { it.value }
         val choices = if (lastPipe >= 0) when {
-            args.isEmpty() -> listOf("begin", "match", "except", "count", "display")
+            args.isEmpty() -> listOf("find", "except", "last", "match", "trim", "count", "display")
             args == listOf("display") -> listOf("json")
-            args.size == 1 && args[0] in listOf("begin", "match", "except") -> listOf("<pattern>")
+            args.size == 1 && args[0] in listOf("find", "match", "except") -> listOf("<pattern>")
+            args == listOf("last") -> listOf("<lines>")
+            args == listOf("trim") -> listOf("<start-column>")
             else -> emptyList()
         } else suggestions(args)
         return choices.filter { it.startsWith(prefix) || it.startsWith('<') }.map { line.substring(0, start) + it + if (it == prefix && !it.startsWith('<')) " " else "" }

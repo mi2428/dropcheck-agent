@@ -30,7 +30,7 @@ func TestRound2PipelineBoundsAndAlgebra(t *testing.T) {
 			}
 			source.WriteByte('\n')
 		}
-		for _, stage := range []string{"match '^hit'", "except '^hit'", "begin '^hit'", "match '^$'"} {
+		for _, stage := range []string{"match '^hit'", "except '^hit'", "find '^hit'", "match '^$'"} {
 			p, err := Parse([]string{stage})
 			if err != nil {
 				t.Fatal(err)
