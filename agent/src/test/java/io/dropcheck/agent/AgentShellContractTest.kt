@@ -16,8 +16,9 @@ class AgentShellContractTest {
             assertEquals("", lines[index + 2])
         }
         val candidates = AgentShellParser.contextHelp("show wifi status ")
-        assertTrue("  <Enter>  - Execute the requested subject" in candidates)
-        assertTrue("  eht  - Show focused EHT/MLO connection, AP and device evidence" in candidates)
+        assertTrue("  <Enter>       - Execute the requested subject" in candidates)
+        assertTrue("  eht           - Show focused EHT/MLO connection, AP and device evidence" in candidates)
+        assertEquals(listOf("  capabilities".length), candidates.map { it.indexOf("  - ") }.distinct())
         assertEquals(listOf("  <value>"), AgentShellParser.contextHelp("request wifi connect Lab passphrase "))
     }
 
@@ -41,7 +42,7 @@ class AgentShellContractTest {
         assertFalse(AgentShellParser.historySafe("show wifi status"))
         assertFalse(AgentShellParser.historySafe("show wifi status full"))
         assertTrue("show wifi status full" in AgentShellParser.complete("show wifi status "))
-        assertTrue("  full  - Show all passive Wi-Fi diagnostics including safe raw dumps" in AgentShellParser.contextHelp("show wifi status "))
+        assertTrue("  full          - Show all passive Wi-Fi diagnostics including safe raw dumps" in AgentShellParser.contextHelp("show wifi status "))
         for (line in listOf("show wifi status full full", "show wifi status full ssid Lab", "show wifi status full connection")) {
             assertTrue(line, AgentShellParser.parse(line) is AgentShellCommand.Invalid)
         }

@@ -63,8 +63,9 @@ func WriteContextHelp(w io.Writer, line string) {
 		writeHelp(w)
 		return
 	}
+	var rows [][2]string
 	if parsed, err := ParseLine(prefix); err == nil && parsed.Kind != Help && parsed.Kind != Noop && parsed.Kind != Exit && parsed.Rejection == "" && strings.HasSuffix(prefix, " ") {
-		fmt.Fprintln(w, "  <Enter>  - Execute the requested subject")
+		rows = append(rows, [2]string{"<Enter>", "Execute the requested subject"})
 	}
 	for _, candidate := range CompleteLine(prefix) {
 		lexed, _ := command.Lex(candidate, true)
@@ -76,11 +77,18 @@ func WriteContextHelp(w io.Writer, line string) {
 					break
 				}
 			}
-			fmt.Fprint(w, "  ", lexed.Tokens[len(lexed.Tokens)-1].Value)
-			if description != "" {
-				fmt.Fprint(w, "  - ", description)
-			}
-			fmt.Fprintln(w)
+			rows = append(rows, [2]string{lexed.Tokens[len(lexed.Tokens)-1].Value, description})
+		}
+	}
+	width := 0
+	for _, row := range rows {
+		width = max(width, len(row[0]))
+	}
+	for _, row := range rows {
+		if row[1] == "" {
+			fmt.Fprintln(w, "  "+row[0])
+		} else {
+			fmt.Fprintf(w, "  %-*s  - %s\n", width, row[0], row[1])
 		}
 	}
 }
