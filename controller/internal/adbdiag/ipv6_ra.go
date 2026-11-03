@@ -27,6 +27,7 @@ var ipv6RASysctlKeys = []string{
 
 // IPv6RASummary is a best-effort ADB snapshot of host-side IPv6 RA handling.
 type IPv6RASummary struct {
+	Errors            []string
 	Interface         string
 	DefaultRoute      string
 	DefaultGateways   []string
@@ -78,7 +79,15 @@ func CollectIPv6RA(ctx context.Context, client adb.Client, iface string) IPv6RAS
 		return IPv6RASummary{}
 	}
 	summary := IPv6RASummary{Interface: iface}
-	if result, _ := client.Run(ctx, "shell", "ip", "-6", "route", "show", "table", "all"); strings.TrimSpace(result.Stdout) != "" {
+	if ctx.Err() != nil {
+		summary.Errors = []string{"RA collection not performed: " + ctx.Err().Error()}
+		return summary
+	}
+	result, err := client.Run(ctx, "shell", "ip", "-6", "route", "show", "table", "all")
+	if err != nil {
+		summary.Errors = append(summary.Errors, "IPv6 routes: "+err.Error())
+	}
+	if err == nil || strings.TrimSpace(result.Stdout) != "" {
 		lines := strings.Split(strings.TrimSpace(result.Stdout), "\n")
 		present, gateways := summarizeIPv6DefaultRoutes(lines)
 		if present {
@@ -88,10 +97,22 @@ func CollectIPv6RA(ctx context.Context, client adb.Client, iface string) IPv6RAS
 		}
 		summary.DefaultGateways = gateways
 	}
-	if result, _ := client.Run(ctx, "shell", "dumpsys", "network_stack"); strings.TrimSpace(result.Stdout) != "" {
+	if ctx.Err() != nil {
+		summary.Errors = append(summary.Errors, "remaining RA collection not performed: "+ctx.Err().Error())
+		return summary
+	}
+	result, err = client.Run(ctx, "shell", "dumpsys", "network_stack")
+	if err != nil {
+		summary.Errors = append(summary.Errors, "network_stack: "+err.Error())
+	}
+	if strings.TrimSpace(result.Stdout) != "" {
 		summary.Advertisements = parseIPv6RAAdvertisements(result.Stdout, iface)
 	}
-	for key, value := range collectIPv6RASysctls(ctx, client, iface) {
+	values, err := collectIPv6RASysctls(ctx, client, iface)
+	if err != nil {
+		summary.Errors = append(summary.Errors, "RA sysctls: "+err.Error())
+	}
+	for key, value := range values {
 		switch key {
 		case "accept_ra":
 			summary.AcceptRA = value
@@ -153,13 +174,16 @@ func (s IPv6RASummary) Empty() bool {
 		len(s.Advertisements) == 0
 }
 
-func collectIPv6RASysctls(ctx context.Context, client adb.Client, iface string) map[string]string {
+func collectIPv6RASysctls(ctx context.Context, client adb.Client, iface string) (map[string]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	base := shellQuote("/proc/sys/net/ipv6/conf/" + iface)
 	script := "base=" + base + "; for n in " + strings.Join(ipv6RASysctlKeys, " ") + "; do " +
 		"p=\"$base/$n\"; " +
 		"if [ -r \"$p\" ]; then printf '%s=' \"$n\"; cat \"$p\"; fi; " +
 		"done"
-	result, _ := client.Run(ctx, "shell", "sh", "-c", shellQuote(script))
+	result, err := client.Run(ctx, "shell", "sh", "-c", shellQuote(script))
 	values := map[string]string{}
 	for line := range strings.SplitSeq(strings.TrimSpace(result.Stdout), "\n") {
 		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
@@ -168,7 +192,7 @@ func collectIPv6RASysctls(ctx context.Context, client adb.Client, iface string) 
 		}
 		values[key] = value
 	}
-	return values
+	return values, err
 }
 
 func summarizeIPv6DefaultRoutes(routes []string) (bool, []string) {

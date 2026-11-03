@@ -18,6 +18,7 @@ const (
 
 // MLOSummary is the controller-side, best-effort MLO view extracted from adb.
 type MLOSummary struct {
+	Errors               []string
 	Source               string
 	TIDToLinkSupported   string
 	APMLDAddress         string
@@ -78,17 +79,33 @@ func writeKVSection(b *strings.Builder, title string, rows ...kvRow) {
 
 // CollectMLO runs a short adb-only MLO supplement for EHT-focused Wi-Fi diagnostics.
 //
-// It intentionally returns an empty summary instead of an error; adb support is
-// diagnostic-only and must not make the normal agent Wi-Fi status fail.
+// Acquisition errors accompany any partial evidence; this optional host source
+// never changes the Android operation's typed outcome.
 func CollectMLO(ctx context.Context, client adb.Client) MLOSummary {
 	if client.Timeout <= 0 {
 		client.Timeout = mloCommandTimeout
 	}
 	summary := MLOSummary{Source: "adb"}
-	if result, _ := client.Run(ctx, "shell", "cmd", "wifi", "status"); strings.TrimSpace(result.Stdout) != "" {
+	if ctx.Err() != nil {
+		summary.Errors = []string{"MLO collection not performed: " + ctx.Err().Error()}
+		return summary
+	}
+	result, err := client.Run(ctx, "shell", "cmd", "wifi", "status")
+	if err != nil {
+		summary.Errors = append(summary.Errors, "cmd wifi status: "+err.Error())
+	}
+	if strings.TrimSpace(result.Stdout) != "" {
 		summary.merge(ParseMLOSummary(result.Stdout))
 	}
-	if result, _ := client.Run(ctx, "shell", dumpsysWifiMLOGrep); strings.TrimSpace(result.Stdout) != "" {
+	if ctx.Err() != nil {
+		summary.Errors = append(summary.Errors, "remaining MLO collection not performed: "+ctx.Err().Error())
+		return summary
+	}
+	result, err = client.Run(ctx, "shell", dumpsysWifiMLOGrep)
+	if err != nil {
+		summary.Errors = append(summary.Errors, "dumpsys wifi MLO: "+err.Error())
+	}
+	if strings.TrimSpace(result.Stdout) != "" {
 		summary.merge(ParseMLOSummary(result.Stdout))
 	}
 	if summary.Empty() {
