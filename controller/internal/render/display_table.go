@@ -20,7 +20,7 @@ func (column displayTableColumn) fitValue(value string) string {
 	return cleanDisplayCell(value)
 }
 
-func writeDisplayTable(b *strings.Builder, columns []displayTableColumn, rows [][]string, gap ...string) {
+func writeDisplayTable(b *strings.Builder, columns []displayTableColumn, rows [][]string, availableWidth ...int) {
 	if len(columns) == 0 {
 		return
 	}
@@ -50,26 +50,37 @@ func writeDisplayTable(b *strings.Builder, columns []displayTableColumn, rows []
 			}
 		}
 	}
+	if len(availableWidth) > 0 && availableWidth[0] > 0 {
+		total := 2 * (len(columns) - 1)
+		for _, width := range widths {
+			total += width
+		}
+		if total > availableWidth[0] {
+			for _, row := range preparedRows {
+				for i, column := range columns {
+					writeRecord(b, column.header, row[i])
+				}
+				writeBlankLine(b)
+			}
+			return
+		}
+	}
 
-	writeDisplayTableRow(b, preparedHeaders, widths, gap...)
+	writeDisplayTableRow(b, preparedHeaders, widths)
 	for _, row := range preparedRows {
 		for i, column := range columns {
 			if column.numeric {
 				row[i] = strings.Repeat(" ", widths[i]-displayWidth(row[i])) + row[i]
 			}
 		}
-		writeDisplayTableRow(b, row, widths, gap...)
+		writeDisplayTableRow(b, row, widths)
 	}
 }
 
-func writeDisplayTableRow(b *strings.Builder, row []string, widths []int, gap ...string) {
-	separator := "  "
-	if len(gap) > 0 {
-		separator = gap[0]
-	}
+func writeDisplayTableRow(b *strings.Builder, row []string, widths []int) {
 	for i, value := range row {
 		if i > 0 {
-			b.WriteString(separator)
+			b.WriteString("  ")
 		}
 		if i == len(row)-1 {
 			b.WriteString(value)

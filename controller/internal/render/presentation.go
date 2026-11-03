@@ -79,21 +79,72 @@ func resultTitle(result *controlpb.CommandResult, options command.Options) strin
 	}
 }
 
-func wrapPresentation(text string, width int) string {
+func wrapPresentation(text string, width int, align ...bool) string {
 	var b strings.Builder
-	for line := range strings.SplitSeq(strings.TrimSuffix(text, "\n"), "\n") {
+	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+	for i := 0; i < len(lines); {
+		if _, _, field := strings.Cut(lines[i], "\t"); field {
+			end, labelWidth := i, 0
+			for end < len(lines) {
+				label, _, ok := strings.Cut(lines[end], "\t")
+				if !ok {
+					break
+				}
+				labelWidth = max(labelWidth, displayWidth(label))
+				end++
+			}
+			for _, line := range lines[i:end] {
+				label, value, _ := strings.Cut(line, "\t")
+				if len(align) == 0 || !align[0] {
+					b.WriteString(wrapPresentation(label+": "+value, width))
+					continue
+				}
+				prefix := "  " + padDisplayEnd(label, labelWidth) + ":  "
+				if width > 0 && displayWidth(prefix)+8 > width {
+					b.WriteString(wrapPresentation("  "+label+":", width))
+					prefix = "    "
+				}
+				if width > 0 {
+					value = ansi.Hardwrap(value, max(1, width-displayWidth(prefix)), true)
+				}
+				for part := range strings.SplitSeq(value, "\n") {
+					b.WriteString(prefix + part + "\n")
+					prefix = strings.Repeat(" ", displayWidth(prefix))
+				}
+			}
+			i = end
+			continue
+		}
+		line := lines[i]
 		line = cleanDisplayCell(line)
 		if width > 0 {
-			line = ansi.Hardwrap(line, width, true)
+			indent := line[:len(line)-len(strings.TrimLeft(line, " "))]
+			if len(indent) > 0 && len(indent) < width {
+				wrapped := ansi.Hardwrap(line[len(indent):], width-len(indent), true)
+				line = indent + strings.ReplaceAll(wrapped, "\n", "\n"+indent)
+			} else {
+				line = ansi.Hardwrap(line, width, true)
+			}
 		}
 		b.WriteString(line)
 		b.WriteByte('\n')
+		i++
 	}
 	return b.String()
 }
 
 func writeRecord(b *strings.Builder, label string, value any) {
-	fmt.Fprintf(b, "%s: %s\n", label, cleanDisplayCell(fmt.Sprint(value)))
+	// Tabs are owned field boundaries, never guessed from raw text or URL colons.
+	fmt.Fprintf(b, "%s\t%s\n", cleanDisplayCell(label), cleanDisplayCell(fmt.Sprint(value)))
+}
+
+// Fields formats explicitly typed local records without parsing arbitrary text.
+func Fields(rows [][2]string, view Presentation) string {
+	var b strings.Builder
+	for _, row := range rows {
+		writeRecord(&b, row[0], row[1])
+	}
+	return wrapPresentation(b.String(), view.Width, true)
 }
 
 // Exact dictionary only: unknown modes/enum values retain their original spelling.
@@ -149,7 +200,7 @@ func tableFits(columns []displayTableColumn, rows [][]string, width int) bool {
 		return false
 	}
 	var b strings.Builder
-	writeDisplayTable(&b, columns, rows, " ")
+	writeDisplayTable(&b, columns, rows)
 	for line := range strings.SplitSeq(b.String(), "\n") {
 		if displayWidth(line) > width {
 			return false
@@ -206,7 +257,7 @@ func renderAdaptiveScan(b *strings.Builder, scan *controlpb.WifiScan, options co
 		return
 	}
 	if tableFits(columns, rows, view.Width) {
-		writeDisplayTable(b, columns, rows, " ")
+		writeDisplayTable(b, columns, rows)
 	} else {
 		for _, group := range groups {
 			writeRecord(b, "SSID", group.ssid)
@@ -215,13 +266,13 @@ func renderAdaptiveScan(b *strings.Builder, scan *controlpb.WifiScan, options co
 				groupRows = append(groupRows, adaptiveScanRow(ap)[1:])
 			}
 			if tableFits(columns[1:], groupRows, view.Width) {
-				writeDisplayTable(b, columns[1:], groupRows, " ")
+				writeDisplayTable(b, columns[1:], groupRows)
 			} else {
 				short := columns[2:]
 				for _, ap := range group.results {
 					row := adaptiveScanRow(ap)
 					if tableFits(short, [][]string{row[2:]}, view.Width) {
-						writeDisplayTable(b, short, [][]string{row[2:]}, " ")
+						writeDisplayTable(b, short, [][]string{row[2:]})
 						writeRecord(b, "BSSID", row[1])
 					} else {
 						for i, column := range columns[1:] {
@@ -264,7 +315,7 @@ func renderInteractiveScanRows(b *strings.Builder, groups []scanResultGroup, col
 	}
 	table := tableFits(indexedColumns, indexedRows, view.Width)
 	if table {
-		writeDisplayTable(b, indexedColumns, indexedRows, " ")
+		writeDisplayTable(b, indexedColumns, indexedRows)
 	}
 	index := 0
 	for _, group := range groups {
@@ -480,7 +531,7 @@ func renderDeviceCapabilities(b *strings.Builder, capabilities *controlpb.WifiCa
 		}
 		columns := []displayTableColumn{{header: group.name}, {header: "Support"}}
 		if tableFits(columns, rows, view.Width) {
-			writeDisplayTable(b, columns, rows, " ")
+			writeDisplayTable(b, columns, rows)
 		} else {
 			writeSection(b, group.name)
 			for _, row := range rows {

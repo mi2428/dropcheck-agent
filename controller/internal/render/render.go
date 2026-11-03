@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"dropcheck/controller/internal/command"
@@ -56,14 +55,21 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 		fmt.Fprintf(&b, "%s  %s  %dms\n", resultTitle(result, options), strings.ToUpper(resultStatus(result.GetStatus())), commandResultLatencyMs(result))
 	}
 	if result.GetStatus() != controlpb.CommandResult_STATUS_OK {
-		fmt.Fprintf(&b, "Status: %s", resultStatus(result.GetStatus()))
-		if result.GetMessage() != "" {
-			fmt.Fprintf(&b, "  Message: %s", result.GetMessage())
+		if view.Interactive {
+			writeRecord(&b, "Status", resultStatus(result.GetStatus()))
+			if result.GetMessage() != "" {
+				writeRecord(&b, "Message", result.GetMessage())
+			}
+		} else {
+			fmt.Fprintf(&b, "Status: %s", resultStatus(result.GetStatus()))
+			if result.GetMessage() != "" {
+				fmt.Fprintf(&b, "  Message: %s", result.GetMessage())
+			}
+			b.WriteByte('\n')
 		}
-		b.WriteByte('\n')
 	}
-	fmt.Fprintf(&b, "Latency: %dms\n", commandResultLatencyMs(result))
-	fmt.Fprintf(&b, "Source: android  Target: %s\n", cleanDisplayCell(agent))
+	writeRecord(&b, "Latency", fmt.Sprintf("%dms", commandResultLatencyMs(result)))
+	writeRecord(&b, "Source", "android  Target: "+cleanDisplayCell(agent))
 	switch payload := result.Payload.(type) {
 	case *controlpb.CommandResult_NetworkSnapshot:
 		writeRecord(&b, "Observed at unix ms", payload.NetworkSnapshot.GetObservedAtUnixMs())
@@ -91,11 +97,11 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 	case *controlpb.CommandResult_Ping:
 		renderPing(&b, payload.Ping, result.GetStatus())
 	case *controlpb.CommandResult_Traceroute:
-		renderTraceroute(&b, payload.Traceroute, options, result.GetStatus())
+		renderTraceroute(&b, payload.Traceroute, options, result.GetStatus(), view)
 	case *controlpb.CommandResult_PathMtu:
-		renderPathMtu(&b, payload.PathMtu)
+		renderPathMtu(&b, payload.PathMtu, view)
 	case *controlpb.CommandResult_GlobalIp:
-		renderGlobalIP(&b, payload.GlobalIp)
+		renderGlobalIP(&b, payload.GlobalIp, view)
 	case *controlpb.CommandResult_ResolveDns:
 		renderResolveDNS(&b, payload.ResolveDns)
 	case *controlpb.CommandResult_HttpCheck:
@@ -123,12 +129,12 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 			renderWifiSnapshot(&b, payload.WifiOperation.GetStatus(), view)
 		}
 	case *controlpb.CommandResult_WifiAssert:
-		renderWifiAssert(&b, payload.WifiAssert)
+		renderWifiAssert(&b, payload.WifiAssert, view)
 		if view.Interactive {
 			renderWifiSnapshot(&b, payload.WifiAssert.GetStatus(), view)
 		}
 	case *controlpb.CommandResult_WifiMonitor:
-		renderWifiMonitor(&b, payload.WifiMonitor)
+		renderWifiMonitor(&b, payload.WifiMonitor, view)
 		if view.Interactive {
 			for i, event := range payload.WifiMonitor.GetEvents() {
 				writeSection(&b, fmt.Sprintf("Event %d evidence", i+1))
@@ -139,7 +145,7 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 	case *controlpb.CommandResult_WifiScanDetail:
 		renderWifiScanDetail(&b, payload.WifiScanDetail, options, view)
 	case *controlpb.CommandResult_WifiCycle:
-		renderWifiCycle(&b, payload.WifiCycle)
+		renderWifiCycle(&b, payload.WifiCycle, view)
 	default:
 		if result.GetMessage() != "" {
 			fmt.Fprintf(&b, "%s\n", result.GetMessage())
@@ -148,7 +154,7 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 			fmt.Fprintf(&b, "agent=%s status=%s payload=%T\n", agent, resultStatus(result.GetStatus()), result.Payload)
 		}
 	}
-	return wrapPresentation(b.String(), view.Width), nil
+	return wrapPresentation(b.String(), view.Width, view.Interactive), nil
 }
 
 // SanitizedResult returns a detached safe snapshot for session-local history.
@@ -291,24 +297,26 @@ func writeKVSection(b *strings.Builder, title string, rows ...kvRow) {
 }
 
 func writeKVRows(b *strings.Builder, rows ...kvRow) {
-	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
+	width := 0
+	for _, row := range rows {
+		width = max(width, displayWidth(cleanDisplayCell(row.label)))
+	}
 	for _, row := range rows {
 		if row.label == "" || row.value == "" {
 			continue
 		}
 		if strings.Contains(row.value, "\n") {
-			_, _ = fmt.Fprintf(tw, "  %s\n", row.label)
+			fmt.Fprintf(b, "  %s\n", cleanDisplayCell(row.label))
 			for line := range strings.SplitSeq(row.value, "\n") {
 				if line == "" {
 					continue
 				}
-				_, _ = fmt.Fprintf(tw, "    %s\n", line)
+				fmt.Fprintf(b, "    %s\n", cleanDisplayCell(line))
 			}
 			continue
 		}
-		_, _ = fmt.Fprintf(tw, "  %s\t%s\n", row.label, row.value)
+		fmt.Fprintf(b, "  %s  %s\n", padDisplayEnd(cleanDisplayCell(row.label), width), cleanDisplayCell(row.value))
 	}
-	_ = tw.Flush()
 }
 
 // Agents renders the connected-agent list.
@@ -343,8 +351,7 @@ func Agents(view AgentListView, format pipeline.Format) (string, error) {
 		return "No agents connected\n", nil
 	}
 	var b strings.Builder
-	tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "SEL\t#\tAGENT\tADB SERIAL\tDEVICE\tSDK\tAPP\tCONNECTED")
+	var rows [][]string
 	for i, info := range agents {
 		marker := ""
 		if view.TargetAll {
@@ -355,18 +362,18 @@ func Agents(view AgentListView, format pipeline.Format) (string, error) {
 		hello := info.Hello
 		device := hello.GetDevice()
 		deviceName := strings.TrimSpace(device.GetManufacturer() + " " + device.GetModel())
-		_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%d\t%s\t%s\n",
+		rows = append(rows, []string{
 			marker,
-			i+1,
+			fmt.Sprint(i + 1),
 			shortID(info.ID),
 			empty(hello.GetAdbSerial(), "unknown"),
 			empty(deviceName, "unknown"),
-			device.GetSdk(),
+			fmt.Sprint(device.GetSdk()),
 			empty(hello.GetAppVersion(), "unknown"),
 			info.Connected.Format(time.RFC3339),
-		)
+		})
 	}
-	_ = tw.Flush()
+	writeDisplayTable(&b, []displayTableColumn{{header: "SEL"}, {header: "#"}, {header: "AGENT"}, {header: "ADB SERIAL"}, {header: "DEVICE"}, {header: "SDK"}, {header: "APP"}, {header: "CONNECTED"}}, rows)
 	return b.String(), nil
 }
 
@@ -886,7 +893,7 @@ func renderPing(b *strings.Builder, result *controlpb.PingResult, status control
 	}
 }
 
-func renderTraceroute(b *strings.Builder, result *controlpb.TracerouteResult, options command.Options, status controlpb.CommandResult_Status) {
+func renderTraceroute(b *strings.Builder, result *controlpb.TracerouteResult, options command.Options, status controlpb.CommandResult_Status, view Presentation) {
 	analysis := analyzeTraceroute(result, options.TracerouteRequiredHops, status)
 	fmt.Fprintf(b, "Traceroute: host=%s status=%s hops=%d reached=%t interface=%s elapsed=%dms executable=%s\n",
 		analysis.Host,
@@ -905,26 +912,25 @@ func renderTraceroute(b *strings.Builder, result *controlpb.TracerouteResult, op
 		)
 	}
 	if len(analysis.Hops) > 0 {
-		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(tw, "HOP\tHOST\tADDRESS\tRTT\tTIMEOUT\tTARGET")
+		var rows [][]string
 		for _, hop := range analysis.Hops {
-			_, _ = fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%t\t%t\n",
-				hop.Index,
+			rows = append(rows, []string{
+				fmt.Sprint(hop.Index),
 				empty(hop.Host, "-"),
 				empty(hop.Address, "-"),
 				formatMillis(hop.RttMs),
-				hop.TimedOut,
-				hop.ReachedTarget,
-			)
+				fmt.Sprint(hop.TimedOut),
+				fmt.Sprint(hop.ReachedTarget),
+			})
 		}
-		_ = tw.Flush()
+		writeDisplayTable(b, []displayTableColumn{{header: "HOP"}, {header: "HOST"}, {header: "ADDRESS"}, {header: "RTT"}, {header: "TIMEOUT"}, {header: "TARGET"}}, rows, view.Width)
 	}
 	if analysis.Error != "" {
 		fmt.Fprintf(b, "Error: %s\n", analysis.Error)
 	}
 }
 
-func renderPathMtu(b *strings.Builder, result *controlpb.PathMtuResult) {
+func renderPathMtu(b *strings.Builder, result *controlpb.PathMtuResult, view Presentation) {
 	if result == nil {
 		return
 	}
@@ -941,25 +947,18 @@ func renderPathMtu(b *strings.Builder, result *controlpb.PathMtuResult) {
 		result.GetElapsedMs(),
 	)
 	if len(result.GetProbes()) > 0 {
-		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(tw, "MTU\tPAYLOAD\tPASS\tEXIT\tELAPSED")
+		var rows [][]string
 		for _, probe := range result.GetProbes() {
-			_, _ = fmt.Fprintf(tw, "%d\t%d\t%t\t%d\t%dms\n",
-				probe.GetMtuBytes(),
-				probe.GetPayloadSizeBytes(),
-				probe.GetPassed(),
-				probe.GetExitCode(),
-				probe.GetElapsedMs(),
-			)
+			rows = append(rows, []string{fmt.Sprint(probe.GetMtuBytes()), fmt.Sprint(probe.GetPayloadSizeBytes()), fmt.Sprint(probe.GetPassed()), fmt.Sprint(probe.GetExitCode()), fmt.Sprintf("%dms", probe.GetElapsedMs())})
 		}
-		_ = tw.Flush()
+		writeDisplayTable(b, []displayTableColumn{{header: "MTU"}, {header: "PAYLOAD"}, {header: "PASS"}, {header: "EXIT"}, {header: "ELAPSED"}}, rows, view.Width)
 	}
 	if result.GetError() != "" {
 		fmt.Fprintf(b, "Error: %s\n", result.GetError())
 	}
 }
 
-func renderGlobalIP(b *strings.Builder, result *controlpb.GlobalIpResult) {
+func renderGlobalIP(b *strings.Builder, result *controlpb.GlobalIpResult, view Presentation) {
 	if result == nil {
 		return
 	}
@@ -971,19 +970,18 @@ func renderGlobalIP(b *strings.Builder, result *controlpb.GlobalIpResult) {
 		result.GetElapsedMs(),
 	)
 	if len(result.GetAddresses()) > 0 {
-		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(tw, "FAMILY\tIP\tGLOBAL\tSTATUS\tELAPSED\tERROR")
+		var rows [][]string
 		for _, address := range result.GetAddresses() {
-			_, _ = fmt.Fprintf(tw, "%s\t%s\t%t\t%d\t%dms\t%s\n",
+			rows = append(rows, []string{
 				ipFamilyName(address.GetFamily()),
 				empty(address.GetIp(), "-"),
-				address.GetGlobal(),
-				address.GetStatus(),
-				address.GetElapsedMs(),
+				fmt.Sprint(address.GetGlobal()),
+				fmt.Sprint(address.GetStatus()),
+				fmt.Sprintf("%dms", address.GetElapsedMs()),
 				empty(address.GetError(), "-"),
-			)
+			})
 		}
-		_ = tw.Flush()
+		writeDisplayTable(b, []displayTableColumn{{header: "FAMILY"}, {header: "IP"}, {header: "GLOBAL"}, {header: "STATUS"}, {header: "ELAPSED"}, {header: "ERROR"}}, rows, view.Width)
 	}
 	if result.GetError() != "" {
 		fmt.Fprintf(b, "Error: %s\n", result.GetError())
@@ -1691,7 +1689,7 @@ func renderWifiOperation(b *strings.Builder, result *controlpb.WifiOperationResu
 	renderErrors(b, result.GetErrors())
 }
 
-func renderWifiAssert(b *strings.Builder, result *controlpb.WifiAssertResult) {
+func renderWifiAssert(b *strings.Builder, result *controlpb.WifiAssertResult, view Presentation) {
 	if result == nil {
 		return
 	}
@@ -1702,40 +1700,38 @@ func renderWifiAssert(b *strings.Builder, result *controlpb.WifiAssertResult) {
 	)
 	if len(result.GetChecks()) > 0 {
 		writeSection(b, "Checks")
-		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(tw, "CHECK\tPASSED\tEXPECTED\tACTUAL\tMESSAGE")
+		var rows [][]string
 		for _, check := range result.GetChecks() {
-			_, _ = fmt.Fprintf(tw, "%s\t%t\t%s\t%s\t%s\n",
+			rows = append(rows, []string{
 				check.GetKey(),
-				check.GetPassed(),
+				fmt.Sprint(check.GetPassed()),
 				empty(check.GetExpected(), "-"),
 				empty(check.GetActual(), "-"),
 				empty(check.GetMessage(), "-"),
-			)
+			})
 		}
-		_ = tw.Flush()
+		writeDisplayTable(b, []displayTableColumn{{header: "CHECK"}, {header: "PASSED"}, {header: "EXPECTED"}, {header: "ACTUAL"}, {header: "MESSAGE"}}, rows, view.Width)
 	}
 	renderErrors(b, result.GetErrors())
 }
 
-func renderWifiMonitor(b *strings.Builder, result *controlpb.WifiMonitorResult) {
+func renderWifiMonitor(b *strings.Builder, result *controlpb.WifiMonitorResult, view Presentation) {
 	if result == nil {
 		return
 	}
 	writeKVSection(b, "Wi-Fi Monitor", kv("events", len(result.GetEvents())), kv("errors", len(result.GetErrors())))
 	if len(result.GetEvents()) > 0 {
 		writeSection(b, "Events")
-		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(tw, "TIME\tTYPE\tMESSAGE")
+		var rows [][]string
 		for _, event := range result.GetEvents() {
-			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", unixMillis(event.GetUnixTimeMs()), empty(event.GetType(), "event"), event.GetMessage())
+			rows = append(rows, []string{unixMillis(event.GetUnixTimeMs()), empty(event.GetType(), "event"), event.GetMessage()})
 		}
-		_ = tw.Flush()
+		writeDisplayTable(b, []displayTableColumn{{header: "TIME"}, {header: "TYPE"}, {header: "MESSAGE"}}, rows, view.Width)
 	}
 	renderErrors(b, result.GetErrors())
 }
 
-func renderWifiCycle(b *strings.Builder, result *controlpb.WifiCycleResult) {
+func renderWifiCycle(b *strings.Builder, result *controlpb.WifiCycleResult, view Presentation) {
 	if result == nil {
 		return
 	}
@@ -1747,24 +1743,23 @@ func renderWifiCycle(b *strings.Builder, result *controlpb.WifiCycleResult) {
 	)
 	if len(result.GetSteps()) > 0 {
 		writeSection(b, "Steps")
-		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(tw, "STEP\tCONNECTED\tPING\tHTTP\tELAPSED\tSSID\tERRORS")
+		var rows [][]string
 		for _, step := range result.GetSteps() {
 			ssid := ""
 			if step.GetConnect() != nil {
 				ssid = step.GetConnect().GetSsid()
 			}
-			_, _ = fmt.Fprintf(tw, "%d\t%t\t%t\t%t\t%dms\t%s\t%s\n",
-				step.GetIndex(),
-				step.GetConnected(),
-				step.GetPingOk(),
-				step.GetHttpOk(),
-				step.GetElapsedMs(),
+			rows = append(rows, []string{
+				fmt.Sprint(step.GetIndex()),
+				fmt.Sprint(step.GetConnected()),
+				fmt.Sprint(step.GetPingOk()),
+				fmt.Sprint(step.GetHttpOk()),
+				fmt.Sprintf("%dms", step.GetElapsedMs()),
 				empty(ssid, "-"),
 				strings.Join(step.GetErrors(), ","),
-			)
+			})
 		}
-		_ = tw.Flush()
+		writeDisplayTable(b, []displayTableColumn{{header: "STEP"}, {header: "CONNECTED"}, {header: "PING"}, {header: "HTTP"}, {header: "ELAPSED"}, {header: "SSID"}, {header: "ERRORS"}}, rows, view.Width)
 	}
 	renderErrors(b, result.GetErrors())
 }
@@ -1778,15 +1773,9 @@ func renderDiagnosticFields(b *strings.Builder, fields []*controlpb.DiagnosticFi
 }
 
 func renderDiagnosticFieldRows(b *strings.Builder, fields []*controlpb.DiagnosticField) {
-	if len(fields) == 0 {
-		return
-	}
-	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
 	for _, field := range fields {
-		_, _ = fmt.Fprintf(tw, "%s\t%s\n", field.GetKey(), field.GetValue())
+		writeRecord(b, field.GetKey(), field.GetValue())
 	}
-	_ = tw.Flush()
 }
 
 func renderErrors(b *strings.Builder, errors []string) {
