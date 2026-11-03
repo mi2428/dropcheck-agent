@@ -69,7 +69,7 @@ build: ## Build targets; use TARGET=agent,controller or TARGET=all
 
 .PHONY: test
 test: check-shell ## Test targets; use TARGET=agent,controller or TAGS=... for Go tags
-	@die(){ printf 'make test: %s\n' "$$*" >&2; exit 1; }; \
+	@set -e; die(){ printf 'make test: %s\n' "$$*" >&2; exit 1; }; \
 	run(){ printf '+'; printf ' %q' "$$@"; printf '\n'; "$$@"; }; \
 	targets="$(TARGET)"; targets="$${targets//,/ }"; [[ -n "$$targets" ]] || die "TARGET is empty"; \
 	[[ " $$targets " == *" all "* ]] && targets="agent controller"; \
