@@ -256,22 +256,33 @@ func (s *shellState) runCheck(ctx context.Context, name, ssid, family, bssid, re
 			s.lastProfile = "unsupported"
 		}
 	}
-	out, renderErr := renderProfileReport(s, format, false)
+	view := terminalPresentation()
+	if pipe.pipeline.StageCount() > 0 || pipe.displayJSON {
+		view.Width = 0
+	}
+	out, renderErr := renderProfileReport(s, format, false, view)
 	if renderErr != nil {
 		return renderErr
 	}
-	out, renderErr = pipe.apply(out)
+	if !strict && format == outputText {
+		out, renderErr = pipe.shellOutput(out, report.Passed() && err == nil)
+	} else {
+		out, renderErr = pipe.apply(out)
+	}
 	if renderErr != nil {
 		return renderErr
 	}
 	fmt.Print(out)
+	if !strict && format == outputText && !report.Passed() {
+		fmt.Fprintf(os.Stderr, "check %s: %s\n", s.lastProfile, report.Outcome)
+	}
 	if strict && (!report.Passed() || err != nil) {
 		return fmt.Errorf("check %s: %s", s.lastProfile, report.Outcome)
 	}
 	return err
 }
 
-func renderProfileReport(s *shellState, format outputFormat, detail bool) (string, error) {
+func renderProfileReport(s *shellState, format outputFormat, detail bool, views ...render.Presentation) (string, error) {
 	if s.lastReport == nil {
 		if format == outputJSON {
 			return "{\"report\":null,\"message\":\"no report in this Shell\"}\n", nil
@@ -288,6 +299,9 @@ func renderProfileReport(s *shellState, format outputFormat, detail bool) (strin
 		return string(data) + "\n", err
 	}
 	view := terminalPresentation()
+	if len(views) > 0 {
+		view = views[0]
+	}
 	view.Detail = detail
 	out, err := render.Report(*s.lastReport, view)
 	if err != nil {

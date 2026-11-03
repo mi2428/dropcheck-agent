@@ -132,22 +132,23 @@ Examples:
 }
 
 func commandUsage(spec command.Grammar) string {
-	usage := spec.Path
+	var usage strings.Builder
+	usage.WriteString(spec.Path)
 	for _, positional := range spec.Positionals {
-		usage += " <" + positional + ">"
+		usage.WriteString(" <" + positional + ">")
 	}
 	for _, required := range spec.Required {
-		usage += " " + required + " <value>"
+		usage.WriteString(" " + required + " <value>")
 	}
 	for _, key := range spec.Switches {
-		usage += " [" + key + "]"
+		usage.WriteString(" [" + key + "]")
 	}
 	for _, key := range spec.Values {
 		if !slices.Contains(spec.Required, key) {
-			usage += " [" + key + " <value>]"
+			usage.WriteString(" [" + key + " <value>]")
 		}
 	}
-	return usage
+	return usage.String()
 }
 
 func writeCommandHelp(w io.Writer, topic string) {
@@ -331,6 +332,7 @@ type shellState struct {
 	lastReport            *harness.Report
 	lastProfile, lastSSID string
 	failedUse             bool
+	defaultPassphrase     string
 }
 
 func (s *shellState) setSelectedAgent(info control.AgentInfo) {
