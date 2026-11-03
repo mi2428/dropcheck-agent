@@ -118,6 +118,8 @@ func renderIPView(b *strings.Builder, status *controlpb.IpStatus, view Presentat
 	privateDNS := "off"
 	if status.GetPrivateDnsActive() {
 		privateDNS = "on; server=" + empty(status.GetPrivateDnsServerName(), "none")
+	} else if view.Interactive {
+		privateDNS += "; server=" + empty(status.GetPrivateDnsServerName(), "none")
 	}
 	writeRecord(b, "Private DNS", observedValue(fields, "link_properties", privateDNS))
 	writeRecord(b, "NAT64", observedValue(fields, "link_properties", status.GetNat64Prefix()))
@@ -140,14 +142,34 @@ func renderIPView(b *strings.Builder, status *controlpb.IpStatus, view Presentat
 		if view.Interactive && status.GetWifi() != nil {
 			writeSection(b, "WifiInfo from this NetworkCapabilities observation")
 			renderWifiConnection(b, status.GetWifi())
-			renderMLOLinks(b, "Associated links", status.GetWifi().GetAssociatedMloLinks())
-			renderMLOLinks(b, "Affiliated links", status.GetWifi().GetAffiliatedMloLinks())
+			conn := status.GetWifi()
+			writeRecord(b, "Network configuration ID", conn.GetNetworkId())
+			writeRecord(b, "Link speed Mbps", conn.GetLinkSpeedMbps())
+			writeRecord(b, "WifiInfo IPv4 (separate observation)", conn.GetIpv4Address())
+			writeRecord(b, "Subscription ID", conn.GetSubscriptionId())
+			writeRecord(b, "Applicable redactions", conn.GetApplicableRedactions())
+			if !conn.GetHiddenSsid() {
+				writeRecord(b, "Hidden SSID", false)
+			}
+			if !conn.GetRestricted() {
+				writeRecord(b, "Restricted", false)
+			}
+			writeRecord(b, "MLD", observedValue(conn.GetObservationFields(), "ap_mld_mac_address", conn.GetApMldMacAddress()))
+			writeRecord(b, "AP link ID", observedValue(conn.GetObservationFields(), "ap_mlo_link_id", fmt.Sprint(conn.GetApMloLinkId())))
+			renderMLOLinks(b, "Associated links", status.GetWifi().GetAssociatedMloLinks(), true)
+			renderMLOLinks(b, "Affiliated links", status.GetWifi().GetAffiliatedMloLinks(), true)
+			renderInformationElements(b, status.GetWifi().GetInformationElements())
+			writeRecord(b, "Raw WifiInfo reference", status.GetWifi().GetRaw())
+			renderDiagnosticFields(b, status.GetWifi().GetObservationFields())
 		}
 		if view.Detail && status.GetRawLinkProperties() != "" {
 			writeRecord(b, "Raw LinkProperties", status.GetRawLinkProperties())
 		}
 		if view.Detail && status.GetRawCapabilities() != "" {
 			writeRecord(b, "Raw capabilities", status.GetRawCapabilities())
+		}
+		if view.Interactive {
+			renderDiagnosticFields(b, fields)
 		}
 	}
 }

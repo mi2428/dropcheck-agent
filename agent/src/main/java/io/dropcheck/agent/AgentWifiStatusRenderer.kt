@@ -55,6 +55,10 @@ internal object AgentWifiStatusRenderer {
                 add(AgentBlockPart.Field("AP link ID", AgentObservationPresentation.value(conn.observationFieldsList, "ap_mlo_link_id", conn.apMloLinkId.toString()), conn.apMloLinkId.toString()))
                 addAll(mloLinkParts("Associated links", conn.associatedMloLinksList))
                 addAll(mloLinkParts("Affiliated links", conn.affiliatedMloLinksList))
+                text("WifiInfo IPv4 (separate observation)", conn.ipv4Address)
+                addAll(informationElementParts(conn.informationElementsList))
+                if (conn.raw.isNotEmpty()) text("Raw WifiInfo reference", conn.raw)
+                conn.observationFieldsList.forEach { text(it.key, it.value) }
             }
             if (conn.applicableRedactions.isNotEmpty() && conn.applicableRedactions != "0") text("Note", "identity redactions=${conn.applicableRedactions}")
         } else {
@@ -62,14 +66,14 @@ internal object AgentWifiStatusRenderer {
             text("Link", if (connection == "none") "disconnected" else connection)
             if (connection == "none") text("SSID/BSSID", "none")
         }
-        status.permissionsList.filterNot { it.endsWith("=granted", ignoreCase = true) }.forEach { text("Note", it) }
-        if (ipAvailable) text("IP", "show ip status") else if (includeIpSnapshot && status.hasIpStatus()) {
-            text("Related IP snapshot", "retained until show ip status is exposed")
+        status.permissionsList.forEach { text("Permission", it) }
+        status.observationFieldsList.forEach { text(it.key, it.value) }
+        if (!ipAvailable && includeIpSnapshot && status.hasIpStatus()) {
+            text("Related IP snapshot", "independently acquired Android Network observation")
             addAll(ipPresentation(status.ipStatus))
         } else if (includeIpSnapshot && status.hasConnection() && status.connection.ipv4Address.isNotEmpty()) {
             text("Related IP snapshot", status.connection.ipv4Address)
         }
-        if (detailAvailable && !detail) text("More", "show wifi status detail")
     }
 
     fun ipPresentation(status: IpStatus, detail: Boolean = false, detailAvailable: Boolean = false): List<AgentBlockPart> = buildList {
@@ -95,7 +99,7 @@ internal object AgentWifiStatusRenderer {
         values("Routes", status.routesList)
         values("DNS", status.dnsServersList)
         observed("DHCP server", status.dhcpServer)
-        observed("Private DNS", if (status.privateDnsActive) "on; server=${status.privateDnsServerName.ifEmpty { "none" }}" else "off")
+        observed("Private DNS", "${if (status.privateDnsActive) "on" else "off"}; server=${status.privateDnsServerName.ifEmpty { "none" }}")
         observed("NAT64", status.nat64Prefix)
         if (detail || !detailAvailable) {
             text("Capabilities", AgentObservationPresentation.list(fields, "capabilities", status.capabilitiesList))
@@ -116,15 +120,33 @@ internal object AgentWifiStatusRenderer {
                 val connectionLines = mutableListOf<String>()
                 renderConnection(connectionLines, status.wifi)
                 addAll(connectionLines.map { AgentBlockPart.Text(it) })
+                val conn = status.wifi
+                text("Network configuration ID", conn.networkId.toString())
+                text("Link speed Mbps", conn.linkSpeedMbps.toString())
+                text("WifiInfo IPv4 (separate observation)", conn.ipv4Address)
+                text("Subscription ID", conn.subscriptionId.toString())
+                text("Applicable redactions", conn.applicableRedactions)
+                if (!conn.hiddenSsid) text("Hidden SSID", "false")
+                if (!conn.restricted) text("Restricted", "false")
+                text("MLD", AgentObservationPresentation.value(conn.observationFieldsList, "ap_mld_mac_address", conn.apMldMacAddress))
+                text("AP link ID", AgentObservationPresentation.value(conn.observationFieldsList, "ap_mlo_link_id", conn.apMloLinkId.toString()))
                 addAll(mloLinkParts("Associated links", status.wifi.associatedMloLinksList))
                 addAll(mloLinkParts("Affiliated links", status.wifi.affiliatedMloLinksList))
+                addAll(informationElementParts(conn.informationElementsList))
+                if (conn.raw.isNotEmpty()) text("Raw WifiInfo reference", conn.raw)
+                conn.observationFieldsList.forEach { text(it.key, it.value) }
             }
             if (detail && status.rawLinkProperties.isNotEmpty()) text("Raw LinkProperties", status.rawLinkProperties)
             if (detail && status.rawCapabilities.isNotEmpty()) text("Raw capabilities", status.rawCapabilities)
+            fields.forEach { text(it.key, it.value) }
         }
     }
 
     fun scanEvidence(ap: io.dropcheck.agent.grpc.WifiScanResult): List<AgentBlockPart> = buildList {
+        add(AgentBlockPart.Field("Capabilities", ap.capabilities))
+        add(AgentBlockPart.Field("WifiSsid representation", ap.wifiSsid))
+        add(AgentBlockPart.Field("Timestamp us (boot clock)", ap.timestampUs.toString()))
+        add(AgentBlockPart.Field("Passpoint", ap.passpoint.toString()))
         if (ap.operatorFriendlyName.isNotEmpty()) add(AgentBlockPart.Field("Operator", ap.operatorFriendlyName))
         if (ap.venueName.isNotEmpty()) add(AgentBlockPart.Field("Venue", ap.venueName))
         val conn = WifiConnection.newBuilder().addAllInformationElements(ap.informationElementsList)
@@ -142,8 +164,14 @@ internal object AgentWifiStatusRenderer {
         addAll(lines.map { AgentBlockPart.Text(it) })
         add(AgentBlockPart.Field("AP link ID", AgentObservationPresentation.value(ap.observationFieldsList, "ap_mlo_link_id", ap.apMloLinkId.toString()), ap.apMloLinkId.toString()))
         addAll(mloLinkParts("Affiliated link details", ap.affiliatedMloLinksList))
+        addAll(informationElementParts(ap.informationElementsList))
+        if (ap.raw.isNotEmpty()) add(AgentBlockPart.Field("Raw ScanResult reference", ap.raw))
+        ap.observationFieldsList.forEach { add(AgentBlockPart.Field(it.key, it.value)) }
     }
 
+    private fun informationElementParts(elements: List<io.dropcheck.agent.grpc.WifiInformationElement>): List<AgentBlockPart> = elements.mapIndexed { index, element ->
+        AgentBlockPart.Field("IE ${index + 1}", "id=${element.id} extension=${element.idExt} bytes=${element.byteCount} hex=${element.bytesHex}")
+    }
     private fun mloLinkParts(title: String, links: List<io.dropcheck.agent.grpc.MloLinkInfo>): List<AgentBlockPart> = buildList {
         if (links.isNotEmpty()) add(AgentBlockPart.Text(title))
         links.forEach { link ->
@@ -155,6 +183,9 @@ internal object AgentWifiStatusRenderer {
             observed("RSSI dBm", "rates", link.rssiDbm.toString())
             observed("Tx/Rx Mbps", "rates", "${link.txLinkSpeedMbps}/${link.rxLinkSpeedMbps}")
             add(AgentBlockPart.Field("Max Tx/Rx Mbps", "? (maximum-rate availability metadata not supplied)", "${link.maxSupportedTxLinkSpeedMbps}/${link.maxSupportedRxLinkSpeedMbps}"))
+            add(AgentBlockPart.Field("Reported max Tx/Rx (availability uncollected)", "${link.maxSupportedTxLinkSpeedMbps}/${link.maxSupportedRxLinkSpeedMbps}Mbps"))
+            if (link.raw.isNotEmpty()) add(AgentBlockPart.Field("Raw MloLink reference", link.raw))
+            link.observationFieldsList.forEach { add(AgentBlockPart.Field(it.key, it.value)) }
         }
     }
 

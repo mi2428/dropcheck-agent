@@ -156,14 +156,24 @@ internal class AgentShellAdapter(private val context: Context, private val logge
                 row("Message", result.wifiOperation.message)
                 result.wifiOperation.fieldsList.forEach { row(it.key, it.value) }
                 result.wifiOperation.errorsList.forEach { row("Error", it) }
+                row("Already absent", result.wifiOperation.alreadyAbsent)
+                if (result.wifiOperation.hasStatus()) addAll(AgentWifiStatusRenderer.presentation(result.wifiOperation.status, detail = true))
             }
             RunCommand.CommandCase.WAIT_WIFI_CONNECTED, RunCommand.CommandCase.ASSERT_WIFI -> {
                 row("Passed", result.wifiAssert.passed)
-                result.wifiAssert.checksList.forEach { row(it.key, "expected=${it.expected} actual=${it.actual} passed=${it.passed}") }
+                result.wifiAssert.checksList.forEach { row(it.key, "expected=${it.expected} actual=${it.actual} passed=${it.passed} message=${it.message}") }
                 result.wifiAssert.errorsList.forEach { row("Error", it) }
+                row("Evaluation elapsed ms", result.wifiAssert.elapsedMs)
+                if (result.wifiAssert.hasStatus()) addAll(AgentWifiStatusRenderer.presentation(result.wifiAssert.status, detail = true))
+                else row("Observation", "? (snapshot unavailable)")
             }
             RunCommand.CommandCase.MONITOR_WIFI -> {
-                result.wifiMonitor.eventsList.forEach { row(it.type, it.message) }
+                result.wifiMonitor.eventsList.forEach {
+                    row("Event unix ms", it.unixTimeMs)
+                    row(it.type, it.message)
+                    it.fieldsList.forEach { field -> row(field.key, field.value) }
+                    if (it.hasStatus()) addAll(AgentWifiStatusRenderer.presentation(it.status, detail = true))
+                }
                 result.wifiMonitor.errorsList.forEach { row("Error", it) }
                 row("Events", result.wifiMonitor.eventsCount)
             }

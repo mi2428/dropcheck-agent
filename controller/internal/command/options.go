@@ -2,7 +2,8 @@ package command
 
 const (
 	// WifiRenderModeEHT renders WifiDiagnostics as an EHT-focused summary.
-	WifiRenderModeEHT = "eht"
+	WifiRenderModeEHT  = "eht"
+	WifiRenderModeFull = "full"
 )
 
 // Options describes controller-local behavior attached to an Operation.
@@ -29,4 +30,7 @@ type Options struct {
 	WifiEHTSSID string
 	// WifiEHTBSSID filters the EHT render view to scan/current entries for one BSSID.
 	WifiEHTBSSID string
+	// Subject selectors are applied to captured AP evidence, never to radio scanning.
+	WifiScanSSID, WifiScanBSSID string
+	WifiEHTFreshScanBand        string
 }
