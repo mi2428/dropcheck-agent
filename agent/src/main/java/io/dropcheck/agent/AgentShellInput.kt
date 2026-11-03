@@ -50,7 +50,13 @@ internal class AgentShellSession {
     private val history = ArrayDeque<String>()
     private var index = 0
     private var draft = ""
+    var connectionFailed = false
+    var lastTest: AgentShellResult? = null
+        private set
+    var lastTestAtMs = 0L
+        private set
 
+    fun recordTest(result: AgentShellResult) { lastTest = result; lastTestAtMs = System.currentTimeMillis() }
     fun setPassphrase(value: String) { defaults = AgentShellUseDefaults(value) }
     fun remember(line: String) {
         if (AgentShellParser.historySafe(line) && history.lastOrNull() != line) {

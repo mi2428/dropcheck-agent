@@ -42,7 +42,7 @@ class ShellReadOnlyInstrumentation : Instrumentation() {
                 check("ACCESS_LOCAL_NETWORK: $lanPermission" in lines(permissions)) { "LAN permission display differs from platform state" }
             }
             cases++
-            val networks = json("show networks | display json")
+            val networks = json("show network | display json")
             check(networks.getBoolean("ok")) { "network snapshot unavailable" }
             val knownIds = ids(networks)
             check(knownIds.isNotEmpty()) { "no Network available for default/identity acceptance" }
@@ -51,15 +51,15 @@ class ShellReadOnlyInstrumentation : Instrumentation() {
             check(default.getBoolean("ok") && ids(default).size == 1) { "default Network unavailable" }
             val id = ids(default).single()
             check(validNetworkId(id)) { "noncanonical Network identity" }
-            val selected = json("show network $id | display json")
+            val selected = json("show network id $id | display json")
             check(selected.getBoolean("ok") && ids(selected) == listOf(id)) { "explicit Network identity changed" }
             cases++
             val stale = (Int.MAX_VALUE downTo Int.MAX_VALUE - 100).first { it.toString() !in knownIds }.toString()
-            val absent = json("show network $stale | display json")
+            val absent = json("show network id $stale | display json")
             check(!absent.getBoolean("ok") && ids(absent).isEmpty()) { "stale Network silently fell back" }
-            check(submit("show network $stale | match acceptance-no-output-3a7f").contains("Command FAILED (output filtered)")) { "filtered failure disappeared" }
+            check(submit("show network id $stale | match acceptance-no-output-3a7f").contains("Command FAILED (output filtered)")) { "filtered failure disappeared" }
             cases++
-            check(Regex("Count: [1-9][0-9]* lines").containsMatchIn(submit("show networks | begin '^Network:' | match '^Network:' | count"))) { "logical pipeline count failed" }
+            check(Regex("Count: [1-9][0-9]* lines").containsMatchIn(submit("show network | find '^Network:' | match '^Network:' | count"))) { "logical pipeline count failed" }
             check(submit("show permissions | display json | count").contains("cannot be combined")) { "unsafe JSON combination accepted" }
             cases++
             phase = "link family all"
@@ -67,7 +67,7 @@ class ShellReadOnlyInstrumentation : Instrumentation() {
             val ip = CommandExecutor(targetContext.applicationContext, quiet).execute(RunCommand.newBuilder().setGetIpStatus(GetIpStatus.getDefaultInstance()).build())
             check(ip.status == CommandResult.Status.STATUS_OK && ip.hasIpStatus() && ip.ipStatus.hasWifi() && isKnownWifiSsid(ip.ipStatus.wifi.ssid)) { "physical Wi-Fi identity unavailable for dual-family check" }
             val ssid = ip.ipStatus.wifi.ssid.replace("\\", "\\\\").replace("\"", "\\\"")
-            val dual = json("check link ssid \"$ssid\" family all | display json")
+            val dual = json("test link ssid \"$ssid\" family all | display json")
             val findings = lines(dual)
             check(listOf("ipv4.addresses:", "ipv4.default_routes:", "ipv4.dns_servers:", "ipv6.addresses:", "ipv6.default_routes:", "ipv6.dns_servers:").all { metric -> findings.any { metric in it } }) { "dual-family findings missing" }
             check(dual.getBoolean("ok") || findings.any { ": FAIL" in it || ": MISSING" in it }) { "dual-family outcome inconsistent" }
@@ -75,7 +75,7 @@ class ShellReadOnlyInstrumentation : Instrumentation() {
             dualFailedMetrics = findings.mapNotNull { Regex("(ipv[46]\\.(?:addresses|default_routes|dns_servers)): (?:FAIL|MISSING)").find(it)?.groupValues?.get(1) }.distinct().joinToString(",").ifEmpty { "none" }
             cases++
             check(submit("show permissions").contains("Device Owner:")) { "unfiltered permission output unavailable" }
-            submit("set default passphrase acceptance-only-psk")
+            submit("set cli default-passphrase acceptance-only-psk")
             runOnMainSync {
                 session = field(current!!, "shellSession")
                 check(session!!.defaults.defaultPassphrase == "acceptance-only-psk") { "session default not set" }
@@ -102,7 +102,7 @@ class ShellReadOnlyInstrumentation : Instrumentation() {
                 check(input.text.isEmpty()) { "history draft not restored" }
             }
             cases++
-            submit("clear default passphrase")
+            submit("clear cli default-passphrase")
             runOnMainSync { check(session!!.defaults.defaultPassphrase.isEmpty()) { "session default not cleared" } }
             check(json("show network default | display json").getBoolean("ok")) { "post-rotation read failed" }
             cases++
@@ -118,10 +118,10 @@ class ShellReadOnlyInstrumentation : Instrumentation() {
     }
 
     private fun submit(line: String): String {
-        check(line.startsWith("show networks") || line.startsWith("show network ") || line.startsWith("show permissions") ||
-            line.startsWith("check link ssid ") ||
-            line == "set default passphrase acceptance-only-psk" || line == "clear default passphrase") { "read-only/session command boundary" }
-        phase = when { line.startsWith("show network ") -> "Network selection/pipeline"; line.startsWith("show networks") -> "Network list/pipeline"; line.startsWith("check link ") -> "link family all"; else -> "permissions/session" }
+        check(line.startsWith("show network ") || line.startsWith("show permissions") ||
+            line.startsWith("test link ssid ") ||
+            line == "set cli default-passphrase acceptance-only-psk" || line == "clear cli default-passphrase") { "read-only/session command boundary" }
+        phase = when { line.startsWith("show network ") -> "Network selection/pipeline"; line.startsWith("test link ") -> "link family all"; else -> "permissions/session" }
         val activity = current!!
         var previous: AgentPresentationBlock? = null
         runOnMainSync {

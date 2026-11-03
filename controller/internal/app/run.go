@@ -10,9 +10,11 @@ import (
 	"slices"
 	"strings"
 	"syscall"
+	"time"
 
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/control"
+	"dropcheck/controller/internal/controlpb"
 	"dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/session"
 	"dropcheck/controller/internal/version"
@@ -331,6 +333,8 @@ type shellState struct {
 	targetAll             bool
 	lastReport            *harness.Report
 	lastProfile, lastSSID string
+	lastWifiTest          *controlpb.CommandResult
+	lastTestAt            time.Time
 	failedUse             bool
 	defaultPassphrase     string
 }

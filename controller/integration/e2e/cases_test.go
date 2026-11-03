@@ -229,29 +229,28 @@ func validateCommandCoverage(cases []matrixCase) error {
 		{name: "shell show devices", runner: "shell", text: "show devices"},
 		{name: "shell pipeline", runner: "shell", text: "| match"},
 		{name: "shell wifi status", runner: "shell", text: "show wifi status"},
-		{name: "shell ip status", runner: "shell", text: "show ip status"},
-		{name: "shell wifi diagnostics", runner: "shell", text: "show wifi diagnostics"},
-		{name: "shell wifi eht", runner: "shell", text: "show wifi eht"},
-		{name: "shell wifi eht fresh", runner: "shell", text: "show wifi eht fresh"},
-		{name: "shell wifi capabilities", runner: "shell", text: "show wifi capabilities"},
+		{name: "shell ip status", runner: "shell", text: "show wifi status ip"},
+		{name: "shell wifi diagnostics", runner: "shell", text: "show wifi status"},
+		{name: "shell wifi eht", runner: "shell", text: "show wifi status eht"},
+		{name: "shell wifi eht fresh", runner: "shell", text: "request wifi scan eht"},
+		{name: "shell wifi capabilities", runner: "shell", text: "show wifi status capabilities"},
 		{name: "shell wifi scan", runner: "shell", text: "show wifi scan"},
-		{name: "shell wifi fresh scan", runner: "shell", text: "show wifi scan fresh"},
-		{name: "shell wifi scan detail", runner: "shell", text: "show wifi scan detail"},
-		{name: "shell wifi connect", runner: "shell", text: "wifi connect"},
-		{name: "shell wifi wait", runner: "shell", text: "wifi wait"},
-		{name: "shell wifi assert", runner: "shell", text: "wifi assert"},
-		{name: "shell wifi reconnect", runner: "shell", text: "wifi reconnect"},
-		{name: "shell wifi monitor", runner: "shell", text: "wifi monitor"},
-		{name: "shell wifi cycle", runner: "shell", text: "wifi cycle"},
-		{name: "shell wifi disconnect", runner: "shell", text: "wifi disconnect"},
-		{name: "shell wifi forget", runner: "shell", text: "wifi forget"},
-		{name: "shell ping", runner: "shell", text: "ping"},
-		{name: "shell traceroute", runner: "shell", text: "traceroute"},
-		{name: "shell path mtu", runner: "shell", text: "path-mtu"},
-		{name: "shell global ip", runner: "shell", text: "global-ip"},
-		{name: "shell dns", runner: "shell", text: "dns"},
-		{name: "shell http", runner: "shell", text: "http"},
-		{name: "shell download", runner: "shell", text: "download"},
+		{name: "shell wifi fresh scan", runner: "shell", text: "request wifi scan"},
+		{name: "shell wifi scan filter", runner: "shell", text: "show wifi scan ssid"},
+		{name: "shell wifi connect", runner: "shell", text: "request wifi connect"},
+		{name: "shell wifi evaluation", runner: "shell", text: "test wifi"},
+		{name: "shell wifi reconnect", runner: "shell", text: "request wifi reconnect"},
+		{name: "shell wifi monitor", runner: "shell", text: "monitor wifi"},
+		{name: "shell wifi cycle", runner: "shell", text: "request wifi cycle"},
+		{name: "shell wifi disconnect", runner: "shell", text: "request wifi disconnect"},
+		{name: "shell wifi forget", runner: "shell", text: "request wifi forget ssid"},
+		{name: "shell ping", runner: "shell", text: "request ping"},
+		{name: "shell traceroute", runner: "shell", text: "request traceroute"},
+		{name: "shell path mtu", runner: "shell", text: "request path-mtu"},
+		{name: "shell global ip", runner: "shell", text: "request global-ip"},
+		{name: "shell dns", runner: "shell", text: "request dns"},
+		{name: "shell http", runner: "shell", text: "request http"},
+		{name: "shell download", runner: "shell", text: "request download"},
 		{name: "cli show devices", runner: "cli", text: "dropcheck --serial"},
 		{name: "cli ip status", runner: "cli", text: "dropcheck show ip status"},
 		{name: "cli wifi eht", runner: "cli", text: "dropcheck show wifi eht"},
@@ -322,7 +321,10 @@ func runShellParser(commandLine string) commandResult {
 		}
 		return commandResult{Output: out.String(), Code: 0}
 	}
-	_, err := shell.ParseLine(commandLine)
+	parsed, err := shell.ParseLine(commandLine)
+	if err == nil && parsed.Rejection != "" {
+		err = errors.New(parsed.Rejection)
+	}
 	if err != nil {
 		return commandResult{Output: err.Error(), Code: 1, Err: err}
 	}

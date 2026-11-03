@@ -52,7 +52,6 @@ private fun safe(value: String): String = AgentSafePresentation.text(value.take(
 /** One fixed portable definition matching the PC link read order; no generic scenario runner. */
 internal object AgentLinkProfile {
     private val linkStages = listOf("ip_before", "ip_after")
-    private var last: LinkReport? = null
 
     fun catalogue(): List<String> = listOf(
         "No default profile; bare check lists candidates (zero operations).",
@@ -64,7 +63,6 @@ internal object AgentLinkProfile {
         "internet, eht, Go-only callbacks: unsupported on Android (zero operations; no partial run).",
     )
 
-    @Synchronized fun lastReport(): LinkReport? = last
 
     @Synchronized fun run(command: AgentShellCommand.Check, execute: (RunCommand) -> CommandResult): LinkReport {
         val started = System.currentTimeMillis()
@@ -75,7 +73,7 @@ internal object AgentLinkProfile {
         fun finish(outcome: LinkOutcome): LinkReport {
             while (stages.size < stageNames.size) stages += LinkStage(stageNames[stages.size], LinkOutcome.SKIP, "required predecessor did not pass")
             return LinkReport(command.profile.take(96), command.ssid.take(96), command.family, started, System.currentTimeMillis(),
-                outcome, stages.toList(), network?.networkId?.take(96), network?.interfaceName?.take(96), network?.validated).also { last = it }
+                outcome, stages.toList(), network?.networkId?.take(96), network?.interfaceName?.take(96), network?.validated)
         }
         if (command.profile != "link" && command.profile != "lab" || command.profile == "lab" && lab == null) {
             stages += LinkStage(stageNames.first(), LinkOutcome.UNSUPPORTED, "profile is not portable on Android")

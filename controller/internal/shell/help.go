@@ -12,9 +12,13 @@ import (
 
 func PrintHelp() { writeHelp(os.Stdout) }
 func writeHelp(w io.Writer) {
+	WriteHelpTopic(w, "")
+}
+
+func WriteHelpTopic(w io.Writer, topic string) {
 	fmt.Fprintln(w, "Controller Shell (pinned Android target; PC-only ADB/device commands are labelled)")
 	for _, entry := range command.ShellGrammarTable {
-		if entry.Unsupported {
+		if entry.Unsupported || topic != "" && entry.Path != topic && !strings.HasPrefix(entry.Path, topic+" ") {
 			continue
 		}
 		fmt.Fprint(w, "  ", entry.Path)
@@ -32,13 +36,13 @@ func writeHelp(w io.Writer) {
 			}
 		}
 		if entry.Effect == "" {
-			fmt.Fprint(w, "  (PC-only)")
+			fmt.Fprint(w, "  (PC-only) ", entry.Description)
 		} else {
 			fmt.Fprint(w, "  ", entry.Description)
 		}
 		fmt.Fprintln(w)
 	}
-	fmt.Fprintln(w, "  exit | quit\n  | find <pattern> | except <pattern> | last <lines> | match <pattern> | trim <start-column> | count\n  | display json (alone; safe presentation JSON)")
+	fmt.Fprintln(w, "  exit\n  | find <pattern> | except <pattern> | last <lines> | match <pattern> | trim <start-column> | count\n  | display json (alone; safe presentation JSON)")
 	fmt.Fprintln(w, "  Defaults and command history are session-only; secret input is never retained in history.")
 }
 
@@ -59,10 +63,20 @@ func WriteContextHelp(w io.Writer, line string) {
 		writeHelp(w)
 		return
 	}
+	if parsed, err := ParseLine(prefix); err == nil && parsed.Kind != Help && parsed.Kind != Noop && parsed.Kind != Exit && parsed.Rejection == "" && strings.HasSuffix(prefix, " ") {
+		fmt.Fprintln(w, "  <Enter>  Execute the requested subject")
+	}
 	for _, candidate := range CompleteLine(prefix) {
 		lexed, _ := command.Lex(candidate, true)
 		if len(lexed.Tokens) > 0 {
-			fmt.Fprintln(w, "  ", lexed.Tokens[len(lexed.Tokens)-1].Value)
+			description := ""
+			for _, entry := range command.ShellGrammarTable {
+				if entry.Path == strings.TrimSpace(candidate) {
+					description = entry.Description
+					break
+				}
+			}
+			fmt.Fprintln(w, "  ", lexed.Tokens[len(lexed.Tokens)-1].Value, description)
 		}
 	}
 }
@@ -113,7 +127,7 @@ func CompleteLine(line string) []string {
 	} else {
 		choices = command.ShellSuggestions(args)
 		if len(args) == 0 {
-			choices = append(choices, "exit", "quit")
+			choices = append(choices, "exit")
 		}
 	}
 	var out []string
@@ -153,11 +167,11 @@ func HistorySafe(line string) bool {
 	if parsed.Pipeline.DisplayJSON() || parsed.Pipeline.StageCount() > 0 {
 		return false
 	}
-	if parsed.Kind == Version || parsed.Kind == Profiles || parsed.Kind == LastReport || parsed.Kind == Help || parsed.Kind == ShowDevices {
+	if parsed.Kind == Version || parsed.Kind == Profiles || parsed.Kind == LastReport || parsed.Kind == Help || parsed.Kind == ShowDevices || parsed.Kind == CLI {
 		return true
 	}
 	if parsed.Kind != AgentCommand || parsed.Operation.Command == nil {
 		return false
 	}
-	return strings.HasPrefix(parsed.Operation.Name, "wifi.status") || parsed.Operation.Name == "wifi.capabilities" || parsed.Operation.Name == "network.list" || parsed.Operation.Name == "permissions" || parsed.Operation.Name == "ip.status"
+	return slices.Contains([]string{"show wifi status connection", "show wifi status ip", "show wifi status capabilities", "show network", "show permissions"}, parsed.Path)
 }

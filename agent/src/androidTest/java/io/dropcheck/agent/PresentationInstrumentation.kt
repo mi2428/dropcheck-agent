@@ -80,8 +80,8 @@ class PresentationInstrumentation : Instrumentation() {
                 val identity = AgentPresentationBlock.create(listOf(AgentBlockPart.Field("SSID", "password=Guest\nSource: forged")), 0)
                 check(identity.fullText.contains("password=Guest Source: forged")) { "literal identity was redacted or not normalized" }
                 check(AgentShellPipeline.parse(listOf("match '^Source: forged$'")).apply(AgentShellResult(true, block = identity)).block!!.fullText.isEmpty()) { "identity forged a logical source record" }
-                for (line in listOf("ping 999.0.0.1", "traceroute 256.1.1.1", "path-mtu 2001:db8:::1",
-                    "http https://example.test:65536/", "download https://example.test:2147483648/")) {
+                for (line in listOf("request ping 999.0.0.1", "request traceroute 256.1.1.1", "request path-mtu 2001:db8:::1",
+                    "request http https://example.test:65536/", "request download https://example.test:2147483648/")) {
                     check(AgentShellParser.parse(line) is AgentShellCommand.Invalid) { "invalid endpoint accepted on ART" }
                 }
             }

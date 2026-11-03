@@ -110,11 +110,11 @@ func TestWifiOperationBuildersCarryControllerContract(t *testing.T) {
 	if _, err := WifiEHTOperationWithOptions(WifiEHTOptions{SSID: "Lab", BSSID: "aa:bb:cc:dd:ee:ff"}); err == nil {
 		t.Fatalf("WifiEHTOperationWithOptions(ssid+bssid) error = nil")
 	}
-	if _, err := WifiScanOperationWithBrief("6ghz", false, true); err == nil || !strings.Contains(err.Error(), "wifi scan brief") {
-		t.Fatalf("WifiScanOperationWithBrief(mlo without brief) error = %v", err)
+	if op, err := WifiScanOperationWithBrief("6ghz", false, true); err != nil || !op.Options.WifiScanMLO || op.Options.WifiScanBrief {
+		t.Fatalf("MLO subject must not force brief: %+v %v", op, err)
 	}
-	if _, err := WifiFreshScanOperationWithBrief("6ghz", "9000", false, true); err == nil || !strings.Contains(err.Error(), "wifi scan brief") {
-		t.Fatalf("WifiFreshScanOperationWithBrief(mlo without brief) error = %v", err)
+	if op, err := WifiFreshScanOperationWithBrief("6ghz", "9000", false, true); err != nil || !op.Options.WifiScanMLO || op.Options.WifiScanBrief {
+		t.Fatalf("fresh MLO subject must not force brief: %+v %v", op, err)
 	}
 
 	forget := WifiForgetOperation("Lab")

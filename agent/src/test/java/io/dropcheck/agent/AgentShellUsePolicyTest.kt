@@ -38,7 +38,7 @@ class AgentShellUsePolicyTest {
     @Test
     fun rejectsMissingOrEmptyPassphrase() {
         assertEquals(
-            "use requires a passphrase; set default passphrase or pass one explicitly",
+            "connect requires a passphrase; set cli default-passphrase or pass one explicitly",
             AgentShellUsePolicy.resolveUseRequest(
                 ssid = "hp1",
                 explicitPassphrase = null,
@@ -46,7 +46,7 @@ class AgentShellUsePolicyTest {
             ).error,
         )
         assertEquals(
-            "use passphrase cannot be empty",
+            "connect passphrase cannot be empty",
             AgentShellUsePolicy.resolveUseRequest(
                 ssid = "hp1",
                 explicitPassphrase = "",
@@ -66,10 +66,11 @@ class AgentShellUsePolicyTest {
             passphraseSource = AgentShellUsePassphraseSource.DEFAULT,
         )
 
-        val command = AgentShellUsePolicy.connectCommand(request)
+        val options = (AgentShellParser.parse("request wifi connect hp1 security wpa3 timeout 45000") as AgentShellCommand.Connect).options
+        val command = AgentShellUsePolicy.connectCommand(options, request)
         val connect = command.connectWifi
 
-        assertEquals("use hp1", command.label)
+        assertEquals("request wifi connect", command.label)
         assertEquals("hp1", connect.ssid)
         assertEquals("hogehoge", connect.passphrase)
         assertEquals(WifiCommandPolicy.DEFAULT_CONNECT_TIMEOUT_MS, connect.timeoutMs)

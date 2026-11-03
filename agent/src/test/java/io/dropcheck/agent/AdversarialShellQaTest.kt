@@ -17,13 +17,13 @@ class AdversarialShellQaTest {
         }
     }
     @Test fun quotedSecretNeverLeaksThroughArgumentHelp() {
-        assertFalse(AgentShellParser.contextHelp("wifi connect Lab passphrase 'qa-synthetic-secret'").joinToString().contains("qa-synthetic-secret"))
+        assertFalse(AgentShellParser.contextHelp("request wifi connect Lab passphrase 'qa-synthetic-secret'").joinToString().contains("qa-synthetic-secret"))
     }
 
     @Test fun historyDoesNotRetainCredentialDraftAcrossRecall() {
         val session = AgentShellSession()
         session.remember("show permissions")
-        val secretDraft = "wifi connect Lab passphrase qa-synthetic-secret"
+        val secretDraft = "request wifi connect Lab passphrase qa-synthetic-secret"
         session.recall(secretDraft, -1)
         assertFalse("credential-bearing draft remained in recall state", session.recall("show permissions", 1).contains("qa-synthetic-secret"))
     }
@@ -36,7 +36,7 @@ class AdversarialShellQaTest {
     }
 
     @Test fun requiredWhitespacePskMatchesPcBoundary() {
-        assertTrue("valid 8-byte whitespace PSK rejected", AgentShellParser.parse("wifi connect Lab passphrase '        '") is AgentShellCommand.Execute)
+        assertTrue("valid 8-byte whitespace PSK rejected", AgentShellParser.parse("request wifi connect Lab passphrase '        '") is AgentShellCommand.Connect)
     }
 
     @Test fun midTokenCompletionCannotDuplicateSuffix() {
@@ -53,7 +53,7 @@ class AdversarialShellQaTest {
     }
 
     @Test fun uniqueCheckKeywordPrefixMatchesPcBoundary() {
-        assertEquals(AgentShellCommand.Check("link", "Lab"), AgentShellParser.parse("check link s Lab"))
+        assertEquals(AgentShellCommand.Check("link", "Lab"), AgentShellParser.parse("test link s Lab"))
     }
 
     @Test fun filteringCannotReduceFailureToOnlyACountForCopyAndAccessibility() {

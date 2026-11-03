@@ -45,44 +45,6 @@ internal object AgentWifiMloRenderer {
         return out.map { AgentBlockPart.Text(it) }
     }
 
-    fun presentation(status: WifiStatus, scan: WifiScan, context: AgentWifiMloContext, detail: Boolean = false, detailAvailable: Boolean = false): List<AgentBlockPart> = buildList {
-        fun text(label: String, value: String) { add(AgentBlockPart.Field(label, value)) }
-        val filter = MloFilter(context.ssidFilter, context.bssidFilter)
-        val conn = filter.connection(status.connection.takeIf { status.hasConnection() })
-        if (conn == null) text("Current", AgentObservationPresentation.value(status.observationFieldsList, "connection", "")) else {
-            text("SSID", AgentObservationPresentation.value(conn.observationFieldsList, "identity", conn.ssid))
-            text("BSSID", AgentObservationPresentation.value(conn.observationFieldsList, "identity", conn.bssid))
-            text("MLD", AgentObservationPresentation.value(conn.observationFieldsList, "ap_mld_mac_address", conn.apMldMacAddress))
-            text("PHY", conn.wifiStandard.ifEmpty { "?" })
-            for ((label, field, links) in listOf(Triple("Associated", "associated_mlo_links", conn.associatedMloLinksList), Triple("Affiliated", "affiliated_mlo_links", conn.affiliatedMloLinksList))) {
-                text(label, AgentObservationPresentation.value(conn.observationFieldsList, field, links.size.toString()))
-                add(AgentBlockPart.Table(listOf(
-                    AgentBlockPart.Column("L", true), AgentBlockPart.Column("State"), AgentBlockPart.Column("Band"), AgentBlockPart.Column("CH", true), AgentBlockPart.Column("dBm", true),
-                    AgentBlockPart.Column("Tx/Rx Mbps"), AgentBlockPart.Column("AP MAC"),
-                ), links.map { link -> listOf(
-                    AgentObservationPresentation.value(link.observationFieldsList, "identity", link.linkId.toString()),
-                    AgentObservationPresentation.value(link.observationFieldsList, "identity", link.state),
-                    AgentObservationPresentation.value(link.observationFieldsList, "identity", link.band),
-                    AgentObservationPresentation.value(link.observationFieldsList, "identity", link.channel.toString()),
-                    AgentObservationPresentation.value(link.observationFieldsList, "rates", link.rssiDbm.toString()),
-                    AgentObservationPresentation.value(link.observationFieldsList, "rates", "${link.txLinkSpeedMbps}/${link.rxLinkSpeedMbps}"),
-                    AgentObservationPresentation.value(link.observationFieldsList, "identity", link.apMacAddress),
-                ) }))
-            }
-        }
-        val fields = scan.fieldsList.associate { it.key to it.value }
-        text("Scan source", fields["scan_source"] ?: "? (source metadata unavailable)")
-        text("Updated", fields["fresh_scan_results_updated"] ?: "?")
-        val ages = scan.resultsList.filter { it.hasObservationAgeMs() }.map { it.observationAgeMs }.sortedWith { left, right -> java.lang.Long.compareUnsigned(left, right) }
-        val ageSummary = if (ages.isEmpty()) "? (observation timestamps unavailable)" else "${java.lang.Long.toUnsignedString(ages.first())}-${java.lang.Long.toUnsignedString(ages.last())}ms at collection; known=${ages.size}/${scan.resultsCount}"
-        add(AgentBlockPart.Field("Scan age", ageSummary, scan.resultsList.joinToString("; ") { "${it.bssid}=${AgentWifiScanRenderer.observationAge(it)}" }))
-        val comparison = scanComparison(conn, scan, filter.scanResults(scan.resultsList).filter(::isMloCapableCandidate))
-        text("Coverage", if (comparison == "updated_scan_age_le_10s") "point-in-time scan comparison only (not roam proof)" else "? ($comparison)")
-        scan.errorsList.forEach { text("Error", it) }
-        if (detail || !detailAvailable) addAll(render(status, scan, context).map { AgentBlockPart.Text(it) })
-        if (detailAvailable && !detail) text("More", "show wifi eht detail")
-    }
-
     fun render(status: WifiStatus, scan: WifiScan, context: AgentWifiMloContext = AgentWifiMloContext()): List<String> {
         val out = mutableListOf<String>()
         val filter = MloFilter(context.ssidFilter, context.bssidFilter)
@@ -1443,11 +1405,11 @@ internal object AgentWifiMloRenderer {
         val hasScan: Boolean = false,
     )
 
-    private data class MloFilter(val ssid: String = "", val bssid: String = "") {
-        val active: Boolean = ssid.isNotBlank() || bssid.isNotBlank()
+    internal data class MloFilter(val ssid: String = "", val bssid: String = "") {
+        val active: Boolean = ssid.isNotEmpty() || bssid.isNotEmpty()
         val label: String = when {
-            ssid.isNotBlank() -> "ssid=$ssid"
-            bssid.isNotBlank() -> "bssid=$bssid"
+            ssid.isNotEmpty() -> "ssid=$ssid"
+            bssid.isNotEmpty() -> "bssid=$bssid"
             else -> ""
         }
 
@@ -1462,8 +1424,8 @@ internal object AgentWifiMloRenderer {
         }
 
         private fun matches(result: WifiScanResult): Boolean {
-            if (ssid.isNotBlank()) return result.ssid == ssid
-            if (bssid.isNotBlank()) {
+            if (ssid.isNotEmpty()) return result.ssid == ssid
+            if (bssid.isNotEmpty()) {
                 return result.bssid.equals(bssid, ignoreCase = true) ||
                     result.affiliatedMloLinksList.any { it.apMacAddress.equals(bssid, ignoreCase = true) }
             }
@@ -1471,8 +1433,8 @@ internal object AgentWifiMloRenderer {
         }
 
         private fun matches(conn: WifiConnection): Boolean {
-            if (ssid.isNotBlank()) return conn.ssid == ssid
-            if (bssid.isNotBlank()) {
+            if (ssid.isNotEmpty()) return conn.ssid == ssid
+            if (bssid.isNotEmpty()) {
                 return conn.bssid.equals(bssid, ignoreCase = true) ||
                     conn.associatedMloLinksList.any { it.apMacAddress.equals(bssid, ignoreCase = true) } ||
                     conn.affiliatedMloLinksList.any { it.apMacAddress.equals(bssid, ignoreCase = true) }

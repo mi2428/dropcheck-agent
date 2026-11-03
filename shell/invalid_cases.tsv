@@ -1,24 +1,48 @@
 input
-ping example.test family IPV4
-ping example.test count +1
+request ping example.test family IPV4
+request ping example.test count +1
 show wifi scan band 6GHz
-dns example.test record all
-wifi assert require-ip TRUE
-show ip status network-id 01
-show network 01
-show network 2147483648
+request dns example.test record all
+test wifi require-ip TRUE
+show wifi status ip network-id 01
+show network id 01
+show network id 2147483648
 show network default network-id 42
-set default passphrase short
-wifi connect Lab passphrase short
-use Lab test-only
-http https://example.test:65536/
-download https://example.test:2147483648/
-wifi cycle Lab passphrase synthetic-passphrase http https://example.test:99999/
-check lab ssid Lab family ipv4 gateway 192.0.2.1 dns example.test resolver selected http https://example.test:65536/ expected-status 204 timeout 1000
-ping 999.0.0.1
-traceroute 256.1.1.1
-path-mtu 2001:db8:::1
-dns 1.2.3
-ping 1..2.3
-wifi cycle Lab passphrase synthetic-passphrase ping 300.1.2.3
-traceroute example.test via 999.0.0.1
+set cli default-passphrase short
+request wifi connect Lab passphrase short
+request wifi connect Lab test-only
+request http https://example.test:65536/
+request download https://example.test:2147483648/
+request wifi cycle Lab passphrase synthetic-passphrase http https://example.test:99999/
+test lab ssid Lab family ipv4 gateway 192.0.2.1 dns example.test resolver selected http https://example.test:65536/ expected-status 204 timeout 1000
+request ping 999.0.0.1
+request traceroute 256.1.1.1
+request path-mtu 2001:db8:::1
+request dns 1.2.3
+request ping 1..2.3
+request wifi cycle Lab passphrase synthetic-passphrase ping 300.1.2.3
+request traceroute example.test via 999.0.0.1
+request wifi forget config-id -1
+request wifi forget config-id 01
+request wifi forget config-id 2147483648
+request wifi forget ssid
+show wifi scan ssid Lab bssid 02:00:00:00:00:01
+show wifi status eht ssid Lab bssid 02:00:00:00:00:01
+show wifi status detail
+show wifi diagnostics
+show wifi capabilities
+show wifi eht
+show ip status
+show networks
+show network 42
+show wifi scan fresh
+show wifi scan detail Lab
+wifi disconnect
+ping example.test
+p example.test
+use Lab
+check link ssid Lab
+show checks
+show check last
+set default passphrase test-only
+clear default passphrase

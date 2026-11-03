@@ -1,0 +1,40 @@
+package command
+
+// The independently supported one-shot interface does not inherit Shell renames.
+var oneShotGrammar = []Grammar{
+	{Path: "show version", Effect: "local", Description: "Show application version"},
+	{Path: "show networks", Effect: "read", Description: "List Android Networks without scanning Wi-Fi"},
+	{Path: "show network", Positionals: []string{"target"}, Effect: "read", Description: "Inspect the default Network or an explicit Network ID"},
+	{Path: "show permissions", Effect: "read", Description: "Show permissions and Device Owner status"},
+	{Path: "show wifi status", Switches: []string{"detail"}, Effect: "read", Description: "Show the current Wi-Fi connection"},
+	{Path: "show wifi diagnostics", Switches: []string{"detail"}, Effect: "read", Description: "Collect independently observed Wi-Fi and Network snapshots"},
+	{Path: "show wifi capabilities", Switches: []string{"detail"}, Effect: "read", Description: "Show device Wi-Fi capabilities"},
+	{Path: "show wifi scan", Switches: []string{"fresh", "brief", "mlo"}, Values: []string{"band", "timeout"}, Effect: "read", Description: "Show cached APs, or request a fresh scan", Enums: map[string][]string{"band": {"all", "2.4ghz", "5ghz", "6ghz", "60ghz"}}},
+	{Path: "show wifi scan detail", Positionals: []string{"target"}, Values: []string{"band"}, Effect: "read", Description: "Inspect APs matching an SSID or BSSID", Enums: map[string][]string{"band": {"all", "2.4ghz", "5ghz", "6ghz", "60ghz"}}},
+	{Path: "show wifi eht", Switches: []string{"detail", "fresh"}, Values: []string{"ssid", "bssid", "timeout"}, Effect: "read", Description: "Show EHT/MLO evidence and its provenance"},
+	{Path: "show ip status", Switches: []string{"detail"}, Values: []string{"ssid", "bssid", "network-id"}, Effect: "read", Description: "Show the selected physical Wi-Fi Network"},
+	{Path: "wifi connect", Positionals: []string{"ssid"}, Values: []string{"passphrase", "security", "bssid", "band", "mac-randomization", "timeout", "passphrase-env"}, Effect: "mutation", Description: "Connect immediately; requires Device Owner", Enums: map[string][]string{"security": {"auto", "wpa2", "wpa3", "transition"}, "band": {"all", "2.4ghz", "5ghz", "6ghz", "60ghz"}, "mac-randomization": {"auto", "none", "persistent", "non-persistent"}}},
+	{Path: "wifi disconnect", Effect: "mutation", Description: "Disconnect immediately; requires Device Owner"},
+	{Path: "wifi forget", Positionals: []string{"target"}, Effect: "mutation", Description: "Forget a saved network immediately; requires Device Owner"},
+	{Path: "wifi wait connected", Values: []string{"ssid", "bssid", "security", "band", "require-ip", "require-validated", "timeout"}, Effect: "read", Description: "Wait for a matching Wi-Fi observation", Enums: map[string][]string{"security": {"auto", "wpa2", "wpa3", "transition"}, "band": {"all", "2.4ghz", "5ghz", "6ghz", "60ghz"}, "require-ip": {"true", "false"}, "require-validated": {"true", "false"}}},
+	{Path: "wifi assert", Values: []string{"ssid", "bssid", "security", "band", "require-ip", "require-validated", "timeout"}, Effect: "read", Description: "Assert typed Wi-Fi observations", Enums: map[string][]string{"security": {"auto", "wpa2", "wpa3", "transition"}, "band": {"all", "2.4ghz", "5ghz", "6ghz", "60ghz"}, "require-ip": {"true", "false"}, "require-validated": {"true", "false"}}},
+	{Path: "wifi monitor", Values: []string{"duration", "interval"}, Effect: "read", Description: "Observe bounded Wi-Fi events"},
+	{Path: "wifi reconnect", Values: []string{"timeout"}, Effect: "mutation", Description: "Reconnect immediately; requires Device Owner"},
+	{Path: "wifi cycle", Positionals: []string{"ssid"}, Required: []string{"passphrase"}, Values: []string{"passphrase", "security", "bssid", "band", "mac-randomization", "timeout", "count", "ping", "http", "forget-after-each", "pause"}, Effect: "mutation", Description: "Run bounded connection cycles and optional probes", Enums: map[string][]string{"security": {"auto", "wpa2", "wpa3", "transition"}, "band": {"all", "2.4ghz", "5ghz", "6ghz", "60ghz"}, "mac-randomization": {"auto", "none", "persistent", "non-persistent"}, "forget-after-each": {"true", "false"}}},
+	{Path: "ping", Positionals: []string{"host"}, Values: []string{"count", "size", "family", "timeout", "ssid", "bssid", "network-id"}, Effect: "probe", Description: "Send ICMP probes on the selected Network", Enums: map[string][]string{"family": {"ipv4", "ipv6", "auto"}}},
+	{Path: "traceroute", Positionals: []string{"host"}, Values: []string{"max-hops", "via", "size", "family", "timeout", "ssid", "bssid", "network-id"}, Effect: "probe", Description: "Trace a route using typed hop observations", Enums: map[string][]string{"family": {"ipv4", "ipv6", "auto"}}},
+	{Path: "path-mtu", Positionals: []string{"host"}, Values: []string{"min-mtu", "max-mtu", "family", "timeout", "ssid", "bssid", "network-id"}, Effect: "probe", Description: "Probe the path MTU", Enums: map[string][]string{"family": {"ipv4", "ipv6", "auto"}}},
+	{Path: "global-ip", Values: []string{"family", "timeout", "ssid", "bssid", "network-id"}, Effect: "probe", Description: "Query global IP addresses", Enums: map[string][]string{"family": {"ipv4", "ipv6", "all"}}},
+	{Path: "dns", Positionals: []string{"name"}, Values: []string{"record", "timeout", "ssid", "bssid", "network-id"}, Effect: "probe", Description: "Resolve names on the selected Network", Enums: map[string][]string{"record": {"A", "AAAA", "ALL"}}},
+	{Path: "http", Positionals: []string{"url"}, Values: []string{"expected-status", "timeout", "ssid", "bssid", "network-id"}, Effect: "probe", Description: "Send an HTTP request"},
+	{Path: "download", Positionals: []string{"url"}, Values: []string{"timeout", "ssid", "bssid", "network-id"}, Effect: "probe", Description: "Download on the selected Network"},
+	{Path: "help", Positionals: []string{"topic"}, Effect: "local", Description: "Show help without executing device operations"},
+	{Path: "set default passphrase", Positionals: []string{"passphrase"}, Unsupported: true, Effect: "session", Description: "Set a credential in memory for this Shell session only"},
+	{Path: "clear default passphrase", Unsupported: true, Effect: "session", Description: "Clear the session credential"},
+	{Path: "use", Positionals: []string{"ssid"}, Required: []string{"passphrase"}, Values: []string{"passphrase"}, Effect: "mutation", Description: "Connect using an explicit or session credential"},
+	{Path: "check", Positionals: []string{"name"}, Required: []string{"ssid"}, Values: []string{"ssid", "family", "bssid", "gateway", "dns", "resolver", "http", "expected-status", "timeout"}, Effect: "probe", Description: "Run link observations or an explicitly configured lab check", Enums: map[string][]string{"family": {"ipv4", "ipv6", "all"}}},
+	{Path: "show checks", Effect: "local", Description: "List available check profiles without running them"},
+	{Path: "show check last", Switches: []string{"detail"}, Effect: "local", Description: "Show the last check report"},
+}
+
+var oneShotAliases = map[string]string{"p": "ping", "tr": "traceroute", "pm": "path-mtu", "gip": "global-ip", "h": "help", "?": "help"}

@@ -16,9 +16,9 @@ func TestRound2CredentialByteAndControlBoundaries(t *testing.T) {
 		{strings.Repeat("é", 4), true}, {strings.Repeat("é", 32), false},
 		{"abc\x00defgh", false}, {"abc\tdefgh", false}, {"abc\ndefgh", false},
 	} {
-		for _, path := range []string{"wifi connect Lab passphrase", "wifi cycle Lab passphrase", "use Lab passphrase", "set default passphrase"} {
+		for _, path := range []string{"request wifi connect Lab passphrase", "request wifi cycle Lab passphrase", "set cli default-passphrase"} {
 			input := path + " '" + tc.psk + "'"
-			want := tc.valid || path == "set default passphrase" && tc.psk == ""
+			want := tc.valid
 			tokens, lexErr := SplitArgs(input)
 			var err error
 			var parsed Parsed
@@ -39,7 +39,7 @@ func TestRound2NumericAndOptionOrderBoundaries(t *testing.T) {
 		raw   string
 		valid bool
 	}{{"0", false}, {"1", true}, {"2147483647", true}, {"2147483648", false}, {"+1", false}, {"-1", false}, {"1e3", false}, {"１", false}} {
-		for _, order := range []string{"ping example.test timeout %s count 1", "ping example.test count 1 timeout %s"} {
+		for _, order := range []string{"request ping example.test timeout %s count 1", "request ping example.test count 1 timeout %s"} {
 			tokens, _ := SplitArgs(fmt.Sprintf(order, tc.raw))
 			_, err := ParseShellTokens(tokens)
 			if (err == nil) != tc.valid {
@@ -57,10 +57,10 @@ func TestRound2CanonicalBSSIDForms(t *testing.T) {
 		{"02:00:00:11:22:33", true}, {"AA:BB:CC:DD:EE:FF", true},
 		{"02-00-00-11-22-33", false}, {"0200.0011.2233", false}, {"02:00:00:11:22", false},
 	} {
-		tokens, _ := SplitArgs("wifi assert bssid " + tc.value)
-		_, err := ParseShellTokens(tokens)
-		if (err == nil) != tc.valid {
-			t.Errorf("BSSID %q accepted=%v", tc.value, err == nil)
+		tokens, _ := SplitArgs("test wifi bssid " + tc.value)
+		parsed, err := ParseShellTokens(tokens)
+		if (err == nil && parsed.Rejection == "") != tc.valid {
+			t.Errorf("BSSID %q accepted=%v", tc.value, err == nil && parsed.Rejection == "")
 		}
 	}
 }
@@ -74,7 +74,7 @@ func TestRound2ProbeEndpointTrustBoundaries(t *testing.T) {
 		{"999.0.0.1", false}, {"256.1.1.1", false}, {"2001:db8:::1", false},
 	} {
 		for _, path := range []string{"ping", "traceroute", "path-mtu"} {
-			tokens, _ := SplitArgs(path + " " + tc.host)
+			tokens, _ := SplitArgs("request " + path + " " + tc.host)
 			_, err := ParseShellTokens(tokens)
 			if (err == nil) != tc.valid {
 				t.Errorf("%s %q accepted=%v, want=%v", path, tc.host, err == nil, tc.valid)
@@ -83,7 +83,7 @@ func TestRound2ProbeEndpointTrustBoundaries(t *testing.T) {
 	}
 	for _, port := range []int{443, 65535, 65536, 2147483648} {
 		for _, path := range []string{"http", "download"} {
-			input := fmt.Sprintf("%s https://example.test:%d/", path, port)
+			input := fmt.Sprintf("request %s https://example.test:%d/", path, port)
 			tokens, _ := SplitArgs(input)
 			_, err := ParseShellTokens(tokens)
 			if (err == nil) != (port <= 65535) {
