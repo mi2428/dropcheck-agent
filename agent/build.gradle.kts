@@ -5,21 +5,21 @@ plugins {
     id("com.google.protobuf")
 }
 
-val protobufVersion = "4.34.2"
-val grpcVersion = "1.81.1"
+val protobufVersion = "4.36.2"
+val grpcVersion = "1.85.1"
 val dropcheckVersion = providers.gradleProperty("dropcheckVersion").orElse("0.0.0-dev").get()
 
 android {
     namespace = "io.dropcheck.agent"
     compileSdk {
-        version = release(37)
+        version = release(37) { minorApiLevel = 2 }
     }
     buildToolsVersion = "37.0.0"
 
     defaultConfig {
         applicationId = "io.dropcheck.agent"
         minSdk = 31
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 1
         versionName = dropcheckVersion
     }
@@ -30,6 +30,7 @@ android {
 
     // Use the controller's canonical device-free command matrix for Shell parity.
     sourceSets.getByName("test").resources.directories.add("../controller/integration/e2e/testdata")
+    sourceSets.getByName("test").resources.directories.add("../shell")
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -67,10 +68,10 @@ protobuf {
 }
 
 dependencies {
+    implementation("com.google.re2j:re2j:1.8")
     implementation("io.grpc:grpc-okhttp:$grpcVersion")
     implementation("io.grpc:grpc-protobuf-lite:$grpcVersion")
     implementation("io.grpc:grpc-stub:$grpcVersion")
     implementation("com.google.protobuf:protobuf-javalite:$protobufVersion")
-    compileOnly("javax.annotation:javax.annotation-api:1.3.2")
     testImplementation("junit:junit:4.13.2")
 }
