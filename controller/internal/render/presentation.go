@@ -13,8 +13,9 @@ import (
 // Presentation is local display state, never an acquisition or evaluation option.
 // Width zero selects lossless records for pipes and unknown terminal widths.
 type Presentation struct {
-	Width  int
-	Detail bool
+	Width       int
+	Detail      bool
+	Interactive bool
 	// RequestedFresh is supplied by the adapter, not inferred from source/update data.
 	RequestedFresh *bool
 	// DetailAvailable must be set only after the adapter exposes the detail command.
@@ -27,8 +28,20 @@ func TextBlock(text string, view Presentation) string {
 	return wrapPresentation(safePresentationText(text), view.Width)
 }
 
+// LayoutText only reflows values already sanitized at their typed/source boundary.
+func LayoutText(text string, view Presentation) string {
+	if text == "" {
+		return ""
+	}
+	return wrapPresentation(text, view.Width)
+}
+
 func resultTitle(result *controlpb.CommandResult, options command.Options) string {
 	switch result.Payload.(type) {
+	case *controlpb.CommandResult_NetworkSnapshot:
+		return "Android Networks"
+	case *controlpb.CommandResult_PermissionSnapshot:
+		return "Permissions"
 	case *controlpb.CommandResult_WifiStatus:
 		return "Wi-Fi status"
 	case *controlpb.CommandResult_IpStatus:
@@ -173,6 +186,19 @@ func renderAdaptiveScan(b *strings.Builder, scan *controlpb.WifiScan, options co
 			rows = append(rows, adaptiveScanRow(ap))
 		}
 	}
+	if view.Interactive {
+		renderInteractiveScanRows(b, groups, columns, rows, options, view)
+		if !options.WifiScanBrief {
+			for _, field := range scan.GetFields() {
+				if !slices.Contains([]string{"scan_source", "fresh_scan_results_updated", "requested_band", "fresh_scan_elapsed_ms", "scan_result_total_count", "scan_result_count"}, field.GetKey()) {
+					writeRecord(b, field.GetKey(), field.GetValue())
+				}
+			}
+		}
+		renderErrors(b, scan.GetErrors())
+		writeRecord(b, "More", "show wifi scan detail BSSID (new observation)")
+		return
+	}
 	if tableFits(columns, rows, view.Width) {
 		writeDisplayTable(b, columns, rows, " ")
 	} else {
@@ -223,6 +249,43 @@ func renderAdaptiveScan(b *strings.Builder, scan *controlpb.WifiScan, options co
 	writeRecord(b, "More", "show wifi scan detail BSSID (new observation)")
 }
 
+func renderInteractiveScanRows(b *strings.Builder, groups []scanResultGroup, columns []displayTableColumn, rows [][]string, options command.Options, view Presentation) {
+	// Row numbers connect supplemental fields without repeating SSID/BSSID values.
+	indexedColumns := append([]displayTableColumn{{header: "AP", numeric: true}}, columns...)
+	indexedRows := make([][]string, 0, len(rows))
+	for i, row := range rows {
+		indexedRows = append(indexedRows, append([]string{fmt.Sprint(i + 1)}, row...))
+	}
+	table := tableFits(indexedColumns, indexedRows, view.Width)
+	if table {
+		writeDisplayTable(b, indexedColumns, indexedRows, " ")
+	}
+	index := 0
+	for _, group := range groups {
+		for _, ap := range group.results {
+			writeSection(b, fmt.Sprintf("AP %d", index+1))
+			if !table {
+				for col, column := range columns {
+					writeRecord(b, column.header, rows[index][col])
+				}
+			}
+			writeRecord(b, "Observation age at collection", scanObservationAge(ap))
+			if !options.WifiScanBrief || options.WifiScanMLO {
+				writeRecord(b, "MLD", empty(wifiMLOScanMLDMAC(ap), "? (metadata availability uncollected)"))
+				renderMLOLinks(b, "Affiliated", ap.GetAffiliatedMloLinks())
+			}
+			if !options.WifiScanBrief {
+				writeRecord(b, "Frequency MHz", ap.GetFrequencyMhz())
+				writeRecord(b, "Centers MHz", fmt.Sprintf("%d/%d", ap.GetCenterFreq0Mhz(), ap.GetCenterFreq1Mhz()))
+				writeRecord(b, "FLAGS", empty(strings.Join(scanConnectionCapabilityFlags(ap), ","), "? (availability uncollected)"))
+				renderWifiSecurityDetails(b, ap.GetSecurityDetails())
+			}
+			index++
+		}
+	}
+	writeRecord(b, "Units", "RSSI=dBm; BW=MHz; band G=GHz; PHY=802.11")
+}
+
 func adaptiveScanRow(ap *controlpb.WifiScanResult) []string {
 	return []string{scanDisplaySSID(ap), empty(ap.GetBssid(), "?"), fmt.Sprint(ap.GetRssiDbm()), compactBand(empty(ap.GetBand(), wifiBandFromFrequency(ap.GetFrequencyMhz()))), wifiChannelFromFrequency(ap.GetFrequencyMhz()), empty(strings.TrimSuffix(ap.GetChannelWidth(), "MHz"), "?"), compactPHY(ap.GetWifiStandard()), compactSecuritySet(ap.GetSecurityTypes())}
 }
@@ -237,6 +300,11 @@ func renderL2(b *strings.Builder, status *controlpb.WifiStatus, view Presentatio
 		radio = "on"
 	}
 	writeRecord(b, "Radio", observedValue(status.GetObservationFields(), "radio", radio))
+	if view.Interactive {
+		writeRecord(b, "Wi-Fi state", status.GetState())
+		writeRecord(b, "Active Network", empty(status.GetActiveNetwork(), "none"))
+		writeRecord(b, "Wi-Fi Networks", status.GetWifiNetworkCount())
+	}
 	conn := status.GetConnection()
 	if conn == nil {
 		link := observedValue(status.GetObservationFields(), "connection", "")
@@ -270,7 +338,11 @@ func renderL2(b *strings.Builder, status *controlpb.WifiStatus, view Presentatio
 		writeRecord(b, "Associated", observedValue(conn.GetObservationFields(), "associated_mlo_links", fmt.Sprint(len(conn.GetAssociatedMloLinks()))))
 		writeRecord(b, "Affiliated", observedValue(conn.GetObservationFields(), "affiliated_mlo_links", fmt.Sprint(len(conn.GetAffiliatedMloLinks()))))
 		if view.Detail || !view.DetailAvailable {
-			renderWifiConnection(b, conn)
+			if view.Interactive {
+				renderConnectionExtra(b, conn)
+			} else {
+				renderWifiConnection(b, conn)
+			}
 		}
 		if status.GetIpStatus() == nil && conn.GetIpv4Address() != "" {
 			writeKVSection(b, "Related IP snapshot", wifiConnectionNetworkRows(conn)...)
@@ -285,6 +357,27 @@ func renderL2(b *strings.Builder, status *controlpb.WifiStatus, view Presentatio
 	if view.DetailAvailable && !view.Detail {
 		writeRecord(b, "More", "show wifi status detail")
 	}
+}
+
+// The overview already owns identity, radio, rates and MLO counts.
+func renderConnectionExtra(b *strings.Builder, conn *controlpb.WifiConnection) {
+	writeSection(b, "Connection detail")
+	writeRecord(b, "Network configuration ID", conn.GetNetworkId())
+	writeRecord(b, "Signal level", wifiSignalLevel(conn))
+	writeRecord(b, "Frequency MHz", conn.GetFrequencyMhz())
+	writeRecord(b, "Link speed Mbps", conn.GetLinkSpeedMbps())
+	writeRecord(b, "STA MAC", conn.GetMacAddress())
+	writeRecord(b, "Supplicant state", conn.GetSupplicantState())
+	writeRecord(b, "Hidden SSID", conn.GetHiddenSsid())
+	writeRecord(b, "Restricted", conn.GetRestricted())
+	writeRecord(b, "Subscription ID", conn.GetSubscriptionId())
+	writeRecord(b, "Applicable redactions", conn.GetApplicableRedactions())
+	writeRecord(b, "AP link ID", observedValue(conn.GetObservationFields(), "ap_mlo_link_id", fmt.Sprint(conn.GetApMloLinkId())))
+	renderWifiConnectionCapabilities(b, conn)
+	renderWifiSecurityDetails(b, conn.GetSecurityDetails())
+	renderWifiConnectionDetailedCapabilities(b, conn)
+	renderMLOLinks(b, "Associated links", conn.GetAssociatedMloLinks())
+	renderMLOLinks(b, "Affiliated links", conn.GetAffiliatedMloLinks())
 }
 
 func renderDeviceCapabilities(b *strings.Builder, capabilities *controlpb.WifiCapabilities, view Presentation) {

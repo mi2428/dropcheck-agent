@@ -74,6 +74,9 @@ func renderIPView(b *strings.Builder, status *controlpb.IpStatus, view Presentat
 	fields := status.GetObservationFields()
 	metadata := diagnosticFieldMap(fields)
 	writeRecord(b, "Network", empty(status.GetNetworkId(), "?"))
+	if view.Interactive {
+		writeRecord(b, "Transports", observedList(fields, "capabilities", status.GetTransports()))
+	}
 	writeRecord(b, "Interface", observedValue(fields, "link_properties", status.GetInterfaceName()))
 	writeRecord(b, "Default network", observedValue(fields, "default_network", metadata["default_network_id"]))
 	selected := metadata["selected_is_default"]
@@ -134,6 +137,12 @@ func renderIPView(b *strings.Builder, status *controlpb.IpStatus, view Presentat
 		writeRecord(b, "Proxy", observedValue(fields, "link_properties", status.GetHttpProxy()))
 		writeRecord(b, "Wake on LAN", observedBool(fields, "link_properties", status.GetWakeOnLanSupported()))
 		writeKVSection(b, "IPv6 RA (android)", kv("source", "android"), kv("values", multiLineValue(diagnosticFieldsForDetail(status.GetIpv6Ra()))))
+		if view.Interactive && status.GetWifi() != nil {
+			writeSection(b, "WifiInfo from this NetworkCapabilities observation")
+			renderWifiConnection(b, status.GetWifi())
+			renderMLOLinks(b, "Associated links", status.GetWifi().GetAssociatedMloLinks())
+			renderMLOLinks(b, "Affiliated links", status.GetWifi().GetAffiliatedMloLinks())
+		}
 		if view.Detail && status.GetRawLinkProperties() != "" {
 			writeRecord(b, "Raw LinkProperties", status.GetRawLinkProperties())
 		}

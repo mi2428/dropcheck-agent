@@ -50,7 +50,11 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 	if len(presentation) > 0 {
 		view = presentation[0]
 	}
-	fmt.Fprintf(&b, "%s  %s  %dms\n", resultTitle(result, options), strings.ToUpper(resultStatus(result.GetStatus())), commandResultLatencyMs(result))
+	if view.Interactive {
+		fmt.Fprintf(&b, "%s  %s\n", resultTitle(result, options), strings.ToUpper(resultStatus(result.GetStatus())))
+	} else {
+		fmt.Fprintf(&b, "%s  %s  %dms\n", resultTitle(result, options), strings.ToUpper(resultStatus(result.GetStatus())), commandResultLatencyMs(result))
+	}
 	if result.GetStatus() != controlpb.CommandResult_STATUS_OK {
 		fmt.Fprintf(&b, "Status: %s", resultStatus(result.GetStatus()))
 		if result.GetMessage() != "" {
@@ -61,6 +65,19 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 	fmt.Fprintf(&b, "Latency: %dms\n", commandResultLatencyMs(result))
 	fmt.Fprintf(&b, "Source: android  Target: %s\n", cleanDisplayCell(agent))
 	switch payload := result.Payload.(type) {
+	case *controlpb.CommandResult_NetworkSnapshot:
+		writeRecord(&b, "Observed at unix ms", payload.NetworkSnapshot.GetObservedAtUnixMs())
+		for _, network := range payload.NetworkSnapshot.GetNetworks() {
+			writeRecord(&b, "Active/default at collection", network.GetActive())
+			renderIPView(&b, network.GetIpStatus(), view)
+		}
+		renderErrors(&b, payload.NetworkSnapshot.GetErrors())
+	case *controlpb.CommandResult_PermissionSnapshot:
+		writeRecord(&b, "Observed at unix ms", payload.PermissionSnapshot.GetObservedAtUnixMs())
+		writeRecord(&b, "Device Owner", payload.PermissionSnapshot.GetDeviceOwner())
+		for _, field := range payload.PermissionSnapshot.GetPermissions() {
+			writeRecord(&b, field.GetKey(), field.GetValue())
+		}
 	case *controlpb.CommandResult_WifiStatus:
 		renderL2(&b, payload.WifiStatus, view)
 	case *controlpb.CommandResult_ConnectWifi:
@@ -86,7 +103,7 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 			if view.DetailAvailable && !view.Detail {
 				renderCurrentMLO(&b, payload.WifiDiagnostics, options, view)
 			} else {
-				renderWifiMLO(&b, payload.WifiDiagnostics, options)
+				renderWifiMLO(&b, payload.WifiDiagnostics, options, view)
 			}
 		} else {
 			renderDiagnosticBundle(&b, payload.WifiDiagnostics, options, view)
@@ -102,7 +119,7 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 	case *controlpb.CommandResult_WifiMonitor:
 		renderWifiMonitor(&b, payload.WifiMonitor)
 	case *controlpb.CommandResult_WifiScanDetail:
-		renderWifiScanDetail(&b, payload.WifiScanDetail, options)
+		renderWifiScanDetail(&b, payload.WifiScanDetail, options, view)
 	case *controlpb.CommandResult_WifiCycle:
 		renderWifiCycle(&b, payload.WifiCycle)
 	default:
@@ -994,7 +1011,7 @@ func renderWget(b *strings.Builder, result *controlpb.WgetResult) {
 	)
 }
 
-func renderWifiScanDetail(b *strings.Builder, detail *controlpb.WifiScanDetail, options command.Options) {
+func renderWifiScanDetail(b *strings.Builder, detail *controlpb.WifiScanDetail, options command.Options, view Presentation) {
 	if detail == nil {
 		return
 	}
@@ -1009,6 +1026,17 @@ func renderWifiScanDetail(b *strings.Builder, detail *controlpb.WifiScanDetail, 
 		writeSection(b, "AP")
 		writeRecord(b, "BSSID", empty(ap.GetBssid(), "?"))
 		writeRecord(b, "SSID", scanDisplaySSID(ap))
+		if ap.GetOperatorFriendlyName() != "" {
+			writeRecord(b, "Operator", ap.GetOperatorFriendlyName())
+		}
+		if ap.GetVenueName() != "" {
+			writeRecord(b, "Venue", ap.GetVenueName())
+		}
+		if view.Interactive {
+			writeRecord(b, "RSSI dBm", ap.GetRssiDbm())
+			writeRecord(b, "PHY", ap.GetWifiStandard())
+			writeRecord(b, "Flags", strings.Join(scanConnectionCapabilityFlags(ap), ","))
+		}
 		writeRecord(b, "Observation age", scanObservationAge(ap))
 		writeRecord(b, "Radio", fmt.Sprintf("CH=%s frequency=%dMHz centers=%d/%dMHz BW=%s", wifiChannelFromFrequency(ap.GetFrequencyMhz()), ap.GetFrequencyMhz(), ap.GetCenterFreq0Mhz(), ap.GetCenterFreq1Mhz(), ap.GetChannelWidth()))
 		writeRecord(b, "Security", strings.Join(ap.GetSecurityTypes(), ","))

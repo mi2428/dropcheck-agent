@@ -14,6 +14,7 @@ import (
 
 	"dropcheck/controller/internal/adb"
 	"dropcheck/controller/internal/pipeline"
+	"dropcheck/controller/internal/render"
 )
 
 // Diagnostic kind values select the adb command bundle collected by Specs.
@@ -59,6 +60,18 @@ type Bundle struct {
 	Kind      string          `json:"kind"`
 	StartedAt string          `json:"started_at"`
 	Commands  []CommandResult `json:"commands"`
+}
+
+func (b Bundle) OK() bool {
+	if len(b.Commands) == 0 {
+		return false
+	}
+	for _, command := range b.Commands {
+		if command.ExitCode != 0 || command.TimedOut || command.Error != "" {
+			return false
+		}
+	}
+	return true
 }
 
 // Specs returns the adb commands for a diagnostics kind.
@@ -176,7 +189,8 @@ func Render(bundle Bundle, format pipeline.Format) (string, error) {
 			}
 		}
 	}
-	return b.String(), nil
+	// Preserve raw acquisition/explicit JSON; text is the safe presentation boundary.
+	return render.TextBlock(b.String(), render.Presentation{}), nil
 }
 
 func cmdWifiStatus() CommandSpec {

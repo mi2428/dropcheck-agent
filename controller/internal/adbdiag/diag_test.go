@@ -47,6 +47,26 @@ func TestRenderTextIncludesCommandOutput(t *testing.T) {
 	}
 }
 
+func TestBundleOutcomeAndPresentationBoundary(t *testing.T) {
+	for _, commands := range [][]CommandResult{nil, {{ExitCode: 7}}, {{TimedOut: true}}, {{Error: "denied"}}, {{}, {ExitCode: 7}}} {
+		if (Bundle{Commands: commands}).OK() {
+			t.Fatalf("failed acquisition reported success: %+v", commands)
+		}
+	}
+	bundle := Bundle{Commands: []CommandResult{{Stdout: "password=synthetic-private-value\n"}}}
+	if !bundle.OK() {
+		t.Fatal("successful acquisition rejected")
+	}
+	text, err := Render(bundle, pipeline.FormatText)
+	if err != nil || strings.Contains(text, "synthetic-private-value") || !strings.Contains(text, "<redacted>") {
+		t.Fatal(text, err)
+	}
+	raw, err := Render(bundle, pipeline.FormatJSON)
+	if err != nil || !strings.Contains(raw, "synthetic-private-value") || bundle.Commands[0].Stdout != "password=synthetic-private-value\n" {
+		t.Fatal("explicit raw JSON/acquisition was modified", err)
+	}
+}
+
 func TestParseMLOSummaryExtractsCmdWifiAndDumpsysFields(t *testing.T) {
 	text := `WifiInfo: SSID: "Lab" MLO Information: , Is TID-To-Link negotiation supported by the AP: false, AP MLD Address: 02:00:00:00:00:01, AP MLO Link Id: 2, AP MLO Affiliated links: [link_id=2], Vendor Data: <none>
 timestamp_ms=1,wifi_link_count=1,Link Stats from link_id=2,state=2,radio_id=0,frequency_mhz=5975,beacon_rx=42,rssi_mgmt=-47,rssi=-48,channel_width=3,mlo_mode=1`
