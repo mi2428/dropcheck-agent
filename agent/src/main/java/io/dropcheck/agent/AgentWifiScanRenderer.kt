@@ -21,23 +21,24 @@ internal object AgentWifiScanRenderer {
                 result.ssid.ifEmpty { "? (SSID presence unavailable)" }, result.bssid.ifEmpty { "?" }, result.rssiDbm.toString(),
                 band(result.band.ifEmpty { bandNameForFrequency(result.frequencyMhz) }), channel(result.frequencyMhz),
                 result.channelWidth.removeSuffix("MHz").ifEmpty { "?" }, phy(result.wifiStandard), security(result.securityTypesList),
-            )
+            ) + if (context.brief) listOf(ageSeconds(result)) else emptyList()
         }
         return buildList {
             add(AgentBlockPart.Text("Wi-Fi Scan"))
-            add(AgentBlockPart.Text("Requested: ${context.requestedFresh?.let { if (it) "fresh" else "cached" } ?: "? (request metadata unavailable)"}"))
-            add(AgentBlockPart.Text("Data source: ${fields["scan_source"] ?: "? (source metadata unavailable)"}"))
-            add(AgentBlockPart.Text("Updated: ${fields["fresh_scan_results_updated"] ?: "?"}"))
-            add(AgentBlockPart.Text("Band: ${fields["requested_band"] ?: "?"}"))
-            add(AgentBlockPart.Text("Update elapsed: ${fields["fresh_scan_elapsed_ms"] ?: "?"}ms"))
-            add(AgentBlockPart.Text("APs: acquired=${rows.size} total=${fields["scan_result_total_count"] ?: scan.resultsCount}"))
+            add(AgentBlockPart.Field("Requested", context.requestedFresh?.let { if (it) "fresh" else "cached" } ?: "? (request metadata unavailable)"))
+            add(AgentBlockPart.Field("Data source", fields["scan_source"] ?: "? (source metadata unavailable)"))
+            add(AgentBlockPart.Field("Updated", fields["fresh_scan_results_updated"] ?: "?"))
+            add(AgentBlockPart.Field("Band", fields["requested_band"] ?: "?"))
+            add(AgentBlockPart.Field("Update elapsed", "${fields["fresh_scan_elapsed_ms"] ?: "?"}ms"))
+            add(AgentBlockPart.Field("APs", "acquired=${rows.size} total=${fields["scan_result_total_count"] ?: scan.resultsCount}"))
             if (context.mloOnly) add(AgentBlockPart.Text("Filter: mlo; shown counts filtered APs"))
-            add(AgentBlockPart.Scan(rows))
+            add(AgentBlockPart.Scan(rows, scanColumns + if (context.brief) listOf(AgentBlockPart.Column("AGE(s)")) else emptyList()))
             add(AgentBlockPart.Text("BW=MHz; RSSI=dBm; band G=GHz; PHY=802.11"))
+            if (context.brief) add(AgentBlockPart.Field("AGE(s)", "seconds at collection; ?=timestamp unavailable; wpa3-eap=eap_wpa3_enterprise"))
             // AP numbers refer to row order, including rows retained in Inspect/copy.
-            results.forEachIndexed { index, ap ->
+            if (!context.brief || context.mloOnly || context.detail) results.forEachIndexed { index, ap ->
                 add(AgentBlockPart.Text("AP ${index + 1}"))
-                add(AgentBlockPart.Field("Observation age at collection", observationAge(ap)))
+                if (!context.brief) add(AgentBlockPart.Field("Observation age at collection", observationAge(ap)))
                 if (!context.brief || context.mloOnly) {
                     add(AgentBlockPart.Field("MLD", ap.apMldMacAddress.ifEmpty { parseEhtMultiLinkElements(ap.informationElementsList).firstNotNullOfOrNull { it.commonInfo?.mldMacAddress }.orEmpty().ifEmpty { "? (metadata unavailable)" } }))
                     if (!context.detail) add(AgentBlockPart.Field("Affiliated", ap.affiliatedMloLinksList.joinToString("; ") { link -> "${link.linkId} ${link.state} ${link.band} AP=${link.apMacAddress} STA=${link.staMacAddress}" }.ifEmpty { "? (metadata unavailable)" }))
@@ -61,9 +62,17 @@ internal object AgentWifiScanRenderer {
 
     internal fun observationAge(ap: WifiScanResult): String = if (ap.hasObservationAgeMs()) "${java.lang.Long.toUnsignedString(ap.observationAgeMs)}ms" else "? (observation timestamp unavailable)"
 
+    internal fun ageSeconds(ap: WifiScanResult): String {
+        if (!ap.hasObservationAgeMs()) return "?"
+        val ms = ap.observationAgeMs.toULong()
+        val fraction = (ms % 1000u).toString().padStart(3, '0').trimEnd('0')
+        return (ms / 1000u).toString() + if (fraction.isEmpty()) "" else ".$fraction"
+    }
+
     internal fun security(values: List<String>): String = values.joinToString("+") { token ->
         when (token) {
             "wpa3_sae" -> "sae"
+            "eap_wpa3_enterprise" -> "wpa3-eap"
             "wpa2_psk" -> "psk"
             "wpa2_wpa3_personal", "wpa2_psk+wpa3_sae" -> "psk+sae"
             else -> token

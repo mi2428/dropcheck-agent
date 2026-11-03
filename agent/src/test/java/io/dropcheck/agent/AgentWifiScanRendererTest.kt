@@ -11,6 +11,37 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentWifiScanRendererTest {
+    @Test fun briefKeepsAgesInScanRowsWithoutSupplementalApBlocks() {
+        val scan = WifiScan.newBuilder().addErrors("reference cache; refresh failed")
+        repeat(26) { index ->
+            val ap = WifiScanResult.newBuilder().setSsid("password=Guest").setBssid("02:00:00:11:22:%02x".format(index)).setRssiDbm(-40 - index)
+            if (index == 0) ap.setObservationAgeMs(0)
+            if (index == 1) ap.setObservationAgeMs(51845845)
+            if (index == 2) ap.setObservationAgeMs(-1L)
+            scan.addResults(ap)
+        }
+        val parts = AgentWifiScanRenderer.presentation(scan.build(), AgentWifiScanContext(brief = true))
+        val rows = parts.filterIsInstance<AgentBlockPart.Scan>().single().rows
+        assertTrue(rows.all { it.size == 9 })
+        for ((index, age) in listOf("0", "51845.845", "18446744073709551.615", "?").withIndex()) {
+            assertTrue("age lost its AP row", rows.single { it[1].endsWith("%02x".format(index)) }.last() == age)
+        }
+        assertFalse(parts.filterIsInstance<AgentBlockPart.Text>().any { Regex("AP [0-9]+").matches(it.value) })
+        val block = AgentPresentationBlock.create(parts, 0)
+        val out = block.fullText
+        assertTrue("AGE(s): 51845.845" in out)
+        assertTrue("password=Guest" in out)
+        assertTrue("refresh failed" in out)
+        assertTrue("timestamp unavailable" in out)
+        assertTrue("Full: show wifi scan" in out)
+        assertFalse("Observation age at collection:" in out)
+        assertTrue(block.safeValues().any { it.first == "AP 2 AGE(s)" && it.second == "51845.845" })
+        val json = AgentShellPipeline.parse(listOf("display json")).apply(AgentShellResult(false, block = block)).block!!.fullText
+        assertTrue("\"ok\":false" in json && "AGE(s): 51845.845" in json)
+        val full = AgentWifiScanRenderer.render(scan.build()).joinToString("\n")
+        assertTrue("Observation age at collection: 51845845ms" in full)
+    }
+
     @Test
     fun rendersBriefMloTableScan() {
         val scan = WifiScan.newBuilder()
