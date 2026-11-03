@@ -30,7 +30,7 @@ class StatusFollowupQaTest {
         val status = WifiStatus.newBuilder().setState("token=qa-framework-secret").setConnection(connection).setIpStatus(ip).build()
         for (full in listOf(false, true)) {
             val parts = if (full) AgentWifiDiagnosticsRenderer.presentation(WifiDiagnostics.newBuilder().setStatus(status).build(), true, true, true)
-                else AgentWifiStatusRenderer.presentation(status, true, true, true)
+                else AgentWifiStatusRenderer.summary(status)
             val block = AgentPresentationBlock.create(parts, 0)
             val json = AgentShellPipeline.parse(listOf("display json")).apply(AgentShellResult(false, block = block)).block!!.fullText
             for (out in listOf(block.fullText, json)) {

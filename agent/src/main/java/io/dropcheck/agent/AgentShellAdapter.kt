@@ -88,16 +88,12 @@ internal class AgentShellAdapter(private val context: Context, private val logge
     private fun eht(command: AgentShellCommand.ShowWifiEht): AgentShellResult {
         val result = runWifiEhtDiagnostics(command, executor::execute)
         if (!result.hasWifiDiagnostics() || !result.wifiDiagnostics.hasStatus()) return failure("Wi-Fi EHT", result)
-        val filter = AgentWifiMloRenderer.MloFilter(command.ssid, command.bssid)
-        val diagnostics = result.wifiDiagnostics.toBuilder()
-        val status = diagnostics.status.toBuilder().clearConnection()
-        filter.connection(diagnostics.status.connection.takeIf { diagnostics.status.hasConnection() })?.let(status::setConnection)
-        if (filter.active && filter.connection(diagnostics.status.ipStatus.wifi) == null) status.clearIpStatus()
-        diagnostics.setStatus(status).setScan(diagnostics.scan.toBuilder().clearResults().addAllResults(filter.scanResults(diagnostics.scan.resultsList)))
-        val networks = diagnostics.networksList.filter { !filter.active || filter.connection(it.ipStatus.wifi) != null }
-        diagnostics.clearNetworks().addAllNetworks(networks)
-        val parts = listOfNotNull(if (filter.active) AgentBlockPart.Field("Evidence filter", filter.label) else null) +
-            AgentWifiDiagnosticsRenderer.presentation(diagnostics.build(), true, true, true)
+        val diagnostics = result.wifiDiagnostics
+        val parts = AgentWifiMloRenderer.presentation(diagnostics.status, diagnostics.scan, AgentWifiMloContext(
+            wifiCapabilities = diagnostics.capabilities, ssidFilter = command.ssid, bssidFilter = command.bssid,
+            scanSource = if (command.fresh) diagnostics.scan.fieldsList.lastOrNull { it.key == "scan_source" }?.value
+                ?: "? (scan source metadata unavailable)" else "cached",
+        ))
         return block(result, parts, "Wi-Fi EHT")
     }
 
@@ -149,7 +145,7 @@ internal class AgentShellAdapter(private val context: Context, private val logge
                 add(AgentBlockPart.Field("Device Owner", result.permissionSnapshot.deviceOwner.toString()))
                 result.permissionSnapshot.permissionsList.forEach { add(AgentBlockPart.Field(it.key, it.value)) }
             }
-            RunCommand.CommandCase.GET_WIFI_STATUS -> AgentWifiStatusRenderer.presentation(result.wifiStatus, true, true, true)
+            RunCommand.CommandCase.GET_WIFI_STATUS -> if (command.summary) AgentWifiStatusRenderer.summary(result.wifiStatus) else AgentWifiStatusRenderer.presentation(result.wifiStatus, true, true, true)
             RunCommand.CommandCase.GET_WIFI_DIAGNOSTICS -> AgentWifiDiagnosticsRenderer.presentation(result.wifiDiagnostics, true, true, true)
             RunCommand.CommandCase.GET_WIFI_CAPABILITIES -> AgentWifiCapabilitiesRenderer.presentation(result.wifiCapabilities, true, true)
             RunCommand.CommandCase.GET_WIFI_SCAN, RunCommand.CommandCase.GET_FRESH_WIFI_SCAN -> {

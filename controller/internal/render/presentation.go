@@ -345,6 +345,9 @@ func renderL2(b *strings.Builder, status *controlpb.WifiStatus, view Presentatio
 		writeRecord(b, "PHY", empty(conn.GetWifiStandard(), "?"))
 		writeRecord(b, "RSSI", observedValue(conn.GetObservationFields(), "rssi", fmt.Sprintf("%ddBm", conn.GetRssiDbm())))
 		writeRecord(b, "Security", empty(conn.GetSecurityType(), "?"))
+		if view.Interactive && conn.GetSecurityDetails().GetRsnPresent() {
+			writeRecord(b, "PMF", fmt.Sprintf("capable=%t required=%t", conn.GetSecurityDetails().GetPmfCapable(), conn.GetSecurityDetails().GetPmfRequired()))
+		}
 		writeRecord(b, "Tx link rate", observedValue(conn.GetObservationFields(), "tx_link_speed_mbps", fmt.Sprintf("%dMbps", conn.GetTxLinkSpeedMbps())))
 		writeRecord(b, "Rx link rate", observedValue(conn.GetObservationFields(), "rx_link_speed_mbps", fmt.Sprintf("%dMbps", conn.GetRxLinkSpeedMbps())))
 		writeRecord(b, "MLD", observedValue(conn.GetObservationFields(), "ap_mld_mac_address", conn.GetApMldMacAddress()))
@@ -368,13 +371,13 @@ func renderL2(b *strings.Builder, status *controlpb.WifiStatus, view Presentatio
 			writeRecord(b, "Note", permission)
 		}
 	}
-	if view.Interactive {
+	if view.Interactive && (view.Detail || !view.DetailAvailable) {
 		renderDiagnosticFields(b, status.GetObservationFields())
 	}
 	if !view.Interactive {
 		writeRecord(b, "IP", "show ip status")
 	}
-	if view.DetailAvailable && !view.Detail {
+	if !view.Interactive && view.DetailAvailable && !view.Detail {
 		writeRecord(b, "More", "show wifi status detail")
 	}
 }
@@ -505,25 +508,6 @@ func renderDiagnosticBundle(b *strings.Builder, diagnostics *controlpb.WifiDiagn
 	writeSection(b, "Summary")
 	writeRecord(b, "Constituent status", "? (acquisition-result contract unavailable); not an atomic snapshot")
 	full := options.WifiRenderMode == command.WifiRenderModeFull || view.Interactive
-	if view.Interactive && options.WifiRenderMode == command.WifiRenderModeEHT {
-		diagnostics = proto.Clone(diagnostics).(*controlpb.WifiDiagnostics)
-		filter := wifiMLOFilter{ssid: options.WifiEHTSSID, bssid: options.WifiEHTBSSID}
-		if diagnostics.Status != nil {
-			diagnostics.Status.Connection = filter.connection(diagnostics.Status.Connection)
-			if ip := diagnostics.Status.IpStatus; ip != nil && filter.active() && !filter.matchesConnection(ip.GetWifi()) {
-				diagnostics.Status.IpStatus = nil
-			}
-		}
-		if diagnostics.Scan != nil {
-			diagnostics.Scan.Results = filter.scanResults(diagnostics.Scan.Results)
-		}
-		diagnostics.Networks = slices.DeleteFunc(diagnostics.Networks, func(network *controlpb.NetworkDiagnostics) bool {
-			return filter.active() && !filter.matchesConnection(network.GetIpStatus().GetWifi())
-		})
-		if filter.active() {
-			writeRecord(b, "Evidence filter", filter.label())
-		}
-	}
 	if !full {
 		for _, reason := range diagnostics.GetScan().GetErrors() {
 			writeRecord(b, "Scan note", reason)

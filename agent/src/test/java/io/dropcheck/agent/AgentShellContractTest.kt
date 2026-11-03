@@ -17,7 +17,7 @@ class AgentShellContractTest {
         }
         val candidates = AgentShellParser.contextHelp("show wifi status ")
         assertTrue("  <Enter>  - Execute the requested subject" in candidates)
-        assertTrue("  eht  - Show all EHT/MLO evidence and provenance" in candidates)
+        assertTrue("  eht  - Show focused EHT/MLO connection, AP and device evidence" in candidates)
         assertEquals(listOf("  <value>"), AgentShellParser.contextHelp("request wifi connect Lab passphrase "))
     }
 
@@ -26,6 +26,25 @@ class AgentShellContractTest {
         assertEquals(AgentShellContract.rows.map { it.path }.toSet(), cases.map { it[0] }.toSet())
         cases.forEach { row -> assertFalse("${row[0]}: ${AgentShellParser.parse(row[1])}", AgentShellParser.parse(row[1]) is AgentShellCommand.Invalid) }
         rows("invalid_cases.tsv").forEach { row -> assertTrue(row[0], AgentShellParser.parse(row[0]) is AgentShellCommand.Invalid) }
+    }
+
+    @Test fun wifiStatusUsesLightweightAcquisition() {
+        val status = AgentShellParser.parse("show wifi status") as AgentShellCommand.Execute
+        val full = AgentShellParser.parse("sh wi st f") as AgentShellCommand.Execute
+        val connection = AgentShellParser.parse("show wifi status connection") as AgentShellCommand.Execute
+        assertEquals(status.request, connection.request)
+        assertTrue(status.request.hasGetWifiStatus())
+        assertTrue(full.request.hasGetWifiDiagnostics())
+        assertTrue(status.summary)
+        assertFalse(connection.summary)
+        assertFalse(full.summary)
+        assertFalse(AgentShellParser.historySafe("show wifi status"))
+        assertFalse(AgentShellParser.historySafe("show wifi status full"))
+        assertTrue("show wifi status full" in AgentShellParser.complete("show wifi status "))
+        assertTrue("  full  - Show all passive Wi-Fi diagnostics including safe raw dumps" in AgentShellParser.contextHelp("show wifi status "))
+        for (line in listOf("show wifi status full full", "show wifi status full ssid Lab", "show wifi status full connection")) {
+            assertTrue(line, AgentShellParser.parse(line) is AgentShellCommand.Invalid)
+        }
     }
 
     @Test fun portablePipelinesMatchGoFixtures() {

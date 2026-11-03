@@ -20,7 +20,7 @@ func TestHelpSeparatesCommandSyntaxFromDescriptions(t *testing.T) {
 	}
 	out.Reset()
 	WriteContextHelp(&out, "show wifi status ?")
-	for _, want := range []string{"  <Enter>  - Execute the requested subject\n", "  eht  - Show all EHT/MLO evidence and provenance\n"} {
+	for _, want := range []string{"  <Enter>  - Execute the requested subject\n", "  eht  - Show focused EHT/MLO connection, AP and device evidence\n"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("candidate description has no delimiter: %q", out.String())
 		}
@@ -45,7 +45,7 @@ func TestContextHelpNeverEchoesCredentials(t *testing.T) {
 			t.Errorf("literal became help: %s", line)
 		}
 	}
-	for _, line := range []string{"set cli default-passphrase synthetic-private-psk", "request wifi connect Lab passphrase synthetic-private-psk", "request http https://example.test/?token=secret", "help arbitrary-private-value", `show network | match private-value`, "show wifi status"} {
+	for _, line := range []string{"set cli default-passphrase synthetic-private-psk", "request wifi connect Lab passphrase synthetic-private-psk", "request http https://example.test/?token=secret", "help arbitrary-private-value", `show network | match private-value`, "show wifi status", "show wifi status full"} {
 		if HistorySafe(line) {
 			t.Errorf("secret-capable input entered history: %s", line)
 		}

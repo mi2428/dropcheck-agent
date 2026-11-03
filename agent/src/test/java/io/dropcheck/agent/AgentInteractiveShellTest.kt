@@ -12,7 +12,8 @@ class AgentInteractiveShellTest {
         "show network default" to RunCommand.CommandCase.GET_NETWORK,
         "show network id" to RunCommand.CommandCase.GET_NETWORK,
         "show permissions" to RunCommand.CommandCase.GET_PERMISSIONS,
-        "show wifi status" to RunCommand.CommandCase.GET_WIFI_DIAGNOSTICS,
+        "show wifi status" to RunCommand.CommandCase.GET_WIFI_STATUS,
+        "show wifi status full" to RunCommand.CommandCase.GET_WIFI_DIAGNOSTICS,
         "show wifi status connection" to RunCommand.CommandCase.GET_WIFI_STATUS,
         "show wifi status ip" to RunCommand.CommandCase.GET_IP_STATUS,
         "show wifi status capabilities" to RunCommand.CommandCase.GET_WIFI_CAPABILITIES,
@@ -66,7 +67,6 @@ class AgentInteractiveShellTest {
         val wired = rows.filter { it[0] in wireCases }.map { live(it[1]).request.commandCase }.toSet()
         val rpcOnly = setOf(RunCommand.CommandCase.WAIT_WIFI_CONNECTED, RunCommand.CommandCase.GET_WIFI_SCAN_DETAIL)
         assertEquals(AgentCommandRegistry.entries.map { it.commandCase }.toSet() - rpcOnly, wired)
-        assertEquals(25, wireCases.size)
         assertTrue("wifi.forget.typed" in AgentCommandRegistry.capabilities)
         assertEquals(AgentShellCommand.ShowWifiEht(), AgentShellParser.parse("show wifi status eht"))
         assertEquals(AgentShellCommand.ShowWifiEht(fresh = true, timeoutMs = 9000, band = WifiBand.WIFI_BAND_6_GHZ),

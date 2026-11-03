@@ -79,7 +79,11 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 			writeRecord(&b, field.GetKey(), field.GetValue())
 		}
 	case *controlpb.CommandResult_WifiStatus:
-		renderL2(&b, payload.WifiStatus, view)
+		if options.WifiRenderMode == command.WifiRenderModeStatus {
+			renderWifiSummary(&b, payload.WifiStatus, view)
+		} else {
+			renderL2(&b, payload.WifiStatus, view)
+		}
 	case *controlpb.CommandResult_ConnectWifi:
 		renderConnectWifi(&b, payload.ConnectWifi)
 	case *controlpb.CommandResult_IpStatus:
@@ -99,7 +103,7 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 	case *controlpb.CommandResult_Wget:
 		renderWget(&b, payload.Wget)
 	case *controlpb.CommandResult_WifiDiagnostics:
-		if options.WifiRenderMode == command.WifiRenderModeEHT && !view.Interactive {
+		if options.WifiRenderMode == command.WifiRenderModeEHT {
 			if view.DetailAvailable && !view.Detail {
 				renderCurrentMLO(&b, payload.WifiDiagnostics, options, view)
 			} else {

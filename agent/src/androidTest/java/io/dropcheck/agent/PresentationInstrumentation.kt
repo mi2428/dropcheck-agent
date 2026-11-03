@@ -26,6 +26,10 @@ class PresentationInstrumentation : Instrumentation() {
                         listOf("東京Ｇ e\u0301 👩\u200d🔬 Lab Case", "06:00:00:11:22:33", "-55", "5G", "36", "80", "ax", "psk+sae"),
                     )),
                     AgentBlockPart.Field("IPv6", "ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255%long-interface-name/128"),
+                    AgentBlockPart.Text("Connection\n  Identity"),
+                    AgentBlockPart.Field("    SSID".padEnd(32), "password=Guest 東京 Case"),
+                    AgentBlockPart.Field("    IPv6".padEnd(32), "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff/64"),
+                    AgentBlockPart.Field("    Servers".padEnd(32), "192.0.2.53\n2001:db8::53"),
                 ), 0, 12f, 10f)
                 for (scale in listOf(1f, 1.3f, 2f)) {
                     val configuration = Configuration(targetContext.resources.configuration).apply { fontScale = scale }
@@ -53,6 +57,12 @@ class PresentationInstrumentation : Instrumentation() {
                         check(rendered.text.toString().contains("FAILED"))
                         check(block.fullText.contains("02:00:00:11:22:33") && block.fullText.contains("06:00:00:11:22:33"))
                         check(block.fullText.contains("psk+sae+future_Mode"))
+                        check(rendered.text.toString().filterNot(Char::isWhitespace).contains("password=Guest東京Case"))
+                        check(rendered.text.toString().contains("\n  Identity\n"))
+                        if (columns >= 48) {
+                            val identity = rendered.text.toString().lines().first { it.startsWith("    SSID") }
+                            check(identity.indexOf(": ") == 32) { "summary value column moved" }
+                        }
                         checked++
                     }
                 }

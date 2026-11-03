@@ -18,7 +18,7 @@ type commandResultSupplements struct {
 }
 
 func collectCommandResultSupplements(ctx context.Context, state *shellState, agent control.AgentInfo, result *controlpb.CommandResult, options commandOptions, format outputFormat, interactive ...bool) commandResultSupplements {
-	if format != outputText || result == nil {
+	if format != outputText || result == nil || options.WifiRenderMode == command.WifiRenderModeStatus {
 		return commandResultSupplements{}
 	}
 	var supplements commandResultSupplements
