@@ -1077,6 +1077,9 @@ func renderWifiScanDetail(b *strings.Builder, detail *controlpb.WifiScanDetail, 
 		conn := &controlpb.WifiConnection{HeCapabilities: ap.GetHeCapabilities(), HeOperation: ap.GetHeOperation(), EhtCapabilities: ap.GetEhtCapabilities(), EhtOperation: ap.GetEhtOperation(), HeUoraParameterSet: ap.GetHeUoraParameterSet(), HeMuEdcaParameterSet: ap.GetHeMuEdcaParameterSet(), HeSpatialReuseParameterSet: ap.GetHeSpatialReuseParameterSet(), He_6GhzCapabilities: ap.GetHe_6GhzCapabilities(), InformationElements: ap.GetInformationElements()}
 		renderWifiConnectionCapabilities(b, conn)
 		renderWifiConnectionDetailedCapabilities(b, conn)
+		if view.Detail || options.Detail {
+			renderScanReferenceEvidence(b, ap)
+		}
 	}
 	renderErrors(b, detail.GetErrors())
 }
