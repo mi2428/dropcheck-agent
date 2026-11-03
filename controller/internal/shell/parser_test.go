@@ -65,14 +65,14 @@ func TestProfileShellUsesSharedLiteralGrammar(t *testing.T) {
 		{`check link ssid "malformed`, Profile, "", "", true},
 		{`show checks`, Profiles, "", "", false},
 		{`show check last detail`, LastReport, "", "", false},
-		{`use "Case Sensitive" passphrase synthetic-private-psk`, AgentCommand, "", "", false},
+		{`use "Case Sensitive" passphrase synthetic-private-psk`, Use, "Case Sensitive", "", false},
 	} {
 		parsed, err := ParseLine(tc.line)
 		if err != nil || parsed.Kind != tc.kind || parsed.SSID != tc.ssid || parsed.Family != tc.family || (parsed.Rejection != "") != tc.reject {
 			t.Errorf("%q: %+v %v", tc.line, parsed, err)
 		}
-		if strings.HasPrefix(tc.line, "use") && parsed.Operation.Name != "wifi.connect" {
-			t.Error("use retained secret-bearing command text or changed connection operation")
+		if strings.HasPrefix(tc.line, "use") && (parsed.Passphrase != "synthetic-private-psk" || parsed.Operation.Command != nil) {
+			t.Error("use must resolve the session credential only at execution")
 		}
 	}
 }

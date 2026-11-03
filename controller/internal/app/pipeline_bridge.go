@@ -1,37 +1,46 @@
 package app
 
-import "dropcheck/controller/internal/pipeline"
+import (
+	"dropcheck/controller/internal/pipeline"
+	"dropcheck/controller/internal/render"
+)
 
 type outputFormat = pipeline.Format
 
 const (
 	outputText outputFormat = pipeline.FormatText
 	outputJSON outputFormat = pipeline.FormatJSON
-	outputSet  outputFormat = pipeline.FormatSet
 )
 
 type pipePipeline struct {
 	pipeline    pipeline.Pipeline
 	displayJSON bool
-	displaySet  bool
-	stages      []pipeStage
 }
-
-type pipeStage struct{}
 
 func wrapPipePipeline(parsed pipeline.Pipeline) pipePipeline {
 	return pipePipeline{
 		pipeline:    parsed,
 		displayJSON: parsed.DisplayJSON(),
-		displaySet:  parsed.DisplaySet(),
-		stages:      make([]pipeStage, parsed.StageCount()),
 	}
-}
-
-func (p pipePipeline) format() outputFormat {
-	return p.pipeline.Format(outputText)
 }
 
 func (p pipePipeline) apply(text string) (string, error) {
 	return p.pipeline.Apply(text)
+}
+
+func (p pipePipeline) shellOutput(text string, ok bool) (string, error) {
+	if text != "" {
+		text = render.LayoutText(text, render.Presentation{})
+	}
+	out, err := p.apply(text)
+	if err != nil {
+		return "", err
+	}
+	if p.displayJSON {
+		return pipeline.JSON(out, ok)
+	}
+	if out == "" {
+		return "", nil
+	}
+	return render.LayoutText(out, terminalPresentation()), nil
 }

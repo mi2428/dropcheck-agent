@@ -10,16 +10,19 @@ import (
 type shellCommandKind = shell.CommandKind
 
 const (
-	shellNoop           = shell.Noop
-	shellExit           = shell.Exit
-	shellHelp           = shell.Help
-	shellShowDevices    = shell.ShowDevices
-	shellAgentCommand   = shell.AgentCommand
-	shellADBDiagnostics = shell.ADBDiagnostics
-	shellVersion        = shell.Version
-	shellProfile        = shell.Profile
-	shellProfiles       = shell.Profiles
-	shellLastReport     = shell.LastReport
+	shellNoop                   = shell.Noop
+	shellExit                   = shell.Exit
+	shellHelp                   = shell.Help
+	shellShowDevices            = shell.ShowDevices
+	shellAgentCommand           = shell.AgentCommand
+	shellADBDiagnostics         = shell.ADBDiagnostics
+	shellVersion                = shell.Version
+	shellProfile                = shell.Profile
+	shellProfiles               = shell.Profiles
+	shellLastReport             = shell.LastReport
+	shellSetDefaultPassphrase   = shell.SetDefaultPassphrase
+	shellClearDefaultPassphrase = shell.ClearDefaultPassphrase
+	shellUse                    = shell.Use
 )
 
 type shellCommand struct {
@@ -31,18 +34,17 @@ type shellCommand struct {
 	profileName, ssid, family, bssid string
 	lab                              command.LabConfig
 	detail                           bool
-	use                              bool
 	rejection                        string
+	passphrase                       string
 }
 
 func parseShellLine(line string) (shellCommand, error) {
 	parsed, err := shell.ParseLine(line)
-	return shellCommand{kind: parsed.Kind, operation: parsed.Operation, adbKind: parsed.ADBDiagnosticsKind, helpTopic: parsed.HelpTopic, pipeline: wrapPipePipeline(parsed.Pipeline), profileName: parsed.ProfileName, ssid: parsed.SSID, family: parsed.Family, bssid: parsed.BSSID, lab: parsed.Lab, detail: parsed.Detail, use: parsed.Use, rejection: parsed.Rejection}, err
+	return shellCommand{kind: parsed.Kind, operation: parsed.Operation, adbKind: parsed.ADBDiagnosticsKind, helpTopic: parsed.HelpTopic, pipeline: wrapPipePipeline(parsed.Pipeline), profileName: parsed.ProfileName, ssid: parsed.SSID, family: parsed.Family, bssid: parsed.BSSID, lab: parsed.Lab, detail: parsed.Detail, rejection: parsed.Rejection, passphrase: parsed.Passphrase}, err
 }
 
 func isHelpLine(line string) bool                         { return shell.IsHelpLine(line) }
 func isShellHelpRune(value rune) bool                     { return shell.IsHelpRune(value) }
-func printShellHelp()                                     { shell.PrintHelp() }
 func printShellContextHelp(line string, _ ...*shellState) { shell.PrintContextHelp(line) }
 func writeShellContextHelp(w io.Writer, line string, _ ...*shellState) {
 	shell.WriteContextHelp(w, line)

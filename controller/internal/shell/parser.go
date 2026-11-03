@@ -21,6 +21,9 @@ const (
 	Profile
 	Profiles
 	LastReport
+	SetDefaultPassphrase
+	ClearDefaultPassphrase
+	Use
 )
 
 type Command struct {
@@ -32,8 +35,8 @@ type Command struct {
 	ProfileName, SSID, Family, BSSID string
 	Lab                              command.LabConfig
 	Detail                           bool
-	Use                              bool
 	Rejection                        string
+	Passphrase                       string
 }
 
 func ParseLine(line string) (Command, error) {
@@ -49,7 +52,7 @@ func ParseLine(line string) (Command, error) {
 	}
 	pipe, err := pipeline.Parse(parts[1:])
 	if err != nil {
-		return rejectCheck(err)
+		return Command{}, err
 	}
 	args, err := command.SplitArgs(parts[0])
 	if err != nil {
@@ -59,17 +62,23 @@ func ParseLine(line string) (Command, error) {
 		return Command{Kind: Noop}, nil
 	}
 	if args[0] == "exit" || args[0] == "quit" {
-		if len(args) != 1 {
+		if len(args) != 1 || len(parts) > 1 {
 			return Command{}, fmt.Errorf("usage: %s", args[0])
 		}
 		return Command{Kind: Exit}, nil
 	}
-	parsed, err := command.ParseTokens(args)
+	parsed, err := command.ParseShellTokens(args)
 	if err != nil {
 		return Command{}, err
 	}
-	result := Command{Kind: AgentCommand, Operation: parsed.Operation, ADBDiagnosticsKind: parsed.ADBKind, HelpTopic: parsed.Topic, Pipeline: pipe, ProfileName: parsed.Profile, SSID: parsed.SSID, Family: parsed.Family, BSSID: parsed.BSSID, Lab: parsed.Lab, Detail: parsed.Detail, Use: parsed.Path == "use", Rejection: parsed.Rejection}
+	result := Command{Kind: AgentCommand, Operation: parsed.Operation, ADBDiagnosticsKind: parsed.ADBKind, HelpTopic: parsed.Topic, Pipeline: pipe, ProfileName: parsed.Profile, SSID: parsed.SSID, Family: parsed.Family, BSSID: parsed.BSSID, Lab: parsed.Lab, Detail: parsed.Detail, Rejection: parsed.Rejection, Passphrase: parsed.Passphrase}
 	switch parsed.Path {
+	case "set default passphrase":
+		result.Kind = SetDefaultPassphrase
+	case "clear default passphrase":
+		result.Kind = ClearDefaultPassphrase
+	case "use":
+		result.Kind = Use
 	case "check":
 		result.Kind = Profile
 	case "show checks":

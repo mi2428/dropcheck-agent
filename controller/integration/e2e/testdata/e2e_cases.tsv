@@ -1,7 +1,7 @@
 id	title	runner	command	expect	assertion
 E2E-001	Shell help	shell	help	help	Full command and pipe help is printed.
 E2E-002	Shell show devices	shell	show devices	ok_or_clear	Connected agent table includes the selected serial.
-E2E-003	Shell pipe no-more	shell	show devices | no-more	ok_or_clear	Output is unchanged and no pipe error is printed.
+E2E-003	Shell rejects unimplemented no-more	shell	show devices | no-more	error	The removed pager no-op is rejected before execution.
 E2E-004	Shell pipe match except count	shell	show devices | match <serial> | except NO_MATCH | count	ok_or_clear	Prints `Count: 1 lines`.
 E2E-005	Shell pipe display JSON	shell	show devices | display json	ok_or_clear	JSON device rows are printed.
 E2E-015	Shell Wi-Fi status	shell	show wifi status	ok_or_clear	Wi-Fi status renders without dispatch error.
@@ -74,7 +74,7 @@ E2E-088	Parser regex compile error	shell-parser	"show devices | except ""["""	er
 E2E-089	Parser display value validation	shell-parser	show devices | display xml	error	`display` rejects unsupported format.
 E2E-090	Parser display arity	shell-parser	show devices | display json extra	error	`display` rejects extra argument.
 E2E-091	Shell case-insensitive regex	shell	"show devices | match ""(?i)pixel"""	ok_or_clear	Matching output contains the Pixel device row.
-E2E-092	Shell pipeline order after display	shell	show devices | display json | count	ok_or_clear	Command succeeds and counts JSON lines.
+E2E-092	Shell rejects JSON line filtering	shell	show devices | display json | count	error	Structured JSON cannot be combined with a line filter.
 E2E-093	Shell rejects display after count	shell	show devices | count | display json	error	`display json` after `count` is rejected with a shell error.
 E2E-094	Parser unknown pipe stage	shell-parser	show devices | unknown	error	Unsupported pipe command error.
 E2E-120	Shell band value 2.4 GHz	shell	show wifi scan band 2.4ghz	ok_or_clear	Cached scan filtered to 2.4 GHz succeeds.
@@ -279,5 +279,5 @@ E2E-351	Shell Wi-Fi EHT fresh	shell	show wifi eht fresh timeout 12000	ok_or_clea
 E2E-352	Parser Wi-Fi EHT fresh detail	shell-parser	show wifi eht fresh detail timeout 9000	ok	Wi-Fi EHT fresh/detail are independent switches.
 E2E-353	Parser Wi-Fi EHT fresh duplicate timeout	shell-parser	show wifi eht fresh timeout 100 timeout 200	error	Duplicate Wi-Fi EHT fresh timeout is rejected.
 E2E-354	CLI Wi-Fi EHT	cli	dropcheck show wifi eht	ok_or_clear	EHT-focused Wi-Fi diagnostics render from the CLI.
-E2E-357	Parser pipe display set	shell-parser	show devices | display set	ok	Display set output pipeline parses.
+E2E-357	Parser rejects unimplemented display set	shell-parser	show devices | display set	error	The removed configuration-format no-op is rejected before execution.
 E2E-358	Parser rejects display set after count	shell-parser	show devices | count | display set	error	Display set after count is rejected.

@@ -4,17 +4,16 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/pipeline"
 )
 
 func PrintHelp() { writeHelp(os.Stdout) }
-
 func writeHelp(w io.Writer) {
-	fmt.Fprintln(w, "Controller Shell commands (key value; switches fresh/brief/mlo/detail):")
-	for _, entry := range command.GrammarTable {
+	fmt.Fprintln(w, "Controller Shell (pinned Android target; PC-only ADB/device commands are labelled)")
+	for _, entry := range command.ShellGrammarTable {
 		if entry.Unsupported {
 			continue
 		}
@@ -22,130 +21,102 @@ func writeHelp(w io.Writer) {
 		for _, pos := range entry.Positionals {
 			fmt.Fprint(w, " <", pos, ">")
 		}
-		for _, key := range entry.Required {
-			fmt.Fprint(w, " ", key, " <value>")
-		}
 		for _, key := range entry.Switches {
 			fmt.Fprint(w, " [", key, "]")
 		}
 		for _, key := range entry.Values {
-			if !contains(entry.Required, key) {
+			if slices.Contains(entry.Required, key) {
+				fmt.Fprint(w, " ", key, " <value>")
+			} else {
 				fmt.Fprint(w, " [", key, " <value>]")
 			}
 		}
+		if entry.Effect == "" {
+			fmt.Fprint(w, "  (PC-only)")
+		} else {
+			fmt.Fprint(w, "  ", entry.Description)
+		}
 		fmt.Fprintln(w)
 	}
-	fmt.Fprintln(w, "  exit | quit\n  | display json|set | match <regex> | except <regex> | count | no-more")
-	fmt.Fprintln(w, "  check link: family defaults to ipv4; BSSID pinning unsupported; read-only")
-	fmt.Fprintln(w, "  check lab: explicit ssid/family/gateway/dns/resolver selected/http/expected-status/timeout; active traffic, no Wi-Fi changes")
+	fmt.Fprintln(w, "  exit | quit\n  | begin <pattern> | match <pattern> | except <pattern> | count\n  | display json (alone; safe presentation JSON)")
+	fmt.Fprintln(w, "  Defaults and command history are session-only; secret input is never retained in history.")
 }
 
-func contains(list []string, word string) bool {
-	for _, item := range list {
-		if item == word {
-			return true
-		}
-	}
-	return false
-}
-
-func IsHelpRune(value rune) bool { return value == '?' || value == '？' }
-
+func IsHelpRune(r rune) bool { return r == '?' || r == '？' }
 func IsHelpLine(line string) bool {
-	trimmed := strings.TrimSpace(line)
-	if trimmed == "?" || trimmed == "？" {
-		return true
-	}
-	parts, err := pipeline.Split(trimmed)
-	if err != nil {
-		return false
-	}
-	args, err := command.SplitArgs(parts[len(parts)-1])
-	return err == nil && len(args) > 0 && (args[len(args)-1] == "?" || args[len(args)-1] == "？")
+	line = strings.TrimRight(line, " \t\r\n")
+	runes := []rune(line)
+	return len(runes) > 0 && IsHelpRune(runes[len(runes)-1]) && command.HelpPosition(string(runes[:len(runes)-1]))
 }
-
 func PrintContextHelp(line string) { WriteContextHelp(os.Stdout, line) }
-
 func WriteContextHelp(w io.Writer, line string) {
-	if strings.TrimSpace(line) == "?" || strings.TrimSpace(line) == "？" {
+	runes := []rune(strings.TrimRight(line, "\r\n"))
+	if len(runes) > 0 && IsHelpRune(runes[len(runes)-1]) {
+		runes = runes[:len(runes)-1]
+	}
+	prefix := string(runes)
+	if strings.TrimSpace(prefix) == "" {
 		writeHelp(w)
 		return
 	}
-	line = strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(line), "?"), "？"))
-	if parts, err := pipeline.Split(line + "x"); err == nil && len(parts) > 1 {
-		for _, candidate := range []string{"display json", "display set", "match <regex>", "except <regex>", "count", "no-more"} {
-			fmt.Fprintln(w, "  ", candidate)
+	for _, candidate := range CompleteLine(prefix) {
+		lexed, _ := command.Lex(candidate, true)
+		if len(lexed.Tokens) > 0 {
+			fmt.Fprintln(w, "  ", lexed.Tokens[len(lexed.Tokens)-1].Value)
 		}
-		return
-	}
-	args, err := command.SplitArgs(line)
-	if err != nil {
-		writeHelp(w)
-		return
-	}
-	if len(args) == 0 {
-		writeHelp(w)
-		return
-	}
-	for _, candidate := range command.Suggestions(args) {
-		fmt.Fprintln(w, "  ", candidate)
-	}
-	if len(command.Suggestions(args)) == 0 {
-		writeHelp(w)
 	}
 }
 
 func CompleteLine(line string) []string {
-	if parts, err := pipeline.Split(line + "x"); err != nil {
+	lexed, _ := command.Lex(line, true)
+	if lexed.Quote != 0 || lexed.Escaped {
 		return nil
-	} else if len(parts) > 1 {
-		segment := strings.TrimSuffix(parts[len(parts)-1], "x")
-		args, err := command.SplitArgs(segment)
-		if err != nil {
+	}
+	tokens := lexed.Tokens
+	pipe := false
+	for i, token := range slices.Backward(tokens) {
+		if token.Pipe {
+			tokens = tokens[i+1:]
+			pipe = true
+			break
+		}
+	}
+	var args []string
+	start := len(line)
+	prefix := ""
+	for _, t := range tokens {
+		args = append(args, t.Value)
+	}
+	if len(tokens) > 0 && tokens[len(tokens)-1].End == len(line) {
+		last := tokens[len(tokens)-1]
+		if last.Literal {
 			return nil
 		}
-		prefix := ""
-		base := args
-		if !strings.HasSuffix(line, " ") && len(args) > 0 {
-			prefix = args[len(args)-1]
-			base = args[:len(args)-1]
-		}
-		var choices []string
+		prefix = last.Value
+		start = last.Start
+		args = args[:len(args)-1]
+	}
+	var choices []string
+	if pipe {
 		switch {
-		case len(base) == 0:
-			choices = []string{"display", "match", "except", "count", "no-more"}
-		case len(base) == 1 && base[0] == "display":
-			choices = []string{"json", "set"}
+		case len(args) == 0:
+			choices = []string{"begin", "match", "except", "count", "display"}
+		case len(args) == 1 && args[0] == "display":
+			choices = []string{"json"}
+		case len(args) == 1 && (args[0] == "begin" || args[0] == "match" || args[0] == "except"):
+			choices = []string{"<pattern>"}
 		}
-		var out []string
-		for _, choice := range choices {
-			if strings.HasPrefix(choice, prefix) {
-				out = append(out, line[:len(line)-len(prefix)]+choice)
-			}
-		}
-		return out
-	}
-	args, err := command.SplitArgs(line)
-	if err != nil {
-		return nil
-	}
-	base := args
-	prefix := ""
-	if len(line) > 0 && !strings.HasSuffix(line, " ") && len(args) > 0 {
-		prefix = args[len(args)-1]
-		base = args[:len(args)-1]
-	}
-	var candidates []string
-	if len(base) == 0 {
-		candidates = command.Suggestions(nil)
 	} else {
-		candidates = command.Suggestions(base)
+		choices = command.ShellSuggestions(args)
+		if len(args) == 0 {
+			choices = append(choices, "exit", "quit")
+		}
 	}
 	var out []string
-	for _, candidate := range candidates {
-		if strings.HasPrefix(candidate, prefix) {
-			completion := line[:len(line)-len(prefix)] + candidate
-			if prefix == candidate && !IsPlaceholderCandidate(candidate) && len(command.Suggestions(append(append([]string(nil), base...), candidate))) > 0 {
+	for _, choice := range choices {
+		if strings.HasPrefix(choice, prefix) || IsPlaceholderCandidate(choice) {
+			completion := line[:start] + choice
+			if prefix == choice && !IsPlaceholderCandidate(choice) {
 				completion += " "
 			}
 			out = append(out, completion)
@@ -157,13 +128,32 @@ func CompleteLine(line string) []string {
 func CompletionHintLine(line string) string {
 	var hints []string
 	for _, candidate := range CompleteLine(line) {
-		if strings.Contains(candidate, "<") {
-			hints = append(hints, strings.TrimPrefix(candidate, line))
+		lexed, _ := command.Lex(candidate, true)
+		if len(lexed.Tokens) > 0 && IsPlaceholderCandidate(lexed.Tokens[len(lexed.Tokens)-1].Value) {
+			hints = append(hints, lexed.Tokens[len(lexed.Tokens)-1].Value)
 		}
 	}
 	return strings.Join(hints, "  ")
 }
-
 func IsPlaceholderCandidate(value string) bool {
 	return strings.HasPrefix(value, "<") && strings.HasSuffix(value, ">")
+}
+
+// Only successfully parsed, read-only input is eligible for recall. URL/query
+// and caller-supplied literals in probes may also contain credentials.
+func HistorySafe(line string) bool {
+	parsed, err := ParseLine(line)
+	if err != nil {
+		return false
+	}
+	if parsed.Pipeline.DisplayJSON() || parsed.Pipeline.StageCount() > 0 {
+		return false
+	}
+	if parsed.Kind == Version || parsed.Kind == Profiles || parsed.Kind == LastReport || parsed.Kind == Help || parsed.Kind == ShowDevices {
+		return true
+	}
+	if parsed.Kind != AgentCommand || parsed.Operation.Command == nil {
+		return false
+	}
+	return strings.HasPrefix(parsed.Operation.Name, "wifi.status") || parsed.Operation.Name == "wifi.capabilities" || parsed.Operation.Name == "network.list" || parsed.Operation.Name == "permissions" || parsed.Operation.Name == "ip.status"
 }

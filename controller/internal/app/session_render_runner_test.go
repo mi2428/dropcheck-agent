@@ -96,21 +96,21 @@ func TestShellPromptUsesAgentLabelAndModeSuffix(t *testing.T) {
 	state, cleanup := connectedShellState(t)
 	defer cleanup()
 
-	if got, want := state.prompt(), "R5CT12345# "; got != want {
+	if got, want := state.prompt(), "R5CT12345> "; got != want {
 		t.Fatalf("prompt() = %q, want %q", got, want)
 	}
 
-	if got, want := state.prompt(), "R5CT12345# "; got != want {
+	if got, want := state.prompt(), "R5CT12345> "; got != want {
 		t.Fatalf("request prompt() = %q, want %q", got, want)
 	}
 
 	state.targetAll = true
-	if got, want := state.prompt(), "all# "; got != want {
+	if got, want := state.prompt(), "all> "; got != want {
 		t.Fatalf("all request prompt() = %q, want %q", got, want)
 	}
 
 	disconnected := &shellState{selected: "missing-agent", selectedLabel: "previous-agent"}
-	if got, want := disconnected.prompt(), "previous-agent# "; got != want {
+	if got, want := disconnected.prompt(), "previous-agent> "; got != want {
 		t.Fatalf("disconnected prompt() = %q, want %q", got, want)
 	}
 }
@@ -489,7 +489,7 @@ func TestTargetResolutionContracts(t *testing.T) {
 					switch scenario {
 					case "lost", "lost prefix":
 						cleanupA()
-						if state.selected != "agent-a" || state.prompt() != state.selectedLabel+"# " {
+						if state.selected != "agent-a" || state.prompt() != state.selectedLabel+"> " {
 							t.Fatal("disconnected selection or prompt changed identity")
 						}
 						ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)

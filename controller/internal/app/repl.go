@@ -19,7 +19,9 @@ import (
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
 	"dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/render"
 	"dropcheck/controller/internal/runner"
+	"dropcheck/controller/internal/shell"
 	"dropcheck/controller/internal/version"
 	"github.com/chzyer/readline"
 	"google.golang.org/protobuf/proto"
@@ -35,21 +37,40 @@ func repl(ctx context.Context, state *shellState) error {
 
 func replLineEditor(ctx context.Context, state *shellState) error {
 	var lineReader *readline.Instance
+	var editing string
 	cfg := &readline.Config{
 		Prompt:                 state.prompt(),
 		HistoryLimit:           1000,
 		DisableAutoSaveHistory: true,
 		AutoComplete:           shellReadlineCompleter{state: state},
 		EOFPrompt:              "\n",
+		FuncFilterInputRune: func(key rune) (rune, bool) {
+			switch key {
+			case readline.CharPrev, readline.CharNext, readline.CharBckSearch, readline.CharFwdSearch:
+				if !shell.HistorySafe(editing) {
+					// New("") clears temporary edits and resets the history cursor.
+					// DisableAutoSaveHistory alone does not protect native drafts.
+					_ = lineReader.SaveHistory("")
+					lineReader.Operation.SetBuffer("")
+					editing = ""
+				}
+			}
+			return key, true
+		},
 	}
 	cfg.SetListener(func(line []rune, pos int, key rune) ([]rune, int, bool) {
 		if lineReader == nil {
 			return nil, 0, false
 		}
-		if newLine, newPos, ok := handleShellHelpKey(lineReader.Stdout(), line, pos, key, state); ok {
-			return newLine, newPos, ok
+		newLine, newPos, ok := handleShellHelpKey(lineReader.Stdout(), line, pos, key, state)
+		if !ok {
+			newLine, newPos, ok = handleShellCompletionHintKey(lineReader.Stdout(), line, pos, key, state)
 		}
-		return handleShellCompletionHintKey(lineReader.Stdout(), line, pos, key, state)
+		editing = string(line)
+		if ok {
+			editing = string(newLine)
+		}
+		return newLine, newPos, ok
 	})
 
 	var err error
@@ -60,6 +81,8 @@ func replLineEditor(ctx context.Context, state *shellState) error {
 	defer func() {
 		_ = lineReader.Close()
 	}()
+	// Establish an empty scratch entry before readline's first history.Update.
+	_ = lineReader.SaveHistory("")
 	for {
 		lineReader.SetPrompt(state.prompt())
 		line, err := lineReader.Readline()
@@ -74,6 +97,11 @@ func replLineEditor(ctx context.Context, state *shellState) error {
 			}
 		}
 		// Never retain credential-bearing input in readline history.
+		if shell.HistorySafe(line) {
+			_ = lineReader.SaveHistory(line)
+		} else {
+			_ = lineReader.SaveHistory("")
+		}
 		done, err := runReplLine(ctx, state, line)
 		if err != nil || done {
 			return err
@@ -104,26 +132,38 @@ type shellReadlineCompleter struct {
 }
 
 func (c shellReadlineCompleter) Do(line []rune, pos int) ([][]rune, int) {
-	if pos < 0 || pos > len(line) || pos != len(line) {
+	if pos < 0 || pos > len(line) {
 		return nil, 0
 	}
 	prefix := string(line[:pos])
+	end, ok := command.CompletionEnd(string(line), len(prefix))
+	if !ok {
+		return nil, 0
+	}
+	tail := string(line)[len(prefix):end]
 	prefixRunes := []rune(prefix)
 	var fullCandidates []string
 	var completions [][]rune
 	for _, candidate := range completeShellLine(prefix, c.state) {
+		if pos < len(line) {
+			candidate = strings.TrimSuffix(candidate, " ")
+		}
 		candidateRunes := []rune(candidate)
 		if !hasRunePrefix(candidateRunes, prefixRunes) {
 			continue
 		}
-		completion := append([]rune(nil), candidateRunes[len(prefixRunes):]...)
-		if isPlaceholderCandidate(string(completion)) {
+		// Readline can only insert. The listener replaces nonmatching token tails.
+		completion, matches := strings.CutSuffix(string(candidateRunes[len(prefixRunes):]), tail)
+		if !matches {
+			continue
+		}
+		if isPlaceholderCandidate(completion) {
 			continue
 		}
 		fullCandidates = append(fullCandidates, candidate)
-		completions = append(completions, completion)
+		completions = append(completions, []rune(completion))
 	}
-	if len(completions) == 1 && len(completions[0]) > 0 && shouldAppendReadlineCompletionSpace(fullCandidates[0], c.state) {
+	if pos == len(line) && len(completions) == 1 && len(completions[0]) > 0 && shouldAppendReadlineCompletionSpace(fullCandidates[0], c.state) {
 		completions[0] = append(completions[0], ' ')
 	}
 	return completions, shellCompletionOffset(prefix)
@@ -167,6 +207,9 @@ func handleShellHelpKey(w io.Writer, line []rune, pos int, key rune, states ...*
 	if !isShellHelpRune(line[questionIndex]) {
 		return nil, 0, false
 	}
+	if !command.HelpPosition(string(line[:questionIndex])) {
+		return nil, 0, false
+	}
 
 	helpLine := append([]rune(nil), line[:pos]...)
 	helpLine[len(helpLine)-1] = '?'
@@ -181,8 +224,24 @@ func handleShellHelpKey(w io.Writer, line []rune, pos int, key rune, states ...*
 }
 
 func handleShellCompletionHintKey(w io.Writer, line []rune, pos int, key rune, state *shellState) ([]rune, int, bool) {
-	if key != readline.CharTab || pos < 0 || pos > len(line) || pos != len(line) {
+	if key != readline.CharTab || pos < 0 || pos > len(line) {
 		return nil, 0, false
+	}
+	if pos < len(line) {
+		prefix := string(line[:pos])
+		end, ok := command.CompletionEnd(string(line), len(prefix))
+		if !ok {
+			return nil, 0, false
+		}
+		var choices []string
+		for _, candidate := range completeShellLine(prefix, state) {
+			if !strings.HasSuffix(candidate, ">") {
+				choices = append(choices, strings.TrimSuffix(candidate, " "))
+			}
+		}
+		if len(choices) == 1 {
+			return []rune(choices[0] + string(line)[end:]), len([]rune(choices[0])), true
+		}
 	}
 	hint := shellCompletionHintLine(string(line[:pos]), state)
 	if hint == "" {
@@ -203,7 +262,7 @@ func (s *shellState) prompt() string {
 	} else if s.selectedLabel != "" {
 		label = s.selectedLabel
 	}
-	return fmt.Sprintf("%s# ", label)
+	return fmt.Sprintf("%s> ", label)
 }
 
 func (s *shellState) selectedAgentIfConnected() (control.AgentInfo, bool) {
@@ -229,20 +288,53 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 		return false, nil
 	}
 	switch command.kind {
+	case shellSetDefaultPassphrase:
+		state.defaultPassphrase = command.passphrase
+		return false, printLocalOutput(command, func(outputFormat) (string, error) {
+			if command.passphrase == "" {
+				return "default passphrase cleared\n", nil
+			}
+			return "default passphrase updated (session only)\n", nil
+		})
+	case shellClearDefaultPassphrase:
+		state.defaultPassphrase = ""
+		return false, printLocalOutput(command, func(outputFormat) (string, error) { return "default passphrase cleared\n", nil })
+	case shellUse:
+		secret := command.passphrase
+		if secret == "" {
+			secret = state.defaultPassphrase
+		}
+		if secret == "" {
+			fmt.Fprintln(os.Stderr, "use requires an explicit or session passphrase")
+			return false, nil
+		}
+		op, buildErr := buildUseOperation(command.ssid, secret)
+		if buildErr != nil {
+			fmt.Fprintln(os.Stderr, "invalid use arguments")
+			return false, nil
+		}
+		agents, targetErr := state.commandTargets()
+		if targetErr != nil {
+			fmt.Fprintln(os.Stderr, targetErr)
+			return false, nil
+		}
+		return false, runOperationForAgents(ctx, state, agents, op, commandOutputOptions{format: outputText, pipeline: command.pipeline, use: true, interactive: true})
 	case shellNoop:
 		return false, nil
 	case shellExit:
 		return true, nil
 	case shellHelp:
-		if command.helpTopic == "" {
-			printShellHelp()
-		} else {
-			writeCommandHelp(os.Stdout, command.helpTopic)
-		}
-		return false, nil
+		return false, printLocalOutput(command, func(outputFormat) (string, error) {
+			var b strings.Builder
+			if command.helpTopic == "" {
+				shell.WriteContextHelp(&b, "?")
+			} else {
+				writeCommandHelp(&b, command.helpTopic)
+			}
+			return b.String(), nil
+		})
 	case shellVersion:
-		fmt.Println(version.Version)
-		return false, nil
+		return false, printLocalOutput(command, func(outputFormat) (string, error) { return version.Version + "\n", nil })
 	case shellShowDevices:
 		return false, printLocalOutput(command, func(format outputFormat) (string, error) {
 			return renderAgents(agentListView(state), format)
@@ -251,10 +343,17 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 		return false, printLocalOutput(command, showProfiles)
 	case shellLastReport:
 		return false, printLocalOutput(command, func(format outputFormat) (string, error) {
-			return renderProfileReport(state, format, command.detail)
+			view := terminalPresentation()
+			if command.pipeline.pipeline.StageCount() > 0 || command.pipeline.displayJSON {
+				view.Width = 0
+			}
+			return renderProfileReport(state, format, command.detail, view)
 		})
 	case shellProfile:
-		err := state.runCheck(ctx, command.profileName, command.ssid, command.family, command.bssid, command.rejection, command.pipeline.format(), command.pipeline, false, command.lab)
+		if command.profileName == "" {
+			return false, printLocalOutput(command, showProfiles)
+		}
+		err := state.runCheck(ctx, command.profileName, command.ssid, command.family, command.bssid, command.rejection, outputText, command.pipeline, false, command.lab)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 		}
@@ -266,9 +365,9 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 			return false, nil
 		}
 		return false, runOperationForAgents(ctx, state, agents, command.operation, commandOutputOptions{
-			format:   command.pipeline.format(),
-			pipeline: command.pipeline,
-			use:      command.use,
+			format:      outputText,
+			pipeline:    command.pipeline,
+			interactive: true,
 		})
 	case shellADBDiagnostics:
 		agents, err := state.commandTargets()
@@ -277,8 +376,9 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 			return false, nil
 		}
 		return false, runADBDiagnosticsForAgents(ctx, state, agents, command.adbKind, commandOutputOptions{
-			format:   command.pipeline.format(),
-			pipeline: command.pipeline,
+			format:      outputText,
+			pipeline:    command.pipeline,
+			interactive: true,
 		})
 	default:
 		return false, nil
@@ -286,11 +386,11 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 }
 
 func printLocalOutput(command shellCommand, render func(outputFormat) (string, error)) error {
-	out, err := render(command.pipeline.format())
+	out, err := render(outputText)
 	if err != nil {
 		return err
 	}
-	out, err = command.pipeline.apply(out)
+	out, err = command.pipeline.shellOutput(out, true)
 	if err != nil {
 		return err
 	}
@@ -323,8 +423,8 @@ func selectedAgent(state *shellState) (control.AgentInfo, error) {
 }
 
 func resolveShellAgent(state *shellState, target string) (control.AgentInfo, error) {
-	if strings.HasPrefix(target, "#") {
-		index, err := strconv.Atoi(strings.TrimPrefix(target, "#"))
+	if after, ok := strings.CutPrefix(target, "#"); ok {
+		index, err := strconv.Atoi(after)
 		if err != nil {
 			return control.AgentInfo{}, fmt.Errorf("invalid agent number %q", target)
 		}
@@ -343,6 +443,7 @@ type commandOutputOptions struct {
 	includeAgentHeader bool
 	strict             bool
 	use                bool
+	interactive        bool
 }
 
 func separateTextBlock(out string, printedAny bool) string {
@@ -468,7 +569,11 @@ func runADBDiagnosticsForAgent(ctx context.Context, state *shellState, agent con
 	if err != nil {
 		return err
 	}
-	out, err = output.pipeline.apply(out)
+	if output.interactive {
+		out, err = output.pipeline.shellOutput(out, bundle.OK())
+	} else {
+		out, err = output.pipeline.apply(out)
+	}
 	if err != nil {
 		return err
 	}
@@ -476,6 +581,9 @@ func runADBDiagnosticsForAgent(ctx context.Context, state *shellState, agent con
 		out = separateTextBlock(out, *printedAny)
 	}
 	fmt.Print(out)
+	if output.interactive && !bundle.OK() {
+		fmt.Fprintf(os.Stderr, "%s: ADB diagnostics FAILED\n", agentDisplayName(agent))
+	}
 	if output.format == outputText {
 		*printedAny = true
 	}
@@ -543,7 +651,11 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 		if renderErr != nil {
 			return renderErr
 		}
-		out, renderErr = output.pipeline.apply(redactOperationSecret(op, out))
+		if output.interactive {
+			out, renderErr = output.pipeline.shellOutput(redactOperationSecret(op, out), false)
+		} else {
+			out, renderErr = output.pipeline.apply(redactOperationSecret(op, out))
+		}
 		if renderErr != nil {
 			return renderErr
 		}
@@ -551,6 +663,9 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 			out = separateTextBlock(out, *printedAny)
 		}
 		fmt.Print(out)
+		if output.interactive {
+			fmt.Fprintf(os.Stderr, "%s: command FAILED: %s\n", agentDisplayName(agent), redactOperationSecret(op, safeCommandErrorText(err.Error())))
+		}
 		if output.format == outputText {
 			*printedAny = true
 		}
@@ -563,9 +678,24 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 	if output.format == outputJSON && output.includeAgentHeader {
 		out, err = renderCommandResultEnvelope(agentDisplayName(agent), commandID, result)
 	} else {
-		out, err = renderCommandResult(agentDisplayName(agent), result, options, output.format)
+		if output.interactive {
+			view := terminalPresentation()
+			if output.pipeline.pipeline.StageCount() > 0 || output.pipeline.displayJSON {
+				view.Width = 0
+			}
+			view.Detail = options.Detail
+			view.DetailAvailable = true
+			view.Interactive = true
+			out, err = render.CommandResult(agentDisplayName(agent), result, options, output.format, view)
+		} else {
+			out, err = renderCommandResult(agentDisplayName(agent), result, options, output.format)
+		}
 		if err == nil && output.format == outputText {
-			out = supplements.appendToText(out)
+			if output.interactive && (output.pipeline.pipeline.StageCount() > 0 || output.pipeline.displayJSON) {
+				out = supplements.appendToText(out, render.Presentation{})
+			} else {
+				out = supplements.appendToText(out)
+			}
 		}
 		if err == nil && output.includeAgentHeader && output.format == outputText {
 			out = agentTextBlock(agentDisplayName(agent), out, *printedAny)
@@ -605,7 +735,11 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 	if output.format == outputText && op.Name == "wifi.eht" && len(exec.Parts) > 0 && exec.Parts[0].Raw.GetWifiScan() != nil && exec.Parts[0].Raw.GetStatus() != controlpb.CommandResult_STATUS_OK {
 		out += "Fresh scan: cached (refresh failed); scan data is reference\n"
 	}
-	out, err = output.pipeline.apply(redactOperationSecret(op, out))
+	if output.interactive {
+		out, err = output.pipeline.shellOutput(redactOperationSecret(op, out), result.GetStatus() == controlpb.CommandResult_STATUS_OK)
+	} else {
+		out, err = output.pipeline.apply(redactOperationSecret(op, out))
+	}
 	if err != nil {
 		return err
 	}
@@ -613,6 +747,9 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 		out = separateTextBlock(out, *printedAny)
 	}
 	fmt.Print(out)
+	if output.interactive && result.GetStatus() != controlpb.CommandResult_STATUS_OK {
+		fmt.Fprintf(os.Stderr, "%s: %s\n", agentDisplayName(agent), resultStatusLabel(result.GetStatus()))
+	}
 	if output.format == outputText {
 		*printedAny = true
 	}
@@ -623,6 +760,10 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 		state.failedUse = false
 	}
 	return nil
+}
+
+func buildUseOperation(ssid, secret string) (Operation, error) {
+	return command.WifiConnectOperation(command.WifiConnectOptions{SSID: ssid, Passphrase: secret})
 }
 
 func redactOperationSecret(op Operation, text string) string {
