@@ -1,10 +1,14 @@
 package render
 
 import (
+	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 
+	"dropcheck/controller/internal/command"
+	"dropcheck/controller/internal/controlpb"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -69,6 +73,48 @@ func redactURLParameters(value string) (string, error) {
 // Clone before sanitizing: evaluation/measurements never see presentation edits.
 func safePresentationProto(message proto.Message) proto.Message {
 	copy := proto.Clone(message)
+	sanitizePresentationProto(copy)
+	return copy
+}
+
+// Select literal identities on a detached observation before display normalization.
+func presentationResult(result *controlpb.CommandResult, options command.Options) *controlpb.CommandResult {
+	copy := proto.Clone(result).(*controlpb.CommandResult)
+	selectScan := func(scan *controlpb.WifiScan, filter wifiMLOFilter) {
+		if scan == nil || !filter.active() {
+			return
+		}
+		if diagnosticFieldMap(scan.GetFields())["scan_result_total_count"] == "" {
+			scan.Fields = append(scan.Fields, &controlpb.DiagnosticField{Key: "scan_result_total_count", Value: fmt.Sprint(len(scan.Results))})
+		}
+		scan.Results = filter.scanResults(scan.Results)
+	}
+	switch payload := copy.Payload.(type) {
+	case *controlpb.CommandResult_WifiScan:
+		selectScan(payload.WifiScan, wifiMLOFilter{ssid: options.WifiScanSSID, bssid: options.WifiScanBSSID})
+	case *controlpb.CommandResult_WifiDiagnostics:
+		if options.WifiRenderMode == command.WifiRenderModeEHT && payload.WifiDiagnostics != nil {
+			diagnostics := payload.WifiDiagnostics
+			filter := wifiMLOFilter{ssid: options.WifiEHTSSID, bssid: options.WifiEHTBSSID}
+			selectScan(diagnostics.Scan, filter)
+			if filter.active() {
+				if status := diagnostics.Status; status != nil {
+					status.Connection = filter.connection(status.Connection)
+					if status.IpStatus != nil && !filter.matchesConnection(status.IpStatus.Wifi) {
+						status.IpStatus = nil
+					}
+				}
+				diagnostics.Networks = slices.DeleteFunc(diagnostics.Networks, func(network *controlpb.NetworkDiagnostics) bool {
+					return !filter.matchesConnection(network.GetIpStatus().GetWifi())
+				})
+			}
+		}
+	}
+	sanitizePresentationProto(copy)
+	return copy
+}
+
+func sanitizePresentationProto(copy proto.Message) {
 	var sanitize func(protoreflect.Message)
 	sanitize = func(m protoreflect.Message) {
 		if m.Descriptor().Name() == "DiagnosticField" {
@@ -118,5 +164,4 @@ func safePresentationProto(message proto.Message) proto.Message {
 		})
 	}
 	sanitize(copy.ProtoReflect())
-	return copy
 }

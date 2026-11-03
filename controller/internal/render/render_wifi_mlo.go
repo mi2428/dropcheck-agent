@@ -35,10 +35,10 @@ func renderWifiMLO(b *strings.Builder, diagnostics *controlpb.WifiDiagnostics, o
 	}
 	filter := wifiMLOFilter{ssid: options.WifiEHTSSID, bssid: options.WifiEHTBSSID}
 	scan := diagnostics.GetScan()
-	scanResults := filter.scanResults(scan.GetResults())
+	scanResults := scan.GetResults()
 	candidates := wifiMLOScanCandidates(scanResults)
 	status := diagnostics.GetStatus()
-	current := filter.connection(wifiMLOCurrentConnection(status))
+	current := wifiMLOCurrentConnection(status)
 	groups := wifiMLOGroups(candidates)
 
 	renderWifiMLOCurrentRelation(b, current, scan, candidates)
@@ -51,7 +51,7 @@ func renderWifiMLO(b *strings.Builder, diagnostics *controlpb.WifiDiagnostics, o
 	renderWifiMLOConnectedEHT(b, current)
 	renderWifiMLOConnectedEHTDetails(b, current)
 	renderWifiMLOConnectedEHTPuncturing(b, current)
-	renderWifiMLONetworks(b, diagnostics.GetNetworks(), filter)
+	renderWifiMLONetworks(b, diagnostics.GetNetworks())
 	renderWifiMLOScanSummary(b, scan, candidates, filter, len(scanResults))
 	renderWifiMLONearbyAPs(b, groups, current, view)
 	renderWifiMLODeviceReadiness(b, diagnostics.GetCapabilities())
@@ -277,11 +277,11 @@ func renderWifiMLOConnectedEHTDetails(b *strings.Builder, current *controlpb.Wif
 	renderWifiMLOEHTDetails(b, "connection", current.GetEhtCapabilities(), current.GetEhtOperation())
 }
 
-func renderWifiMLONetworks(b *strings.Builder, networks []*controlpb.NetworkDiagnostics, filter wifiMLOFilter) {
+func renderWifiMLONetworks(b *strings.Builder, networks []*controlpb.NetworkDiagnostics) {
 	rows := make([]*controlpb.NetworkDiagnostics, 0)
 	for _, network := range networks {
 		wifi := network.GetIpStatus().GetWifi()
-		if wifiConnectionHasMLO(wifi) && (!filter.active() || filter.matchesConnection(wifi)) {
+		if wifiConnectionHasMLO(wifi) {
 			rows = append(rows, network)
 		}
 	}

@@ -8,7 +8,6 @@ import (
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/controlpb"
 	"github.com/charmbracelet/x/ansi"
-	"google.golang.org/protobuf/proto"
 )
 
 // Presentation is local display state, never an acquisition or evaluation option.
@@ -161,11 +160,6 @@ func tableFits(columns []displayTableColumn, rows [][]string, width int) bool {
 
 func renderAdaptiveScan(b *strings.Builder, scan *controlpb.WifiScan, options command.Options, view Presentation) {
 	total := len(scan.GetResults())
-	if options.WifiScanSSID != "" || options.WifiScanBSSID != "" {
-		selected := proto.Clone(scan).(*controlpb.WifiScan)
-		selected.Results = (wifiMLOFilter{ssid: options.WifiScanSSID, bssid: options.WifiScanBSSID}).scanResults(scan.GetResults())
-		scan = selected
-	}
 	fields := diagnosticFieldMap(scan.GetFields())
 	requested := "? (request metadata unavailable)"
 	if view.RequestedFresh != nil {
@@ -567,8 +561,7 @@ func renderDiagnosticBundle(b *strings.Builder, diagnostics *controlpb.WifiDiagn
 }
 
 func renderCurrentMLO(b *strings.Builder, diagnostics *controlpb.WifiDiagnostics, options command.Options, view Presentation) {
-	filter := wifiMLOFilter{ssid: options.WifiEHTSSID, bssid: options.WifiEHTBSSID}
-	conn := filter.connection(diagnostics.GetStatus().GetConnection())
+	conn := diagnostics.GetStatus().GetConnection()
 	if conn == nil {
 		writeRecord(b, "Current", "? (current Wi-Fi payload unavailable)")
 		return

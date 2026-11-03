@@ -41,10 +41,10 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 	if result == nil {
 		return "", fmt.Errorf("missing command result")
 	}
-	result = SanitizedResult(result)
 	if format == pipeline.FormatJSON {
-		return renderProtoMessage(result)
+		return renderProtoMessage(SanitizedResult(result))
 	}
+	result = presentationResult(result, options)
 	var b strings.Builder
 	view := Presentation{}
 	if len(presentation) > 0 {
