@@ -38,7 +38,7 @@ func writeHelp(w io.Writer) {
 		}
 		fmt.Fprintln(w)
 	}
-	fmt.Fprintln(w, "  exit | quit\n  | begin <pattern> | match <pattern> | except <pattern> | count\n  | display json (alone; safe presentation JSON)")
+	fmt.Fprintln(w, "  exit | quit\n  | find <pattern> | except <pattern> | last <lines> | match <pattern> | trim <start-column> | count\n  | display json (alone; safe presentation JSON)")
 	fmt.Fprintln(w, "  Defaults and command history are session-only; secret input is never retained in history.")
 }
 
@@ -100,11 +100,15 @@ func CompleteLine(line string) []string {
 	if pipe {
 		switch {
 		case len(args) == 0:
-			choices = []string{"begin", "match", "except", "count", "display"}
+			choices = []string{"find", "except", "last", "match", "trim", "count", "display"}
 		case len(args) == 1 && args[0] == "display":
 			choices = []string{"json"}
-		case len(args) == 1 && (args[0] == "begin" || args[0] == "match" || args[0] == "except"):
+		case len(args) == 1 && (args[0] == "find" || args[0] == "match" || args[0] == "except"):
 			choices = []string{"<pattern>"}
+		case len(args) == 1 && args[0] == "last":
+			choices = []string{"<lines>"}
+		case len(args) == 1 && args[0] == "trim":
+			choices = []string{"<start-column>"}
 		}
 	} else {
 		choices = command.ShellSuggestions(args)

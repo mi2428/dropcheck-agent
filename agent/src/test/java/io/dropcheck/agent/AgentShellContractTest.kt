@@ -28,7 +28,7 @@ class AgentShellContractTest {
     @Test fun contextHistoryAndSessionBoundaries() {
         assertEquals(listOf("show"), AgentShellParser.complete("sho"))
         assertTrue(AgentShellParser.complete("show ").contains("show wifi"))
-        assertTrue(AgentShellParser.complete("show wifi status | ").contains("show wifi status | begin"))
+        assertTrue(AgentShellParser.complete("show wifi status | ").contains("show wifi status | find"))
         assertTrue(AgentShellParser.complete("show wifi scan ").contains("show wifi scan detail"))
         assertFalse(shellHelpPosition("wifi connect 'literal"))
         assertFalse(shellHelpPosition("show wifi status\\"))

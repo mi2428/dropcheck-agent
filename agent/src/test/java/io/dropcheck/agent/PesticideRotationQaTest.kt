@@ -128,7 +128,7 @@ class PesticideRotationQaTest {
         for (size in listOf(256, 257)) assertEquals(size == 256, runCatching { AgentShellPipeline.parse(listOf("match '${"é".repeat(size)}'")) }.isSuccess)
         repeat(257) { sample ->
             val input = (0 until sample).joinToString("", transform = { line -> (when (line % 3) { 0 -> "hit-$line"; 1 -> "日本語"; else -> "" }) + "\n" })
-            for (stage in listOf("match '^hit'", "except '^hit'", "begin '^hit'", "match '^$'")) {
+            for (stage in listOf("match '^hit'", "except '^hit'", "find '^hit'", "match '^$'")) {
                 val pipe = AgentShellPipeline.parse(listOf(stage))
                 val once = pipe.apply(input)
                 assertEquals("$stage sample=$sample", once, pipe.apply(once))

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"dropcheck/controller/internal/command"
@@ -25,6 +26,7 @@ type Pipeline struct {
 type stage struct {
 	op string
 	re *regexp.Regexp
+	n  int
 }
 
 func Split(line string) ([]string, error) {
@@ -74,6 +76,14 @@ func PortablePattern(pattern string) bool {
 	return !escaped
 }
 
+func parseFilterCount(op string, value string) (int, error) {
+	n, err := strconv.ParseUint(value, 10, 32)
+	if err != nil || n == 0 || n > 2147483647 {
+		return 0, fmt.Errorf("%s requires a positive integer in 1..2147483647", op)
+	}
+	return int(n), nil
+}
+
 func Parse(parts []string) (Pipeline, error) {
 	var p Pipeline
 	if len(parts) > 16 {
@@ -96,7 +106,7 @@ func Parse(parts []string) (Pipeline, error) {
 				return Pipeline{}, fmt.Errorf("display format specified twice")
 			}
 			p.displayFormat = FormatJSON
-		case "begin", "match", "except":
+		case "find", "match", "except":
 			if len(args) != 2 {
 				return Pipeline{}, fmt.Errorf("usage: | %s <quoted-pattern>", args[0])
 			}
@@ -108,6 +118,15 @@ func Parse(parts []string) (Pipeline, error) {
 				return Pipeline{}, fmt.Errorf("%s regex: invalid pattern", args[0])
 			}
 			p.stages = append(p.stages, stage{op: args[0], re: re})
+		case "last", "trim":
+			if len(args) != 2 {
+				return Pipeline{}, fmt.Errorf("usage: | %s <positive-integer>", args[0])
+			}
+			n, err := parseFilterCount(args[0], args[1])
+			if err != nil {
+				return Pipeline{}, err
+			}
+			p.stages = append(p.stages, stage{op: args[0], n: n})
 		case "count":
 			if len(args) != 1 {
 				return Pipeline{}, fmt.Errorf("usage: | count")
@@ -151,22 +170,33 @@ func JSON(text string, ok bool) (string, error) {
 func (p Pipeline) Apply(text string) (string, error) {
 	lines := Lines(text)
 	for _, s := range p.stages {
-		if s.op == "count" {
+		switch s.op {
+		case "count":
 			lines = []string{fmt.Sprintf("Count: %d lines", len(lines))}
-			continue
-		}
-		out := make([]string, 0, len(lines))
-		begun := false
-		for _, line := range lines {
-			matched := s.re.MatchString(line)
-			if s.op == "begin" {
-				begun = begun || matched
+		case "find":
+			if first := slices.IndexFunc(lines, s.re.MatchString); first >= 0 {
+				lines = lines[first:]
+			} else {
+				lines = nil
 			}
-			if s.op == "begin" && begun || s.op == "match" && matched || s.op == "except" && !matched {
-				out = append(out, line)
+		case "match", "except":
+			kept := make([]string, 0, len(lines))
+			for _, line := range lines {
+				if s.re.MatchString(line) == (s.op == "match") {
+					kept = append(kept, line)
+				}
+			}
+			lines = kept
+		case "last":
+			if len(lines) > s.n {
+				lines = lines[len(lines)-s.n:]
+			}
+		case "trim":
+			for i, line := range lines {
+				runes := []rune(line)
+				lines[i] = string(runes[min(s.n-1, len(runes)):])
 			}
 		}
-		lines = out
 	}
 	if len(lines) == 0 {
 		return "", nil
