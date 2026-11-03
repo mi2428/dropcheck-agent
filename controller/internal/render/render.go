@@ -70,6 +70,9 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 	}
 	writeRecord(&b, "Latency", fmt.Sprintf("%dms", commandResultLatencyMs(result)))
 	writeRecord(&b, "Source", "android  Target: "+cleanDisplayCell(agent))
+	if view.Interactive && renderInteractiveRequest(&b, result, options, view) {
+		return wrapPresentation(b.String(), view.Width, true), nil
+	}
 	switch payload := result.Payload.(type) {
 	case *controlpb.CommandResult_NetworkSnapshot:
 		writeRecord(&b, "Observed at unix ms", payload.NetworkSnapshot.GetObservedAtUnixMs())
