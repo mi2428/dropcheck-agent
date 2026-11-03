@@ -28,7 +28,7 @@ internal class AgentPresentationBlock private constructor(
     val fullText: String get() = parts.joinToString("\n") { part ->
         when (part) {
             is AgentBlockPart.Text -> part.value
-            is AgentBlockPart.Field -> "${part.label}: ${part.value}" + if (part.fullValue != part.value) "\n${part.label} wire value (availability above): ${part.fullValue}" else ""
+            is AgentBlockPart.Field -> fieldText(part.label, part.value) + if (part.fullValue != part.value) "\n${fieldText("${part.label} wire value (availability above)", part.fullValue)}" else ""
             is AgentBlockPart.Table -> part.rows.joinToString("\n\n") { row ->
                 part.columns.indices.joinToString("\n") { i -> "${part.columns[i].label}: ${row.getOrElse(i) { "?" }}" }
             }
@@ -79,6 +79,11 @@ internal class AgentPresentationBlock private constructor(
             }, color, baseSizeSp, minimumSizeSp, safeValueFile)
         }
     }
+}
+
+private fun fieldText(label: String, value: String): String {
+    val hanging = if (label.startsWith(' ')) " ".repeat(label.length + 2) else ""
+    return "$label: ${value.replace("\n", "\n$hanging")}"
 }
 
 private val scanColumns = listOf(
@@ -138,10 +143,13 @@ internal object AgentSafePresentation {
 
     fun cell(value: String): String = safeUrls(clean(value)).replace('\n', ' ')
 
-    fun field(label: String, value: String): String = when {
-        clean(label).lowercase(Locale.ROOT) in secretKeys -> "<redacted>"
-        clean(label) in listOf("SSID", "BSSID", "MLD", "AP MAC", "STA MAC", "PHY", "SEC", "BAND", "Interface", "Network", "Operator", "Venue") -> clean(value).replace('\n', ' ')
-        else -> text(value)
+    fun field(label: String, value: String): String {
+        val key = clean(label).trim()
+        return when {
+            key.lowercase(Locale.ROOT) in secretKeys -> "<redacted>"
+            key in listOf("SSID", "BSSID", "MLD", "AP MAC", "STA MAC", "PHY", "SEC", "BAND", "Interface", "Network", "Operator", "Venue") -> clean(value).replace('\n', ' ')
+            else -> text(value)
+        }
     }
 }
 
@@ -188,7 +196,18 @@ internal object AgentNativeBlockLayout {
         block.parts.forEach { part ->
             when (part) {
                 is AgentBlockPart.Text -> appendWrapped(out, part.value, contentWidthPx, paint)
-                is AgentBlockPart.Field -> appendWrapped(out, "${part.label}: ${part.value}", contentWidthPx, paint)
+                is AgentBlockPart.Field -> {
+                    val indent = part.label.takeWhile { it == ' ' }
+                    val hanging = " ".repeat(part.label.length + 2)
+                    if (indent.isEmpty()) {
+                        appendWrapped(out, fieldText(part.label, part.value), contentWidthPx, paint)
+                    } else if (paint.measureText(hanging + "MMMMMMMM") > contentWidthPx) {
+                        appendWrapped(out, part.label.trimEnd() + ":", contentWidthPx, paint, indent + "  ")
+                        appendWrapped(out, indent + "  " + part.value.replace("\n", "\n$indent  "), contentWidthPx, paint, indent + "  ")
+                    } else {
+                        appendWrapped(out, fieldText(part.label, part.value), contentWidthPx, paint, hanging)
+                    }
+                }
                 is AgentBlockPart.Table -> {
                     totalRecords += part.rows.size
                     val rows = part.rows.take(minOf(ROW_BUDGET - visibleRecords, LINE_BUDGET - out.count { it == '\n' } - 1).coerceAtLeast(0))
@@ -281,22 +300,27 @@ internal object AgentNativeBlockLayout {
         return true
     }
 
-    private fun appendWrapped(out: SpannableStringBuilder, value: String, width: Int, paint: Paint) {
+    private fun appendWrapped(out: SpannableStringBuilder, value: String, width: Int, paint: Paint, continuationIndent: String = "") {
+        val continuationWidth = if (continuationIndent.isEmpty()) 0f else paint.measureText(continuationIndent)
         value.split('\n').forEach { line ->
             val boundaries = BreakIterator.getCharacterInstance(Locale.ROOT)
             boundaries.setText(line)
             var start = 0
+            var indent = ""
+            var indentWidth = 0f
             var end = boundaries.first()
             var next = boundaries.next()
             while (next != BreakIterator.DONE) {
-                if (paint.measureText(line, start, next) > width && end > start) {
-                    out.append(line.substring(start, end)).append('\n')
+                if (indentWidth + paint.measureText(line, start, next) > width && end > start) {
+                    out.append(indent).append(line.substring(start, end)).append('\n')
                     start = end
+                    indent = continuationIndent
+                    indentWidth = continuationWidth
                 }
                 end = next
                 next = boundaries.next()
             }
-            out.append(line.substring(start)).append('\n')
+            out.append(indent).append(line.substring(start)).append('\n')
         }
     }
 }

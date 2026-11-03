@@ -2,8 +2,9 @@ package command
 
 const (
 	// WifiRenderModeEHT renders WifiDiagnostics as an EHT-focused summary.
-	WifiRenderModeEHT  = "eht"
-	WifiRenderModeFull = "full"
+	WifiRenderModeEHT    = "eht"
+	WifiRenderModeStatus = "status"
+	WifiRenderModeFull   = "full"
 )
 
 // Options describes controller-local behavior attached to an Operation.

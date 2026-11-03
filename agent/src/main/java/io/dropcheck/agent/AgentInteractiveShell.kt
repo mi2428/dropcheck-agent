@@ -26,6 +26,7 @@ internal sealed class AgentShellCommand {
         val scanSsid: String = "",
         val scanBssid: String = "",
         val wifiTest: Boolean = false,
+        val summary: Boolean = false,
     ) : AgentShellCommand()
     data class Invalid(val message: String, val testProfile: String = "") : AgentShellCommand()
     data class Piped(val command: AgentShellCommand, val pipeline: AgentShellPipeline) : AgentShellCommand()
@@ -64,7 +65,7 @@ internal object AgentShellParser {
 
     fun help(topic: String = ""): List<String> {
         val rows = syntax.filter { topic.isEmpty() || it.path == topic || it.path.startsWith("$topic ") }
-        return listOf("Agent Shell (self)", "Options: key value; integers: 1..2147483647 ms/count; default show output is complete", "PSK: 8..63 UTF-8 bytes or 64 ASCII hex; PC-only ADB/device/TTY commands are not available", "") +
+        return listOf("Agent Shell (self)", "Options: key value; integers: 1..2147483647 ms/count; show wifi status full adds raw dumps", "PSK: 8..63 UTF-8 bytes or 64 ASCII hex; PC-only ADB/device/TTY commands are not available", "") +
             rows.flatMap { listOf("  ${it.usage()}", "    Description: ${it.description}", "") } + listOf("| find <pattern> | except <pattern> | last <lines> | match <pattern> | trim <start-column> | count", "| display json (alone; safe presentation JSON)", "auto selects one family; global-ip all queries both; dns ALL queries A+AAAA", "test link defaults to family ipv4; ipv6/all supported; bssid strict pin unsupported; lab requires all endpoints and sends active traffic", "Default credentials and command history are session-only; credentials are not retained in history")
     }
 
@@ -154,7 +155,7 @@ internal object AgentShellParser {
         val parsed = parse(line)
         return when (parsed) {
             is AgentShellCommand.Help, AgentShellCommand.ShowVersion, AgentShellCommand.ShowCli, AgentShellCommand.ShowChecks, is AgentShellCommand.ShowCheckLast -> true
-            is AgentShellCommand.Execute -> parsed.request.commandCase in listOf(RunCommand.CommandCase.GET_WIFI_STATUS,
+            is AgentShellCommand.Execute -> !parsed.summary && parsed.request.commandCase in listOf(RunCommand.CommandCase.GET_WIFI_STATUS,
                 RunCommand.CommandCase.GET_WIFI_CAPABILITIES, RunCommand.CommandCase.GET_NETWORKS,
                 RunCommand.CommandCase.GET_PERMISSIONS, RunCommand.CommandCase.GET_IP_STATUS)
             else -> false
@@ -337,8 +338,8 @@ internal object AgentShellParser {
                 RunCommand.newBuilder().setGetNetwork(GetNetwork.newBuilder().setNetworkId(position)).build()
             }
             "show permissions" -> RunCommand.newBuilder().setGetPermissions(GetPermissions.getDefaultInstance()).build()
-            "show wifi status connection" -> RunCommand.newBuilder().setGetWifiStatus(GetWifiStatus.getDefaultInstance()).build()
-            "show wifi status" -> RunCommand.newBuilder().setGetWifiDiagnostics(GetWifiDiagnostics.getDefaultInstance()).build()
+            "show wifi status", "show wifi status connection" -> RunCommand.newBuilder().setGetWifiStatus(GetWifiStatus.getDefaultInstance()).build()
+            "show wifi status full" -> RunCommand.newBuilder().setGetWifiDiagnostics(GetWifiDiagnostics.getDefaultInstance()).build()
             "show wifi status capabilities" -> RunCommand.newBuilder().setGetWifiCapabilities(GetWifiCapabilities.getDefaultInstance()).build()
             "show wifi scan" -> RunCommand.newBuilder().setGetWifiScan(GetWifiScan.newBuilder().setBand(band())).build()
             "request wifi scan" -> RunCommand.newBuilder().setGetFreshWifiScan(GetFreshWifiScan.newBuilder().setBand(band()).setTimeoutMs(number("timeout", 10000))).build()
@@ -396,7 +397,7 @@ internal object AgentShellParser {
             "request download" -> RunCommand.newBuilder().setWget(Wget.newBuilder().setUrl(url(position)).setTimeoutMs(number("timeout", 60000)).setSelector(selector())).build()
             else -> throw IllegalArgumentException("unsupported command")
         }
-        return AgentShellCommand.Execute(request, "brief" in switches, "mlo" in switches, command == "request wifi scan", via, passphrase, value("ssid"), value("bssid"), command == "test wifi")
+        return AgentShellCommand.Execute(request, "brief" in switches, "mlo" in switches, command == "request wifi scan", via, passphrase, value("ssid"), value("bssid"), command == "test wifi", summary = command == "show wifi status")
     }
 
     private fun boolean(value: String, key: String): Boolean = when (value) {

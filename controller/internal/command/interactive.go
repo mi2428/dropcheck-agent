@@ -184,6 +184,9 @@ func parseInteractiveTokens(args []string) (result Parsed, err error) {
 	case "show permissions":
 		op = PermissionsOperation()
 	case "show wifi status":
+		op = WifiStatusOperation()
+		op.Options.WifiRenderMode = WifiRenderModeStatus
+	case "show wifi status full":
 		op = WifiDiagnosticsOperation()
 		op.Options.WifiRenderMode = WifiRenderModeFull
 	case "show wifi status connection":
@@ -279,7 +282,7 @@ func parseInteractiveTokens(args []string) (result Parsed, err error) {
 			c.Wget.Selector = selector
 		}
 	}
-	op.Options.Detail = true
+	op.Options.Detail = spec.Path != "show wifi status"
 	if err := ValidateOperation(op); err != nil {
 		return Parsed{}, err
 	}

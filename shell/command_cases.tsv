@@ -6,6 +6,7 @@ show network default	show network default
 show network id	show network id 42
 show permissions	show permissions
 show wifi status	show wifi status
+show wifi status full	show wifi status full
 show wifi status connection	show wifi status connection
 show wifi status ip	show wifi status ip
 show wifi status capabilities	show wifi status capabilities

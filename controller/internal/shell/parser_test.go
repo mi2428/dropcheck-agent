@@ -17,7 +17,7 @@ func TestShellPipelineQuotingAndGrammar(t *testing.T) {
 			t.Errorf("accepted %q", line)
 		}
 	}
-	for _, tc := range []struct{ line, want string }{{"show ", "show wifi"}, {"show wifi ", "show wifi status"}, {"show wifi scan ", "show wifi scan ssid"}, {"show wifi status ", "show wifi status eht"}, {"request wifi scan ", "request wifi scan eht"}, {"show", "show "}, {"show wifi", "show wifi "}, {"show devices | dis", "show devices | display"}, {"show devices | trim ", "<start-column>"}} {
+	for _, tc := range []struct{ line, want string }{{"show ", "show wifi"}, {"show wifi ", "show wifi status"}, {"show wifi scan ", "show wifi scan ssid"}, {"show wifi status ", "show wifi status eht"}, {"show wifi status ", "show wifi status full"}, {"request wifi scan ", "request wifi scan eht"}, {"show", "show "}, {"show wifi", "show wifi "}, {"show devices | dis", "show devices | display"}, {"show devices | trim ", "<start-column>"}} {
 		if got := CompleteLine(tc.line); !strings.Contains(strings.Join(got, ","), tc.want) {
 			t.Fatalf("%q: %v", tc.line, got)
 		}

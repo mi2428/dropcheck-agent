@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"dropcheck/controller/internal/controlpb"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestPortableCommandContract(t *testing.T) {
@@ -43,6 +44,32 @@ func TestPortableCommandContract(t *testing.T) {
 		}
 		if err == nil && parsed.Rejection == "" {
 			t.Errorf("accepted invalid common input: %s", line)
+		}
+	}
+}
+
+func TestWifiStatusUsesLightweightAcquisition(t *testing.T) {
+	status, err := ParseShellTokens(strings.Fields("show wifi status"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, err := ParseShellTokens(strings.Fields("show wifi status connection"))
+	if err != nil || !proto.Equal(status.Operation.Command, connection.Operation.Command) {
+		t.Fatal("summary must reuse the existing Wi-Fi status RPC", err)
+	}
+	for _, input := range []string{"show wifi status full", "sh wi st f"} {
+		full, err := ParseShellTokens(strings.Fields(input))
+		if err != nil || full.Path != "show wifi status full" || full.Operation.Options.WifiRenderMode != WifiRenderModeFull {
+			t.Fatalf("%s: %+v %v", input, full, err)
+		}
+		if status.Operation.Options.WifiRenderMode != WifiRenderModeStatus || status.Operation.Options.Detail || !full.Operation.Options.Detail ||
+			status.Operation.Command.GetGetWifiStatus() == nil || full.Operation.Command.GetGetWifiDiagnostics() == nil {
+			t.Fatal("summary/full acquisition scopes were not separated")
+		}
+	}
+	for _, input := range []string{"show wifi status full full", "show wifi status full ssid Lab", "show wifi status full connection"} {
+		if _, err := ParseShellTokens(strings.Fields(input)); err == nil {
+			t.Fatalf("accepted unsupported full arguments: %s", input)
 		}
 	}
 }

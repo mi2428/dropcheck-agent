@@ -18,6 +18,88 @@ import io.dropcheck.agent.grpc.WifiStatus
 /** Typed presentation used by Agent Shell for Wi-Fi and IP observations. */
 internal object AgentWifiStatusRenderer {
     fun securitySummary(details: WifiSecurityDetails): String = wifiSecurityDetailRows(details).joinToString("; ") { "${it.first}=${it.second}" }
+    fun summary(status: WifiStatus): List<AgentBlockPart> = buildList {
+        fun heading(title: String) {
+            if (isNotEmpty() && !title.startsWith(' ')) add(AgentBlockPart.Text(""))
+            add(AgentBlockPart.Text(title))
+        }
+        fun group(title: String, vararg rows: Pair<String, Any?>) {
+            heading(title)
+            val indent = title.takeWhile { it == ' ' } + "  "
+            val values = rows.toList().ifEmpty { listOf("Observation" to "? (not present in this snapshot)") }
+            values.forEach { (label, value) ->
+                add(AgentBlockPart.Field((indent + label).padEnd(28), value?.toString().orEmpty().ifEmpty { "none" }))
+            }
+        }
+        val fields = status.observationFieldsList
+        val conn = activeWifiConnection(status)
+        heading("Connection")
+        val link = AgentObservationPresentation.value(fields, "connection", conn?.detailedState.orEmpty().ifEmpty { conn?.supplicantState.orEmpty() })
+        group("  State", "Radio" to "${AgentObservationPresentation.value(fields, "radio", if (status.enabled) "on" else "off")}; framework=${status.state}",
+            "Networks" to "active=${status.activeNetwork.ifEmpty { "none" }}; Wi-Fi=${status.wifiNetworkCount}",
+            "Link" to if (conn == null && link == "none") "disconnected" else link)
+        if (conn != null) {
+            fun observed(field: String, value: String) = AgentObservationPresentation.value(conn.observationFieldsList, field, value)
+            val disconnected = conn.detailedState.equals("DISCONNECTED", ignoreCase = true)
+            val passpoint = if (listOf(conn.passpointFqdn, conn.passpointProviderFriendlyName, conn.passpointUniqueId).all(String::isEmpty)) "none"
+                else "fqdn=${conn.passpointFqdn.ifEmpty { "none" }}; provider=${conn.passpointProviderFriendlyName.ifEmpty { "none" }}; unique-id=${conn.passpointUniqueId.ifEmpty { "none" }}"
+            group("  Identity", "SSID" to observed("identity", if (disconnected) "none" else conn.ssid.takeUnless { it.isEmpty() || it.equals("<unknown ssid>", ignoreCase = true) } ?: "? (identity unavailable)"),
+                "BSSID" to observed("identity", if (disconnected) "none" else conn.bssid.takeIf(::isKnownWifiBssid) ?: "?"),
+                "STA MAC" to conn.macAddress, "Configuration" to "network-id=${conn.networkId}; subscription-id=${conn.subscriptionId}", "Supplicant state" to conn.supplicantState,
+                "Flags" to "hidden=${conn.hiddenSsid}; restricted=${conn.restricted}; redactions=${conn.applicableRedactions.ifEmpty { "none" }}", "Passpoint" to passpoint)
+            group("  Radio", "Channel" to "${wifiBandFromFrequency(conn.frequencyMhz)}; ch=${wifiChannelFromFrequency(conn.frequencyMhz)}; width=${formatWifiChannelWidth(conn.channelWidth).ifEmpty { "?" }}; ${conn.frequencyMhz}MHz",
+                "PHY" to conn.wifiStandard, "Signal" to "${observed("rssi", "${conn.rssiDbm}dBm")}; level=${wifiSignalLevel(conn).ifEmpty { "? (level unavailable)" }}",
+                "Link rates" to "tx=${observed("tx_link_speed_mbps", "${conn.txLinkSpeedMbps}Mbps")}; rx=${observed("rx_link_speed_mbps", "${conn.rxLinkSpeedMbps}Mbps")}; link=${conn.linkSpeedMbps}Mbps",
+                "Reported maximum rates" to "${wifiMaxLink(conn) ?: "? (not supplied)"}; availability unknown, not current rates")
+            val security = listOf("Mode" to conn.securityType) + if (conn.hasSecurityDetails()) wifiSecurityDetailRows(conn.securityDetails)
+                else listOf("Decoded security" to "? (RSN/RSNXE observations unavailable)")
+            group("  Security", *security.toTypedArray())
+            group("  AP capabilities (decoded)", *apCapabilityRows(conn).filterNot { it.first in listOf("hidden", "restricted", "max_link") || it.first.startsWith("passpoint_") }.toTypedArray())
+            group("  HE/EHT (decoded)", *detailedWifiCapabilityRows(conn).toTypedArray())
+            group("  MLO", "MLD" to observed("ap_mld_mac_address", conn.apMldMacAddress), "AP link ID" to observed("ap_mlo_link_id", conn.apMloLinkId.toString()),
+                "Links" to "associated=${observed("associated_mlo_links", conn.associatedMloLinksCount.toString())}; affiliated=${observed("affiliated_mlo_links", conn.affiliatedMloLinksCount.toString())}")
+            for ((name, links) in listOf("Associated" to conn.associatedMloLinksList, "Affiliated" to conn.affiliatedMloLinksList)) {
+                links.forEachIndexed { index, item ->
+                    fun linkValue(field: String, value: String) = AgentObservationPresentation.value(item.observationFieldsList, field, value)
+                    group("    $name link ${index + 1}", "Link ID" to linkValue("identity", item.linkId.toString()),
+                        "AP MAC" to linkValue("identity", item.apMacAddress), "STA MAC" to linkValue("identity", item.staMacAddress),
+                        "State" to linkValue("identity", item.state), "Band/channel" to linkValue("identity", "${item.band}/${item.channel}"),
+                        "RSSI" to linkValue("rates", "${item.rssiDbm}dBm"), "Tx/Rx link rates" to linkValue("rates", "${item.txLinkSpeedMbps}/${item.rxLinkSpeedMbps}Mbps"))
+                }
+            }
+        }
+        heading("IP (separate Network observation)")
+        if (status.hasIpStatus()) {
+            val ip = status.ipStatus
+            val metadata = ip.observationFieldsList.associate { it.key to it.value }
+            fun observed(field: String, value: String) = AgentObservationPresentation.value(ip.observationFieldsList, field, value)
+            fun properties(value: String) = observed("link_properties", value)
+            fun values(field: String, items: List<String>) = AgentObservationPresentation.list(ip.observationFieldsList, field, items)
+            fun bool(field: String, value: Boolean) = AgentObservationPresentation.bool(ip.observationFieldsList, field, value)
+            group("  Selection", "Network" to ip.networkId, "Interface" to properties(ip.interfaceName), "Transports" to values("capabilities", ip.transportsList),
+                "Default Network" to observed("default_network", "${metadata["default_network_id"] ?: "? (not supplied)"}; selected=${metadata["selected_is_default"] ?: "? (not supplied)"}"),
+                "Connectivity" to observed("capabilities", "internet=${ip.internet}; validated=${ip.validated}"))
+            val addresses = splitIPAddresses(ip.addressesList)
+            group("  IPv4", "Addresses" to values("link_properties", addresses.ipv4))
+            group("  IPv6", "Addresses" to values("link_properties", addresses.ipv6))
+            if (addresses.other.isNotEmpty()) group("  Other address families", "Addresses" to values("link_properties", addresses.other))
+            group("  Routes", "Routes" to values("link_properties", ip.routesList))
+            group("  DNS", "Servers" to values("link_properties", ip.dnsServersList), "Domains" to properties(ip.domains),
+                "Private DNS" to properties("active=${ip.privateDnsActive}; server=${ip.privateDnsServerName.ifEmpty { "none" }}"))
+            group("  Link properties", "MTU" to properties(ip.mtu.toString()), "DHCP server" to properties(ip.dhcpServer),
+                "NAT64" to properties(ip.nat64Prefix), "Proxy" to properties(ip.httpProxy), "Wake on LAN" to bool("link_properties", ip.wakeOnLanSupported))
+            group("  Network capabilities", "Capabilities" to values("capabilities", ip.capabilitiesList), "Bandwidth estimate" to observed("capabilities", networkBandwidth(ip).orEmpty()),
+                "Signal strength" to observed("capabilities", ip.signalStrength.toString()), "Specifier" to observed("capabilities", ip.networkSpecifier),
+                "Ownership" to observed("capabilities", "uid=${ip.ownerUid}; enterprise=${ip.enterpriseIdsList.joinToString(",").ifEmpty { "none" }}; subscriptions=${ip.subscriptionIdsList.joinToString(",").ifEmpty { "none" }}"))
+            group("  IPv6 RA (Android)", *ip.ipv6RaList.map { it.key to it.value }.toTypedArray())
+        } else group("  Selection", "Observation" to "? (IP payload unavailable)")
+        group("Permissions", *status.permissionsList.map { entry ->
+            if ('=' in entry) entry.substringBefore('=') to entry.substringAfter('=') else "Permission" to entry
+        }.toTypedArray())
+        group("Details", "More" to "show wifi status full; help show wifi status",
+            "Validation scope" to "Android capability observation, not an active connectivity test")
+    }
+
     fun presentation(status: WifiStatus, detail: Boolean = false, detailAvailable: Boolean = false, ipAvailable: Boolean = false, includeIpSnapshot: Boolean = true): List<AgentBlockPart> = buildList {
         fun text(label: String, value: String) { add(AgentBlockPart.Field(label, value)) }
         fun observed(label: String, fields: List<io.dropcheck.agent.grpc.DiagnosticField>, field: String, value: String, fullValue: String = value) { add(AgentBlockPart.Field(label, AgentObservationPresentation.value(fields, field, value), fullValue)) }
@@ -67,7 +149,7 @@ internal object AgentWifiStatusRenderer {
             if (connection == "none") text("SSID/BSSID", "none")
         }
         status.permissionsList.forEach { text("Permission", it) }
-        status.observationFieldsList.forEach { text(it.key, it.value) }
+        if (detail || !detailAvailable) status.observationFieldsList.forEach { text(it.key, it.value) }
         if (!ipAvailable && includeIpSnapshot && status.hasIpStatus()) {
             text("Related IP snapshot", "independently acquired Android Network observation")
             addAll(ipPresentation(status.ipStatus))

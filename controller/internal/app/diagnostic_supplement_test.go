@@ -2,12 +2,27 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
 )
+
+func TestFullRetainsHostSupplementAvailability(t *testing.T) {
+	result := &controlpb.CommandResult{Payload: &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{Status: &controlpb.WifiStatus{}}}}
+	agent := control.AgentInfo{Hello: &controlpb.AgentHello{}}
+	got := collectCommandResultSupplements(t.Context(), &shellState{}, agent, result, commandOptions{WifiRenderMode: command.WifiRenderModeFull}, outputText, true)
+	if len(got.textBlocks) != 2 {
+		t.Fatalf("full lost host supplement availability: %q", got.textBlocks)
+	}
+	for _, text := range got.textBlocks {
+		if !strings.Contains(text, "Source: adb (host supplement)") || !strings.Contains(text, "Availability: unavailable (no pinned ADB serial)") {
+			t.Fatalf("full lost source/availability: %q", text)
+		}
+	}
+}
 
 func TestShouldCollectADBMLOSupplement(t *testing.T) {
 	tests := []struct {

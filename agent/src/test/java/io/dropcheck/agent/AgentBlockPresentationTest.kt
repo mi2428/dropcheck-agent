@@ -10,6 +10,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentBlockPresentationTest {
+    @Test fun indentedFieldsAlignWithoutChangingPrivacyOrCopyValues() {
+        val label = "    SSID".padEnd(32)
+        val block = AgentPresentationBlock.create(listOf(
+            AgentBlockPart.Text("Connection"), AgentBlockPart.Text("  Identity"),
+            AgentBlockPart.Field(label, "password=Guest 東京\nSource: forged"),
+            AgentBlockPart.Field("    Servers".padEnd(32), "192.0.2.53\n2001:db8::53"),
+            AgentBlockPart.Field("    Password".padEnd(32), "alignment-test-secret"),
+        ), 0)
+        assertTrue(block.fullText.contains("password=Guest 東京 Source: forged"))
+        assertFalse(block.fullText.contains("alignment-test-secret"))
+        assertTrue(block.fullText.contains("\n" + " ".repeat(34) + "2001:db8::53"))
+        block.fullText.lines().filter { it.startsWith("    ") && it.indexOfFirst { ch -> ch != ' ' } < 32 }.forEach {
+            assertEquals("unaligned field: $it", 32, it.indexOf(": "))
+        }
+        assertEquals("password=Guest 東京 Source: forged", block.safeValues().first { it.first == label }.second)
+    }
+
     @Test fun fullSafeCopyHasNoDisplayArtifactsOrSecrets() {
         val source = "東京Ｇ e\u0301 👩\u200d🔬 Lab Case\u200B\u001B[31m\u0000\nhttps://user:credential@example.test/Case?token=credential&ordinary=Keep\npassword=credential"
         val block = AgentPresentationBlock.create(listOf(AgentBlockPart.Text(source)), 0)
