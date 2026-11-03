@@ -44,8 +44,8 @@ sequenceDiagram
 
 ## Requirements
 
-Building the Android agent requires JDK 17, Android SDK Platform 37, and SDK Build Tools 37.0.0.
-The build uses AGP 9.1.1 with its built-in Kotlin support and Gradle 9.3.1, the minimum Gradle version in [AGP 9.1.1's API 37 compatibility matrix](https://developer.android.com/build/releases/agp-9-1-0-release-notes#compatibility).
+Android agentのビルドにはJDK 17、Android SDK Platform 37.2、SDK Build Tools 37.0.0を使用します。
+AGP 9.5.0のbuilt-in KotlinとGradle 9.8.2を使用し、compile SDK 37.2 / target SDK 37へ移行しました。[SDK移行記録](docs/android-17-migration.md)に互換性・LAN権限・検証範囲を記載しています。Android 17以降のLAN通信には`ACCESS_LOCAL_NETWORK`の許可が必要です。権限はアプリ画面から要求し、拒否時に自動許可や別Networkへの迂回は行いません。
 
 For the Android agent, use an Android 12+ test device with USB debugging enabled. The debug APK is installed over ADB:
 
@@ -214,29 +214,31 @@ A short interactive session (measurement output depends on the connected handset
 $ controller/dist/dropcheck --serial R5CT12345 shell
 dropcheck: selected agent=R5CT12345
 press '?' for Controller Shell context help, or type 'help' for commands
-R5CT12345# show wifi ?
+R5CT12345> show wifi ?
   status
   diagnostics
   capabilities
   scan
   eht
-R5CT12345# show wifi status
-R5CT12345# show ip status
-R5CT12345# ping 192.0.2.1 count 3
-R5CT12345# exit
+R5CT12345> show wifi status
+R5CT12345> show ip status
+R5CT12345> ping 192.0.2.1 count 3
+R5CT12345> exit
 ```
 
 Scalar options use `key value`; `fresh`, `brief`, `mlo`, and `detail` are switches. `mlo` scan requires `brief`; `timeout` on scan/EHT requires `fresh`. `require-ip`, `require-validated`, and `forget-after-each` require explicit `true` or `false`. `traceroute via ADDRESS` may repeat and is checked against typed hops, including in one-shot exit status. Probe family `auto` selects one family, whereas `global-ip family all` checks both; `dns record ALL` requests A+AAAA. Explicit numeric values must be positive and at most 2147483647 (with smaller per-operation limits); omitted options retain Go builder defaults. Wi-Fi passphrases must be 8–63 UTF-8 bytes or 64 hexadecimal digits. Quoting preserves literal SSIDs, hostnames and URLs, including keyword-like names and `|` inside quotes.
+
+Both interactive Shells support `show networks`, `show network default`, `show network <id>`, `show permissions`, no-Enter `?`, completion and session-only safe history. Output stages `| begin`, `| match`, `| except` and `| count` operate on safe logical lines before width layout. `| display json` emits an `ok`/`lines` presentation envelope and cannot be combined with line filters; it does not change one-shot `--format json`. The unimplemented `display set`/`no-more` stages are rejected. See [the Shell command contract and extension guide](docs/shell-2.0/commands.md) for regex limits, credentials, field coverage boundaries and command-addition steps.
 
 Network-bound status and probe commands can optionally select `ssid`, `bssid` (colon-separated MAC), and `network-id` (Android's decimal Network identity). YAML `observe: true` targets accept `bssid` and `network_id` with the same selection-time meaning; active probes still require `active_probes: true` and explicit destinations. Missing, redacted, or changed requested identity never falls back to a different network. This is **not** an uninterrupted association, roam, or VPN-coexistence guarantee; verify actual routing in the target environment. TUI Review `w` exports one retained Report as private JSON to a new path; `W` explicitly replaces an existing regular file. Current transport heartbeat, acceptance, pending commands, and cleanup errors are shown separately from Wi-Fi outcomes.
 
 #### Named checks: observed and configured active
 
-`check link ssid "Example Lab" [family ipv4|ipv6|all]` inspects an **existing** physical Wi-Fi Network. Omitting family means IPv4; PC `all` checks both families using the same two observations (Android Shell accepts ipv4/ipv6 only). Both must report the same Network/interface, the requested case-sensitive SSID, and an address, default route and DNS server for each requested family. Android's `validated` flag is observation only, not a passed internet probe. `link` never connects, disconnects, forgets a network or contacts an external endpoint. A requested `bssid` is still rejected for this profile: selection-time BSSID matching does not establish uninterrupted Network pinning. A detected wrong/unknown Network is MISSING, not a pass. This does **not** prove that no transient roam occurred between observations.
+`check link ssid "Example Lab" [family ipv4|ipv6|all]` inspects an **existing** physical Wi-Fi Network. Omitting family means IPv4; `all` checks both families using the same two observations on PC and Android. Both must report the same Network/interface, the requested case-sensitive SSID, and an address, default route and DNS server for each requested family. Android's `validated` flag is observation only, not a passed internet probe. `link` never connects, disconnects, forgets a network or contacts an external endpoint. A requested `bssid` is still rejected for this profile: selection-time BSSID matching does not establish uninterrupted Network pinning. A detected wrong/unknown Network is MISSING, not a pass. This does **not** prove that no transient roam occurred between observations.
 
 Configured `lab` is available on PC and Android Shell with the same operation order: `check lab ssid "Example Lab" family ipv4 gateway 192.0.2.1 dns lab.example.test resolver selected http https://lab.example.test/health expected-status 204 timeout 5000`. Supply **your own approved endpoints**; no defaults or public fallback exist. An existing physical Wi-Fi is observed before and after three gateway ICMP packets, one A (or AAAA for ipv6) query through the selected Network's configured resolver, and one HTTP request. Failed required stages stop later probes. The URL must have no userinfo, query or fragment; redirects are disabled. No Wi-Fi configuration is changed. HTTP hostname address family and uninterrupted roaming are **not** pinned or proven.
 
-`use` is connect-only; on PC it needs an explicit passphrase for that invocation, and no PC default PSK is stored. Android retains its private default with explicit `clear default passphrase`. Bare `check` lists candidates without executing; `show checks` lists profiles and costs; `show check last [detail]` reads the in-process historical report without re-running it or granting current readiness. One-shot PC processes do not share Shell report or connection context. Unconfigured `lab`, `internet`, `eht`, strict BSSID pinning, and Go-only callbacks on Android do not fall back to a public service or run a partial check.
+`use <ssid> [passphrase <psk>]` is connect-only. Both interactive Shells can use a default set by `set default passphrase <psk>` and cleared by `clear default passphrase`; it exists only in the current session's memory. One-shot PC `use` still requires an explicit passphrase. Bare `check` lists candidates without executing; `show checks` lists profiles and costs; `show check last [detail]` reads the in-process historical report without re-running it or granting current readiness. One-shot PC processes do not share Shell report or connection context. Unconfigured `lab`, `internet`, `eht`, strict BSSID pinning, and Go-only callbacks on Android do not fall back to a public service or run a partial check.
 
 ### Android Agent and Agent Shell
 
@@ -249,8 +251,8 @@ $ make install SERIAL=R5CT12345
 ```
 
 The Android agent executes controller requests, records structured local logs, renders widgets, and hosts Agent Shell for direct handset-side inspection.
-Agent Shell accepts the same flat Wi-Fi inspection/control and handset-probe grammar as the controller, excluding PC-only device/ADB/format/pipeline commands; its target is always self. Unsupported profile commands never start an operation.
-For direct handset-side joins, `set default passphrase <psk>` stores a default PSK for later `use <ssid>`, and `use <ssid> <psk>` overrides it per command.
+Agent Shell accepts the same flat Wi-Fi inspection/control, handset-probe and output-pipeline grammar as Controller Shell, excluding PC-only device/ADB/TTY commands; its target is always self. Unsupported profile commands never start an operation.
+For direct handset-side joins, `set default passphrase <psk>` retains a default PSK only in session memory for later `use <ssid>`, and `use <ssid> passphrase <psk>` overrides it per command. It is not persisted to preferences, history or saved Activity state.
 Wrap SSIDs or PSKs in double quotes when they contain spaces or other shell-significant characters.
 
 #### Result presentation and safe copy
@@ -425,10 +427,11 @@ Update the controller and Android APK together; mixed-version compatibility and
 archive decoding are not provided. Existing user `.pb` archives, saved Compose
 volumes, old preferences, and Device Owner state are not automatically deleted
 or migrated. Back up any data you need before manually retiring an old deployment.
-Agent Shell now reads only `agent-shell-use-defaults`; a default PSK previously
-inherited from old preferences may need to be entered again with
-`set default passphrase <psk>` or `use <ssid> <psk>`. Old preferences are left intact;
-do not include PSKs in migration reports or logs.
+Agent Shell no longer reads or writes a persisted default PSK. The retired
+`default_passphrase` key in `agent-shell-use-defaults` is removed when the Activity
+or agent service starts. Enter a session default again with
+`set default passphrase <psk>` or use `use <ssid> passphrase <psk>` explicitly.
+Other old preferences are left intact; do not include PSKs in migration reports or logs.
 
 ### Dropcheck Harness
 
@@ -699,14 +702,14 @@ Go-only workflow maintenance does not require an Android schema change.
 an explicitly authorized manual run on a safe branch. Jobs use Ubuntu 24.04,
 immutable action revisions, a Go **1.26.0 / 1.26.8** controller matrix,
 staticcheck v0.7.0, and Temurin JDK
-17.0.20.1+1. Android SDK platform 37 (`platforms;android-37.0`) and Build Tools
-37.0.0 match the agent's Gradle configuration; target SDK remains 36. Gradle and
+17.0.20.1+1. Android SDK platform 37.2 (`platforms;android-37.2`) and Build Tools
+37.0.0 match the agent's Gradle configuration; target SDK is 37. Gradle and
 application dependency versions come from the committed wrapper and build
 files. Update CI provisioning alongside any changes to those toolchain requirements.
 
 Each controller matrix entry provisions verified protoc 35.0 and runs
 `make generate-go` plus `git diff --exit-code -- controller/internal/controlpb`,
-then `make fmt-check`, `make build TARGET=controller`,
+then `make fmt-check`, `make modernize-check`, `make build TARGET=controller`,
 `make test TARGET=controller`, `make lint TARGET=controller`, and
 `go test -race -count=1 ./...` from `controller/`. Job-wide `GOFLAGS=-p=1`
 serializes package work for tool installation, build, tests, vet, staticcheck,
