@@ -39,15 +39,17 @@ type CommandSpec struct {
 
 // CommandResult is one adb command result in a diagnostics bundle.
 type CommandResult struct {
-	Name      string   `json:"name"`
-	Args      []string `json:"args"`
-	Command   string   `json:"command"`
-	Stdout    string   `json:"stdout"`           // Stdout is the raw adb command stdout stream.
-	Stderr    string   `json:"stderr,omitempty"` // Stderr is the raw adb command stderr stream.
-	ExitCode  int      `json:"exit_code"`
-	TimedOut  bool     `json:"timed_out,omitempty"`
-	Error     string   `json:"error,omitempty"`
-	ElapsedMs int64    `json:"elapsed_ms"`
+	Name         string   `json:"name"`
+	Args         []string `json:"args"`
+	Command      string   `json:"command"`
+	Stdout       string   `json:"stdout"`           // Stdout is the raw adb command stdout stream.
+	Stderr       string   `json:"stderr,omitempty"` // Stderr is the raw adb command stderr stream.
+	ExitCode     int      `json:"exit_code"`
+	TimedOut     bool     `json:"timed_out,omitempty"`
+	Error        string   `json:"error,omitempty"`
+	ElapsedMs    int64    `json:"elapsed_ms"`
+	NotCollected bool     `json:"not_collected,omitempty"`
+	StartedAt    string   `json:"started_at,omitempty"`
 }
 
 // Bundle is an ADB diagnostics result for one Android agent/device.
@@ -67,7 +69,7 @@ func (b Bundle) OK() bool {
 		return false
 	}
 	for _, command := range b.Commands {
-		if command.ExitCode != 0 || command.TimedOut || command.Error != "" {
+		if command.NotCollected || command.ExitCode != 0 || command.TimedOut || command.Error != "" {
 			return false
 		}
 	}
@@ -168,6 +170,12 @@ func Render(bundle Bundle, format pipeline.Format) (string, error) {
 			kv("exit", result.ExitCode),
 			kv("elapsed", fmt.Sprintf("%dms", result.ElapsedMs)),
 		)
+		if result.StartedAt != "" {
+			writeKVSection(&b, "Capture", kv("started_at", result.StartedAt))
+		}
+		if result.NotCollected {
+			writeKVSection(&b, "ADB Warning", kv("not_collected", "true"))
+		}
 		if result.TimedOut {
 			writeKVSection(&b, "ADB Warning", kv("timed_out", "true"))
 		}
