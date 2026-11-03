@@ -74,7 +74,7 @@ func ExecuteOperation(ctx context.Context, r OperationRunner, agent control.Agen
 		return result, err
 	}
 	if result.Raw != nil && result.Raw.GetStatus() == controlpb.CommandResult_STATUS_OK && !payloadMatches(atomic, result.Raw) {
-		result.Findings = append(result.Findings, MissingFinding("payload", "<missing>", "expected typed payload", "wrong or missing payload"))
+		result.Findings = append(result.Findings, MissingFinding("payload", "<invalid>", "consistent typed payload", "wrong, missing or inconsistent payload"))
 	}
 	if options.WifiEHTFreshScan {
 		if result.Raw != nil && result.Raw.GetWifiDiagnostics() != nil && fresh.GetWifiScan() != nil {
@@ -124,6 +124,10 @@ func payloadMatches(op command.Operation, raw *controlpb.CommandResult) bool {
 		return false
 	}
 	switch op.Command.Command.(type) {
+	case *controlpb.RunCommand_GetNetworks, *controlpb.RunCommand_GetNetwork:
+		return validNetworkSnapshot(op.Command.GetGetNetwork(), raw.GetNetworkSnapshot())
+	case *controlpb.RunCommand_GetPermissions:
+		return raw.GetPermissionSnapshot() != nil
 	case *controlpb.RunCommand_GetWifiStatus:
 		return raw.GetWifiStatus() != nil
 	case *controlpb.RunCommand_GetWifiDiagnostics:
@@ -162,4 +166,32 @@ func payloadMatches(op command.Operation, raw *controlpb.CommandResult) bool {
 		return raw.GetWget() != nil
 	}
 	return false
+}
+
+func validNetworkSnapshot(query *controlpb.GetNetwork, snapshot *controlpb.NetworkSnapshot) bool {
+	if snapshot == nil || snapshot.ObservedAtUnixMs <= 0 || len(snapshot.Errors) != 0 || query != nil && len(snapshot.Networks) != 1 {
+		return false
+	}
+	seen := make(map[string]bool)
+	active := 0
+	for _, network := range snapshot.Networks {
+		id := network.GetNetworkId()
+		ip := network.GetIpStatus()
+		if !command.ValidNetworkID(id) || seen[id] || ip == nil || ip.NetworkId != id {
+			return false
+		}
+		seen[id] = true
+		if query != nil && (query.DefaultNetwork && !network.Active || !query.DefaultNetwork && query.NetworkId != id) {
+			return false
+		}
+		for _, group := range []string{"capabilities", "link_properties"} {
+			if available, _ := Availability(ip.ObservationFields, group); !available {
+				return false
+			}
+		}
+		if network.Active {
+			active++
+		}
+	}
+	return active <= 1
 }
