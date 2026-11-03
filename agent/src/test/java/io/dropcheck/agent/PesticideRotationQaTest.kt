@@ -89,15 +89,15 @@ class PesticideRotationQaTest {
         val cases = listOf("" to false, "1234567" to false, "12345678" to true, "x".repeat(63) to true,
             "x".repeat(64) to false, "A".repeat(64) to true, "é".repeat(4) to true, "é".repeat(32) to false,
             "abc\u0000defgh" to false, "abc\tdefgh" to false, "abc\ndefgh" to false)
-        for ((psk, valid) in cases) for (path in listOf("wifi connect Lab passphrase", "wifi cycle Lab passphrase", "use Lab passphrase", "set default passphrase")) {
-            assertEquals("$path bytes=${psk.toByteArray().size}", valid || path == "set default passphrase" && psk.isEmpty(), AgentShellParser.parse("$path '$psk'") !is AgentShellCommand.Invalid)
+        for ((psk, valid) in cases) for (path in listOf("request wifi connect Lab passphrase", "request wifi cycle Lab passphrase", "set cli default-passphrase")) {
+            assertEquals("$path bytes=${psk.toByteArray().size}", valid, AgentShellParser.parse("$path '$psk'") !is AgentShellCommand.Invalid)
         }
     }
 
     @Test fun numericAndOptionOrderBoundaries() {
         for ((raw, valid) in listOf("0" to false, "1" to true, "2147483647" to true, "2147483648" to false,
             "+1" to false, "-1" to false, "1e3" to false, "１" to false)) {
-            for (line in listOf("ping example.test timeout $raw count 1", "ping example.test count 1 timeout $raw")) {
+            for (line in listOf("request ping example.test timeout $raw count 1", "request ping example.test count 1 timeout $raw")) {
                 assertEquals(line, valid, AgentShellParser.parse(line) !is AgentShellCommand.Invalid)
             }
         }
@@ -106,7 +106,7 @@ class PesticideRotationQaTest {
     @Test fun canonicalBssidForms() {
         for ((value, valid) in listOf("02:00:00:11:22:33" to true, "AA:BB:CC:DD:EE:FF" to true,
             "02-00-00-11-22-33" to false, "0200.0011.2233" to false, "02:00:00:11:22" to false)) {
-            assertEquals(value, valid, AgentShellParser.parse("wifi assert bssid $value") !is AgentShellCommand.Invalid)
+            assertEquals(value, valid, AgentShellParser.parse("test wifi bssid $value") !is AgentShellCommand.Invalid)
         }
     }
 
@@ -114,11 +114,11 @@ class PesticideRotationQaTest {
         for ((host, valid) in listOf("192.0.2.1" to true, "2001:db8::1" to true, "example.test" to true,
             "999.0.0.1" to false, "256.1.1.1" to false, "2001:db8:::1" to false)) {
             for (path in listOf("ping", "traceroute", "path-mtu")) {
-                assertEquals("$path $host", valid, AgentShellParser.parse("$path $host") !is AgentShellCommand.Invalid)
+                assertEquals("$path $host", valid, AgentShellParser.parse("request $path $host") !is AgentShellCommand.Invalid)
             }
         }
         for (port in listOf(443L, 65535L, 65536L, 2147483648L)) for (path in listOf("http", "download")) {
-            val line = "$path https://example.test:$port/"
+            val line = "request $path https://example.test:$port/"
             assertEquals(line, port <= 65535L, AgentShellParser.parse(line) !is AgentShellCommand.Invalid)
         }
     }
@@ -143,14 +143,14 @@ class PesticideRotationQaTest {
 
     @Test fun historyEvictionCannotRestoreSecretsOrInvalidDrafts() {
         val session = AgentShellSession()
-        repeat(130) { session.remember("show ip status ssid Lab$it") }
-        assertEquals("show ip status ssid Lab129", session.recall("use Lab passphrase round2-synthetic-secret", -1))
+        repeat(130) { session.remember("show wifi status ip ssid Lab$it") }
+        assertEquals("show wifi status ip ssid Lab129", session.recall("request wifi connect Lab passphrase round2-synthetic-secret", -1))
         repeat(150) { session.recall("", -1) }
-        assertEquals("show ip status ssid Lab30", session.recall("", -1))
+        assertEquals("show wifi status ip ssid Lab30", session.recall("", -1))
         repeat(100) { session.recall("", 1) }
         assertEquals("", session.recall("", 1))
         session.remember("show permissions")
-        assertEquals("show permissions", session.recall("set default passphrase 'unfinished", -1))
+        assertEquals("show permissions", session.recall("set cli default-passphrase 'unfinished", -1))
         assertEquals("", session.recall("", 1))
     }
 

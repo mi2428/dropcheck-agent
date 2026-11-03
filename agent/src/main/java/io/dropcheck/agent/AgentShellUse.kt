@@ -50,7 +50,7 @@ internal object AgentShellUsePolicy {
         if (ssid.isEmpty()) return AgentShellUseDecision(error = "wifi ssid is required")
         if (explicitPassphrase != null) {
             if (explicitPassphrase.isEmpty()) {
-                return AgentShellUseDecision(error = "use passphrase cannot be empty")
+                return AgentShellUseDecision(error = "connect passphrase cannot be empty")
             }
             if (!validPassphrase(explicitPassphrase)) return AgentShellUseDecision(error = "invalid passphrase length or encoding")
             return AgentShellUseDecision(
@@ -62,7 +62,7 @@ internal object AgentShellUsePolicy {
             )
         }
         if (defaults.defaultPassphrase.isEmpty()) {
-            return AgentShellUseDecision(error = "use requires a passphrase; set default passphrase or pass one explicitly")
+            return AgentShellUseDecision(error = "connect requires a passphrase; set cli default-passphrase or pass one explicitly")
         }
         if (!validPassphrase(defaults.defaultPassphrase)) return AgentShellUseDecision(error = "invalid default passphrase length or encoding")
         return AgentShellUseDecision(
@@ -74,13 +74,10 @@ internal object AgentShellUsePolicy {
         )
     }
 
-    fun connectCommand(request: AgentShellUseRequest): RunCommand {
+    fun connectCommand(options: ConnectWifi, request: AgentShellUseRequest): RunCommand {
         return RunCommand.newBuilder()
-            .setLabel("use ${request.ssid}")
-            .setConnectWifi(ConnectWifi.newBuilder()
-                .setSsid(request.ssid)
-                .setPassphrase(request.passphrase)
-                .setTimeoutMs(WifiCommandPolicy.DEFAULT_CONNECT_TIMEOUT_MS))
+            .setLabel("request wifi connect")
+            .setConnectWifi(options.toBuilder().setPassphrase(request.passphrase))
             .build()
     }
 

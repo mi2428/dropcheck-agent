@@ -127,7 +127,7 @@ func TestAdversarialQAFailedADBMustNotBeJSONSuccess(t *testing.T) {
 }
 
 func TestAdversarialQABareLabParity(t *testing.T) {
-	parsed, err := parseShellLine("check lab")
+	parsed, err := parseShellLine("test lab")
 	if err != nil {
 		t.Fatal(err)
 	}

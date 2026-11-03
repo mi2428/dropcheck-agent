@@ -214,9 +214,6 @@ func WifiScanOperation(bandValue string) (Operation, error) {
 // WifiScanOperationWithBrief builds a cached Wi-Fi scan operation with optional
 // compact rendering and MLO-only filtering.
 func WifiScanOperationWithBrief(bandValue string, brief bool, mlo bool) (Operation, error) {
-	if mlo && !brief {
-		return Operation{}, errors.New("mlo is supported only with wifi scan brief")
-	}
 	band, err := parseWifiBand(bandValue)
 	if err != nil {
 		return Operation{}, err
@@ -248,9 +245,6 @@ func WifiFreshScanOperation(bandValue string, timeoutValue string) (Operation, e
 // WifiFreshScanOperationWithBrief builds a fresh Wi-Fi scan operation with
 // optional compact rendering and MLO-only filtering.
 func WifiFreshScanOperationWithBrief(bandValue string, timeoutValue string, brief bool, mlo bool) (Operation, error) {
-	if mlo && !brief {
-		return Operation{}, errors.New("mlo is supported only with wifi scan brief")
-	}
 	band, err := parseWifiBand(bandValue)
 	if err != nil {
 		return Operation{}, err

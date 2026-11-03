@@ -6,7 +6,7 @@ import (
 )
 
 func TestAdversarialQAEmptyQuotedLiteral(t *testing.T) {
-	for _, input := range []string{`wifi forget ''`, `ping ''`, `http ''`, `dns ''`, `show wifi scan detail ''`} {
+	for _, input := range []string{`request wifi forget ssid ''`, `request ping ''`, `request http ''`, `request dns ''`, `show wifi scan ssid ''`} {
 		tokens, err := SplitArgs(input)
 		if err != nil {
 			t.Fatal(err)
@@ -19,7 +19,7 @@ func TestAdversarialQAEmptyQuotedLiteral(t *testing.T) {
 }
 
 func TestAdversarialQACheckCompletion(t *testing.T) {
-	if got := ShellSuggestions([]string{"check", "link"}); !strings.Contains(strings.Join(got, ","), "ssid") {
+	if got := ShellSuggestions([]string{"test", "link"}); !strings.Contains(strings.Join(got, ","), "ssid") {
 		t.Errorf("SSID discovery missing: %v", got)
 	}
 }
@@ -36,7 +36,7 @@ func TestAdversarialQARenderDetailIntent(t *testing.T) {
 }
 
 func TestAdversarialQALiteralPSKAndPrefixBaseline(t *testing.T) {
-	for _, input := range []string{"wifi connect Lab passphrase '        '", "check link s Lab"} {
+	for _, input := range []string{"request wifi connect Lab passphrase '        '", "test link s Lab"} {
 		tokens, err := SplitArgs(input)
 		if err != nil {
 			t.Fatal(err)

@@ -91,7 +91,6 @@ class AgentLinkProfileTest {
             assertEquals(false, report.validated) // Observation, not a PASS prerequisite.
             assertTrue(report.lines(detail = true).any { it.contains("dns_servers: PASS actual=1 expected=>=1") })
             assertTrue(report.lines(historical = true).first().startsWith("Historical last check"))
-            assertEquals(report, AgentLinkProfile.lastReport())
         }
     }
 
@@ -149,9 +148,10 @@ class AgentLinkProfileTest {
         assertEquals(LinkOutcome.MISSING, run(failedWithReference, calls = calls).outcome)
         assertEquals(1, calls.size)
         calls.clear()
-        assertEquals(LinkOutcome.MISSING, run(ipResult(ip(available = false)), calls = calls).outcome)
+        val unavailable = run(ipResult(ip(available = false)), calls = calls)
+        assertEquals(LinkOutcome.MISSING, unavailable.outcome)
         assertEquals(1, calls.size)
-        assertEquals(LinkOutcome.SKIP, AgentLinkProfile.lastReport()!!.stages.last().outcome)
+        assertEquals(LinkOutcome.SKIP, unavailable.stages.last().outcome)
         calls.clear()
         assertEquals(LinkOutcome.MISSING, run(ipResult(ip().toBuilder().clearWifi().build()), calls = calls).outcome)
         assertEquals(1, calls.size)
@@ -169,7 +169,6 @@ class AgentLinkProfileTest {
         assertEquals(listOf(LinkOutcome.FAIL, LinkOutcome.SKIP), failed.stages.map { it.outcome })
         assertEquals(0, failed.stages[0].metrics.single { it.name == "dns_servers" }.actual)
         assertEquals(1, calls.size)
-        assertEquals(failed, AgentLinkProfile.lastReport())
         calls.clear()
         val noIpv6Route = run(ipResult(), ipResult(ip(routes = listOf("0.0.0.0/0 -> 192.0.2.1 wlan0"))),
             check = AgentShellCommand.Check("link", target, IpFamily.IP_FAMILY_IPV6), calls = calls)
@@ -182,7 +181,6 @@ class AgentLinkProfileTest {
         assertEquals(2, calls.size)
         assertEquals("7", changed.networkId)
         assertTrue(changed.lines(historical = true).first().contains("MISSING"))
-        assertEquals(changed, AgentLinkProfile.lastReport())
         calls.clear()
         assertEquals(LinkOutcome.MISSING, run(ipResult(), ipResult(ip(iface = "wlan1")), calls = calls).outcome)
         assertEquals(2, calls.size)
@@ -204,6 +202,5 @@ class AgentLinkProfileTest {
         assertEquals(LinkOutcome.MISSING, exception.outcome)
         assertEquals(listOf(LinkOutcome.MISSING, LinkOutcome.SKIP), exception.stages.map { it.outcome })
         assertTrue(exception.stages.first().reason.contains("SecurityException"))
-        assertEquals(exception, AgentLinkProfile.lastReport())
     }
 }

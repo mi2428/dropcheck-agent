@@ -27,9 +27,9 @@ class ShellInputInstrumentation : Instrumentation() {
                 check(connection.commitText("?", 1))
                 check(input.text.toString() == "show " && input.selectionStart == 5) { "help changed input" }
 
-                input.setText("wifi connect 'Lab"); input.setSelection(input.text.length)
+                input.setText("request wifi connect 'Lab"); input.setSelection(input.text.length)
                 connection.commitText("?", 1)
-                check(input.text.toString() == "wifi connect 'Lab?") { "quoted question mark was intercepted" }
+                check(input.text.toString() == "request wifi connect 'Lab?") { "quoted question mark was intercepted" }
 
                 input.setText("show "); input.setSelection(5)
                 connection.setComposingText("?", 1)

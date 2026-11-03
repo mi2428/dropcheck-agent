@@ -5,14 +5,13 @@ import io.dropcheck.agent.grpc.DiagnosticField
 import io.dropcheck.agent.grpc.GetFreshWifiScan
 import io.dropcheck.agent.grpc.GetWifiDiagnostics
 import io.dropcheck.agent.grpc.RunCommand
-import io.dropcheck.agent.grpc.WifiBand
 
 internal fun runWifiEhtDiagnostics(
     command: AgentShellCommand.ShowWifiEht,
     execute: (RunCommand) -> CommandResult,
 ): CommandResult {
     val fresh = if (command.fresh) {
-        val scan = GetFreshWifiScan.newBuilder().setBand(WifiBand.WIFI_BAND_ALL)
+        val scan = GetFreshWifiScan.newBuilder().setBand(command.band)
         if (command.timeoutMs > 0) scan.timeoutMs = command.timeoutMs
         val request = RunCommand.newBuilder().setGetFreshWifiScan(scan).build()
         val result = evaluateShellPayload(request, execute(request))

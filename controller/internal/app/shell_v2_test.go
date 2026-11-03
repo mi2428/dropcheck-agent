@@ -14,7 +14,7 @@ import (
 
 func TestShellCredentialsAreSessionOnlyAndClearable(t *testing.T) {
 	state := &shellState{}
-	for _, line := range []string{"set default passphrase test-only", "clear default passphrase"} {
+	for _, line := range []string{"set cli default-passphrase test-only", "clear cli default-passphrase"} {
 		if _, err := runReplLine(context.Background(), state, line); err != nil {
 			t.Fatal(err)
 		}

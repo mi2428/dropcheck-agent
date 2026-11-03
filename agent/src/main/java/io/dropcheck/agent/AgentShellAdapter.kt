@@ -1,9 +1,6 @@
 package io.dropcheck.agent
 
 import android.content.Context
-import android.net.wifi.ScanResult
-import android.net.wifi.WifiManager
-import android.os.Build
 import io.dropcheck.agent.grpc.CommandResult
 import io.dropcheck.agent.grpc.RunCommand
 
@@ -54,40 +51,54 @@ internal class AgentShellAdapter(private val context: Context, private val logge
         is AgentShellCommand.Help -> AgentShellResult(true, AgentShellParser.help(command.topic))
         is AgentShellCommand.SetDefaultPassphrase -> { session.setPassphrase(command.passphrase); AgentShellResult(true, listOf(AgentShellUsePolicy.setDefaultPassphraseMessage(command.passphrase))) }
         AgentShellCommand.ClearDefaultPassphrase -> { session.setPassphrase(""); AgentShellResult(true, listOf(AgentShellUsePolicy.setDefaultPassphraseMessage(""))) }
-        AgentShellCommand.ShowVersion -> AgentShellResult(true, listOf("version ${BuildConfig.VERSION_NAME}"))
-        is AgentShellCommand.Invalid -> AgentShellResult(false, listOf(command.message))
-        is AgentShellCommand.Use -> use(command)
-        is AgentShellCommand.Check -> AgentLinkProfile.run(command) { executor.execute(it) }.let { AgentShellResult(it.outcome == LinkOutcome.PASS, it.lines()) }
+        AgentShellCommand.ShowVersion -> AgentShellResult(true, listOf("Android agent version: ${BuildConfig.VERSION_NAME}"))
+        AgentShellCommand.ShowCli -> AgentShellResult(true, listOf("Owner: self", "Target: self", "Layout: measured Android content width", "History: session-only safe allowlist", AgentShellUsePolicy.statusText(session.defaults)))
+        is AgentShellCommand.Invalid -> AgentShellResult(false, listOf(command.message)).also { if (command.testProfile.isNotEmpty()) session.recordTest(it) }
+        is AgentShellCommand.Connect -> connect(command)
+        is AgentShellCommand.Check -> {
+            session.recordTest(AgentShellResult(false, listOf("Test did not return a valid result")))
+            (if (session.connectionFailed) AgentShellResult(false, listOf("Previous connection attempt failed; target not ready"))
+            else AgentLinkProfile.run(command) { executor.execute(it) }.let { AgentShellResult(it.outcome == LinkOutcome.PASS, it.lines(detail = true)) }).also(session::recordTest)
+        }
         AgentShellCommand.ShowChecks -> AgentShellResult(true, AgentLinkProfile.catalogue())
-        is AgentShellCommand.ShowCheckLast -> AgentShellResult(true, AgentLinkProfile.lastReport()?.lines(command.detail, historical = true) ?: listOf("No last check report (no check attempted in this process)."))
+        is AgentShellCommand.ShowCheckLast -> lastTest()
         is AgentShellCommand.ShowWifiEht -> eht(command)
-        is AgentShellCommand.Execute -> render(command, executor.execute(command.request))
+        is AgentShellCommand.Execute -> {
+            if (command.wifiTest) session.recordTest(AgentShellResult(false, listOf("Test did not return a valid result")))
+            render(command, executor.execute(command.request)).also { if (command.wifiTest) session.recordTest(it) }
+        }
     }
 
-    private fun use(command: AgentShellCommand.Use): AgentShellResult {
-        val decision = AgentShellUsePolicy.resolveUseRequest(command.ssid, command.passphrase, session.defaults)
+    private fun connect(command: AgentShellCommand.Connect): AgentShellResult {
+        val decision = AgentShellUsePolicy.resolveUseRequest(command.options.ssid, command.options.passphrase.takeIf(String::isNotEmpty), session.defaults)
         val request = decision.request ?: return AgentShellResult(false, listOf(decision.error))
-        val wire = AgentShellUsePolicy.connectCommand(request)
-        return render(AgentShellCommand.Execute(wire, secret = request.passphrase), executor.execute(wire), request.passphraseSource)
+        val wire = AgentShellUsePolicy.connectCommand(command.options, request)
+        session.connectionFailed = true
+        val result = executor.execute(wire)
+        session.connectionFailed = result.status != CommandResult.Status.STATUS_OK || !result.hasConnectWifi() || !result.connectWifi.connected
+        return render(AgentShellCommand.Execute(wire, secret = request.passphrase), result, request.passphraseSource)
     }
 
+    private fun lastTest(): AgentShellResult {
+        val previous = session.lastTest ?: return AgentShellResult(true, listOf("No test attempted in this Shell session."))
+        val header = listOf(AgentBlockPart.Text("Historical test at ${session.lastTestAtMs} (not current readiness); outcome=${if (previous.ok) "PASS" else "NON-PASS"}"))
+        val parts = previous.block?.parts ?: previous.lines.map { AgentBlockPart.Text(it.toString()) }
+        return AgentShellResult(true, block = AgentPresentationBlock.create(header + parts, AgentLogStyle.TEXT_COLOR))
+    }
     private fun eht(command: AgentShellCommand.ShowWifiEht): AgentShellResult {
         val result = runWifiEhtDiagnostics(command, executor::execute)
         if (!result.hasWifiDiagnostics() || !result.wifiDiagnostics.hasStatus()) return failure("Wi-Fi EHT", result)
-        val diagnostics = result.wifiDiagnostics
-        val context = AgentWifiMloContext(
-            scanSource = diagnostics.scan.fieldsList.lastOrNull { it.key == "scan_source" }?.value ?: "diagnostics",
-            sdkInt = Build.VERSION.SDK_INT,
-            wifi7Supported = wifi7StandardSupported(),
-            wifiCapabilities = diagnostics.capabilities.takeIf { diagnostics.hasCapabilities() },
-            ssidFilter = command.ssid, bssidFilter = command.bssid,
-        )
-        return block(result, AgentWifiMloRenderer.presentation(diagnostics.status, diagnostics.scan, context, command.detail, true), "Wi-Fi EHT")
-    }
-
-    private fun wifi7StandardSupported(): Boolean? {
-        if (Build.VERSION.SDK_INT < 33) return null
-        return runCatching { context.getSystemService(WifiManager::class.java)?.isWifiStandardSupported(ScanResult.WIFI_STANDARD_11BE) }.getOrNull()
+        val filter = AgentWifiMloRenderer.MloFilter(command.ssid, command.bssid)
+        val diagnostics = result.wifiDiagnostics.toBuilder()
+        val status = diagnostics.status.toBuilder().clearConnection()
+        filter.connection(diagnostics.status.connection.takeIf { diagnostics.status.hasConnection() })?.let(status::setConnection)
+        if (filter.active && filter.connection(diagnostics.status.ipStatus.wifi) == null) status.clearIpStatus()
+        diagnostics.setStatus(status).setScan(diagnostics.scan.toBuilder().clearResults().addAllResults(filter.scanResults(diagnostics.scan.resultsList)))
+        val networks = diagnostics.networksList.filter { !filter.active || filter.connection(it.ipStatus.wifi) != null }
+        diagnostics.clearNetworks().addAllNetworks(networks)
+        val parts = listOfNotNull(if (filter.active) AgentBlockPart.Field("Evidence filter", filter.label) else null) +
+            AgentWifiDiagnosticsRenderer.presentation(diagnostics.build(), true, true, true)
+        return block(result, parts, "Wi-Fi EHT")
     }
 
     private fun render(command: AgentShellCommand.Execute, result: CommandResult, source: AgentShellUsePassphraseSource? = null): AgentShellResult {
@@ -129,7 +140,7 @@ internal class AgentShellAdapter(private val context: Context, private val logge
                 add(AgentBlockPart.Field("Observed at unix ms", result.networkSnapshot.observedAtUnixMs.toString()))
                 result.networkSnapshot.networksList.forEach { network ->
                     add(AgentBlockPart.Field("Active/default at collection", network.active.toString()))
-                    addAll(AgentWifiStatusRenderer.ipPresentation(network.ipStatus, request.commandCase == RunCommand.CommandCase.GET_NETWORK, true))
+                    addAll(AgentWifiStatusRenderer.ipPresentation(network.ipStatus, true, true))
                 }
                 result.networkSnapshot.errorsList.forEach { add(AgentBlockPart.Field("Error", it)) }
             }
@@ -138,21 +149,24 @@ internal class AgentShellAdapter(private val context: Context, private val logge
                 add(AgentBlockPart.Field("Device Owner", result.permissionSnapshot.deviceOwner.toString()))
                 result.permissionSnapshot.permissionsList.forEach { add(AgentBlockPart.Field(it.key, it.value)) }
             }
-            RunCommand.CommandCase.GET_WIFI_STATUS -> AgentWifiStatusRenderer.presentation(result.wifiStatus, command.detail, true, true)
-            RunCommand.CommandCase.GET_WIFI_DIAGNOSTICS -> AgentWifiDiagnosticsRenderer.presentation(result.wifiDiagnostics, command.detail, true, true)
-            RunCommand.CommandCase.GET_WIFI_CAPABILITIES -> AgentWifiCapabilitiesRenderer.presentation(result.wifiCapabilities, command.detail, true)
-            RunCommand.CommandCase.GET_WIFI_SCAN, RunCommand.CommandCase.GET_FRESH_WIFI_SCAN -> AgentWifiScanRenderer.presentation(result.wifiScan,
-                AgentWifiScanContext(command.brief, command.mlo, command.fresh))
+            RunCommand.CommandCase.GET_WIFI_STATUS -> AgentWifiStatusRenderer.presentation(result.wifiStatus, true, true, true)
+            RunCommand.CommandCase.GET_WIFI_DIAGNOSTICS -> AgentWifiDiagnosticsRenderer.presentation(result.wifiDiagnostics, true, true, true)
+            RunCommand.CommandCase.GET_WIFI_CAPABILITIES -> AgentWifiCapabilitiesRenderer.presentation(result.wifiCapabilities, true, true)
+            RunCommand.CommandCase.GET_WIFI_SCAN, RunCommand.CommandCase.GET_FRESH_WIFI_SCAN -> {
+                val selected = AgentWifiMloRenderer.MloFilter(command.scanSsid, command.scanBssid).scanResults(result.wifiScan.resultsList)
+                val scan = result.wifiScan.toBuilder().clearResults().addAllResults(selected).build()
+                AgentWifiScanRenderer.presentation(scan, AgentWifiScanContext(command.brief, command.mlo, command.fresh, detail = !command.brief))
+            }
             RunCommand.CommandCase.GET_WIFI_SCAN_DETAIL -> buildList {
                 add(AgentBlockPart.Field("Target", result.wifiScanDetail.target))
                 result.wifiScanDetail.fieldsList.forEach { add(AgentBlockPart.Field(it.key, it.value)) }
                 addAll(AgentWifiScanRenderer.presentation(io.dropcheck.agent.grpc.WifiScan.newBuilder().addAllResults(result.wifiScanDetail.resultsList)
                     .addAllErrors(result.wifiScanDetail.errorsList).build(), AgentWifiScanContext(detail = true)))
             }
-            RunCommand.CommandCase.GET_IP_STATUS -> AgentWifiStatusRenderer.ipPresentation(result.ipStatus, command.detail, true)
+            RunCommand.CommandCase.GET_IP_STATUS -> AgentWifiStatusRenderer.ipPresentation(result.ipStatus, true, true)
             else -> textRows(request, evaluated, source, command.via)
         }
-        return block(evaluated, parts, if (source != null) "Wi-Fi Use" else request.commandCase.name.replace('_', ' ').lowercase(), secrets)
+        return block(evaluated, parts, if (source != null) "Wi-Fi connect" else request.commandCase.name.replace('_', ' ').lowercase(), secrets)
     }
 
     private fun textRows(request: RunCommand, result: CommandResult, source: AgentShellUsePassphraseSource?, via: List<String>): List<AgentBlockPart> = buildList {

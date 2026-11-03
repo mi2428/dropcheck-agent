@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"dropcheck/controller/internal/adb"
 	"dropcheck/controller/internal/adbdiag"
@@ -36,6 +37,7 @@ func repl(ctx context.Context, state *shellState) error {
 }
 
 func replLineEditor(ctx context.Context, state *shellState) error {
+	defer func() { state.defaultPassphrase = "" }()
 	var lineReader *readline.Instance
 	var editing string
 	cfg := &readline.Config{
@@ -110,6 +112,7 @@ func replLineEditor(ctx context.Context, state *shellState) error {
 }
 
 func replScanner(ctx context.Context, state *shellState) error {
+	defer func() { state.defaultPassphrase = "" }()
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
 		fmt.Print(state.prompt())
@@ -299,26 +302,8 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 	case shellClearDefaultPassphrase:
 		state.defaultPassphrase = ""
 		return false, printLocalOutput(command, func(outputFormat) (string, error) { return "default passphrase cleared\n", nil })
-	case shellUse:
-		secret := command.passphrase
-		if secret == "" {
-			secret = state.defaultPassphrase
-		}
-		if secret == "" {
-			fmt.Fprintln(os.Stderr, "use requires an explicit or session passphrase")
-			return false, nil
-		}
-		op, buildErr := buildUseOperation(command.ssid, secret)
-		if buildErr != nil {
-			fmt.Fprintln(os.Stderr, "invalid use arguments")
-			return false, nil
-		}
-		agents, targetErr := state.commandTargets()
-		if targetErr != nil {
-			fmt.Fprintln(os.Stderr, targetErr)
-			return false, nil
-		}
-		return false, runOperationForAgents(ctx, state, agents, op, commandOutputOptions{format: outputText, pipeline: command.pipeline, use: true, interactive: true})
+	case shellConnect:
+		return false, connectShell(ctx, state, command)
 	case shellNoop:
 		return false, nil
 	case shellExit:
@@ -329,12 +314,14 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 			if command.helpTopic == "" {
 				shell.WriteContextHelp(&b, "?")
 			} else {
-				writeCommandHelp(&b, command.helpTopic)
+				shell.WriteHelpTopic(&b, command.helpTopic)
 			}
 			return b.String(), nil
 		})
 	case shellVersion:
-		return false, printLocalOutput(command, func(outputFormat) (string, error) { return version.Version + "\n", nil })
+		return false, printLocalOutput(command, func(outputFormat) (string, error) { return "Controller version: " + version.Version + "\n", nil })
+	case shellCLI:
+		return false, printLocalOutput(command, func(outputFormat) (string, error) { return renderShellSession(state), nil })
 	case shellShowDevices:
 		return false, printLocalOutput(command, func(format outputFormat) (string, error) {
 			return renderAgents(agentListView(state), format)
@@ -347,9 +334,10 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 			if command.pipeline.pipeline.StageCount() > 0 || command.pipeline.displayJSON {
 				view.Width = 0
 			}
-			return renderProfileReport(state, format, command.detail, view)
+			return renderLastShellTest(state, view)
 		})
 	case shellProfile:
+		state.lastWifiTest = nil
 		if command.profileName == "" {
 			return false, printLocalOutput(command, showProfiles)
 		}
@@ -358,16 +346,21 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 			fmt.Fprintln(os.Stderr, err)
 		}
 		return false, nil
-	case shellAgentCommand:
+	case shellAgentCommand, shellWifiTest:
+		if command.kind == shellWifiTest && !prepareWifiTest(state, command) {
+			return false, nil
+		}
 		agents, err := state.commandTargets()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			return false, nil
 		}
 		return false, runOperationForAgents(ctx, state, agents, command.operation, commandOutputOptions{
-			format:      outputText,
-			pipeline:    command.pipeline,
-			interactive: true,
+			format:       outputText,
+			pipeline:     command.pipeline,
+			interactive:  true,
+			singleTarget: command.effect == "mutation" || command.kind == shellWifiTest,
+			wifiTest:     command.kind == shellWifiTest,
 		})
 	case shellADBDiagnostics:
 		agents, err := state.commandTargets()
@@ -376,9 +369,10 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 			return false, nil
 		}
 		return false, runADBDiagnosticsForAgents(ctx, state, agents, command.adbKind, commandOutputOptions{
-			format:      outputText,
-			pipeline:    command.pipeline,
-			interactive: true,
+			format:       outputText,
+			pipeline:     command.pipeline,
+			interactive:  true,
+			adbTimeoutMs: command.adbTimeoutMs,
 		})
 	default:
 		return false, nil
@@ -444,6 +438,9 @@ type commandOutputOptions struct {
 	strict             bool
 	use                bool
 	interactive        bool
+	singleTarget       bool
+	wifiTest           bool
+	adbTimeoutMs       uint32
 }
 
 func separateTextBlock(out string, printedAny bool) string {
@@ -466,6 +463,10 @@ func agentTextBlock(agent string, out string, printedAny bool) string {
 }
 
 func runOperationForAgents(ctx context.Context, state *shellState, agents []control.AgentInfo, op Operation, output commandOutputOptions) error {
+	if output.singleTarget && (state.targetAll || len(agents) != 1) {
+		fmt.Fprintln(os.Stderr, "this operation requires one pinned agent")
+		return nil
+	}
 	if output.use && len(agents) != 1 {
 		return fmt.Errorf("use/connect requires one selected agent")
 	}
@@ -555,7 +556,18 @@ func runADBDiagnosticsForAgent(ctx context.Context, state *shellState, agent con
 		}
 		return nil
 	}
-	bundle, err := adbdiag.Collect(ctx, adb.Client{Path: state.adbPath, Serial: serial}, agentDisplayName(agent), kind)
+	client := adb.Client{Path: state.adbPath, Serial: serial}
+	var bundle adbdiag.Bundle
+	var err error
+	if output.interactive {
+		bundle, err = adbdiag.CollectInteractive(ctx, client, agentDisplayName(agent), kind, time.Duration(output.adbTimeoutMs)*time.Millisecond, func(index, total int, name string) {
+			outputMu.Lock()
+			defer outputMu.Unlock()
+			fmt.Fprintf(os.Stderr, "%s: ADB %d/%d %s\n", strings.TrimSpace(render.TextBlock(agentDisplayName(agent), render.Presentation{})), index, total, name)
+		})
+	} else {
+		bundle, err = adbdiag.Collect(ctx, client, agentDisplayName(agent), kind)
+	}
 	outputMu.Lock()
 	defer outputMu.Unlock()
 	if err != nil {
@@ -638,7 +650,10 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 	options.TracerouteRequiredHops = nil
 	supplements := commandResultSupplements{}
 	if err == nil {
-		supplements = collectCommandResultSupplements(ctx, state, agent, result, options, output.format)
+		supplements = collectCommandResultSupplements(ctx, state, agent, result, options, output.format, output.interactive)
+	}
+	if output.wifiTest && result != nil && result.GetWifiAssert() != nil {
+		state.lastWifiTest = render.SanitizedResult(result)
 	}
 
 	// Multiple agents execute concurrently, but terminal output is a shared
@@ -760,10 +775,6 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 		state.failedUse = false
 	}
 	return nil
-}
-
-func buildUseOperation(ssid, secret string) (Operation, error) {
-	return command.WifiConnectOperation(command.WifiConnectOptions{SSID: ssid, Passphrase: secret})
 }
 
 func redactOperationSecret(op Operation, text string) string {

@@ -65,12 +65,12 @@ class LinkProfileLiveInstrumentation : Instrumentation() {
                 val adapter = AgentShellAdapter(targetContext.applicationContext, logger)
                 check(adapter.execute(AgentShellCommand.ShowChecks).lines.any { it.toString().contains("link: supported") })
                 val escapedSsid = observedSsid.replace("\\", "\\\\").replace("\"", "\\\"")
-                val parsed = AgentShellParser.parse("check link ssid \"$escapedSsid\"")
+                val parsed = AgentShellParser.parse("test link ssid \"$escapedSsid\"")
                 check(parsed is AgentShellCommand.Check && parsed.ssid == observedSsid)
                 val shellResult = adapter.execute(parsed)
                 check(shellResult.ok && shellResult.lines.any { it.toString().contains("PASS") })
-                val historical = adapter.execute(AgentShellCommand.ShowCheckLast(detail = true))
-                check(historical.ok && historical.lines.firstOrNull()?.toString()?.startsWith("Historical last check") == true)
+                val historical = adapter.execute(AgentShellCommand.ShowCheckLast)
+                check(historical.ok && historical.block?.fullText?.startsWith("Historical test") == true)
                 shellAdapterPassed = true
             }
             val missing = if (report.outcome == LinkOutcome.FAIL) report.stages.flatMap { it.metrics }
@@ -94,8 +94,11 @@ class LinkProfileLiveInstrumentation : Instrumentation() {
                 }
                 check(rejected == 0 && wrongReads == 1 && wrongTarget.outcome == LinkOutcome.MISSING)
                 check(wrongTarget.stages.map { it.outcome } == listOf(LinkOutcome.MISSING, LinkOutcome.SKIP))
-                val latest = AgentShellAdapter(targetContext.applicationContext, logger).execute(AgentShellCommand.ShowCheckLast(detail = false))
-                check(latest.lines.firstOrNull()?.toString()?.contains("MISSING") == true) { "last check retained a stale PASS" }
+                val sessionAdapter = AgentShellAdapter(targetContext.applicationContext, logger)
+                check(sessionAdapter.execute(AgentShellCommand.ShowCheckLast).lines.any { "No test attempted" in it }) { "another session inherited a historical result" }
+                sessionAdapter.execute(AgentShellCommand.Invalid("invalid test syntax", "link"))
+                val latest = sessionAdapter.execute(AgentShellCommand.ShowCheckLast)
+                check(latest.block?.fullText?.contains("invalid test syntax") == true) { "last test lost a rejected attempt" }
                 wrong = "MISSING,SKIP"
             }
             done(report.outcome, missing, wrong, report.stages.joinToString(",") { it.outcome.name })

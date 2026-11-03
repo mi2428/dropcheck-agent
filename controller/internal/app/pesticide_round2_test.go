@@ -53,7 +53,7 @@ func TestRound2InvalidPipelineHasNoSessionSideEffects(t *testing.T) {
 
 func TestRound2MultiTargetUseFailsBeforeStateChangeOrDispatch(t *testing.T) {
 	state := &shellState{}
-	op, err := buildUseOperation("round2", "round2-synthetic-secret")
+	op, err := command.WifiConnectOperation(command.WifiConnectOptions{SSID: "round2", Passphrase: "round2-synthetic-secret"})
 	if err != nil {
 		t.Fatal(err)
 	}

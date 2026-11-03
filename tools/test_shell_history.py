@@ -20,12 +20,12 @@ def main():
     with tempfile.TemporaryDirectory(prefix='dropcheck-round2-pty-') as directory:
         binary = Path(directory) / 'round2-app.test'
         subprocess.run([os.environ.get('GO', 'go'), 'test', '-p=1', '-c', '-ldflags', '-X dropcheck/controller/internal/version.Version=round2-local-version', '-o', str(binary), './internal/app'], cwd=ROOT / 'controller', check=True, timeout=60)
-        secret = b'set default passphrase round2-synthetic-secret'
+        secret = b'set cli default-passphrase round2-synthetic-secret'
         cases = [
             ('arrows', secret + b'\x1b[A\x1b[B\r', 0, 1),
             ('control-p-n', secret + b'\x10\x0e\r', 0, 1),
             ('edited-recall', b'\x1b[A\x15' + secret + b'\x1b[A\x1b[B\r', 0, 1),
-            ('submitted-secret', secret + b'\rclear default passphrase\r\x1b[A\x1b[B\r', 1, 1),
+            ('submitted-secret', secret + b'\rclear cli default-passphrase\r\x1b[A\x1b[B\r', 1, 1),
             ('search', secret + b'\x12\x07\r', 0, 1),
             ('interrupt', secret + b'\x03\x1b[A\x1b[B\r', 0, 1),
             ('safe-draft', b'show version\x1b[A\x1b[B\r', 0, 2),

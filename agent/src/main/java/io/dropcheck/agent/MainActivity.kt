@@ -870,13 +870,16 @@ class MainActivity : Activity() {
         appendShellLine(shellCommandLine(redactAgentShellCommandLine(line)))
         when (val command = AgentShellParser.parse(line)) {
             AgentShellCommand.Noop -> Unit
-            is AgentShellCommand.Invalid -> appendShellLine(command.message, SHELL_ERROR_COLOR)
+            is AgentShellCommand.Invalid -> {
+                if (command.testProfile.isNotEmpty()) shellSession.recordTest(AgentShellResult(false, listOf(command.message)))
+                appendShellLine(command.message, SHELL_ERROR_COLOR)
+            }
             else -> AgentShellAdapter(applicationContext, agentShellLogger(), shellSession).let { adapter ->
                 val inner = if (command is AgentShellCommand.Piped) command.command else command
                 val name = when (inner) {
                     is AgentShellCommand.Execute -> inner.request.commandCase.name.lowercase().replace('_', '.')
                     is AgentShellCommand.Check -> "check"
-                    is AgentShellCommand.Use -> "wifi.connect"
+                    is AgentShellCommand.Connect -> "wifi.connect"
                     is AgentShellCommand.ShowWifiEht -> "wifi.eht"
                     else -> "shell.local"
                 }

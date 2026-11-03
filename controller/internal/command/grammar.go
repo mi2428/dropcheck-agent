@@ -52,26 +52,9 @@ var hostGrammar = []Grammar{
 }
 
 // One-shot credentials remain explicit; interactive session settings never enter it.
-var GrammarTable = grammarTable(false)
-var ShellGrammarTable = grammarTable(true)
-var aliases = portableAliases
-
-func grammarTable(interactive bool) []Grammar {
-	rows := slices.Clone(portableGrammar)
-	for i := range rows {
-		switch rows[i].Path {
-		case "wifi connect":
-			rows[i].Required = nil // passphrase-env is a PC-only alternative.
-		case "set default passphrase", "clear default passphrase":
-			rows[i].Unsupported = !interactive
-		case "use":
-			if !interactive {
-				rows[i].Required = []string{"passphrase"}
-			}
-		}
-	}
-	return append(rows, hostGrammar...)
-}
+var GrammarTable = append(slices.Clone(oneShotGrammar), hostGrammar...)
+var ShellGrammarTable = append(slices.Clone(portableGrammar), shellHostGrammar...)
+var aliases = oneShotAliases
 
 func init() {
 	if err := validateAliases(GrammarTable, aliases); err != nil {
@@ -103,6 +86,9 @@ type Parsed struct {
 	Detail                       bool
 	Rejection                    string
 	Passphrase                   string
+	Effect                       string
+	Connect                      *WifiConnectOptions
+	ADBTimeoutMs                 uint32
 }
 
 // LabConfig contains only operator-supplied, non-credential endpoints.
@@ -162,21 +148,20 @@ func resolve(word string, options []string, first bool) (string, error) {
 	}
 }
 
-func commandSpec(table []Grammar, args []string) (Grammar, int, error) {
+func commandSpec(table []Grammar, args []string, allowAliases bool) (Grammar, int, error) {
 	var path []string
 	for i, word := range args {
 		options := siblings(table, path)
 		if len(options) == 0 {
 			break
 		}
-		// An executable path with options starts its argument grammar here.
-		if len(path) > 0 && path[len(path)-1] == "scan" && word != "detail" && !strings.HasPrefix("detail", word) {
-			break
-		}
 		if spec, ok := exactSpec(table, path); ok && len(spec.Positionals) > 0 {
 			return spec, i, nil
 		}
-		resolved, err := resolve(word, options, i == 0)
+		if _, ok := exactSpec(table, path); ok && !slices.ContainsFunc(options, func(option string) bool { return strings.HasPrefix(option, word) }) {
+			break
+		}
+		resolved, err := resolve(word, options, allowAliases && i == 0)
 		if err != nil {
 			return Grammar{}, 0, err
 		}
@@ -247,18 +232,18 @@ func parseFields(spec Grammar, args []string) (map[string]string, []string, erro
 
 // ParseTokens consumes argv tokens directly, or already-tokenized Shell input.
 func ParseTokens(args []string) (Parsed, error) {
-	return parseTokens(args, GrammarTable, false)
+	return parseTokens(args, GrammarTable)
 }
 
 func ParseShellTokens(args []string) (Parsed, error) {
-	return parseTokens(args, ShellGrammarTable, true)
+	return parseInteractiveTokens(args)
 }
 
-func parseTokens(args []string, table []Grammar, interactive bool) (Parsed, error) {
+func parseTokens(args []string, table []Grammar) (Parsed, error) {
 	if len(args) == 0 {
 		return Parsed{}, fmt.Errorf("missing command")
 	}
-	spec, consumed, err := commandSpec(table, args)
+	spec, consumed, err := commandSpec(table, args, true)
 	if err != nil {
 		return Parsed{}, err
 	}
@@ -335,12 +320,6 @@ func parseTokens(args []string, table []Grammar, interactive bool) (Parsed, erro
 		}
 		return Parsed{}, fmt.Errorf("SSID is required")
 	}
-	if interactive && (spec.Path == "use" || spec.Path == "set default passphrase" || spec.Path == "clear default passphrase") {
-		if f["passphrase"] != "" && !ValidPassphrase(f["passphrase"]) {
-			return Parsed{}, fmt.Errorf("invalid passphrase length or encoding")
-		}
-		return Parsed{Path: spec.Path, SSID: f["ssid"], Passphrase: f["passphrase"]}, nil
-	}
 	if spec.Path == "wifi connect" || spec.Path == "wifi cycle" || spec.Path == "use" {
 		if spec.Path == "wifi connect" {
 			if f["passphrase"] == "" && f["passphrase-env"] == "" || f["passphrase"] != "" && f["passphrase-env"] != "" {
@@ -358,9 +337,6 @@ func parseTokens(args []string, table []Grammar, interactive bool) (Parsed, erro
 			}
 		}
 		psk := f["passphrase"]
-		if interactive && !ValidPassphrase(psk) {
-			return Parsed{}, fmt.Errorf("invalid passphrase length or encoding")
-		}
 		validHex := len(psk) == 64
 		for _, r := range psk {
 			if !strings.ContainsRune("0123456789abcdefABCDEF", r) {
@@ -409,12 +385,6 @@ func parseTokens(args []string, table []Grammar, interactive bool) (Parsed, erro
 	}
 	if spec.Path == "help" {
 		parsed.Topic = f["topic"]
-		if interactive && parsed.Topic != "" {
-			parsed.Topic, err = resolve(parsed.Topic, siblings(table, nil), true)
-			if err != nil {
-				return Parsed{}, fmt.Errorf("unknown help topic")
-			}
-		}
 	}
 	var op Operation
 	switch spec.Path {
@@ -537,22 +507,25 @@ func parseTokens(args []string, table []Grammar, interactive bool) (Parsed, erro
 
 // Suggestions uses the same paths/options as ParseTokens. Values are hints, not executions.
 func Suggestions(args []string) []string {
-	return suggestions(GrammarTable, args)
+	return suggestions(GrammarTable, args, true)
 }
 
 func ShellSuggestions(args []string) []string {
-	return suggestions(ShellGrammarTable, args)
+	if len(args) > 0 && args[0] != "" && strings.HasPrefix("help", args[0]) {
+		return shellPathSuggestions(args[1:])
+	}
+	return suggestions(ShellGrammarTable, args, false)
 }
 
-func suggestions(table []Grammar, args []string) []string {
+func suggestions(table []Grammar, args []string, allowAliases bool) []string {
 	if len(args) == 0 {
 		return suggestedSiblings(table, nil)
 	}
-	spec, n, err := commandSpec(table, args)
+	spec, n, err := commandSpec(table, args, allowAliases)
 	if err != nil {
 		var path []string
 		for i, word := range args {
-			resolved, resolveErr := resolve(word, siblings(table, path), i == 0)
+			resolved, resolveErr := resolve(word, siblings(table, path), allowAliases && i == 0)
 			if resolveErr != nil {
 				return nil
 			}
@@ -561,7 +534,7 @@ func suggestions(table []Grammar, args []string) []string {
 		return suggestedSiblings(table, path)
 	}
 	rest := args[n:]
-	if spec.Path == "show network" && len(rest) == 0 {
+	if allowAliases && spec.Path == "show network" && len(rest) == 0 {
 		return []string{"default", "<network-id>"}
 	}
 	if spec.Path == "check" && len(rest) == 0 {
@@ -601,7 +574,7 @@ func suggestions(table []Grammar, args []string) []string {
 	}
 	for _, key := range append(slices.Clone(spec.Switches), spec.Values...) {
 		if !used[key] || key == "via" {
-			if key == "mlo" && !used["brief"] || key == "timeout" && (spec.Path == "show wifi scan" || spec.Path == "show wifi eht") && !used["fresh"] {
+			if allowAliases && (key == "mlo" && !used["brief"] || key == "timeout" && (spec.Path == "show wifi scan" || spec.Path == "show wifi eht") && !used["fresh"]) {
 				continue
 			}
 			out = append(out, key)
