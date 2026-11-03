@@ -7,6 +7,20 @@ import org.junit.Test
 class AgentShellContractTest {
     private fun rows(name: String) = checkNotNull(javaClass.getResourceAsStream("/$name")).bufferedReader().use { it.readLines() }.drop(1).map { it.split('\t') }
 
+    @Test fun helpSeparatesCommandSyntaxFromDescriptions() {
+        for (topic in listOf("", "show version")) {
+            val lines = AgentShellParser.help(topic)
+            val index = lines.indexOf("  show version")
+            assertTrue("syntax has a description on the same line", index >= 0)
+            assertEquals("    Description: Show local application version", lines[index + 1])
+            assertEquals("", lines[index + 2])
+        }
+        val candidates = AgentShellParser.contextHelp("show wifi status ")
+        assertTrue("  <Enter>  - Execute the requested subject" in candidates)
+        assertTrue("  eht  - Show all EHT/MLO evidence and provenance" in candidates)
+        assertEquals(listOf("  <value>"), AgentShellParser.contextHelp("request wifi connect Lab passphrase "))
+    }
+
     @Test fun portableInventoryHasExecutableCases() {
         val cases = rows("command_cases.tsv")
         assertEquals(AgentShellContract.rows.map { it.path }.toSet(), cases.map { it[0] }.toSet())

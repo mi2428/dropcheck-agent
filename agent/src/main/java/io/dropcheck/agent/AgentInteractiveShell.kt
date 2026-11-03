@@ -64,8 +64,8 @@ internal object AgentShellParser {
 
     fun help(topic: String = ""): List<String> {
         val rows = syntax.filter { topic.isEmpty() || it.path == topic || it.path.startsWith("$topic ") }
-        return listOf("Agent Shell (self)", "Options: key value; integers: 1..2147483647 ms/count; default show output is complete", "PSK: 8..63 UTF-8 bytes or 64 ASCII hex; PC-only ADB/device/TTY commands are not available") +
-            rows.map { "  ${it.usage()}  ${it.description}" } + listOf("| find <pattern> | except <pattern> | last <lines> | match <pattern> | trim <start-column> | count", "| display json (alone; safe presentation JSON)", "auto selects one family; global-ip all queries both; dns ALL queries A+AAAA", "test link defaults to family ipv4; ipv6/all supported; bssid strict pin unsupported; lab requires all endpoints and sends active traffic", "Default credentials and command history are session-only; credentials are not retained in history")
+        return listOf("Agent Shell (self)", "Options: key value; integers: 1..2147483647 ms/count; default show output is complete", "PSK: 8..63 UTF-8 bytes or 64 ASCII hex; PC-only ADB/device/TTY commands are not available", "") +
+            rows.flatMap { listOf("  ${it.usage()}", "    Description: ${it.description}", "") } + listOf("| find <pattern> | except <pattern> | last <lines> | match <pattern> | trim <start-column> | count", "| display json (alone; safe presentation JSON)", "auto selects one family; global-ip all queries both; dns ALL queries A+AAAA", "test link defaults to family ipv4; ipv6/all supported; bssid strict pin unsupported; lab requires all endpoints and sends active traffic", "Default credentials and command history are session-only; credentials are not retained in history")
     }
 
     fun parse(line: String): AgentShellCommand {
@@ -91,10 +91,10 @@ internal object AgentShellParser {
     fun contextHelp(prefix: String): List<String> {
         if (prefix.isBlank()) return help()
         val parsed = parse(prefix)
-        val enter = if (prefix.endsWith(' ') && parsed !is AgentShellCommand.Invalid && parsed !is AgentShellCommand.Help) listOf("  <Enter>  Execute the requested subject") else emptyList()
+        val enter = if (prefix.endsWith(' ') && parsed !is AgentShellCommand.Invalid && parsed !is AgentShellCommand.Help) listOf("  <Enter>  - Execute the requested subject") else emptyList()
         return enter + complete(prefix).mapNotNull { choice -> shellLex(choice, true).tokens.lastOrNull()?.value?.let { word ->
             val description = syntax.firstOrNull { it.path == choice.trim() }?.description.orEmpty()
-            "  $word" + if (description.isEmpty()) "" else "  $description"
+            "  $word" + if (description.isEmpty()) "" else "  - $description"
         } }
     }
 
