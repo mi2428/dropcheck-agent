@@ -52,13 +52,15 @@ internal class AgentShellAdapter(private val context: Context, private val logge
         is AgentShellCommand.SetDefaultPassphrase -> { session.setPassphrase(command.passphrase); AgentShellResult(true, listOf(AgentShellUsePolicy.setDefaultPassphraseMessage(command.passphrase))) }
         AgentShellCommand.ClearDefaultPassphrase -> { session.setPassphrase(""); AgentShellResult(true, listOf(AgentShellUsePolicy.setDefaultPassphraseMessage(""))) }
         AgentShellCommand.ShowVersion -> AgentShellResult(true, listOf("Android agent version: ${BuildConfig.VERSION_NAME}"))
-        AgentShellCommand.ShowCli -> AgentShellResult(true, listOf("Owner: self", "Target: self", "Layout: measured Android content width", "History: session-only safe allowlist", AgentShellUsePolicy.statusText(session.defaults)))
+        AgentShellCommand.ShowCli -> AgentShellResult(true, block = AgentPresentationBlock.create(listOf(
+            AgentBlockPart.Field("Owner", "self"), AgentBlockPart.Field("Target", "self"), AgentBlockPart.Field("Layout", "measured Android content width"),
+            AgentBlockPart.Field("History", "session-only safe allowlist"), AgentBlockPart.Field("Default passphrase", if (session.defaults.defaultPassphrase.isEmpty()) "unset" else "present")), AgentLogStyle.TEXT_COLOR))
         is AgentShellCommand.Invalid -> AgentShellResult(false, listOf(command.message)).also { if (command.testProfile.isNotEmpty()) session.recordTest(it) }
         is AgentShellCommand.Connect -> connect(command)
         is AgentShellCommand.Check -> {
             session.recordTest(AgentShellResult(false, listOf("Test did not return a valid result")))
             (if (session.connectionFailed) AgentShellResult(false, listOf("Previous connection attempt failed; target not ready"))
-            else AgentLinkProfile.run(command) { executor.execute(it) }.let { AgentShellResult(it.outcome == LinkOutcome.PASS, it.lines(detail = true)) }).also(session::recordTest)
+            else AgentLinkProfile.run(command) { executor.execute(it) }.let { AgentShellResult(it.outcome == LinkOutcome.PASS, block = AgentPresentationBlock.create(it.presentation(), AgentLogStyle.TEXT_COLOR)) }).also(session::recordTest)
         }
         AgentShellCommand.ShowChecks -> AgentShellResult(true, AgentLinkProfile.catalogue())
         is AgentShellCommand.ShowCheckLast -> lastTest()
@@ -167,6 +169,9 @@ internal class AgentShellAdapter(private val context: Context, private val logge
 
     private fun textRows(request: RunCommand, result: CommandResult, source: AgentShellUsePassphraseSource?, via: List<String>): List<AgentBlockPart> = buildList {
         fun row(label: String, value: Any?) { add(AgentBlockPart.Field(label, value.toString())) }
+        fun table(labels: List<String>, rows: List<List<String>>) {
+            if (rows.isNotEmpty()) add(AgentBlockPart.Table(labels.map { AgentBlockPart.Column(it) }, rows))
+        }
         when (request.commandCase) {
             RunCommand.CommandCase.CONNECT_WIFI -> {
                 row("SSID", result.connectWifi.ssid)
@@ -206,29 +211,27 @@ internal class AgentShellAdapter(private val context: Context, private val logge
             }
             RunCommand.CommandCase.CYCLE_WIFI -> {
                 row("Passed", "${result.wifiCycle.passedCount}/${result.wifiCycle.requestedCount}")
-                result.wifiCycle.stepsList.forEach { step ->
-                    row("Step ${step.index}", "connected=${step.connected} ping=${step.pingOk} http=${step.httpOk} elapsed=${step.elapsedMs}ms")
-                    step.errorsList.forEach { row("Error", it) }
-                }
+                table(listOf("STEP", "CONNECTED", "PING", "HTTP", "ELAPSED(ms)", "ERRORS"), result.wifiCycle.stepsList.map { step ->
+                    listOf(step.index.toString(), step.connected.toString(), step.pingOk.toString(), step.httpOk.toString(), step.elapsedMs.toString(), step.errorsList.joinToString("; ")) })
                 result.wifiCycle.errorsList.forEach { row("Error", it) }
             }
-            RunCommand.CommandCase.PING -> addAll(AgentProbeRenderer.renderPing(result.ping, result.status, result.message).map { AgentBlockPart.Text(it) })
+            RunCommand.CommandCase.PING -> addAll(AgentProbeRenderer.renderPing(result.ping, result.status, result.message))
             RunCommand.CommandCase.TRACEROUTE -> {
-                addAll(AgentProbeRenderer.renderTraceroute(result.traceroute, result.status, result.message).map { AgentBlockPart.Text(it) })
+                addAll(AgentProbeRenderer.renderTraceroute(result.traceroute, result.status, result.message))
                 if (via.isNotEmpty()) row("Required hops", via.joinToString(", "))
             }
             RunCommand.CommandCase.PATH_MTU -> {
                 row("Host", result.pathMtu.host); row("Discovered", result.pathMtu.discovered)
                 row("Path MTU", result.pathMtu.pathMtuBytes); row("Error", result.pathMtu.error)
-                result.pathMtu.probesList.forEach { row("Probe", "${it.mtuBytes} bytes passed=${it.passed} exit=${it.exitCode}") }
+                table(listOf("MTU", "PAYLOAD", "PASS", "EXIT", "ELAPSED(ms)"), result.pathMtu.probesList.map { listOf(it.mtuBytes.toString(), it.payloadSizeBytes.toString(), it.passed.toString(), it.exitCode.toString(), it.elapsedMs.toString()) })
             }
             RunCommand.CommandCase.GLOBAL_IP -> {
                 row("Family", result.globalIp.requestedFamily); row("Error", result.globalIp.error)
-                result.globalIp.addressesList.forEach { row("${it.family}", "${it.ip} global=${it.global} status=${it.status} error=${it.error}") }
+                table(listOf("FAMILY", "IP", "GLOBAL", "STATUS", "ERROR"), result.globalIp.addressesList.map { listOf(it.family.toString(), it.ip, it.global.toString(), it.status.toString(), it.error) })
             }
             RunCommand.CommandCase.RESOLVE_DNS -> {
                 row("Name", result.resolveDns.name); row("Error", result.resolveDns.error)
-                result.resolveDns.answersList.forEach { row(it.type.name, it.address) }
+                table(listOf("TYPE", "ADDRESS"), result.resolveDns.answersList.map { listOf(it.type.name, it.address) })
             }
             RunCommand.CommandCase.HTTP_CHECK -> {
                 row("URL", result.httpCheck.url); row("Status", result.httpCheck.status)
