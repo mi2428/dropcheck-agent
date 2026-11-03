@@ -1,0 +1,24 @@
+input
+ping example.test family IPV4
+ping example.test count +1
+show wifi scan band 6GHz
+dns example.test record all
+wifi assert require-ip TRUE
+show ip status network-id 01
+show network 01
+show network 2147483648
+show network default network-id 42
+set default passphrase short
+wifi connect Lab passphrase short
+use Lab test-only
+http https://example.test:65536/
+download https://example.test:2147483648/
+wifi cycle Lab passphrase synthetic-passphrase http https://example.test:99999/
+check lab ssid Lab family ipv4 gateway 192.0.2.1 dns example.test resolver selected http https://example.test:65536/ expected-status 204 timeout 1000
+ping 999.0.0.1
+traceroute 256.1.1.1
+path-mtu 2001:db8:::1
+dns 1.2.3
+ping 1..2.3
+wifi cycle Lab passphrase synthetic-passphrase ping 300.1.2.3
+traceroute example.test via 999.0.0.1

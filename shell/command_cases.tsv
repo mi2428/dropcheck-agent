@@ -1,0 +1,34 @@
+path	input
+show version	show version
+show networks	show networks
+show network	show network default
+show permissions	show permissions
+show wifi status	show wifi status detail
+show wifi diagnostics	show wifi diagnostics detail
+show wifi capabilities	show wifi capabilities detail
+show wifi scan	show wifi scan fresh brief mlo band 6ghz
+show wifi scan detail	show wifi scan detail 'Example | Lab'
+show wifi eht	show wifi eht detail
+show ip status	show ip status detail
+wifi connect	wifi connect 'Example Lab' security wpa3 passphrase test-only
+wifi disconnect	wifi disconnect
+wifi forget	wifi forget 'Example Lab'
+wifi wait connected	wifi wait connected require-ip true
+wifi assert	wifi assert require-validated false
+wifi monitor	wifi monitor duration 1000
+wifi reconnect	wifi reconnect timeout 1000
+wifi cycle	wifi cycle 'Example Lab' count 1 passphrase test-only
+ping	p example.test count 1
+traceroute	tr example.test via 192.0.2.1
+path-mtu	pm example.test
+global-ip	gip family all
+dns	dns example.test record ALL
+http	http https://example.test/health
+download	download https://example.test/file
+help	h p
+set default passphrase	set default passphrase test-only
+clear default passphrase	clear default passphrase
+use	use 'Example Lab' passphrase test-only
+check	check link ssid 'Example Lab' family all
+show checks	show checks
+show check last	show check last detail

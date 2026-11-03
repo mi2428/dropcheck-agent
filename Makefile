@@ -33,6 +33,13 @@ HELP_EXAMPLE_WIDTH := 41
 
 ##@ Development
 
+.PHONY: generate-shell check-shell
+generate-shell: ## Generate portable Shell command bindings
+	python3 tools/generate_shell_contract.py
+
+check-shell: ## Check portable Shell command bindings for drift
+	python3 tools/generate_shell_contract.py --check
+
 .PHONY: generate-go
 generate-go: ## Regenerate Go protobuf bindings with pinned tools (requires protoc 35.0)
 	@version=$$("$(PROTOC)" --version); [[ "$$version" == "libprotoc 35.0" ]] || { printf 'make generate-go: protoc 35.0 is required; set PROTOC to its executable\n' >&2; exit 1; }; \
@@ -61,7 +68,7 @@ build: ## Build targets; use TARGET=agent,controller or TARGET=all
 	done
 
 .PHONY: test
-test: ## Test targets; use TARGET=agent,controller or TAGS=... for Go tags
+test: check-shell ## Test targets; use TARGET=agent,controller or TAGS=... for Go tags
 	@die(){ printf 'make test: %s\n' "$$*" >&2; exit 1; }; \
 	run(){ printf '+'; printf ' %q' "$$@"; printf '\n'; "$$@"; }; \
 	targets="$(TARGET)"; targets="$${targets//,/ }"; [[ -n "$$targets" ]] || die "TARGET is empty"; \
