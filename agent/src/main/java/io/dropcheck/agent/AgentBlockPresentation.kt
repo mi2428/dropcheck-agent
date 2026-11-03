@@ -13,8 +13,8 @@ internal sealed interface AgentBlockPart {
     data class Text(val value: String) : AgentBlockPart
     data class Field(val label: String, val value: String, val fullValue: String = value) : AgentBlockPart
     data class Table(val columns: List<Column>, val rows: List<List<String>>) : AgentBlockPart
-    /** SSID/BSSID/dBm/BAND/CH/BW/PHY/SEC, in documented order. */
-    data class Scan(val rows: List<List<String>>) : AgentBlockPart
+    /** SSID/BSSID first; radio/security and optional age columns follow. */
+    data class Scan(val rows: List<List<String>>, val columns: List<Column> = scanColumns) : AgentBlockPart
     data class Column(val label: String, val numeric: Boolean = false)
 }
 
@@ -30,10 +30,10 @@ internal class AgentPresentationBlock private constructor(
             is AgentBlockPart.Text -> part.value
             is AgentBlockPart.Field -> fieldText(part.label, part.value) + if (part.fullValue != part.value) "\n${fieldText("${part.label} wire value (availability above)", part.fullValue)}" else ""
             is AgentBlockPart.Table -> part.rows.joinToString("\n\n") { row ->
-                part.columns.indices.joinToString("\n") { i -> "${part.columns[i].label}: ${row.getOrElse(i) { "?" }}" }
+                part.columns.indices.joinToString("\n") { i -> fieldText(part.columns[i].label, row.getOrElse(i) { "?" }) }
             }
             is AgentBlockPart.Scan -> part.rows.joinToString("\n\n") { row ->
-                scanColumns.indices.joinToString("\n") { i -> "${scanColumns[i].label}: ${row.getOrElse(i) { "?" }}" }
+                part.columns.indices.joinToString("\n") { i -> fieldText(part.columns[i].label, row.getOrElse(i) { "?" }) }
             }
         }
     }
@@ -46,7 +46,7 @@ internal class AgentPresentationBlock private constructor(
                 if (part.fullValue != part.value) yield("${part.label} wire value (availability above)" to part.fullValue)
             }
             is AgentBlockPart.Table -> part.rows.forEachIndexed { row, values -> part.columns.forEachIndexed { column, label -> yield("Row ${row + 1} ${label.label}" to values[column]) } }
-            is AgentBlockPart.Scan -> part.rows.forEachIndexed { row, values -> scanColumns.forEachIndexed { column, label -> yield("AP ${row + 1} ${label.label}" to values[column]) } }
+            is AgentBlockPart.Scan -> part.rows.forEachIndexed { row, values -> part.columns.forEachIndexed { column, label -> yield("AP ${row + 1} ${label.label}" to values[column]) } }
         }
     }
 
@@ -57,8 +57,22 @@ internal class AgentPresentationBlock private constructor(
         return AgentPresentationBlock(parts, color, baseSizeSp, minimumSizeSp, safeValueFile)
     }
 
-    fun mapLogicalText(transform: (String) -> String): AgentPresentationBlock =
-        AgentPresentationBlock(listOf(AgentBlockPart.Text(transform(fullText))), color, baseSizeSp, minimumSizeSp, null)
+    fun mapLogicalText(transform: (String) -> String): AgentPresentationBlock {
+        // Exact retained facts keep their roles after line filters; raw text is never parsed as KV.
+        val fields = mutableMapOf<String, AgentBlockPart.Field>()
+        parts.forEach { part -> when (part) {
+            is AgentBlockPart.Field -> if ('\n' !in part.value && part.value == part.fullValue) fields[fieldText(part.label, part.value)] = part
+            is AgentBlockPart.Table -> part.rows.forEach { row -> part.columns.forEachIndexed { i, column ->
+                fields["${column.label}: ${row[i]}"] = AgentBlockPart.Field(column.label, row[i])
+            } }
+            is AgentBlockPart.Scan -> part.rows.forEach { row -> part.columns.forEachIndexed { i, column ->
+                fields["${column.label}: ${row[i]}"] = AgentBlockPart.Field(column.label, row[i])
+            } }
+            is AgentBlockPart.Text -> Unit
+        } }
+        val text = transform(fullText)
+        return AgentPresentationBlock(text.split('\n').map { fields[it] ?: AgentBlockPart.Text(it) }, color, baseSizeSp, minimumSizeSp, null)
+    }
 
     companion object {
         fun create(parts: List<AgentBlockPart>, color: Int, baseSizeSp: Float = 10f, minimumSizeSp: Float = 10f, safeValueFile: AgentSafeValueFile? = null): AgentPresentationBlock {
@@ -71,10 +85,16 @@ internal class AgentPresentationBlock private constructor(
                         part.columns.also { require(it.isNotEmpty() && part.rows.all { row -> row.size == it.size }) { "Invalid presentation table shape" } }.map { it.copy(label = AgentSafePresentation.cell(it.label)) },
                         part.rows.map { row -> row.mapIndexed { index, value -> AgentSafePresentation.field(part.columns.getOrNull(index)?.label.orEmpty(), value) } },
                     )
-                    is AgentBlockPart.Scan -> AgentBlockPart.Scan(part.rows.map { row ->
-                        require(row.size == scanColumns.size) { "Invalid presentation scan record shape" }
-                        row.mapIndexed { index, value -> AgentSafePresentation.field(scanColumns[index].label, value) }
-                    })
+                    is AgentBlockPart.Scan -> {
+                        require(part.columns.take(2).map { it.label } == listOf("SSID", "BSSID")) { "Invalid presentation scan identity columns" }
+                        part.copy(
+                            columns = part.columns.map { it.copy(label = AgentSafePresentation.cell(it.label)) },
+                            rows = part.rows.map { row ->
+                                require(row.size == part.columns.size) { "Invalid presentation scan record shape" }
+                                row.mapIndexed { index, value -> AgentSafePresentation.field(part.columns[index].label, value) }
+                            },
+                        )
+                    }
                 }
             }, color, baseSizeSp, minimumSizeSp, safeValueFile)
         }
@@ -82,11 +102,11 @@ internal class AgentPresentationBlock private constructor(
 }
 
 private fun fieldText(label: String, value: String): String {
-    val hanging = if (label.startsWith(' ')) " ".repeat(label.length + 2) else ""
+    val hanging = " ".repeat(label.length + 2)
     return "$label: ${value.replace("\n", "\n$hanging")}"
 }
 
-private val scanColumns = listOf(
+internal val scanColumns = listOf(
     AgentBlockPart.Column("SSID"), AgentBlockPart.Column("BSSID"), AgentBlockPart.Column("dBm", true),
     AgentBlockPart.Column("BAND"), AgentBlockPart.Column("CH", true), AgentBlockPart.Column("BW", true),
     AgentBlockPart.Column("PHY"), AgentBlockPart.Column("SEC"),
@@ -193,20 +213,23 @@ internal object AgentNativeBlockLayout {
         val out = SpannableStringBuilder()
         var visibleRecords = 0
         var totalRecords = 0
-        block.parts.forEach { part ->
+        val fieldWidths = FloatArray(block.parts.size)
+        var start = 0
+        while (start < block.parts.size) {
+            var end = start
+            var width = 0f
+            while (end < block.parts.size && block.parts[end] is AgentBlockPart.Field) {
+                width = maxOf(width, paint.measureText((block.parts[end] as AgentBlockPart.Field).label))
+                end++
+            }
+            for (index in start until end) fieldWidths[index] = width
+            start = maxOf(start + 1, end)
+        }
+        block.parts.forEachIndexed { index, part ->
             when (part) {
                 is AgentBlockPart.Text -> appendWrapped(out, part.value, contentWidthPx, paint)
                 is AgentBlockPart.Field -> {
-                    val indent = part.label.takeWhile { it == ' ' }
-                    val hanging = " ".repeat(part.label.length + 2)
-                    if (indent.isEmpty()) {
-                        appendWrapped(out, fieldText(part.label, part.value), contentWidthPx, paint)
-                    } else if (paint.measureText(hanging + "MMMMMMMM") > contentWidthPx) {
-                        appendWrapped(out, part.label.trimEnd() + ":", contentWidthPx, paint, indent + "  ")
-                        appendWrapped(out, indent + "  " + part.value.replace("\n", "\n$indent  "), contentWidthPx, paint, indent + "  ")
-                    } else {
-                        appendWrapped(out, fieldText(part.label, part.value), contentWidthPx, paint, hanging)
-                    }
+                    appendField(out, part.label, part.value, fieldWidths[index], contentWidthPx, paint)
                 }
                 is AgentBlockPart.Table -> {
                     totalRecords += part.rows.size
@@ -219,17 +242,18 @@ internal object AgentNativeBlockLayout {
                     totalRecords += part.rows.size
                     val rows = part.rows.take(minOf(ROW_BUDGET - visibleRecords, LINE_BUDGET - out.count { it == '\n' } - 2).coerceAtLeast(0))
                     var shown = 0
-                    if (!appendTable(out, scanColumns, rows, contentWidthPx, paint)) {
+                    if (!appendTable(out, part.columns, rows, contentWidthPx, paint)) {
                         rows.groupBy { it[0] }.forEach groupLoop@ { (ssid, group) ->
                             val heading = SpannableStringBuilder()
                             appendWrapped(heading, "SSID: $ssid", contentWidthPx, paint)
                             if (out.count { it == '\n' } + heading.count { it == '\n' } >= LINE_BUDGET) return@groupLoop
                             out.append(heading)
-                            if (!appendTable(out, scanColumns.drop(1), group.map { it.drop(1) }, contentWidthPx, paint)) {
+                            if (!appendTable(out, part.columns.drop(1), group.map { it.drop(1) }, contentWidthPx, paint)) {
                                 group.forEach { row ->
                                     val record = SpannableStringBuilder()
-                                    if (!appendTable(record, scanColumns.drop(2), listOf(row.drop(2)), contentWidthPx, paint)) {
-                                        scanColumns.drop(2).forEachIndexed { i, column -> appendWrapped(record, "${column.label}: ${row[i + 2]}", contentWidthPx, paint) }
+                                    if (!appendTable(record, part.columns.drop(2), listOf(row.drop(2)), contentWidthPx, paint)) {
+                                        val labelWidth = part.columns.drop(2).maxOf { paint.measureText(it.label) }
+                                        part.columns.drop(2).forEachIndexed { i, column -> appendField(record, column.label, row[i + 2], labelWidth, contentWidthPx, paint) }
                                     }
                                     appendWrapped(record, "BSSID: ${row[1]}", contentWidthPx, paint)
                                     if (out.count { it == '\n' } + record.count { it == '\n' } <= LINE_BUDGET) {
@@ -251,9 +275,10 @@ internal object AgentNativeBlockLayout {
 
     private fun appendRecords(out: SpannableStringBuilder, columns: List<AgentBlockPart.Column>, rows: List<List<String>>, width: Int, paint: Paint): Int {
         var shown = 0
+        val labelWidth = columns.maxOf { paint.measureText(it.label) }
         for (row in rows) {
             val record = SpannableStringBuilder()
-            columns.forEachIndexed { i, column -> appendWrapped(record, "${column.label}: ${row.getOrElse(i) { "?" }}", width, paint) }
+            columns.forEachIndexed { i, column -> appendField(record, column.label, row.getOrElse(i) { "?" }, labelWidth, width, paint) }
             if (out.count { it == '\n' } + record.count { it == '\n' } > LINE_BUDGET) break
             out.append(record)
             shown++
@@ -261,16 +286,43 @@ internal object AgentNativeBlockLayout {
         return shown
     }
 
+    private fun appendField(out: SpannableStringBuilder, label: String, value: String, labelWidth: Float, width: Int, paint: Paint) {
+        val valueStart = labelWidth + paint.measureText(":  ")
+        if (valueStart + paint.measureText("MMMMMMMM") > width) {
+            val indent = label.takeWhile { it == ' ' } + "  "
+            appendWrapped(out, label.trimEnd() + ":", width, paint, indent)
+            appendWrapped(out, indent + value.replace("\n", "\n$indent"), width, paint, indent)
+            return
+        }
+        val wrapped = SpannableStringBuilder()
+        appendWrapped(wrapped, value, (width - valueStart).toInt(), paint)
+        fun space(pixels: Float) {
+            if (pixels <= 0f) return
+            val start = out.length
+            out.append(' ')
+            out.setSpan(ScaleXSpan(pixels / paint.measureText(" ")), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        wrapped.toString().removeSuffix("\n").split('\n').forEachIndexed { index, line ->
+            if (index == 0) {
+                out.append(label)
+                space(labelWidth - paint.measureText(label))
+                out.append(":  ")
+            } else space(valueStart)
+            out.append(line).append('\n')
+        }
+    }
+
     fun shrinkFloor(baseSizeSp: Float, minimumSizeSp: Float): Float = maxOf(baseSizeSp * 0.9f, 10f, minimumSizeSp)
 
     private fun appendTable(out: SpannableStringBuilder, columns: List<AgentBlockPart.Column>, rows: List<List<String>>, width: Int, paint: Paint): Boolean {
         if (rows.isEmpty()) return true
+        if (rows.any { row -> row.any { '\n' in it } }) return false
         if (out.count { it == '\n' } + rows.size + 1 > LINE_BUDGET) return false
         val widths = columns.indices.map { i ->
             kotlin.math.ceil((listOf(columns[i].label) + rows.map { it.getOrElse(i) { "?" } }).maxOf { paint.measureText(it) }).toFloat()
         }
         val space = paint.measureText(" ")
-        val gap = kotlin.math.ceil(space).toFloat()
+        val gap = kotlin.math.ceil(space * 2).toFloat()
         if (widths.sum() + gap * (columns.size - 1) > width) return false
         val stops = mutableListOf<Int>()
         var x = 0f
@@ -301,8 +353,10 @@ internal object AgentNativeBlockLayout {
     }
 
     private fun appendWrapped(out: SpannableStringBuilder, value: String, width: Int, paint: Paint, continuationIndent: String = "") {
-        val continuationWidth = if (continuationIndent.isEmpty()) 0f else paint.measureText(continuationIndent)
         value.split('\n').forEach { line ->
+            val requestedIndent = continuationIndent.ifEmpty { line.takeWhile { it == ' ' } }
+            val hanging = requestedIndent.takeIf { paint.measureText(it) < width }.orEmpty()
+            val continuationWidth = if (hanging.isEmpty()) 0f else paint.measureText(hanging)
             val boundaries = BreakIterator.getCharacterInstance(Locale.ROOT)
             boundaries.setText(line)
             var start = 0
@@ -314,7 +368,7 @@ internal object AgentNativeBlockLayout {
                 if (indentWidth + paint.measureText(line, start, next) > width && end > start) {
                     out.append(indent).append(line.substring(start, end)).append('\n')
                     start = end
-                    indent = continuationIndent
+                    indent = hanging
                     indentWidth = continuationWidth
                 }
                 end = next

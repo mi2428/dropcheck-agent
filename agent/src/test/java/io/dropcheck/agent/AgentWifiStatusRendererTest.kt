@@ -150,7 +150,7 @@ class AgentWifiStatusRendererTest {
             "accept_ra_min_lft",
             "180",
         ).forEach { want ->
-            assertTrue("rendered output missing $want:\n$out", out.contains(want))
+            assertTrue("rendered output missing $want:\n$out", out.replace(Regex("\n +"), "\n").contains(want.replace(Regex("\n +"), "\n")))
         }
         assertTrue(
             "sections are not ordered Network -> IPv6 RA:\n$out",

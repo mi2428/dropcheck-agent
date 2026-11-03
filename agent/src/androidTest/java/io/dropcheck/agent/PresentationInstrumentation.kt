@@ -22,14 +22,24 @@ class PresentationInstrumentation : Instrumentation() {
                 val block = AgentPresentationBlock.create(listOf(
                     AgentBlockPart.Text("Wi-Fi scan FAILED 9000ms\nSource: android Target: self\nReason: fresh scan timed out\nData: cached (refresh failed)"),
                     AgentBlockPart.Scan(listOf(
-                        listOf("東京Ｇ e\u0301 👩\u200d🔬 Lab Case", "02:00:00:11:22:33", "-48", "6G", "37", "320", "be", "psk+sae+future_Mode"),
-                        listOf("東京Ｇ e\u0301 👩\u200d🔬 Lab Case", "06:00:00:11:22:33", "-55", "5G", "36", "80", "ax", "psk+sae"),
-                    )),
+                        listOf("東京Ｇ e\u0301 👩\u200d🔬 Lab Case", "02:00:00:11:22:33", "-48", "6G", "37", "320", "be", "psk+sae+future_Mode", "51845.845"),
+                        listOf("東京Ｇ e\u0301 👩\u200d🔬 Lab Case", "06:00:00:11:22:33", "-55", "5G", "36", "80", "ax", "psk+sae", "?"),
+                    ), scanColumns + AgentBlockPart.Column("AGE(s)")),
                     AgentBlockPart.Field("IPv6", "ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255%long-interface-name/128"),
                     AgentBlockPart.Text("Connection\n  Identity"),
                     AgentBlockPart.Field("    SSID".padEnd(32), "password=Guest 東京 Case"),
                     AgentBlockPart.Field("    IPv6".padEnd(32), "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff/64"),
                     AgentBlockPart.Field("    Servers".padEnd(32), "192.0.2.53\n2001:db8::53"),
+                    AgentBlockPart.Text("Aligned metadata"),
+                    AgentBlockPart.Field("Requested", "cached"),
+                    AgentBlockPart.Field("更新経過", "0ms"),
+                    AgentBlockPart.Table(listOf(AgentBlockPart.Column("ITEM"), AgentBlockPart.Column("DETAIL")),
+                        listOf(listOf("line-break", "first-line\nsecond-line"))),
+                    AgentBlockPart.Text("Indent check"),
+                    AgentBlockPart.Text("    " + "continuation ".repeat(16)),
+                    AgentBlockPart.Text("Indent end"),
+                    AgentBlockPart.Table(listOf("CJK", "VALUE", "AGE(s)").map { AgentBlockPart.Column(it) },
+                        listOf(listOf("日本語", "same", "0"), listOf("ascii", "longer", "123.456"))),
                 ), 0, 12f, 10f)
                 for (scale in listOf(1f, 1.3f, 2f)) {
                     val configuration = Configuration(targetContext.resources.configuration).apply { fontScale = scale }
@@ -57,11 +67,26 @@ class PresentationInstrumentation : Instrumentation() {
                         check(rendered.text.toString().contains("FAILED"))
                         check(block.fullText.contains("02:00:00:11:22:33") && block.fullText.contains("06:00:00:11:22:33"))
                         check(block.fullText.contains("psk+sae+future_Mode"))
+                        check(rendered.text.toString().contains("AGE(s)"))
+                        check(rendered.text.toString().contains("51845.845"))
+                        check(rendered.text.toString().contains("second-line"))
+                        val continuation = rendered.text.toString().substringAfter("\nIndent check\n").substringBefore("\nIndent end")
+                        check(continuation.lines().all { it.startsWith("    ") }) { "wrapped reference escaped its indentation" }
                         check(rendered.text.toString().filterNot(Char::isWhitespace).contains("password=Guest東京Case"))
                         check(rendered.text.toString().contains("\n  Identity\n"))
                         if (columns >= 48) {
                             val identity = rendered.text.toString().lines().first { it.startsWith("    SSID") }
                             check(identity.indexOf(": ") == 32) { "summary value column moved" }
+                            val text = rendered.text.toString()
+                            val first = text.indexOf(':', text.indexOf("Requested"))
+                            val second = text.indexOf(':', text.indexOf("更新経過"))
+                            check(kotlin.math.abs(view.layout.getPrimaryHorizontal(first) - view.layout.getPrimaryHorizontal(second)) <= 0.5f) { "native Unicode field columns differ" }
+                            val table = text.indexOf("CJK\tVALUE\tAGE(s)")
+                            check(table >= 0)
+                            val valueStart = table + "CJK\t".length
+                            val cellWidth = ceil(listOf("CJK", "日本語", "ascii").maxOf { view.paint.measureText(it) })
+                            val gap = ceil(view.paint.measureText(" ") * 2)
+                            check(kotlin.math.abs(view.layout.getPrimaryHorizontal(valueStart) - view.layout.getPrimaryHorizontal(table) - cellWidth - gap) <= 0.5f) { "native table gap is not two spaces" }
                         }
                         checked++
                     }
