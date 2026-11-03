@@ -865,7 +865,7 @@ func displayColumn(line string, needle string) int {
 
 func scanTableRows(out string) []string {
 	rows := []string{}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if strings.HasPrefix(line, "BSSID:") || strings.HasPrefix(line, "Affiliated AP_MAC:") {
 			rows = append(rows, line)
 		}

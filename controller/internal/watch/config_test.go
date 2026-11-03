@@ -243,7 +243,7 @@ checks:
 }
 
 func TestYAMLCapabilityInventoryCompilesAllRetainedProbes(t *testing.T) {
-	for _, kind := range strings.Fields("wifi_status wifi_diagnostics wifi_eht wifi_capabilities wifi_scan scan_detail ip_status ping traceroute path_mtu dns http download global_ip gateway_ping") {
+	for kind := range strings.FieldsSeq("wifi_status wifi_diagnostics wifi_eht wifi_capabilities wifi_scan scan_detail ip_status ping traceroute path_mtu dns http download global_ip gateway_ping") {
 		plan, err := Parse([]byte("targets: [{ssid: Lab}]\nchecks: [{type: " + kind + "}]"))
 		if err == nil {
 			_, err = harness.Compile(plan, []control.AgentInfo{{ID: "a"}})

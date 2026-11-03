@@ -59,7 +59,7 @@ func runtimeFixture(op command.Operation) *controlpb.CommandResult {
 	case *controlpb.RunCommand_GetWifiDiagnostics:
 		r.Payload = &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{Status: wifi, Scan: &controlpb.WifiScan{}, Capabilities: &controlpb.WifiCapabilities{}}}
 	case *controlpb.RunCommand_Ping:
-		r.Payload = &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{Host: c.Ping.Host, Count: c.Ping.Count, Transmitted: proto.Uint32(c.Ping.Count), Received: proto.Uint32(c.Ping.Count)}}
+		r.Payload = &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{Host: c.Ping.Host, Count: c.Ping.Count, Transmitted: new(c.Ping.Count), Received: new(c.Ping.Count)}}
 	case *controlpb.RunCommand_Traceroute:
 		r.Payload = &controlpb.CommandResult_Traceroute{Traceroute: &controlpb.TracerouteResult{Host: c.Traceroute.Host, ReachedTarget: new(true), Hops: []*controlpb.TracerouteHop{{Index: 1, Addresses: []string{"192.0.2.1"}}}}}
 	case *controlpb.RunCommand_PathMtu:

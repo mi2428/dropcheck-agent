@@ -97,8 +97,7 @@ func execute(ctx context.Context, plan *CompiledPlan, r OperationRunner, opts Ex
 		_ = e.emit(Event{Kind: EventRoundStarted, Round: round, Status: "running"})
 		var workers sync.WaitGroup
 		for _, agent := range plan.agents {
-			workers.Add(1)
-			go func() { defer workers.Done(); e.runAgentRound(agent, round) }()
+			workers.Go(func() { e.runAgentRound(agent, round) })
 		}
 		// One common round barrier: all selected agent scopes, including cleanup,
 		// terminate before any agent may begin the next round.
