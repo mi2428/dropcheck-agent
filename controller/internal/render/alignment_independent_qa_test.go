@@ -5,6 +5,7 @@ import (
 	"testing"
 	"unicode"
 
+	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/controlpb"
 	"dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/pipeline"
@@ -31,6 +32,21 @@ func TestIndependentAlignmentCanceledPartDoesNotLeakReason(t *testing.T) {
 		}
 		if strings.Contains(independentCompact(out), "independent-secret-marker") {
 			t.Errorf("width=%d canceled-part Reason leaked a synthetic credential", width)
+		}
+	}
+}
+
+func TestIndependentAlignmentTracerouteRetainsTypedDetail(t *testing.T) {
+	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_FAILED, Payload: &controlpb.CommandResult_Traceroute{Traceroute: &controlpb.TracerouteResult{
+		Host: "2001:db8::1", MaxHops: 29, SizeBytes: 1259, ExitCode: 73, ReachedTarget: new(false), ObservationError: "typed observation unavailable",
+	}}}
+	out, err := CommandResult("self", result, command.Options{Detail: true}, pipeline.FormatText, Presentation{Interactive: true, Detail: true, Width: 120})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{"29", "1259", "73"} {
+		if !strings.Contains(out, value) {
+			t.Errorf("interactive detail discarded typed traceroute value %s", value)
 		}
 	}
 }

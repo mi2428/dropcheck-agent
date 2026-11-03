@@ -1,12 +1,14 @@
 package render
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"unicode"
 
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/controlpb"
+	"dropcheck/controller/internal/pipeline"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -17,6 +19,80 @@ func alignmentCompact(text string) string {
 		}
 		return r
 	}, text)
+}
+
+func TestAlignmentQAEveryPayloadAndWidth(t *testing.T) {
+	fields := (&controlpb.CommandResult{}).ProtoReflect().Descriptor().Oneofs().ByName("payload").Fields()
+	for i := 0; i < fields.Len(); i++ {
+		field := fields.Get(i)
+		t.Run(string(field.Name()), func(t *testing.T) {
+			result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_FAILED, Message: "password=alignment-private-marker"}
+			message := result.ProtoReflect()
+			message.Set(field, message.NewField(field))
+			before := proto.Clone(result)
+			for _, width := range []int{8, 24, 40, 80, 120} {
+				out, err := CommandResult("target", result, command.Options{}, pipeline.FormatText, Presentation{Interactive: true, Width: width})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(alignmentCompact(out), "FAILED") || strings.Contains(out, "alignment-private-marker") || strings.ContainsRune(out, '\t') {
+					t.Fatalf("width=%d lost outcome, leaked credentials or field delimiter", width)
+				}
+				for line := range strings.SplitSeq(out, "\n") {
+					if displayWidth(line) > width {
+						t.Fatalf("width=%d overflow: %q", width, line)
+					}
+				}
+			}
+			out, err := CommandResult("target", result, command.Options{}, pipeline.FormatJSON, Presentation{Interactive: true, Width: 8})
+			if err != nil || !json.Valid([]byte(out)) || strings.Contains(out, "alignment-private-marker") || !proto.Equal(result, before) {
+				t.Fatal("layout changed JSON, privacy or acquisition data", err)
+			}
+		})
+	}
+}
+
+func TestAlignmentQAUnicodeTablesAcrossCommandFamilies(t *testing.T) {
+	marker := "日本語e\u0301👩\u200d🔬"
+	ip := "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff"
+	cases := []*controlpb.CommandResult{
+		{Payload: &controlpb.CommandResult_Traceroute{Traceroute: &controlpb.TracerouteResult{Host: marker, Hops: []*controlpb.TracerouteHop{{Index: 1, Hostnames: []string{marker}, Addresses: []string{ip}}}}}},
+		{Payload: &controlpb.CommandResult_WifiAssert{WifiAssert: &controlpb.WifiAssertResult{Checks: []*controlpb.DiagnosticCheck{{Key: marker, Actual: ip, Expected: "0", Message: "failure"}}}}},
+		{Payload: &controlpb.CommandResult_WifiMonitor{WifiMonitor: &controlpb.WifiMonitorResult{Events: []*controlpb.WifiEvent{{Type: marker, Message: ip}}}}},
+		{Payload: &controlpb.CommandResult_WifiCycle{WifiCycle: &controlpb.WifiCycleResult{Steps: []*controlpb.WifiCycleStep{{Index: 1, Connect: &controlpb.ConnectWifiResult{Ssid: marker}, Errors: []string{ip}}}}}},
+		{Payload: &controlpb.CommandResult_GlobalIp{GlobalIp: &controlpb.GlobalIpResult{Addresses: []*controlpb.GlobalIpAddress{{Ip: ip, Error: marker}}}}},
+		{Payload: &controlpb.CommandResult_ResolveDns{ResolveDns: &controlpb.ResolveDnsResult{Name: marker, Answers: []*controlpb.DnsAnswer{{Address: ip}}}}},
+	}
+	for _, result := range cases {
+		result.Status = controlpb.CommandResult_STATUS_FAILED
+		for _, width := range []int{24, 40, 80, 120} {
+			out, err := CommandResult("target", result, command.Options{}, pipeline.FormatText, Presentation{Interactive: true, Width: width})
+			if err != nil {
+				t.Fatal(err)
+			}
+			compact := alignmentCompact(out)
+			if !strings.Contains(compact, marker) || !strings.Contains(compact, ip) {
+				t.Fatalf("%T width=%d lost Unicode/IPv6 values: %s", result.Payload, width, out)
+			}
+			for line := range strings.SplitSeq(out, "\n") {
+				if displayWidth(line) > width {
+					t.Fatalf("%T width=%d table overflow: %q", result.Payload, width, line)
+				}
+			}
+		}
+	}
+	var b strings.Builder
+	writeDisplayTable(&b, []displayTableColumn{{header: "NAME"}, {header: "VALUE"}, {header: "AGE(s)"}}, [][]string{{"日本語", "v1", "0"}, {"ascii", "v2", "123.456"}})
+	out := b.String()
+	column := displayColumn(renderedLineContaining(out, "AGE(s)"), "AGE(s)")
+	for _, age := range []string{"0", "123.456"} {
+		if displayColumn(renderedLineContaining(out, age), age) != column {
+			t.Fatal("AGE is not left-aligned with its header", out)
+		}
+	}
+	if !strings.Contains(out, "NAME    VALUE  AGE(s)") {
+		t.Fatal("table gap is not two display cells", out)
+	}
 }
 
 func TestAlignmentQAFieldsAndRawBoundaries(t *testing.T) {
