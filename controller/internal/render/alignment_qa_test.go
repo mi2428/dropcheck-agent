@@ -2,6 +2,7 @@ package render
 
 import (
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 	"unicode"
@@ -120,6 +121,20 @@ func TestAlignmentQAFieldsAndRawBoundaries(t *testing.T) {
 	raw := "Raw:    untouched:    spacing\nhttps://example.test/a:b"
 	if got := TextBlock(raw, Presentation{}); got != raw+"\n" {
 		t.Fatal("raw/URL text was guessed to be structured fields", got)
+	}
+}
+
+func TestAlignmentQAExactSecondsAndSecurityAliases(t *testing.T) {
+	for ms, want := range map[uint64]string{0: "0", 1: "0.001", 10: "0.01", 999: "0.999", 1000: "1", 1001: "1.001", math.MaxUint64: "18446744073709551.615"} {
+		if got := scanAgeSeconds(&controlpb.WifiScanResult{ObservationAgeMs: &ms}); got != want {
+			t.Fatalf("%dms -> %s, want %s", ms, got, want)
+		}
+	}
+	if scanAgeSeconds(&controlpb.WifiScanResult{}) != "?" {
+		t.Fatal("missing age became zero")
+	}
+	if got := compactSecuritySet([]string{"eap_wpa3_enterprise", "future_Mode"}); got != "wpa3-eap+future_Mode" {
+		t.Fatalf("security spelling lost: %s", got)
 	}
 }
 
