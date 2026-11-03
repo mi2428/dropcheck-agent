@@ -1,7 +1,6 @@
 package command
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -184,61 +183,14 @@ func resolveDNSQTypeCount(cmd *controlpb.ResolveDns) int {
 }
 
 func splitArgs(line string) ([]string, error) {
-	var args []string
-	var b strings.Builder
-	var quote rune
-	escaped := false
-	inToken := false
-
-	flush := func() {
-		if inToken {
-			args = append(args, b.String())
-			b.Reset()
-			inToken = false
-		}
+	lexed, err := Lex(line, false)
+	if err != nil {
+		return nil, err
 	}
-
-	for _, r := range line {
-		if escaped {
-			b.WriteRune(r)
-			escaped = false
-			inToken = true
-			continue
-		}
-		if r == '\\' {
-			escaped = true
-			inToken = true
-			continue
-		}
-		if quote != 0 {
-			if r == quote {
-				quote = 0
-				continue
-			}
-			b.WriteRune(r)
-			inToken = true
-			continue
-		}
-		switch r {
-		case '\'', '"':
-			// Quotes delimit a token but are not part of the token value. Empty
-			// quoted strings still count as an argument because inToken is set.
-			quote = r
-			inToken = true
-		case ' ', '\t', '\n', '\r':
-			flush()
-		default:
-			b.WriteRune(r)
-			inToken = true
-		}
+	args := make([]string, 0, len(lexed.Tokens))
+	for _, token := range lexed.Tokens {
+		args = append(args, token.Value)
 	}
-	if escaped {
-		return nil, errors.New("trailing escape")
-	}
-	if quote != 0 {
-		return nil, errors.New("unterminated quote")
-	}
-	flush()
 	return args, nil
 }
 

@@ -3,6 +3,7 @@ package command
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -29,7 +30,27 @@ func ValidateOperation(op Operation) error {
 		if value == "" || strings.HasPrefix(value, "-") || strings.ContainsAny(value, " \t\r\n\x00") {
 			return fmt.Errorf("invalid probe host")
 		}
+		if strings.Contains(value, ":") {
+			if ip, err := netip.ParseAddr(value); err != nil || !ip.Is6() {
+				return fmt.Errorf("invalid IPv6 address")
+			}
+		} else if strings.Contains(value, ".") && strings.Trim(value, "0123456789.") == "" {
+			parts := strings.Split(value, ".")
+			if len(parts) != 4 {
+				return fmt.Errorf("invalid IPv4 address")
+			}
+			for _, part := range parts {
+				if _, err := strconv.ParseUint(part, 10, 8); err != nil || len(part) > 3 {
+					return fmt.Errorf("invalid IPv4 address")
+				}
+			}
+		}
 		return nil
+	}
+	for _, hop := range op.Options.TracerouteRequiredHops {
+		if err := host(hop); err != nil {
+			return err
+		}
 	}
 	address := func(value string) error {
 		if value == "" {
@@ -57,6 +78,10 @@ func ValidateOperation(op Operation) error {
 		return nil
 	}
 	switch c := cmd.Command.(type) {
+	case *controlpb.RunCommand_GetNetwork:
+		if c.GetNetwork.GetDefaultNetwork() == (c.GetNetwork.GetNetworkId() != "") || !c.GetNetwork.GetDefaultNetwork() && !ValidNetworkID(c.GetNetwork.GetNetworkId()) {
+			return fmt.Errorf("specify exactly one of default Network or a canonical Network ID")
+		}
 	case *controlpb.RunCommand_GetIpStatus:
 		err = selector(c.GetIpStatus.GetSelector())
 	case *controlpb.RunCommand_Ping:
@@ -76,13 +101,6 @@ func ValidateOperation(op Operation) error {
 	}
 	if err != nil {
 		return err
-	}
-	endpoint := func(value string) error {
-		u, err := url.Parse(value)
-		if err != nil || u.Hostname() == "" || u.User != nil || u.Scheme != "http" && u.Scheme != "https" {
-			return fmt.Errorf("invalid HTTP endpoint")
-		}
-		return nil
 	}
 	connect := func(c *controlpb.ConnectWifi) error {
 		if c == nil || c.Ssid == "" && c.Bssid == "" {
@@ -116,7 +134,7 @@ func ValidateOperation(op Operation) error {
 			}
 		}
 		if c.CycleWifi.HttpUrl != "" {
-			return endpoint(c.CycleWifi.HttpUrl)
+			return validateHTTPEndpoint(c.CycleWifi.HttpUrl)
 		}
 	case *controlpb.RunCommand_Ping:
 		return host(c.Ping.Host)
@@ -139,14 +157,14 @@ func ValidateOperation(op Operation) error {
 			}
 		}
 	case *controlpb.RunCommand_HttpCheck:
-		if err := endpoint(c.HttpCheck.Url); err != nil {
+		if err := validateHTTPEndpoint(c.HttpCheck.Url); err != nil {
 			return err
 		}
 		if c.HttpCheck.ExpectedStatus != 0 && (c.HttpCheck.ExpectedStatus < 100 || c.HttpCheck.ExpectedStatus > 599) {
 			return fmt.Errorf("invalid HTTP status")
 		}
 	case *controlpb.RunCommand_Wget:
-		return endpoint(c.Wget.Url)
+		return validateHTTPEndpoint(c.Wget.Url)
 	case *controlpb.RunCommand_GetWifiScanDetail:
 		if c.GetWifiScanDetail.Target == "" {
 			return fmt.Errorf("scan detail target is required")
@@ -154,6 +172,19 @@ func ValidateOperation(op Operation) error {
 	}
 	if TimeoutFor(cmd) <= 0 {
 		return fmt.Errorf("operation deadline overflow")
+	}
+	return nil
+}
+
+func validateHTTPEndpoint(value string) error {
+	u, err := url.Parse(value)
+	if err != nil || u.Hostname() == "" || u.User != nil || u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("invalid HTTP endpoint")
+	}
+	if port := u.Port(); port != "" {
+		if _, err := strconv.ParseUint(port, 10, 16); err != nil {
+			return fmt.Errorf("invalid HTTP port")
+		}
 	}
 	return nil
 }
