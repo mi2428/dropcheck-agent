@@ -420,7 +420,7 @@ func renderWifiMLONearbyAPTable(b *strings.Builder, groups []wifiMLOGroup, view 
 			fullColumns[i] = displayTableColumn{header: col.header}
 		}
 		if tableFits(fullColumns, rows, view.Width) {
-			writeDisplayTable(b, fullColumns, rows, " ")
+			writeDisplayTable(b, fullColumns, rows)
 		} else {
 			for _, row := range rows {
 				for i, column := range fullColumns {

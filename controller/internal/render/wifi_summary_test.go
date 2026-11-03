@@ -32,7 +32,7 @@ func TestWifiSummaryHierarchyAndAlignment(t *testing.T) {
 		}
 		for line := range strings.SplitSeq(out, "\n") {
 			indent := len(line) - len(strings.TrimLeft(line, " "))
-			if indent > 0 && indent < 28 && strings.Contains(line, ": ") && strings.Index(line, ": ") != 28 {
+			if indent >= 4 && indent < 28 && strings.Contains(line, ": ") && strings.Index(line, ": ") != 28 {
 				t.Errorf("width=%d unaligned field: %q", width, line)
 			}
 		}

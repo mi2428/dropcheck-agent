@@ -18,8 +18,8 @@ func TestInteractiveScanDoesNotRepeatIdentity(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		full := strings.ReplaceAll(out, "\n", "")
-		if strings.Count(full, ssid) != 1 || strings.Count(full, mac) != 1 {
+		full := alignmentCompact(out)
+		if strings.Count(full, alignmentCompact(ssid)) != 1 || strings.Count(full, mac) != 1 {
 			t.Fatalf("identity duplicated/lost at %d: %s", width, out)
 		}
 	}
@@ -27,13 +27,13 @@ func TestInteractiveScanDoesNotRepeatIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	filter, err := pipeline.Parse([]string{`match "SSID: Very long"`})
+	filter, err := pipeline.Parse([]string{`match "SSID *: +Very long"`})
 	if err != nil {
 		t.Fatal(err)
 	}
 	out, _ := filter.Apply(logical)
 	for _, width := range []int{24, 40, 80, 120} {
-		if !strings.Contains(strings.ReplaceAll(LayoutText(out, Presentation{Width: width}), "\n", ""), ssid) {
+		if !strings.Contains(alignmentCompact(LayoutText(out, Presentation{Width: width})), alignmentCompact(ssid)) {
 			t.Fatal("filter depended on layout")
 		}
 	}

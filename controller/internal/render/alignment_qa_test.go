@@ -1,12 +1,51 @@
 package render
 
 import (
+	"strings"
 	"testing"
+	"unicode"
 
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/controlpb"
 	"google.golang.org/protobuf/proto"
 )
+
+func alignmentCompact(text string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, text)
+}
+
+func TestAlignmentQAFieldsAndRawBoundaries(t *testing.T) {
+	rows := [][2]string{{"短い", "first"}, {"Long label", "second"}, {"URL", "https://example.test/" + strings.Repeat("x", 80)}}
+	wide := Fields(rows, Presentation{Width: 120})
+	for line := range strings.SplitSeq(strings.TrimSuffix(wide, "\n"), "\n") {
+		if displayColumn(line, ":  ") != 12 {
+			t.Fatalf("field columns differ: %q", line)
+		}
+	}
+	for _, width := range []int{8, 24, 40} {
+		out := Fields(rows, Presentation{Width: width})
+		for _, row := range rows {
+			if !strings.Contains(alignmentCompact(out), row[1]) {
+				t.Fatalf("field value clipped at width=%d", width)
+			}
+		}
+	}
+	narrow := Fields([][2]string{{strings.Repeat("Long label ", 8), "value"}}, Presentation{Width: 24})
+	for line := range strings.SplitSeq(strings.TrimSuffix(narrow, "\n"), "\n") {
+		if !strings.HasPrefix(line, "  ") {
+			t.Fatalf("wrapped label escaped its indentation: %q", line)
+		}
+	}
+	raw := "Raw:    untouched:    spacing\nhttps://example.test/a:b"
+	if got := TextBlock(raw, Presentation{}); got != raw+"\n" {
+		t.Fatal("raw/URL text was guessed to be structured fields", got)
+	}
+}
 
 func TestAlignmentQALiteralSelectionKeepsOneDetachedContext(t *testing.T) {
 	wanted := &controlpb.WifiConnection{Ssid: "Guest\t東京", Bssid: "02:00:00:11:22:01"}

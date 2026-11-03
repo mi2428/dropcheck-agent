@@ -155,7 +155,7 @@ func TestCapabilityListsArePresenceAuthority(t *testing.T) {
 	var b strings.Builder
 	renderDeviceCapabilities(&b, capabilities, Presentation{})
 	for _, value := range []string{"6G: yes", "60G: no", "5G: ?", "mlo: ?", "future_feature: yes"} {
-		if !strings.Contains(b.String(), value) {
+		if !strings.Contains(wrapPresentation(b.String(), 0), value) {
 			t.Fatalf("missing %q: %s", value, b.String())
 		}
 	}
