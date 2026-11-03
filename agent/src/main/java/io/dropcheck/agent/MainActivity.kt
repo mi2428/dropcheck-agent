@@ -1247,6 +1247,8 @@ private class ShellInputEditText(context: Context) : EditText(context) {
             KeyEvent.KEYCODE_TAB -> { onComplete?.invoke(); return true }
             KeyEvent.KEYCODE_DPAD_UP -> { onRecall?.invoke(-1); return true }
             KeyEvent.KEYCODE_DPAD_DOWN -> { onRecall?.invoke(1); return true }
+            KeyEvent.KEYCODE_P -> if (event.hasModifiers(KeyEvent.META_CTRL_ON)) { onRecall?.invoke(-1); return true }
+            KeyEvent.KEYCODE_N -> if (event.hasModifiers(KeyEvent.META_CTRL_ON)) { onRecall?.invoke(1); return true }
         }
         if (keyCode == KeyEvent.KEYCODE_DEL) return deleteBackwards()
         return super.onKeyDown(keyCode, event)
