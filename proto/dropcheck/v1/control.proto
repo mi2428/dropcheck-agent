@@ -121,6 +121,9 @@ message RunCommand {
     Wget wget = 30;
     PathMtu path_mtu = 31;
     GlobalIp global_ip = 32;
+    GetNetworks get_networks = 44;
+    GetNetwork get_network = 45;
+    GetPermissions get_permissions = 46;
   }
 }
 
@@ -339,6 +342,8 @@ message CommandResult {
     WgetResult wget = 26;
     PathMtuResult path_mtu = 27;
     GlobalIpResult global_ip = 28;
+    NetworkSnapshot network_snapshot = 36;
+    PermissionSnapshot permission_snapshot = 37;
   }
 }
 
@@ -1047,4 +1052,26 @@ message HttpCheckResult {
   bool matched = 4;
   int64 elapsed_ms = 5;
   string error = 6;
+}
+
+message GetNetworks {}
+
+// Exactly one of default_network=true or a canonical positive network_id is required.
+message GetNetwork {
+  string network_id = 1;
+  bool default_network = 2;
+}
+
+message GetPermissions {}
+
+message NetworkSnapshot {
+  repeated NetworkDiagnostics networks = 1;
+  int64 observed_at_unix_ms = 2;
+  repeated string errors = 3;
+}
+
+message PermissionSnapshot {
+  repeated DiagnosticField permissions = 1;
+  bool device_owner = 2;
+  int64 observed_at_unix_ms = 3;
 }
