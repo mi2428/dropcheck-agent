@@ -367,12 +367,15 @@ class NetworkRepository(
             .getOrDefault(false)
         logger.info("wifi fresh scan requested band=${wifiBandName(band)} start_scan=$scanStarted timeout_ms=$timeoutMs")
         val waited = if (scanStarted) {
-            runCatching { latch.await(timeoutMs.toLong(), TimeUnit.MILLISECONDS) }.getOrDefault(false)
+            try { latch.await(timeoutMs.toLong(), TimeUnit.MILLISECONDS) }
+            catch (_: InterruptedException) { Thread.currentThread().interrupt(); false }
         } else {
             false
         }
-        runCatching { appContext.unregisterReceiver(receiver) }
+        val unregisterError = runCatching { appContext.unregisterReceiver(receiver) }
             .onFailure { logger.warn("wifi fresh scan unregister receiver failed error=$it") }
+            .exceptionOrNull()
+        if (Thread.currentThread().isInterrupted) throw InterruptedException("Wi-Fi scan canceled after receiver cleanup")
         val scan = wifiScan(band).toBuilder()
             .addFields(diagnosticField("fresh_scan_receiver_registered", true))
             .addFields(diagnosticField("fresh_scan_start_scan", scanStarted))
@@ -386,6 +389,8 @@ class NetworkRepository(
         if (scanStarted && !broadcastReceived) {
             scan.addErrors("scan_broadcast_timeout=${timeoutMs}ms")
         }
+        if (broadcastReceived && !resultsUpdated) scan.addErrors("scan_results_not_updated")
+        if (unregisterError != null) scan.addErrors("unregister_receiver=${errorSummary(unregisterError)}")
         return scan.build()
     }
 

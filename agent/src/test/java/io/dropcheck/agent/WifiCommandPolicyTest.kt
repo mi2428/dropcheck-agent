@@ -14,6 +14,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WifiCommandPolicyTest {
+    @Test fun incompleteCollectionsCannotClaimSuccess() {
+        val complete = io.dropcheck.agent.grpc.WifiDiagnostics.newBuilder().setStatus(io.dropcheck.agent.grpc.WifiStatus.getDefaultInstance())
+            .setCapabilities(io.dropcheck.agent.grpc.WifiCapabilities.getDefaultInstance()).setScan(WifiScan.getDefaultInstance()).build()
+        assertTrue(WifiCommandPolicy.diagnosticsComplete(complete))
+        assertFalse(WifiCommandPolicy.diagnosticsComplete(complete.toBuilder().clearStatus().build()))
+        val partial = complete.toBuilder().setScan(WifiScan.newBuilder().addErrors("get_scan_results=denied")).build()
+        assertFalse(WifiCommandPolicy.diagnosticsComplete(partial))
+        val wire = io.dropcheck.agent.grpc.RunCommand.newBuilder().setGetWifiDiagnostics(io.dropcheck.agent.grpc.GetWifiDiagnostics.getDefaultInstance()).build()
+        val claimedOk = io.dropcheck.agent.grpc.CommandResult.newBuilder().setStatus(io.dropcheck.agent.grpc.CommandResult.Status.STATUS_OK).setWifiDiagnostics(partial).build()
+        val checked = evaluateShellPayload(wire, claimedOk)
+        assertEquals(io.dropcheck.agent.grpc.CommandResult.Status.STATUS_FAILED, checked.status)
+        assertEquals(partial, checked.wifiDiagnostics)
+        val scan = WifiScan.newBuilder()
+        for (key in listOf("fresh_scan_receiver_registered", "fresh_scan_start_scan", "fresh_scan_broadcast_received", "fresh_scan_results_updated", "fresh_scan_wait_completed")) {
+            scan.addFields(io.dropcheck.agent.grpc.DiagnosticField.newBuilder().setKey(key).setValue("true"))
+        }
+        assertTrue(WifiCommandPolicy.freshScanEvidence(scan.build()))
+        assertFalse(WifiCommandPolicy.freshScanEvidence(scan.clone().addFields(io.dropcheck.agent.grpc.DiagnosticField.newBuilder().setKey("fresh_scan_results_updated").setValue("false")).build()))
+        assertFalse(WifiCommandPolicy.freshScanEvidence(scan.clone().addErrors("read failed").build()))
+    }
+
     @Test
     fun cycleCleanupErrorCannotPass() {
         val clean = io.dropcheck.agent.grpc.WifiCycleResult.newBuilder()
@@ -55,7 +76,7 @@ class WifiCommandPolicyTest {
     @Test
     fun classifiesFreshScanAndScanDetailResults() {
         assertTrue(WifiCommandPolicy.freshScanCompleted(emptyList()))
-        assertTrue(WifiCommandPolicy.freshScanCompleted(listOf("get_scan_results=SecurityException:denied")))
+        assertFalse(WifiCommandPolicy.freshScanCompleted(listOf("get_scan_results=SecurityException:denied")))
         assertFalse(WifiCommandPolicy.freshScanCompleted(listOf("start_scan=false")))
         assertFalse(WifiCommandPolicy.freshScanCompleted(listOf("scan_broadcast_timeout=10000ms")))
         assertFalse(WifiCommandPolicy.freshScanCompleted(listOf("register_receiver=SecurityException:denied")))

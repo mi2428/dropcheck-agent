@@ -633,6 +633,9 @@ func TestRunOperationForAgentsWifiEHTFreshResults(t *testing.T) {
 		Fields:  []*controlpb.DiagnosticField{{Key: "fresh_scan_elapsed_ms", Value: "123"}},
 		Results: []*controlpb.WifiScanResult{{Ssid: "Lab", Bssid: "aa:bb:cc:dd:ee:ff", WifiStandard: "802.11be"}},
 	}
+	for _, key := range []string{"fresh_scan_receiver_registered", "fresh_scan_start_scan", "fresh_scan_broadcast_received", "fresh_scan_results_updated", "fresh_scan_wait_completed"} {
+		scan.Fields = append(scan.Fields, &controlpb.DiagnosticField{Key: key, Value: "true"})
+	}
 	for _, tc := range []struct {
 		name        string
 		status      controlpb.CommandResult_Status
@@ -647,7 +650,7 @@ func TestRunOperationForAgentsWifiEHTFreshResults(t *testing.T) {
 		{"canceled", controlpb.CommandResult_STATUS_CANCELED, scan, "", false, false, "CANCELED"},
 		{"transport", 0, nil, "scan transport failure", false, false, "scan transport failure"},
 		{"nil", 0, nil, "", true, false, "empty response"},
-		{"ok no payload", controlpb.CommandResult_STATUS_OK, nil, "", false, false, "no payload"},
+		{"ok no payload", controlpb.CommandResult_STATUS_OK, nil, "", false, false, "evidence is missing"},
 		{"success", controlpb.CommandResult_STATUS_OK, scan, "", false, true, "fresh"},
 	} {
 		for _, format := range []outputFormat{outputText, outputJSON} {
@@ -687,6 +690,7 @@ func TestRunOperationForAgentsWifiEHTFreshResults(t *testing.T) {
 							response.Body = &controlpb.AgentFrame_Result{Result: &controlpb.CommandResult{
 								Status: controlpb.CommandResult_STATUS_OK,
 								Payload: &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{
+									Status: &controlpb.WifiStatus{}, Capabilities: &controlpb.WifiCapabilities{},
 									Scan: &controlpb.WifiScan{Results: []*controlpb.WifiScanResult{{Ssid: "STALE"}}},
 								}},
 							}}

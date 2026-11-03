@@ -21,6 +21,23 @@ internal fun evaluateShellTraceroute(result: CommandResult, required: List<Strin
         .build()
 }
 
+/** A collector's OK flag cannot contradict typed evidence or known acquisition errors. */
+internal fun evaluateShellPayload(request: RunCommand, result: CommandResult): CommandResult {
+    if (result.status != CommandResult.Status.STATUS_OK) return result
+    val consistent = when (request.commandCase) {
+        RunCommand.CommandCase.GET_WIFI_DIAGNOSTICS -> result.hasWifiDiagnostics() && WifiCommandPolicy.diagnosticsComplete(result.wifiDiagnostics)
+        RunCommand.CommandCase.GET_WIFI_CAPABILITIES -> result.hasWifiCapabilities() && result.wifiCapabilities.errorsCount == 0
+        RunCommand.CommandCase.GET_WIFI_SCAN -> result.hasWifiScan() && result.wifiScan.errorsCount == 0
+        RunCommand.CommandCase.GET_FRESH_WIFI_SCAN -> result.hasWifiScan() && WifiCommandPolicy.freshScanEvidence(result.wifiScan)
+        RunCommand.CommandCase.CONNECT_WIFI -> result.hasConnectWifi() && result.connectWifi.connected
+        RunCommand.CommandCase.DISCONNECT_WIFI, RunCommand.CommandCase.FORGET_WIFI, RunCommand.CommandCase.RECONNECT_WIFI -> result.hasWifiOperation() && result.wifiOperation.ok && result.wifiOperation.errorsCount == 0
+        RunCommand.CommandCase.ASSERT_WIFI, RunCommand.CommandCase.WAIT_WIFI_CONNECTED -> result.hasWifiAssert() && result.wifiAssert.passed && result.wifiAssert.errorsCount == 0 && result.wifiAssert.checksList.all { it.passed }
+        else -> true
+    }
+    return if (consistent) result else result.toBuilder().setStatus(CommandResult.Status.STATUS_FAILED)
+        .setMessage("typed result is incomplete or inconsistent; retained data is reference").build()
+}
+
 internal data class AgentShellResult(
     val ok: Boolean,
     val lines: List<CharSequence> = emptyList(),
@@ -106,7 +123,7 @@ internal class AgentShellAdapter(private val context: Context, private val logge
             else -> emptyList()
         }
         if (!hasPayload) return failure(request.commandCase.name, result, secrets)
-        val evaluated = if (request.commandCase == RunCommand.CommandCase.TRACEROUTE) evaluateShellTraceroute(result, command.via) else result
+        val evaluated = if (request.commandCase == RunCommand.CommandCase.TRACEROUTE) evaluateShellTraceroute(result, command.via) else evaluateShellPayload(request, result)
         val parts = when (request.commandCase) {
             RunCommand.CommandCase.GET_NETWORKS, RunCommand.CommandCase.GET_NETWORK -> buildList {
                 add(AgentBlockPart.Field("Observed at unix ms", result.networkSnapshot.observedAtUnixMs.toString()))

@@ -13,6 +13,13 @@ import io.dropcheck.agent.grpc.WifiCycleResult
  * protect the agent/controller contract without needing a device or Robolectric.
  */
 internal object WifiCommandPolicy {
+    fun diagnosticsComplete(value: io.dropcheck.agent.grpc.WifiDiagnostics): Boolean =
+        value.hasStatus() && value.hasCapabilities() && value.hasScan() && value.capabilities.errorsCount == 0 && value.scan.errorsCount == 0 &&
+            value.networksList.map { it.networkId }.distinct().size == value.networksCount &&
+            value.networksList.all { validNetworkId(it.networkId) && it.hasIpStatus() && it.networkId == it.ipStatus.networkId &&
+                AgentObservationPresentation.available(it.ipStatus.observationFieldsList, "capabilities") &&
+                AgentObservationPresentation.available(it.ipStatus.observationFieldsList, "link_properties") }
+
     /** Scan broadcasts are normally prompt, but Android may throttle or delay them on test devices. */
     const val DEFAULT_FRESH_SCAN_TIMEOUT_MS = 10_000
 
@@ -41,9 +48,11 @@ internal object WifiCommandPolicy {
      * Fresh scan may still return cached results; only registration/start/broadcast failures
      * mark the command failed at this layer.
      */
-    fun freshScanCompleted(errors: List<String>): Boolean {
-        return errors.none { it.startsWith("register_receiver=") || it.startsWith("start_scan=false") || it.startsWith("scan_broadcast_timeout") }
-    }
+    fun freshScanCompleted(errors: List<String>): Boolean = errors.isEmpty()
+
+    fun freshScanEvidence(value: io.dropcheck.agent.grpc.WifiScan): Boolean = freshScanCompleted(value.errorsList) &&
+        listOf("fresh_scan_receiver_registered", "fresh_scan_start_scan", "fresh_scan_broadcast_received", "fresh_scan_results_updated", "fresh_scan_wait_completed")
+            .all { key -> value.fieldsList.filter { it.key == key }.singleOrNull()?.value == "true" }
 
     /** A scan detail command succeeds only when at least one filtered scan result remains. */
     fun scanDetailMatched(resultCount: Int, errors: List<String>): Boolean {

@@ -14,7 +14,8 @@ internal fun runWifiEhtDiagnostics(
     val fresh = if (command.fresh) {
         val scan = GetFreshWifiScan.newBuilder().setBand(WifiBand.WIFI_BAND_ALL)
         if (command.timeoutMs > 0) scan.timeoutMs = command.timeoutMs
-        val result = execute(RunCommand.newBuilder().setGetFreshWifiScan(scan).build())
+        val request = RunCommand.newBuilder().setGetFreshWifiScan(scan).build()
+        val result = evaluateShellPayload(request, execute(request))
         val builder = result.toBuilder()
         if (result.status != CommandResult.Status.STATUS_OK) {
             builder.message = "wifi eht fresh scan: ${result.status.name}: ${result.message}" +
@@ -35,9 +36,9 @@ internal fun runWifiEhtDiagnostics(
         if (result.status == CommandResult.Status.STATUS_CANCELED) return builder.build()
         builder.build()
     } else null
-    val diagnostics = execute(
-        RunCommand.newBuilder().setGetWifiDiagnostics(GetWifiDiagnostics.getDefaultInstance()).build(),
-    )
+    if (Thread.currentThread().isInterrupted) throw InterruptedException("EHT collection canceled")
+    val request = RunCommand.newBuilder().setGetWifiDiagnostics(GetWifiDiagnostics.getDefaultInstance()).build()
+    val diagnostics = evaluateShellPayload(request, execute(request))
     return diagnostics.toBuilder().apply {
         if (!diagnostics.hasWifiDiagnostics() || !diagnostics.wifiDiagnostics.hasStatus()) {
             if (status == CommandResult.Status.STATUS_OK) status = CommandResult.Status.STATUS_FAILED

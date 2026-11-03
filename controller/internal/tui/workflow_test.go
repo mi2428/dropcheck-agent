@@ -101,7 +101,7 @@ func (f *workflowFake) Run(ctx context.Context, agent control.AgentInfo, op comm
 	case "ip.status":
 		raw.Payload = &controlpb.CommandResult_IpStatus{IpStatus: &controlpb.IpStatus{Validated: true, Internet: true}}
 	case "wifi.forget", "wifi.disconnect":
-		raw.Payload = &controlpb.CommandResult_WifiOperation{WifiOperation: &controlpb.WifiOperationResult{}}
+		raw.Payload = &controlpb.CommandResult_WifiOperation{WifiOperation: &controlpb.WifiOperationResult{Ok: true}}
 		if cleanup {
 			return runner.Result{}, fmt.Errorf("synthetic cleanup failure")
 		}
