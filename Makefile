@@ -100,6 +100,10 @@ fmt-check: ## Check controller Go formatting without rewriting generated code or
 	@unformatted="$$(git ls-files -z -- 'controller/*.go' ':!:controller/internal/controlpb/*' | while IFS= read -r -d '' file; do [[ ! -f "$$file" ]] || printf '%s\0' "$$file"; done | xargs -0 gofmt -l)"; \
 	[[ -z "$$unformatted" ]] || { printf 'Run make fmt TARGET=controller for:\n%s\n' "$$unformatted" >&2; exit 1; }
 
+.PHONY: modernize-check
+modernize-check: ## Check Go modernizers without changing source files (Go 1.26+)
+	cd controller && "$(GO)" fix -diff ./...
+
 .PHONY: lint
 lint: ## Lint targets; controller runs go vet and staticcheck
 	@die(){ printf 'make lint: %s\n' "$$*" >&2; exit 1; }; \

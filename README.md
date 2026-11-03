@@ -160,6 +160,10 @@ the specific SSID selector fails with an identity-unavailable error rather than 
 A blank selector needs no SSID identity. VPNs may report their underlying Wi-Fi transport but are not physical Wi-Fi
 candidates; their IP status must not inherit the underlying network's WifiInfo.
 
+## CI
+
+`ubuntu-latest-self-hosted`でGo/Androidのユニットテスト・Lint・ビルドを自動実行します。Androidは全試験の完了をJUnit XMLで検査し、件数とレポートを保存します。安全なtriggerとActions有効化の条件は[CI運用](docs/ci.md)を参照してください。
+
 ## Features
 
 The controller/agent toolchain has several entry points that share the same typed agent operations.

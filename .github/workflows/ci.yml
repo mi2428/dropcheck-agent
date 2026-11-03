@@ -1,17 +1,25 @@
 name: CI
 
 'on':
+  # Self-hosted runners can reach the homelab LAN; do not execute fork PR code.
   push:
-  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
 jobs:
   controller:
     name: Controller (Go ${{ matrix.go-version }})
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest-self-hosted
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -43,6 +51,8 @@ jobs:
         run: go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
       - name: Check formatting
         run: make fmt-check
+      - name: Check Go modernizers
+        run: make modernize-check
       - name: Build
         run: make build TARGET=controller
       - name: Test
@@ -51,10 +61,12 @@ jobs:
         run: make lint TARGET=controller
       - name: Race check
         working-directory: controller
-        run: go test -race -count=1 ./...
+        run: |
+          go test -race -count=1 ./...
+          GOFLAGS='-race -p=1' python3 ../tools/test_shell_history.py
 
   android:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest-self-hosted
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
@@ -63,14 +75,50 @@ jobs:
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961  # v5
         with:
           distribution: temurin
-          java-version: '17.0.20.1+1'
+          java-version: '17'
+          cache: gradle
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407  # v3
         with:
           log-accepted-android-sdk-licenses: false
-          packages: 'platform-tools platforms;android-37.0 build-tools;37.0.0'
-      - name: Build
-        run: make build TARGET=agent
+          packages: 'platform-tools platforms;android-37.2 build-tools;37.0.0'
+      - name: Check shared contract and Android SDK
+        run: |
+          make check-shell
+          test -f "$ANDROID_SDK_ROOT/platforms/android-37.2/android.jar"
+          test -x "$ANDROID_SDK_ROOT/build-tools/37.0.0/aapt2"
       - name: Unit test
-        run: ./gradlew :agent:testDebugUnitTest --rerun-tasks --no-build-cache -PdropcheckVersion="$(make -s version)"
+        run: ./gradlew --no-daemon --max-workers=2 :agent:testDebugUnitTest --rerun-tasks --no-build-cache -PdropcheckVersion="$(make -s version)"
+      - name: Verify unit-test completion
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          reports = list(Path('agent/build/test-results/testDebugUnitTest').glob('TEST-*.xml'))
+          if not reports:
+              raise SystemExit('No Android unit-test reports were produced')
+          suites = [ET.parse(path).getroot() for path in reports]
+          counts = {key: sum(int(suite.attrib[key]) for suite in suites) for key in ('tests', 'failures', 'errors', 'skipped')}
+          summary = 'Android unit tests: ' + ', '.join(f'{key}={value}' for key, value in counts.items())
+          print(summary)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
+              output.write(summary + '\n')
+          if counts['tests'] == 0 or any(counts[key] for key in ('failures', 'errors', 'skipped')):
+              raise SystemExit('Android unit tests did not complete without failures, errors or skips')
+          PY
       - name: Lint
-        run: make lint TARGET=agent
+        run: ./gradlew --no-daemon --max-workers=2 :agent:lintDebug -PdropcheckVersion="$(make -s version)"
+      - name: Build app and instrumentation
+        run: ./gradlew --no-daemon --max-workers=2 :agent:assembleDebug :agent:assembleDebugAndroidTest -PdropcheckVersion="$(make -s version)"
+      - name: Upload Android test and lint reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: android-test-and-lint-reports
+          retention-days: 7
+          path: |
+            agent/build/test-results/testDebugUnitTest/
+            agent/build/reports/tests/testDebugUnitTest/
+            agent/build/reports/lint-results-debug.*
