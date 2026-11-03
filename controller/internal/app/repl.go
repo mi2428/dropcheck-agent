@@ -38,15 +38,29 @@ func repl(ctx context.Context, state *shellState) error {
 
 func replLineEditor(ctx context.Context, state *shellState) error {
 	defer func() { state.defaultPassphrase = "" }()
+	input := readline.NewCancelableStdin(os.Stdin)
+	defer input.Close()
 	var lineReader *readline.Instance
 	var editing string
+	var activeMu sync.Mutex
+	var activeCancel context.CancelFunc
 	cfg := &readline.Config{
+		Stdin:                  input,
 		Prompt:                 state.prompt(),
 		HistoryLimit:           1000,
 		DisableAutoSaveHistory: true,
 		AutoComplete:           shellReadlineCompleter{state: state},
 		EOFPrompt:              "\n",
 		FuncFilterInputRune: func(key rune) (rune, bool) {
+			activeMu.Lock()
+			cancel := activeCancel
+			activeMu.Unlock()
+			if cancel != nil {
+				if key == readline.CharInterrupt || key == 0 {
+					cancel()
+				}
+				return 0, false
+			}
 			switch key {
 			case readline.CharPrev, readline.CharNext, readline.CharBckSearch, readline.CharFwdSearch:
 				if !shell.HistorySafe(editing) {
@@ -81,11 +95,15 @@ func replLineEditor(ctx context.Context, state *shellState) error {
 		return err
 	}
 	defer func() {
+		_ = input.Close() // FillableStdin.Close does not close its underlying reader.
 		_ = lineReader.Close()
 	}()
 	// Establish an empty scratch entry before readline's first history.Update.
 	_ = lineReader.SaveHistory("")
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		lineReader.SetPrompt(state.prompt())
 		line, err := lineReader.Readline()
 		if err != nil {
@@ -104,7 +122,28 @@ func replLineEditor(ctx context.Context, state *shellState) error {
 		} else {
 			_ = lineReader.SaveHistory("")
 		}
-		done, err := runReplLine(ctx, state, line)
+		commandCtx, cancel := context.WithCancel(ctx)
+		activeMu.Lock()
+		activeCancel = cancel
+		activeMu.Unlock()
+		// Readline restores cooked mode when Readline returns and stops its
+		// terminal reader at Enter. Keep keys under our control during execution:
+		// Ctrl-C cancels this command, and all other typeahead is discarded.
+		if err := lineReader.Terminal.EnterRawMode(); err != nil {
+			cancel()
+			return err
+		}
+		lineReader.SetPrompt("")
+		lineReader.Terminal.KickRead()
+		done, err := runReplLine(commandCtx, state, line)
+		restoreErr := lineReader.Terminal.ExitRawMode()
+		activeMu.Lock()
+		activeCancel = nil
+		activeMu.Unlock()
+		cancel()
+		if restoreErr != nil {
+			return restoreErr
+		}
 		if err != nil || done {
 			return err
 		}
@@ -115,6 +154,9 @@ func replScanner(ctx context.Context, state *shellState) error {
 	defer func() { state.defaultPassphrase = "" }()
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		fmt.Print(state.prompt())
 		if !scanner.Scan() {
 			if err := scanner.Err(); err != nil {
@@ -651,6 +693,11 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 	supplements := commandResultSupplements{}
 	if err == nil {
 		supplements = collectCommandResultSupplements(ctx, state, agent, result, options, output.format, output.interactive)
+	}
+	if output.interactive && ctx.Err() != nil && result != nil {
+		result = proto.Clone(result).(*controlpb.CommandResult)
+		result.Status = controlpb.CommandResult_STATUS_CANCELED
+		result.Message = "collection canceled; retained data is reference, completed device actions are not rolled back"
 	}
 	if output.wifiTest && result != nil && result.GetWifiAssert() != nil {
 		state.lastWifiTest = render.SanitizedResult(result)
