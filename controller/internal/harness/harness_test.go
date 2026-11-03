@@ -631,6 +631,11 @@ func fakeResult(name string) *controlpb.CommandResult {
 				}},
 			}},
 		}}
+		if name == "wifi.scan.fresh" {
+			for _, key := range []string{"fresh_scan_receiver_registered", "fresh_scan_start_scan", "fresh_scan_broadcast_received", "fresh_scan_results_updated", "fresh_scan_wait_completed"} {
+				result.GetWifiScan().Fields = append(result.GetWifiScan().Fields, &controlpb.DiagnosticField{Key: key, Value: "true"})
+			}
+		}
 	case "wifi.eht":
 		result.Payload = &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{
 			Status:       fakeResult("wifi.status").GetWifiStatus(),

@@ -134,7 +134,8 @@ class CommandExecutor(
         val diagnostics = networks.wifiDiagnostics()
         logger.debug("wifi diagnostics observed networks=${diagnostics.networksCount} scan_results=${diagnostics.scan.resultsCount} capability_fields=${diagnostics.capabilities.fieldsCount} capability_errors=${diagnostics.capabilities.errorsCount} scan_errors=${diagnostics.scan.errorsCount}")
         return CommandResult.newBuilder()
-            .setStatus(CommandResult.Status.STATUS_OK)
+            .setStatus(if (WifiCommandPolicy.diagnosticsComplete(diagnostics)) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
+            .setMessage(if (WifiCommandPolicy.diagnosticsComplete(diagnostics)) "" else "diagnostic collection incomplete; retained data is reference")
             .setWifiDiagnostics(diagnostics)
             .build()
     }
@@ -144,7 +145,7 @@ class CommandExecutor(
         val scan = networks.wifiScan(command.band)
         logger.debug("wifi scan observed results=${scan.resultsCount} fields=${scan.fieldsList.joinToString(",") { "${it.key}=${it.value}" }} errors=${scan.errorsList.joinToString(",")}")
         return CommandResult.newBuilder()
-            .setStatus(CommandResult.Status.STATUS_OK)
+            .setStatus(if (scan.errorsCount == 0) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
             .setWifiScan(scan)
             .build()
     }
@@ -156,7 +157,7 @@ class CommandExecutor(
         )
         logger.info("wifi fresh scan requested band=${command.band} timeout_ms=$timeoutMs")
         val scan = networks.wifiFreshScan(command.band, timeoutMs)
-        val ok = WifiCommandPolicy.freshScanCompleted(scan.errorsList)
+        val ok = WifiCommandPolicy.freshScanEvidence(scan)
         logger.debug("wifi fresh scan observed results=${scan.resultsCount} fields=${scan.fieldsList.joinToString(",") { "${it.key}=${it.value}" }} errors=${scan.errorsList.joinToString(",")}")
         return CommandResult.newBuilder()
             .setStatus(if (ok) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
@@ -182,7 +183,7 @@ class CommandExecutor(
         val capabilities = networks.wifiCapabilities()
         logger.debug("wifi capabilities observed bands=${capabilities.supportedBandsList.joinToString(",")} standards=${capabilities.supportedStandardsList.joinToString(",")} security=${capabilities.supportedSecurityModesList.joinToString(",")} features=${capabilities.supportedFeaturesCount} errors=${capabilities.errorsList.joinToString(",")}")
         return CommandResult.newBuilder()
-            .setStatus(CommandResult.Status.STATUS_OK)
+            .setStatus(if (capabilities.errorsCount == 0) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
             .setWifiCapabilities(capabilities)
             .build()
     }

@@ -30,6 +30,9 @@ func ExecuteOperation(ctx context.Context, r OperationRunner, agent control.Agen
 	}
 	result := OperationResult{Options: options}
 	run := func(operation command.Operation) (*controlpb.CommandResult, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		wire, _, buildErr := command.BuildRunCommand(operation)
 		if buildErr != nil {
 			return nil, buildErr
@@ -47,7 +50,11 @@ func ExecuteOperation(ctx context.Context, r OperationRunner, agent control.Agen
 	}
 	var fresh *controlpb.CommandResult
 	if options.WifiEHTFreshScan {
-		freshOp, buildErr := command.WifiFreshScanOperation("all", fmt.Sprint(options.WifiEHTFreshScanTimeoutMs))
+		band := options.WifiEHTFreshScanBand
+		if band == "" {
+			band = "all"
+		}
+		freshOp, buildErr := command.WifiFreshScanOperation(band, fmt.Sprint(options.WifiEHTFreshScanTimeoutMs))
 		if buildErr != nil {
 			return result, buildErr
 		}
@@ -57,6 +64,10 @@ func ExecuteOperation(ctx context.Context, r OperationRunner, agent control.Agen
 		}
 		if fresh == nil {
 			return result, fmt.Errorf("fresh scan returned no result")
+		}
+		if fresh.Status == controlpb.CommandResult_STATUS_OK && !payloadMatches(freshOp, fresh) {
+			fresh.Status = controlpb.CommandResult_STATUS_FAILED
+			fresh.Message = "fresh scan evidence is missing or inconsistent; retained data is reference"
 		}
 		if scan := fresh.GetWifiScan(); scan != nil {
 			source := "fresh"
@@ -134,19 +145,47 @@ func payloadMatches(op command.Operation, raw *controlpb.CommandResult) bool {
 	case *controlpb.RunCommand_GetWifiStatus:
 		return raw.GetWifiStatus() != nil
 	case *controlpb.RunCommand_GetWifiDiagnostics:
-		return raw.GetWifiDiagnostics() != nil
-	case *controlpb.RunCommand_GetWifiScan, *controlpb.RunCommand_GetFreshWifiScan:
-		return raw.GetWifiScan() != nil
+		return validWifiDiagnostics(raw.GetWifiDiagnostics())
+	case *controlpb.RunCommand_GetWifiScan:
+		return raw.GetWifiScan() != nil && len(raw.GetWifiScan().GetErrors()) == 0
+	case *controlpb.RunCommand_GetFreshWifiScan:
+		scan := raw.GetWifiScan()
+		if scan == nil || len(scan.GetErrors()) != 0 {
+			return false
+		}
+		for _, key := range []string{"fresh_scan_receiver_registered", "fresh_scan_start_scan", "fresh_scan_broadcast_received", "fresh_scan_results_updated", "fresh_scan_wait_completed"} {
+			count := 0
+			for _, field := range scan.GetFields() {
+				if field.GetKey() == key {
+					if field.GetValue() != "true" {
+						return false
+					}
+					count++
+				}
+			}
+			if count != 1 {
+				return false
+			}
+		}
+		return true
 	case *controlpb.RunCommand_GetWifiScanDetail:
 		return raw.GetWifiScanDetail() != nil
 	case *controlpb.RunCommand_GetWifiCapabilities:
-		return raw.GetWifiCapabilities() != nil
+		return raw.GetWifiCapabilities() != nil && len(raw.GetWifiCapabilities().GetErrors()) == 0
 	case *controlpb.RunCommand_ConnectWifi:
-		return raw.GetConnectWifi() != nil
+		return raw.GetConnectWifi() != nil && raw.GetConnectWifi().GetConnected()
 	case *controlpb.RunCommand_DisconnectWifi, *controlpb.RunCommand_ForgetWifi, *controlpb.RunCommand_ReconnectWifi:
-		return raw.GetWifiOperation() != nil
+		return raw.GetWifiOperation() != nil && raw.GetWifiOperation().GetOk() && len(raw.GetWifiOperation().GetErrors()) == 0
 	case *controlpb.RunCommand_WaitWifiConnected, *controlpb.RunCommand_AssertWifi:
-		return raw.GetWifiAssert() != nil
+		if raw.GetWifiAssert() == nil || !raw.GetWifiAssert().GetPassed() || len(raw.GetWifiAssert().GetErrors()) != 0 {
+			return false
+		}
+		for _, check := range raw.GetWifiAssert().GetChecks() {
+			if !check.GetPassed() {
+				return false
+			}
+		}
+		return true
 	case *controlpb.RunCommand_MonitorWifi:
 		return raw.GetWifiMonitor() != nil
 	case *controlpb.RunCommand_CycleWifi:
@@ -169,6 +208,26 @@ func payloadMatches(op command.Operation, raw *controlpb.CommandResult) bool {
 		return raw.GetWget() != nil
 	}
 	return false
+}
+
+func validWifiDiagnostics(value *controlpb.WifiDiagnostics) bool {
+	if value == nil || value.Status == nil || value.Capabilities == nil || value.Scan == nil || len(value.Capabilities.Errors) != 0 || len(value.Scan.Errors) != 0 {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, network := range value.Networks {
+		id := network.GetNetworkId()
+		if !command.ValidNetworkID(id) || seen[id] || network.GetIpStatus() == nil || network.GetIpStatus().GetNetworkId() != id {
+			return false
+		}
+		seen[id] = true
+		for _, field := range []string{"capabilities", "link_properties"} {
+			if available, _ := Availability(network.GetIpStatus().GetObservationFields(), field); !available {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func validNetworkSnapshot(query *controlpb.GetNetwork, snapshot *controlpb.NetworkSnapshot) bool {

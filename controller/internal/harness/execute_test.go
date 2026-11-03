@@ -54,6 +54,11 @@ func runtimeFixture(op command.Operation) *controlpb.CommandResult {
 		r.Payload = &controlpb.CommandResult_WifiCapabilities{WifiCapabilities: &controlpb.WifiCapabilities{SupportedBands: []string{"2.4ghz", "5ghz", "6ghz"}}}
 	case *controlpb.RunCommand_GetWifiScan, *controlpb.RunCommand_GetFreshWifiScan:
 		r.Payload = &controlpb.CommandResult_WifiScan{WifiScan: &controlpb.WifiScan{Results: []*controlpb.WifiScanResult{{Ssid: "Lab", Bssid: "02:00:00:00:00:01", ObservationAgeMs: new(uint64(0))}}}}
+		if op.Command.GetGetFreshWifiScan() != nil {
+			for _, key := range []string{"fresh_scan_receiver_registered", "fresh_scan_start_scan", "fresh_scan_broadcast_received", "fresh_scan_results_updated", "fresh_scan_wait_completed"} {
+				r.GetWifiScan().Fields = append(r.GetWifiScan().Fields, &controlpb.DiagnosticField{Key: key, Value: "true"})
+			}
+		}
 	case *controlpb.RunCommand_GetWifiScanDetail:
 		r.Payload = &controlpb.CommandResult_WifiScanDetail{WifiScanDetail: &controlpb.WifiScanDetail{Target: c.GetWifiScanDetail.Target}}
 	case *controlpb.RunCommand_GetWifiDiagnostics:

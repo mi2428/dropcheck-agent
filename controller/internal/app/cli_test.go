@@ -290,7 +290,7 @@ esac
 				case cmd.GetGetWifiStatus() != nil:
 					result.Payload = &controlpb.CommandResult_WifiStatus{WifiStatus: &controlpb.WifiStatus{IpStatus: &controlpb.IpStatus{InterfaceName: "wlan0"}}}
 				case cmd.GetGetWifiDiagnostics() != nil:
-					result.Payload = &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{Status: &controlpb.WifiStatus{}}}
+					result.Payload = &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{Status: &controlpb.WifiStatus{}, Capabilities: &controlpb.WifiCapabilities{}, Scan: &controlpb.WifiScan{}}}
 				case cmd.GetPing() != nil:
 					result.Payload = &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{Host: "example.test"}}
 				default:
