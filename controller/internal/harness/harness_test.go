@@ -299,7 +299,7 @@ func TestRunFailureChild(t *testing.T) {
 			if pingCalls >= len(replies) {
 				return nil, fmt.Errorf("unexpected ping call")
 			}
-			result.GetPing().Received = proto.Uint32(replies[pingCalls])
+			result.GetPing().Received = new(replies[pingCalls])
 			pingCalls++
 		}
 		return result, nil
@@ -515,7 +515,7 @@ func (r *retryRunner) Run(_ context.Context, _ control.AgentInfo, op command.Ope
 		if r.pingCalls >= len(replies) {
 			return runner.Result{}, fmt.Errorf("unexpected ping call")
 		}
-		result.GetPing().Received = proto.Uint32(replies[r.pingCalls])
+		result.GetPing().Received = new(replies[r.pingCalls])
 		r.pingCalls++
 		if r.pingCalls == 1 {
 			result.Status = controlpb.CommandResult_STATUS_FAILED

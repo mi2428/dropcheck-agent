@@ -53,7 +53,7 @@ func TestRenderUsesDropcheckLayout(t *testing.T) {
 			t.Fatalf("rendered frame missing %q:\n%s", want, frame)
 		}
 	}
-	firstRow := strings.Split(frame, "\n")[0]
+	firstRow, _, _ := strings.Cut(frame, "\n")
 	if strings.Contains(firstRow, "Passing Checks") || strings.Contains(firstRow, "Failed Checks") || strings.Contains(firstRow, "Run Queue") || strings.Contains(firstRow, "Event Log") {
 		t.Fatalf("top keyboard bar should be separate from panels: %q", firstRow)
 	}

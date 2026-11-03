@@ -463,8 +463,7 @@ func TestOldSessionCleanupPreservesReplacementCommand(t *testing.T) {
 			t.Fatal(err)
 		}
 	}()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	done := make(chan error, 1)
 	go func() {
 		_, err := server.Run(ctx, "agent-a", "cmd-new", &controlpb.RunCommand{})

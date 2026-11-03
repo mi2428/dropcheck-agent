@@ -202,7 +202,7 @@ func workflowFixture(t *testing.T, plan harness.Plan, fake *workflowFake, agents
 
 func TestWorkflowWholeRunHistoryEvictsOldestAndKeepsCurrentReview(t *testing.T) {
 	m := workflowFixture(t, workflowPlan(), &workflowFake{}, workflowAgents())
-	for i := 0; i < maxRetainedRuns+2; i++ {
+	for i := range maxRetainedRuns + 2 {
 		run := &workflowRun{}
 		m.active = run
 		message, _ := m.Update(workflowFinished{run: run, report: harness.Report{RunID: fmt.Sprint(i)}})
@@ -417,7 +417,7 @@ func TestWorkflowSelectedScopeCancelsExecutingContextNotOtherAgent(t *testing.T)
 			m = workflowKey(t, m, tea.Key{Code: tea.KeyEnter})
 			scope := harness.Scope{Kind: harness.ScopeCheck, AgentID: "agent-a", TargetID: "target/0", CheckID: "check/0"}
 			pumpWorkflow(t, &m, func(m workflowModel) bool { return slices.Contains(m.scopes, scope) })
-			for i := 0; i < 2; i++ {
+			for range 2 {
 				select {
 				case <-fake.started:
 				case <-time.After(5 * time.Second):
@@ -494,7 +494,7 @@ func TestWorkflowFiniteNRecoveryCleanupAndNarrowSanitation(t *testing.T) {
 		if len(strings.Split(frame, "\n")) > size.Height {
 			t.Fatal("short viewport overflow")
 		}
-		for _, line := range strings.Split(frame, "\n") {
+		for line := range strings.SplitSeq(frame, "\n") {
 			if runeLen(line) > size.Width {
 				t.Fatal("narrow viewport overflow")
 			}

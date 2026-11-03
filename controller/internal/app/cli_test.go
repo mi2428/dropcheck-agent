@@ -47,7 +47,7 @@ func TestCLICustomADBSessionAndSupplements(t *testing.T) {
 					t.Fatalf("configured fake ADB did not receive %q", want)
 				}
 			}
-			for _, line := range strings.Split(strings.TrimSpace(log), "\n") {
+			for line := range strings.SplitSeq(strings.TrimSpace(log), "\n") {
 				if !strings.HasPrefix(line, opts.ADBPath+" serial-test ") {
 					t.Fatal("session and supplement path/serial differ")
 				}
