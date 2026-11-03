@@ -53,5 +53,5 @@ internal object AgentCommandRegistry {
     )
 
     /** Capability strings sent during hello. The controller treats this as the agent's local feature set. */
-    val capabilities: List<String> = entries.map { it.capability }
+    val capabilities: List<String> = entries.map { it.capability } + "wifi.forget.typed"
 }

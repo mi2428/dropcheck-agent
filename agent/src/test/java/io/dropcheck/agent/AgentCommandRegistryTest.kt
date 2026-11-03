@@ -17,7 +17,7 @@ class AgentCommandRegistryTest {
 
     @Test
     fun capabilitiesAreStableAndUnique() {
-        assertEquals(AgentCommandRegistry.entries.map { it.capability }, AgentCommandRegistry.capabilities)
+        assertEquals(AgentCommandRegistry.entries.map { it.capability } + "wifi.forget.typed", AgentCommandRegistry.capabilities)
         assertEquals(AgentCommandRegistry.capabilities.size, AgentCommandRegistry.capabilities.toSet().size)
     }
 

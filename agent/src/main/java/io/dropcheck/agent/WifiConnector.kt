@@ -284,9 +284,14 @@ class WifiConnector(
      * targets are still attempted even when not visible in configuredNetworks.
      */
     @SuppressLint("MissingPermission")
-    fun forget(target: String): Operation {
-        if (target.isEmpty() || target.any(Character::isISOControl)) {
-            return Operation(operation = "forget", ok = false, message = "wifi forget target is required")
+    fun forget(command: io.dropcheck.agent.grpc.ForgetWifi): Operation {
+        if (!WifiConnectorPolicy.validForget(command)) {
+            return Operation(operation = "forget", ok = false, message = "invalid or conflicting Wi-Fi forget selector")
+        }
+        val target = when (command.selectorCase) {
+            io.dropcheck.agent.grpc.ForgetWifi.SelectorCase.SSID -> command.ssid
+            io.dropcheck.agent.grpc.ForgetWifi.SelectorCase.CONFIG_ID -> command.configId.toString()
+            else -> command.target
         }
         val configs = runCatching { wifi.configuredNetworks }.getOrElse {
             return Operation(operation = "forget", ok = false, message = "configured networks unavailable",
@@ -299,10 +304,10 @@ class WifiConnector(
                 ssid = config.SSID.orEmpty(),
             )
         }
-        val networkIds = WifiConnectorPolicy.forgetNetworkIds(target, refs)
+        val networkIds = WifiConnectorPolicy.forgetNetworkIds(command, refs)
         logger.info("wifi forget requested target=$target configured_network_count=${configs.size} network_ids=${networkIds.joinToString(",")}")
         if (networkIds.isEmpty()) {
-            if (WifiConnectorPolicy.currentConnectionMatchesForgetTarget(target, current)) {
+            if (WifiConnectorPolicy.currentConnectionMatchesForgetTarget(command, current)) {
                 val fields = mutableListOf<Pair<String, String>>(
                     "target" to target,
                     "configured_network_count" to configs.size.toString(),

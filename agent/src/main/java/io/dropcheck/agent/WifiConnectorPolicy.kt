@@ -186,6 +186,28 @@ internal object WifiConnectorPolicy {
         }
     }
 
+    fun validForget(command: io.dropcheck.agent.grpc.ForgetWifi): Boolean = when (command.selectorCase) {
+        io.dropcheck.agent.grpc.ForgetWifi.SelectorCase.SSID -> command.target.isEmpty() && command.ssid.isNotEmpty() && command.ssid.none(Character::isISOControl)
+        io.dropcheck.agent.grpc.ForgetWifi.SelectorCase.CONFIG_ID -> command.target.isEmpty() && command.configId >= 0
+        else -> command.target.isNotEmpty() && command.target.none(Character::isISOControl)
+    }
+
+    /** Typed selectors never enter the independent legacy string interpretation. */
+    fun forgetNetworkIds(command: io.dropcheck.agent.grpc.ForgetWifi, configs: List<ConfiguredNetworkRef>): List<Int> = when (command.selectorCase) {
+        io.dropcheck.agent.grpc.ForgetWifi.SelectorCase.SSID -> configs.filter { isKnownWifiSsid(it.ssid) && normalizedWifiSsid(it.ssid) == command.ssid }.map { it.networkId }.distinct()
+        io.dropcheck.agent.grpc.ForgetWifi.SelectorCase.CONFIG_ID -> listOf(command.configId)
+        else -> forgetNetworkIds(command.target, configs)
+    }
+
+    fun currentConnectionMatchesForgetTarget(command: io.dropcheck.agent.grpc.ForgetWifi, current: CurrentConnectionRef?): Boolean {
+        if (current == null || current.networkId < 0) return false
+        return when (command.selectorCase) {
+            io.dropcheck.agent.grpc.ForgetWifi.SelectorCase.SSID -> isKnownWifiSsid(current.ssid) && current.ssid == command.ssid
+            io.dropcheck.agent.grpc.ForgetWifi.SelectorCase.CONFIG_ID -> current.networkId == command.configId
+            else -> currentConnectionMatchesForgetTarget(command.target, current)
+        }
+    }
+
     /**
      * BSSID-pinned connects must not reuse Android's generic saved profile for
      * the same SSID, because that lets framework network selection pick any AP.

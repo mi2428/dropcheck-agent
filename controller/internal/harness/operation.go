@@ -21,6 +21,9 @@ func ExecuteOperation(ctx context.Context, r OperationRunner, agent control.Agen
 	if err := command.ValidateOperation(op); err != nil {
 		return OperationResult{}, err
 	}
+	if f := op.Command.GetForgetWifi(); f != nil && f.Selector != nil && !slices.Contains(agent.Hello.GetCapabilities(), "wifi.forget.typed") {
+		return OperationResult{}, fmt.Errorf("selected agent does not advertise typed Wi-Fi forgetting")
+	}
 	cmd, options, err := command.BuildRunCommand(op)
 	if err != nil {
 		return OperationResult{}, err
