@@ -33,6 +33,7 @@ class AgentService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        removePersistedShellCredential(applicationContext)
         ensureNotificationChannel()
         startForegroundWithType("starting")
         TerminalLog.compactIfNeeded(this)

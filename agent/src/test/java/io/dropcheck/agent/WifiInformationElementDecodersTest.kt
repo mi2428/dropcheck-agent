@@ -117,7 +117,7 @@ class WifiInformationElementDecodersTest {
         assertTrue(he6Ghz.txAntennaPatternConsistency)
         assertTrue(he6Ghz.featuresList.contains("max_mpdu_length_bytes=11454"))
 
-        val rendered = AgentWifiStatusRenderer.render(
+        val rendered = AgentWifiStatusRenderer.presentation(
             WifiStatus.newBuilder()
                 .setConnection(WifiConnection.newBuilder()
                     .setSsid("Lab")
@@ -131,7 +131,7 @@ class WifiInformationElementDecodersTest {
                     .setHeSpatialReuseParameterSet(spatialReuse)
                     .build())
                 .build(),
-        ).joinToString("\n")
+        ).let { AgentPresentationBlock.create(it, 0).fullText }
         assertTrue(rendered.contains("HE/EHT Details"))
         assertTrue(rendered.contains("242_tone_ru_gt_20mhz"))
         assertTrue(rendered.contains("mcs_nss eht/le_80mhz/0-9"))

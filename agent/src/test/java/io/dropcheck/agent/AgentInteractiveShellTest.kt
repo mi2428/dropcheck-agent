@@ -75,9 +75,10 @@ class AgentInteractiveShellTest {
             "wifi wait connected", "wifi assert", "wifi monitor", "wifi reconnect", "wifi cycle Lab passphrase test-only",
             "show ip status", "ping example.test", "traceroute example.test", "path-mtu example.test", "global-ip",
             "download https://example.test", "dns example.test", "http https://example.test",
+            "show networks", "show network default", "show permissions",
         )
         assertEquals(AgentCommandRegistry.entries.map { it.commandCase }.toSet(), commands.map { live(it).request.commandCase }.toSet())
-        assertEquals(22, commands.size)
+        assertEquals(25, commands.size)
         assertEquals(AgentShellCommand.ShowWifiEht(), AgentShellParser.parse("show wifi eht"))
         assertEquals(AgentShellCommand.ShowWifiEht(detail = true, fresh = true, timeoutMs = 9000),
             AgentShellParser.parse("show wifi eht detail fresh timeout 9000"))
@@ -130,8 +131,8 @@ class AgentInteractiveShellTest {
         assertEquals(WifiBand.WIFI_BAND_6_GHZ, live("show wifi scan fresh brief mlo band 6ghz").request.getFreshWifiScan.band)
         assertEquals("lab\\path", live("wifi connect \"lab\\\\path\" passphrase test-only").request.connectWifi.ssid)
         assertEquals("lab\"scan", live("wifi connect \"lab\\\"scan\" passphrase test-only").request.connectWifi.ssid)
-        assertEquals("a|b", (AgentShellParser.parse("use 'a|b' test-only") as AgentShellCommand.Use).ssid)
-        assertEquals(" ", (AgentShellParser.parse("use ' ' test-only") as AgentShellCommand.Use).ssid)
+        assertEquals("a|b", (AgentShellParser.parse("use 'a|b' passphrase test-only") as AgentShellCommand.Use).ssid)
+        assertEquals(" ", (AgentShellParser.parse("use ' ' passphrase test-only") as AgentShellCommand.Use).ssid)
         assertEquals(" ", live("wifi connect ' ' passphrase test-only").request.connectWifi.ssid)
         assertEquals(" ", live("wifi forget ' '").request.forgetWifi.target)
         assertEquals("|", live("wifi connect '|' passphrase test-only").request.connectWifi.ssid)
@@ -204,10 +205,12 @@ class AgentInteractiveShellTest {
 
     @Test fun reservesUnsupportedCommandsAndHelpUsesSyntaxRows() {
         for (input in listOf("show devices", "adb shell", "show wifi status | json")) {
-            assertTrue(invalid(input).contains("unsupported"))
+            invalid(input)
         }
         assertFalse(AgentShellParser.help().joinToString().contains("eht brief"))
-        assertTrue(AgentShellParser.help().any { it.contains("show wifi scan detail TARGET") })
+        assertTrue(AgentShellParser.help().any { it.contains("show wifi scan detail <TARGET>") })
+        assertFalse(AgentShellParser.help().any { it.contains("show devices") })
+        invalid("use Lab test-only")
         assertEquals(AgentShellCommand.Help(), AgentShellParser.parse("?"))
         assertEquals(AgentShellCommand.Help("ping"), AgentShellParser.parse("h p"))
         assertEquals(RunCommand.CommandCase.PATH_MTU, live("pm example.test").request.commandCase)

@@ -63,7 +63,7 @@ private const val SHELL_SWIPE_MIN_DISTANCE_DP = 96
 private const val SHELL_SWIPE_MAX_OFF_AXIS_DP = 72
 private const val SHELL_PANEL_PADDING_DP = 12
 private const val SHELL_PANEL_TOP_PADDING_DP = 48
-private const val SHELL_PROMPT = "dropcheck# "
+private const val SHELL_PROMPT = "self> "
 private const val SHELL_BLANK_LINE = "\u00A0"
 private const val SHELL_ERROR_COLOR = -44976
 private const val SHELL_CURSOR_COLOR = -1
@@ -113,9 +113,10 @@ class MainActivity : Activity() {
     private var shellVisible = false
     private val shellBusy get() = shellOwner.busy
     private var shellOwner = ShellActionOwner()
+    private var shellSession = AgentShellSession()
     private val shellCompletionListener: (AgentShellResult) -> Unit = { result ->
-        if (result.block != null) appendShellBlock(result.block, true) else appendShellLines(
-            result.lines, if (result.ok) AgentLogStyle.TEXT_COLOR else SHELL_ERROR_COLOR,
+        if (result.block != null && (result.block.fullText.isNotEmpty() || result.ok)) appendShellBlock(result.block, true) else appendShellLines(
+            result.lines.ifEmpty { if (result.ok) emptyList() else listOf("Command FAILED (output filtered)") }, if (result.ok) AgentLogStyle.TEXT_COLOR else SHELL_ERROR_COLOR,
         )
         renderShell()
         syncStatusIcons()
@@ -126,11 +127,12 @@ class MainActivity : Activity() {
     private var swipeStartY = 0f
     private val shellTapSlopPx: Int by lazy { ViewConfiguration.get(this).scaledTouchSlop }
     private var backgroundLocationPromptShown = false
+    private var runtimePermissionsRequested = false
     private val statusRefreshHandler = Handler(Looper.getMainLooper())
     private val statusRefresh = object : Runnable {
         override fun run() {
             syncStatusIcons()
-            shellActionStatus?.text = "Shell operation: ${shellOwner.status()}"
+            shellActionStatus?.text = getString(R.string.shell_operation_status, shellOwner.status())
             statusRefreshHandler.postDelayed(this, 1_000)
         }
     }
@@ -158,6 +160,8 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        runtimePermissionsRequested = savedInstanceState?.getBoolean("runtimePermissionsRequested") ?: false
+        removePersistedShellCredential(applicationContext)
         if (lastNonConfigurationInstance == null) AgentSafeValueFile.clearAbandoned(cacheDir)
         (lastNonConfigurationInstance as? ShellDisplayState)?.let {
             shellTranscript = it.history
@@ -165,6 +169,7 @@ class MainActivity : Activity() {
             shellOutputSizeSp = it.baseSizeSp
             shellMinimumSizeSp = it.minimumSizeSp
             shellOwner = it.owner
+            shellSession = it.session
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
@@ -278,7 +283,7 @@ class MainActivity : Activity() {
 
     @Suppress("DEPRECATION")
     override fun onRetainNonConfigurationInstance(): Any = ShellDisplayState(
-        shellTranscript, shellOutputSizeSp, shellMinimumSizeSp, if (::shellScroll.isInitialized) shellScroll.scrollY else 0, shellOwner,
+        shellTranscript, shellOutputSizeSp, shellMinimumSizeSp, if (::shellScroll.isInitialized) shellScroll.scrollY else 0, shellOwner, shellSession,
     )
 
     override fun onNewIntent(intent: Intent) {
@@ -308,9 +313,14 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == WIFI_PERMISSION_REQUEST_CODE) {
+        if (requestCode == WIFI_PERMISSION_REQUEST_CODE && grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
             ensureWifiLocationPermissions()
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("runtimePermissionsRequested", runtimePermissionsRequested)
+        super.onSaveInstanceState(outState)
     }
 
     override fun onUserInteraction() {
@@ -359,21 +369,16 @@ class MainActivity : Activity() {
     }
 
     private fun ensureWifiLocationPermissions() {
-        val missing = requiredRuntimePermissions().filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        val missing = agentRuntimePermissions(Build.VERSION.SDK_INT).filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (missing.isNotEmpty()) {
-            requestPermissions(missing.toTypedArray(), WIFI_PERMISSION_REQUEST_CODE)
+            if (!runtimePermissionsRequested) {
+                runtimePermissionsRequested = true
+                requestPermissions(missing.toTypedArray(), WIFI_PERMISSION_REQUEST_CODE)
+            }
             return
         }
         if (!hasBackgroundLocationAccess()) {
             promptBackgroundLocationAccess()
-        }
-    }
-
-    private fun requiredRuntimePermissions(): List<String> = buildList {
-        add(Manifest.permission.ACCESS_FINE_LOCATION)
-        add(Manifest.permission.ACCESS_COARSE_LOCATION)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            add(Manifest.permission.NEARBY_WIFI_DEVICES)
         }
     }
 
@@ -626,7 +631,7 @@ class MainActivity : Activity() {
             setOnClickListener { showViewer() }
         })
         val controllerState = if (ControllerSessionRuntimeState.heartbeatConnected()) "connected" else "idle"
-        val defaults = AgentShellUseDefaultsStore(applicationContext).load()
+        val defaults = shellSession.defaults
         addShellView(shellText("surface=agent-shell controller=$controllerState ${AgentShellUsePolicy.statusText(defaults)}", AgentLogStyle.TEXT_COLOR))
         shellActionStatus = shellText("Shell operation: ${shellOwner.status()}", AgentLogStyle.TEXT_COLOR)
         addShellView(shellActionStatus!!)
@@ -669,12 +674,12 @@ class MainActivity : Activity() {
         orientation = LinearLayout.VERTICAL
         addView(shellText("", block.color).apply { setTextIsSelectable(true) })
         addView(android.widget.Button(this@MainActivity).apply {
-            text = "Copy full result"
+            setText(R.string.shell_copy_result)
             textSize = SHELL_TEXT_SIZE_SP
             minHeight = dp(48)
             contentDescription = "Copy full safe result"
             if (block.safeValueFile != null) {
-                text = "Inspect/copy full safe values"
+                setText(R.string.shell_inspect_values)
                 contentDescription = "Inspect and copy every full safe result value"
             }
             setOnClickListener {
@@ -773,6 +778,11 @@ class MainActivity : Activity() {
 
     private fun shellInputRow(): LinearLayout {
         val input = ShellInputEditText(this).apply {
+            onHelp = { prefix -> appendShellLines(AgentShellParser.contextHelp(prefix)) }
+            onComplete = { completeShellInput() }
+            onRecall = { direction -> recallShellInput(direction) }
+            isSaveEnabled = false
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
             setTextColor(AgentLogStyle.TEXT_COLOR)
             setHintTextColor(Color.DKGRAY)
             setBackgroundColor(Color.BLACK)
@@ -785,7 +795,7 @@ class MainActivity : Activity() {
             setPadding(0, 0, 0, 0)
             setSingleLine(true)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-            imeOptions = EditorInfo.IME_ACTION_GO or EditorInfo.IME_FLAG_NO_EXTRACT_UI
+            imeOptions = EditorInfo.IME_ACTION_GO or EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
             useBlockCursor()
             excludeFromContentCapture()
             setOnEditorActionListener { view, actionId, event ->
@@ -800,13 +810,48 @@ class MainActivity : Activity() {
         }
         shellInput = input
         return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+            orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
             )
             addView(input, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                listOf("?" to "Context help", "Tab" to "Complete command", "Prev" to "Previous command", "Next" to "Next command").forEachIndexed { index, (label, description) ->
+                    addView(android.widget.Button(this@MainActivity).apply {
+                        text = label; contentDescription = description
+                        minimumWidth = 0; minWidth = 0; minHeight = dp(48); textSize = 12f
+                        setOnClickListener { when (index) {
+                            0 -> { val cursor = input.selectionStart.coerceAtLeast(0); val prefix = input.text.toString().take(cursor); if (shellHelpPosition(prefix)) appendShellLines(AgentShellParser.contextHelp(prefix)) }
+                            1 -> completeShellInput()
+                            2 -> recallShellInput(-1)
+                            else -> recallShellInput(1)
+                        } }
+                    }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                }
+            })
         }
+    }
+
+    private fun completeShellInput() {
+        val input = shellInput ?: return
+        val cursor = input.selectionStart.coerceAtLeast(0)
+        val line = input.text.toString()
+        val end = shellCompletionEnd(line, cursor) ?: return
+        val choices = AgentShellParser.complete(line.take(cursor))
+        val replacements = choices.filterNot { it.endsWith('>') }
+        if (replacements.size == 1) {
+            input.text.replace(0, end, replacements.single())
+            input.setSelection(replacements.single().length)
+        } else appendShellLines(AgentShellParser.contextHelp(line.take(cursor)))
+    }
+
+    private fun recallShellInput(direction: Int) {
+        val input = shellInput ?: return
+        if (shellBusy) return
+        input.setText(shellSession.recall(input.text.toString(), direction))
+        input.setSelection(input.text.length)
     }
 
     private fun submitShellInput(raw: String) {
@@ -821,36 +866,22 @@ class MainActivity : Activity() {
             return
         }
         shellInput?.setText("")
+        shellSession.remember(line)
         appendShellLine(shellCommandLine(redactAgentShellCommandLine(line)))
         when (val command = AgentShellParser.parse(line)) {
             AgentShellCommand.Noop -> Unit
-            is AgentShellCommand.Help -> {
-                appendShellLines(AgentShellParser.help(command.topic))
-            }
-            is AgentShellCommand.SetDefaultPassphrase -> {
-                AgentShellUseDefaultsStore(applicationContext).setDefaultPassphrase(command.passphrase)
-                appendShellLine(AgentShellUsePolicy.setDefaultPassphraseMessage(command.passphrase))
-            }
-            AgentShellCommand.ClearDefaultPassphrase -> {
-                AgentShellUseDefaultsStore(applicationContext).setDefaultPassphrase("")
-                appendShellLine(AgentShellUsePolicy.setDefaultPassphraseMessage(""))
-            }
-            AgentShellCommand.ShowVersion -> {
-                appendShellLine("version ${BuildConfig.VERSION_NAME}")
-            }
-            is AgentShellCommand.Execute, is AgentShellCommand.ShowWifiEht, is AgentShellCommand.Use,
-            is AgentShellCommand.Check, AgentShellCommand.ShowChecks, is AgentShellCommand.ShowCheckLast ->
-                AgentShellAdapter(applicationContext, agentShellLogger()).let { adapter ->
-                    val name = when (command) {
-                        is AgentShellCommand.Execute -> command.request.commandCase.name.lowercase().replace('_', '.')
-                        is AgentShellCommand.Check -> "check ${command.profile.takeIf { it in listOf("link", "lab", "internet", "eht") } ?: "unsupported"}"
-                        is AgentShellCommand.Use -> "wifi.connect"
-                        is AgentShellCommand.ShowWifiEht -> "wifi.eht"
-                        else -> "show checks"
-                    }
-                    runShellLinesCommand(name) { adapter.execute(command) }
-                }
             is AgentShellCommand.Invalid -> appendShellLine(command.message, SHELL_ERROR_COLOR)
+            else -> AgentShellAdapter(applicationContext, agentShellLogger(), shellSession).let { adapter ->
+                val inner = if (command is AgentShellCommand.Piped) command.command else command
+                val name = when (inner) {
+                    is AgentShellCommand.Execute -> inner.request.commandCase.name.lowercase().replace('_', '.')
+                    is AgentShellCommand.Check -> "check"
+                    is AgentShellCommand.Use -> "wifi.connect"
+                    is AgentShellCommand.ShowWifiEht -> "wifi.eht"
+                    else -> "shell.local"
+                }
+                runShellLinesCommand(name) { adapter.execute(command) }
+            }
         }
     }
 
@@ -900,7 +931,7 @@ class MainActivity : Activity() {
 
     private fun appendShellBlock(block: AgentPresentationBlock, focusInput: Boolean) {
         val follow = !::shellScroll.isInitialized || !shellScroll.canScrollVertically(1)
-        val styled = AgentPresentationBlock.create(block.parts, block.color, shellOutputSizeSp, shellMinimumSizeSp)
+        val styled = block.withStyle(shellOutputSizeSp, shellMinimumSizeSp)
         if (shellTranscript.fits(styled)) {
             shellTranscript.append(styled)
         } else {
@@ -988,7 +1019,7 @@ class MainActivity : Activity() {
                 window.insetsController?.show(WindowInsets.Type.ime())
             }
             getSystemService(InputMethodManager::class.java)
-                ?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+                ?.showSoftInput(input, 0)
         }
     }
 
@@ -1097,13 +1128,13 @@ class MainActivity : Activity() {
     }
 
     private fun hideSystemBars() {
-        @Suppress("DEPRECATION")
-        window.setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN)
         window.attributes = window.attributes.apply {
             layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
-        @Suppress("DEPRECATION")
-        window.setDecorFitsSystemWindows(false)
+        if (Build.VERSION.SDK_INT < 35) {
+            @Suppress("DEPRECATION")
+            window.setDecorFitsSystemWindows(false)
+        }
 
         val decorView = window.decorView
         decorView.windowInsetsController?.let { controller ->
@@ -1118,6 +1149,7 @@ class MainActivity : Activity() {
         val minimumSizeSp: Float,
         val scrollY: Int,
         val owner: ShellActionOwner,
+        val session: AgentShellSession,
     )
 }
 
@@ -1130,6 +1162,17 @@ internal fun terminalCatchUp(last: String?, snapshot: String): List<String> {
 }
 
 private class ShellInputEditText(context: Context) : EditText(context) {
+    var onHelp: ((String) -> Unit)? = null
+    var onComplete: (() -> Unit)? = null
+    var onRecall: ((Int) -> Unit)? = null
+
+    private fun requestHelp(): Boolean {
+        if (selectionStart != selectionEnd || android.view.inputmethod.BaseInputConnection.getComposingSpanStart(text) >= 0) return false
+        val prefix = text.toString().take(selectionStart.coerceAtLeast(0))
+        if (!shellHelpPosition(prefix)) return false
+        onHelp?.invoke(prefix) ?: return false
+        return true
+    }
     private val cursorBlinkHandler = Handler(Looper.getMainLooper())
     private var cursorBlinkReady = false
     private var blockCursorVisible = true
@@ -1171,6 +1214,10 @@ private class ShellInputEditText(context: Context) : EditText(context) {
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
         val connection = super.onCreateInputConnection(outAttrs) ?: return null
         return object : InputConnectionWrapper(connection, true) {
+            override fun commitText(value: CharSequence?, newCursorPosition: Int): Boolean {
+                if ((value?.toString() == "?" || value?.toString() == "？") && requestHelp()) return true
+                return super.commitText(value, newCursorPosition)
+            }
             override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
                 if (beforeLength == 1 && afterLength == 0) return deleteBackwards()
                 return super.deleteSurroundingText(beforeLength, afterLength)
@@ -1192,6 +1239,12 @@ private class ShellInputEditText(context: Context) : EditText(context) {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if ((event.unicodeChar == '?'.code || event.unicodeChar == '？'.code) && requestHelp()) return true
+        when (keyCode) {
+            KeyEvent.KEYCODE_TAB -> { onComplete?.invoke(); return true }
+            KeyEvent.KEYCODE_DPAD_UP -> { onRecall?.invoke(-1); return true }
+            KeyEvent.KEYCODE_DPAD_DOWN -> { onRecall?.invoke(1); return true }
+        }
         if (keyCode == KeyEvent.KEYCODE_DEL) return deleteBackwards()
         return super.onKeyDown(keyCode, event)
     }

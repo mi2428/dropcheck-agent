@@ -28,6 +28,10 @@ android {
         buildConfig = true
     }
 
+    lint {
+        warningsAsErrors = true
+    }
+
     // Use the controller's canonical device-free command matrix for Shell parity.
     sourceSets.getByName("test").resources.directories.add("../controller/integration/e2e/testdata")
     sourceSets.getByName("test").resources.directories.add("../shell")

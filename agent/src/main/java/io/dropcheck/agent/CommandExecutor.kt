@@ -60,6 +60,7 @@ class CommandExecutor(
             "thread" to Thread.currentThread().name,
         ) + command.logFields())
         val result = when (command.commandCase) {
+            RunCommand.CommandCase.GET_NETWORKS, RunCommand.CommandCase.GET_NETWORK, RunCommand.CommandCase.GET_PERMISSIONS -> networkObservation(command)
             RunCommand.CommandCase.GET_WIFI_STATUS -> wifiStatus()
             RunCommand.CommandCase.GET_WIFI_DIAGNOSTICS -> wifiDiagnostics()
             RunCommand.CommandCase.GET_WIFI_SCAN -> wifiScan(command.getWifiScan)
@@ -109,6 +110,24 @@ class CommandExecutor(
             .setStatus(CommandResult.Status.STATUS_OK)
             .setWifiStatus(status)
             .build()
+    }
+
+    private fun networkObservation(command: RunCommand): CommandResult = try {
+        val result = CommandResult.newBuilder().setStatus(CommandResult.Status.STATUS_OK)
+        if (command.commandCase == RunCommand.CommandCase.GET_PERMISSIONS) {
+            result.setPermissionSnapshot(networks.permissionSnapshot())
+        } else {
+            val snapshot = networks.networkSnapshot(command.getNetwork.takeIf { command.commandCase == RunCommand.CommandCase.GET_NETWORK })
+            result.setNetworkSnapshot(snapshot)
+            if (snapshot.errorsCount > 0) result.setStatus(CommandResult.Status.STATUS_FAILED).setMessage("Network snapshot incomplete")
+        }
+        result.build()
+    } catch (_: SecurityException) {
+        failed("Network observation permission denied")
+    } catch (error: IllegalArgumentException) {
+        failed(error.message ?: "invalid Network query")
+    } catch (error: IllegalStateException) {
+        failed(error.message ?: "Network unavailable")
     }
 
     private fun wifiDiagnostics(): CommandResult {

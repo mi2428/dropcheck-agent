@@ -1,6 +1,7 @@
 package io.dropcheck.agent
 
 import android.Manifest
+import android.app.admin.DevicePolicyManager
 import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -19,6 +20,9 @@ import io.dropcheck.agent.grpc.DiagnosticField
 import io.dropcheck.agent.grpc.IpStatus
 import io.dropcheck.agent.grpc.NetworkSelector
 import io.dropcheck.agent.grpc.NetworkDiagnostics
+import io.dropcheck.agent.grpc.GetNetwork
+import io.dropcheck.agent.grpc.NetworkSnapshot
+import io.dropcheck.agent.grpc.PermissionSnapshot
 import io.dropcheck.agent.grpc.WifiCapabilities
 import io.dropcheck.agent.grpc.WifiDiagnostics
 import io.dropcheck.agent.grpc.WifiBand
@@ -126,6 +130,38 @@ class NetworkRepository(
     private val wifi = context.applicationContext.getSystemService(WifiManager::class.java)
     private val mloUnavailableWarnings = Collections.synchronizedSet(mutableSetOf<String>())
     private val mapper = WifiProtoMapper(wifi) { warnMloUnavailable(it) }
+
+    /** No Wi-Fi status/scan acquisition is needed to enumerate Android Networks. */
+    @SuppressLint("MissingPermission")
+    fun networkSnapshot(query: GetNetwork? = null): NetworkSnapshot {
+        val active = connectivity.activeNetwork
+        val all = connectivity.allNetworks.toList()
+        val ids = snapshotNetworkIds(all.map { it.toString() }, active?.toString(), query)
+        val result = NetworkSnapshot.newBuilder().setObservedAtUnixMs(System.currentTimeMillis())
+        for (id in ids) {
+            val network = all.single { it.toString() == id }
+            val ip = ipStatus(network)
+            result.addNetworks(NetworkDiagnostics.newBuilder().setNetworkId(id).setActive(network == active).setIpStatus(ip))
+            if (!AgentObservationPresentation.available(ip.observationFieldsList, "capabilities") ||
+                !AgentObservationPresentation.available(ip.observationFieldsList, "link_properties")) {
+                result.addErrors("Network $id: capabilities or link properties unavailable")
+            }
+            if (connectivity.allNetworks.none { it == network }) result.addErrors("Network $id disappeared during collection")
+        }
+        return result.build()
+    }
+
+    fun permissionSnapshot(): PermissionSnapshot {
+        val result = PermissionSnapshot.newBuilder().setObservedAtUnixMs(System.currentTimeMillis())
+            .setDeviceOwner(context.getSystemService(DevicePolicyManager::class.java).isDeviceOwnerApp(context.packageName))
+        val permissions = listOf(Manifest.permission.ACCESS_NETWORK_STATE, Manifest.permission.ACCESS_WIFI_STATE,
+            Manifest.permission.CHANGE_WIFI_STATE, Manifest.permission.INTERNET)
+        permissions.forEach { name -> result.addPermissions(diagnosticField(name.substringAfterLast('.'),
+            if (context.checkSelfPermission(name) == PackageManager.PERMISSION_GRANTED) "granted" else "denied")) }
+        permissionSummary().forEach { entry -> result.addPermissions(diagnosticField(entry.substringBefore('='), entry.substringAfter('='))) }
+        result.addPermissions(diagnosticField("location_enabled", context.getSystemService(android.location.LocationManager::class.java).isLocationEnabled))
+        return result.build()
+    }
 
     /**
      * Captures a point-in-time Wi-Fi status snapshot.
@@ -811,14 +847,7 @@ class NetworkRepository(
     }
 
     private fun permissionSummary(): List<String> {
-        val names = buildList {
-            add(Manifest.permission.ACCESS_COARSE_LOCATION)
-            add(Manifest.permission.ACCESS_FINE_LOCATION)
-            add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                add(Manifest.permission.NEARBY_WIFI_DEVICES)
-            }
-        }
+        val names = agentRuntimePermissions(Build.VERSION.SDK_INT) + Manifest.permission.ACCESS_BACKGROUND_LOCATION
         return names.map { permission ->
             val shortName = permission.substringAfterLast(".")
             val granted = context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED

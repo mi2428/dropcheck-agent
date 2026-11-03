@@ -3,7 +3,7 @@ package io.dropcheck.agent
 import io.dropcheck.agent.grpc.WifiScan
 import io.dropcheck.agent.grpc.WifiScanResult
 
-internal data class AgentWifiScanContext(val brief: Boolean = false, val mloOnly: Boolean = false, val requestedFresh: Boolean? = null)
+internal data class AgentWifiScanContext(val brief: Boolean = false, val mloOnly: Boolean = false, val requestedFresh: Boolean? = null, val detail: Boolean = false)
 
 internal object AgentWifiScanRenderer {
     /** Full safe records when no native View measurement is supplied. */
@@ -34,17 +34,24 @@ internal object AgentWifiScanRenderer {
             if (context.mloOnly) add(AgentBlockPart.Text("Filter: mlo; shown counts filtered APs"))
             add(AgentBlockPart.Scan(rows))
             add(AgentBlockPart.Text("BW=MHz; RSSI=dBm; band G=GHz; PHY=802.11"))
-            // Typed rows keep detail reachable in full copy while visible rows remain bounded.
-            add(AgentBlockPart.Table(listOf("BSSID", "Observation age at collection", "Frequency MHz", "Centers MHz", "Security", "MLD", "Affiliated", "Security details").map { AgentBlockPart.Column(it) }, results.map { ap ->
-                listOf(
-                    ap.bssid.ifEmpty { "?" }, observationAge(ap),
-                    ap.frequencyMhz.toString(), "${ap.centerFreq0Mhz}/${ap.centerFreq1Mhz}",
-                    ap.securityTypesList.joinToString(",").ifEmpty { ap.capabilities.ifEmpty { "?" } },
-                    ap.apMldMacAddress.ifEmpty { parseEhtMultiLinkElements(ap.informationElementsList).firstNotNullOfOrNull { it.commonInfo?.mldMacAddress }.orEmpty().ifEmpty { "? (metadata unavailable)" } },
-                    ap.affiliatedMloLinksList.joinToString("; ") { link -> "${link.linkId} ${link.state} ${link.band} AP=${link.apMacAddress} STA=${link.staMacAddress}" }.ifEmpty { "? (metadata unavailable)" },
-                    if (ap.hasSecurityDetails()) AgentWifiStatusRenderer.securitySummary(ap.securityDetails) else "?",
-                )
-            }))
+            // AP numbers refer to row order, including rows retained in Inspect/copy.
+            results.forEachIndexed { index, ap ->
+                add(AgentBlockPart.Text("AP ${index + 1}"))
+                add(AgentBlockPart.Field("Observation age at collection", observationAge(ap)))
+                if (!context.brief || context.mloOnly) {
+                    add(AgentBlockPart.Field("MLD", ap.apMldMacAddress.ifEmpty { parseEhtMultiLinkElements(ap.informationElementsList).firstNotNullOfOrNull { it.commonInfo?.mldMacAddress }.orEmpty().ifEmpty { "? (metadata unavailable)" } }))
+                    if (!context.detail) add(AgentBlockPart.Field("Affiliated", ap.affiliatedMloLinksList.joinToString("; ") { link -> "${link.linkId} ${link.state} ${link.band} AP=${link.apMacAddress} STA=${link.staMacAddress}" }.ifEmpty { "? (metadata unavailable)" }))
+                }
+                if (!context.brief) {
+                    add(AgentBlockPart.Field("Frequency MHz", ap.frequencyMhz.toString()))
+                    add(AgentBlockPart.Field("Centers MHz", "${ap.centerFreq0Mhz}/${ap.centerFreq1Mhz}"))
+                    add(AgentBlockPart.Field("Security details", if (ap.hasSecurityDetails()) AgentWifiStatusRenderer.securitySummary(ap.securityDetails) else "?"))
+                }
+                if (context.detail) addAll(AgentWifiStatusRenderer.scanEvidence(ap))
+            }
+            if (!context.brief) scan.fieldsList.filterNot { it.key in listOf("scan_source", "fresh_scan_results_updated", "requested_band", "fresh_scan_elapsed_ms", "scan_result_total_count", "scan_result_count") }
+                .forEach { add(AgentBlockPart.Field(it.key, it.value)) }
+            add(AgentBlockPart.Text("More: show wifi scan detail BSSID (new observation)"))
             scan.errorsList.forEach { add(AgentBlockPart.Text("Error: $it")) }
         }
     }

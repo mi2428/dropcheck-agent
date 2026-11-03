@@ -95,6 +95,18 @@ class AgentLinkProfileTest {
         }
     }
 
+    @Test fun allRequiresBothFamiliesAndShowsSeparateFindings() {
+        val check = AgentShellCommand.Check("link", target, IpFamily.IP_FAMILY_ALL)
+        val pass = run(ipResult(), ipResult(), check = check)
+        assertEquals(LinkOutcome.PASS, pass.outcome)
+        assertTrue(pass.lines().any { "ipv4.addresses: PASS" in it })
+        assertTrue(pass.lines().any { "ipv6.addresses: PASS" in it })
+        val fail = run(ipResult(ip(dns = listOf("192.0.2.2"))), check = check)
+        assertEquals(LinkOutcome.FAIL, fail.outcome)
+        assertTrue(fail.lines().any { "ipv4.dns_servers: PASS" in it })
+        assertTrue(fail.lines().any { "ipv6.dns_servers: FAIL" in it })
+    }
+
     @Test fun quotedAndSpacePaddedLiteralIdentitiesAreComparedWithoutDequotingTwice() {
         for (ssid in listOf(" Lab ", "\"Lab\"", " ")) {
             val selectedIp = ip(ssid = ssid)
