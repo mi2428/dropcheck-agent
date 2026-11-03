@@ -147,7 +147,7 @@ internal object AgentSafePresentation {
         val key = clean(label).trim()
         return when {
             key.lowercase(Locale.ROOT) in secretKeys -> "<redacted>"
-            key in listOf("SSID", "BSSID", "MLD", "AP MAC", "STA MAC", "PHY", "SEC", "BAND", "Interface", "Network", "Operator", "Venue") -> clean(value).replace('\n', ' ')
+            key.lowercase(Locale.ROOT) in listOf("ssid", "bssid", "mld", "ap mac", "sta mac", "phy", "sec", "band", "interface", "network", "operator", "venue") -> clean(value).replace('\n', ' ')
             else -> text(value)
         }
     }
