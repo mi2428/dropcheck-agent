@@ -170,7 +170,12 @@ message ConnectWifi {
 message DisconnectWifi {}
 
 message ForgetWifi {
+  // Legacy one-shot/RPC target. Never combine with an explicit selector.
   string target = 1;
+  oneof selector {
+    string ssid = 2;
+    int32 config_id = 3;
+  }
 }
 
 message WaitWifiConnected {

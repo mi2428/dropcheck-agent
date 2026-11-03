@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"dropcheck/controller/internal/controlpb"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -52,16 +53,7 @@ func ValidateOperation(op Operation) error {
 			return err
 		}
 	}
-	address := func(value string) error {
-		if value == "" {
-			return nil
-		}
-		mac, err := net.ParseMAC(value)
-		if err != nil || len(mac) != 6 || mac.String() != strings.ToLower(value) {
-			return fmt.Errorf("invalid BSSID")
-		}
-		return nil
-	}
+	address := validateBSSID
 	selector := func(value *controlpb.NetworkSelector) error {
 		if value == nil {
 			return nil
@@ -103,10 +95,7 @@ func ValidateOperation(op Operation) error {
 		return err
 	}
 	connect := func(c *controlpb.ConnectWifi) error {
-		if c == nil || c.Ssid == "" && c.Bssid == "" {
-			return fmt.Errorf("Wi-Fi target is required")
-		}
-		if err := address(c.Bssid); err != nil {
+		if err := validateWifiTarget(c); err != nil {
 			return err
 		}
 		if c.Security != controlpb.ConnectWifi_SECURITY_UNSPECIFIED && c.Passphrase == "" {
@@ -121,6 +110,21 @@ func ValidateOperation(op Operation) error {
 		return address(c.WaitWifiConnected.GetBssid())
 	case *controlpb.RunCommand_AssertWifi:
 		return address(c.AssertWifi.GetBssid())
+	case *controlpb.RunCommand_ForgetWifi:
+		f := c.ForgetWifi
+		if f.Selector != nil && f.Target != "" {
+			return fmt.Errorf("forget target and typed selector cannot be combined")
+		}
+		switch selector := f.Selector.(type) {
+		case *controlpb.ForgetWifi_Ssid:
+			if selector.Ssid == "" || strings.ContainsFunc(selector.Ssid, unicode.IsControl) {
+				return fmt.Errorf("invalid forget SSID")
+			}
+		case *controlpb.ForgetWifi_ConfigId:
+			if selector.ConfigId < 0 {
+				return fmt.Errorf("invalid Wi-Fi configuration ID")
+			}
+		}
 	case *controlpb.RunCommand_CycleWifi:
 		if err := connect(c.CycleWifi.GetConnect()); err != nil {
 			return err
@@ -174,6 +178,24 @@ func ValidateOperation(op Operation) error {
 		return fmt.Errorf("operation deadline overflow")
 	}
 	return nil
+}
+
+func validateBSSID(value string) error {
+	if value == "" {
+		return nil
+	}
+	mac, err := net.ParseMAC(value)
+	if err != nil || len(mac) != 6 || mac.String() != strings.ToLower(value) {
+		return fmt.Errorf("invalid BSSID")
+	}
+	return nil
+}
+
+func validateWifiTarget(c *controlpb.ConnectWifi) error {
+	if c == nil || c.Ssid == "" && c.Bssid == "" {
+		return fmt.Errorf("Wi-Fi target is required")
+	}
+	return validateBSSID(c.Bssid)
 }
 
 func validateHTTPEndpoint(value string) error {

@@ -27,8 +27,25 @@ class WifiConnectorPolicyTest {
         val source = File(sourceDir, "WifiConnector.kt").readText()
         assertTrue(source.contains("!WifiConnectorPolicy.validConnectSsid(ssid)"))
         assertTrue(source.contains("ssid = normalizedWifiSsid(it.ssid)"))
-        assertTrue(source.contains("if (target.isEmpty() || target.any(Character::isISOControl))"))
+        assertTrue(source.indexOf("!WifiConnectorPolicy.validForget(command)") in 0 until source.indexOf("val configs = runCatching { wifi.configuredNetworks }"))
         assertFalse(source.contains("ssid?.trim('\"')"))
+    }
+
+    @Test fun typedForgetKeepsNumericSsidAndConfigurationIdSeparate() {
+        val configs = listOf(WifiConnectorPolicy.ConfiguredNetworkRef(123, "\"other\""), WifiConnectorPolicy.ConfiguredNetworkRef(7, "\"123\""))
+        val ssid = io.dropcheck.agent.grpc.ForgetWifi.newBuilder().setSsid("123").build()
+        val id = io.dropcheck.agent.grpc.ForgetWifi.newBuilder().setConfigId(123).build()
+        assertEquals(listOf(7), WifiConnectorPolicy.forgetNetworkIds(ssid, configs))
+        assertEquals(listOf(123), WifiConnectorPolicy.forgetNetworkIds(id, configs))
+        assertEquals(listOf(123, 7), WifiConnectorPolicy.forgetNetworkIds("123", configs))
+        val current = WifiConnectorPolicy.CurrentConnectionRef(123, "other", "02:00:00:00:00:01", 2412, "psk")
+        assertFalse(WifiConnectorPolicy.currentConnectionMatchesForgetTarget(ssid, current))
+        assertTrue(WifiConnectorPolicy.currentConnectionMatchesForgetTarget(id, current))
+        assertTrue(WifiConnectorPolicy.validForget(io.dropcheck.agent.grpc.ForgetWifi.newBuilder().setConfigId(0).build()))
+        for (invalid in listOf(ssid.toBuilder().setTarget("123").build(), io.dropcheck.agent.grpc.ForgetWifi.newBuilder().setConfigId(-1).build(),
+            io.dropcheck.agent.grpc.ForgetWifi.newBuilder().setSsid("").build(), io.dropcheck.agent.grpc.ForgetWifi.newBuilder().setSsid("bad\nname").build())) {
+            assertFalse(WifiConnectorPolicy.validForget(invalid))
+        }
     }
 
     @Test

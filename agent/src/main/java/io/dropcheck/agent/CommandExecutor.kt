@@ -257,7 +257,7 @@ class CommandExecutor(
 
     private fun forgetWifi(command: ForgetWifi): CommandResult {
         logger.info("wifi forget requested target=${command.target}")
-        val operation = wifi.forget(command.target)
+        val operation = wifi.forget(command)
         val result = wifiOperationResult(operation, networks.wifiStatus())
         return CommandResult.newBuilder()
             .setStatus(if (result.ok) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
@@ -428,7 +428,7 @@ class CommandExecutor(
                     }
                 }
             } finally {
-                val cleanup = if (command.forgetAfterEach) wifi.forget(command.connect.ssid) else wifi.disconnect()
+                val cleanup = if (command.forgetAfterEach) wifi.forget(ForgetWifi.newBuilder().setSsid(command.connect.ssid).build()) else wifi.disconnect()
                 if (!cleanup.ok) {
                     step.addErrors("${cleanup.operation}=${cleanup.message}")
                     logger.warn("wifi cycle cleanup failed index=$index operation=${cleanup.operation} message=${cleanup.message} errors=${cleanup.errors.joinToString(",")}")

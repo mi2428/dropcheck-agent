@@ -105,7 +105,14 @@ internal fun RunCommand.logFields(): List<Pair<String, Any?>> {
             RunCommand.CommandCase.GET_FRESH_WIFI_SCAN -> addAll(getFreshWifiScan.logFields())
             RunCommand.CommandCase.GET_WIFI_SCAN_DETAIL -> addAll(getWifiScanDetail.logFields())
             RunCommand.CommandCase.CONNECT_WIFI -> addAll(connectWifi.logFields())
-            RunCommand.CommandCase.FORGET_WIFI -> add("target" to forgetWifi.target)
+            RunCommand.CommandCase.FORGET_WIFI -> {
+                add("selector" to forgetWifi.selectorCase.name)
+                when (forgetWifi.selectorCase) {
+                    io.dropcheck.agent.grpc.ForgetWifi.SelectorCase.SSID -> add("ssid" to forgetWifi.ssid)
+                    io.dropcheck.agent.grpc.ForgetWifi.SelectorCase.CONFIG_ID -> add("config_id" to forgetWifi.configId.toString())
+                    else -> add("target" to forgetWifi.target)
+                }
+            }
             RunCommand.CommandCase.WAIT_WIFI_CONNECTED -> addAll(waitWifiConnected.logFields())
             RunCommand.CommandCase.ASSERT_WIFI -> addAll(assertWifi.logFields("assert_"))
             RunCommand.CommandCase.MONITOR_WIFI -> {
