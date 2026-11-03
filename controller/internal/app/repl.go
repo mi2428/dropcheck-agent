@@ -373,6 +373,7 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 	case shellLastReport:
 		return false, printLocalOutput(command, func(format outputFormat) (string, error) {
 			view := terminalPresentation()
+			view.Interactive = true
 			if command.pipeline.pipeline.StageCount() > 0 || command.pipeline.displayJSON {
 				view.Width = 0
 			}

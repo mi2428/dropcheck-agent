@@ -257,6 +257,7 @@ func (s *shellState) runCheck(ctx context.Context, name, ssid, family, bssid, re
 		}
 	}
 	view := terminalPresentation()
+	view.Interactive = !strict
 	if pipe.pipeline.StageCount() > 0 || pipe.displayJSON {
 		view.Width = 0
 	}
@@ -324,5 +325,9 @@ func renderProfileReport(s *shellState, format outputFormat, detail bool, views 
 			validated = fmt.Sprint(ip.GetValidated())
 		}
 	}
-	return fmt.Sprintf("Historical check %s ssid %q at %s (not current readiness)\nAndroid validated: %s (observation only)\n%s", s.lastProfile, s.lastSSID, s.lastReport.Started.Format(time.RFC3339), validated, out), nil
+	metadata := "Android validated: " + validated + " (observation only)\n"
+	if view.Interactive {
+		metadata = render.Fields([][2]string{{"Android validated", validated + " (observation only)"}}, view)
+	}
+	return fmt.Sprintf("Historical check %s ssid %q at %s (not current readiness)\n%s%s", s.lastProfile, s.lastSSID, s.lastReport.Started.Format(time.RFC3339), metadata, out), nil
 }
