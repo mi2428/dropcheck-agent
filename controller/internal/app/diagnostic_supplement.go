@@ -90,7 +90,7 @@ func sourcedADBSupplement(text string) string {
 	if len(lines) > 1 {
 		header += lines[1]
 	}
-	return header
+	return render.TextBlock(header, render.Presentation{})
 }
 
 func (s *commandResultSupplements) addText(text string) {
@@ -100,7 +100,7 @@ func (s *commandResultSupplements) addText(text string) {
 	s.textBlocks = append(s.textBlocks, text)
 }
 
-func (s commandResultSupplements) appendToText(out string) string {
+func (s commandResultSupplements) appendToText(out string, views ...render.Presentation) string {
 	for _, block := range s.textBlocks {
 		if block == "" {
 			continue
@@ -113,5 +113,9 @@ func (s commandResultSupplements) appendToText(out string) string {
 		}
 		out += block
 	}
-	return render.TextBlock(out, terminalPresentation())
+	view := terminalPresentation()
+	if len(views) > 0 {
+		view = views[0]
+	}
+	return render.LayoutText(out, view)
 }

@@ -29,7 +29,7 @@ type wifiMLOFilter struct {
 	bssid string
 }
 
-func renderWifiMLO(b *strings.Builder, diagnostics *controlpb.WifiDiagnostics, options command.Options) {
+func renderWifiMLO(b *strings.Builder, diagnostics *controlpb.WifiDiagnostics, options command.Options, view Presentation) {
 	if diagnostics == nil {
 		return
 	}
@@ -53,7 +53,7 @@ func renderWifiMLO(b *strings.Builder, diagnostics *controlpb.WifiDiagnostics, o
 	renderWifiMLOConnectedEHTPuncturing(b, current)
 	renderWifiMLONetworks(b, diagnostics.GetNetworks(), filter)
 	renderWifiMLOScanSummary(b, scan, candidates, filter, len(scanResults))
-	renderWifiMLONearbyAPs(b, groups, current)
+	renderWifiMLONearbyAPs(b, groups, current, view)
 	renderWifiMLODeviceReadiness(b, diagnostics.GetCapabilities())
 	renderWifiMLOCapabilities(b, diagnostics.GetCapabilities())
 	renderWifiMLODiagnostics(b, status, diagnostics.GetCapabilities(), scan, current, candidates)
@@ -370,13 +370,13 @@ func wifiMLOScanSource(fields map[string]string) string {
 	return "diagnostics"
 }
 
-func renderWifiMLONearbyAPs(b *strings.Builder, groups []wifiMLOGroup, current *controlpb.WifiConnection) {
+func renderWifiMLONearbyAPs(b *strings.Builder, groups []wifiMLOGroup, current *controlpb.WifiConnection, view Presentation) {
 	writeSection(b, "Nearby EHT APs")
 	if len(groups) == 0 {
 		b.WriteString("  no EHT-capable scan results\n")
 		return
 	}
-	renderWifiMLONearbyAPTable(b, groups)
+	renderWifiMLONearbyAPTable(b, groups, view)
 	renderWifiMLOScanLinks(b, groups, current)
 	renderWifiMLOScanSecurityDetails(b, groups)
 	renderWifiMLOScanRoamingDetails(b, groups)
@@ -390,7 +390,7 @@ func renderWifiMLONearbyAPs(b *strings.Builder, groups []wifiMLOGroup, current *
 	renderWifiMLOScanEHTDetails(b, groups)
 }
 
-func renderWifiMLONearbyAPTable(b *strings.Builder, groups []wifiMLOGroup) {
+func renderWifiMLONearbyAPTable(b *strings.Builder, groups []wifiMLOGroup, view Presentation) {
 	columns := []wifiMLOTableColumn{
 		{header: "SSID", maxWidth: 14},
 		{header: "BANDS", maxWidth: 8},
@@ -414,7 +414,23 @@ func renderWifiMLONearbyAPTable(b *strings.Builder, groups []wifiMLOGroup) {
 			wifiMLOGroupEHTOperationPuncturing(group),
 		})
 	}
-	wifiMLOWriteTable(b, columns, rows)
+	if view.Interactive {
+		fullColumns := make([]displayTableColumn, len(columns))
+		for i, col := range columns {
+			fullColumns[i] = displayTableColumn{header: col.header}
+		}
+		if tableFits(fullColumns, rows, view.Width) {
+			writeDisplayTable(b, fullColumns, rows, " ")
+		} else {
+			for _, row := range rows {
+				for i, column := range fullColumns {
+					writeRecord(b, column.header, row[i])
+				}
+			}
+		}
+	} else {
+		wifiMLOWriteTable(b, columns, rows)
+	}
 }
 
 func renderWifiMLOConnectedSecurity(b *strings.Builder, current *controlpb.WifiConnection) {
