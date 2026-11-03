@@ -574,7 +574,7 @@ internal object AgentWifiStatusRenderer {
         ).withIndex().associate { it.value to it.index }
         return values.mapIndexedNotNull { index, field ->
             val key = field.key.trim()
-            val value = field.value.trim()
+            val value = AgentSafePresentation.field(key, field.value).trim()
             if (key.isBlank() || value.isBlank()) {
                 null
             } else {

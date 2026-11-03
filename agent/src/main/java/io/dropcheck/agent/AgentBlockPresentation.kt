@@ -89,7 +89,7 @@ private val scanColumns = listOf(
 
 internal object AgentSafePresentation {
     private val ansi = Regex("\u001B(?:\\[[0-?]*[ -/]*[@-~]|\\][^\u0007\u001B]*(?:\u0007|\u001B\\\\))")
-    private val credential = com.google.re2j.Pattern.compile("""(?im)(^|[\s;,({\[])(["']?(?:passphrase|password|authorization|access_token|refresh_token|token|psk|api_key|apikey|api-key|client_secret|x-amz-signature|x-amz-credential|x-amz-security-token)["']?)(\s*[:=]\s*)("(?:\\.|[^"\\])*(?:"|$)|'(?:\\.|[^'\\])*(?:'|$)|(?:Bearer|Basic)\s+[^\s,;}\]]+|[^\s,;}\]]+)""")
+    private val credential = com.google.re2j.Pattern.compile("""(?im)(^|[\s;,=({\[])(["']?(?:passphrase|password|authorization|access_token|refresh_token|token|psk|api_key|apikey|api-key|client_secret|x-amz-signature|x-amz-credential|x-amz-security-token)["']?)(\s*[:=]\s*)("(?:\\.|[^"\\])*(?:"|$)|'(?:\\.|[^'\\])*(?:'|$)|(?:Bearer|Basic)\s+[^\s,;}\]]+|[^\s,;}\]]+)""")
     private val userInfo = Regex("(https?://)[^/\\s@]+@", RegexOption.IGNORE_CASE)
     private val urls = Regex("https?://[^\\s<>]+", RegexOption.IGNORE_CASE)
     private val secretKeys = setOf("api_key", "apikey", "api-key", "client_secret", "x-amz-signature", "x-amz-credential", "x-amz-security-token", "token", "access_token", "refresh_token", "password", "passphrase", "psk", "authorization")
