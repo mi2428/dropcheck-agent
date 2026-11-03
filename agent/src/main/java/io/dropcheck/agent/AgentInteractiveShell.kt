@@ -92,11 +92,15 @@ internal object AgentShellParser {
     fun contextHelp(prefix: String): List<String> {
         if (prefix.isBlank()) return help()
         val parsed = parse(prefix)
-        val enter = if (prefix.endsWith(' ') && parsed !is AgentShellCommand.Invalid && parsed !is AgentShellCommand.Help) listOf("  <Enter>  - Execute the requested subject") else emptyList()
-        return enter + complete(prefix).mapNotNull { choice -> shellLex(choice, true).tokens.lastOrNull()?.value?.let { word ->
+        val enter = if (prefix.endsWith(' ') && parsed !is AgentShellCommand.Invalid && parsed !is AgentShellCommand.Help) listOf("<Enter>" to "Execute the requested subject") else emptyList()
+        val rows = enter + complete(prefix).mapNotNull { choice -> shellLex(choice, true).tokens.lastOrNull()?.value?.let { word ->
             val description = syntax.firstOrNull { it.path == choice.trim() }?.description.orEmpty()
-            "  $word" + if (description.isEmpty()) "" else "  - $description"
+            word to description
         } }
+        val width = rows.maxOfOrNull { it.first.length } ?: 0
+        return rows.map { (word, description) ->
+            if (description.isEmpty()) "  $word" else "  ${word.padEnd(width)}  - $description"
+        }
     }
 
     fun complete(line: String): List<String> {

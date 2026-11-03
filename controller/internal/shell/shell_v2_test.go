@@ -20,9 +20,14 @@ func TestHelpSeparatesCommandSyntaxFromDescriptions(t *testing.T) {
 	}
 	out.Reset()
 	WriteContextHelp(&out, "show wifi status ?")
-	for _, want := range []string{"  <Enter>  - Execute the requested subject\n", "  eht  - Show focused EHT/MLO connection, AP and device evidence\n"} {
+	for _, want := range []string{"  <Enter>       - Execute the requested subject\n", "  eht           - Show focused EHT/MLO connection, AP and device evidence\n"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("candidate description has no delimiter: %q", out.String())
+		}
+	}
+	for row := range strings.SplitSeq(strings.TrimSuffix(out.String(), "\n"), "\n") {
+		if strings.Index(row, "  - ") != len("  capabilities") {
+			t.Fatalf("candidate description is not aligned: %q", row)
 		}
 	}
 	out.Reset()
