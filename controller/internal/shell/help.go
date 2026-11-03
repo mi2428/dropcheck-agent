@@ -17,6 +17,7 @@ func writeHelp(w io.Writer) {
 
 func WriteHelpTopic(w io.Writer, topic string) {
 	fmt.Fprintln(w, "Controller Shell (pinned Android target; PC-only ADB/device commands are labelled)")
+	fmt.Fprintln(w)
 	for _, entry := range command.ShellGrammarTable {
 		if entry.Unsupported || topic != "" && entry.Path != topic && !strings.HasPrefix(entry.Path, topic+" ") {
 			continue
@@ -35,12 +36,11 @@ func WriteHelpTopic(w io.Writer, topic string) {
 				fmt.Fprint(w, " [", key, " <value>]")
 			}
 		}
+		description := entry.Description
 		if entry.Effect == "" {
-			fmt.Fprint(w, "  (PC-only) ", entry.Description)
-		} else {
-			fmt.Fprint(w, "  ", entry.Description)
+			description = "(PC-only) " + description
 		}
-		fmt.Fprintln(w)
+		fmt.Fprintf(w, "\n    Description: %s\n\n", description)
 	}
 	fmt.Fprintln(w, "  exit\n  | find <pattern> | except <pattern> | last <lines> | match <pattern> | trim <start-column> | count\n  | display json (alone; safe presentation JSON)")
 	fmt.Fprintln(w, "  Defaults and command history are session-only; secret input is never retained in history.")
@@ -64,7 +64,7 @@ func WriteContextHelp(w io.Writer, line string) {
 		return
 	}
 	if parsed, err := ParseLine(prefix); err == nil && parsed.Kind != Help && parsed.Kind != Noop && parsed.Kind != Exit && parsed.Rejection == "" && strings.HasSuffix(prefix, " ") {
-		fmt.Fprintln(w, "  <Enter>  Execute the requested subject")
+		fmt.Fprintln(w, "  <Enter>  - Execute the requested subject")
 	}
 	for _, candidate := range CompleteLine(prefix) {
 		lexed, _ := command.Lex(candidate, true)
@@ -76,7 +76,11 @@ func WriteContextHelp(w io.Writer, line string) {
 					break
 				}
 			}
-			fmt.Fprintln(w, "  ", lexed.Tokens[len(lexed.Tokens)-1].Value, description)
+			fmt.Fprint(w, "  ", lexed.Tokens[len(lexed.Tokens)-1].Value)
+			if description != "" {
+				fmt.Fprint(w, "  - ", description)
+			}
+			fmt.Fprintln(w)
 		}
 	}
 }
