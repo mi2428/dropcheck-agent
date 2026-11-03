@@ -159,6 +159,8 @@ func compactSecuritySet(values []string) string {
 			value = "psk"
 		case "wpa3_sae":
 			value = "sae"
+		case "eap_wpa3_enterprise":
+			value = "wpa3-eap"
 		case "wpa2_wpa3_personal", "wpa2_psk+wpa3_sae":
 			value = "psk+sae"
 		}
@@ -235,10 +237,17 @@ func renderAdaptiveScan(b *strings.Builder, scan *controlpb.WifiScan, options co
 		writeRecord(b, "Filter", "mlo; shown counts filtered APs")
 	}
 	columns := []displayTableColumn{{header: "SSID"}, {header: "BSSID"}, {header: "dBm", numeric: true}, {header: "BAND"}, {header: "CH", numeric: true}, {header: "BW", numeric: true}, {header: "PHY"}, {header: "SEC"}}
+	if view.Interactive && options.WifiScanBrief {
+		columns = append(columns, displayTableColumn{header: "AGE(s)"})
+	}
 	var rows [][]string
 	for _, group := range groups {
 		for _, ap := range group.results {
-			rows = append(rows, adaptiveScanRow(ap))
+			row := adaptiveScanRow(ap)
+			if view.Interactive && options.WifiScanBrief {
+				row = append(row, scanAgeSeconds(ap))
+			}
+			rows = append(rows, row)
 		}
 	}
 	if view.Interactive {
@@ -319,6 +328,22 @@ func renderInteractiveScanRows(b *strings.Builder, groups []scanResultGroup, col
 	}
 	index := 0
 	for _, group := range groups {
+		if options.WifiScanBrief && !options.WifiScanMLO {
+			if table {
+				continue
+			}
+			groupColumns := append([]displayTableColumn{{header: "AP", numeric: true}}, columns[1:]...)
+			var groupRows [][]string
+			for i := range group.results {
+				groupRows = append(groupRows, append([]string{fmt.Sprint(index + i + 1)}, rows[index+i][1:]...))
+			}
+			if tableFits(groupColumns, groupRows, view.Width) {
+				writeRecord(b, "SSID", group.ssid)
+				writeDisplayTable(b, groupColumns, groupRows)
+				index += len(group.results)
+				continue
+			}
+		}
 		for _, ap := range group.results {
 			writeSection(b, fmt.Sprintf("AP %d", index+1))
 			if !table {
@@ -326,7 +351,9 @@ func renderInteractiveScanRows(b *strings.Builder, groups []scanResultGroup, col
 					writeRecord(b, column.header, rows[index][col])
 				}
 			}
-			writeRecord(b, "Observation age at collection", scanObservationAge(ap))
+			if !options.WifiScanBrief {
+				writeRecord(b, "Observation age at collection", scanObservationAge(ap))
+			}
 			if !options.WifiScanBrief || options.WifiScanMLO {
 				writeRecord(b, "MLD", empty(wifiMLOScanMLDMAC(ap), "? (metadata availability uncollected)"))
 				renderMLOLinks(b, "Affiliated", ap.GetAffiliatedMloLinks(), true)
@@ -342,6 +369,9 @@ func renderInteractiveScanRows(b *strings.Builder, groups []scanResultGroup, col
 		}
 	}
 	writeRecord(b, "Units", "RSSI=dBm; BW=MHz; band G=GHz; PHY=802.11")
+	if options.WifiScanBrief {
+		writeRecord(b, "AGE(s)", "seconds at collection; ?=timestamp unavailable; wpa3-eap=eap_wpa3_enterprise")
+	}
 }
 
 func adaptiveScanRow(ap *controlpb.WifiScanResult) []string {

@@ -44,6 +44,17 @@ func scanObservationAge(ap *controlpb.WifiScanResult) string {
 	return fmt.Sprintf("%dms", ap.GetObservationAgeMs())
 }
 
+func scanAgeSeconds(ap *controlpb.WifiScanResult) string {
+	if ap.ObservationAgeMs == nil {
+		return "?"
+	}
+	ms := ap.GetObservationAgeMs()
+	if ms%1000 == 0 {
+		return fmt.Sprint(ms / 1000)
+	}
+	return fmt.Sprintf("%d.%s", ms/1000, strings.TrimRight(fmt.Sprintf("%03d", ms%1000), "0"))
+}
+
 func scanAgeSummary(scan *controlpb.WifiScan) string {
 	known := 0
 	var youngest, oldest uint64

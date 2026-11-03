@@ -55,6 +55,76 @@ func TestPresentationWidthMatrixPreservesSafeIdentity(t *testing.T) {
 	}
 }
 
+func TestInteractiveScanBriefKeepsAgesInTheTable(t *testing.T) {
+	zero, old := uint64(0), uint64(51845845)
+	scan := &controlpb.WifiScan{Errors: []string{"reference cache; refresh failed"}}
+	for i := range 26 {
+		ap := &controlpb.WifiScanResult{Ssid: "password=Guest", Bssid: fmt.Sprintf("02:00:00:11:22:%02x", i), RssiDbm: int32(-40 - i), Band: "5ghz", FrequencyMhz: 5180, ChannelWidth: "80MHz", WifiStandard: "802.11ax", SecurityTypes: []string{"wpa2_psk"}}
+		if i == 0 {
+			ap.ObservationAgeMs = &zero
+			ap.ApMldMacAddress = "02:00:00:44:55:66"
+			ap.AffiliatedMloLinks = []*controlpb.MloLinkInfo{{ApMacAddress: "02:00:00:44:55:77", ObservationFields: testObservationFields("identity")}}
+		} else if i == 1 {
+			ap.ObservationAgeMs = &old
+		}
+		if i == 25 {
+			ap.Ssid = ""
+		}
+		scan.Results = append(scan.Results, ap)
+	}
+	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_FAILED, Message: "refresh failed", Payload: &controlpb.CommandResult_WifiScan{WifiScan: scan}}
+	before := proto.Clone(result)
+	for _, width := range []int{24, 80, 120} {
+		out, err := CommandResult("self", result, command.Options{WifiScanBrief: true}, pipeline.FormatText, Presentation{Interactive: true, Width: width})
+		if err != nil {
+			t.Fatal(err)
+		}
+		joined := alignmentCompact(out)
+		for _, value := range []string{"AGE(s)", "51845.845", "password=Guest", "FAILED", "refresh failed", "timestamp unavailable", "show wifi scan"} {
+			if !strings.Contains(joined, alignmentCompact(value)) {
+				t.Fatalf("width=%d lost %q", width, value)
+			}
+		}
+		for line := range strings.SplitSeq(out, "\n") {
+			if displayWidth(line) > width {
+				t.Fatalf("width=%d overflow: %q", width, line)
+			}
+		}
+		if width >= 80 && (strings.Contains(out, "\nAP 1\n") || strings.Contains(out, "Observation age at collection:")) {
+			t.Fatalf("brief appended per-AP records after its table:\n%s", out)
+		}
+		if width == 120 {
+			if strings.Count(out, "\n") > 45 {
+				t.Fatalf("brief appended per-AP records after its table:\n%s", out)
+			}
+			for i, ap := range scan.Results {
+				row := strings.Fields(renderedLineContaining(out, ap.Bssid))
+				want := "?"
+				if i == 0 {
+					want = "0"
+				} else if i == 1 {
+					want = "51845.845"
+				}
+				if len(row) == 0 || row[len(row)-1] != want || strings.Count(out, ap.Bssid) != 1 {
+					t.Fatalf("age lost its AP row: %q", row)
+				}
+			}
+		}
+	}
+	for _, brief := range []bool{false, true} {
+		out, err := CommandResult("self", result, command.Options{WifiScanBrief: brief, WifiScanMLO: true}, pipeline.FormatText, Presentation{Interactive: true, Width: 120})
+		if err != nil || !strings.Contains(out, "02:00:00:44:55:77") || !strings.Contains(out, "02:00:00:44:55:66") {
+			t.Fatalf("brief=%t lost requested MLO evidence: %v\n%s", brief, err, out)
+		}
+		if !brief && !strings.Contains(strings.Join(strings.Fields(out), " "), "Observation age at collection: 0ms") {
+			t.Fatal("full scan lost precise per-AP age")
+		}
+	}
+	if !proto.Equal(result, before) {
+		t.Fatal("brief changed acquisition data")
+	}
+}
+
 func TestPresentationIPAndURLWidthMatrix(t *testing.T) {
 	ip := "ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255%long-interface-name/128"
 	url := "https://example.test/a/very/long/CaseSensitive/path?ordinary=value"
