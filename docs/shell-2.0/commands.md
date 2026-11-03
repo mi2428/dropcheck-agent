@@ -11,7 +11,7 @@ show version
 show cli
 show permissions
 show network [default | id <network-id>]
-show wifi status [connection | ip | capabilities | eht]
+show wifi status [full | connection | ip | capabilities | eht]
 show wifi scan [ssid <ssid> | bssid <bssid>] [band <band>] [mlo] [brief]
 show test profiles
 show test last
@@ -49,13 +49,36 @@ exit                                                     # PC only
 
 The comments above identify scope; they are not input syntax. The inventory/help lists every option. Standalone requests retain their prior probe options and `ssid/bssid/network-id` selectors. Scan requests without `eht` also accept `mlo` and `brief`. `show wifi status ip` retains physical Wi-Fi selectors; `eht` accepts mutually exclusive SSID/BSSID evidence filters.
 
-- Executable parents return their whole subject: `show network`, `show wifi status`, `show adb`, and `show adb connectivity`. Group-only input, such as `request` or `test`, displays local help and performs no acquisition. A projection restricts the subject, not the verbosity. `detail`, `fresh`, root probe aliases, `use`, `check`, `quit`, and `begin` are not accepted interactive spellings.
+- `show wifi status` is the quick everyday summary; its named children select detailed subjects and `full` selects the complete diagnostic bundle. Other executable parents, including `show network`, `show adb` and `show adb connectivity`, return their whole subject. Group-only input, such as `request` or `test`, displays local help and performs no acquisition. `detail`, `fresh`, root probe aliases, `use`, `check`, `quit`, and `begin` are not accepted interactive spellings.
 - Keywords are lowercase and accept unique prefixes. Values retain literal case, spaces and punctuation. Quote/escape whitespace and literal pipes. A keyword-looking SSID remains a value. There is no shell expansion, subprocess pipeline, arbitrary ADB shell, pager, configuration mode, candidate state, or fake commit.
 - `?` requests no-Enter contextual help. `help request wifi`, partial-word help, argument/value hints, Tab/cursor-tail completion and Android touch help/history remain local and secret-safe. Space remains a separator, not a completion key. Android retains app navigation instead of pretending to exit the service/process.
 
 ## Acquisition, targets and outcomes
 
-`show wifi status` collects connection/radio, selected physical Wi-Fi IP, device capabilities, cached APs, EHT/MLO interpretation and contextual Android Networks. It includes safe IE/raw references and explicit availability. Related WifiInfo/Network observations are independent captures, not an atomic snapshot. Layout width cannot select fewer fields. Android retains the explicit display/history limits and full-safe-value Inspect/copy path; a limited visible block does not mean the retained result is truncated.
+`show wifi status` uses one existing `GetWifiStatus` RPC, including its selected physical Wi-Fi IP snapshot. It shows connection state/SSID/BSSID, configuration/STA identity, band/channel/width/PHY/RSSI, security/PMF, current and explicitly qualified reported maximum rates, decoded AP/HE/EHT observations, MLD/link counts and per-link values, permissions, interface/Network/default identity, Android Internet/Validated capabilities, addresses, routes, DNS, MTU, DHCP, Private DNS, NAT64, proxy, network capability details and collected IPv6 RA fields. Unavailable observations retain their explicit reasons; Android validation is not an active connectivity test. It does not request the full device capability inventory, map every cached AP or collect every Network's details, and the PC performs no ADB supplements for this summary. Connected-channel-width resolution may still read the scan cache; no active scan is started.
+
+The user-approved expanded overview has room for roughly four times the initial 50–80-line view, not a forced line count or arbitrary truncation. Existing useful connection and selected-IP details are shown without adding acquisitions. Bulk metadata, whole IE dumps, raw framework strings, AP listings and nested Network WifiInfo copies remain outside the overview. Narrow-terminal wrapping, decoded features or many addresses/routes/links can increase its length; values are not silently clipped. Summary selection happens before text filters, safe JSON, Android Inspect and copy.
+
+Top-level subjects contain two-space-indented groups; field labels are indented two spaces further and share a value column. Only top-level subjects have blank separators. Related short scalars share named components on one row (for example, channel/band/width/frequency or Tx/Rx/link rates); consolidating absent Passpoint fields does not discard populated values. List values and wrapped continuations hang beneath the value column. Narrow layouts put labels and values on separate indented lines rather than clipping them. For example:
+
+```text
+Connection
+  Identity
+    SSID                    : Example Lab
+    BSSID                   : 02:00:00:11:22:33
+  Radio
+    Channel                 : 6GHz; ch=33; width=80MHz; 6115MHz
+
+IP (separate Network observation)
+  Link properties
+    MTU                     : 1500
+```
+
+`show wifi status connection`, `ip` and `capabilities` retain their detailed subjects. `show wifi status eht` uses the focused EHT/MLO renderer for connection/link/AP/device evidence, rather than repeating the general diagnostic bundle. Use `show wifi status full` for the complete passive bundle: connection/radio/IP, capabilities, cached APs, contextual Android Networks, EHT/MLO interpretations, and safe raw WifiInfo/ScanResult/MloLink/LinkProperties/NetworkCapabilities references and IE dumps. `full` performs a new passive collection, not a scan refresh or an expansion of a cached previous summary. Neither form permits credential leakage.
+
+Focused Android EHT output retains literal connected/AP identities in typed records alongside its analysis. Free-form fields and nested credential assignments are sanitized before text/JSON/copy output. See [the follow-up adversarial QA](qa-status-followup.md) for reproduced defects and verification limits.
+
+Related WifiInfo/Network observations are independent captures, not an atomic snapshot. Layout width only reflows the fields selected by each command. Android retains the explicit display/history limits and full-safe-value Inspect/copy path; a limited visible block does not mean the retained result is truncated. The independent one-shot CLI and Controller TUI keep their existing rendering contracts.
 
 `show wifi scan` never starts a scan. `request wifi scan [eht]` starts one bounded scan; the EHT composite uses that exact returned AP payload with independently acquired passive prerequisites. Scan selectors filter evidence, not radio scan destinations. Failed/throttled/timed-out refresh data is reference cache, not fresh success. Five unique true metadata values (registration, start, broadcast, update, wait) and no acquisition errors are required for fresh success. Cancellation prevents later acquisition and does not undo completed radio actions.
 
@@ -77,6 +100,8 @@ Defaults exist only in current-session memory and are cleared on PC Shell exit. 
 
 Recall uses a successfully parsed allowlist, with no pipes: local help; version/cli/permissions; bare `show network`; Wi-Fi connection/IP/capabilities; test profiles/last; PC devices. Full status, EHT/AP/raw/ADB views, explicit/default Network selections, credentials, mutations, probes, invalid drafts and filter literals are excluded. Native history search/Prev/Next apply the same rule. Neither Shell writes history to disk. A transcript is not recall history.
 
+Use Up or Ctrl-P for the previous command and Down or Ctrl-N for the next command. Moving past the newest entry restores only a recall-safe draft. Android also provides Prev/Next touch buttons; PC key navigation requires an interactive terminal, not redirected input/output.
+
 ## Filters and structured presentation
 
 Both Shells support `find <pattern>`, `except <pattern>`, `last <lines>`, `match <pattern>`, `trim <start-column>`, `count`, and exclusive `display json`. The whole pipeline is validated before dispatch, with at most 16 stages. `begin`, `display set`, `no-more`, `save`, `tee` and pipe operations are rejected.
@@ -97,7 +122,7 @@ Interactive `| display json` is a safe presentation envelope, not a protobuf dum
 
 ## Maintenance and checks
 
-`shell/commands.json` owns 36 portable paths, arguments, switches, enums, effects and descriptions. `pc_values` declares host-only extensions. Run `make generate-shell`, never edit the two generated bindings. `make check-shell` and shared command/rejection/pipeline fixtures detect drift.
+`shell/commands.json` owns 37 portable paths, arguments, switches, enums, effects and descriptions. `pc_values` declares host-only extensions. Run `make generate-shell`, never edit the two generated bindings. `make check-shell` and shared command/rejection/pipeline fixtures detect drift.
 
 PC-only interactive paths live in `command/interactive.go`; the independent CLI declarations live in `one_shot_grammar.go` plus `hostGrammar`. Typed builders, validators, protocol, acquisition and safe presentation are shared where their meaning agrees; there is no old-Shell argv rewrite adapter.
 
