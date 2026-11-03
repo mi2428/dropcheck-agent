@@ -41,7 +41,7 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 	if result == nil {
 		return "", fmt.Errorf("missing command result")
 	}
-	result = safePresentationProto(result).(*controlpb.CommandResult)
+	result = SanitizedResult(result)
 	if format == pipeline.FormatJSON {
 		return renderProtoMessage(result)
 	}
@@ -99,7 +99,7 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 	case *controlpb.CommandResult_Wget:
 		renderWget(&b, payload.Wget)
 	case *controlpb.CommandResult_WifiDiagnostics:
-		if options.WifiRenderMode == command.WifiRenderModeEHT {
+		if options.WifiRenderMode == command.WifiRenderModeEHT && !view.Interactive {
 			if view.DetailAvailable && !view.Detail {
 				renderCurrentMLO(&b, payload.WifiDiagnostics, options, view)
 			} else {
@@ -114,10 +114,24 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 		renderDeviceCapabilities(&b, payload.WifiCapabilities, view)
 	case *controlpb.CommandResult_WifiOperation:
 		renderWifiOperation(&b, payload.WifiOperation)
+		if view.Interactive {
+			writeRecord(&b, "Already absent", payload.WifiOperation.GetAlreadyAbsent())
+			renderWifiSnapshot(&b, payload.WifiOperation.GetStatus(), view)
+		}
 	case *controlpb.CommandResult_WifiAssert:
 		renderWifiAssert(&b, payload.WifiAssert)
+		if view.Interactive {
+			renderWifiSnapshot(&b, payload.WifiAssert.GetStatus(), view)
+		}
 	case *controlpb.CommandResult_WifiMonitor:
 		renderWifiMonitor(&b, payload.WifiMonitor)
+		if view.Interactive {
+			for i, event := range payload.WifiMonitor.GetEvents() {
+				writeSection(&b, fmt.Sprintf("Event %d evidence", i+1))
+				renderDiagnosticFields(&b, event.GetFields())
+				renderWifiSnapshot(&b, event.GetStatus(), view)
+			}
+		}
 	case *controlpb.CommandResult_WifiScanDetail:
 		renderWifiScanDetail(&b, payload.WifiScanDetail, options, view)
 	case *controlpb.CommandResult_WifiCycle:
@@ -131,6 +145,11 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 		}
 	}
 	return wrapPresentation(b.String(), view.Width), nil
+}
+
+// SanitizedResult returns a detached safe snapshot for session-local history.
+func SanitizedResult(result *controlpb.CommandResult) *controlpb.CommandResult {
+	return safePresentationProto(result).(*controlpb.CommandResult)
 }
 
 func commandResultLatencyMs(result *controlpb.CommandResult) int64 {
@@ -602,7 +621,7 @@ func wifiConnectionHasMLO(conn *controlpb.WifiConnection) bool {
 		wifiMLOHasElement(conn.GetInformationElements())
 }
 
-func renderMLOLinks(b *strings.Builder, title string, links []*controlpb.MloLinkInfo) {
+func renderMLOLinks(b *strings.Builder, title string, links []*controlpb.MloLinkInfo, full ...bool) {
 	if len(links) == 0 {
 		return
 	}
@@ -616,6 +635,13 @@ func renderMLOLinks(b *strings.Builder, title string, links []*controlpb.MloLink
 		writeRecord(b, "Max Tx/Rx", "? (maximum-rate availability metadata not supplied)")
 		writeRecord(b, "AP_MAC", observedValue(link.GetObservationFields(), "identity", link.GetApMacAddress()))
 		writeRecord(b, "STA_MAC", observedValue(link.GetObservationFields(), "identity", link.GetStaMacAddress()))
+		if len(full) != 0 && full[0] {
+			writeRecord(b, "Reported max Tx/Rx (availability uncollected)", fmt.Sprintf("%d/%dMbps", link.GetMaxSupportedTxLinkSpeedMbps(), link.GetMaxSupportedRxLinkSpeedMbps()))
+			if link.GetRaw() != "" {
+				writeRecord(b, "Raw MloLink reference", link.GetRaw())
+			}
+			renderDiagnosticFields(b, link.GetObservationFields())
+		}
 	}
 }
 

@@ -51,7 +51,7 @@ internal object AgentWifiScanRenderer {
             }
             if (!context.brief) scan.fieldsList.filterNot { it.key in listOf("scan_source", "fresh_scan_results_updated", "requested_band", "fresh_scan_elapsed_ms", "scan_result_total_count", "scan_result_count") }
                 .forEach { add(AgentBlockPart.Field(it.key, it.value)) }
-            add(AgentBlockPart.Text("More: show wifi scan detail BSSID (new observation)"))
+            if (context.brief) add(AgentBlockPart.Text("Full: show wifi scan (new passive observation)"))
             scan.errorsList.forEach { add(AgentBlockPart.Text("Error: $it")) }
         }
     }

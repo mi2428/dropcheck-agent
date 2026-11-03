@@ -33,6 +33,18 @@ internal data class AgentWifiMloContext(
 
 /** EHT-focused renderer for Agent Shell. */
 internal object AgentWifiMloRenderer {
+    fun interpretation(status: WifiStatus, scan: WifiScan, context: AgentWifiMloContext): List<AgentBlockPart> {
+        val out = mutableListOf<String>()
+        val current = activeWifiConnection(status)
+        val candidates = scan.resultsList.filter(::isMloCapableCandidate)
+        renderCurrentRelation(out, current, scan, candidates)
+        renderConnectedEhtMultiLink(out, current)
+        renderScanEhtMultiLink(out, candidates)
+        renderWifi7DeviceReadiness(out, context)
+        renderDiagnostics(out, status, scan, current, candidates, context)
+        return out.map { AgentBlockPart.Text(it) }
+    }
+
     fun presentation(status: WifiStatus, scan: WifiScan, context: AgentWifiMloContext, detail: Boolean = false, detailAvailable: Boolean = false): List<AgentBlockPart> = buildList {
         fun text(label: String, value: String) { add(AgentBlockPart.Field(label, value)) }
         val filter = MloFilter(context.ssidFilter, context.bssidFilter)
