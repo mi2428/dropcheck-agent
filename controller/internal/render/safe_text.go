@@ -10,7 +10,7 @@ import (
 )
 
 var presentationURL = regexp.MustCompile(`(?i)https?://[^\s<>]+`)
-var presentationCredential = regexp.MustCompile(`(?im)(^|[\s;,({\[])(["']?(?:passphrase|password|authorization|access_token|refresh_token|token|psk|api_key|apikey|api-key|client_secret|x-amz-signature|x-amz-credential|x-amz-security-token)["']?)(\s*[:=]\s*)("(?:\\.|[^"\\])*(?:"|$)|'(?:\\.|[^'\\])*(?:'|$)|(?:Bearer|Basic)\s+[^\s,;}\]]+|[^\s,;}\]]+)`)
+var presentationCredential = regexp.MustCompile(`(?im)(^|[\s;,=({\[])(["']?(?:passphrase|password|authorization|access_token|refresh_token|token|psk|api_key|apikey|api-key|client_secret|x-amz-signature|x-amz-credential|x-amz-security-token)["']?)(\s*[:=]\s*)("(?:\\.|[^"\\])*(?:"|$)|'(?:\\.|[^'\\])*(?:'|$)|(?:Bearer|Basic)\s+[^\s,;}\]]+|[^\s,;}\]]+)`)
 
 func safePresentationText(value string) string {
 	// Normalize before detecting credentials; later ANSI removal must not
@@ -75,7 +75,7 @@ func safePresentationProto(message proto.Message) proto.Message {
 			key := m.Descriptor().Fields().ByName("key")
 			value := m.Descriptor().Fields().ByName("value")
 			if key != nil && value != nil {
-				name := strings.ToLower(cleanDisplayCell(m.Get(key).String()))
+				name := strings.ToLower(strings.TrimSpace(cleanDisplayCell(m.Get(key).String())))
 				if name != "ssid" && name != "bssid" && name != "ap_mld_mac_address" {
 					m.Set(value, protoreflect.ValueOfString(safePresentationText(m.Get(value).String())))
 				}
@@ -89,7 +89,9 @@ func safePresentationProto(message proto.Message) proto.Message {
 			clean := func(value string) string {
 				var lines []string
 				switch field.Name() {
-				case "message", "error", "errors", "output", "raw", "raw_link_properties", "raw_capabilities", "url":
+				case "message", "error", "errors", "warnings", "output", "raw", "raw_link_properties", "raw_capabilities", "url",
+					"state", "detailed_state", "supplicant_state", "passpoint_fqdn", "passpoint_provider_friendly_name", "passpoint_unique_id",
+					"applicable_redactions", "network_specifier", "http_proxy", "private_dns_server_name", "domains", "routes", "capabilities", "permissions":
 					value = safePresentationText(value)
 				}
 				for line := range strings.SplitSeq(value, "\n") {

@@ -33,6 +33,24 @@ internal data class AgentWifiMloContext(
 
 /** EHT-focused renderer for Agent Shell. */
 internal object AgentWifiMloRenderer {
+    /** Keep literal identities typed; free-form analysis is not their value authority. */
+    fun presentation(status: WifiStatus, scan: WifiScan, context: AgentWifiMloContext): List<AgentBlockPart> = buildList {
+        val filter = MloFilter(context.ssidFilter, context.bssidFilter)
+        filter.connection(activeWifiConnection(status))?.let { current ->
+            add(AgentBlockPart.Text("Connected identity"))
+            add(AgentBlockPart.Field("SSID", AgentObservationPresentation.value(current.observationFieldsList, "identity", current.ssid), current.ssid))
+            add(AgentBlockPart.Field("BSSID", AgentObservationPresentation.value(current.observationFieldsList, "identity", current.bssid), current.bssid))
+        }
+        val candidates = filter.scanResults(scan.resultsList).filter(::isMloCapableCandidate)
+        if (candidates.isNotEmpty()) {
+            add(AgentBlockPart.Text("AP identity index (same observations used by the analysis)"))
+            add(AgentBlockPart.Table(listOf(AgentBlockPart.Column("AP", true), AgentBlockPart.Column("SSID"), AgentBlockPart.Column("BSSID")),
+                candidates.mapIndexed { index, ap -> listOf((index + 1).toString(), ap.ssid, ap.bssid) }))
+        }
+        add(AgentBlockPart.Text("EHT/MLO analysis (references the identities above)"))
+        addAll(render(status, scan, context).map { AgentBlockPart.Text(it) })
+    }
+
     fun interpretation(status: WifiStatus, scan: WifiScan, context: AgentWifiMloContext): List<AgentBlockPart> {
         val out = mutableListOf<String>()
         val current = activeWifiConnection(status)
