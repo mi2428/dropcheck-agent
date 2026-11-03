@@ -36,12 +36,12 @@ internal data class LinkReport(
 ) {
     fun lines(detail: Boolean = false, historical: Boolean = false): List<String> = buildList {
         add("${if (historical) "Historical last check" else "Check"}: ${safe(profile)} ${outcome.name} (self; ${if (profile == "lab") "explicit active probes" else "observed only"})")
-        add("Target SSID: ${safe(ssid)}; family: ${if (family == IpFamily.IP_FAMILY_IPV6) "ipv6" else "ipv4"}")
+        add("Target SSID: ${safe(ssid)}; family: ${when (family) { IpFamily.IP_FAMILY_ALL -> "all"; IpFamily.IP_FAMILY_IPV6 -> "ipv6"; else -> "ipv4" }}")
         add("Started: $startedMs; ended: $endedMs; source: Android selected physical Wi-Fi")
         add("Network: ${networkId?.let(::safe) ?: "?"}; interface: ${interfaceName?.let(::safe) ?: "?"}; validated (observed, not required): ${validated?.toString() ?: "?"}")
         stages.forEach { stage ->
             add("${stage.name}: ${stage.outcome.name}${stage.reason.takeIf(String::isNotEmpty)?.let { " (${safe(it)})" } ?: ""}")
-            if (detail) stage.metrics.forEach { metric -> add("  ${metric.name}: ${metric.outcome.name} actual=${metric.actual ?: "?"} expected=>=${metric.required}") }
+            if (detail || family == IpFamily.IP_FAMILY_ALL) stage.metrics.forEach { metric -> add("  ${metric.name}: ${metric.outcome.name} actual=${metric.actual ?: "?"} expected=>=${metric.required}") }
         }
         if (detail) add(if (profile == "lab") "No connect, disconnect or forget; snapshots cannot prove uninterrupted Network continuity or HTTP hostname address family." else "No probe, connect, disconnect or forget; same-Network checks are point-in-time, not uninterrupted roam/BSSID pinning.")
     }
@@ -56,7 +56,7 @@ internal object AgentLinkProfile {
 
     fun catalogue(): List<String> = listOf(
         "No default profile; bare check lists candidates (zero operations).",
-        "link: supported self; check link ssid SSID [family ipv4|ipv6] [bssid BSSID]; default family ipv4.",
+        "link: supported self; check link ssid SSID [family ipv4|ipv6|all] [bssid BSSID]; default family ipv4.",
         "  SSID-selected physical Wi-Fi/Network/interface plus IP family address>=1, default route>=1, DNS>=1, repeated on the same Network/interface.",
         "  2 read-only IP snapshots, not continuous roam proof; validated observed only; no endpoints, probes, connect or cleanup. bssid strict pin unsupported.",
         "lab: configured only; check lab ssid SSID family ipv4|ipv6 gateway IP dns NAME resolver selected http URL expected-status STATUS timeout MS.",
@@ -85,7 +85,7 @@ internal object AgentLinkProfile {
             stages += LinkStage(stageNames.first(), LinkOutcome.UNSUPPORTED, "strict BSSID pinning cannot be guaranteed")
             return finish(LinkOutcome.UNSUPPORTED)
         }
-        if (command.ssid.isEmpty() || command.family !in listOf(IpFamily.IP_FAMILY_IPV4, IpFamily.IP_FAMILY_IPV6)) {
+        if (command.ssid.isEmpty() || command.family !in listOf(IpFamily.IP_FAMILY_IPV4, IpFamily.IP_FAMILY_IPV6, IpFamily.IP_FAMILY_ALL)) {
             stages += LinkStage(stageNames.first(), LinkOutcome.MISSING, "SSID and ipv4/ipv6 family required")
             return finish(LinkOutcome.MISSING)
         }
@@ -180,6 +180,9 @@ internal object AgentLinkProfile {
         isKnownWifiSsid(actual) && actual == requested
 
     private fun metrics(ip: IpStatus, family: IpFamily): List<LinkMetric> {
+        if (family == IpFamily.IP_FAMILY_ALL) return listOf(IpFamily.IP_FAMILY_IPV4, IpFamily.IP_FAMILY_IPV6).flatMap { selected ->
+            metrics(ip, selected).map { it.copy(name = (if (selected == IpFamily.IP_FAMILY_IPV4) "ipv4." else "ipv6.") + it.name) }
+        }
         val known = AgentObservationPresentation.available(ip.observationFieldsList, "link_properties")
         return listOf(
             LinkMetric("addresses", if (known) ip.addressesList.count { addressFamily(it.substringBefore('/'), family) } else null),

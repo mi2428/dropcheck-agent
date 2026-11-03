@@ -25,6 +25,9 @@ internal object AgentCommandRegistry {
      * dispatch them.
      */
     val entries: List<Entry> = listOf(
+        Entry(RunCommand.CommandCase.GET_NETWORKS, "network.list"),
+        Entry(RunCommand.CommandCase.GET_NETWORK, "network.show"),
+        Entry(RunCommand.CommandCase.GET_PERMISSIONS, "permissions"),
         Entry(RunCommand.CommandCase.GET_WIFI_STATUS, "wifi.status"),
         Entry(RunCommand.CommandCase.GET_WIFI_DIAGNOSTICS, "wifi.diagnostics"),
         Entry(RunCommand.CommandCase.GET_WIFI_SCAN, "wifi.scan"),

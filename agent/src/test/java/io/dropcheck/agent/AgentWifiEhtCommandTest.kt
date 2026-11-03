@@ -41,7 +41,8 @@ class AgentWifiEhtCommandTest {
             ),
         ).joinToString("\n")
         assertFalse(result.status == CommandResult.Status.STATUS_OK)
-        assertTrue(out.startsWith("Wi-Fi diagnostics  FAILED  123ms\nStatus: failed"))
+        assertTrue(out.startsWith("Wi-Fi diagnostics  FAILED\nStatus: failed"))
+        assertTrue(out.contains("Latency: 123ms"))
         assertTrue(out.indexOf("Status: failed") < out.indexOf("cached (refresh failed)"))
         assertTrue(out.contains("cached (refresh failed)"))
         assertFalse(out.contains("stale"))

@@ -778,15 +778,6 @@ internal object AgentWifiMloRenderer {
         }
     }
 
-    private fun briefMarker(mark: String): String {
-        return "[${blockMarker(mark)}]"
-    }
-
-    private fun briefNodeLabel(index: Int, total: Int, mark: String, linkId: String): String {
-        val branch = if (index == total - 1) "`--" else "|--"
-        return "$branch ${briefMarker(mark)} ${if (linkId.isBlank()) "?" else linkId}"
-    }
-
     private fun briefLinkID(link: MloLinkInfo): String {
         return AgentObservationPresentation.value(link.observationFieldsList, "identity", link.linkId.toString())
     }

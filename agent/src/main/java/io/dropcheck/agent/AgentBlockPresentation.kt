@@ -50,6 +50,16 @@ internal class AgentPresentationBlock private constructor(
         }
     }
 
+    /** Parts are already sanitized. Styling and line filtering must not redact
+     * literal identities a second time (an SSID may itself contain password=). */
+    fun withStyle(baseSizeSp: Float, minimumSizeSp: Float): AgentPresentationBlock {
+        require(baseSizeSp.isFinite() && minimumSizeSp.isFinite() && baseSizeSp >= minimumSizeSp && minimumSizeSp >= 10f)
+        return AgentPresentationBlock(parts, color, baseSizeSp, minimumSizeSp, safeValueFile)
+    }
+
+    fun mapLogicalText(transform: (String) -> String): AgentPresentationBlock =
+        AgentPresentationBlock(listOf(AgentBlockPart.Text(transform(fullText))), color, baseSizeSp, minimumSizeSp, null)
+
     companion object {
         fun create(parts: List<AgentBlockPart>, color: Int, baseSizeSp: Float = 10f, minimumSizeSp: Float = 10f, safeValueFile: AgentSafeValueFile? = null): AgentPresentationBlock {
             require(baseSizeSp.isFinite() && minimumSizeSp.isFinite() && baseSizeSp >= minimumSizeSp && minimumSizeSp >= 10f)
@@ -79,15 +89,15 @@ private val scanColumns = listOf(
 
 internal object AgentSafePresentation {
     private val ansi = Regex("\u001B(?:\\[[0-?]*[ -/]*[@-~]|\\][^\u0007\u001B]*(?:\u0007|\u001B\\\\))")
-    private val credential = Regex("(?im)(^|[\\s;,(])(passphrase|password|authorization|access_token|refresh_token|token|psk|api_key)(\\s*[:=]\\s*)(\"[^\"]*\"|'[^']*'|(?:Bearer|Basic)\\s+[^\\s,;]+|[^\\s,;]+)")
+    private val credential = com.google.re2j.Pattern.compile("""(?im)(^|[\s;,({\[])(["']?(?:passphrase|password|authorization|access_token|refresh_token|token|psk|api_key|apikey|api-key|client_secret|x-amz-signature|x-amz-credential|x-amz-security-token)["']?)(\s*[:=]\s*)("(?:\\.|[^"\\])*(?:"|$)|'(?:\\.|[^'\\])*(?:'|$)|(?:Bearer|Basic)\s+[^\s,;}\]]+|[^\s,;}\]]+)""")
     private val userInfo = Regex("(https?://)[^/\\s@]+@", RegexOption.IGNORE_CASE)
     private val urls = Regex("https?://[^\\s<>]+", RegexOption.IGNORE_CASE)
     private val secretKeys = setOf("api_key", "apikey", "api-key", "client_secret", "x-amz-signature", "x-amz-credential", "x-amz-security-token", "token", "access_token", "refresh_token", "password", "passphrase", "psk", "authorization")
 
     fun text(value: String): String {
-        var safe = credential.replace(value) { "${it.groupValues[1]}${it.groupValues[2]}${it.groupValues[3]}<redacted>" }
+        var safe = credential.matcher(clean(value)).replaceAll("\$1\$2\$3<redacted>")
         safe = userInfo.replace(safe) { "${it.groupValues[1]}redacted@" }
-        return clean(safeUrls(safe))
+        return safeUrls(safe)
     }
 
     private fun safeUrls(value: String): String = urls.replace(value) { match ->
@@ -126,13 +136,12 @@ internal object AgentSafePresentation {
         }
     }
 
-    fun cell(value: String): String = clean(safeUrls(value)).replace('\n', ' ')
+    fun cell(value: String): String = safeUrls(clean(value)).replace('\n', ' ')
 
     fun field(label: String, value: String): String = when {
-        label.lowercase(Locale.ROOT) in secretKeys -> "<redacted>"
-        label in listOf("SSID", "BSSID", "MLD", "AP MAC", "STA MAC", "PHY", "SEC", "BAND", "Interface", "Network") -> clean(value)
-        label.contains("raw", ignoreCase = true) || label in listOf("Error", "Reason", "Note", "Notes", "Message") -> text(value)
-        else -> clean(safeUrls(value))
+        clean(label).lowercase(Locale.ROOT) in secretKeys -> "<redacted>"
+        clean(label) in listOf("SSID", "BSSID", "MLD", "AP MAC", "STA MAC", "PHY", "SEC", "BAND", "Interface", "Network", "Operator", "Venue") -> clean(value).replace('\n', ' ')
+        else -> text(value)
     }
 }
 

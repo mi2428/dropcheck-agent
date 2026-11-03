@@ -4,8 +4,6 @@ import io.dropcheck.agent.grpc.*
 import java.net.URI
 import java.util.Locale
 
-private fun String.shellWords(): List<String> = if (isEmpty()) emptyList() else split(' ')
-
 internal sealed class AgentShellCommand {
     data object Noop : AgentShellCommand()
     data class Help(val topic: String = "") : AgentShellCommand()
@@ -27,6 +25,7 @@ internal sealed class AgentShellCommand {
         val secret: String = "",
     ) : AgentShellCommand()
     data class Invalid(val message: String) : AgentShellCommand()
+    data class Piped(val command: AgentShellCommand, val pipeline: AgentShellPipeline) : AgentShellCommand()
 }
 
 internal data class LabConfig(val gateway: String, val dns: String, val resolver: String, val http: String, val expectedStatus: Int, val timeoutMs: Int)
@@ -39,51 +38,15 @@ internal fun LabConfig.valid(family: IpFamily): Boolean {
     return family in listOf(IpFamily.IP_FAMILY_IPV4, IpFamily.IP_FAMILY_IPV6) && address != null &&
         (address is java.net.Inet4Address) == (family == IpFamily.IP_FAMILY_IPV4) &&
         dns.isNotBlank() && dns.none { it.isWhitespace() } && !dns.startsWith('-') &&
-        resolver == "selected" && uri?.scheme in listOf("http", "https") && !uri?.host.isNullOrEmpty() &&
+        resolver == "selected" && uri?.scheme in listOf("http", "https") && !uri?.host.isNullOrEmpty() && uri?.port in -1..65535 &&
         uri?.rawUserInfo == null && uri?.rawQuery == null && uri?.rawFragment == null &&
         expectedStatus in 100..599 && timeoutMs in 1..30000
 }
 
 /** The same rows drive parsing and help; the registry remains the executor capability table. */
 internal object AgentShellParser {
-    private data class Syntax(val path: String, val position: String = "", val switches: String = "", val values: String = "") {
-        val parts = path.split(' ')
-        val keys get() = switches.shellWords() + values.shellWords()
-        fun usage(): String = buildString {
-            append(path)
-            if (position.isNotEmpty()) append(" $position")
-            switches.shellWords().forEach { append(" [$it]") }
-            values.shellWords().forEach { append(" [$it VALUE]") }
-            if (path == "show wifi scan") append(" (mlo requires brief)")
-        }
-    }
-
-    private val syntax = listOf(
-        Syntax("show version"), Syntax("show wifi status", switches = "detail"),
-        Syntax("show wifi diagnostics", switches = "detail"), Syntax("show wifi capabilities", switches = "detail"),
-        Syntax("show wifi scan", switches = "fresh brief mlo", values = "band timeout"),
-        Syntax("show wifi scan detail", "TARGET", values = "band"),
-        Syntax("show wifi eht", switches = "detail fresh", values = "ssid bssid timeout"),
-        Syntax("show ip status", switches = "detail", values = "ssid bssid network-id"),
-        Syntax("wifi connect", "SSID passphrase PSK", values = "security bssid band mac-randomization timeout"),
-        Syntax("wifi disconnect"), Syntax("wifi forget", "TARGET"),
-        Syntax("wifi wait connected", values = "ssid bssid security band require-ip require-validated timeout"),
-        Syntax("wifi assert", values = "ssid bssid security band require-ip require-validated timeout"),
-        Syntax("wifi monitor", values = "duration interval"), Syntax("wifi reconnect", values = "timeout"),
-        Syntax("wifi cycle", "SSID passphrase PSK", values = "security bssid band mac-randomization timeout count ping http forget-after-each pause"),
-        Syntax("ping", "HOST", values = "count size family timeout ssid bssid network-id"),
-        Syntax("traceroute", "HOST", values = "max-hops via size family timeout ssid bssid network-id"),
-        Syntax("path-mtu", "HOST", values = "min-mtu max-mtu family timeout ssid bssid network-id"),
-        Syntax("global-ip", values = "family timeout ssid bssid network-id"),
-        Syntax("dns", "NAME", values = "record timeout ssid bssid network-id"),
-        Syntax("http", "URL", values = "expected-status timeout ssid bssid network-id"),
-        Syntax("download", "URL", values = "timeout ssid bssid network-id"),
-        Syntax("help", "[TOPIC]"), Syntax("set default passphrase", "PASSPHRASE"),
-        Syntax("clear default passphrase"), Syntax("use", "SSID [PASSPHRASE]"),
-        Syntax("check", "link ssid SSID [family ipv4|ipv6] [bssid BSSID] | lab ssid SSID family ipv4|ipv6 gateway IP dns NAME resolver selected http URL expected-status STATUS timeout MS"), Syntax("show checks"), Syntax("show check last", switches = "detail"),
-        Syntax("show devices"),
-    )
-    private val aliases = mapOf("p" to "ping", "tr" to "traceroute", "pm" to "path-mtu", "gip" to "global-ip", "h" to "help", "?" to "help")
+    private val syntax = AgentShellContract.rows
+    private val aliases = AgentShellContract.aliases
     init {
         val roots = syntax.map { it.parts.first() }.toSet()
         require(aliases.keys.none { it in roots || it in aliases.values }) { "shell keyword/alias collision" }
@@ -92,8 +55,7 @@ internal object AgentShellParser {
 
     private fun resolve(word: String, siblings: List<String>, alias: Boolean = false): String {
         require(word.isNotBlank()) { "empty keyword" }
-        require(word != "|") { "PC pipeline: unsupported on Android" }
-        val token = word.lowercase(Locale.ROOT)
+        val token = word
         if (token in siblings) return token
         if (alias) aliases[token]?.takeIf { it in siblings }?.let { return it }
         val matches = siblings.filter { it.startsWith(token) }
@@ -103,15 +65,89 @@ internal object AgentShellParser {
 
     fun help(topic: String = ""): List<String> {
         val rows = syntax.filter { topic.isEmpty() || it.parts.first() == topic }
-        return listOf("Agent Shell (self); aliases: p tr pm gip h ?", "Options: key value; switches: fresh brief mlo detail; integers: 1..2147483647", "PSK: 8..63 UTF-8 bytes or 64 ASCII hex; PC-only ADB/device/format/pipeline/TTY: unsupported on Android") +
-            rows.map { "  ${it.usage()}" } + listOf("auto selects one family; global-ip all queries both; dns ALL queries A+AAAA", "check link defaults to family ipv4; bssid strict pin unsupported; lab requires all endpoints and sends active traffic; internet/eht unsupported", "use/default: connect only; check link: read-only, no probes")
+        return listOf("Agent Shell (self); aliases: p tr pm gip h ?", "Options: key value; switches: fresh brief mlo detail; integers: 1..2147483647", "PSK: 8..63 UTF-8 bytes or 64 ASCII hex; PC-only ADB/device/TTY commands are not available") +
+            rows.map { "  ${it.usage()}  ${it.description}" } + listOf("| begin <pattern> | match <pattern> | except <pattern> | count", "| display json (alone; safe presentation JSON)", "auto selects one family; global-ip all queries both; dns ALL queries A+AAAA", "check link defaults to family ipv4; ipv6/all supported; bssid strict pin unsupported; lab requires all endpoints and sends active traffic", "use/default and command history are session-only; credentials are not retained in history")
     }
 
     fun parse(line: String): AgentShellCommand {
-        val tokens = shellSplitWords(line).getOrElse { return AgentShellCommand.Invalid(it.message ?: "invalid command") }
-        if (tokens.isEmpty()) return AgentShellCommand.Noop
-        return try { parseTokens(tokens) } catch (e: IllegalArgumentException) {
+        return try {
+            val lexed = shellLex(line)
+            if (lexed.tokens.isEmpty()) return AgentShellCommand.Noop
+            val parts = mutableListOf<String>()
+            var start = 0
+            lexed.tokens.filter { it.pipe }.forEach { token -> parts += line.substring(start, token.start).trim(); start = token.end }
+            parts += line.substring(start).trim()
+            require(parts.none { it.isEmpty() }) { "empty pipeline stage" }
+            val pipeline = AgentShellPipeline.parse(parts.drop(1))
+            val command = parseTokens(shellSplitWords(parts.first()).getOrThrow())
+            if (pipeline.active) AgentShellCommand.Piped(command, pipeline) else command
+        } catch (e: IllegalArgumentException) {
             AgentShellCommand.Invalid(e.message ?: "invalid command")
+        }
+    }
+
+    fun contextHelp(prefix: String): List<String> = if (prefix.isBlank()) help() else complete(prefix).mapNotNull { choice -> shellLex(choice, true).tokens.lastOrNull()?.value?.let { "  $it" } }
+
+    fun complete(line: String): List<String> {
+        val lexed = shellLex(line, true)
+        if (lexed.quote != null || lexed.escaped) return emptyList()
+        val lastPipe = lexed.tokens.indexOfLast { it.pipe }
+        val tokens = lexed.tokens.drop(lastPipe + 1)
+        val current = tokens.lastOrNull()?.takeIf { it.end == line.length }
+        if (current?.literal == true) return emptyList()
+        val prefix = current?.value.orEmpty()
+        val start = current?.start ?: line.length
+        val args = (if (current != null) tokens.dropLast(1) else tokens).map { it.value }
+        val choices = if (lastPipe >= 0) when {
+            args.isEmpty() -> listOf("begin", "match", "except", "count", "display")
+            args == listOf("display") -> listOf("json")
+            args.size == 1 && args[0] in listOf("begin", "match", "except") -> listOf("<pattern>")
+            else -> emptyList()
+        } else suggestions(args)
+        return choices.filter { it.startsWith(prefix) || it.startsWith('<') }.map { line.substring(0, start) + it + if (it == prefix && !it.startsWith('<')) " " else "" }
+    }
+
+    private fun suggestions(args: List<String>): List<String> {
+        var candidates = syntax
+        val path = mutableListOf<String>()
+        var index = 0
+        while (index < args.size) {
+            val complete = candidates.singleOrNull { it.parts == path }
+            if (complete != null && !(complete.path == "show wifi scan" && "detail".startsWith(args[index]))) break
+            val children = candidates.mapNotNull { it.parts.getOrNull(path.size) }.distinct()
+            val key = runCatching { resolve(args[index], children, path.isEmpty()) }.getOrNull() ?: return emptyList()
+            path += key; index++
+            candidates = candidates.filter { it.parts.take(path.size) == path }
+        }
+        val row = candidates.singleOrNull { it.parts == path }
+            ?: return candidates.mapNotNull { it.parts.getOrNull(path.size) }.distinct()
+        val rest = args.drop(index)
+        if (row.path == "show network" && rest.isEmpty()) return listOf("default", "<network-id>")
+        if (row.path == "check" && rest.isEmpty()) return listOf("link", "lab")
+        if (rest.size < row.positionals.size) return listOf("<${row.positionals[rest.size]}>")
+        val used = mutableSetOf<String>()
+        var offset = row.positionals.size
+        while (offset < rest.size) {
+            val key = runCatching { resolve(rest[offset++], row.keys) }.getOrNull() ?: return emptyList()
+            used += key
+            if (key !in row.switches) {
+                if (offset == rest.size) return row.enums[key] ?: listOf("<value>")
+                offset++
+            }
+        }
+        val children = if (rest.isEmpty()) candidates.mapNotNull { it.parts.getOrNull(path.size) }.distinct() else emptyList()
+        return children + row.keys.filter { (it !in used || it == "via") && !(it == "mlo" && "brief" !in used) &&
+            !(it == "timeout" && row.path in listOf("show wifi scan", "show wifi eht") && "fresh" !in used) }
+    }
+
+    fun historySafe(line: String): Boolean {
+        val parsed = parse(line)
+        return when (parsed) {
+            is AgentShellCommand.Help, AgentShellCommand.ShowVersion, AgentShellCommand.ShowChecks, is AgentShellCommand.ShowCheckLast -> true
+            is AgentShellCommand.Execute -> parsed.request.commandCase in listOf(RunCommand.CommandCase.GET_WIFI_STATUS,
+                RunCommand.CommandCase.GET_WIFI_CAPABILITIES, RunCommand.CommandCase.GET_NETWORKS,
+                RunCommand.CommandCase.GET_PERMISSIONS, RunCommand.CommandCase.GET_IP_STATUS)
+            else -> false
         }
     }
 
@@ -127,7 +163,7 @@ internal object AgentShellParser {
             val children = remaining.mapNotNull { it.parts.getOrNull(path.size) }.distinct()
             if (children.isEmpty()) break
             // A complete command has options/positionals next; only scan has a nested subcommand.
-            if (remaining.any { it.parts.size == path.size } && !(path == listOf("show", "wifi", "scan") && "detail".startsWith(tokens[index].lowercase(Locale.ROOT)))) break
+            if (remaining.any { it.parts.size == path.size } && !(path == listOf("show", "wifi", "scan") && "detail".startsWith(tokens[index]))) break
             val key = resolve(tokens[index], children, path.isEmpty())
             path += key
             remaining = remaining.filter { it.parts.take(path.size) == path }
@@ -135,9 +171,6 @@ internal object AgentShellParser {
         }
         val row = remaining.singleOrNull { it.parts == path } ?: throw IllegalArgumentException("incomplete command: ${remaining.map { it.path }.joinToString(", ")}")
         val command = row.path
-        if (command == "show devices") {
-            return AgentShellCommand.Invalid("$command: unsupported on Android")
-        }
         if (command == "clear default passphrase") {
             require(index == tokens.size) { "usage: clear default passphrase" }
             return AgentShellCommand.ClearDefaultPassphrase
@@ -176,8 +209,8 @@ internal object AgentShellParser {
                 require(index == tokens.size) { "unsupported profile; use show checks" }
                 return AgentShellCommand.Check(profile)
             }
-            require(index + 1 < tokens.size && tokens[index] == "ssid" && tokens[index + 1].isNotEmpty()) {
-                "usage: check link ssid SSID [family ipv4|ipv6] [bssid BSSID]"
+            require(index + 1 < tokens.size && resolve(tokens[index], listOf("ssid")) == "ssid" && tokens[index + 1].isNotEmpty()) {
+                "usage: check link ssid SSID [family ipv4|ipv6|all] [bssid BSSID]"
             }
             val ssid = tokens[index + 1]
             index += 2
@@ -192,7 +225,8 @@ internal object AgentShellParser {
                     "family" -> family = when (tokens[index + 1]) {
                         "ipv4" -> IpFamily.IP_FAMILY_IPV4
                         "ipv6" -> IpFamily.IP_FAMILY_IPV6
-                        else -> throw IllegalArgumentException("check link family must be ipv4 or ipv6")
+                        "all" -> IpFamily.IP_FAMILY_ALL
+                        else -> throw IllegalArgumentException("check link family must be ipv4, ipv6 or all")
                     }
                     "bssid" -> requestedBssid = tokens[index + 1].also(::bssid)
                 }
@@ -215,10 +249,13 @@ internal object AgentShellParser {
             return AgentShellCommand.SetDefaultPassphrase(tokens[index])
         }
         if (command == "use") {
-            require(tokens.size - index in 1..2 && tokens[index].isNotEmpty()) { "usage: use SSID [PASSPHRASE]" }
-            require(tokens.getOrNull(index + 1)?.isEmpty() != true) { "use passphrase cannot be empty" }
-            tokens.getOrNull(index + 1)?.let(::validPassphrase)
-            return AgentShellCommand.Use(tokens[index], tokens.getOrNull(index + 1))
+            require(tokens.size - index == 1 || tokens.size - index == 3) { "usage: use SSID [passphrase PSK]" }
+            require(tokens[index].isNotEmpty()) { "SSID is required" }
+            val passphrase = if (tokens.size - index == 3) {
+                require(resolve(tokens[index + 1], listOf("passphrase")) == "passphrase")
+                tokens[index + 2].also(::validPassphrase)
+            } else null
+            return AgentShellCommand.Use(tokens[index], passphrase)
         }
         val position = if (row.position.isNotEmpty()) {
             val value = tokens.getOrNull(index) ?: throw IllegalArgumentException("usage: ${row.usage()}")
@@ -227,25 +264,18 @@ internal object AgentShellParser {
             value
         } else ""
         val ssid = position
-        var passphrase = ""
-        if (command == "wifi connect" || command == "wifi cycle") {
-            require(index < tokens.size && resolve(tokens[index], listOf("passphrase")) == "passphrase") { "passphrase required" }
-            passphrase = tokens.getOrNull(index + 1) ?: throw IllegalArgumentException("passphrase required")
-            validPassphrase(passphrase)
-            index += 2
-        }
         val values = linkedMapOf<String, String>()
         val switches = mutableSetOf<String>()
         val via = mutableListOf<String>()
         while (index < tokens.size) {
             val key = resolve(tokens[index], row.keys)
-            if (key in row.switches.shellWords()) {
+            if (key in row.switches) {
                 require(switches.add(key)) { "$key specified twice" }
                 index++
             } else {
                 require(index + 1 < tokens.size) { "$key requires a value" }
                 val value = tokens[index + 1]
-                require(if (key == "ssid") value.isNotEmpty() else value.isNotBlank()) { "$key requires a nonempty value" }
+                require(if (key == "ssid" || key == "passphrase") value.isNotEmpty() else value.isNotBlank()) { "$key requires a nonempty value" }
                 if (key == "via") via += address(value)
                 else {
                     require(key !in values) { "$key specified twice" }
@@ -254,6 +284,9 @@ internal object AgentShellParser {
                 index += 2
             }
         }
+        row.required.forEach { require(!values[it].isNullOrEmpty()) { "$it is required" } }
+        values.forEach { (key, value) -> require(row.enums[key]?.contains(value) != false) { "invalid $key" } }
+        val passphrase = values["passphrase"].orEmpty().also { if (it.isNotEmpty()) validPassphrase(it) }
         fun value(key: String) = values[key].orEmpty()
         fun number(key: String, default: Int = 0): Int {
             val raw = values[key] ?: return default
@@ -262,7 +295,7 @@ internal object AgentShellParser {
             require(parsed != null && parsed > 0) { "$key must be in 1..2147483647" }
             return parsed
         }
-        fun band() = when (value("band").lowercase(Locale.ROOT)) {
+        fun band() = when (value("band")) {
             "", "all" -> WifiBand.WIFI_BAND_ALL
             "2.4ghz" -> WifiBand.WIFI_BAND_2_4_GHZ
             "5ghz" -> WifiBand.WIFI_BAND_5_GHZ
@@ -270,14 +303,14 @@ internal object AgentShellParser {
             "60ghz" -> WifiBand.WIFI_BAND_60_GHZ
             else -> throw IllegalArgumentException("invalid band (all, 2.4ghz, 5ghz, 6ghz, 60ghz)")
         }
-        fun security() = when (value("security").lowercase(Locale.ROOT)) {
+        fun security() = when (value("security")) {
             "", "auto" -> ConnectWifi.Security.SECURITY_UNSPECIFIED
             "wpa2" -> ConnectWifi.Security.SECURITY_WPA2_PSK
             "wpa3" -> ConnectWifi.Security.SECURITY_WPA3_SAE
             "transition" -> ConnectWifi.Security.SECURITY_WPA2_WPA3_TRANSITION
             else -> throw IllegalArgumentException("invalid security (auto, wpa2, wpa3, transition)")
         }
-        fun family(global: Boolean = false) = when (value("family").lowercase(Locale.ROOT)) {
+        fun family(global: Boolean = false) = when (value("family")) {
             "" -> if (global) IpFamily.IP_FAMILY_ALL else IpFamily.IP_FAMILY_UNSPECIFIED
             "auto" -> { require(!global) { "global-ip family must be ipv4, ipv6 or all" }; IpFamily.IP_FAMILY_UNSPECIFIED }
             "ipv4" -> IpFamily.IP_FAMILY_IPV4
@@ -287,11 +320,12 @@ internal object AgentShellParser {
         }
         fun selector(): NetworkSelector {
             value("bssid").takeIf { it.isNotEmpty() }?.let(::bssid)
+            require(value("network-id").isEmpty() || validNetworkId(value("network-id"))) { "invalid Android Network ID" }
             return NetworkSelector.newBuilder().setSsid(value("ssid")).setBssid(value("bssid"))
-                .setNetworkId(value("network-id").takeIf { it.isNotEmpty() }?.let { number("network-id").toString() }.orEmpty()).build()
+                .setNetworkId(value("network-id")).build()
         }
         fun connect() = ConnectWifi.newBuilder().setSsid(ssid).setPassphrase(passphrase).setSecurity(security()).setBand(band())
-            .setBssid(value("bssid").also { if (it.isNotEmpty()) bssid(it) }).setMacRandomization(when (value("mac-randomization").lowercase(Locale.ROOT)) {
+            .setBssid(value("bssid").also { if (it.isNotEmpty()) bssid(it) }).setMacRandomization(when (value("mac-randomization")) {
                 "" -> ConnectWifi.MacRandomization.MAC_RANDOMIZATION_UNSPECIFIED
                 "auto" -> ConnectWifi.MacRandomization.MAC_RANDOMIZATION_AUTO
                 "none" -> ConnectWifi.MacRandomization.MAC_RANDOMIZATION_NONE
@@ -328,6 +362,12 @@ internal object AgentShellParser {
             }
         }
         val request = when (command) {
+            "show networks" -> RunCommand.newBuilder().setGetNetworks(GetNetworks.getDefaultInstance()).build()
+            "show network" -> {
+                require(position == "default" || validNetworkId(position)) { "expected default or a canonical positive Android Network ID" }
+                RunCommand.newBuilder().setGetNetwork(GetNetwork.newBuilder().setDefaultNetwork(position == "default").setNetworkId(if (position == "default") "" else position)).build()
+            }
+            "show permissions" -> RunCommand.newBuilder().setGetPermissions(GetPermissions.getDefaultInstance()).build()
             "show wifi status" -> RunCommand.newBuilder().setGetWifiStatus(GetWifiStatus.getDefaultInstance()).build()
             "show wifi diagnostics" -> RunCommand.newBuilder().setGetWifiDiagnostics(GetWifiDiagnostics.getDefaultInstance()).build()
             "show wifi capabilities" -> RunCommand.newBuilder().setGetWifiCapabilities(GetWifiCapabilities.getDefaultInstance()).build()
@@ -366,7 +406,7 @@ internal object AgentShellParser {
             }
             "global-ip" -> RunCommand.newBuilder().setGlobalIp(GlobalIp.newBuilder().setFamily(family(true)).setTimeoutMs(number("timeout", 5000)).setSelector(selector())).build()
             "dns" -> {
-                val types = when (value("record").uppercase(Locale.ROOT)) {
+                val types = when (value("record")) {
                     "", "ALL" -> listOf(DnsRecordType.DNS_RECORD_TYPE_A, DnsRecordType.DNS_RECORD_TYPE_AAAA)
                     "A" -> listOf(DnsRecordType.DNS_RECORD_TYPE_A)
                     "AAAA" -> listOf(DnsRecordType.DNS_RECORD_TYPE_AAAA)
@@ -385,7 +425,7 @@ internal object AgentShellParser {
         return AgentShellCommand.Execute(request, "detail" in switches, "brief" in switches, "mlo" in switches, "fresh" in switches, via, passphrase)
     }
 
-    private fun boolean(value: String, key: String): Boolean = when (value.lowercase(Locale.ROOT)) {
+    private fun boolean(value: String, key: String): Boolean = when (value) {
         "", "false" -> false
         "true" -> true
         else -> throw IllegalArgumentException("$key must be true or false")
@@ -422,28 +462,3 @@ internal object AgentShellParser {
 
 /** No raw input is echoed: even malformed, duplicate, or keyword-looking credentials stay private. */
 internal fun redactAgentShellCommandLine(line: String): String = if (line.isBlank()) "" else "<command submitted>"
-
-internal fun shellSplitWords(line: String): Result<List<String>> {
-    val words = mutableListOf<String>()
-    val current = StringBuilder()
-    var quote: Char? = null
-    var escaped = false
-    var inToken = false
-    for (ch in line) {
-        when {
-            escaped -> { current.append(ch); escaped = false; inToken = true }
-            ch == '\\' -> { escaped = true; inToken = true }
-            quote != null && ch == quote -> { quote = null; inToken = true }
-            quote != null -> { current.append(ch); inToken = true }
-            ch == '"' || ch == '\'' -> { quote = ch; inToken = true }
-            ch.isWhitespace() -> {
-                if (inToken) { words += current.toString(); current.clear(); inToken = false }
-            }
-            else -> { current.append(ch); inToken = true }
-        }
-    }
-    if (escaped) return Result.failure(IllegalArgumentException("trailing escape"))
-    if (quote != null) return Result.failure(IllegalArgumentException("unterminated quote"))
-    if (inToken) words += current.toString()
-    return Result.success(words)
-}

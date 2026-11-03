@@ -92,6 +92,11 @@ internal fun RunCommand.logFields(): List<Pair<String, Any?>> {
         add("label" to safeLabel())
         add("command_case" to commandCase.name)
         when (commandCase) {
+            RunCommand.CommandCase.GET_NETWORKS, RunCommand.CommandCase.GET_PERMISSIONS -> Unit
+            RunCommand.CommandCase.GET_NETWORK -> {
+                add("default_network" to getNetwork.defaultNetwork)
+                add("network_id" to getNetwork.networkId.takeIf(::validNetworkId))
+            }
             RunCommand.CommandCase.GET_WIFI_STATUS -> Unit
             RunCommand.CommandCase.GET_WIFI_DIAGNOSTICS -> Unit
             RunCommand.CommandCase.GET_WIFI_CAPABILITIES -> Unit
@@ -129,6 +134,11 @@ internal fun CommandResult.logFields(): List<Pair<String, Any?>> {
         add("message" to message)
         add("elapsed_ms" to elapsedMs)
         when (payloadCase) {
+            CommandResult.PayloadCase.NETWORK_SNAPSHOT -> {
+                add("networks_count" to networkSnapshot.networksCount)
+                add("errors_count" to networkSnapshot.errorsCount)
+            }
+            CommandResult.PayloadCase.PERMISSION_SNAPSHOT -> add("permissions_count" to permissionSnapshot.permissionsCount)
             CommandResult.PayloadCase.WIFI_STATUS -> {
                 add("wifi_enabled" to wifiStatus.enabled)
                 add("wifi_state" to wifiStatus.state)

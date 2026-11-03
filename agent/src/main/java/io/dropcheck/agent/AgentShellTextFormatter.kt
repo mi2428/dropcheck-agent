@@ -5,7 +5,7 @@ import io.dropcheck.agent.grpc.CommandResult
 internal object AgentShellTextFormatter {
     fun formatStructuredResult(result: CommandResult, body: List<String>, commandTitle: String = title(result)): List<String> {
         val out = mutableListOf<String>()
-        out += "$commandTitle  ${statusName(result.status).uppercase()}  ${result.elapsedMs}ms"
+        out += "$commandTitle  ${statusName(result.status).uppercase()}"
         if (result.status != CommandResult.Status.STATUS_OK) {
             val line = buildString {
                 append("Status: ")

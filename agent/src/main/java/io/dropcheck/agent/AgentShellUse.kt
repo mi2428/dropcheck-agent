@@ -86,25 +86,9 @@ internal object AgentShellUsePolicy {
 
 }
 
-internal class AgentShellUseDefaultsStore(context: Context) {
-    private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-
-    fun load(): AgentShellUseDefaults {
-        return AgentShellUseDefaults(defaultPassphrase = prefs.getString(KEY_DEFAULT_PASSPHRASE, "").orEmpty())
-    }
-
-    fun setDefaultPassphrase(passphrase: String) {
-        prefs.edit().apply {
-            if (passphrase.isEmpty()) {
-                remove(KEY_DEFAULT_PASSPHRASE)
-            } else {
-                putString(KEY_DEFAULT_PASSPHRASE, passphrase)
-            }
-        }.apply()
-    }
-
-    private companion object {
-        const val PREFS_NAME = "agent-shell-use-defaults"
-        const val KEY_DEFAULT_PASSPHRASE = "default_passphrase"
+internal fun removePersistedShellCredential(context: Context) {
+    val prefs = context.applicationContext.getSharedPreferences("agent-shell-use-defaults", Context.MODE_PRIVATE)
+    if (prefs.contains("default_passphrase")) {
+        check(prefs.edit().remove("default_passphrase").commit()) { "could not remove obsolete persisted Shell credential" }
     }
 }

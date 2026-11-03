@@ -186,6 +186,17 @@ class AgentWifiScanRendererTest {
         }
     }
 
+    @Test fun briefChangesDepthWithoutRepeatingIdentities() {
+        val scan = WifiScan.newBuilder().addResults(WifiScanResult.newBuilder().setSsid("Long safe SSID that stays intact")
+            .setBssid("02:00:00:11:22:33").setFrequencyMhz(6135)).build()
+        val brief = AgentWifiScanRenderer.render(scan, AgentWifiScanContext(brief = true)).joinToString("\n")
+        val full = AgentWifiScanRenderer.render(scan).joinToString("\n")
+        assertFalse(brief.contains("Centers MHz"))
+        assertTrue(full.contains("Centers MHz"))
+        assertTrue(Regex("02:00:00:11:22:33").findAll(full).count() == 1)
+        assertTrue(Regex("Long safe SSID that stays intact").findAll(full).count() == 1)
+    }
+
     private fun field(key: String, value: String): DiagnosticField =
         DiagnosticField.newBuilder().setKey(key).setValue(value).build()
 
