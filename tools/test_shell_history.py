@@ -31,6 +31,8 @@ def main():
             ('interrupt', secret + b'\x03\x1b[A\x1b[B\r', 0, 1),
             ('safe-draft', b'show version\x1b[A\x1b[B\r', 0, 2),
             ('safe-recall', b'\x1b[A\r', 0, 2),
+            ('safe-control-draft', b'show version\x10\x0e\r', 0, 2),
+            ('safe-control-recall', b'\x10\r', 0, 2),
         ]
         for name, keys, updates, versions in cases:
             run_case(binary, version, name, keys, updates, versions)
