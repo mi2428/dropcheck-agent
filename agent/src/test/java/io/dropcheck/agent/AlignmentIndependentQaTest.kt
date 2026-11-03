@@ -5,6 +5,24 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AlignmentIndependentQaTest {
+    @Test fun tracerouteCopyAndJsonRetainTypedObservationFailure() {
+        val trace = TracerouteResult.newBuilder().setHost("2001:db8::1").setReachedTarget(false)
+            .setObservationError("independent typed observation unavailable").setExitCode(73).build()
+        val block = AgentShellTextFormatter.block(CommandResult.newBuilder().setStatus(CommandResult.Status.STATUS_FAILED).build(),
+            AgentProbeRenderer.renderTraceroute(trace, CommandResult.Status.STATUS_FAILED, "partial acquisition"), 0)
+        val json = AgentShellPipeline.parse(listOf("display json")).apply(AgentShellResult(false, block = block)).block!!.fullText
+        val missing = mapOf("Copy" to block.fullText, "JSON" to json, "Inspect" to block.safeValues().joinToString { it.second })
+            .filterValues { !it.contains(trace.observationError) }.keys
+        assertTrue("Typed observation failure missing from $missing", missing.isEmpty())
+    }
+
+    @Test fun tracerouteDistinguishesUnknownFromObservedFalse() {
+        fun text(trace: TracerouteResult) = AgentPresentationBlock.create(
+            AgentProbeRenderer.renderTraceroute(trace, CommandResult.Status.STATUS_FAILED, "partial acquisition"), 0).fullText
+        val unknown = TracerouteResult.newBuilder().setHost("2001:db8::1").build()
+        assertNotEquals("Missing reached_target became indistinguishable from false", text(unknown), text(unknown.toBuilder().setReachedTarget(false).build()))
+    }
+
     @Test fun diagnosticIdentityKeepsCredentialLookingSsid() {
         val ssid = "password=Guest"
         val block = AgentPresentationBlock.create(listOf(AgentBlockPart.Field("ssid", ssid)), 0)

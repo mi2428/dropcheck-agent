@@ -34,6 +34,22 @@ internal data class LinkReport(
     val interfaceName: String? = null,
     val validated: Boolean? = null,
 ) {
+    fun presentation(): List<AgentBlockPart> = buildList {
+        add(AgentBlockPart.Text("Check: $profile ${outcome.name} (self; ${if (profile == "lab") "explicit active probes" else "observed only"})"))
+        add(AgentBlockPart.Field("SSID", ssid))
+        add(AgentBlockPart.Field("Family", family.name))
+        add(AgentBlockPart.Field("Started / ended", "$startedMs / $endedMs"))
+        add(AgentBlockPart.Field("Source", "Android selected physical Wi-Fi"))
+        add(AgentBlockPart.Field("Network", networkId ?: "?"))
+        add(AgentBlockPart.Field("Interface", interfaceName ?: "?"))
+        add(AgentBlockPart.Field("Validated (observed)", validated?.toString() ?: "?"))
+        add(AgentBlockPart.Table(listOf("STAGE", "OUTCOME", "REASON").map { AgentBlockPart.Column(it) }, stages.map { listOf(it.name, it.outcome.name, it.reason) }))
+        val metrics = stages.flatMap { stage -> stage.metrics.map { listOf(stage.name, it.name, it.outcome.name, it.actual?.toString() ?: "?", ">=${it.required}") } }
+        if (metrics.isNotEmpty()) add(AgentBlockPart.Table(listOf("STAGE", "METRIC", "OUTCOME", "ACTUAL", "EXPECTED").map { AgentBlockPart.Column(it) }, metrics))
+        add(AgentBlockPart.Text(if (profile == "lab") "No connect, disconnect or forget; snapshots cannot prove uninterrupted Network continuity or HTTP hostname address family."
+            else "No probe, connect, disconnect or forget; same-Network checks are point-in-time, not uninterrupted roam/BSSID pinning."))
+    }
+
     fun lines(detail: Boolean = false, historical: Boolean = false): List<String> = buildList {
         add("${if (historical) "Historical last check" else "Check"}: ${safe(profile)} ${outcome.name} (self; ${if (profile == "lab") "explicit active probes" else "observed only"})")
         add("Target SSID: ${safe(ssid)}; family: ${when (family) { IpFamily.IP_FAMILY_ALL -> "all"; IpFamily.IP_FAMILY_IPV6 -> "ipv6"; else -> "ipv4" }}")

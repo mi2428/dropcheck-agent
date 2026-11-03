@@ -22,13 +22,13 @@ class AgentProbeRendererTest {
             CommandResult.Status.STATUS_OK,
             "ping passed",
         )
-        val out = lines.joinToString("\n")
+        val out = AgentPresentationBlock.create(lines, 0).fullText
         assertTrue(out.contains("Ping"))
-        assertTrue(out.contains("payload_size   64"))
+        assertTrue(out.contains("payload_size: 64"))
         assertTrue(out.contains("3 packets transmitted, 3 received"))
-        assertTrue(out.contains("received       ?"))
-        val known = AgentProbeRenderer.renderPing(PingResult.newBuilder().setReceived(0).build(), CommandResult.Status.STATUS_FAILED, "lost").joinToString("\n")
-        assertTrue(known.contains("received       0"))
+        assertTrue(out.contains("received: ?"))
+        val known = AgentPresentationBlock.create(AgentProbeRenderer.renderPing(PingResult.newBuilder().setReceived(0).build(), CommandResult.Status.STATUS_FAILED, "lost"), 0).fullText
+        assertTrue(known.contains("received: 0"))
     }
 
     @Test
@@ -47,10 +47,10 @@ class AgentProbeRendererTest {
             CommandResult.Status.STATUS_OK,
             "traceroute passed",
         )
-        val out = lines.joinToString("\n")
+        val out = AgentPresentationBlock.create(lines, 0).fullText
         assertTrue(out.contains("Traceroute"))
-        assertTrue(out.contains("max_hops       12"))
-        assertTrue(out.contains("payload_size   80"))
+        assertTrue(out.contains("max_hops: 12"))
+        assertTrue(out.contains("payload_size: 80"))
         assertTrue(out.contains("ping TTL fallback"))
         assertTrue(out.contains("1  192.0.2.1  1.0 ms"))
     }

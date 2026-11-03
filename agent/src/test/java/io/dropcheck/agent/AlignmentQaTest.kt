@@ -31,4 +31,19 @@ class AlignmentQaTest {
         assertTrue(filtered.block!!.parts.filterIsInstance<AgentBlockPart.Field>().any { it.label == "SSID" && it.value == "password=Guest" })
         assertTrue(filtered.block.parts.filterIsInstance<AgentBlockPart.Field>().any { it.label == "Latency" })
     }
+
+    @Test fun requestsAndTestsExposeTypedFieldsAndTablesWithoutParsingNativeText() {
+        val raw = "1  2001:db8::1  0.00049 ms\nResult:  retained raw reference"
+        val trace = AgentProbeRenderer.renderTraceroute(TracerouteResult.newBuilder().setHost("日本語e\u0301👩\u200d🔬").setOutput(raw)
+            .addHops(TracerouteHop.newBuilder().setIndex(1).addHostnames("日本語").addAddresses("2001:db8::1").addRttMs(0.00049)).build(), CommandResult.Status.STATUS_FAILED, "failure")
+        assertTrue(trace.filterIsInstance<AgentBlockPart.Field>().any { it.label == "host" })
+        assertTrue(trace.filterIsInstance<AgentBlockPart.Table>().any { it.rows.single().contains("2001:db8::1") })
+        assertEquals(raw, trace.filterIsInstance<AgentBlockPart.Text>().last().value)
+        val report = LinkReport("lab", "password=Guest", IpFamily.IP_FAMILY_ALL, 1, 2, LinkOutcome.FAIL,
+            listOf(LinkStage("日本語", LinkOutcome.FAIL, "failed", listOf(LinkMetric("dns", null)))))
+        val parts = report.presentation()
+        assertTrue(parts.filterIsInstance<AgentBlockPart.Field>().any { it.label == "SSID" && it.value == "password=Guest" })
+        assertEquals(2, parts.filterIsInstance<AgentBlockPart.Table>().size)
+        assertTrue(AgentPresentationBlock.create(parts, 0).fullText.contains("MISSING"))
+    }
 }
