@@ -43,7 +43,7 @@ func WriteHelpTopic(w io.Writer, topic string) {
 		fmt.Fprintf(w, "\n    Description: %s\n\n", description)
 	}
 	fmt.Fprintln(w, "  exit\n  | find <pattern> | except <pattern> | last <lines> | match <pattern> | trim <start-column> | count\n  | display json (alone; safe presentation JSON)")
-	fmt.Fprintln(w, "  Defaults and command history are session-only; secret input is never retained in history.")
+	fmt.Fprintln(w, "  All command input, including credentials, is recallable within this session; history is not written to disk.")
 }
 
 func IsHelpRune(r rune) bool { return r == '?' || r == '？' }
@@ -167,23 +167,4 @@ func CompletionHintLine(line string) string {
 }
 func IsPlaceholderCandidate(value string) bool {
 	return strings.HasPrefix(value, "<") && strings.HasSuffix(value, ">")
-}
-
-// Only successfully parsed, read-only input is eligible for recall. URL/query
-// and caller-supplied literals in probes may also contain credentials.
-func HistorySafe(line string) bool {
-	parsed, err := ParseLine(line)
-	if err != nil {
-		return false
-	}
-	if parsed.Pipeline.DisplayJSON() || parsed.Pipeline.StageCount() > 0 {
-		return false
-	}
-	if parsed.Kind == Version || parsed.Kind == Profiles || parsed.Kind == LastReport || parsed.Kind == Help || parsed.Kind == ShowDevices || parsed.Kind == CLI {
-		return true
-	}
-	if parsed.Kind != AgentCommand || parsed.Operation.Command == nil {
-		return false
-	}
-	return slices.Contains([]string{"show wifi status connection", "show wifi status ip", "show wifi status capabilities", "show network", "show permissions"}, parsed.Path)
 }

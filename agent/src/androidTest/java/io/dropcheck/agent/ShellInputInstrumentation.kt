@@ -52,7 +52,8 @@ class ShellInputInstrumentation : Instrumentation() {
 
                 val session = MainActivity::class.java.getDeclaredField("shellSession").apply { isAccessible = true }.get(main) as AgentShellSession
                 session.remember("show version")
-                session.remember("show permissions")
+                session.remember("show wifi scan")
+                session.remember("show wifi status")
                 val secret = "set cli default-passphrase input-test-only-secret"
                 session.remember(secret)
                 for ((previous, next, modifiers) in listOf(
@@ -68,16 +69,22 @@ class ShellInputInstrumentation : Instrumentation() {
                     }
                     input.setText("show cli"); input.setSelection(input.text.length)
                     press(previous)
-                    check(input.text.toString() == "show permissions" && input.selectionStart == input.text.length) { "previous command failed" }
+                    check(input.text.toString() == secret && input.selectionStart == input.text.length) { "previous command failed" }
+                    press(previous)
+                    check(input.text.toString() == "show wifi status") { "Wi-Fi status missing from history" }
+                    press(previous)
+                    check(input.text.toString() == "show wifi scan") { "Wi-Fi scan missing from history" }
                     press(previous); press(previous)
                     check(input.text.toString() == "show version") { "oldest command boundary failed" }
                     press(next)
-                    check(input.text.toString() == "show permissions") { "next command failed" }
+                    check(input.text.toString() == "show wifi scan") { "next command failed" }
+                    press(next); press(next)
+                    check(input.text.toString() == secret) { "credential command missing from history" }
                     press(next); press(next)
                     check(input.text.toString() == "show cli" && input.selectionStart == input.text.length) { "safe draft was not restored" }
                     input.setText(secret); input.setSelection(input.text.length)
                     press(previous); press(next)
-                    check(input.text.isEmpty()) { "secret draft was retained" }
+                    check(input.text.toString() == secret) { "draft was not restored" }
                 }
                 for (code in listOf(KeyEvent.KEYCODE_P, KeyEvent.KEYCODE_N)) {
                     input.setText("")
@@ -87,7 +94,7 @@ class ShellInputInstrumentation : Instrumentation() {
                 }
             }
             waitForIdleSync()
-            report.putString("result", "PASS: no-Enter help, literal quotes, IME composition, cursor suffix, hardware Tab, arrows/Ctrl-P/Ctrl-N history and safe drafts; zero device commands")
+            report.putString("result", "PASS: no-Enter help, literal quotes, IME composition, cursor suffix, hardware Tab, arrows/Ctrl-P/Ctrl-N all-command history and drafts; zero device commands")
             finish(Activity.RESULT_OK, report)
         } catch (error: Throwable) {
             report.putString("error", error.javaClass.simpleName + ": " + error.message)

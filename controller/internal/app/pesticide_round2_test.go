@@ -114,11 +114,11 @@ func TestPTYRound2NativeHistory(t *testing.T) {
 	if !useLineEditor() {
 		t.Fatal("native history regression requires a real PTY")
 	}
-	state := &shellState{}
+	state := &shellState{server: control.NewServer("", nil)}
 	if err := replLineEditor(t.Context(), state); err != nil {
 		t.Fatal(err)
 	}
 	if state.defaultPassphrase != "" {
-		t.Fatal("native readline recalled and executed an unsubmitted credential draft")
+		t.Fatal("Shell exit did not clear the session credential")
 	}
 }

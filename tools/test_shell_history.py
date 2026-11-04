@@ -22,12 +22,31 @@ def main():
         binary = Path(directory) / 'round2-app.test'
         subprocess.run([os.environ.get('GO', 'go'), 'test', '-p=1', '-race', '-c', '-ldflags', '-X dropcheck/controller/internal/version.Version=round2-local-version', '-o', str(binary), './internal/app'], cwd=ROOT / 'controller', check=True, timeout=60)
         secret = b'set cli default-passphrase round2-synthetic-secret'
+        commands = [
+            ('wifi-status', b'show wifi status'),
+            ('wifi-scan', b'show wifi scan'),
+            ('wifi-full', b'show wifi status full'),
+            ('wifi-mlo', b'show wifi status eht'),
+            ('network-default', b'show network default'),
+            ('network-id', b'show network id 12'),
+            ('adb', b'show adb'),
+            ('pipeline', b'show wifi scan | count'),
+            ('json', b'show wifi status | display json'),
+            ('connect', b'request wifi connect Lab passphrase round2-synthetic-secret'),
+            ('disconnect', b'request wifi disconnect'),
+            ('probe', b"request http 'https://example.test/?token=round2-synthetic-secret'"),
+            ('monitor', b'monitor wifi'),
+            ('test', b'test wifi'),
+        ]
+        for name, line in commands:
+            for suffix, previous in [('arrows', b'\x1b[A'), ('control-p', b'\x10')]:
+                run_case(binary, version, name + '-' + suffix, line + b'\r' + previous + b'\r', 0, 1, unavailable=2, submitted={line: 2})
         cases = [
-            ('arrows', secret + b'\x1b[A\x1b[B\r', 0, 1),
-            ('control-p-n', secret + b'\x10\x0e\r', 0, 1),
-            ('edited-recall', b'\x1b[A\x15' + secret + b'\x1b[A\x1b[B\r', 0, 1),
+            ('arrows', secret + b'\x1b[A\x1b[B\r', 1, 1),
+            ('control-p-n', secret + b'\x10\x0e\r', 1, 1),
+            ('edited-recall', b'\x1b[A\x15' + secret + b'\x1b[A\x1b[B\r', 1, 1),
             ('submitted-secret', secret + b'\rclear cli default-passphrase\r\x1b[A\x1b[B\r', 1, 1),
-            ('search', secret + b'\x12\x07\r', 0, 1),
+            ('search', secret + b'\x12\x07\r', 1, 1),
             ('interrupt', secret + b'\x03\x1b[A\x1b[B\r', 0, 1),
             ('safe-draft', b'show version\x1b[A\x1b[B\r', 0, 2),
             ('safe-recall', b'\x1b[A\r', 0, 2),
@@ -36,9 +55,17 @@ def main():
         ]
         for name, keys, updates, versions in cases:
             run_case(binary, version, name, keys, updates, versions)
+        for suffix, previous, next_key in [('arrows', b'\x1b[A', b'\x1b[B'), ('control', b'\x10', b'\x0e')]:
+            run_case(binary, version, 'wifi-roundtrip-' + suffix,
+                     b'show wifi scan\rshow wifi status\r' + previous * 2 + next_key + b'\r', 0, 1, unavailable=3,
+                     submitted={b'show wifi scan': 1, b'show wifi status': 2})
+            run_case(binary, version, 'credential-replay-' + suffix, secret + b'\r' + previous + b'\r', 2, 1, submitted={secret: 2})
+            for name, invalid in [('invalid', b'invalid-command'), ('unfinished', b"set cli default-passphrase 'unfinished")]:
+                run_case(binary, version, name + '-replay-' + suffix, invalid + b'\r' + previous + b'\r', 0, 1, submitted={invalid: 2})
+        run_case(binary, version, 'credential-search', secret + b'\r\x12round2\r', 2, 1)
         run_case(binary, version, 'running-cancel', b'', 0, 2, cancel=True)
 
-def run_case(binary, version, name, keys, updates, versions, cancel=False):
+def run_case(binary, version, name, keys, updates, versions, cancel=False, unavailable=0, submitted=None):
     test_name = 'TestPTYJunosRunningCancel' if cancel else 'TestPTYRound2NativeHistory'
     # An empty prompt, not a redisplay of the prompt prefix while editing.
     prompt = (b'R5CT12345>' if cancel else b'dropcheck>') + b'  \x08'
@@ -114,23 +141,26 @@ def run_case(binary, version, name, keys, updates, versions, cancel=False):
             before = len(transcript)
             os.write(master, event)
             receive(b'\r\n', after=before)
-            submitted = transcript.index(b'\r\n', before) + 2
-            receive(prompt, after=submitted)
+            submitted_end = transcript.index(b'\r\n', before) + 2
+            receive(prompt, after=submitted_end)
             settle_prompt()
         os.write(master, b'exit\r')
         receive(seconds=5)
         observed_updates = transcript.count(b'default passphrase updated (session only)')
         passed = f'--- PASS: {test_name}'.encode() in transcript
         completed = passed or f'--- FAIL: {test_name}'.encode() in transcript
-        print(json.dumps({'case': name, 'real_readline': True, 'adb_and_agent_calls': 0, 'native_test_passed': passed, 'native_test_completed': completed}))
         assert b'WARNING: DATA RACE' not in transcript, bytes(transcript[-16000:])
         assert completed, ('PTY did not complete the native regression', bytes(transcript[-16000:]))
         assert observed_updates == updates, (name, observed_updates, bytes(transcript[-12000:]))
-        assert transcript.count(version) == versions, 'Safe command history/draft was lost'
+        assert transcript.count(version) == versions, (name, 'Command history/draft was lost', transcript.count(version), versions)
+        assert transcript.count(b'no Android agents connected') == unavailable, 'Recalled command did not execute again'
+        for line, count in (submitted or {}).items():
+            assert transcript.count(b'dropcheck> ' + line + b'\r\n') == count, (name, 'Recalled input changed')
         assert passed, 'PTY did not complete the native regression successfully'
         _, status = os.waitpid(pid, 0)
         reaped = True
         assert os.waitstatus_to_exitcode(status) == 0, (name, status)
+        print(json.dumps({'case': name, 'real_readline': True, 'adb_and_agent_calls': 0, 'native_test_passed': passed, 'native_test_completed': completed}))
     finally:
         os.close(master)
         if not reaped:

@@ -141,17 +141,19 @@ class PesticideRotationQaTest {
         }
     }
 
-    @Test fun historyEvictionCannotRestoreSecretsOrInvalidDrafts() {
+    @Test fun historyEvictionPreservesTheCurrentDraftAndRecentCommands() {
         val session = AgentShellSession()
         repeat(130) { session.remember("show wifi status ip ssid Lab$it") }
-        assertEquals("show wifi status ip ssid Lab129", session.recall("request wifi connect Lab passphrase round2-synthetic-secret", -1))
+        val draft = "request wifi connect Lab passphrase round2-synthetic-secret"
+        assertEquals("show wifi status ip ssid Lab129", session.recall(draft, -1))
         repeat(150) { session.recall("", -1) }
         assertEquals("show wifi status ip ssid Lab30", session.recall("", -1))
-        repeat(100) { session.recall("", 1) }
-        assertEquals("", session.recall("", 1))
+        repeat(99) { session.recall("", 1) }
+        assertEquals(draft, session.recall("", 1))
+        assertEquals(draft, session.recall(draft, 1))
         session.remember("show permissions")
         assertEquals("show permissions", session.recall("set cli default-passphrase 'unfinished", -1))
-        assertEquals("", session.recall("", 1))
+        assertEquals("set cli default-passphrase 'unfinished", session.recall("show permissions", 1))
     }
 
     @Test fun completedActionWaitsForNewActivityAndDeliversOnce() {

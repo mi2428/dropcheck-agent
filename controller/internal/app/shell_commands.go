@@ -46,7 +46,7 @@ func renderShellSession(state *shellState) string {
 	} else if target == "" {
 		target = "unselected"
 	}
-	return render.Fields([][2]string{{"Owner", "Controller"}, {"Target", target}, {"Broadcast", fmt.Sprint(state.targetAll)}, {"Layout width", fmt.Sprint(terminalPresentation().Width)}, {"History", "session-only safe allowlist"}, {"Default passphrase", credential}}, render.Presentation{})
+	return render.Fields([][2]string{{"Owner", "Controller"}, {"Target", target}, {"Broadcast", fmt.Sprint(state.targetAll)}, {"Layout width", fmt.Sprint(terminalPresentation().Width)}, {"History", "all commands; session-only"}, {"Default passphrase", credential}}, render.Presentation{})
 }
 
 func prepareWifiTest(state *shellState, parsed shellCommand) bool {

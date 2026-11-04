@@ -66,7 +66,7 @@ internal object AgentShellParser {
     fun help(topic: String = ""): List<String> {
         val rows = syntax.filter { topic.isEmpty() || it.path == topic || it.path.startsWith("$topic ") }
         return listOf("Agent Shell (self)", "Options: key value; integers: 1..2147483647 ms/count; show wifi status full adds raw dumps", "PSK: 8..63 UTF-8 bytes or 64 ASCII hex; PC-only ADB/device/TTY commands are not available", "") +
-            rows.flatMap { listOf("  ${it.usage()}", "    Description: ${it.description}", "") } + listOf("| find <pattern> | except <pattern> | last <lines> | match <pattern> | trim <start-column> | count", "| display json (alone; safe presentation JSON)", "auto selects one family; global-ip all queries both; dns ALL queries A+AAAA", "test link defaults to family ipv4; ipv6/all supported; bssid strict pin unsupported; lab requires all endpoints and sends active traffic", "Default credentials and command history are session-only; credentials are not retained in history")
+            rows.flatMap { listOf("  ${it.usage()}", "    Description: ${it.description}", "") } + listOf("| find <pattern> | except <pattern> | last <lines> | match <pattern> | trim <start-column> | count", "| display json (alone; safe presentation JSON)", "auto selects one family; global-ip all queries both; dns ALL queries A+AAAA", "test link defaults to family ipv4; ipv6/all supported; bssid strict pin unsupported; lab requires all endpoints and sends active traffic", "All command input, including credentials, is recallable within this session; history is not written to disk")
     }
 
     fun parse(line: String): AgentShellCommand {
@@ -153,17 +153,6 @@ internal object AgentShellParser {
         }
         val children = if (rest.isEmpty()) candidates.mapNotNull { it.parts.getOrNull(path.size) }.distinct() else emptyList()
         return children + row.keys.filter { it !in used || it == "via" }
-    }
-
-    fun historySafe(line: String): Boolean {
-        val parsed = parse(line)
-        return when (parsed) {
-            is AgentShellCommand.Help, AgentShellCommand.ShowVersion, AgentShellCommand.ShowCli, AgentShellCommand.ShowChecks, is AgentShellCommand.ShowCheckLast -> true
-            is AgentShellCommand.Execute -> !parsed.summary && parsed.request.commandCase in listOf(RunCommand.CommandCase.GET_WIFI_STATUS,
-                RunCommand.CommandCase.GET_WIFI_CAPABILITIES, RunCommand.CommandCase.GET_NETWORKS,
-                RunCommand.CommandCase.GET_PERMISSIONS, RunCommand.CommandCase.GET_IP_STATUS)
-            else -> false
-        }
     }
 
     private fun parseTokens(tokens: List<String>): AgentShellCommand {
