@@ -119,7 +119,7 @@ class JunosAdversarialQaTest {
                 assertTrue("summary contains excessive vertical spacing", block.fullText.lines().size <= 105)
                 assertFalse("blank separators between subsections", "\n\n  " in block.fullText)
                 for (heading in listOf("  Identity", "  Radio", "  Security", "  MLO", "  Network capabilities", "  IPv6 RA (Android)")) assertTrue(heading in block.fullText.lines())
-                parts.filterIsInstance<AgentBlockPart.Field>().forEach { assertEquals("unaligned label", 28, it.label.length) }
+                parts.filterIsInstance<AgentBlockPart.Field>().forEach { assertEquals("label carries pre-colon padding", it.label.trimEnd(), it.label) }
             }
         }
         val eht = AgentWifiMloRenderer.render(diagnostics.status, diagnostics.scan, AgentWifiMloContext(wifiCapabilities = diagnostics.capabilities)).joinToString("\n")

@@ -72,7 +72,7 @@ func OperationResult(agent string, result harness.OperationResult, format pipeli
 		}
 	}
 	writeFindings(&b, result.Findings, true)
-	return wrapPresentation(b.String(), view.Width, view.Interactive), nil
+	return wrapPresentation(b.String(), view.Width), nil
 }
 
 // Report consumes the complete safe core report without execution or re-evaluation.
@@ -165,7 +165,7 @@ func Report(report harness.Report, view Presentation) (string, error) {
 	if report.EvictedProblems > 0 {
 		writeRecord(&b, "Omission", fmt.Sprintf("%d older problems evicted by core retention", report.EvictedProblems))
 	}
-	return wrapPresentation(b.String(), view.Width, view.Interactive), nil
+	return wrapPresentation(b.String(), view.Width), nil
 }
 
 func acquisitionRecordStatus(record harness.OperationRecord) string {

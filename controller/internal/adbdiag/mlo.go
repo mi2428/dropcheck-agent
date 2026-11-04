@@ -153,6 +153,7 @@ func RenderMLOSummary(summary MLOSummary) string {
 	}
 	if len(summary.LinkStats) > 0 {
 		writeSection(&b, "ADB MLO Link Stats")
+		b.WriteByte('\n')
 		tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 		_, _ = fmt.Fprintln(tw, "link_id\tradio_id\trssi_mgmt\tbeacon_rx")
 		for _, link := range summary.LinkStats {
@@ -164,6 +165,7 @@ func RenderMLOSummary(summary MLOSummary) string {
 			)
 		}
 		_ = tw.Flush()
+		b.WriteByte('\n')
 	}
 	return b.String()
 }

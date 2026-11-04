@@ -20,11 +20,12 @@ class AgentBlockPresentationTest {
         ), 0)
         assertTrue(block.fullText.contains("password=Guest 東京 Source: forged"))
         assertFalse(block.fullText.contains("alignment-test-secret"))
-        assertTrue(block.fullText.contains("\n" + " ".repeat(34) + "2001:db8::53"))
-        block.fullText.lines().filter { it.startsWith("    ") && it.indexOfFirst { ch -> ch != ' ' } < 32 }.forEach {
-            assertEquals("unaligned field: $it", 32, it.indexOf(": "))
+        assertTrue(block.fullText.contains("\n" + " ".repeat(13) + "2001:db8::53"))
+        block.parts.filterIsInstance<AgentBlockPart.Field>().forEach { part ->
+            assertEquals(part.label.trimEnd(), part.label)
+            assertTrue(block.fullText.lines().any { it.startsWith(part.label + ": ") })
         }
-        assertEquals("password=Guest 東京 Source: forged", block.safeValues().first { it.first == label }.second)
+        assertEquals("password=Guest 東京 Source: forged", block.safeValues().first { it.first == label.trimEnd() }.second)
     }
 
     @Test fun fullSafeCopyHasNoDisplayArtifactsOrSecrets() {

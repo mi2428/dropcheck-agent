@@ -55,23 +55,15 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 		fmt.Fprintf(&b, "%s  %s  %dms\n", resultTitle(result, options), strings.ToUpper(resultStatus(result.GetStatus())), commandResultLatencyMs(result))
 	}
 	if result.GetStatus() != controlpb.CommandResult_STATUS_OK {
-		if view.Interactive {
-			writeRecord(&b, "Status", resultStatus(result.GetStatus()))
-			if result.GetMessage() != "" {
-				writeRecord(&b, "Message", result.GetMessage())
-			}
-		} else {
-			fmt.Fprintf(&b, "Status: %s", resultStatus(result.GetStatus()))
-			if result.GetMessage() != "" {
-				fmt.Fprintf(&b, "  Message: %s", result.GetMessage())
-			}
-			b.WriteByte('\n')
+		writeRecord(&b, "Status", resultStatus(result.GetStatus()))
+		if result.GetMessage() != "" {
+			writeRecord(&b, "Message", result.GetMessage())
 		}
 	}
 	writeRecord(&b, "Latency", fmt.Sprintf("%dms", commandResultLatencyMs(result)))
 	writeRecord(&b, "Source", "android  Target: "+cleanDisplayCell(agent))
 	if view.Interactive && renderInteractiveRequest(&b, result, options, view) {
-		return wrapPresentation(b.String(), view.Width, true), nil
+		return wrapPresentation(b.String(), view.Width), nil
 	}
 	switch payload := result.Payload.(type) {
 	case *controlpb.CommandResult_NetworkSnapshot:
@@ -157,7 +149,7 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 			fmt.Fprintf(&b, "agent=%s status=%s payload=%T\n", agent, resultStatus(result.GetStatus()), result.Payload)
 		}
 	}
-	return wrapPresentation(b.String(), view.Width, view.Interactive), nil
+	return wrapPresentation(b.String(), view.Width), nil
 }
 
 // SanitizedResult returns a detached safe snapshot for session-local history.
@@ -300,25 +292,11 @@ func writeKVSection(b *strings.Builder, title string, rows ...kvRow) {
 }
 
 func writeKVRows(b *strings.Builder, rows ...kvRow) {
-	width := 0
-	for _, row := range rows {
-		width = max(width, displayWidth(cleanDisplayCell(row.label)))
-	}
 	for _, row := range rows {
 		if row.label == "" || row.value == "" {
 			continue
 		}
-		if strings.Contains(row.value, "\n") {
-			fmt.Fprintf(b, "  %s\n", cleanDisplayCell(row.label))
-			for line := range strings.SplitSeq(row.value, "\n") {
-				if line == "" {
-					continue
-				}
-				fmt.Fprintf(b, "    %s\n", cleanDisplayCell(line))
-			}
-			continue
-		}
-		fmt.Fprintf(b, "  %s  %s\n", padDisplayEnd(cleanDisplayCell(row.label), width), cleanDisplayCell(row.value))
+		writeRecord(b, row.label, row.value)
 	}
 }
 
