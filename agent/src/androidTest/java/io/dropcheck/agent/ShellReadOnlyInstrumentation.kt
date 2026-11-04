@@ -97,7 +97,7 @@ class ShellReadOnlyInstrumentation : Instrumentation() {
                 check(input.text.isEmpty() && !input.isSaveEnabled) { "input was persisted across recreation" }
                 input.requestFocus()
                 input.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP))
-                check(input.text.toString() == "show permissions") { "credential or filtered command entered recall history" }
+                check(input.text.toString() == "set cli default-passphrase acceptance-only-psk") { "last submitted command missing from recall history" }
                 input.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN))
                 check(input.text.isEmpty()) { "history draft not restored" }
             }

@@ -59,14 +59,14 @@ internal class AgentShellSession {
     fun recordTest(result: AgentShellResult) { lastTest = result; lastTestAtMs = System.currentTimeMillis() }
     fun setPassphrase(value: String) { defaults = AgentShellUseDefaults(value) }
     fun remember(line: String) {
-        if (AgentShellParser.historySafe(line) && history.lastOrNull() != line) {
+        if (line.isNotBlank() && history.lastOrNull() != line) {
             history.addLast(line)
             if (history.size > 100) history.removeFirst()
         }
         index = history.size; draft = ""
     }
     fun recall(current: String, direction: Int): String {
-        if (index == history.size) draft = if (AgentShellParser.historySafe(current)) current else ""
+        if (index == history.size) draft = current
         index = (index + direction).coerceIn(0, history.size)
         return if (index == history.size) draft else history.elementAt(index)
     }

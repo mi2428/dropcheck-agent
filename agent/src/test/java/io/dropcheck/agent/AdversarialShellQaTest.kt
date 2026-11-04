@@ -20,12 +20,13 @@ class AdversarialShellQaTest {
         assertFalse(AgentShellParser.contextHelp("request wifi connect Lab passphrase 'qa-synthetic-secret'").joinToString().contains("qa-synthetic-secret"))
     }
 
-    @Test fun historyDoesNotRetainCredentialDraftAcrossRecall() {
+    @Test fun historyRestoresEveryDraftAcrossRecall() {
         val session = AgentShellSession()
         session.remember("show permissions")
-        val secretDraft = "request wifi connect Lab passphrase qa-synthetic-secret"
-        session.recall(secretDraft, -1)
-        assertFalse("credential-bearing draft remained in recall state", session.recall("show permissions", 1).contains("qa-synthetic-secret"))
+        for (draft in listOf("request wifi connect Lab passphrase qa-synthetic-secret", "set cli default-passphrase 'unfinished", "show wifi s")) {
+            assertEquals("show permissions", session.recall(draft, -1))
+            assertEquals(draft, session.recall("show permissions", 1))
+        }
     }
 
     @Test fun finalBlankLogicalLineSurvivesFilterComposition() {

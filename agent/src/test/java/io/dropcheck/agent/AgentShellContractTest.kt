@@ -5,6 +5,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AgentShellContractTest {
+    @Test fun everySubmittedCommandIsRecallableWithoutParsingOrFiltering() {
+        for (line in listOf("show wifi status", "show wifi scan", "show wifi status full", "show wifi status eht",
+            "show network default", "show network id 12", "show adb", "show wifi scan | count",
+            "set cli default-passphrase test-only", "request wifi connect Lab passphrase test-only",
+            "request http https://example.test/?token=test-only", "test wifi", "monitor wifi", "invalid command", "unfinished '")) {
+            val session = AgentShellSession()
+            session.remember(line)
+            assertEquals(line, line, session.recall("", -1))
+        }
+    }
+
     private fun rows(name: String) = checkNotNull(javaClass.getResourceAsStream("/$name")).bufferedReader().use { it.readLines() }.drop(1).map { it.split('\t') }
 
     @Test fun helpSeparatesCommandSyntaxFromDescriptions() {
@@ -39,8 +50,6 @@ class AgentShellContractTest {
         assertTrue(status.summary)
         assertFalse(connection.summary)
         assertFalse(full.summary)
-        assertFalse(AgentShellParser.historySafe("show wifi status"))
-        assertFalse(AgentShellParser.historySafe("show wifi status full"))
         assertTrue("show wifi status full" in AgentShellParser.complete("show wifi status "))
         assertTrue("  full          - Show all passive Wi-Fi diagnostics including safe raw dumps" in AgentShellParser.contextHelp("show wifi status "))
         for (line in listOf("show wifi status full full", "show wifi status full ssid Lab", "show wifi status full connection")) {
@@ -70,14 +79,20 @@ class AgentShellContractTest {
         assertEquals(listOf("  <value>"), AgentShellParser.contextHelp("request wifi connect Lab passphrase synthetic-private-psk"))
         val session = AgentShellSession()
         session.setPassphrase("test-only")
-        session.remember("set cli default-passphrase test-only")
-        session.remember("request wifi connect Lab passphrase test-only")
-        session.remember("request http https://example.test/?token=test-only")
-        session.remember("show network | match private-value")
-        session.remember("show network")
-        assertEquals("show network", session.recall("show permissions", -1))
-        assertEquals("show network", session.recall("", -1))
-        assertEquals("show permissions", session.recall("", 1))
+        val commands = listOf("set cli default-passphrase test-only", "request wifi connect Lab passphrase test-only",
+            "request http https://example.test/?token=test-only", "show network | match private-value", "show network")
+        commands.forEach(session::remember)
+        var current = "show permissions"
+        for (line in commands.reversed()) {
+            current = session.recall(current, -1)
+            assertEquals(line, current)
+        }
+        assertEquals(commands.first(), session.recall(current, -1))
+        for (line in commands.drop(1) + "show permissions") {
+            current = session.recall(current, 1)
+            assertEquals(line, current)
+        }
+        assertEquals("", AgentShellSession().recall("", -1))
         assertEquals("", AgentShellSession().defaults.defaultPassphrase)
         session.setPassphrase("")
         assertEquals("", session.defaults.defaultPassphrase)

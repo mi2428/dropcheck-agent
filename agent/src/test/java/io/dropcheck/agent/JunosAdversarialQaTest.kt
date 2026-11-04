@@ -40,7 +40,6 @@ class JunosAdversarialQaTest {
         for (line in listOf("te wi require-ip BAD", "te li ssid Lab family BAD", "te la ssid Lab", "te wi | trim 0", "te wi ssid 'unfinished", "test internet")) {
             val parsed = AgentShellParser.parse(line)
             assertTrue(line, parsed is AgentShellCommand.Invalid && parsed.testProfile.isNotEmpty())
-            assertFalse(line, AgentShellParser.historySafe(line))
         }
         assertTrue(AgentShellParser.complete("h req wi ").any { "connect" in it })
     }

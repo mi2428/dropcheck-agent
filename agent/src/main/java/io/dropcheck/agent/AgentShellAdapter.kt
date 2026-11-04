@@ -54,7 +54,7 @@ internal class AgentShellAdapter(private val context: Context, private val logge
         AgentShellCommand.ShowVersion -> AgentShellResult(true, listOf("Android agent version: ${BuildConfig.VERSION_NAME}"))
         AgentShellCommand.ShowCli -> AgentShellResult(true, block = AgentPresentationBlock.create(listOf(
             AgentBlockPart.Field("Owner", "self"), AgentBlockPart.Field("Target", "self"), AgentBlockPart.Field("Layout", "measured Android content width"),
-            AgentBlockPart.Field("History", "session-only safe allowlist"), AgentBlockPart.Field("Default passphrase", if (session.defaults.defaultPassphrase.isEmpty()) "unset" else "present")), AgentLogStyle.TEXT_COLOR))
+            AgentBlockPart.Field("History", "all commands; session-only"), AgentBlockPart.Field("Default passphrase", if (session.defaults.defaultPassphrase.isEmpty()) "unset" else "present")), AgentLogStyle.TEXT_COLOR))
         is AgentShellCommand.Invalid -> AgentShellResult(false, listOf(command.message)).also { if (command.testProfile.isNotEmpty()) session.recordTest(it) }
         is AgentShellCommand.Connect -> connect(command)
         is AgentShellCommand.Check -> {

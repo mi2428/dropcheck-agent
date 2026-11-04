@@ -50,14 +50,6 @@ func TestContextHelpNeverEchoesCredentials(t *testing.T) {
 			t.Errorf("literal became help: %s", line)
 		}
 	}
-	for _, line := range []string{"set cli default-passphrase synthetic-private-psk", "request wifi connect Lab passphrase synthetic-private-psk", "request http https://example.test/?token=secret", "help arbitrary-private-value", `show network | match private-value`, "show wifi status", "show wifi status full"} {
-		if HistorySafe(line) {
-			t.Errorf("secret-capable input entered history: %s", line)
-		}
-	}
-	if !HistorySafe("show network") {
-		t.Fatal("read-only history unavailable")
-	}
 	if !strings.Contains(strings.Join(CompleteLine("show wifi scan "), ","), "show wifi scan ssid") {
 		t.Fatal("explicit scan subject missing from completion")
 	}

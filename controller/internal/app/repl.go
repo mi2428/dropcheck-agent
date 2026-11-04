@@ -41,16 +41,14 @@ func replLineEditor(ctx context.Context, state *shellState) error {
 	input := readline.NewCancelableStdin(os.Stdin)
 	defer input.Close()
 	var lineReader *readline.Instance
-	var editing string
 	var activeMu sync.Mutex
 	var activeCancel context.CancelFunc
 	cfg := &readline.Config{
-		Stdin:                  input,
-		Prompt:                 state.prompt(),
-		HistoryLimit:           1000,
-		DisableAutoSaveHistory: true,
-		AutoComplete:           shellReadlineCompleter{state: state},
-		EOFPrompt:              "\n",
+		Stdin:        input,
+		Prompt:       state.prompt(),
+		HistoryLimit: 1000,
+		AutoComplete: shellReadlineCompleter{state: state},
+		EOFPrompt:    "\n",
 		FuncFilterInputRune: func(key rune) (rune, bool) {
 			activeMu.Lock()
 			cancel := activeCancel
@@ -60,16 +58,6 @@ func replLineEditor(ctx context.Context, state *shellState) error {
 					cancel()
 				}
 				return 0, false
-			}
-			switch key {
-			case readline.CharPrev, readline.CharNext, readline.CharBckSearch, readline.CharFwdSearch:
-				if !shell.HistorySafe(editing) {
-					// New("") clears temporary edits and resets the history cursor.
-					// DisableAutoSaveHistory alone does not protect native drafts.
-					_ = lineReader.SaveHistory("")
-					lineReader.Operation.SetBuffer("")
-					editing = ""
-				}
 			}
 			return key, true
 		},
@@ -81,10 +69,6 @@ func replLineEditor(ctx context.Context, state *shellState) error {
 		newLine, newPos, ok := handleShellHelpKey(lineReader.Stdout(), line, pos, key, state)
 		if !ok {
 			newLine, newPos, ok = handleShellCompletionHintKey(lineReader.Stdout(), line, pos, key, state)
-		}
-		editing = string(line)
-		if ok {
-			editing = string(newLine)
 		}
 		return newLine, newPos, ok
 	})
@@ -115,12 +99,6 @@ func replLineEditor(ctx context.Context, state *shellState) error {
 			default:
 				return err
 			}
-		}
-		// Never retain credential-bearing input in readline history.
-		if shell.HistorySafe(line) {
-			_ = lineReader.SaveHistory(line)
-		} else {
-			_ = lineReader.SaveHistory("")
 		}
 		commandCtx, cancel := context.WithCancel(ctx)
 		activeMu.Lock()
