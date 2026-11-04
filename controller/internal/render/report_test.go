@@ -36,9 +36,9 @@ func TestReportKeepsCleanupProblemsRecoveryAndTypedPrecision(t *testing.T) {
 				t.Fatalf("overflow: %q", line)
 			}
 		}
-		flat := strings.ReplaceAll(out, "\n", "")
+		flat := alignmentCompact(out)
 		for _, value := range []string{"Overall outcome (core): PASS", "Core passed: false", "cleanup timeout", "cleanup remains unresolved", "attempt=1 FAIL", "attempt=2 PASS", "0.00049", "0.00048", "Skip reason: unsupported", "n/a (skipped)", "東京 Lab Case"} {
-			if !strings.Contains(flat, value) {
+			if !strings.Contains(flat, alignmentCompact(value)) {
 				t.Fatalf("missing %q at width %d: %s", value, width, out)
 			}
 		}

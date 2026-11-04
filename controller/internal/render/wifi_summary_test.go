@@ -32,8 +32,11 @@ func TestWifiSummaryHierarchyAndAlignment(t *testing.T) {
 		}
 		for line := range strings.SplitSeq(out, "\n") {
 			indent := len(line) - len(strings.TrimLeft(line, " "))
-			if indent >= 4 && indent < 28 && strings.Contains(line, ": ") && strings.Index(line, ": ") != 28 {
-				t.Errorf("width=%d unaligned field: %q", width, line)
+			if colon := strings.Index(line, ":"); indent >= 4 && indent < 28 && colon > indent {
+				value := colon + 1 + len(line[colon+1:]) - len(strings.TrimLeft(line[colon+1:], " "))
+				if line[colon-1] == ' ' || colon < 29 && value < len(line) && value != 30 {
+					t.Errorf("width=%d detached colon or unaligned value: %q", width, line)
+				}
 			}
 		}
 		lines := strings.Count(out, "\n")
@@ -55,7 +58,7 @@ func TestWifiSummaryContinuationKeepsValuesAndIndentation(t *testing.T) {
 		if displayWidth(line) > 60 {
 			t.Fatalf("line overflow: %q", line)
 		}
-		if strings.Index(line, ": ") != 28 && !strings.HasPrefix(line, strings.Repeat(" ", 30)) {
+		if !strings.HasPrefix(line, "    SSID:") && !strings.HasPrefix(line, "    DNS:") && !strings.HasPrefix(line, strings.Repeat(" ", 30)) {
 			t.Fatalf("continuation escaped its value column: %q", line)
 		}
 	}

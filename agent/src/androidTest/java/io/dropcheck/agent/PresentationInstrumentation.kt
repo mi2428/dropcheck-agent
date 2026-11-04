@@ -76,18 +76,44 @@ class PresentationInstrumentation : Instrumentation() {
                         check(rendered.text.toString().contains("\n  Identity\n"))
                         if (columns >= 48) {
                             val identity = rendered.text.toString().lines().first { it.startsWith("    SSID") }
-                            check(identity.indexOf(": ") == 32) { "summary value column moved" }
+                            check(identity.startsWith("    SSID:")) { "summary colon detached from its label" }
                             val text = rendered.text.toString()
-                            val first = text.indexOf(':', text.indexOf("Requested"))
-                            val second = text.indexOf(':', text.indexOf("更新経過"))
+                            val requested = text.indexOf("Requested:")
+                            val updated = text.indexOf("更新経過:")
+                            check(requested >= 0 && updated >= 0) { "metadata colon detached from its label" }
+                            val first = text.indexOf("cached", requested)
+                            val second = text.indexOf("0ms", updated)
+                            check(first >= 0 && second >= 0)
                             check(kotlin.math.abs(view.layout.getPrimaryHorizontal(first) - view.layout.getPrimaryHorizontal(second)) <= 0.5f) { "native Unicode field columns differ" }
                             val table = text.indexOf("CJK\tVALUE\tAGE(s)")
                             check(table >= 0)
+                            check(text.substring(0, table).endsWith("\n\n") && text.endsWith("123.456\n\n")) { "native table boundary missing" }
                             val valueStart = table + "CJK\t".length
                             val cellWidth = ceil(listOf("CJK", "日本語", "ascii").maxOf { view.paint.measureText(it) })
                             val gap = ceil(view.paint.measureText(" ") * 2)
                             check(kotlin.math.abs(view.layout.getPrimaryHorizontal(valueStart) - view.layout.getPrimaryHorizontal(table) - cellWidth - gap) <= 0.5f) { "native table gap is not two spaces" }
                         }
+                        val boundary = AgentPresentationBlock.create(listOf(AgentBlockPart.Text("before\n\n"),
+                            AgentBlockPart.Table(listOf(AgentBlockPart.Column("H"), AgentBlockPart.Column("V")), listOf(listOf("x", "0"))),
+                            AgentBlockPart.Text(""), AgentBlockPart.Text("\nafter"),
+                            AgentBlockPart.Table(listOf(AgentBlockPart.Column("H"), AgentBlockPart.Column("V")), emptyList())), 0)
+                        val boundaryText = checkNotNull(AgentNativeBlockLayout.render(boundary, actualContent, view.paint)).text.toString()
+                        check(boundaryText == "before\n\nH\tV\nx\t0\n\nafter\n\nH\tV\n\n") { "native table separators duplicated or omitted" }
+                        val longLabel = AgentPresentationBlock.create(listOf(AgentBlockPart.Field("LongLabel".repeat(8), "END")), 0)
+                        val longText = checkNotNull(AgentNativeBlockLayout.render(longLabel, actualContent, view.paint)).text.toString()
+                        check(longText.lines().none { it.trim() == ":" }) { "wrapped colon detached from label" }
+                        check(longText.filterNot(Char::isWhitespace).contains("LongLabel".repeat(8) + ":END")) { "wrapped label or value lost" }
+                        val empty = AgentPresentationBlock.create(listOf(AgentBlockPart.Table(
+                            listOf(AgentBlockPart.Column("LONGNAME"), AgentBlockPart.Column("VALUE")), emptyList())), 0)
+                        val emptyText = checkNotNull(AgentNativeBlockLayout.render(empty, ceil(8 * view.paint.measureText("0")).toInt(), view.paint)).text.toString()
+                        check(emptyText == "\nLONGNAME\nVALUE\n\n") { "narrow empty table lost headers or boundaries" }
+                        val scanRecords = AgentPresentationBlock.create(listOf(AgentBlockPart.Text("before"),
+                            AgentBlockPart.Scan(listOf(listOf("Lab", "B".repeat(64), "R".repeat(50), "?", "?", "?", "?", "?")))), 0)
+                        val recordText = checkNotNull(AgentNativeBlockLayout.render(scanRecords, ceil(24 * view.paint.measureText("0")).toInt(), view.paint)).text.toString()
+                        val counter = recordText.indexOf("AP display:")
+                        check(recordText.startsWith("before\n\nSSID:")) { "Scan record top boundary missing" }
+                        check(counter > 0 && recordText.substring(0, counter).endsWith("\n\n")) { "Scan record bottom boundary missing" }
+                        check(recordText.filterNot(Char::isWhitespace).contains("B".repeat(64))) { "Scan record identity lost" }
                         checked++
                     }
                 }

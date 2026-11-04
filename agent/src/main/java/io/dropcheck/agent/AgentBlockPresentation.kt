@@ -25,15 +25,26 @@ internal class AgentPresentationBlock private constructor(
     val minimumSizeSp: Float,
     val safeValueFile: AgentSafeValueFile?,
 ) {
-    val fullText: String get() = parts.joinToString("\n") { part ->
-        when (part) {
-            is AgentBlockPart.Text -> part.value
-            is AgentBlockPart.Field -> fieldText(part.label, part.value) + if (part.fullValue != part.value) "\n${fieldText("${part.label} wire value (availability above)", part.fullValue)}" else ""
-            is AgentBlockPart.Table -> part.rows.joinToString("\n\n") { row ->
-                part.columns.indices.joinToString("\n") { i -> fieldText(part.columns[i].label, row.getOrElse(i) { "?" }) }
+    val fullText: String get() = buildString {
+        var afterTable = false
+        parts.forEachIndexed { index, part ->
+            val text = when (part) {
+                is AgentBlockPart.Text -> part.value
+                is AgentBlockPart.Field -> fieldText(part.label, part.value) + if (part.fullValue != part.value) "\n${fieldText("${part.label} wire value (availability above)", part.fullValue)}" else ""
+                is AgentBlockPart.Table -> tableRecords(part.columns, part.rows)
+                is AgentBlockPart.Scan -> tableRecords(part.columns, part.rows)
             }
-            is AgentBlockPart.Scan -> part.rows.joinToString("\n\n") { row ->
-                part.columns.indices.joinToString("\n") { i -> fieldText(part.columns[i].label, row.getOrElse(i) { "?" }) }
+            if (part is AgentBlockPart.Table || part is AgentBlockPart.Scan) {
+                tableBoundary()
+                append(text)
+                tableBoundary()
+                afterTable = true
+            } else {
+                if (afterTable) append(text.trimStart('\n')) else {
+                    if (index > 0) append('\n')
+                    append(text)
+                }
+                if (text.trimStart('\n').isNotEmpty()) afterTable = false
             }
         }
     }
@@ -80,15 +91,15 @@ internal class AgentPresentationBlock private constructor(
             return AgentPresentationBlock(parts.map { part ->
                 when (part) {
                     is AgentBlockPart.Text -> AgentBlockPart.Text(AgentSafePresentation.text(part.value))
-                    is AgentBlockPart.Field -> AgentBlockPart.Field(AgentSafePresentation.cell(part.label), AgentSafePresentation.field(part.label, part.value), AgentSafePresentation.field(part.label, part.fullValue))
+                    is AgentBlockPart.Field -> AgentBlockPart.Field(AgentSafePresentation.cell(part.label).trimEnd(), AgentSafePresentation.field(part.label, part.value), AgentSafePresentation.field(part.label, part.fullValue))
                     is AgentBlockPart.Table -> AgentBlockPart.Table(
-                        part.columns.also { require(it.isNotEmpty() && part.rows.all { row -> row.size == it.size }) { "Invalid presentation table shape" } }.map { it.copy(label = AgentSafePresentation.cell(it.label)) },
+                        part.columns.also { require(it.isNotEmpty() && part.rows.all { row -> row.size == it.size }) { "Invalid presentation table shape" } }.map { it.copy(label = AgentSafePresentation.cell(it.label).trimEnd()) },
                         part.rows.map { row -> row.mapIndexed { index, value -> AgentSafePresentation.field(part.columns.getOrNull(index)?.label.orEmpty(), value) } },
                     )
                     is AgentBlockPart.Scan -> {
                         require(part.columns.take(2).map { it.label } == listOf("SSID", "BSSID")) { "Invalid presentation scan identity columns" }
                         part.copy(
-                            columns = part.columns.map { it.copy(label = AgentSafePresentation.cell(it.label)) },
+                            columns = part.columns.map { it.copy(label = AgentSafePresentation.cell(it.label).trimEnd()) },
                             rows = part.rows.map { row ->
                                 require(row.size == part.columns.size) { "Invalid presentation scan record shape" }
                                 row.mapIndexed { index, value -> AgentSafePresentation.field(part.columns[index].label, value) }
@@ -102,8 +113,17 @@ internal class AgentPresentationBlock private constructor(
 }
 
 private fun fieldText(label: String, value: String): String {
-    val hanging = " ".repeat(label.length + 2)
-    return "$label: ${value.replace("\n", "\n$hanging")}"
+    val prefix = "${label.trimEnd()}: "
+    return prefix + value.replace("\n", "\n" + " ".repeat(prefix.length))
+}
+
+private fun tableRecords(columns: List<AgentBlockPart.Column>, rows: List<List<String>>): String =
+    if (rows.isEmpty()) columns.joinToString("  ") { it.label }
+    else rows.joinToString("\n\n") { row -> columns.indices.joinToString("\n") { i -> fieldText(columns[i].label, row[i]) } }
+
+private fun StringBuilder.tableBoundary() {
+    while (isNotEmpty() && last() == '\n') setLength(length - 1)
+    append(if (isEmpty()) "\n" else "\n\n")
 }
 
 internal val scanColumns = listOf(
@@ -213,13 +233,14 @@ internal object AgentNativeBlockLayout {
         val out = SpannableStringBuilder()
         var visibleRecords = 0
         var totalRecords = 0
+        var afterTable = false
         val fieldWidths = FloatArray(block.parts.size)
         var start = 0
         while (start < block.parts.size) {
             var end = start
             var width = 0f
             while (end < block.parts.size && block.parts[end] is AgentBlockPart.Field) {
-                width = maxOf(width, paint.measureText((block.parts[end] as AgentBlockPart.Field).label))
+                width = maxOf(width, paint.measureText((block.parts[end] as AgentBlockPart.Field).label + ":"))
                 end++
             }
             for (index in start until end) fieldWidths[index] = width
@@ -227,45 +248,59 @@ internal object AgentNativeBlockLayout {
         }
         block.parts.forEachIndexed { index, part ->
             when (part) {
-                is AgentBlockPart.Text -> appendWrapped(out, part.value, contentWidthPx, paint)
+                is AgentBlockPart.Text -> {
+                    val text = if (afterTable) part.value.trimStart('\n') else part.value
+                    if (text.isNotEmpty() || !afterTable) appendWrapped(out, text, contentWidthPx, paint)
+                    if (text.isNotEmpty()) afterTable = false
+                }
                 is AgentBlockPart.Field -> {
                     appendField(out, part.label, part.value, fieldWidths[index], contentWidthPx, paint)
+                    afterTable = false
                 }
                 is AgentBlockPart.Table -> {
                     totalRecords += part.rows.size
-                    val rows = part.rows.take(minOf(ROW_BUDGET - visibleRecords, LINE_BUDGET - out.count { it == '\n' } - 1).coerceAtLeast(0))
+                    val rows = part.rows.take(minOf(ROW_BUDGET - visibleRecords, LINE_BUDGET - out.count { it == '\n' } - tableBoundaryCost(out) - 3).coerceAtLeast(0))
                     if (!appendTable(out, part.columns, rows, contentWidthPx, paint)) {
-                        visibleRecords += appendRecords(out, part.columns, rows, contentWidthPx, paint)
-                    } else visibleRecords += rows.size
+                        val shown = appendRecords(out, part.columns, rows, contentWidthPx, paint)
+                        visibleRecords += shown
+                        afterTable = out.endsWith("\n\n")
+                    } else {
+                        visibleRecords += rows.size
+                        afterTable = true
+                    }
                 }
                 is AgentBlockPart.Scan -> {
                     totalRecords += part.rows.size
-                    val rows = part.rows.take(minOf(ROW_BUDGET - visibleRecords, LINE_BUDGET - out.count { it == '\n' } - 2).coerceAtLeast(0))
+                    val rows = part.rows.take(minOf(ROW_BUDGET - visibleRecords, LINE_BUDGET - out.count { it == '\n' } - tableBoundaryCost(out) - 4).coerceAtLeast(0))
                     var shown = 0
                     if (!appendTable(out, part.columns, rows, contentWidthPx, paint)) {
+                        if (rows.isEmpty()) appendRecords(out, part.columns, rows, contentWidthPx, paint)
+                        else appendTableBoundary(out)
                         rows.groupBy { it[0] }.forEach groupLoop@ { (ssid, group) ->
                             val heading = SpannableStringBuilder()
-                            appendWrapped(heading, "SSID: $ssid", contentWidthPx, paint)
-                            if (out.count { it == '\n' } + heading.count { it == '\n' } >= LINE_BUDGET) return@groupLoop
+                            appendField(heading, "SSID", ssid, paint.measureText("SSID:"), contentWidthPx, paint)
+                            if (out.count { it == '\n' } + heading.count { it == '\n' } + 2 >= LINE_BUDGET) return@groupLoop
                             out.append(heading)
                             if (!appendTable(out, part.columns.drop(1), group.map { it.drop(1) }, contentWidthPx, paint)) {
                                 group.forEach { row ->
                                     val record = SpannableStringBuilder()
+                                    val labelWidth = (part.columns.drop(2).map { it.label + ":" } + "BSSID:").maxOf { paint.measureText(it) }
                                     if (!appendTable(record, part.columns.drop(2), listOf(row.drop(2)), contentWidthPx, paint)) {
-                                        val labelWidth = part.columns.drop(2).maxOf { paint.measureText(it.label) }
                                         part.columns.drop(2).forEachIndexed { i, column -> appendField(record, column.label, row[i + 2], labelWidth, contentWidthPx, paint) }
                                     }
-                                    appendWrapped(record, "BSSID: ${row[1]}", contentWidthPx, paint)
-                                    if (out.count { it == '\n' } + record.count { it == '\n' } <= LINE_BUDGET) {
+                                    appendField(record, "BSSID", row[1], labelWidth, contentWidthPx, paint)
+                                    if (out.count { it == '\n' } + record.count { it == '\n' } + 2 <= LINE_BUDGET) {
                                         out.append(record)
                                         shown++
                                     }
                                 }
                             } else shown += group.size
                         }
+                        if (rows.isNotEmpty()) appendTableBoundary(out)
                     } else shown = rows.size
                     visibleRecords += shown
                     appendWrapped(out, "AP display: shown=$shown total=${part.rows.size}", contentWidthPx, paint)
+                    afterTable = false
                 }
             }
         }
@@ -274,23 +309,38 @@ internal object AgentNativeBlockLayout {
     }
 
     private fun appendRecords(out: SpannableStringBuilder, columns: List<AgentBlockPart.Column>, rows: List<List<String>>, width: Int, paint: Paint): Int {
+        if (rows.isEmpty()) {
+            val header = SpannableStringBuilder()
+            columns.forEach { appendWrapped(header, it.label, width, paint) }
+            if (out.count { it == '\n' } + tableBoundaryCost(out) + header.count { it == '\n' } + 1 <= LINE_BUDGET) {
+                appendTableBoundary(out)
+                out.append(header)
+                appendTableBoundary(out)
+            }
+            return 0
+        }
         var shown = 0
-        val labelWidth = columns.maxOf { paint.measureText(it.label) }
+        val labelWidth = columns.maxOf { paint.measureText(it.label + ":") }
         for (row in rows) {
             val record = SpannableStringBuilder()
             columns.forEachIndexed { i, column -> appendField(record, column.label, row.getOrElse(i) { "?" }, labelWidth, width, paint) }
-            if (out.count { it == '\n' } + record.count { it == '\n' } > LINE_BUDGET) break
+            if (out.count { it == '\n' } + record.count { it == '\n' } + (if (shown == 0) tableBoundaryCost(out) else 0) + 2 > LINE_BUDGET) break
+            if (shown == 0) appendTableBoundary(out)
             out.append(record)
             shown++
         }
+        if (shown > 0) appendTableBoundary(out)
         return shown
     }
 
     private fun appendField(out: SpannableStringBuilder, label: String, value: String, labelWidth: Float, width: Int, paint: Paint) {
-        val valueStart = labelWidth + paint.measureText(":  ")
+        val valueStart = labelWidth + paint.measureText(" ")
         if (valueStart + paint.measureText("MMMMMMMM") > width) {
             val indent = label.takeWhile { it == ' ' } + "  "
-            appendWrapped(out, label.trimEnd() + ":", width, paint, indent)
+            val heading = SpannableStringBuilder()
+            appendWrapped(heading, label, (width - paint.measureText(":")).toInt().coerceAtLeast(1), paint, indent)
+            heading.delete(heading.length - 1, heading.length).append(":\n")
+            out.append(heading)
             appendWrapped(out, indent + value.replace("\n", "\n$indent"), width, paint, indent)
             return
         }
@@ -304,9 +354,8 @@ internal object AgentNativeBlockLayout {
         }
         wrapped.toString().removeSuffix("\n").split('\n').forEachIndexed { index, line ->
             if (index == 0) {
-                out.append(label)
-                space(labelWidth - paint.measureText(label))
-                out.append(":  ")
+                out.append(label).append(':')
+                space(valueStart - paint.measureText(label + ":"))
             } else space(valueStart)
             out.append(line).append('\n')
         }
@@ -315,9 +364,9 @@ internal object AgentNativeBlockLayout {
     fun shrinkFloor(baseSizeSp: Float, minimumSizeSp: Float): Float = maxOf(baseSizeSp * 0.9f, 10f, minimumSizeSp)
 
     private fun appendTable(out: SpannableStringBuilder, columns: List<AgentBlockPart.Column>, rows: List<List<String>>, width: Int, paint: Paint): Boolean {
-        if (rows.isEmpty()) return true
+        if (columns.isEmpty()) return false
         if (rows.any { row -> row.any { '\n' in it } }) return false
-        if (out.count { it == '\n' } + rows.size + 1 > LINE_BUDGET) return false
+        if (out.count { it == '\n' } + tableBoundaryCost(out) + rows.size + 2 > LINE_BUDGET) return false
         val widths = columns.indices.map { i ->
             kotlin.math.ceil((listOf(columns[i].label) + rows.map { it.getOrElse(i) { "?" } }).maxOf { paint.measureText(it) }).toFloat()
         }
@@ -327,6 +376,7 @@ internal object AgentNativeBlockLayout {
         val stops = mutableListOf<Int>()
         var x = 0f
         widths.dropLast(1).forEach { w -> x += w + gap; stops += kotlin.math.ceil(x).toInt() }
+        appendTableBoundary(out)
         val start = out.length
         fun appendRow(row: List<String>) {
             columns.indices.forEach { i ->
@@ -349,7 +399,19 @@ internal object AgentNativeBlockLayout {
         appendRow(columns.map { it.label })
         rows.forEach(::appendRow)
         stops.forEach { stop -> out.setSpan(TabStopSpan.Standard(stop), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
+        appendTableBoundary(out)
         return true
+    }
+
+    private fun tableBoundaryCost(out: CharSequence): Int {
+        val contentEnd = out.indexOfLast { it != '\n' } + 1
+        return (if (contentEnd == 0) 1 else 2) - (out.length - contentEnd)
+    }
+
+    private fun appendTableBoundary(out: SpannableStringBuilder) {
+        val contentEnd = out.indexOfLast { it != '\n' } + 1
+        out.delete(contentEnd, out.length)
+        out.append(if (contentEnd == 0) "\n" else "\n\n")
     }
 
     private fun appendWrapped(out: SpannableStringBuilder, value: String, width: Int, paint: Paint, continuationIndent: String = "") {

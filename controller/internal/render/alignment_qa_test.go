@@ -99,9 +99,10 @@ func TestAlignmentQAUnicodeTablesAcrossCommandFamilies(t *testing.T) {
 func TestAlignmentQAFieldsAndRawBoundaries(t *testing.T) {
 	rows := [][2]string{{"短い", "first"}, {"Long label", "second"}, {"URL", "https://example.test/" + strings.Repeat("x", 80)}}
 	wide := Fields(rows, Presentation{Width: 120})
-	for line := range strings.SplitSeq(strings.TrimSuffix(wide, "\n"), "\n") {
-		if displayColumn(line, ":  ") != 12 {
-			t.Fatalf("field columns differ: %q", line)
+	for i, value := range []string{"first", "second", "https://example.test/"} {
+		line := renderedLineContaining(wide, value)
+		if displayColumn(line, value) != 14 || !strings.HasPrefix(strings.TrimLeft(line, " "), rows[i][0]+":") {
+			t.Fatalf("field value columns differ or colon is detached: %q", line)
 		}
 	}
 	for _, width := range []int{8, 24, 40} {
@@ -117,10 +118,50 @@ func TestAlignmentQAFieldsAndRawBoundaries(t *testing.T) {
 		if !strings.HasPrefix(line, "  ") {
 			t.Fatalf("wrapped label escaped its indentation: %q", line)
 		}
+		if strings.TrimSpace(line) == ":" {
+			t.Fatalf("wrapped colon detached from label: %q", line)
+		}
 	}
 	raw := "Raw:    untouched:    spacing\nhttps://example.test/a:b"
 	if got := TextBlock(raw, Presentation{}); got != raw+"\n" {
 		t.Fatal("raw/URL text was guessed to be structured fields", got)
+	}
+}
+
+func TestAlignmentQAKVContinuationSharesTheValueColumn(t *testing.T) {
+	for _, width := range []int{24, 40, 80, 120} {
+		var b strings.Builder
+		value := strings.Repeat("2001:db8::1", 4) + "\nnext-value"
+		writeKVRows(&b, kv("a", value), kv("longer label", "false"))
+		out := wrapPresentation(b.String(), width)
+		lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+		column := strings.Index(lines[0], "2001")
+		if column < 0 || !strings.HasPrefix(strings.TrimLeft(lines[0], " "), "a:") {
+			t.Fatalf("missing first field: %q", out)
+		}
+		for _, line := range lines[1 : len(lines)-1] {
+			if len(line)-len(strings.TrimLeft(line, " ")) != column || displayWidth(line) > width {
+				t.Fatalf("width=%d continuation escaped its value column: %q", width, line)
+			}
+		}
+		if !strings.Contains(alignmentCompact(out), alignmentCompact(value)) || displayColumn(lines[len(lines)-1], "false") != column {
+			t.Fatalf("width=%d value lost or columns differ: %q", width, out)
+		}
+	}
+}
+
+func TestAlignmentQAEmptyDNSRetainsNarrowHeaders(t *testing.T) {
+	result := &controlpb.CommandResult{Payload: &controlpb.CommandResult_ResolveDns{ResolveDns: &controlpb.ResolveDnsResult{}}}
+	for _, width := range []int{8, 24, 80} {
+		out, err := CommandResult("self", result, command.Options{}, pipeline.FormatText, Presentation{Interactive: true, Width: width})
+		if err != nil || !strings.Contains(alignmentCompact(out), "TYPE") || !strings.Contains(alignmentCompact(out), "ADDRESS") || !strings.HasSuffix(out, "\n\n") {
+			t.Fatalf("width=%d empty DNS headers or boundary lost: %q %v", width, out, err)
+		}
+		for line := range strings.SplitSeq(out, "\n") {
+			if displayWidth(line) > width {
+				t.Fatalf("width=%d empty DNS overflow: %q", width, line)
+			}
+		}
 	}
 }
 

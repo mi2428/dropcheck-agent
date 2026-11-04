@@ -252,7 +252,7 @@ func TestRenderWifiStatusShowsCapabilities(t *testing.T) {
 		"11v_bss_transition",
 		"phy",
 		"eht",
-		"roaming\n    11k\n    11r\n    11v_bss_transition",
+		"roaming: 11k 11r 11v_bss_transition",
 		"link",
 		"tx=900Mbps rx=1200Mbps",
 		"sta_mac",
@@ -283,11 +283,11 @@ func TestRenderWifiStatusShowsCapabilities(t *testing.T) {
 		"default_route=missing",
 		"accept_ra_min_lft=180",
 	} {
-		if !strings.Contains(out, want) {
+		if !strings.Contains(strings.Join(strings.Fields(out), " "), strings.Join(strings.Fields(want), " ")) {
 			t.Fatalf("rendered output = %q, missing %q", out, want)
 		}
 	}
-	if strings.Index(out, "\nRoutes:") >= strings.Index(out, "\nDNS:") || strings.Index(out, "\nDNS:") >= strings.Index(out, "\nDomains:") {
+	if strings.Index(out, "\n  Routes:") >= strings.Index(out, "\n  DNS:") || strings.Index(out, "\n  DNS:") >= strings.Index(out, "\n  Domains:") {
 		t.Fatalf("network rows are not ordered routes -> DNS -> domains:\n%s", out)
 	}
 	for _, unwanted := range []string{
@@ -527,7 +527,7 @@ func TestRenderWifiStatusSummarizesMLOWithoutLinkDump(t *testing.T) {
 			t.Fatalf("rendered output = %q, included %q", out, unwanted)
 		}
 	}
-	if !strings.Contains(out, "MLD: 02:00:00:00:00:01") || !strings.Contains(out, "Associated: 1") {
+	if compact := strings.Join(strings.Fields(out), " "); !strings.Contains(compact, "MLD: 02:00:00:00:00:01") || !strings.Contains(compact, "Associated: 1") {
 		t.Fatalf("missing current MLO summary: %s", out)
 	}
 }
@@ -866,6 +866,7 @@ func displayColumn(line string, needle string) int {
 func scanTableRows(out string) []string {
 	rows := []string{}
 	for line := range strings.SplitSeq(out, "\n") {
+		line = strings.TrimLeft(line, " ")
 		if strings.HasPrefix(line, "BSSID:") || strings.HasPrefix(line, "Affiliated AP_MAC:") {
 			rows = append(rows, line)
 		}
@@ -1154,7 +1155,7 @@ func TestRenderWifiScanBriefMLOFiltersAndExpandsAffiliatedLinks(t *testing.T) {
 		t.Fatalf("CommandResult() error = %v", err)
 	}
 	for _, want := range []string{"Wi-Fi scan", "SSID", "BSSID", "SEC_FEATURES", "AP_MLD", "Lab", "gcmp256,sae-gdh,ft-sae-gdh,h2e,ssid-prot,beacon-prot", "aa:bb:cc:dd:ee:ff", "aa:bb:cc:dd:ee:01", "State/Band/CH: idle 5ghz", "LegacyMLO"} {
-		if !strings.Contains(out, want) {
+		if !strings.Contains(strings.Join(strings.Fields(out), " "), want) {
 			t.Fatalf("rendered output = %q, missing %q", out, want)
 		}
 	}
@@ -1173,14 +1174,14 @@ func TestRenderWifiScanBriefMLOFiltersAndExpandsAffiliatedLinks(t *testing.T) {
 	if affiliatedLine == "" {
 		t.Fatalf("rendered output missing affiliated line:\n%s", out)
 	}
-	if !strings.HasPrefix(affiliatedLine, "Affiliated AP_MAC:") {
+	if !strings.HasPrefix(strings.TrimLeft(affiliatedLine, " "), "Affiliated AP_MAC:") {
 		t.Fatalf("affiliated identity is not a complete continuation: %s", affiliatedLine)
 	}
 	parentLine := renderedLineContaining(out, "aa:bb:cc:dd:ee:ff")
 	if parentLine == "" {
 		t.Fatalf("rendered output missing parent line:\n%s", out)
 	}
-	if !strings.Contains(out, "APs: shown=2 total=3") || !strings.Contains(out, "Filter: mlo") {
+	if compact := strings.Join(strings.Fields(out), " "); !strings.Contains(compact, "APs: shown=2 total=3") || !strings.Contains(compact, "Filter: mlo") {
 		t.Fatalf("missing explicit filter/display counts: %s", out)
 	}
 }
@@ -1263,10 +1264,11 @@ func TestRenderWifiScanBriefMLOGroupsSSIDByBandAndListsAPBeforeLink(t *testing.T
 			t.Fatalf("missing full AP/link MAC %s: %s", mac, out)
 		}
 	}
-	if strings.Count(out, "SSID: hp2") != 1 || strings.Count(out, "SSID: cs5") != 1 {
+	compact := strings.Join(strings.Fields(out), " ")
+	if strings.Count(compact, "SSID: hp2") != 1 || strings.Count(compact, "SSID: cs5") != 1 {
 		t.Fatalf("case-sensitive SSID groups are duplicated: %s", out)
 	}
-	if strings.Index(out, "BSSID: 98:8f:00:f0:74:f0") > strings.Index(out, "BSSID: 98:8f:00:f0:75:10") {
+	if strings.Index(compact, "BSSID: 98:8f:00:f0:74:f0") > strings.Index(compact, "BSSID: 98:8f:00:f0:75:10") {
 		t.Fatalf("APs not RSSI-descending within SSID: %s", out)
 	}
 	if strings.Contains(out, "---") {
@@ -1320,7 +1322,7 @@ func TestRenderWifiScanBriefMLOIncludesUnknownStandardWithMetadata(t *testing.T)
 		t.Fatalf("CommandResult() error = %v", err)
 	}
 	for _, want := range []string{"Meraki", "SEC_FEATURES", "6e:ef:9d:c4:8e:70", "6e:ef:9d:c4:8e:60", "APs: shown=2 total=2", "LegacyMLO"} {
-		if !strings.Contains(out, want) {
+		if !strings.Contains(strings.Join(strings.Fields(out), " "), want) {
 			t.Fatalf("rendered output = %q, missing %q", out, want)
 		}
 	}
@@ -1407,14 +1409,14 @@ func TestRenderWifiMLOFiltersScanAndConnection(t *testing.T) {
 		t.Fatalf("CommandResult(ssid) error = %v", err)
 	}
 	for _, want := range []string{
-		"filter            ssid=Lab",
-		"filtered_results  1",
+		"filter: ssid=Lab",
+		"filtered_results: 1",
 		"Network MLO",
 		"Lab",
 		"aa:bb:cc:dd:ee:ff",
 		"no active Wi-Fi connection",
 	} {
-		if !strings.Contains(out, want) {
+		if !strings.Contains(strings.Join(strings.Fields(out), " "), want) {
 			t.Fatalf("rendered output = %q, missing %q", out, want)
 		}
 	}
@@ -1430,13 +1432,13 @@ func TestRenderWifiMLOFiltersScanAndConnection(t *testing.T) {
 		t.Fatalf("CommandResult(bssid) error = %v", err)
 	}
 	for _, want := range []string{
-		"filter            bssid=AA:BB:CC:DD:EE:01",
-		"filtered_results  1",
+		"filter: bssid=AA:BB:CC:DD:EE:01",
+		"filtered_results: 1",
 		"aa:bb:cc:dd:ee:ff",
-		"  affiliated_links",
+		"affiliated_links",
 		"    [-] type=aff link=2 ap_mac=aa:bb:cc:dd:ee:01",
 	} {
-		if !strings.Contains(out, want) {
+		if !strings.Contains(strings.Join(strings.Fields(out), " "), strings.Join(strings.Fields(want), " ")) {
 			t.Fatalf("rendered output = %q, missing %q", out, want)
 		}
 	}

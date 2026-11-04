@@ -32,9 +32,9 @@ func TestPresentationWidthMatrixPreservesSafeIdentity(t *testing.T) {
 					t.Fatalf("width %d overflow: %q", width, line)
 				}
 			}
-			joined := strings.ReplaceAll(out, "\n", "")
+			joined := alignmentCompact(out)
 			for _, value := range append(macs, "psk+sae+future_Mode", "fresh scan timed out", "👩\u200d🔬", "e\u0301") {
-				if !strings.Contains(joined, value) {
+				if !strings.Contains(joined, alignmentCompact(value)) {
 					t.Fatalf("missing %q at %d: %s", value, width, out)
 				}
 			}
@@ -94,7 +94,7 @@ func TestInteractiveScanBriefKeepsAgesInTheTable(t *testing.T) {
 			t.Fatalf("brief appended per-AP records after its table:\n%s", out)
 		}
 		if width == 120 {
-			if strings.Count(out, "\n") > 45 {
+			if strings.Count(out, "\n") > 47 {
 				t.Fatalf("brief appended per-AP records after its table:\n%s", out)
 			}
 			for i, ap := range scan.Results {
@@ -143,15 +143,15 @@ func TestPresentationIPAndURLWidthMatrix(t *testing.T) {
 					t.Fatalf("overflow at %d: %q", width, line)
 				}
 			}
-			full := strings.ReplaceAll(out, "\n", "")
+			full := alignmentCompact(out)
 			value := ip
 			if i == 1 {
 				value = url
 			}
-			if !strings.Contains(full, value) {
+			if !strings.Contains(full, alignmentCompact(value)) {
 				t.Fatalf("identity lost at %d: %s", width, out)
 			}
-			if i == 1 && !strings.Contains(full, "0.00049 expected<=0.00048") {
+			if i == 1 && !strings.Contains(full, "0.00049expected<=0.00048") {
 				t.Fatalf("failure precision lost: %s", out)
 			}
 		}
@@ -174,9 +174,9 @@ func TestScanDetailKeepsFullIdentityAndUnknownLinkAvailability(t *testing.T) {
 				t.Fatalf("overflow at %d: %q", width, line)
 			}
 		}
-		full := strings.ReplaceAll(out, "\n", "")
+		full := alignmentCompact(out)
 		for _, value := range []string{mac, "06:00:00:11:22:33", "東京 e\u0301 👩\u200d🔬", "link ID presence unavailable"} {
-			if !strings.Contains(full, value) {
+			if !strings.Contains(full, alignmentCompact(value)) {
 				t.Fatalf("detail missing %q at %d: %s", value, width, out)
 			}
 		}
@@ -225,7 +225,7 @@ func TestCapabilityListsArePresenceAuthority(t *testing.T) {
 	var b strings.Builder
 	renderDeviceCapabilities(&b, capabilities, Presentation{})
 	for _, value := range []string{"6G: yes", "60G: no", "5G: ?", "mlo: ?", "future_feature: yes"} {
-		if !strings.Contains(wrapPresentation(b.String(), 0), value) {
+		if !strings.Contains(strings.Join(strings.Fields(wrapPresentation(b.String(), 0)), " "), value) {
 			t.Fatalf("missing %q: %s", value, b.String())
 		}
 	}

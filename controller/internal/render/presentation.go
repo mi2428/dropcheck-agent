@@ -79,7 +79,7 @@ func resultTitle(result *controlpb.CommandResult, options command.Options) strin
 	}
 }
 
-func wrapPresentation(text string, width int, align ...bool) string {
+func wrapPresentation(text string, width int) string {
 	var b strings.Builder
 	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 	for i := 0; i < len(lines); {
@@ -90,19 +90,24 @@ func wrapPresentation(text string, width int, align ...bool) string {
 				if !ok {
 					break
 				}
-				labelWidth = max(labelWidth, displayWidth(label))
+				labelWidth = max(labelWidth, displayWidth(strings.TrimRight(label, " ")))
 				end++
 			}
 			for _, line := range lines[i:end] {
 				label, value, _ := strings.Cut(line, "\t")
-				if len(align) == 0 || !align[0] {
-					b.WriteString(wrapPresentation(label+": "+value, width))
-					continue
+				label = strings.TrimRight(label, " ")
+				continuation := label == "" && strings.HasPrefix(value, "\t")
+				if continuation {
+					value = strings.TrimPrefix(value, "\t")
 				}
-				prefix := "  " + padDisplayEnd(label, labelWidth) + ":  "
+				prefix := "  " + padDisplayEnd(label+":", labelWidth+1) + " "
 				if width > 0 && displayWidth(prefix)+8 > width {
-					b.WriteString(wrapPresentation("  "+label+":", width))
+					if !continuation {
+						writeFieldLabel(&b, "  "+label, width)
+					}
 					prefix = "    "
+				} else if continuation {
+					prefix = strings.Repeat(" ", displayWidth(prefix))
 				}
 				if width > 0 {
 					value = ansi.Hardwrap(value, max(1, width-displayWidth(prefix)), true)
@@ -135,7 +140,17 @@ func wrapPresentation(text string, width int, align ...bool) string {
 
 func writeRecord(b *strings.Builder, label string, value any) {
 	// Tabs are owned field boundaries, never guessed from raw text or URL colons.
-	fmt.Fprintf(b, "%s\t%s\n", cleanDisplayCell(label), cleanDisplayCell(fmt.Sprint(value)))
+	prefix := strings.TrimRight(cleanDisplayCell(label), " ") + "\t"
+	for line := range strings.SplitSeq(fmt.Sprint(value), "\n") {
+		fmt.Fprintf(b, "%s%s\n", prefix, cleanDisplayCell(line))
+		// A second owned tab distinguishes a value continuation from an empty key.
+		prefix = "\t\t"
+	}
+}
+
+func writeFieldLabel(b *strings.Builder, label string, width int) {
+	wrapped := wrapPresentation(label, max(1, width-1))
+	b.WriteString(strings.TrimSuffix(wrapped, "\n") + ":\n")
 }
 
 // Fields formats explicitly typed local records without parsing arbitrary text.
@@ -144,7 +159,7 @@ func Fields(rows [][2]string, view Presentation) string {
 	for _, row := range rows {
 		writeRecord(&b, row[0], row[1])
 	}
-	return wrapPresentation(b.String(), view.Width, true)
+	return wrapPresentation(b.String(), view.Width)
 }
 
 // Exact dictionary only: unknown modes/enum values retain their original spelling.

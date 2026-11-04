@@ -24,6 +24,7 @@ func writeDisplayTable(b *strings.Builder, columns []displayTableColumn, rows []
 	if len(columns) == 0 {
 		return
 	}
+	writeTableBoundary(b)
 	preparedHeaders := make([]string, len(columns))
 	for i, column := range columns {
 		preparedHeaders[i] = fitDisplayCell(column.header, column.maxWidth)
@@ -56,12 +57,18 @@ func writeDisplayTable(b *strings.Builder, columns []displayTableColumn, rows []
 			total += width
 		}
 		if total > availableWidth[0] {
+			if len(preparedRows) == 0 {
+				for _, header := range preparedHeaders {
+					b.WriteString(header + "\n")
+				}
+			}
 			for _, row := range preparedRows {
 				for i, column := range columns {
 					writeRecord(b, column.header, row[i])
 				}
 				writeBlankLine(b)
 			}
+			writeTableBoundary(b)
 			return
 		}
 	}
@@ -75,6 +82,21 @@ func writeDisplayTable(b *strings.Builder, columns []displayTableColumn, rows []
 		}
 		writeDisplayTableRow(b, row, widths)
 	}
+	writeTableBoundary(b)
+}
+
+func writeTableBoundary(b *strings.Builder) {
+	text := strings.TrimRight(b.String(), "\n")
+	if text == "" {
+		b.Reset()
+		b.WriteByte('\n')
+		return
+	}
+	if b.Len() > len(text)+2 {
+		b.Reset()
+		b.WriteString(text)
+	}
+	writeBlankLine(b)
 }
 
 func writeDisplayTableRow(b *strings.Builder, row []string, widths []int) {

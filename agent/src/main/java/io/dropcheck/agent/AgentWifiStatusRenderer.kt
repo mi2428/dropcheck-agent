@@ -28,7 +28,7 @@ internal object AgentWifiStatusRenderer {
             val indent = title.takeWhile { it == ' ' } + "  "
             val values = rows.toList().ifEmpty { listOf("Observation" to "? (not present in this snapshot)") }
             values.forEach { (label, value) ->
-                add(AgentBlockPart.Field((indent + label).padEnd(28), value?.toString().orEmpty().ifEmpty { "none" }))
+                add(AgentBlockPart.Field(indent + label, value?.toString().orEmpty().ifEmpty { "none" }))
             }
         }
         val fields = status.observationFieldsList

@@ -108,6 +108,18 @@ Use Up or Ctrl-P for the previous command and Down or Ctrl-N for the next comman
 
 Structured Shell metadata uses aligned field/value columns, including request results, test reports, and monitor output. PC alignment uses display-cell widths, not rune counts. Android aligns native fields with measured text widths and spans; exact retained field facts keep their typed roles after line filters. Repeated probe, test-stage/metric, cycle and address data use tables where useful, with lossless record layouts when tables do not fit. Raw/native reference text and URLs are not inferred to be field records from their colons, and machine JSON is not passed through human column alignment.
 
+The colon belongs immediately after the field label; padding belongs after the colon, never inside the label. Only the values share a column:
+
+```text
+a:    1
+bc:   2
+defg: 3
+```
+
+Wrapped values hang beneath that value column. At narrow widths, the label and its attached colon precede an indented value; even a wrapped long label must not leave the colon on its own line. Tables have exactly one blank line before the header and after the final row. Adjacent tables share the separating blank line; empty headers and lossless record layouts retain their outer boundary. Android native separator lines count toward the table display budget. Its logical/copy fields remain `label: value` records rather than imitating native glyph widths with spaces.
+
+Explicit filters retain their defined line behavior: `find` may remove an initial blank, and `except '^$'` removes blanks. Formatting does not guess table roles from plain text or silently reinsert lines removed by a filter. See [the field and table-boundary QA](qa-field-layout.md) for this follow-up's checks and limits.
+
 See [the alignment adversarial QA](qa-alignment.md) for reproduced layout, identity-selection and information-retention defects, checks and unverified native behavior.
 
 Both Shells support `find <pattern>`, `except <pattern>`, `last <lines>`, `match <pattern>`, `trim <start-column>`, `count`, and exclusive `display json`. The whole pipeline is validated before dispatch, with at most 16 stages. `begin`, `display set`, `no-more`, `save`, `tee` and pipe operations are rejected.
