@@ -170,14 +170,7 @@ func renderIPView(b *strings.Builder, status *controlpb.IpStatus, view Presentat
 			renderMLOLinks(b, "Associated links", status.GetWifi().GetAssociatedMloLinks(), true)
 			renderMLOLinks(b, "Affiliated links", status.GetWifi().GetAffiliatedMloLinks(), true)
 			renderInformationElements(b, status.GetWifi().GetInformationElements())
-			writeRecord(b, "Raw WifiInfo reference", status.GetWifi().GetRaw())
 			renderDiagnosticFields(b, status.GetWifi().GetObservationFields())
-		}
-		if view.Detail && status.GetRawLinkProperties() != "" {
-			writeRecord(b, "Raw LinkProperties", status.GetRawLinkProperties())
-		}
-		if view.Detail && status.GetRawCapabilities() != "" {
-			writeRecord(b, "Raw capabilities", status.GetRawCapabilities())
 		}
 		if view.Interactive {
 			renderDiagnosticFields(b, fields)

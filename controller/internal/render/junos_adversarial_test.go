@@ -11,7 +11,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestWifiStatusRawDumpsRequireFull(t *testing.T) {
+func TestWifiStatusFullKeepsStructuredEvidenceWithoutRawDumps(t *testing.T) {
 	link := &controlpb.MloLinkInfo{LinkId: 3, Raw: "link-raw-marker", ObservationFields: []*controlpb.DiagnosticField{{Key: "identity.state", Value: "available"}}}
 	ie := &controlpb.WifiInformationElement{Id: 127, ByteCount: 3, BytesHex: "000008"}
 	conn := &controlpb.WifiConnection{Ssid: "password=Guest", NetworkId: 4321, WifiStandard: "802.11be", FrequencyMhz: 6115, ChannelWidth: "80MHz", RssiDbm: -55, TxLinkSpeedMbps: 1200, RxLinkSpeedMbps: 900,
@@ -62,8 +62,11 @@ func TestWifiStatusRawDumpsRequireFull(t *testing.T) {
 					t.Errorf("full=%t width=%d wrong detail visibility for %s", full, width, value)
 				}
 			}
-			for _, value := range []string{"wifi-raw-marker", "link-raw-marker", "ip-link-raw-marker", "ip-caps-raw-marker", "ip-wifi-raw-marker", "scan-raw-marker", "network-link-raw-marker", "network-caps-raw-marker", "network-wifi-raw-marker", "000008", "RawWifiInforeference", "RawScanResultreference", "RawMloLinkreference", "RawLinkProperties", "Rawcapabilities"} {
-				if strings.Contains(compact, value) != full {
+			if strings.Contains(compact, "000008") != full {
+				t.Error("structured IE hex visibility changed")
+			}
+			for _, value := range []string{"wifi-raw-marker", "link-raw-marker", "ip-link-raw-marker", "ip-caps-raw-marker", "ip-wifi-raw-marker", "scan-raw-marker", "network-link-raw-marker", "network-caps-raw-marker", "network-wifi-raw-marker", "RawWifiInforeference", "RawScanResultreference", "RawMloLinkreference", "RawLinkProperties", "Rawcapabilities"} {
+				if strings.Contains(compact, value) {
 					t.Errorf("full=%t width=%d wrong raw visibility for %s", full, width, value)
 				}
 			}
@@ -106,7 +109,7 @@ func TestJunosQAFullBundleIncludesEvidenceAtEveryWidth(t *testing.T) {
 				}
 				continue
 			}
-			for _, value := range []string{"4321", "5678", "8765", "7890", "network-marker", "a1b2c3", "wifi-marker", "scan-marker", "venue-marker", "operator-marker", "password=Guest", "EHT/MLOinterpretation"} {
+			for _, value := range []string{"4321", "5678", "8765", "7890", "a1b2c3", "venue-marker", "operator-marker", "password=Guest", "EHT/MLOinterpretation"} {
 				if !strings.Contains(compact, value) {
 					t.Errorf("mode=%s width=%d missing=%s", mode, width, value)
 				}
@@ -120,7 +123,7 @@ func TestJunosQAHistoricalWifiTestRetainsItsSnapshot(t *testing.T) {
 		Status: &controlpb.WifiStatus{Connection: &controlpb.WifiConnection{NetworkId: 5432, Raw: "assert-marker password=qa-hidden-secret"}},
 	}}}
 	out, err := CommandResult("target", SanitizedResult(result), command.Options{Detail: true}, pipeline.FormatText, Presentation{Interactive: true, Detail: true})
-	if err != nil || !strings.Contains(out, "5432") || !strings.Contains(out, "assert-marker") || strings.Contains(out, "qa-hidden-secret") {
+	if err != nil || !strings.Contains(out, "5432") || strings.Contains(out, "assert-marker") || strings.Contains(out, "qa-hidden-secret") {
 		t.Fatal("historical observation lost or unsafe", err)
 	}
 }

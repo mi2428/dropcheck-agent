@@ -29,8 +29,5 @@ func renderScanReferenceEvidence(b *strings.Builder, ap *controlpb.WifiScanResul
 	writeRecord(b, "Timestamp us (boot clock)", ap.GetTimestampUs())
 	writeRecord(b, "Passpoint", ap.GetPasspoint())
 	renderInformationElements(b, ap.GetInformationElements())
-	if ap.GetRaw() != "" {
-		writeRecord(b, "Raw ScanResult reference", ap.GetRaw())
-	}
 	renderDiagnosticFields(b, ap.GetObservationFields())
 }

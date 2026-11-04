@@ -93,3 +93,42 @@ func TestNetworkIdentityBoundary(t *testing.T) {
 		}
 	}
 }
+
+func TestRawDebugReusesPassiveRPCsAndExplicitNetworkIdentity(t *testing.T) {
+	for _, tc := range []struct{ line, view string }{
+		{"debug android wifi info", "wifi info"},
+		{"debug android wifi scan ssid 'password=Guest' band 6ghz", "wifi scan"},
+		{"debug android network capabilities network-id 42", "network capabilities"},
+		{"debug android network wifi-info network-id 42", "network wifi-info"},
+		{"debug android network link-properties network-id 42", "network link-properties"},
+	} {
+		args, _ := SplitArgs(tc.line)
+		for _, parse := range []func([]string) (Parsed, error){ParseShellTokens, ParseTokens} {
+			parsed, err := parse(args)
+			if err != nil || parsed.Operation.Options.RawView != tc.view || ValidateOperation(parsed.Operation) != nil {
+				t.Fatalf("%s: %+v %v", tc.line, parsed, err)
+			}
+			wire := parsed.Operation.Command
+			switch tc.view {
+			case "wifi info":
+				if wire.GetGetWifiStatus() == nil {
+					t.Fatal("debug WifiInfo must reuse passive Wi-Fi status")
+				}
+			case "wifi scan":
+				if wire.GetGetWifiScan() == nil || wire.GetGetFreshWifiScan() != nil || parsed.Operation.Options.WifiScanSSID != "password=Guest" {
+					t.Fatal("debug scan changed acquisition or literal filtering")
+				}
+			default:
+				if wire.GetGetNetwork().GetNetworkId() != "42" || parsed.Operation.Options.RawNetworkID != "42" {
+					t.Fatal("debug Network lost its explicit identity")
+				}
+			}
+		}
+	}
+	if _, err := ParseShellTokens(strings.Fields("show adb")); err == nil {
+		t.Fatal("interactive raw ADB acquisition must move to debug")
+	}
+	if parsed, err := ParseTokens(strings.Fields("show adb wifi status")); err != nil || parsed.ADBKind == "" {
+		t.Fatal("independent one-shot ADB spelling changed", err)
+	}
+}

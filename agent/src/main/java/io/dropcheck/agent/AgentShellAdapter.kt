@@ -133,6 +133,7 @@ internal class AgentShellAdapter(private val context: Context, private val logge
         }
         if (!hasPayload) return failure(request.commandCase.name, result, secrets)
         val evaluated = if (request.commandCase == RunCommand.CommandCase.TRACEROUTE) evaluateShellTraceroute(result, command.via) else evaluateShellPayload(request, result)
+        if (command.rawView.isNotEmpty()) return AgentRawDebugRenderer.render(command, evaluated)
         val parts = when (request.commandCase) {
             RunCommand.CommandCase.GET_NETWORKS, RunCommand.CommandCase.GET_NETWORK -> buildList {
                 add(AgentBlockPart.Field("Observed at unix ms", result.networkSnapshot.observedAtUnixMs.toString()))

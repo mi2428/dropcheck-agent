@@ -77,6 +77,34 @@ func safePresentationProto(message proto.Message) proto.Message {
 	return copy
 }
 
+// Structured output omits whole-object string dumps, not typed numeric/IE evidence.
+func structuredResult(result *controlpb.CommandResult) *controlpb.CommandResult {
+	copy := SanitizedResult(result)
+	var strip func(protoreflect.Message)
+	strip = func(message protoreflect.Message) {
+		message.Range(func(field protoreflect.FieldDescriptor, value protoreflect.Value) bool {
+			if field.Kind() == protoreflect.StringKind && !field.IsList() {
+				switch field.Name() {
+				case "raw", "raw_link_properties", "raw_capabilities":
+					message.Clear(field)
+				}
+			}
+			if field.Kind() == protoreflect.MessageKind {
+				if field.IsList() {
+					for i := 0; i < value.List().Len(); i++ {
+						strip(value.List().Get(i).Message())
+					}
+				} else {
+					strip(value.Message())
+				}
+			}
+			return true
+		})
+	}
+	strip(copy.ProtoReflect())
+	return copy
+}
+
 // Select literal identities on a detached observation before display normalization.
 func presentationResult(result *controlpb.CommandResult, options command.Options) *controlpb.CommandResult {
 	copy := proto.Clone(result).(*controlpb.CommandResult)

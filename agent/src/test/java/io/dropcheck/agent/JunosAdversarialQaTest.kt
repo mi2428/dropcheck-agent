@@ -69,11 +69,12 @@ class JunosAdversarialQaTest {
             .addNetworks(NetworkDiagnostics.newBuilder().setNetworkId("42").setIpStatus(IpStatus.newBuilder().setNetworkId("42").setWifi(WifiConnection.newBuilder().setNetworkId(8765).setSubscriptionId(7890).setRaw("network-marker"))))
             .setScan(WifiScan.newBuilder().addResults(WifiScanResult.newBuilder().setVenueName("venue-marker").setOperatorFriendlyName("operator-marker").setRaw("scan-marker token=qa-new-secret"))).build()
         val out = AgentPresentationBlock.create(AgentWifiDiagnosticsRenderer.presentation(diagnostics, true, true, true), 0).fullText
-        for (value in listOf("4321", "5678", "8765", "7890", "network-marker", "a1b2c3", "wifi-marker", "scan-marker", "venue-marker", "operator-marker", "password=Guest", "EHT/MLO interpretation")) assertTrue(value, value in out)
+        for (value in listOf("4321", "5678", "8765", "7890", "a1b2c3", "venue-marker", "operator-marker", "password=Guest", "EHT/MLO interpretation")) assertTrue(value, value in out)
+        for (value in listOf("network-marker", "wifi-marker", "scan-marker")) assertFalse(value, value in out)
         assertFalse("qa-new-secret" in out)
     }
 
-    @Test fun statusRawDumpsRequireFullWithoutLosingStructuredEvidence() {
+    @Test fun statusFullKeepsStructuredEvidenceWithoutRawDumps() {
         val link = MloLinkInfo.newBuilder().setLinkId(3).setRaw("link-raw-marker")
             .addObservationFields(DiagnosticField.newBuilder().setKey("identity.state").setValue("available"))
         val ie = WifiInformationElement.newBuilder().setId(127).setByteCount(3).setBytesHex("000008")
@@ -111,7 +112,8 @@ class JunosAdversarialQaTest {
             for (out in listOf(block.fullText, json)) {
                 for (value in listOf("password=Guest", "4321", "11v_bss_transition", "-55dBm", "1200Mbps", "900Mbps", "capable=true required=true", "192.0.2.2/24", "2001:db8::2/64", "192.0.2.1", "192.0.2.53")) assertTrue("$line lost $value", value in out)
                 for (value in listOf("6543", "8765", "venue-marker", "typed-source-marker", "device-error-marker", "scan-error-marker", "EHT/MLO interpretation", "metadata-marker")) assertEquals("$line detail visibility: $value", full, value in out)
-                for (value in listOf("wifi-raw-marker", "link-raw-marker", "ip-link-raw-marker", "ip-caps-raw-marker", "ip-wifi-raw-marker", "scan-raw-marker", "network-link-raw-marker", "network-caps-raw-marker", "network-wifi-raw-marker", "000008", "Raw WifiInfo reference", "Raw ScanResult reference", "Raw MloLink reference", "Raw LinkProperties", "Raw capabilities")) assertEquals("$line raw visibility: $value", full, value in out)
+                assertEquals("$line structured IE hex visibility", full, "000008" in out)
+                for (value in listOf("wifi-raw-marker", "link-raw-marker", "ip-link-raw-marker", "ip-caps-raw-marker", "ip-wifi-raw-marker", "scan-raw-marker", "network-link-raw-marker", "network-caps-raw-marker", "network-wifi-raw-marker", "Raw WifiInfo reference", "Raw ScanResult reference", "Raw MloLink reference", "Raw LinkProperties", "Raw capabilities")) assertFalse("$line raw visibility: $value", value in out)
                 assertFalse("qa-status-secret" in out)
             }
             assertTrue(json.contains("\"ok\":false"))

@@ -29,7 +29,8 @@ def main():
             ('wifi-mlo', b'show wifi status eht'),
             ('network-default', b'show network default'),
             ('network-id', b'show network id 12'),
-            ('adb', b'show adb'),
+            ('adb', b'debug adb'),
+            ('raw-debug', b'debug android wifi info'),
             ('pipeline', b'show wifi scan | count'),
             ('json', b'show wifi status | display json'),
             ('connect', b'request wifi connect Lab passphrase round2-synthetic-secret'),
@@ -122,7 +123,7 @@ def run_case(binary, version, name, keys, updates, versions, cancel=False, unava
         settle_prompt()
         if cancel:
             log = Path(re.search(rb'PTY_CANCEL_LOG=([^\r\n]+)', transcript).group(1).decode())
-            os.write(master, b'show adb timeout 10000\r')
+            os.write(master, b'debug adb timeout 10000\r')
             receive(b'ADB 1/10')
             deadline = time.monotonic() + 3
             while not log.exists() and time.monotonic() < deadline:

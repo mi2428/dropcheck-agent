@@ -494,7 +494,7 @@ func TestTargetResolutionContracts(t *testing.T) {
 						}
 						ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 						defer cancel()
-						for _, line := range []string{"request ping example.test count 1", "show adb wifi"} {
+						for _, line := range []string{"request ping example.test count 1", "debug adb wifi"} {
 							if _, err := parseShellLine(line); err != nil {
 								t.Fatal(err)
 							}

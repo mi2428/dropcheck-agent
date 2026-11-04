@@ -130,7 +130,7 @@ func runCLI(ctx context.Context, opts shellOptions, rawArgs []string) error {
 		if err != nil {
 			return err
 		}
-		return runADBDiagnosticsForAgents(ctx, state, agents, command.ADBKind, commandOutputOptions{format: cliOpts.Format, strict: true})
+		return runADBDiagnosticsForAgents(ctx, state, agents, command.ADBKind, commandOutputOptions{format: cliOpts.Format, strict: true, adbTimeoutMs: command.ADBTimeoutMs})
 	default:
 		agents, err := state.commandTargets()
 		if err != nil {
