@@ -30,7 +30,7 @@ func TestShellPipelineQuotingAndGrammar(t *testing.T) {
 	if !IsHelpLine("show devices | ?") {
 		t.Fatal("pipe help not recognized")
 	}
-	for _, line := range []string{"show adb", "show adb wifi", "show adb connectivity diagnostics", "show adb connectivity traffic timeout 1000"} {
+	for _, line := range []string{"debug adb", "debug adb wifi", "debug adb connectivity diagnostics", "debug adb connectivity traffic timeout 1000"} {
 		parsed, err := ParseLine(line)
 		if err != nil || parsed.Kind != ADBDiagnostics || parsed.ADBDiagnosticsKind == "" || parsed.ADBTimeoutMs == 0 {
 			t.Fatalf("host ADB extension %q: %+v %v", line, parsed, err)

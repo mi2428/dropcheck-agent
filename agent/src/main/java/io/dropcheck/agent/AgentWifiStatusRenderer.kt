@@ -139,7 +139,6 @@ internal object AgentWifiStatusRenderer {
                 addAll(mloLinkParts("Affiliated links", conn.affiliatedMloLinksList))
                 text("WifiInfo IPv4 (separate observation)", conn.ipv4Address)
                 addAll(informationElementParts(conn.informationElementsList))
-                if (conn.raw.isNotEmpty()) text("Raw WifiInfo reference", conn.raw)
                 conn.observationFieldsList.forEach { text(it.key, it.value) }
             }
             if (conn.applicableRedactions.isNotEmpty() && conn.applicableRedactions != "0") text("Note", "identity redactions=${conn.applicableRedactions}")
@@ -215,11 +214,8 @@ internal object AgentWifiStatusRenderer {
                 addAll(mloLinkParts("Associated links", status.wifi.associatedMloLinksList))
                 addAll(mloLinkParts("Affiliated links", status.wifi.affiliatedMloLinksList))
                 addAll(informationElementParts(conn.informationElementsList))
-                if (conn.raw.isNotEmpty()) text("Raw WifiInfo reference", conn.raw)
                 conn.observationFieldsList.forEach { text(it.key, it.value) }
             }
-            if (detail && status.rawLinkProperties.isNotEmpty()) text("Raw LinkProperties", status.rawLinkProperties)
-            if (detail && status.rawCapabilities.isNotEmpty()) text("Raw capabilities", status.rawCapabilities)
             fields.forEach { text(it.key, it.value) }
         }
     }
@@ -247,7 +243,6 @@ internal object AgentWifiStatusRenderer {
         add(AgentBlockPart.Field("AP link ID", AgentObservationPresentation.value(ap.observationFieldsList, "ap_mlo_link_id", ap.apMloLinkId.toString()), ap.apMloLinkId.toString()))
         addAll(mloLinkParts("Affiliated link details", ap.affiliatedMloLinksList))
         addAll(informationElementParts(ap.informationElementsList))
-        if (ap.raw.isNotEmpty()) add(AgentBlockPart.Field("Raw ScanResult reference", ap.raw))
         ap.observationFieldsList.forEach { add(AgentBlockPart.Field(it.key, it.value)) }
     }
 
@@ -266,7 +261,6 @@ internal object AgentWifiStatusRenderer {
             observed("Tx/Rx Mbps", "rates", "${link.txLinkSpeedMbps}/${link.rxLinkSpeedMbps}")
             add(AgentBlockPart.Field("Max Tx/Rx Mbps", "? (maximum-rate availability metadata not supplied)", "${link.maxSupportedTxLinkSpeedMbps}/${link.maxSupportedRxLinkSpeedMbps}"))
             add(AgentBlockPart.Field("Reported max Tx/Rx (availability uncollected)", "${link.maxSupportedTxLinkSpeedMbps}/${link.maxSupportedRxLinkSpeedMbps}Mbps"))
-            if (link.raw.isNotEmpty()) add(AgentBlockPart.Field("Raw MloLink reference", link.raw))
             link.observationFieldsList.forEach { add(AgentBlockPart.Field(it.key, it.value)) }
         }
     }

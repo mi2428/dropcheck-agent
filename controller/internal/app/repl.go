@@ -716,7 +716,7 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 		return nil
 	}
 	var out string
-	if output.format == outputJSON && output.includeAgentHeader {
+	if output.format == outputJSON && output.includeAgentHeader && options.RawView == "" {
 		out, err = renderCommandResultEnvelope(agentDisplayName(agent), commandID, result)
 	} else {
 		if output.interactive {

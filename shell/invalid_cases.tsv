@@ -46,3 +46,12 @@ show checks
 show check last
 set default passphrase test-only
 clear default passphrase
+debug android network capabilities
+debug android network wifi-info
+debug android network link-properties
+debug android network capabilities network-id 0
+debug android network capabilities network-id 01
+debug android network link-properties network-id 2147483648
+debug android wifi scan fresh
+debug android wifi scan ssid Lab bssid 02:00:00:00:00:01
+debug android wifi scan band 6GHz

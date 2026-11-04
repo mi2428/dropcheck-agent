@@ -44,3 +44,14 @@ func TestArgvBoundaryAndFlatSurface(t *testing.T) {
 		}
 	}
 }
+
+func TestDebugNamespacePreservesRawProjectionAndADBBudget(t *testing.T) {
+	parsed, err := Parse(strings.Fields("debug adb wifi timeout 1234"))
+	if err != nil || parsed.Kind != ADBDiagnostics || parsed.ADBKind != "shell-wifi" || parsed.ADBTimeoutMs != 1234 {
+		t.Fatal("debug ADB lost its collection budget", parsed, err)
+	}
+	parsed, err = Parse(strings.Fields("debug android network capabilities network-id 42"))
+	if err != nil || parsed.Kind != AgentCommand || parsed.Operation.Options.RawView != "network capabilities" || parsed.Operation.Command.GetGetNetwork().GetNetworkId() != "42" {
+		t.Fatal("debug Network lost its raw projection or target", parsed, err)
+	}
+}

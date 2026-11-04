@@ -40,8 +40,11 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 	if result == nil {
 		return "", fmt.Errorf("missing command result")
 	}
+	if options.RawView != "" {
+		return rawDebugResult(agent, result, options, format, presentation...)
+	}
 	if format == pipeline.FormatJSON {
-		return renderProtoMessage(SanitizedResult(result))
+		return renderProtoMessage(structuredResult(result))
 	}
 	result = presentationResult(result, options)
 	var b strings.Builder
@@ -186,7 +189,7 @@ func CommandResultEnvelope(agent string, commandID string, result *controlpb.Com
 	if result == nil {
 		return "", fmt.Errorf("missing command result")
 	}
-	result = safePresentationProto(result).(*controlpb.CommandResult)
+	result = structuredResult(result)
 	data, err := protojson.MarshalOptions{
 		Multiline:     true,
 		Indent:        "  ",
@@ -629,9 +632,6 @@ func renderMLOLinks(b *strings.Builder, title string, links []*controlpb.MloLink
 		writeRecord(b, "STA_MAC", observedValue(link.GetObservationFields(), "identity", link.GetStaMacAddress()))
 		if len(full) != 0 && full[0] {
 			writeRecord(b, "Reported max Tx/Rx (availability uncollected)", fmt.Sprintf("%d/%dMbps", link.GetMaxSupportedTxLinkSpeedMbps(), link.GetMaxSupportedRxLinkSpeedMbps()))
-			if link.GetRaw() != "" {
-				writeRecord(b, "Raw MloLink reference", link.GetRaw())
-			}
 			renderDiagnosticFields(b, link.GetObservationFields())
 		}
 	}

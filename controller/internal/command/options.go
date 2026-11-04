@@ -15,6 +15,10 @@ const (
 type Options struct {
 	// Detail selects the local detail presentation (never a wire option).
 	Detail bool
+	// RawView selects an explicit debug-only projection, never an acquisition option.
+	RawView string
+	// RawNetworkID pins the explicit Network selected for a network debug view.
+	RawNetworkID string
 	// TracerouteRequiredHops lists typed hop identities required by the common evaluator.
 	TracerouteRequiredHops []string
 	// WifiRenderMode selects a controller-only Wi-Fi diagnostics presentation.

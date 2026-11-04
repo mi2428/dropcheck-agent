@@ -13,13 +13,13 @@ import (
 
 var shellHostGrammar = []Grammar{
 	{Path: "show devices", Description: "List connected Controller agents"},
-	{Path: "show adb", Values: []string{"timeout"}, Description: "Collect all ten allowlisted ADB sources"},
-	{Path: "show adb wifi", Values: []string{"timeout"}, Description: "Collect five Wi-Fi ADB sources"},
-	{Path: "show adb connectivity", Values: []string{"timeout"}, Description: "Collect five Connectivity ADB sources"},
-	{Path: "show adb connectivity networks", Values: []string{"timeout"}, Description: "Collect Connectivity Network records"},
-	{Path: "show adb connectivity requests", Values: []string{"timeout"}, Description: "Collect Connectivity request records"},
-	{Path: "show adb connectivity diagnostics", Values: []string{"timeout"}, Description: "Collect Connectivity diagnostic records"},
-	{Path: "show adb connectivity traffic", Values: []string{"timeout"}, Description: "Collect traffic-controller records"},
+	{Path: "debug adb", Values: []string{"timeout"}, Description: "Capture raw output from all ten allowlisted ADB sources"},
+	{Path: "debug adb wifi", Values: []string{"timeout"}, Description: "Capture raw output from five Wi-Fi ADB sources"},
+	{Path: "debug adb connectivity", Values: []string{"timeout"}, Description: "Capture raw output from five Connectivity ADB sources"},
+	{Path: "debug adb connectivity networks", Values: []string{"timeout"}, Description: "Capture raw Connectivity Network records"},
+	{Path: "debug adb connectivity requests", Values: []string{"timeout"}, Description: "Capture raw Connectivity request records"},
+	{Path: "debug adb connectivity diagnostics", Values: []string{"timeout"}, Description: "Capture raw Connectivity diagnostic records"},
+	{Path: "debug adb connectivity traffic", Values: []string{"timeout"}, Description: "Capture raw traffic-controller records"},
 }
 
 func shellPath(args []string) ([]string, error) {
@@ -105,11 +105,11 @@ func parseInteractiveTokens(args []string) (result Parsed, err error) {
 			return Parsed{}, fmt.Errorf("invalid BSSID")
 		}
 	}
-	if strings.HasPrefix(spec.Path, "show adb") {
+	if strings.HasPrefix(spec.Path, "debug adb") {
 		kinds := map[string]string{
-			"show adb": "shell-full", "show adb wifi": "shell-wifi", "show adb connectivity": "shell-connectivity",
-			"show adb connectivity networks": "dumpsys-connectivity-networks", "show adb connectivity requests": "dumpsys-connectivity-requests",
-			"show adb connectivity diagnostics": "dumpsys-connectivity-diagnostics", "show adb connectivity traffic": "dumpsys-connectivity-trafficcontroller",
+			"debug adb": "shell-full", "debug adb wifi": "shell-wifi", "debug adb connectivity": "shell-connectivity",
+			"debug adb connectivity networks": "dumpsys-connectivity-networks", "debug adb connectivity requests": "dumpsys-connectivity-requests",
+			"debug adb connectivity diagnostics": "dumpsys-connectivity-diagnostics", "debug adb connectivity traffic": "dumpsys-connectivity-trafficcontroller",
 		}
 		result.ADBKind = kinds[spec.Path]
 		result.ADBTimeoutMs, err = parseOptionalUint32(f["timeout"], "timeout", 90000)
@@ -189,7 +189,7 @@ func parseInteractiveTokens(args []string) (result Parsed, err error) {
 	case "show wifi status full":
 		op = WifiDiagnosticsOperation()
 		op.Options.WifiRenderMode = WifiRenderModeFull
-	case "show wifi status connection":
+	case "show wifi status connection", "debug android wifi info":
 		op = WifiStatusOperation()
 	case "show wifi status ip":
 		op = IPStatusOperation()
@@ -203,8 +203,11 @@ func parseInteractiveTokens(args []string) (result Parsed, err error) {
 			}
 			op.Options.WifiEHTFreshScanBand = f["band"]
 		}
-	case "show wifi scan":
+	case "show wifi scan", "debug android wifi scan":
 		op, err = WifiScanOperationWithBrief(f["band"], f["brief"] != "", f["mlo"] != "")
+	case "debug android network capabilities", "debug android network link-properties", "debug android network wifi-info":
+		op, err = NetworkOperation(f["network-id"])
+		op.Options.RawNetworkID = f["network-id"]
 	case "request wifi scan":
 		op, err = WifiFreshScanOperationWithBrief(f["band"], f["timeout"], f["brief"] != "", f["mlo"] != "")
 	case "request wifi disconnect":
@@ -255,7 +258,7 @@ func parseInteractiveTokens(args []string) (result Parsed, err error) {
 	if err != nil {
 		return Parsed{}, fmt.Errorf("invalid %s arguments", spec.Path)
 	}
-	if spec.Path == "show wifi scan" || spec.Path == "request wifi scan" {
+	if spec.Path == "show wifi scan" || spec.Path == "request wifi scan" || spec.Path == "debug android wifi scan" {
 		if f["ssid"] != "" && f["bssid"] != "" {
 			return Parsed{}, fmt.Errorf("ssid and bssid cannot be combined")
 		}
@@ -283,6 +286,9 @@ func parseInteractiveTokens(args []string) (result Parsed, err error) {
 		}
 	}
 	op.Options.Detail = spec.Path != "show wifi status"
+	if after, ok := strings.CutPrefix(spec.Path, "debug android "); ok {
+		op.Options.RawView = after
+	}
 	if err := ValidateOperation(op); err != nil {
 		return Parsed{}, err
 	}

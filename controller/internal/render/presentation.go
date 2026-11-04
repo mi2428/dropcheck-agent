@@ -494,9 +494,6 @@ func renderConnectionExtra(b *strings.Builder, conn *controlpb.WifiConnection) {
 	renderMLOLinks(b, "Affiliated links", conn.GetAffiliatedMloLinks(), true)
 	writeRecord(b, "WifiInfo IPv4 (separate observation)", conn.GetIpv4Address())
 	renderInformationElements(b, conn.GetInformationElements())
-	if conn.GetRaw() != "" {
-		writeRecord(b, "Raw WifiInfo reference", conn.GetRaw())
-	}
 	renderDiagnosticFields(b, conn.GetObservationFields())
 }
 

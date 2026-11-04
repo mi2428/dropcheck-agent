@@ -130,6 +130,15 @@ func TestCollectCommandResultSupplementsSkipsNonTextOutput(t *testing.T) {
 	}
 }
 
+func TestRawDebugNeverCollectsOrAppendsHostSupplements(t *testing.T) {
+	result := &controlpb.CommandResult{Payload: &controlpb.CommandResult_WifiStatus{WifiStatus: &controlpb.WifiStatus{}}}
+	agent := control.AgentInfo{Hello: &controlpb.AgentHello{AdbSerial: "test-only"}}
+	got := collectCommandResultSupplements(t.Context(), &shellState{adbPath: "must-not-run"}, agent, result, commandOptions{RawView: "wifi info"}, outputText, true)
+	if len(got.textBlocks) != 0 {
+		t.Fatalf("debug appended host supplements: %q", got.textBlocks)
+	}
+}
+
 func TestCollectCommandResultSupplementsSkipsMissingADBSerial(t *testing.T) {
 	result := &controlpb.CommandResult{
 		Payload: &controlpb.CommandResult_WifiStatus{

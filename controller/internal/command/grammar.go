@@ -57,6 +57,12 @@ var ShellGrammarTable = append(slices.Clone(portableGrammar), shellHostGrammar..
 var aliases = oneShotAliases
 
 func init() {
+	// Export the new debug namespace without renaming independent one-shot commands.
+	for _, spec := range ShellGrammarTable {
+		if strings.HasPrefix(spec.Path, "debug ") {
+			GrammarTable = append(GrammarTable, spec)
+		}
+	}
 	if err := validateAliases(GrammarTable, aliases); err != nil {
 		panic(err)
 	}
@@ -249,6 +255,9 @@ func parseTokens(args []string, table []Grammar) (Parsed, error) {
 	}
 	if spec.Unsupported {
 		return Parsed{}, fmt.Errorf("%s is unsupported", spec.Path)
+	}
+	if strings.HasPrefix(spec.Path, "debug ") {
+		return parseInteractiveTokens(args)
 	}
 	if spec.Path == "check" && len(args) == consumed {
 		return Parsed{Path: "check"}, nil

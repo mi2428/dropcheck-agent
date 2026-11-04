@@ -1,5 +1,7 @@
 # Junos-inspired Shell cutover: field audit and adversarial QA
 
+**Later contract:** raw references previously accepted in `full` have moved to explicit debug views. Structured IE/hex evidence remains in show. See [the raw/debug follow-up](qa-raw-debug.md); the results below record the original cutover contract.
+
 Date: 2026-11-03. Scope: both interactive Shells, local synthetic execution, generated contracts, and native PC PTY input. Baseline: `ebe9dbc`. No device installation, live radio/Network operation, commit, push, or GitHub setting change was performed. Prior hardware results are historical and do not validate this cutover.
 
 ## New adversarial round

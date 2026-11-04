@@ -27,6 +27,7 @@ internal sealed class AgentShellCommand {
         val scanBssid: String = "",
         val wifiTest: Boolean = false,
         val summary: Boolean = false,
+        val rawView: String = "",
     ) : AgentShellCommand()
     data class Invalid(val message: String, val testProfile: String = "") : AgentShellCommand()
     data class Piped(val command: AgentShellCommand, val pipeline: AgentShellPipeline) : AgentShellCommand()
@@ -65,7 +66,7 @@ internal object AgentShellParser {
 
     fun help(topic: String = ""): List<String> {
         val rows = syntax.filter { topic.isEmpty() || it.path == topic || it.path.startsWith("$topic ") }
-        return listOf("Agent Shell (self)", "Options: key value; integers: 1..2147483647 ms/count; show wifi status full adds raw dumps", "PSK: 8..63 UTF-8 bytes or 64 ASCII hex; PC-only ADB/device/TTY commands are not available", "") +
+        return listOf("Agent Shell (self)", "Options: key value; integers: 1..2147483647 ms/count; show is structured; debug android shows safe raw snapshots", "PSK: 8..63 UTF-8 bytes or 64 ASCII hex; PC-only ADB/device/TTY commands are not available", "") +
             rows.flatMap { listOf("  ${it.usage()}", "    Description: ${it.description}", "") } + listOf("| find <pattern> | except <pattern> | last <lines> | match <pattern> | trim <start-column> | count", "| display json (alone; safe presentation JSON)", "auto selects one family; global-ip all queries both; dns ALL queries A+AAAA", "test link defaults to family ipv4; ipv6/all supported; bssid strict pin unsupported; lab requires all endpoints and sends active traffic", "All command input, including credentials, is recallable within this session; history is not written to disk")
     }
 
@@ -309,7 +310,7 @@ internal object AgentShellParser {
             val fresh = command == "request wifi scan eht"
             return AgentShellCommand.ShowWifiEht(fresh, number("timeout", if (fresh) 10000 else 0), value("ssid"), value("bssid"), band())
         }
-        if (command == "show wifi scan" || command == "request wifi scan") {
+        if (command == "show wifi scan" || command == "request wifi scan" || command == "debug android wifi scan") {
             require(value("ssid").isEmpty() || value("bssid").isEmpty()) { "ssid and bssid filters cannot be used together" }
             value("bssid").takeIf(String::isNotEmpty)?.let(::bssid)
         }
@@ -331,10 +332,14 @@ internal object AgentShellParser {
                 RunCommand.newBuilder().setGetNetwork(GetNetwork.newBuilder().setNetworkId(position)).build()
             }
             "show permissions" -> RunCommand.newBuilder().setGetPermissions(GetPermissions.getDefaultInstance()).build()
-            "show wifi status", "show wifi status connection" -> RunCommand.newBuilder().setGetWifiStatus(GetWifiStatus.getDefaultInstance()).build()
+            "show wifi status", "show wifi status connection", "debug android wifi info" -> RunCommand.newBuilder().setGetWifiStatus(GetWifiStatus.getDefaultInstance()).build()
             "show wifi status full" -> RunCommand.newBuilder().setGetWifiDiagnostics(GetWifiDiagnostics.getDefaultInstance()).build()
             "show wifi status capabilities" -> RunCommand.newBuilder().setGetWifiCapabilities(GetWifiCapabilities.getDefaultInstance()).build()
-            "show wifi scan" -> RunCommand.newBuilder().setGetWifiScan(GetWifiScan.newBuilder().setBand(band())).build()
+            "show wifi scan", "debug android wifi scan" -> RunCommand.newBuilder().setGetWifiScan(GetWifiScan.newBuilder().setBand(band())).build()
+            "debug android network capabilities", "debug android network link-properties", "debug android network wifi-info" -> {
+                require(validNetworkId(value("network-id"))) { "expected a canonical positive Android Network ID" }
+                RunCommand.newBuilder().setGetNetwork(GetNetwork.newBuilder().setNetworkId(value("network-id"))).build()
+            }
             "request wifi scan" -> RunCommand.newBuilder().setGetFreshWifiScan(GetFreshWifiScan.newBuilder().setBand(band()).setTimeoutMs(number("timeout", 10000))).build()
             "show wifi status ip" -> RunCommand.newBuilder().setGetIpStatus(GetIpStatus.newBuilder().setSelector(selector())).build()
             "request wifi disconnect" -> RunCommand.newBuilder().setDisconnectWifi(DisconnectWifi.getDefaultInstance()).build()
@@ -390,7 +395,8 @@ internal object AgentShellParser {
             "request download" -> RunCommand.newBuilder().setWget(Wget.newBuilder().setUrl(url(position)).setTimeoutMs(number("timeout", 60000)).setSelector(selector())).build()
             else -> throw IllegalArgumentException("unsupported command")
         }
-        return AgentShellCommand.Execute(request, "brief" in switches, "mlo" in switches, command == "request wifi scan", via, passphrase, value("ssid"), value("bssid"), command == "test wifi", summary = command == "show wifi status")
+        return AgentShellCommand.Execute(request, "brief" in switches, "mlo" in switches, command == "request wifi scan", via, passphrase, value("ssid"), value("bssid"), command == "test wifi", summary = command == "show wifi status",
+            rawView = if (command.startsWith("debug android ")) command.removePrefix("debug android ") else "")
     }
 
     private fun boolean(value: String, key: String): Boolean = when (value) {

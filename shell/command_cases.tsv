@@ -12,6 +12,11 @@ show wifi status ip	show wifi status ip
 show wifi status capabilities	show wifi status capabilities
 show wifi status eht	show wifi status eht
 show wifi scan	show wifi scan mlo band 6ghz
+debug android wifi info	debug android wifi info
+debug android wifi scan	debug android wifi scan ssid 'Example Lab' band 6ghz
+debug android network capabilities	debug android network capabilities network-id 42
+debug android network wifi-info	debug android network wifi-info network-id 42
+debug android network link-properties	debug android network link-properties network-id 42
 request wifi connect	request wifi connect 'Example Lab' security wpa3 passphrase test-only
 request wifi disconnect	request wifi disconnect
 request wifi reconnect	request wifi reconnect timeout 1000
