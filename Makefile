@@ -76,7 +76,7 @@ test: check-shell ## Test targets; use TARGET=agent,controller or TAGS=... for G
 	for target in $$targets; do \
 		case "$$target" in \
 			agent) run "$(GRADLE)" "$(AGENT_TEST_TASK)" "-PdropcheckVersion=$(VERSION)" ;; \
-			controller) go_test=("$(GO)" test -count=1); [[ -z "$(TAGS)" ]] || go_test+=(-tags "$(TAGS)"); go_test+=(./...); (cd controller && run "$${go_test[@]}"); GO="$(GO)" run python3 tools/test_shell_history.py ;; \
+			controller) go_test=("$(GO)" test -count=1); [[ -z "$(TAGS)" ]] || go_test+=(-tags "$(TAGS)"); go_test+=(./...); (cd controller && run "$${go_test[@]}"); GO="$(GO)" run python3 tools/test_go_distribution.py; GO="$(GO)" run python3 tools/test_shell_history.py ;; \
 			*) die "unknown TARGET=$$target" ;; \
 		esac; \
 	done
@@ -97,7 +97,7 @@ fmt: ## Format targets where a formatter is configured
 
 .PHONY: fmt-check
 fmt-check: ## Check controller Go formatting without rewriting generated code or sources
-	@unformatted="$$(git ls-files -z -- 'controller/*.go' ':!:controller/internal/controlpb/*' | while IFS= read -r -d '' file; do [[ ! -f "$$file" ]] || printf '%s\0' "$$file"; done | xargs -0 gofmt -l)"; \
+	@unformatted="$$(find controller -path controller/internal/controlpb -prune -o -name '*.go' -exec gofmt -l {} +)"; \
 	[[ -z "$$unformatted" ]] || { printf 'Run make fmt TARGET=controller for:\n%s\n' "$$unformatted" >&2; exit 1; }
 
 .PHONY: modernize-check
