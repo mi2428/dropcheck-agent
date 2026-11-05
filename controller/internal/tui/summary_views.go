@@ -665,7 +665,7 @@ func passingCheckListRightHeaderColumns() []string {
 }
 
 func passingCheckListRightColumns(item passingCheckSummary) []string {
-	return []string{fmt.Sprint(item.Count), durationLabel(item.AvgDuration()), durationLabel(item.MaxDuration), item.Last.Format("15:04:05")}
+	return []string{fmt.Sprint(item.Count), knownDurationLabel(item.AvgDuration(), item.DurationCount > 0), knownDurationLabel(item.MaxDuration, item.DurationCount > 0), item.Last.Format("15:04:05")}
 }
 
 func failedCheckListHeaderColumns(multiAgent bool) []string {

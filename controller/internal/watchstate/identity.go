@@ -40,6 +40,9 @@ func FailedCheckSummaryIndexByIdentity(rows []FailedCheckSummary, key string) in
 
 // FailedCheckStateKey returns the full per-agent failed-check identity.
 func FailedCheckStateKey(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, finding watchrun.Finding) string {
+	if target.ID != "" || finding.TargetID != "" {
+		return strings.Join([]string{AgentKey(agent), FirstNonEmpty(target.ID, finding.TargetID), FailedCheckKey(finding)}, "\x00")
+	}
 	targetName := FirstNonEmpty(target.Name, target.SSID, target.BSSID, finding.Target)
 	return strings.Join([]string{AgentKey(agent), targetName, target.SSID, target.BSSID, FailedCheckKey(finding)}, "\x00")
 }
@@ -117,6 +120,9 @@ func AgentLabel(agent watchrun.AgentSnapshot) string {
 
 // SameAgent reports whether two snapshots identify the same agent.
 func SameAgent(a watchrun.AgentSnapshot, b watchrun.AgentSnapshot) bool {
+	if a.ID != "" || b.ID != "" {
+		return a.ID != "" && a.ID == b.ID
+	}
 	return AgentKey(a) == AgentKey(b)
 }
 
@@ -185,8 +191,15 @@ func PassingCheckEvent(event watchrun.Event) bool {
 // findings.
 // PassingCheckKey returns the full per-agent passing-check identity.
 func PassingCheckKey(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, step watchrun.StepSnapshot) string {
-	if target.ID != "" && step.ID != "" {
-		return strings.Join([]string{AgentKey(agent), target.ID, step.ID}, "\x00")
+	if target.ID != "" || step.ID != "" {
+		targetKey, stepKey := "id:"+target.ID, "id:"+step.ID
+		if target.ID == "" {
+			targetKey = "name:" + CheckStatusTargetKey(target)
+		}
+		if step.ID == "" {
+			stepKey = "name:" + FirstNonEmpty(step.Name, step.Type)
+		}
+		return strings.Join([]string{AgentKey(agent), targetKey, stepKey}, "\x00")
 	}
 	targetName := FirstNonEmpty(target.Name, target.SSID, target.BSSID)
 	stepName := FirstNonEmpty(step.Name, step.Type)

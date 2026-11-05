@@ -18,14 +18,14 @@ func (m model) currentTarget() (targetState, bool) {
 
 func currentStepState(target targetState) (stepState, bool) {
 	for _, step := range target.Steps {
-		if step.Name == target.CurrentStep {
+		if target.CurrentStepID != "" && step.ID == target.CurrentStepID || target.CurrentStepID == "" && step.ID == "" && step.Name == target.CurrentStep {
 			return step, true
 		}
 	}
 	return stepState{}, false
 }
 
-func (m model) targetFailedCheckCount(agent watchrun.AgentSnapshot, target string) int {
+func (m model) targetFailedCheckCount(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot) int {
 	return m.TargetFailedCheckCount(agent, target)
 }
 

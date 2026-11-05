@@ -29,28 +29,31 @@ type StepState struct {
 
 // PlannedStepsForTarget expands configured checks into the run queue shape shown before live events arrive.
 func PlannedStepsForTarget(target watchrun.Target, checks []watchrun.CheckInfo) []StepState {
-	if checks == nil {
-		return nil
-	}
-	steps := PlannedStepsForChecks(checks)
 	if target.Checks != nil {
-		steps = PlannedStepsForChecks(target.Checks)
+		checks = target.Checks
 	}
-	if target.DisconnectAfter == nil || *target.DisconnectAfter {
-		steps = append(steps, StepState{Name: "disconnect", Type: "cleanup"})
+	var steps []StepState
+	for _, check := range []*watchrun.CheckInfo{target.Connect, target.Wait} {
+		if check != nil {
+			steps = append(steps, StepState{ID: check.ID, Name: check.Name, Type: check.Type})
+		}
+	}
+	steps = append(steps, PlannedStepsForChecks(checks)...)
+	if target.DisconnectAfter != nil && *target.DisconnectAfter {
+		steps = append(steps, StepState{ID: "cleanup/wifi.disconnect", Name: "disconnect", Type: "cleanup"})
 	}
 	if target.ForgetAfter != nil && *target.ForgetAfter {
-		steps = append(steps, StepState{Name: "forget", Type: "cleanup"})
+		steps = append(steps, StepState{ID: "cleanup/wifi.forget", Name: "forget", Type: "cleanup"})
 	}
 	return steps
 }
 
-// PlannedStepsForChecks returns the stable required-step prefix followed by configured checks.
+// PlannedStepsForChecks preserves the configured check order and identity.
 func PlannedStepsForChecks(checks []watchrun.CheckInfo) []StepState {
 	if checks == nil {
 		return nil
 	}
-	steps := []StepState{{ID: "connect", Name: "connect", Type: "connect"}, {ID: "wait_connected", Name: "wait_connected", Type: "wait_connected"}}
+	steps := make([]StepState, 0, len(checks))
 	for _, check := range checks {
 		steps = append(steps, StepState{ID: check.ID, Name: check.DisplayName(), Type: check.Type})
 	}
@@ -79,13 +82,13 @@ type FailedCheckSummary struct {
 
 // PassingCheck records one successful check or target completion.
 type PassingCheck struct {
-	Report   *watchrun.StepReport
-	Round    uint64
-	When     time.Time
-	Agent    watchrun.AgentSnapshot
-	Target   watchrun.TargetSnapshot
-	Step     watchrun.StepSnapshot
-	Duration int64
+	Round         uint64
+	When          time.Time
+	Agent         watchrun.AgentSnapshot
+	Target        watchrun.TargetSnapshot
+	Step          watchrun.StepSnapshot
+	Duration      int64
+	DurationKnown bool
 }
 
 // PassingCheckSummary aggregates successful checks by agent, target, and step.
@@ -96,6 +99,7 @@ type PassingCheckSummary struct {
 	Target        watchrun.TargetSnapshot
 	Step          watchrun.StepSnapshot
 	Duration      int64
+	DurationKnown bool
 	DurationTotal int64
 	DurationCount int
 	MaxDuration   int64
@@ -236,7 +240,7 @@ func New(targets []watchrun.Target, checks []watchrun.CheckInfo, agents []watchr
 	states := make([]TargetState, 0, Max(1, len(agents))*len(targets))
 	index := make(map[string]int, Max(1, len(agents))*len(targets))
 	addTarget := func(agent watchrun.AgentSnapshot, target watchrun.Target) {
-		snapshot := watchrun.TargetSnapshot{ID: target.ID, Name: target.DisplayName(), ShortName: target.ShortName, Agent: target.Agent, SSID: target.SSID, BSSID: target.BSSID, Band: target.Band}
+		snapshot := watchrun.TargetSnapshot{ID: target.ID, Name: target.DisplayName(), ShortName: target.ShortName, Agent: target.Agent, SSID: target.SSID, BSSID: target.BSSID, NetworkID: target.NetworkID, Band: target.Band}
 		key := TargetStateKey(agent, snapshot)
 		index[key] = len(states)
 		states = append(states, TargetState{Agent: agent, Target: snapshot, Status: "pending", PlannedSteps: PlannedStepsForTarget(target, checks)})

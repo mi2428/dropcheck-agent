@@ -10,7 +10,7 @@ import (
 )
 
 // PushEventLog stores a sanitized, human-readable log line while preserving the
-// structured event for detail-panel scoping.
+// compact event metadata for detail-panel scoping, never acquisition payloads.
 func (s *State) PushEventLog(event watchrun.Event) {
 	line := strings.TrimSpace(SanitizeLogText(EventLogLine(event)))
 	if line == "" {
@@ -22,6 +22,12 @@ func (s *State) PushEventLog(event watchrun.Event) {
 	}
 	formattedLine := when.Format("15:04:05") + " " + line
 	s.PushVisibleLog(formattedLine)
+	event.Attempt, event.Report, event.Agents = nil, nil, nil
+	if event.Finding != nil {
+		finding := *event.Finding
+		finding.ObservedValue, finding.ExpectedValue = nil, nil
+		event.Finding = &finding
+	}
 	s.EventLogEntries = append(s.EventLogEntries, EventLogEntry{When: when, Event: event, Line: formattedLine})
 	s.TrimEventLogEntries(when)
 }
@@ -96,7 +102,7 @@ func EventLogLine(event watchrun.Event) string {
 	if event.Step.Skipped {
 		fields = append(fields, "skipped=true")
 	}
-	if event.Duration > 0 {
+	if event.DurationKnown || event.Duration > 0 {
 		fields = append(fields, fmt.Sprintf("duration_ms=%d", event.Duration))
 	}
 	if event.Finding != nil {

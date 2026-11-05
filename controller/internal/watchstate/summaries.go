@@ -13,7 +13,7 @@ import (
 // step over a target that is only marked running.
 func (s State) CurrentTarget() (TargetState, bool) {
 	for _, target := range s.Targets {
-		if target.CurrentStep != "" {
+		if target.CurrentStepID != "" || target.CurrentStep != "" {
 			return target, true
 		}
 	}
@@ -25,11 +25,11 @@ func (s State) CurrentTarget() (TargetState, bool) {
 	return TargetState{}, false
 }
 
-// TargetFailedCheckCount counts failed checks for one target label and agent.
-func (s State) TargetFailedCheckCount(agent watchrun.AgentSnapshot, target string) int {
+// TargetFailedCheckCount counts failed checks for one target identity and agent.
+func (s State) TargetFailedCheckCount(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot) int {
 	count := 0
 	for _, item := range s.FailedChecks {
-		if SameAgent(item.Agent, agent) && item.Finding.Target == target {
+		if SameAgent(item.Agent, agent) && CheckStatusTargetKey(item.Target) == CheckStatusTargetKey(target) {
 			count++
 		}
 	}
@@ -62,7 +62,8 @@ func (s State) PassingCheckSummaries() []PassingCheckSummary {
 			rows[pos].Target = item.Target
 			rows[pos].Step = item.Step
 			rows[pos].Duration = item.Duration
-			if item.Duration > 0 {
+			rows[pos].DurationKnown = item.DurationKnown || item.Duration > 0
+			if item.DurationKnown || item.Duration > 0 {
 				rows[pos].DurationTotal += item.Duration
 				rows[pos].DurationCount++
 				rows[pos].MaxDuration = MaxInt64(rows[pos].MaxDuration, item.Duration)
@@ -71,14 +72,15 @@ func (s State) PassingCheckSummaries() []PassingCheckSummary {
 		}
 		index[key] = len(rows)
 		row := PassingCheckSummary{
-			Last:     item.When,
-			Count:    1,
-			Agent:    item.Agent,
-			Target:   item.Target,
-			Step:     item.Step,
-			Duration: item.Duration,
+			Last:          item.When,
+			Count:         1,
+			Agent:         item.Agent,
+			Target:        item.Target,
+			Step:          item.Step,
+			Duration:      item.Duration,
+			DurationKnown: item.DurationKnown || item.Duration > 0,
 		}
-		if item.Duration > 0 {
+		if item.DurationKnown || item.Duration > 0 {
 			row.DurationTotal = item.Duration
 			row.DurationCount = 1
 			row.MaxDuration = item.Duration
@@ -142,7 +144,7 @@ func (s State) DecorateFailedCheckSummaries(rows []FailedCheckSummary) {
 	attemptsByGroup := s.failedCheckAttemptsByGroup()
 	for i := range rows {
 		key := FailedCheckSummaryIdentity(rows[i])
-		attempts := attemptsByGroup[FailedCheckAttemptGroupKey(rows[i].Agent, rows[i].Target, rows[i].Finding.Target, rows[i].Finding.Check)]
+		attempts := attemptsByGroup[FailedCheckAttemptGroupKey(rows[i].Agent, rows[i].Target, rows[i].Finding.Target, FirstNonEmpty(rows[i].Finding.CheckID, rows[i].Finding.Check))]
 		failedAttempts := 0
 		for _, attempt := range attempts {
 			if attempt.FailedKeys[key] {
@@ -189,12 +191,12 @@ func (s State) failedCheckAttemptsByGroup() map[string][]failedCheckAttempt {
 		groups[index.group][index.index] = attempt
 	}
 	for _, item := range s.PassingChecks {
-		check := FirstNonEmpty(item.Step.Name, item.Step.Type)
+		check := FirstNonEmpty(item.Step.ID, item.Step.Name, item.Step.Type)
 		group := FailedCheckAttemptGroupKey(item.Agent, item.Target, "", check)
 		upsert(group, CheckAttemptKey(item.Agent, item.Round, item.When), item.When, false, "")
 	}
 	for _, item := range s.FailedChecks {
-		group := FailedCheckAttemptGroupKey(item.Agent, item.Target, item.Finding.Target, item.Finding.Check)
+		group := FailedCheckAttemptGroupKey(item.Agent, item.Target, item.Finding.Target, FirstNonEmpty(item.Finding.CheckID, item.Finding.Check))
 		upsert(group, CheckAttemptKey(item.Agent, item.Round, item.When), item.When, true, FailedCheckSummaryKey(item.Agent, item.Target, item.Finding))
 	}
 	for group := range groups {

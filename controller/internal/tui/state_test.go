@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/control"
 	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 )
 
@@ -602,19 +604,23 @@ func TestCheckStatusAutoWindowTracksFailedTargetContiguously(t *testing.T) {
 	}
 }
 
+func checkStatusScrollPreview(t *testing.T) watchrun.Preview {
+	t.Helper()
+	plan := watchrun.Plan{Checks: []watchrun.Check{watchrun.NewCheck("status", "status", command.WifiStatusOperation(), watchrun.Policy{}, false)}}
+	for i := 1; i <= 6; i++ {
+		plan.Networks = append(plan.Networks, watchrun.Network{Name: fmt.Sprintf("ap%d(5G)", i), ShortName: fmt.Sprintf("A%d", i), SSID: "Lab", PSK: watchrun.SecretValue("synthetic-passphrase"), WaitConnected: true})
+	}
+	compiled, err := watchrun.Compile(plan, []control.AgentInfo{{ID: "agent-a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return compiled.Preview()
+}
+
 func TestCheckStatusHorizontalScrollPinsVisibleWindow(t *testing.T) {
 	events := make(chan watchrun.Event)
-	agents := []watchrun.AgentSnapshot{{ID: "agent-a", Name: "pixel-a"}}
-	disconnectAfter := false
-	targets := []watchrun.Target{
-		{Name: "ap1(5G)", ShortName: "A1", SSID: "Lab", DisconnectAfter: &disconnectAfter},
-		{Name: "ap2(5G)", ShortName: "A2", SSID: "Lab", DisconnectAfter: &disconnectAfter},
-		{Name: "ap3(5G)", ShortName: "A3", SSID: "Lab", DisconnectAfter: &disconnectAfter},
-		{Name: "ap4(5G)", ShortName: "A4", SSID: "Lab", DisconnectAfter: &disconnectAfter},
-		{Name: "ap5(5G)", ShortName: "A5", SSID: "Lab", DisconnectAfter: &disconnectAfter},
-		{Name: "ap6(5G)", ShortName: "A6", SSID: "Lab", DisconnectAfter: &disconnectAfter},
-	}
-	m := newModelWithChecks("shownet-watch", targets, []watchrun.CheckInfo{}, events, agents)
+	preview := checkStatusScrollPreview(t)
+	m := newModelWithChecks("shownet-watch", preview.Targets, preview.Checks, events, preview.Agents)
 	m.width = 28
 	m.moveCheckStatusHorizontal(2)
 
@@ -632,10 +638,10 @@ func TestCheckStatusHorizontalScrollPinsVisibleWindow(t *testing.T) {
 
 	m.apply(watchrun.Event{
 		Kind:     watchrun.EventStepFinished,
-		Agent:    agents[0],
+		Agent:    preview.Agents[0],
 		Round:    1,
-		Target:   watchrun.TargetSnapshot{Name: "ap1(5G)", ShortName: "A1", SSID: "Lab"},
-		Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Target:   watchrun.TargetSnapshot{ID: preview.Targets[0].ID, Name: "ap1(5G)", ShortName: "A1", SSID: "Lab"},
+		Step:     watchrun.StepSnapshot{ID: preview.Targets[0].Connect.ID, Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 10,
 	})
@@ -850,16 +856,8 @@ func TestCheckStatusAutoWindowRepositionsAfterResize(t *testing.T) {
 
 func TestCheckStatusManualScrollUnpinsWhenFocusLeaves(t *testing.T) {
 	events := make(chan watchrun.Event)
-	agents := []watchrun.AgentSnapshot{{ID: "agent-a", Name: "pixel-a"}}
-	targets := []watchrun.Target{
-		{Name: "ap1(5G)", ShortName: "A1", SSID: "Lab"},
-		{Name: "ap2(5G)", ShortName: "A2", SSID: "Lab"},
-		{Name: "ap3(5G)", ShortName: "A3", SSID: "Lab"},
-		{Name: "ap4(5G)", ShortName: "A4", SSID: "Lab"},
-		{Name: "ap5(5G)", ShortName: "A5", SSID: "Lab"},
-		{Name: "ap6(5G)", ShortName: "A6", SSID: "Lab"},
-	}
-	m := newModelWithChecks("shownet-watch", targets, []watchrun.CheckInfo{}, events, agents)
+	preview := checkStatusScrollPreview(t)
+	m := newModelWithChecks("shownet-watch", preview.Targets, preview.Checks, events, preview.Agents)
 	m.width = 28
 	m.focus = focusCheckStatus
 	m.moveCheckStatusHorizontal(1)
