@@ -3,6 +3,7 @@ package adb
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strconv"
@@ -131,7 +132,9 @@ func (c Client) ListDevices(ctx context.Context) ([]Device, error) {
 //
 // When Serial is set, Output prefixes the command with "-s <serial>". On adb
 // failures the returned error includes the adb command and the most useful
-// message emitted by the process.
+// message emitted by the process, with grpc_token arguments redacted. Context
+// cancellation/deadline causes support errors.Is without exposing raw process
+// errors through Unwrap.
 func (c Client) Output(ctx context.Context, args ...string) (string, error) {
 	result, err := c.Run(ctx, args...)
 	out := result.Stdout + result.Stderr
@@ -148,10 +151,26 @@ func (c Client) Output(ctx context.Context, args ...string) (string, error) {
 		if msg == "" {
 			msg = redact.Replace(err.Error())
 		}
-		return out, fmt.Errorf("adb %s: %s", redact.Replace(strings.Join(result.Args, " ")), msg)
+		// Retain only safe context causes. Wrapping the raw process error would
+		// expose token-bearing executable paths through errors.Unwrap/As.
+		var cause error
+		if errors.Is(err, context.Canceled) {
+			cause = context.Canceled
+		} else if errors.Is(err, context.DeadlineExceeded) {
+			cause = context.DeadlineExceeded
+		}
+		return out, &outputError{message: fmt.Sprintf("adb %s: %s", redact.Replace(strings.Join(result.Args, " ")), msg), cause: cause}
 	}
 	return out, nil
 }
+
+type outputError struct {
+	message string
+	cause   error
+}
+
+func (e *outputError) Error() string { return e.message }
+func (e *outputError) Unwrap() error { return e.cause }
 
 // Run executes adb with args and returns stdout, stderr, exit status, and timing.
 //
@@ -175,6 +194,7 @@ func (c Client) Run(ctx context.Context, args ...string) (Result, error) {
 
 	result := Result{Args: append([]string(nil), full...), ExitCode: -1}
 	cmd := exec.CommandContext(cmdCtx, c.Path, full...)
+	cmd.WaitDelay = time.Second // Bound inherited pipes after cancellation/exit.
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
