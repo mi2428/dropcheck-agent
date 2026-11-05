@@ -4,13 +4,13 @@ import (
 	"slices"
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 )
 
 // TargetState is the latest watch state for one agent/target pair.
 type TargetState struct {
-	Agent         watch.AgentSnapshot
-	Target        watch.TargetSnapshot
+	Agent         watchrun.AgentSnapshot
+	Target        watchrun.TargetSnapshot
 	Status        string
 	CurrentStep   string
 	CurrentStepID string
@@ -28,7 +28,7 @@ type StepState struct {
 }
 
 // PlannedStepsForTarget expands configured checks into the run queue shape shown before live events arrive.
-func PlannedStepsForTarget(target watch.Target, checks []watch.CheckInfo) []StepState {
+func PlannedStepsForTarget(target watchrun.Target, checks []watchrun.CheckInfo) []StepState {
 	if checks == nil {
 		return nil
 	}
@@ -46,7 +46,7 @@ func PlannedStepsForTarget(target watch.Target, checks []watch.CheckInfo) []Step
 }
 
 // PlannedStepsForChecks returns the stable required-step prefix followed by configured checks.
-func PlannedStepsForChecks(checks []watch.CheckInfo) []StepState {
+func PlannedStepsForChecks(checks []watchrun.CheckInfo) []StepState {
 	if checks == nil {
 		return nil
 	}
@@ -61,9 +61,9 @@ func PlannedStepsForChecks(checks []watch.CheckInfo) []StepState {
 type FailedCheck struct {
 	Round   uint64
 	When    time.Time
-	Agent   watch.AgentSnapshot
-	Target  watch.TargetSnapshot
-	Finding watch.Finding
+	Agent   watchrun.AgentSnapshot
+	Target  watchrun.TargetSnapshot
+	Finding watchrun.Finding
 }
 
 // FailedCheckSummary aggregates failures sharing one target/finding identity.
@@ -72,19 +72,19 @@ type FailedCheckSummary struct {
 	Count       int
 	FailPercent int
 	FailStreak  int
-	Agent       watch.AgentSnapshot
-	Target      watch.TargetSnapshot
-	Finding     watch.Finding
+	Agent       watchrun.AgentSnapshot
+	Target      watchrun.TargetSnapshot
+	Finding     watchrun.Finding
 }
 
 // PassingCheck records one successful check or target completion.
 type PassingCheck struct {
-	Report   *watch.StepReport
+	Report   *watchrun.StepReport
 	Round    uint64
 	When     time.Time
-	Agent    watch.AgentSnapshot
-	Target   watch.TargetSnapshot
-	Step     watch.StepSnapshot
+	Agent    watchrun.AgentSnapshot
+	Target   watchrun.TargetSnapshot
+	Step     watchrun.StepSnapshot
 	Duration int64
 }
 
@@ -92,9 +92,9 @@ type PassingCheck struct {
 type PassingCheckSummary struct {
 	Last          time.Time
 	Count         int
-	Agent         watch.AgentSnapshot
-	Target        watch.TargetSnapshot
-	Step          watch.StepSnapshot
+	Agent         watchrun.AgentSnapshot
+	Target        watchrun.TargetSnapshot
+	Step          watchrun.StepSnapshot
 	Duration      int64
 	DurationTotal int64
 	DurationCount int
@@ -112,56 +112,56 @@ func (item PassingCheckSummary) AvgDuration() int64 {
 // FailureHotspotSummary ranks targets that are failing repeatedly inside the
 // retained investigation history.
 type FailureHotspotSummary struct {
-	Agent         watch.AgentSnapshot
-	Target        watch.TargetSnapshot
+	Agent         watchrun.AgentSnapshot
+	Target        watchrun.TargetSnapshot
 	Last          time.Time
 	FailCount     int
 	FailRunCount  int
 	RunCount      int
 	FailStreak    int
 	LatestCause   string
-	LatestFinding watch.Finding
+	LatestFinding watchrun.Finding
 }
 
 // FailureCauseTargetSummary is the per-target breakdown inside one
 // cross-target failure cause.
 type FailureCauseTargetSummary struct {
-	Target        watch.TargetSnapshot
+	Target        watchrun.TargetSnapshot
 	Last          time.Time
 	FailCount     int
 	FailRunCount  int
 	RunCount      int
-	LatestFinding watch.Finding
+	LatestFinding watchrun.Finding
 }
 
 // FailureCauseSummary ranks causes that affect multiple targets inside the
 // retained investigation history.
 type FailureCauseSummary struct {
-	Agent              watch.AgentSnapshot
+	Agent              watchrun.AgentSnapshot
 	Cause              string
 	Last               time.Time
 	FailCount          int
 	FailRunCount       int
 	RunCount           int
 	TargetCount        int
-	TopTarget          watch.TargetSnapshot
+	TopTarget          watchrun.TargetSnapshot
 	TopTargetFailCount int
-	LatestFinding      watch.Finding
+	LatestFinding      watchrun.Finding
 	Targets            []FailureCauseTargetSummary
 }
 
 // EventLogEntry keeps the structured watch event beside the rendered log line for detail scoping.
 type EventLogEntry struct {
 	When  time.Time
-	Event watch.Event
+	Event watchrun.Event
 	Line  string
 }
 
 // ConnectState is the latest live association phase reported for one agent.
 type ConnectState struct {
 	Last       time.Time
-	Agent      watch.AgentSnapshot
-	Target     watch.TargetSnapshot
+	Agent      watchrun.AgentSnapshot
+	Target     watchrun.TargetSnapshot
 	Supplicant string
 	SSID       string
 	BSSID      string
@@ -211,15 +211,15 @@ const (
 
 // State tracks watch progress and derived histories without depending on terminal UI packages.
 type State struct {
-	AgentProgress   []watch.AgentProgress
+	AgentProgress   []watchrun.AgentProgress
 	Now             time.Time
 	Round           uint64
 	RoundStatus     string
 	Phase           string
 	Targets         []TargetState
 	TargetIndex     map[string]int
-	Agents          []watch.AgentSnapshot
-	Checks          []watch.CheckInfo
+	Agents          []watchrun.AgentSnapshot
+	Checks          []watchrun.CheckInfo
 	MultiAgent      bool
 	FailedChecks    []FailedCheck
 	PassingChecks   []PassingCheck
@@ -232,18 +232,18 @@ type State struct {
 }
 
 // New constructs the initial state for one watch plan and the selected agents.
-func New(targets []watch.Target, checks []watch.CheckInfo, agents []watch.AgentSnapshot, now time.Time) State {
+func New(targets []watchrun.Target, checks []watchrun.CheckInfo, agents []watchrun.AgentSnapshot, now time.Time) State {
 	states := make([]TargetState, 0, Max(1, len(agents))*len(targets))
 	index := make(map[string]int, Max(1, len(agents))*len(targets))
-	addTarget := func(agent watch.AgentSnapshot, target watch.Target) {
-		snapshot := watch.TargetSnapshot{ID: target.ID, Name: target.DisplayName(), ShortName: target.ShortName, Agent: target.Agent, SSID: target.SSID, BSSID: target.BSSID, Band: target.Band}
+	addTarget := func(agent watchrun.AgentSnapshot, target watchrun.Target) {
+		snapshot := watchrun.TargetSnapshot{ID: target.ID, Name: target.DisplayName(), ShortName: target.ShortName, Agent: target.Agent, SSID: target.SSID, BSSID: target.BSSID, Band: target.Band}
 		key := TargetStateKey(agent, snapshot)
 		index[key] = len(states)
 		states = append(states, TargetState{Agent: agent, Target: snapshot, Status: "pending", PlannedSteps: PlannedStepsForTarget(target, checks)})
 	}
 	if len(agents) == 0 {
 		for _, target := range targets {
-			addTarget(watch.AgentSnapshot{}, target)
+			addTarget(watchrun.AgentSnapshot{}, target)
 		}
 	} else {
 		for _, target := range targets {
@@ -251,12 +251,12 @@ func New(targets []watch.Target, checks []watch.CheckInfo, agents []watch.AgentS
 				if len(target.BoundAgentIDs) > 0 && !slices.Contains(target.BoundAgentIDs, AgentKey(agent)) {
 					continue
 				}
-				if target.Agent != "" && !watch.AgentSnapshotMatches(agent, target.Agent) {
+				if target.Agent != "" && !watchrun.AgentSnapshotMatches(agent, target.Agent) {
 					continue
 				}
 				addTarget(agent, target)
 			}
 		}
 	}
-	return State{Targets: states, TargetIndex: index, Agents: append([]watch.AgentSnapshot(nil), agents...), Checks: append([]watch.CheckInfo(nil), checks...), MultiAgent: len(agents) > 1, Now: now, RoundStatus: "starting", Phase: "starting"}
+	return State{Targets: states, TargetIndex: index, Agents: append([]watchrun.AgentSnapshot(nil), agents...), Checks: append([]watchrun.CheckInfo(nil), checks...), MultiAgent: len(agents) > 1, Now: now, RoundStatus: "starting", Phase: "starting"}
 }

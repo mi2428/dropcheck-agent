@@ -18,7 +18,7 @@ func TestSupplementDefersWidthNotReceiptOrAcquisition(t *testing.T) {
 	if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf x >> \"$DROPCHECK_STYLE_CALLS\"\nprintf 'mlo_mode=0 wifi_link_count=1\\n'\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	block := collectADBMLOSupplement(t.Context(), &shellState{adbPath: path}, control.AgentInfo{Hello: &controlpb.AgentHello{AdbSerial: "synthetic"}}, true)
+	block := collectADBMLOSupplement(t.Context(), &shellState{adbPath: path}, control.AgentInfo{Hello: &controlpb.AgentHello{AdbSerial: "synthetic"}})
 	if block == nil {
 		t.Fatal("synthetic supplement was not captured")
 	}

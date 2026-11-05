@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -98,55 +98,55 @@ type CheckPolicy struct {
 }
 
 // LoadFile reads and validates one watch YAML config.
-func LoadFile(path string) (harness.Plan, error) {
+func LoadFile(path string) (watchrun.Plan, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return harness.Plan{}, err
+		return watchrun.Plan{}, err
 	}
 	return Parse(data)
 }
 
-// Parse compiles device-free YAML input into the common authoring Plan.
-func Parse(data []byte) (harness.Plan, error) {
+// Parse compiles device-free YAML input into private runtime data.
+func Parse(data []byte) (watchrun.Plan, error) {
 	var cfg Config
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&cfg); err != nil {
-		return harness.Plan{}, err
+		return watchrun.Plan{}, err
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
-		return harness.Plan{}, fmt.Errorf("exactly one YAML document is required")
+		return watchrun.Plan{}, fmt.Errorf("exactly one YAML document is required")
 	}
 	return cfg.Plan()
 }
 
 // Plan validates cfg, applies defaults, and returns an executable watch plan.
-func (cfg Config) Plan() (harness.Plan, error) {
+func (cfg Config) Plan() (watchrun.Plan, error) {
 	if cfg.Version != 0 && cfg.Version != 1 {
-		return harness.Plan{}, fmt.Errorf("unsupported watch config version %d", cfg.Version)
+		return watchrun.Plan{}, fmt.Errorf("unsupported watch config version %d", cfg.Version)
 	}
 	if len(cfg.Targets) == 0 {
-		return harness.Plan{}, fmt.Errorf("watch config must define at least one target")
+		return watchrun.Plan{}, fmt.Errorf("watch config must define at least one target")
 	}
 	if cfg.RoundInterval.Duration < 0 {
-		return harness.Plan{}, fmt.Errorf("negative round interval")
+		return watchrun.Plan{}, fmt.Errorf("negative round interval")
 	}
-	plan := harness.Plan{Name: firstNonEmpty(cfg.Name, "dropcheck-watch"), RoundInterval: cfg.RoundInterval.Duration}
+	plan := watchrun.Plan{Name: firstNonEmpty(cfg.Name, "dropcheck-watch"), RoundInterval: cfg.RoundInterval.Duration}
 	for i, target := range cfg.Targets {
 		target = applyTargetDefaults(target, cfg.Defaults)
 		target = applyConfigVars(target, cfg.Vars)
 		if strings.TrimSpace(target.SSID) == "" {
-			return harness.Plan{}, fmt.Errorf("targets[%d] must set ssid", i)
+			return watchrun.Plan{}, fmt.Errorf("targets[%d] must set ssid", i)
 		}
 		if target.Observe && (target.Passphrase != "" || target.PassphraseEnv != "" || target.Band != "" || target.Security != "" || target.MacRandomization != "" || target.MacRotation != "" || target.ConnectTimeout.Duration != 0 || target.WaitTimeout.Duration != 0 || target.RequireIP != nil || target.RequireValidated != nil || target.DisconnectAfter != nil || target.ForgetAfter != nil || target.WaitConnected != nil) {
-			return harness.Plan{}, fmt.Errorf("targets[%d]: observed Wi-Fi cannot specify connection or cleanup options", i)
+			return watchrun.Plan{}, fmt.Errorf("targets[%d]: observed Wi-Fi cannot specify connection or cleanup options", i)
 		}
 		if target.ActiveProbes && !target.Observe {
-			return harness.Plan{}, fmt.Errorf("targets[%d]: active_probes requires observe: true", i)
+			return watchrun.Plan{}, fmt.Errorf("targets[%d]: active_probes requires observe: true", i)
 		}
 		if err := normalizeTargetMacRotation(&target, i); err != nil {
-			return harness.Plan{}, err
+			return watchrun.Plan{}, err
 		}
 		if target.Name == "" {
 			target.Name = targetDisplayName(target)
@@ -155,59 +155,56 @@ func (cfg Config) Plan() (harness.Plan, error) {
 		target.Agent = strings.TrimSpace(target.Agent)
 		resolvedTarget, err := resolveTargetVars(target)
 		if err != nil {
-			return harness.Plan{}, fmt.Errorf("targets[%d] vars: %w", i, err)
+			return watchrun.Plan{}, fmt.Errorf("targets[%d] vars: %w", i, err)
 		}
 		target = resolvedTarget
-		var network harness.Network
+		network := watchrun.Network{Name: target.DisplayName(), SSID: target.SSID, BSSID: target.BSSID, NetworkID: target.NetworkID, Agent: target.Agent, ShortName: target.ShortName}
 		if target.Observe {
-			if target.ActiveProbes {
-				network = harness.ActiveObservedWiFi(target.DisplayName())
-			} else {
-				network = harness.ObservedWiFi(target.DisplayName())
-			}
-			network = network.SSID(target.SSID).BSSID(target.BSSID).NetworkID(target.NetworkID).Agent(target.Agent).ShortName(target.ShortName)
+			network.ReadOnly, network.ActiveProbes = true, target.ActiveProbes
 		} else {
 			if target.NetworkID != "" {
-				return harness.Plan{}, fmt.Errorf("targets[%d]: network_id requires observe: true", i)
+				return watchrun.Plan{}, fmt.Errorf("targets[%d]: network_id requires observe: true", i)
 			}
-			network = harness.WiFi(target.DisplayName()).SSID(target.SSID).BSSID(target.BSSID).Band(target.Band).Security(target.Security).MacRandomization(target.MacRandomization).
-				ConnectTimeout(target.ConnectTimeout.Duration).WaitTimeout(target.WaitTimeout.Duration).RequireIP(target.requireIP()).RequireValidated(target.requireValidated()).
-				DisconnectAfter(target.disconnectAfter()).ForgetAfter(target.forgetAfter()).Agent(target.Agent).ShortName(target.ShortName).MACRotation(target.MacRotation).
-				ConnectPolicy(harness.Policy{Attempts: 4}).WaitPolicy(harness.Policy{Attempts: 4})
+			network.Band, network.Security, network.MacRandomization = target.Band, target.Security, target.MacRandomization
+			network.ConnectTimeout, network.WaitTimeout = target.ConnectTimeout.Duration, target.WaitTimeout.Duration
+			network.RequireIP, network.RequireValidated = target.requireIP(), target.requireValidated()
+			network.DisconnectAfter, network.ForgetAfter = target.disconnectAfter(), target.forgetAfter()
+			network.Rotation, network.WaitConnected = target.MacRotation, true
+			network.ConnectPolicy, network.WaitPolicy = watchrun.Policy{Attempts: 4}, watchrun.Policy{Attempts: 4}
 			if target.Passphrase != "" && target.PassphraseEnv != "" {
-				return harness.Plan{}, fmt.Errorf("target has both passphrase and passphrase_env")
+				return watchrun.Plan{}, fmt.Errorf("target has both passphrase and passphrase_env")
 			}
 			if target.PassphraseEnv != "" {
-				network = network.PSKEnv(target.PassphraseEnv)
+				network.PSK = watchrun.SecretEnv(target.PassphraseEnv)
 			} else {
-				network = network.PSK(target.Passphrase)
+				network.PSK = watchrun.SecretValue(target.Passphrase)
 			}
 			if target.WaitConnected != nil {
-				network = network.WaitConnected(*target.WaitConnected)
+				network.WaitConnected = *target.WaitConnected
 			}
 		}
 		checks := append(append([]Check(nil), cfg.Checks...), target.Checks...)
 		for j, check := range checks {
 			resolved, resolveErr := resolveCheckForTarget(check, target)
 			if resolveErr != nil {
-				return harness.Plan{}, fmt.Errorf("target %d check %d: %w", i, j, resolveErr)
+				return watchrun.Plan{}, fmt.Errorf("target %d check %d: %w", i, j, resolveErr)
 			}
 			if target.ActiveProbes {
 				switch resolved.Type {
 				case "ping", "traceroute", "path_mtu":
 					if resolved.Host == "" {
-						return harness.Plan{}, fmt.Errorf("target %d check %d: active probe requires explicit host", i, j)
+						return watchrun.Plan{}, fmt.Errorf("target %d check %d: active probe requires explicit host", i, j)
 					}
 				case "dns":
 					if resolved.Query == "" && resolved.Host == "" {
-						return harness.Plan{}, fmt.Errorf("target %d check %d: active probe requires explicit DNS name", i, j)
+						return watchrun.Plan{}, fmt.Errorf("target %d check %d: active probe requires explicit DNS name", i, j)
 					}
 				case "http", "download":
 					if resolved.URL == "" {
-						return harness.Plan{}, fmt.Errorf("target %d check %d: active probe requires explicit URL", i, j)
+						return watchrun.Plan{}, fmt.Errorf("target %d check %d: active probe requires explicit URL", i, j)
 					}
 				case "global_ip":
-					return harness.Plan{}, fmt.Errorf("target %d check %d: fixed global-IP endpoint not authorized for active observation", i, j)
+					return watchrun.Plan{}, fmt.Errorf("target %d check %d: fixed global-IP endpoint not authorized for active observation", i, j)
 				}
 			}
 			id := fmt.Sprintf("check/%d", j)
@@ -216,9 +213,9 @@ func (cfg Config) Plan() (harness.Plan, error) {
 			}
 			compiled, compileErr := compileCheck(resolved, target, id)
 			if compileErr != nil {
-				return harness.Plan{}, fmt.Errorf("target %d check %d: %w", i, j, compileErr)
+				return watchrun.Plan{}, fmt.Errorf("target %d check %d: %w", i, j, compileErr)
 			}
-			network = network.Checks(compiled)
+			network.Checks = append(network.Checks, compiled)
 		}
 		plan.Networks = append(plan.Networks, network)
 	}

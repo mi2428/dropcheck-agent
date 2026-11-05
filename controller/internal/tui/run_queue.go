@@ -5,16 +5,16 @@ import (
 	"slices"
 	"strings"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 
 	"charm.land/lipgloss/v2"
 )
 
 func (m model) runQueueTreeView(width int, height int) string {
-	return m.runQueueTreeViewScoped(watch.AgentSnapshot{}, m.MultiAgent, width, height, m.runQueueOffset, m.runQueueCursor)
+	return m.runQueueTreeViewScoped(watchrun.AgentSnapshot{}, m.MultiAgent, width, height, m.runQueueOffset, m.runQueueCursor)
 }
 
-func (m model) runQueueTreeViewScoped(agent watch.AgentSnapshot, includeAgentLabel bool, width int, height int, offset int, cursor int) string {
+func (m model) runQueueTreeViewScoped(agent watchrun.AgentSnapshot, includeAgentLabel bool, width int, height int, offset int, cursor int) string {
 	lines := m.runQueueTreeLinesForAgent(width, agent, includeAgentLabel)
 	if len(lines) == 0 || height <= 0 {
 		return ""
@@ -92,14 +92,14 @@ func (m model) runQueuePanelsCanSplit(height int) bool {
 	return len(agents) > 1 && height >= len(agents)*3
 }
 
-func (m model) runQueuePanelHasFocus(agent watch.AgentSnapshot) bool {
+func (m model) runQueuePanelHasFocus(agent watchrun.AgentSnapshot) bool {
 	if m.focus != focusRunQueue || !m.runQueuePanelsSplit() {
 		return false
 	}
 	return roundAgentKey(agent) == m.currentRunQueueAgentKey()
 }
 
-func (m model) runQueueAgents() []watch.AgentSnapshot {
+func (m model) runQueueAgents() []watchrun.AgentSnapshot {
 	return m.outcomeAgents(m.outcomeEvents())
 }
 
@@ -119,7 +119,7 @@ func splitHeights(total int, count int) []int {
 	return heights
 }
 
-func (m model) runQueueTreeViewForAgent(agent watch.AgentSnapshot, width int, height int) string {
+func (m model) runQueueTreeViewForAgent(agent watchrun.AgentSnapshot, width int, height int) string {
 	offset := 0
 	cursor := 0
 	if m.runQueuePanelHasFocus(agent) {
@@ -138,10 +138,10 @@ func renderRunQueueLine(line runQueueLine, width int) string {
 }
 
 func (m model) runQueueTreeLines(width int) []runQueueLine {
-	return m.runQueueTreeLinesForAgent(width, watch.AgentSnapshot{}, m.MultiAgent)
+	return m.runQueueTreeLinesForAgent(width, watchrun.AgentSnapshot{}, m.MultiAgent)
 }
 
-func (m model) runQueueTreeLinesForAgent(width int, agent watch.AgentSnapshot, includeAgentLabel bool) []runQueueLine {
+func (m model) runQueueTreeLinesForAgent(width int, agent watchrun.AgentSnapshot, includeAgentLabel bool) []runQueueLine {
 	blocks := m.runQueueTreeBlocksForAgent(width, agent, includeAgentLabel)
 	lines := make([]runQueueLine, 0, len(m.Targets)*2)
 	for _, block := range blocks {
@@ -158,7 +158,7 @@ type runQueueTargetBlock struct {
 	Active bool
 }
 
-func (m model) runQueueTreeBlocksForAgent(width int, agent watch.AgentSnapshot, includeAgentLabel bool) []runQueueTargetBlock {
+func (m model) runQueueTreeBlocksForAgent(width int, agent watchrun.AgentSnapshot, includeAgentLabel bool) []runQueueTargetBlock {
 	blocks := make([]runQueueTargetBlock, 0, len(m.Targets))
 	for _, target := range m.Targets {
 		if agentKey(agent) != "" && !sameAgent(target.Agent, agent) {
@@ -203,7 +203,7 @@ func (m model) runQueueTreeBlocksForAgent(width int, agent watch.AgentSnapshot, 
 	return blocks
 }
 
-func (m model) compactRunQueueTreeLinesForAgent(width int, height int, agent watch.AgentSnapshot, includeAgentLabel bool) ([]runQueueLine, bool) {
+func (m model) compactRunQueueTreeLinesForAgent(width int, height int, agent watchrun.AgentSnapshot, includeAgentLabel bool) ([]runQueueLine, bool) {
 	if height <= 0 {
 		return nil, false
 	}
@@ -343,7 +343,7 @@ func mergeRunQueueSteps(planned []stepState, actual []stepState) []stepState {
 // fallback clamps the previous cursor into the new line set instead of jumping
 // back to the top of the panel.
 func (m *model) updateRunQueueCursor() {
-	agent := watch.AgentSnapshot{}
+	agent := watchrun.AgentSnapshot{}
 	if m.focus == focusRunQueue && m.runQueuePanelsSplit() {
 		agent = m.currentRunQueueAgent()
 	}
@@ -388,7 +388,7 @@ func (m model) runQueueViewportHeight() int {
 	return intMax(1, lowerHeight-2)
 }
 
-func (m model) currentRunQueueLineIndexForAgent(agent watch.AgentSnapshot) (int, bool) {
+func (m model) currentRunQueueLineIndexForAgent(agent watchrun.AgentSnapshot) (int, bool) {
 	index := 0
 	for _, target := range m.Targets {
 		if agentKey(agent) != "" && !sameAgent(target.Agent, agent) {
@@ -411,7 +411,7 @@ func (m model) currentRunQueueLineIndexForAgent(agent watch.AgentSnapshot) (int,
 }
 
 func (m *model) moveRunQueueCursor(delta int) {
-	agent := watch.AgentSnapshot{}
+	agent := watchrun.AgentSnapshot{}
 	if m.focus == focusRunQueue && m.runQueuePanelsSplit() {
 		agent = m.currentRunQueueAgent()
 	}
@@ -426,7 +426,7 @@ func (m *model) moveRunQueueCursor(delta int) {
 	m.runQueueOffset = stableOffset(m.runQueueCursor, m.runQueueOffset, m.runQueueViewportHeight(), count)
 }
 
-func (m model) runQueueLineCountForAgent(agent watch.AgentSnapshot) int {
+func (m model) runQueueLineCountForAgent(agent watchrun.AgentSnapshot) int {
 	count := 0
 	for _, target := range m.Targets {
 		if agentKey(agent) != "" && !sameAgent(target.Agent, agent) {

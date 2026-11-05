@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 )
 
 // CurrentTarget returns the active target, preferring a target with a running
@@ -26,7 +26,7 @@ func (s State) CurrentTarget() (TargetState, bool) {
 }
 
 // TargetFailedCheckCount counts failed checks for one target label and agent.
-func (s State) TargetFailedCheckCount(agent watch.AgentSnapshot, target string) int {
+func (s State) TargetFailedCheckCount(agent watchrun.AgentSnapshot, target string) int {
 	count := 0
 	for _, item := range s.FailedChecks {
 		if SameAgent(item.Agent, agent) && item.Finding.Target == target {
@@ -207,7 +207,7 @@ func (s State) failedCheckAttemptsByGroup() map[string][]failedCheckAttempt {
 
 // FailedCheckAttemptGroupKey returns the grouping key used to compute failure
 // percentages and streaks.
-func FailedCheckAttemptGroupKey(agent watch.AgentSnapshot, target watch.TargetSnapshot, findingTarget string, check string) string {
+func FailedCheckAttemptGroupKey(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, findingTarget string, check string) string {
 	targetKey := FirstNonEmpty(CheckStatusTargetKey(target), findingTarget)
 	check = FirstNonEmpty(check)
 	if targetKey == "" || check == "" {
@@ -217,7 +217,7 @@ func FailedCheckAttemptGroupKey(agent watch.AgentSnapshot, target watch.TargetSn
 }
 
 // CheckAttemptKey returns a per-agent attempt key for one round or timestamp.
-func CheckAttemptKey(agent watch.AgentSnapshot, round uint64, at time.Time) string {
+func CheckAttemptKey(agent watchrun.AgentSnapshot, round uint64, at time.Time) string {
 	run := ""
 	if round > 0 {
 		run = fmt.Sprint(round)
@@ -253,7 +253,7 @@ func (s State) FailureHotspots() []FailureHotspotSummary {
 		runs    map[string]failureHotspotRun
 	}
 	aggregates := map[string]*aggregate{}
-	ensure := func(agent watch.AgentSnapshot, target watch.TargetSnapshot, findingTargets ...string) *aggregate {
+	ensure := func(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, findingTargets ...string) *aggregate {
 		if target.Name == "" {
 			target.Name = FirstNonEmpty(target.SSID, target.BSSID, FirstNonEmpty(findingTargets...), "target")
 		}
@@ -383,10 +383,10 @@ func (s State) FailureCauses() []FailureCauseSummary {
 	}
 	aggregates := map[string]*aggregate{}
 	aggregatesByTarget := map[string][]*targetAggregate{}
-	targetKey := func(agent watch.AgentSnapshot, target watch.TargetSnapshot) string {
+	targetKey := func(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot) string {
 		return strings.Join([]string{RoundAgentKey(agent), CheckStatusTargetKey(target)}, "\x00")
 	}
-	ensure := func(agent watch.AgentSnapshot, cause string, target watch.TargetSnapshot, findingTargets ...string) (*aggregate, *targetAggregate) {
+	ensure := func(agent watchrun.AgentSnapshot, cause string, target watchrun.TargetSnapshot, findingTargets ...string) (*aggregate, *targetAggregate) {
 		cause = FirstNonEmpty(cause, "failure")
 		if target.Name == "" {
 			target.Name = FirstNonEmpty(target.SSID, target.BSSID, FirstNonEmpty(findingTargets...), "target")
@@ -560,7 +560,7 @@ func FailureHotspotRunKey(round uint64, at time.Time) string {
 }
 
 // FailureHotspotCause returns the operator-facing cause used for hotspot rows.
-func FailureHotspotCause(finding watch.Finding) string {
+func FailureHotspotCause(finding watchrun.Finding) string {
 	cause := FirstNonEmpty(
 		finding.Message,
 		strings.TrimSpace(FirstNonEmpty(finding.Check, "check")+" "+FirstNonEmpty(finding.Metric, "status")+"="+FirstNonEmpty(finding.Observed, "-")),
@@ -586,7 +586,7 @@ func (s State) FilteredFailedCheckSummaries(queryValue string) []FailedCheckSumm
 }
 
 // FailedCheckSummaryIndex returns the current row index for a finding summary.
-func (s State) FailedCheckSummaryIndex(agent watch.AgentSnapshot, target watch.TargetSnapshot, finding watch.Finding) int {
+func (s State) FailedCheckSummaryIndex(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, finding watchrun.Finding) int {
 	key := FailedCheckSummaryKey(agent, target, finding)
 	for i, item := range s.FailedCheckSummaries() {
 		if FailedCheckSummaryKey(item.Agent, item.Target, item.Finding) == key {

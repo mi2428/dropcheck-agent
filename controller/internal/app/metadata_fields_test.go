@@ -1,7 +1,6 @@
 package app
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -10,7 +9,7 @@ import (
 )
 
 func TestProfileCatalogueFieldsRemainIndependent(t *testing.T) {
-	text, err := showProfiles(outputText)
+	text, err := showProfiles()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,12 +24,9 @@ func TestProfileCatalogueFieldsRemainIndependent(t *testing.T) {
 			t.Fatalf("%s is not independent in each profile: %s", label, text)
 		}
 	}
-	encoded, err := showProfiles(outputJSON)
-	var value struct {
-		Checks []map[string]string `json:"checks"`
-	}
-	if err != nil || json.Unmarshal([]byte(encoded), &value) != nil || len(value.Checks) != len(profileCatalogue) || value.Checks[0]["purpose"] != profileCatalogue[0].Purpose {
-		t.Fatal("structured catalogue changed", err)
+	encoded, _, err := captureShellLine(t, t.Context(), &shellState{}, "show test profiles | display json")
+	if err != nil || !shellEnvelope(t, encoded).OK || !strings.Contains(strings.Join(shellEnvelope(t, encoded).Lines, "\n"), profileCatalogue[0].Purpose) {
+		t.Fatal("Shell catalogue envelope changed", err)
 	}
 }
 

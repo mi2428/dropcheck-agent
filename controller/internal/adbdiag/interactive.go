@@ -9,7 +9,7 @@ import (
 	"dropcheck/controller/internal/adb"
 )
 
-// InteractiveSpecs is the bounded Shell union, not the independent one-shot full kind.
+// InteractiveSpecs is the bounded raw Shell union of allowlisted sources.
 func InteractiveSpecs(kind string) ([]CommandSpec, error) {
 	if kind != "shell-full" && kind != "shell-wifi" && kind != "shell-connectivity" {
 		return Specs(kind)

@@ -33,7 +33,7 @@ func connectShell(ctx context.Context, state *shellState, parsed shellCommand) e
 		fmt.Fprintln(os.Stderr, "invalid connection arguments")
 		return nil
 	}
-	return runOperationForAgents(ctx, state, agents, op, commandOutputOptions{format: outputText, pipeline: parsed.pipeline, use: true, interactive: true, singleTarget: true})
+	return runOperationForAgents(ctx, state, agents, op, commandOutputOptions{pipeline: parsed.pipeline, use: true, singleTarget: true})
 }
 
 func renderShellSession(state *shellState) string {
@@ -76,5 +76,5 @@ func renderLastShellTest(state *shellState, view render.Presentation) (string, e
 		out, err := render.CommandResult(target, state.lastWifiTest, command.Options{Detail: true}, outputText, view)
 		return fmt.Sprintf("Historical test wifi at %s (not current readiness)\n%s", state.lastTestAt.Format(time.RFC3339Nano), out), err
 	}
-	return renderProfileReport(state, outputText, true, view)
+	return renderProfileReport(state, true, view)
 }

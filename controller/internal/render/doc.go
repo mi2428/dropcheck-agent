@@ -2,5 +2,5 @@
 //
 // The package consumes plain view structs and protocol-buffer command results.
 // It does not depend on shell state or session orchestration, which keeps
-// rendering reusable from both the Controller Shell and the Linux-style CLI.
+// rendering reusable from Controller Shell and the watch dashboard.
 package render

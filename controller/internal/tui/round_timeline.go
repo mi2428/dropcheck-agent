@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 )
 
 func (m model) roundTimelineView(width int, height int) string {
@@ -135,7 +135,7 @@ func roundTimelineGrid(width int, targetCount int) roundTimelineGridLayout {
 	return roundTimelineGridLayout{Columns: intMax(1, columns), Rows: rows}
 }
 
-func (m model) roundTimelineTargetRow(targets []watch.TargetSnapshot, width int, grid roundTimelineGridLayout, row int) string {
+func (m model) roundTimelineTargetRow(targets []watchrun.TargetSnapshot, width int, grid roundTimelineGridLayout, row int) string {
 	if width <= 0 {
 		return ""
 	}
@@ -195,7 +195,7 @@ func roundTimelineTileWidths(width int, columns int) []int {
 	return widths
 }
 
-func roundTimelineColumnLabelWidths(targets []watch.TargetSnapshot, tileWidths []int, rows int) []int {
+func roundTimelineColumnLabelWidths(targets []watchrun.TargetSnapshot, tileWidths []int, rows int) []int {
 	widths := make([]int, len(tileWidths))
 	rows = intMax(1, rows)
 	for column, tileWidth := range tileWidths {
@@ -213,7 +213,7 @@ func roundTimelineColumnLabelWidths(targets []watch.TargetSnapshot, tileWidths [
 	return widths
 }
 
-func (m model) roundTimelineTargetTile(target watch.TargetSnapshot, width int, labelWidth int) string {
+func (m model) roundTimelineTargetTile(target watchrun.TargetSnapshot, width int, labelWidth int) string {
 	if width <= 0 {
 		return ""
 	}
@@ -263,11 +263,11 @@ func roundTimelineMinTileWidth() int {
 	return roundTimelineTargetLabelRunes + 1 + roundTimelineMinVisibleRounds
 }
 
-func roundTimelineTargetLabel(target watch.TargetSnapshot, width int) string {
+func roundTimelineTargetLabel(target watchrun.TargetSnapshot, width int) string {
 	return fitANSI(checkStatusTargetLabel(target), width)
 }
 
-func (m model) targetRoundHistory(target watch.TargetSnapshot, width int) ([]targetRoundBucket, int, int) {
+func (m model) targetRoundHistory(target watchrun.TargetSnapshot, width int) ([]targetRoundBucket, int, int) {
 	width = intMax(1, width)
 	buckets := make([]targetRoundBucket, width)
 	connectFailedAgents := make([]map[string]bool, width)
@@ -285,7 +285,7 @@ func (m model) targetRoundHistory(target watch.TargetSnapshot, width int) ([]tar
 	peak := 0
 	targetKey := checkStatusTargetKey(target)
 	expectedAgents := m.expectedRoundAgentCount(target)
-	markConnectFailed := func(index int, agent watch.AgentSnapshot) {
+	markConnectFailed := func(index int, agent watchrun.AgentSnapshot) {
 		if connectFailedAgents[index] == nil {
 			connectFailedAgents[index] = map[string]bool{}
 		}
@@ -344,7 +344,7 @@ func roundTimelineEventsInSpan(events []outcomeEvent, startRound uint64, endRoun
 	return filtered
 }
 
-func (m model) expectedRoundAgentCount(target watch.TargetSnapshot) int {
+func (m model) expectedRoundAgentCount(target watchrun.TargetSnapshot) int {
 	targetKey := checkStatusTargetKey(target)
 	seenForTarget := map[string]bool{}
 	for _, state := range m.Targets {
@@ -371,7 +371,7 @@ func (m model) expectedRoundAgentCount(target watch.TargetSnapshot) int {
 	return intMax(1, len(seen))
 }
 
-func roundAgentKey(agent watch.AgentSnapshot) string {
+func roundAgentKey(agent watchrun.AgentSnapshot) string {
 	if key := agentKey(agent); key != "" {
 		return key
 	}

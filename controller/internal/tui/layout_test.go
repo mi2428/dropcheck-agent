@@ -6,31 +6,31 @@ import (
 	"testing"
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 
 	tea "charm.land/bubbletea/v2"
 )
 
 func TestRenderUsesDropcheckLayout(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{
 		{Name: "shownet-6g-ap1", SSID: "ShowNet", BSSID: "aa:bb:cc:dd:ee:ff", Band: "6ghz"},
 		{Name: "shownet-5g-any", SSID: "ShowNet", Band: "5ghz"},
 	}, events)
 	m.width = 180
 	m.height = 30
-	m.apply(watch.Event{Kind: watch.EventWatchStarted, Message: "watch started"})
-	m.apply(watch.Event{Kind: watch.EventRoundStarted, Round: 1})
-	m.apply(watch.Event{
-		Kind:   watch.EventTargetStarted,
+	m.apply(watchrun.Event{Kind: watchrun.EventWatchStarted, Message: "watch started"})
+	m.apply(watchrun.Event{Kind: watchrun.EventRoundStarted, Round: 1})
+	m.apply(watchrun.Event{
+		Kind:   watchrun.EventTargetStarted,
 		Round:  1,
-		Target: watch.TargetSnapshot{Name: "shownet-6g-ap1", SSID: "ShowNet", BSSID: "aa:bb:cc:dd:ee:ff", Band: "6ghz"},
+		Target: watchrun.TargetSnapshot{Name: "shownet-6g-ap1", SSID: "ShowNet", BSSID: "aa:bb:cc:dd:ee:ff", Band: "6ghz"},
 	})
-	m.apply(watch.Event{
-		Kind:   watch.EventStepStarted,
+	m.apply(watchrun.Event{
+		Kind:   watchrun.EventStepStarted,
 		Round:  1,
-		Target: watch.TargetSnapshot{Name: "shownet-6g-ap1", SSID: "ShowNet", BSSID: "aa:bb:cc:dd:ee:ff", Band: "6ghz"},
-		Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
+		Target: watchrun.TargetSnapshot{Name: "shownet-6g-ap1", SSID: "ShowNet", BSSID: "aa:bb:cc:dd:ee:ff", Band: "6ghz"},
+		Step:   watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
 	})
 
 	frame := stripANSI(m.render())
@@ -95,7 +95,7 @@ func TestRenderUsesDropcheckLayout(t *testing.T) {
 }
 
 func TestInitStartsEventAndClockCommands(t *testing.T) {
-	events := make(chan watch.Event)
+	events := make(chan watchrun.Event)
 	m := newModel(nil, events)
 	msg := m.Init()()
 	batch, ok := msg.(tea.BatchMsg)
@@ -108,7 +108,7 @@ func TestInitStartsEventAndClockCommands(t *testing.T) {
 }
 
 func TestWindowResizeRequestsFullRepaint(t *testing.T) {
-	events := make(chan watch.Event)
+	events := make(chan watchrun.Event)
 	m := newModel(nil, events)
 	updated, cmd := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	next := updated.(model)
@@ -124,7 +124,7 @@ func TestWindowResizeRequestsFullRepaint(t *testing.T) {
 }
 
 func TestQKeyDoesNotQuit(t *testing.T) {
-	events := make(chan watch.Event)
+	events := make(chan watchrun.Event)
 	m := newModel(nil, events)
 	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'q', Text: "q"}))
 	if cmd != nil {
@@ -137,34 +137,34 @@ func TestQKeyDoesNotQuit(t *testing.T) {
 }
 
 func TestDashboardPanelHeightsFollowRoundTimelineAndCheckStatusContent(t *testing.T) {
-	events := make(chan watch.Event)
-	agents := []watch.AgentSnapshot{
+	events := make(chan watchrun.Event)
+	agents := []watchrun.AgentSnapshot{
 		{ID: "agent-a", Name: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b"},
 	}
-	m := newModel([]watch.Target{
+	m := newModel([]watchrun.Target{
 		{Name: "u7-5ghz", SSID: "SHIZK RADIO"},
 		{Name: "u6-5ghz", SSID: "SHIZK RADIO"},
 	}, events, agents)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	m.apply(watch.Event{
+	m.apply(watchrun.Event{
 		Time:   at,
-		Kind:   watch.EventFinding,
+		Kind:   watchrun.EventFinding,
 		Agent:  agents[0],
-		Target: watch.TargetSnapshot{Name: "u7-5ghz", SSID: "SHIZK RADIO"},
-		Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
-		Finding: &watch.Finding{
+		Target: watchrun.TargetSnapshot{Name: "u7-5ghz", SSID: "SHIZK RADIO"},
+		Step:   watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
+		Finding: &watchrun.Finding{
 			Target: "u7-5ghz",
 			Check:  "connect",
 			Metric: "status",
 		},
 	})
-	m.apply(watch.Event{
+	m.apply(watchrun.Event{
 		Time:     at.Add(time.Second),
-		Kind:     watch.EventStepFinished,
+		Kind:     watchrun.EventStepFinished,
 		Agent:    agents[1],
-		Target:   watch.TargetSnapshot{Name: "u6-5ghz", SSID: "SHIZK RADIO"},
-		Step:     watch.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "ok"},
+		Target:   watchrun.TargetSnapshot{Name: "u6-5ghz", SSID: "SHIZK RADIO"},
+		Step:     watchrun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "ok"},
 		Status:   "ok",
 		Duration: 42,
 	})

@@ -11,9 +11,9 @@ import (
 
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/controlpb"
-	"dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/pipeline"
 	"dropcheck/controller/internal/shell"
+	"dropcheck/controller/internal/watchrun"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -27,7 +27,7 @@ func independentCompact(value string) string {
 }
 
 func TestIndependentAlignmentCanceledPartDoesNotLeakReason(t *testing.T) {
-	result := harness.OperationResult{Parts: []harness.OperationRecord{{
+	result := watchrun.OperationResult{Parts: []watchrun.OperationRecord{{
 		Name: "passive partial acquisition",
 		Raw:  &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_CANCELED, Message: "password=independent-secret-marker"},
 	}}}
@@ -128,7 +128,7 @@ func TestIndependentAlignmentHelpLocalErrorAndReportBoundaries(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		report, err := Report(harness.Report{Outcome: harness.FailOutcome, Problems: []harness.Problem{{Message: marker}}, Cleanup: []harness.OperationRecord{{Error: "password=independent-secret-marker"}}}, Presentation{Interactive: true, Width: width})
+		report, err := Report(watchrun.Report{Outcome: watchrun.FailOutcome, Problems: []watchrun.Problem{{Message: marker}}, Cleanup: []watchrun.OperationRecord{{Error: "password=independent-secret-marker"}}}, Presentation{Interactive: true, Width: width})
 		if err != nil {
 			t.Fatal(err)
 		}

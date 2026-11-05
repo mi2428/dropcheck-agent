@@ -3,7 +3,7 @@ package tui
 import (
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 	"dropcheck/controller/internal/watchstate"
 
 	"charm.land/bubbles/v2/key"
@@ -81,7 +81,7 @@ const (
 	recencyWarmWindow             = 30 * time.Second
 )
 
-type eventMsg watch.Event
+type eventMsg watchrun.Event
 type closedMsg struct{}
 type tickMsg time.Time
 
@@ -91,7 +91,7 @@ type keyMap struct {
 
 type model struct {
 	Title  string
-	events <-chan watch.Event
+	events <-chan watchrun.Event
 	keys   keyMap
 	width  int
 	height int
@@ -122,7 +122,7 @@ type model struct {
 	checkStatusSearchQuery    string
 	failureHotspotSearchQuery string
 	paused                    bool
-	controls                  *watch.Controls
+	controls                  *watchrun.Controls
 	detailOpen                bool
 	detailPanel               focusPanel
 	detailHotspotMode         failureHotspotMode

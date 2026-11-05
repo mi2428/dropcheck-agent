@@ -33,7 +33,7 @@ type Options struct {
 	// ListenAddr is the controller gRPC listen address. Empty uses 127.0.0.1:0.
 	ListenAddr string
 	// OnLog receives WARN/ERROR logs emitted by Android agents. Nil writes them
-	// to stderr, preserving the default CLI and shell behavior.
+	// to stderr, preserving the default Shell/watch behavior.
 	OnLog func(control.LogEvent)
 }
 

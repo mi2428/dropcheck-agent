@@ -1,16 +1,16 @@
 package tui
 
-import watch "dropcheck/controller/internal/harness"
+import "dropcheck/controller/internal/watchrun"
 
-func (m *model) apply(event watch.Event) {
+func (m *model) apply(event watchrun.Event) {
 	m.Apply(event)
-	if event.Kind == watch.EventControlApplied {
+	if event.Kind == watchrun.EventControlApplied {
 		m.paused = m.State.Phase == "paused"
 	}
-	if event.Kind == watch.EventRoundStarted && !m.checkStatusPinned {
+	if event.Kind == watchrun.EventRoundStarted && !m.checkStatusPinned {
 		m.checkStatusOffset = 0
 	}
-	if event.Kind == watch.EventFinding && event.Finding != nil && !m.failedCheckPinned {
+	if event.Kind == watchrun.EventFinding && event.Finding != nil && !m.failedCheckPinned {
 		m.failedCheckCursor = m.failedCheckSummaryIndex(event.Agent, event.Target, *event.Finding)
 	}
 	m.updateRunQueueCursor()

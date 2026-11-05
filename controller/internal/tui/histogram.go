@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 	"dropcheck/controller/internal/watchstate"
 
 	"charm.land/lipgloss/v2"
@@ -75,11 +75,11 @@ func summarySparklineAxis(width int, window time.Duration) string {
 	return dimStyle.Render(left + mid + right)
 }
 
-func (m model) passingCheckOccurrences(agent watch.AgentSnapshot, target watch.TargetSnapshot, step watch.StepSnapshot) []time.Time {
+func (m model) passingCheckOccurrences(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, step watchrun.StepSnapshot) []time.Time {
 	return m.PassingCheckOccurrences(agent, target, step)
 }
 
-func (m model) failedCheckOccurrences(agent watch.AgentSnapshot, target watch.TargetSnapshot, finding watch.Finding) []time.Time {
+func (m model) failedCheckOccurrences(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, finding watchrun.Finding) []time.Time {
 	return m.FailedCheckOccurrences(agent, target, finding)
 }
 

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 
 	"charm.land/lipgloss/v2"
 )
@@ -75,8 +75,8 @@ func TestFailedCheckLayoutMovesSpareWidthOutOfTargetColumn(t *testing.T) {
 		Count:       1,
 		FailPercent: 50,
 		FailStreak:  1,
-		Target:      watch.TargetSnapshot{Name: "ub2(6G)"},
-		Finding: watch.Finding{
+		Target:      watchrun.TargetSnapshot{Name: "ub2(6G)"},
+		Finding: watchrun.Finding{
 			Target: "ub2(6G)",
 			Check:  "wait_connected",
 			Metric: "status",
@@ -118,8 +118,8 @@ func TestEmptyFailedCheckHeaderDistributesColumns(t *testing.T) {
 }
 
 func TestCheckStatusHeaderFillsPanelWidth(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{{Name: "ub1(5G)", SSID: "SHIZK RADIO"}}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{{Name: "ub1(5G)", SSID: "SHIZK RADIO"}}, events)
 	m.Targets[0].Steps = []stepState{{Name: "connect", Status: "ok"}}
 
 	view := m.checkStatusView(64, 3)
@@ -134,7 +134,7 @@ func TestCheckStatusHeaderFillsPanelWidth(t *testing.T) {
 
 func TestCheckStatusCheckColumnCanGrowByHalf(t *testing.T) {
 	checks := []string{"Debug HTTP Wrong Status"}
-	targets := []watch.TargetSnapshot{{Name: "debug-a1", ShortName: "DA1"}}
+	targets := []watchrun.TargetSnapshot{{Name: "debug-a1", ShortName: "DA1"}}
 
 	layout := checkStatusTableLayout(64, checks, targets, nil)
 	if got, want := layout.LabelWidth, lipgloss.Width("Debug HTTP Wrong Status"); got != want {
@@ -149,7 +149,7 @@ func TestCheckStatusCheckColumnCanGrowByHalf(t *testing.T) {
 
 func TestCheckStatusPrefersShortNamesWhenFullLabelsWouldCompact(t *testing.T) {
 	checks := []string{"Connect"}
-	targets := []watch.TargetSnapshot{
+	targets := []watchrun.TargetSnapshot{
 		{Name: "cs10-legacy", ShortName: "C10L"},
 		{Name: "cs11-legacy", ShortName: "C11L"},
 		{Name: "cs12-legacy", ShortName: "C12L"},
@@ -174,24 +174,24 @@ func TestCheckStatusPrefersShortNamesWhenFullLabelsWouldCompact(t *testing.T) {
 }
 
 func TestInitialRenderWithoutMeasurementsIsStable(t *testing.T) {
-	events := make(chan watch.Event)
-	agents := []watch.AgentSnapshot{
+	events := make(chan watchrun.Event)
+	agents := []watchrun.AgentSnapshot{
 		{ID: "agent-a", Name: "pixel-a", ADBSerial: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b", ADBSerial: "pixel-b"},
 	}
-	m := newModel([]watch.Target{
+	m := newModel([]watchrun.Target{
 		{Name: "radio-u6-5ghz", SSID: "SHIZK RADIO", Band: "5ghz"},
 		{Name: "radio-any-2ghz", SSID: "SHIZK RADIO", Band: "2.4ghz"},
 	}, events, agents)
 	m.width = 180
 	m.height = 34
-	m.apply(watch.Event{Kind: watch.EventWatchStarted, Message: "watch started"})
-	m.apply(watch.Event{Kind: watch.EventRoundStarted, Round: 1, Status: "running"})
-	m.apply(watch.Event{
-		Kind:   watch.EventTargetStarted,
+	m.apply(watchrun.Event{Kind: watchrun.EventWatchStarted, Message: "watch started"})
+	m.apply(watchrun.Event{Kind: watchrun.EventRoundStarted, Round: 1, Status: "running"})
+	m.apply(watchrun.Event{
+		Kind:   watchrun.EventTargetStarted,
 		Round:  1,
 		Agent:  agents[0],
-		Target: watch.TargetSnapshot{Name: "radio-u6-5ghz", SSID: "SHIZK RADIO", Band: "5ghz"},
+		Target: watchrun.TargetSnapshot{Name: "radio-u6-5ghz", SSID: "SHIZK RADIO", Band: "5ghz"},
 		Status: "running",
 	})
 

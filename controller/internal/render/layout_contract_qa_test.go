@@ -10,9 +10,9 @@ import (
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
-	"dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/pipeline"
 	"dropcheck/controller/internal/shell"
+	"dropcheck/controller/internal/watchrun"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -212,7 +212,7 @@ func TestLayoutContractCommandTables(t *testing.T) {
 
 func TestLayoutContractReportAndNoninteractiveFields(t *testing.T) {
 	t.Run("report", func(t *testing.T) {
-		out, err := Report(harness.Report{}, Presentation{Interactive: true, Width: 120})
+		out, err := Report(watchrun.Report{}, Presentation{Interactive: true, Width: 120})
 		if err != nil {
 			t.Fatal(err)
 		}

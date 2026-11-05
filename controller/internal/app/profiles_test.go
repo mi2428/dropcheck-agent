@@ -10,8 +10,8 @@ import (
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
-	"dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/runner"
+	"dropcheck/controller/internal/watchrun"
 )
 
 type linkRunner struct {
@@ -44,7 +44,11 @@ func linkResult(ssid, network, family string) *controlpb.CommandResult {
 
 func TestConfiguredLabUsesExistingNetworkAndStopsAfterFailedPrerequisite(t *testing.T) {
 	config := command.LabConfig{Gateway: "192.0.2.1", DNS: "lab.example.test", Resolver: "selected", HTTP: "https://lab.example.test/health", ExpectedStatus: 204, TimeoutMs: 5000}
-	compiled, err := harness.Compile(labPlan("Lab", "ipv4", config), []control.AgentInfo{{ID: "agent-a"}})
+	plan, err := labPlan("Lab", "ipv4", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := watchrun.Compile(plan, []control.AgentInfo{{ID: "agent-a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,12 +63,12 @@ func TestConfiguredLabUsesExistingNetworkAndStopsAfterFailedPrerequisite(t *test
 		name    string
 		failAt  int
 		want    []string
-		outcome harness.Outcome
+		outcome watchrun.Outcome
 	}{
-		{"pass", 0, []string{"ip.status", "ping", "dns", "http", "ip.status"}, harness.OutcomePass},
-		{"lost-before-probe", 1, []string{"ip.status"}, harness.MissingOutcome},
-		{"dns-failure", 3, []string{"ip.status", "ping", "dns"}, harness.FailOutcome},
-		{"http-wrong-status", 4, []string{"ip.status", "ping", "dns", "http"}, harness.FailOutcome},
+		{"pass", 0, []string{"ip.status", "ping", "dns", "http", "ip.status"}, watchrun.OutcomePass},
+		{"lost-before-probe", 1, []string{"ip.status"}, watchrun.MissingOutcome},
+		{"dns-failure", 3, []string{"ip.status", "ping", "dns"}, watchrun.FailOutcome},
+		{"http-wrong-status", 4, []string{"ip.status", "ping", "dns", "http"}, watchrun.FailOutcome},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := &linkRunner{change: func(op command.Operation, n int) *controlpb.CommandResult {
@@ -94,7 +98,7 @@ func TestConfiguredLabUsesExistingNetworkAndStopsAfterFailedPrerequisite(t *test
 				t.Fatalf("unexpected %s", op.Name)
 				return nil
 			}}
-			report, err := harness.Execute(context.Background(), compiled, r, harness.ExecuteOptions{Rounds: 1})
+			report, err := watchrun.Execute(context.Background(), compiled, r, watchrun.ExecuteOptions{Rounds: 1})
 			if err != nil || report.Outcome != tc.outcome || !slices.Equal(r.operations, tc.want) {
 				t.Fatalf("ops=%v outcome=%s err=%v want=%v/%s", r.operations, report.Outcome, err, tc.want, tc.outcome)
 			}
@@ -122,7 +126,7 @@ func TestLinkExistingWiFiReadOnlyAndRevalidation(t *testing.T) {
 		{"missing-dns", "Lab", "ipv4", "dns", "fail", 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			plan, err := harness.Compile(linkPlan(tc.ssid, tc.family), []control.AgentInfo{{ID: "agent-a"}})
+			plan, err := watchrun.Compile(linkPlan(tc.ssid, tc.family), []control.AgentInfo{{ID: "agent-a"}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -161,7 +165,7 @@ func TestLinkExistingWiFiReadOnlyAndRevalidation(t *testing.T) {
 				}
 				return result
 			}}
-			report, _ := harness.Execute(context.Background(), plan, r, harness.ExecuteOptions{Rounds: 1})
+			report, _ := watchrun.Execute(context.Background(), plan, r, watchrun.ExecuteOptions{Rounds: 1})
 			if len(r.operations) != tc.ops || string(report.Outcome) != tc.want {
 				t.Fatalf("ops=%v outcome=%s want=%s", r.operations, report.Outcome, tc.want)
 			}
@@ -175,7 +179,7 @@ func TestLinkExistingWiFiReadOnlyAndRevalidation(t *testing.T) {
 					t.Fatalf("typed link report=%+v", report)
 				}
 				if tc.family == "all" {
-					view, err := renderProfileReport(&shellState{lastProfile: "link", lastSSID: tc.ssid, lastReport: &report}, outputText, false)
+					view, err := renderProfileReport(&shellState{lastProfile: "link", lastSSID: tc.ssid, lastReport: &report}, false)
 					if err != nil || !strings.Contains(view, "Android validated: false (observation only)") {
 						t.Fatalf("all-family validation observation lost: %s (%v)", view, err)
 					}
@@ -186,59 +190,63 @@ func TestLinkExistingWiFiReadOnlyAndRevalidation(t *testing.T) {
 }
 
 func TestLinkInvalidPlanAndHistoricalPreflight(t *testing.T) {
-	if err := harness.Validate(harness.Plan{Networks: []harness.Network{harness.ObservedWiFi("lab").SSID("Lab").PSK("not-a-valid-secret")}, Checks: []harness.Check{harness.WiFiStatus()}}); err == nil {
+	if err := watchrun.Validate(watchrun.Plan{Networks: []watchrun.Network{{Name: "lab", ReadOnly: true, SSID: "Lab", PSK: watchrun.SecretValue("not-a-valid-secret")}}, Checks: []watchrun.Check{{Name: "wifi status", Operation: command.WifiStatusOperation()}}}); err == nil {
 		t.Fatal("read-only plan accepted a connection credential")
 	}
-	if err := harness.Validate(harness.Plan{Networks: []harness.Network{harness.ObservedWiFi("lab").SSID("Lab").BSSID("02:00:00:00:00:11")}, Checks: []harness.Check{harness.WiFiStatus()}}); err == nil {
+	if err := watchrun.Validate(watchrun.Plan{Networks: []watchrun.Network{{Name: "lab", ReadOnly: true, SSID: "Lab", BSSID: "02:00:00:00:00:11"}}, Checks: []watchrun.Check{{Name: "wifi status", Operation: command.WifiStatusOperation()}}}); err == nil {
 		t.Fatal("read-only plan promised strict BSSID pinning")
 	}
-	if err := harness.Validate(harness.Plan{Networks: []harness.Network{harness.ObservedWiFi("lab").SSID("Lab")}, Checks: []harness.Check{harness.Ping("example.test")}}); err == nil {
-		t.Fatal("read-only plan accepted active probe")
-	}
-	s := &shellState{server: control.NewServer("synthetic", nil), selected: "expired-agent"}
-	compiled, err := harness.Compile(linkPlan("Lab", "ipv4"), []control.AgentInfo{{ID: "old-agent"}})
+	probe, err := command.PingOperation(command.PingOptions{Host: "example.test"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	old, err := harness.Execute(context.Background(), compiled, &linkRunner{change: func(op command.Operation, _ int) *controlpb.CommandResult {
+	if err := watchrun.Validate(watchrun.Plan{Networks: []watchrun.Network{{Name: "lab", ReadOnly: true, SSID: "Lab"}}, Checks: []watchrun.Check{{Name: "ping", Operation: probe}}}); err == nil {
+		t.Fatal("read-only plan accepted active probe")
+	}
+	s := &shellState{server: control.NewServer("synthetic", nil), selected: "expired-agent"}
+	compiled, err := watchrun.Compile(linkPlan("Lab", "ipv4"), []control.AgentInfo{{ID: "old-agent"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := watchrun.Execute(context.Background(), compiled, &linkRunner{change: func(op command.Operation, _ int) *controlpb.CommandResult {
 		return linkResult("Lab", "101", "ipv4")
-	}}, harness.ExecuteOptions{Rounds: 1})
+	}}, watchrun.ExecuteOptions{Rounds: 1})
 	if err != nil || !old.Passed() {
 		t.Fatalf("old fixture is not PASS: %s %v", old.Outcome, err)
 	}
 	s.lastReport, s.lastProfile, s.lastSSID = &old, "link", "Lab"
-	if view, err := renderProfileReport(s, outputText, false); err != nil || !strings.Contains(view, "Android validated: false (observation only)") {
+	if view, err := renderProfileReport(s, false); err != nil || !strings.Contains(view, "Android validated: false (observation only)") {
 		t.Fatalf("false validation must not fail link or imply internet: %q %v", view, err)
 	}
 	before, _ := json.Marshal(old)
 	for _, tc := range []struct {
-		name, ssid, family, rejection string
-		want                          harness.Outcome
+		line string
+		want watchrun.Outcome
 	}{
-		{"link", "credential-like-ssid", "ipv4", "invalid BSSID; pinning unsupported", harness.SkipOutcome},
-		{"unsupported", "", "", "profile unsupported; candidates: link, lab, internet, eht", harness.SkipOutcome},
-		{"link", "Lab", "ipv4", "", harness.MissingOutcome}, // expired pinned agent; no fallback
-		{"link", "", "invalid", "", harness.MissingOutcome}, // zero-config/family
+		{"test link ssid credential-like-ssid family ipv4 bssid 02:00:00:00:00:11", watchrun.SkipOutcome},
+		{"test link ssid Lab family ipv4", watchrun.MissingOutcome},
+		{`test link ssid "" family invalid`, watchrun.MissingOutcome},
 	} {
 		previous := s.lastReport
-		if err := s.runCheck(context.Background(), tc.name, tc.ssid, tc.family, "", tc.rejection, outputJSON, pipePipeline{}, true); err == nil {
-			t.Fatal("strict check accepted failed prerequisite")
+		out, _, err := captureShellLine(t, context.Background(), s, tc.line+" | display json")
+		if err != nil || shellEnvelope(t, out).OK {
+			t.Fatal("Shell test accepted failed prerequisite", err)
 		}
 		if s.lastReport == previous || s.lastReport.RunID == previous.RunID || !s.lastReport.Started.After(old.Started) || s.lastReport.Outcome != tc.want || s.lastReport.Passed() {
 			t.Fatalf("preflight kept old PASS: %+v", s.lastReport)
 		}
-		if tc.want == harness.SkipOutcome && s.lastReport.Steps[0].SkipReason != harness.SkipUnsupported {
+		if tc.want == watchrun.SkipOutcome && s.lastReport.Steps[0].SkipReason != watchrun.SkipUnsupported {
 			t.Fatalf("unsupported check lost skip reason: %+v", s.lastReport.Steps[0])
 		}
 		if strings.Contains(s.lastReport.Steps[0].Name, "secret") || s.lastReport.Steps[0].Scope.AgentID != s.selected {
 			t.Fatal("unsafe/unpinned preflight report")
 		}
-		if tc.rejection != "" && s.lastSSID != "" {
+		if tc.want == watchrun.SkipOutcome && s.lastSSID != "" {
 			t.Fatal("untrusted invalid SSID leaked to historical report")
 		}
 	}
 	last := s.lastReport
-	if err := s.runCheck(context.Background(), "", "", "", "", "", outputText, pipePipeline{}, true); err != nil || s.lastReport != last {
+	if _, err := runReplLine(context.Background(), s, "test"); err != nil || s.lastReport != last {
 		t.Fatal("bare check replaced last attempt", err)
 	}
 	s.failedUse = true
@@ -249,11 +257,11 @@ func TestLinkInvalidPlanAndHistoricalPreflight(t *testing.T) {
 	if string(before) != string(after) {
 		t.Fatal("historical report mutated")
 	}
-	lastText, err := renderProfileReport(s, outputText, true)
+	lastText, err := renderProfileReport(s, true)
 	if err != nil || !strings.Contains(lastText, "Historical") || !strings.Contains(lastText, "MISSING") || strings.Contains(lastText, old.RunID) {
 		t.Fatalf("last=%q err=%v", lastText, err)
 	}
-	noReport, err := renderProfileReport(&shellState{}, outputText, false)
+	noReport, err := renderProfileReport(&shellState{}, false)
 	if err != nil || !strings.Contains(noReport, "No report") {
 		t.Fatal(noReport, err)
 	}

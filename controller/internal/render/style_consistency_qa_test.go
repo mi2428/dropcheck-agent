@@ -9,8 +9,8 @@ import (
 
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/controlpb"
-	"dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/pipeline"
+	"dropcheck/controller/internal/watchrun"
 )
 
 func styleField(t *testing.T, text, label, value string, indent int) int {
@@ -157,7 +157,7 @@ func TestStyleConsistencyCommandErrorRecords(t *testing.T) {
 }
 
 func TestStyleConsistencyMissingAcquisitionRecord(t *testing.T) {
-	text, err := OperationResult("self", harness.OperationResult{}, pipeline.FormatText, Presentation{})
+	text, err := OperationResult("self", watchrun.OperationResult{}, pipeline.FormatText, Presentation{})
 	if err != nil {
 		t.Fatal(err)
 	}

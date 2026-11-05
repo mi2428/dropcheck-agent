@@ -6,7 +6,7 @@
 // in internal/watchstate so the rendering layer can stay focused on arranging
 // already-derived data.
 //
-// Run is the package boundary used by the command-line application. The rest of
+// RunWithControls is the boundary used by dropcheck watch. The rest of
 // the package intentionally remains unexported because the TUI is a single
 // Bubble Tea program rather than a reusable widget library.
 package tui

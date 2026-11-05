@@ -8,7 +8,7 @@ import (
 
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 )
 
 func TestWatchSessionLogEventFormatsWarnForTUI(t *testing.T) {
@@ -24,7 +24,7 @@ func TestWatchSessionLogEventFormatsWarnForTUI(t *testing.T) {
 	if !ok {
 		t.Fatal("watchSessionLogEvent filtered warn log")
 	}
-	if event.Kind != watch.EventLog || !event.Time.Equal(at) {
+	if event.Kind != watchrun.EventLog || !event.Time.Equal(at) {
 		t.Fatalf("event metadata = %#v", event)
 	}
 	if event.Agent.ID != "agent-a" || event.Agent.SessionID != "session-a" {
@@ -37,23 +37,23 @@ func TestWatchSessionLogEventFormatsWarnForTUI(t *testing.T) {
 
 func TestPrintWatchNoTUIEventPrintsRequiredStepFailure(t *testing.T) {
 	var out bytes.Buffer
-	printWatchNoTUIEvent(&out, watch.Event{
+	printWatchNoTUIEvent(&out, watchrun.Event{
 		Time:  time.Date(2026, 5, 19, 10, 11, 12, 0, time.UTC),
-		Kind:  watch.EventFinding,
+		Kind:  watchrun.EventFinding,
 		Round: 4,
-		Agent: watch.AgentSnapshot{ADBSerial: "R5CT12345"},
-		Target: watch.TargetSnapshot{
+		Agent: watchrun.AgentSnapshot{ADBSerial: "R5CT12345"},
+		Target: watchrun.TargetSnapshot{
 			Name: "lab-6g",
 			SSID: "Lab",
 		},
-		Step: watch.StepSnapshot{
+		Step: watchrun.StepSnapshot{
 			Name:    "wait_connected",
 			Type:    "wait_connected",
 			Status:  "failed",
 			Message: "wifi condition timeout",
 		},
 		Status:  "failed",
-		Finding: &watch.Finding{Target: "lab-6g", Check: "wait_connected", Metric: "status", Observed: "failed", Expected: "== ok", Message: "wifi condition timeout"},
+		Finding: &watchrun.Finding{Target: "lab-6g", Check: "wait_connected", Metric: "status", Observed: "failed", Expected: "== ok", Message: "wifi condition timeout"},
 	}, true)
 
 	got := out.String()
@@ -73,9 +73,9 @@ func TestPrintWatchNoTUIEventPrintsRequiredStepFailure(t *testing.T) {
 
 func TestPrintWatchNoTUIEventIgnoresPassingStep(t *testing.T) {
 	var out bytes.Buffer
-	printWatchNoTUIEvent(&out, watch.Event{
-		Kind:   watch.EventStepFinished,
-		Step:   watch.StepSnapshot{Name: "ping", Type: "ping", Status: "ok"},
+	printWatchNoTUIEvent(&out, watchrun.Event{
+		Kind:   watchrun.EventStepFinished,
+		Step:   watchrun.StepSnapshot{Name: "ping", Type: "ping", Status: "ok"},
 		Status: "ok",
 	}, false)
 
@@ -112,16 +112,16 @@ func TestWatchAgentPlansAssignTargetsBySerial(t *testing.T) {
 			},
 		},
 	}
-	plan := watch.Plan{
+	plan := watchrun.Plan{
 		Name: "assigned-watch",
-		Networks: []watch.Network{
-			watch.WiFi("ap-5g").Agent("35251JEHN00258").SSID("Lab").Band("5ghz"),
-			watch.WiFi("ap-6g").Agent("45240DLAQ007HG").SSID("Lab").Band("6ghz"),
-			watch.WiFi("shared").SSID("Lab"),
+		Networks: []watchrun.Network{
+			{Name: "ap-5g", Agent: "35251JEHN00258", SSID: "Lab", Band: "5ghz", WaitConnected: true, RequireIP: true, DisconnectAfter: true},
+			{Name: "ap-6g", Agent: "45240DLAQ007HG", SSID: "Lab", Band: "6ghz", WaitConnected: true, RequireIP: true, DisconnectAfter: true},
+			{Name: "shared", SSID: "Lab", WaitConnected: true, RequireIP: true, DisconnectAfter: true},
 		},
 	}
 
-	compiled, err := watch.Compile(plan, agents)
+	compiled, err := watchrun.Compile(plan, agents)
 	if err != nil {
 		t.Fatalf("watchAgentPlans() error = %v", err)
 	}
@@ -141,14 +141,14 @@ func TestWatchAgentPlansRejectDeviceModelAgentSelector(t *testing.T) {
 			},
 		},
 	}
-	plan := watch.Plan{
+	plan := watchrun.Plan{
 		Name: "assigned-watch",
-		Networks: []watch.Network{
-			watch.WiFi("ap-5g").Agent("Pixel 7a").SSID("Lab").Band("5ghz"),
+		Networks: []watchrun.Network{
+			{Name: "ap-5g", Agent: "Pixel 7a", SSID: "Lab", Band: "5ghz", WaitConnected: true, RequireIP: true, DisconnectAfter: true},
 		},
 	}
 
-	if _, err := watch.Compile(plan, agents); err == nil {
+	if _, err := watchrun.Compile(plan, agents); err == nil {
 		t.Fatalf("watchAgentPlans() error = %v, want agent serial error", err)
 	}
 }

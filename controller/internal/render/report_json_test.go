@@ -7,11 +7,11 @@ import (
 	"testing"
 
 	"dropcheck/controller/internal/controlpb"
-	"dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 )
 
 func TestSafeReportJSONRedactsBeforeEncodingWithoutMutatingTypedReport(t *testing.T) {
-	report := harness.Report{Problems: []harness.Problem{{Message: "https://example.test/path?token=unshared-credential"}}, Steps: []harness.StepReport{{Attempts: []harness.Attempt{{Result: harness.OperationResult{Raw: &controlpb.CommandResult{
+	report := watchrun.Report{Problems: []watchrun.Problem{{Message: "https://example.test/path?token=unshared-credential"}}, Steps: []watchrun.StepReport{{Attempts: []watchrun.Attempt{{Result: watchrun.OperationResult{Raw: &controlpb.CommandResult{
 		Message: "authorization: Bearer unshared-credential", Payload: &controlpb.CommandResult_IpStatus{IpStatus: &controlpb.IpStatus{Wifi: &controlpb.WifiConnection{Ssid: "Lab token=public-literal", Bssid: "aa:bb:cc:dd:ee:ff"}, ObservationFields: []*controlpb.DiagnosticField{{Key: "token", Value: "unshared-credential"}}}},
 	}}}}}}}
 	before, _ := json.Marshal(report)

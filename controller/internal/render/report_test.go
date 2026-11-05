@@ -6,24 +6,24 @@ import (
 	"time"
 
 	"dropcheck/controller/internal/controlpb"
-	"dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 )
 
 func TestReportKeepsCleanupProblemsRecoveryAndTypedPrecision(t *testing.T) {
 	started := time.Unix(1, 0)
-	scope := harness.Scope{Kind: "check", AgentID: "agent-1", TargetID: "target-1", CheckID: "check-1"}
-	report := harness.Report{
-		Outcome: harness.OutcomePass, State: "finished", Started: started, Ended: started.Add(time.Second),
-		Counts:   harness.Counts{Passed: 1, Skipped: 1},
-		Agents:   []harness.AgentProgress{{Agent: harness.AgentSnapshot{ID: "agent-1", Name: "fixture-agent"}, Outcome: harness.OutcomePass}},
-		Cleanup:  []harness.OperationRecord{{Name: "disconnect", Error: "cleanup timeout", Started: started, Ended: started.Add(time.Millisecond)}},
-		Problems: []harness.Problem{{Kind: "cleanup", Scope: scope, Round: 1, Message: "cleanup remains unresolved"}},
-		Steps: []harness.StepReport{
-			{Scope: scope, Round: 1, Name: "latency", Outcome: harness.OutcomePass, Attempts: []harness.Attempt{
-				{Scope: scope, Outcome: harness.FailOutcome, Number: 1, Started: started, Ended: started.Add(time.Millisecond), Findings: []harness.Finding{{TargetID: "target-1", Target: "東京 Lab Case", Metric: "latency", Observed: "0.00ms", Expected: "<= 0.00ms", ObservedValue: 0.00049, ExpectedValue: 0.00048, Message: "constraint failed"}}},
-				{Scope: scope, Outcome: harness.OutcomePass, Number: 2, Started: started, Ended: started.Add(time.Millisecond), Findings: []harness.Finding{{Metric: "latency", Observed: "0.00ms", Expected: "<= 0.00ms", ObservedValue: 0.00047, ExpectedValue: 0.00048, Passed: true}}},
+	scope := watchrun.Scope{Kind: "check", AgentID: "agent-1", TargetID: "target-1", CheckID: "check-1"}
+	report := watchrun.Report{
+		Outcome: watchrun.OutcomePass, State: "finished", Started: started, Ended: started.Add(time.Second),
+		Counts:   watchrun.Counts{Passed: 1, Skipped: 1},
+		Agents:   []watchrun.AgentProgress{{Agent: watchrun.AgentSnapshot{ID: "agent-1", Name: "fixture-agent"}, Outcome: watchrun.OutcomePass}},
+		Cleanup:  []watchrun.OperationRecord{{Name: "disconnect", Error: "cleanup timeout", Started: started, Ended: started.Add(time.Millisecond)}},
+		Problems: []watchrun.Problem{{Kind: "cleanup", Scope: scope, Round: 1, Message: "cleanup remains unresolved"}},
+		Steps: []watchrun.StepReport{
+			{Scope: scope, Round: 1, Name: "latency", Outcome: watchrun.OutcomePass, Attempts: []watchrun.Attempt{
+				{Scope: scope, Outcome: watchrun.FailOutcome, Number: 1, Started: started, Ended: started.Add(time.Millisecond), Findings: []watchrun.Finding{{TargetID: "target-1", Target: "東京 Lab Case", Metric: "latency", Observed: "0.00ms", Expected: "<= 0.00ms", ObservedValue: 0.00049, ExpectedValue: 0.00048, Message: "constraint failed"}}},
+				{Scope: scope, Outcome: watchrun.OutcomePass, Number: 2, Started: started, Ended: started.Add(time.Millisecond), Findings: []watchrun.Finding{{Metric: "latency", Observed: "0.00ms", Expected: "<= 0.00ms", ObservedValue: 0.00047, ExpectedValue: 0.00048, Passed: true}}},
 			}},
-			{Scope: scope, Name: "optional", Outcome: harness.SkipOutcome, SkipReason: harness.SkipUnsupported},
+			{Scope: scope, Name: "optional", Outcome: watchrun.SkipOutcome, SkipReason: watchrun.SkipUnsupported},
 		},
 	}
 	for _, width := range []int{24, 32, 40, 48, 60, 80, 96, 120} {
@@ -56,7 +56,7 @@ func TestReportKeepsCleanupProblemsRecoveryAndTypedPrecision(t *testing.T) {
 }
 
 func TestCleanupCanceledAndMissingAttemptTimelineRemainExplicit(t *testing.T) {
-	report := harness.Report{Outcome: harness.CanceledOutcome, Cleanup: []harness.OperationRecord{{Name: "forget", Raw: &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_CANCELED, Message: "operator canceled"}}}, Steps: []harness.StepReport{{Name: "not started", Outcome: harness.CanceledOutcome}}}
+	report := watchrun.Report{Outcome: watchrun.CanceledOutcome, Cleanup: []watchrun.OperationRecord{{Name: "forget", Raw: &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_CANCELED, Message: "operator canceled"}}}, Steps: []watchrun.StepReport{{Name: "not started", Outcome: watchrun.CanceledOutcome}}}
 	out, err := Report(report, Presentation{})
 	if err != nil {
 		t.Fatal(err)
@@ -73,11 +73,11 @@ func TestCleanupCanceledAndMissingAttemptTimelineRemainExplicit(t *testing.T) {
 
 func TestReportResultTargetsUseAgentIdentityAndKeepScopeSeparate(t *testing.T) {
 	raw := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_CANCELED}
-	scope := harness.Scope{Kind: "check", AgentID: "selected-id", TargetID: "ssid-target", CheckID: "check-id"}
-	report := harness.Report{
-		Agents:  []harness.AgentProgress{{Agent: harness.AgentSnapshot{ID: scope.AgentID, Name: "selected-device"}}},
-		Cleanup: []harness.OperationRecord{{Scope: scope, Name: "disconnect", Raw: raw}},
-		Steps:   []harness.StepReport{{Scope: scope, Attempts: []harness.Attempt{{Scope: scope, Result: harness.OperationResult{Raw: raw}}}}},
+	scope := watchrun.Scope{Kind: "check", AgentID: "selected-id", TargetID: "ssid-target", CheckID: "check-id"}
+	report := watchrun.Report{
+		Agents:  []watchrun.AgentProgress{{Agent: watchrun.AgentSnapshot{ID: scope.AgentID, Name: "selected-device"}}},
+		Cleanup: []watchrun.OperationRecord{{Scope: scope, Name: "disconnect", Raw: raw}},
+		Steps:   []watchrun.StepReport{{Scope: scope, Attempts: []watchrun.Attempt{{Scope: scope, Result: watchrun.OperationResult{Raw: raw}}}}},
 	}
 	out, err := Report(report, Presentation{Detail: true})
 	if err != nil {
@@ -95,13 +95,13 @@ func TestReportResultTargetsUseAgentIdentityAndKeepScopeSeparate(t *testing.T) {
 }
 
 func TestReportRedactsFreeTextFailures(t *testing.T) {
-	report := harness.Report{
-		Outcome:  harness.FailOutcome,
-		Problems: []harness.Problem{{Message: "password=secret"}},
-		Cleanup:  []harness.OperationRecord{{Error: "token=secret"}},
-		Steps: []harness.StepReport{{
-			Name: "wifi", Outcome: harness.FailOutcome, Reason: "https://example.test/?token=secret",
-			Attempts: []harness.Attempt{{Reason: "psk=secret", Result: harness.OperationResult{Parts: []harness.OperationRecord{{Error: "api_key=secret"}}}}},
+	report := watchrun.Report{
+		Outcome:  watchrun.FailOutcome,
+		Problems: []watchrun.Problem{{Message: "password=secret"}},
+		Cleanup:  []watchrun.OperationRecord{{Error: "token=secret"}},
+		Steps: []watchrun.StepReport{{
+			Name: "wifi", Outcome: watchrun.FailOutcome, Reason: "https://example.test/?token=secret",
+			Attempts: []watchrun.Attempt{{Reason: "psk=secret", Result: watchrun.OperationResult{Parts: []watchrun.OperationRecord{{Error: "api_key=secret"}}}}},
 		}},
 	}
 	out, err := Report(report, Presentation{})

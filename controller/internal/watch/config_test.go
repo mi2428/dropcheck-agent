@@ -8,9 +8,8 @@ import (
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
-	"dropcheck/controller/internal/harness"
-	"dropcheck/controller/internal/harness/ping"
 	"dropcheck/controller/internal/runner"
+	"dropcheck/controller/internal/watchrun"
 )
 
 func TestYAMLKnownFieldsAndInvalidOperationsFailBeforeDispatch(t *testing.T) {
@@ -19,11 +18,13 @@ func TestYAMLKnownFieldsAndInvalidOperationsFailBeforeDispatch(t *testing.T) {
 		"type: path_mtu\n    min_mtu: 1500\n    max_mtu: 1200", "type: ping\n    host: bad host",
 		"type: ip_status\n    expect: {addresses: {cidr: not-a-cidr}}", "type: ping\n    requiredd: true",
 		"type: ping\n    expect: {not_a_metric: true}", "type: ping\n    policy: {attempts: 0}",
+		"type: wifi_scan\n    expect: {ap: {channel: 0}}", "type: wifi_scan\n    expect: {ap: {bssid: bad}}",
+		"type: wifi_eht\n    expect: {mlo_connected: false}", "type: wifi_eht\n    expect: {mlo_coverage: 'true'}",
 	} {
 		input := "version: 1\ntargets:\n  - ssid: Lab\nchecks:\n  - " + fragment + "\n"
 		plan, err := Parse([]byte(input))
 		if err == nil {
-			_, err = harness.Compile(plan, []control.AgentInfo{{ID: "a"}})
+			_, err = watchrun.Compile(plan, []control.AgentInfo{{ID: "a"}})
 		}
 		if err == nil {
 			t.Errorf("invalid YAML accepted: %s", fragment)
@@ -36,7 +37,7 @@ func TestYAMLObservedWiFiExecutesOnlyReadOnlyStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := harness.Compile(plan, []control.AgentInfo{{ID: "a"}})
+	compiled, err := watchrun.Compile(plan, []control.AgentInfo{{ID: "a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +46,7 @@ func TestYAMLObservedWiFiExecutesOnlyReadOnlyStatus(t *testing.T) {
 		t.Fatalf("observed target owns the connection: %+v", target)
 	}
 	r := &parityRunner{}
-	_, _ = harness.Execute(context.Background(), compiled, r, harness.ExecuteOptions{Rounds: 1})
+	_, _ = watchrun.Execute(context.Background(), compiled, r, watchrun.ExecuteOptions{Rounds: 1})
 	if len(r.operations) != 1 || r.operations[0].Name != "ip.status" || r.operations[0].Command.GetGetIpStatus().GetSelector().GetSsid() != "Lab" {
 		t.Fatalf("observed target performed unexpected operations: %+v", r.operations)
 	}
@@ -58,7 +59,7 @@ func TestYAMLObservedWiFiExecutesOnlyReadOnlyStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := harness.Compile(probe, []control.AgentInfo{{ID: "a"}}); err == nil {
+	if _, err := watchrun.Compile(probe, []control.AgentInfo{{ID: "a"}}); err == nil {
 		t.Fatal("observed target accepted active probe")
 	}
 }
@@ -68,7 +69,7 @@ func TestYAMLObservedNetworkIdentityFailsClosedAndReachesProbe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := harness.Compile(plan, []control.AgentInfo{{ID: "a"}})
+	compiled, err := watchrun.Compile(plan, []control.AgentInfo{{ID: "a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +78,7 @@ func TestYAMLObservedNetworkIdentityFailsClosedAndReachesProbe(t *testing.T) {
 		t.Fatalf("unexpected preview: %+v", preview)
 	}
 	r := &parityRunner{}
-	_, _ = harness.Execute(context.Background(), compiled, r, harness.ExecuteOptions{Rounds: 1})
+	_, _ = watchrun.Execute(context.Background(), compiled, r, watchrun.ExecuteOptions{Rounds: 1})
 	if len(r.operations) != 1 || r.operations[0].Command.GetPing().GetSelector().GetNetworkId() != "949" || r.operations[0].Command.GetPing().GetSelector().GetBssid() != "aa:bb:cc:dd:ee:ff" {
 		t.Fatalf("identity lost before dispatch: %+v", r.operations)
 	}
@@ -88,7 +89,7 @@ func TestYAMLObservedNetworkIdentityFailsClosedAndReachesProbe(t *testing.T) {
 	} {
 		plan, err := Parse([]byte(input))
 		if err == nil {
-			err = harness.Validate(plan)
+			err = watchrun.Validate(plan)
 		}
 		if err == nil {
 			t.Fatalf("accepted unselectable network: %s", input)
@@ -112,7 +113,7 @@ func TestYAMLActiveObservationRequiresExplicitConsentAndDestination(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := harness.Compile(plan, []control.AgentInfo{{ID: "a"}})
+	p, err := watchrun.Compile(plan, []control.AgentInfo{{ID: "a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +122,7 @@ func TestYAMLActiveObservationRequiresExplicitConsentAndDestination(t *testing.T
 		t.Fatalf("active existing Wi-Fi preview hides mutation or destination: %+v", preview)
 	}
 	r := &parityRunner{}
-	_, _ = harness.Execute(context.Background(), p, r, harness.ExecuteOptions{Rounds: 1})
+	_, _ = watchrun.Execute(context.Background(), p, r, watchrun.ExecuteOptions{Rounds: 1})
 	if len(r.operations) != 1 || r.operations[0].Name != "ping" || r.operations[0].Command.GetPing().GetSelector().GetSsid() != "Lab" {
 		t.Fatalf("active observation dispatched outside selected Wi-Fi: %+v", r.operations)
 	}
@@ -138,7 +139,7 @@ checks:
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := harness.Compile(plan, []control.AgentInfo{{ID: "a"}})
+	p, err := watchrun.Compile(plan, []control.AgentInfo{{ID: "a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +177,7 @@ checks:
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := harness.Compile(plan, []control.AgentInfo{{ID: "a"}})
+	p, err := watchrun.Compile(plan, []control.AgentInfo{{ID: "a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,14 +222,22 @@ checks:
 	if err != nil {
 		t.Fatal(err)
 	}
-	goPlan := harness.Plan{Networks: []harness.Network{harness.WiFi("lab").SSID("Lab")}, Checks: []harness.Check{harness.Ping("example.test").Family("ipv6").Expect(ping.Received().Eq(0))}}
-	for _, plan := range []harness.Plan{goPlan, yamlPlan} {
-		p, err := harness.Compile(plan, []control.AgentInfo{{ID: "a"}})
+	op, err := command.PingOperation(command.PingOptions{Host: "example.test", Family: "ipv6"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expect, err := watchrun.CompileExpectations(map[string]any{"received": 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	goPlan := watchrun.Plan{Networks: []watchrun.Network{{Name: "lab", SSID: "Lab", WaitConnected: true, RequireIP: true, DisconnectAfter: true}}, Checks: []watchrun.Check{watchrun.NewCheck("ping", "", op, watchrun.Policy{}, false, expect...)}}
+	for _, plan := range []watchrun.Plan{goPlan, yamlPlan} {
+		p, err := watchrun.Compile(plan, []control.AgentInfo{{ID: "a"}})
 		if err != nil {
 			t.Fatal(err)
 		}
 		r := &parityRunner{}
-		report, err := harness.Execute(context.Background(), p, r, harness.ExecuteOptions{Rounds: 1})
+		report, err := watchrun.Execute(context.Background(), p, r, watchrun.ExecuteOptions{Rounds: 1})
 		if err != nil || !report.Passed() {
 			t.Fatalf("typed parity report=%+v err=%v", report, err)
 		}
@@ -246,10 +255,51 @@ func TestYAMLCapabilityInventoryCompilesAllRetainedProbes(t *testing.T) {
 	for kind := range strings.FieldsSeq("wifi_status wifi_diagnostics wifi_eht wifi_capabilities wifi_scan scan_detail ip_status ping traceroute path_mtu dns http download global_ip gateway_ping") {
 		plan, err := Parse([]byte("targets: [{ssid: Lab}]\nchecks: [{type: " + kind + "}]"))
 		if err == nil {
-			_, err = harness.Compile(plan, []control.AgentInfo{{ID: "a"}})
+			_, err = watchrun.Compile(plan, []control.AgentInfo{{ID: "a"}})
 		}
 		if err != nil {
 			t.Errorf("%s inventory: %v", kind, err)
 		}
+	}
+}
+
+func TestYAMLAPMLOExpectationsKeepRuntimeMetricIdentities(t *testing.T) {
+	plan, err := Parse([]byte(`targets: [{ssid: Lab}]
+checks:
+  - type: wifi_scan
+    expect: {ap: {ssid: Lab, standard: be, mlo_link_id: 0, count: 1}}
+  - type: wifi_eht
+    expect: {mlo_connected: true, mlo_coverage: true, mlo_metadata_complete: true}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := watchrun.Compile(plan, []control.AgentInfo{{ID: "a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled.Preview().Targets[0].Checks) != 2 {
+		t.Fatal("YAML checks were lost")
+	}
+	ap := &controlpb.WifiScanResult{Ssid: "Lab", WifiStandard: "802.11be", ApMldMacAddress: "02:00:00:00:00:01", ApMloLinkId: 0, ObservationFields: []*controlpb.DiagnosticField{{Key: "ap_mlo_link_id.state", Value: "available"}}}
+	connection := &controlpb.WifiConnection{ApMldMacAddress: ap.ApMldMacAddress, ApMloLinkId: 0, ObservationFields: []*controlpb.DiagnosticField{{Key: "associated_mlo_links.state", Value: "available"}}}
+	scan := &controlpb.WifiScan{Results: []*controlpb.WifiScanResult{ap}}
+	raw := []*controlpb.CommandResult{
+		{Payload: &controlpb.CommandResult_WifiScan{WifiScan: scan}},
+		{Payload: &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{Status: &controlpb.WifiStatus{Connection: connection}, Scan: scan}}},
+	}
+	want := []string{"scan.ap_count", "mlo.connected.present", "mlo.relation.associated_links_covered_by_scan", "mlo.metadata.complete"}
+	var metrics []string
+	for i, check := range plan.Networks[0].Checks {
+		for _, expect := range check.Expectations {
+			findings := expect.Evaluate(watchrun.Result{Run: watchrun.RunResult{Raw: raw[i]}})
+			if len(findings) != 1 || !findings[0].Passed || findings[0].Missing {
+				t.Fatalf("YAML expectation failed: %+v", findings)
+			}
+			metrics = append(metrics, findings[0].Metric)
+		}
+	}
+	if strings.Join(metrics, ",") != strings.Join(want, ",") {
+		t.Fatalf("YAML event metric identities changed: got=%v want=%v", metrics, want)
 	}
 }

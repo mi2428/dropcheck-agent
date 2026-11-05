@@ -4,24 +4,24 @@ import (
 	"testing"
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 )
 
 func TestRecordConnectStateUpdatesLatestAgentPhase(t *testing.T) {
-	state := New(nil, nil, []watch.AgentSnapshot{{ID: "agent-a", Name: "pixel-a"}}, time.Time{})
+	state := New(nil, nil, []watchrun.AgentSnapshot{{ID: "agent-a", Name: "pixel-a"}}, time.Time{})
 	at := time.Date(2026, 5, 18, 11, 0, 0, 0, time.UTC)
-	state.Apply(watch.Event{
+	state.Apply(watchrun.Event{
 		Time:    at,
-		Kind:    watch.EventLog,
-		Agent:   watch.AgentSnapshot{ID: "agent-a", Name: "pixel-a"},
-		Target:  watch.TargetSnapshot{Name: "ub1(5G)"},
+		Kind:    watchrun.EventLog,
+		Agent:   watchrun.AgentSnapshot{ID: "agent-a", Name: "pixel-a"},
+		Target:  watchrun.TargetSnapshot{Name: "ub1(5G)"},
 		Message: `wifi connect state: supplicant=FOUR_WAY_HANDSHAKE ssid="SHIZK RADIO" bssid=22:0b:8b:b6:2c:e1 ip=192.168.22.90`,
 	})
-	state.Apply(watch.Event{
+	state.Apply(watchrun.Event{
 		Time:    at.Add(time.Second),
-		Kind:    watch.EventLog,
-		Agent:   watch.AgentSnapshot{ID: "agent-a", Name: "pixel-a"},
-		Target:  watch.TargetSnapshot{Name: "ub1(5G)"},
+		Kind:    watchrun.EventLog,
+		Agent:   watchrun.AgentSnapshot{ID: "agent-a", Name: "pixel-a"},
+		Target:  watchrun.TargetSnapshot{Name: "ub1(5G)"},
 		Message: `wifi connect state: supplicant=COMPLETED ssid="SHIZK RADIO" bssid=22:0b:8b:b6:2c:e1 ip=192.168.22.90`,
 	})
 

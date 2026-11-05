@@ -5,12 +5,7 @@ import (
 	"dropcheck/controller/internal/render"
 )
 
-type outputFormat = pipeline.Format
-
-const (
-	outputText outputFormat = pipeline.FormatText
-	outputJSON outputFormat = pipeline.FormatJSON
-)
+const outputText = pipeline.FormatText
 
 type pipePipeline struct {
 	pipeline    pipeline.Pipeline
@@ -24,15 +19,11 @@ func wrapPipePipeline(parsed pipeline.Pipeline) pipePipeline {
 	}
 }
 
-func (p pipePipeline) apply(text string) (string, error) {
-	return p.pipeline.Apply(text)
-}
-
 func (p pipePipeline) shellOutput(text string, ok bool) (string, error) {
 	if text != "" {
 		text = render.LayoutText(text, render.Presentation{})
 	}
-	out, err := p.apply(text)
+	out, err := p.pipeline.Apply(text)
 	if err != nil {
 		return "", err
 	}

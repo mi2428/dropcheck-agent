@@ -5,22 +5,22 @@ import (
 	"strings"
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 )
 
 // Apply folds one watch event into target state, histories, and event-log
 // summary fields. Cursor movement and repaint decisions stay in the TUI layer.
-func (s *State) Apply(event watch.Event) {
+func (s *State) Apply(event watchrun.Event) {
 	s.PushEventLog(event)
-	if event.Kind == watch.EventLog {
+	if event.Kind == watchrun.EventLog {
 		s.RecordConnectState(event)
 	}
 	if event.Round > s.Round {
 		s.Round = event.Round
 	}
 	switch event.Kind {
-	case watch.EventWatchStarted:
-	case watch.EventRoundStarted:
+	case watchrun.EventWatchStarted:
+	case watchrun.EventRoundStarted:
 		s.Round = event.Round
 		s.RoundStatus = "running"
 		s.Phase = fmt.Sprintf("round %d", event.Round)
@@ -33,9 +33,9 @@ func (s *State) Apply(event watch.Event) {
 			s.Targets[i].CurrentStepID = ""
 			s.Targets[i].Steps = nil
 		}
-	case watch.EventRoundFinished:
+	case watchrun.EventRoundFinished:
 		if len(event.Agents) > 0 {
-			s.AgentProgress = append([]watch.AgentProgress(nil), event.Agents...)
+			s.AgentProgress = append([]watchrun.AgentProgress(nil), event.Agents...)
 			s.RoundStatus = event.Status
 			s.Phase = "idle"
 		} else if !s.MultiAgent {
@@ -45,14 +45,14 @@ func (s *State) Apply(event watch.Event) {
 			s.setAgentProgress(event.Agent, event.Round, "completed", event.Status)
 			s.aggregateAgents()
 		}
-	case watch.EventTargetStarted:
+	case watchrun.EventTargetStarted:
 		target := s.EnsureTarget(event.Agent, event.Target)
 		target.Status = FirstNonEmpty(event.Status, "running")
 		s.Phase = s.EventTargetLabel(event)
 		s.EventLogTarget = s.EventTargetLabel(event)
 		s.EventLogStep = ""
 		s.EventLogLast = "target " + FirstNonEmpty(event.Status, "started")
-	case watch.EventTargetFinished:
+	case watchrun.EventTargetFinished:
 		target := s.EnsureTarget(event.Agent, event.Target)
 		target.Status = event.Status
 		target.CurrentStep = ""
@@ -62,7 +62,7 @@ func (s *State) Apply(event watch.Event) {
 				When:   EventTime(event),
 				Agent:  event.Agent,
 				Target: event.Target,
-				Step: watch.StepSnapshot{
+				Step: watchrun.StepSnapshot{
 					Name:   "target",
 					Type:   "target",
 					Status: "ok",
@@ -73,7 +73,7 @@ func (s *State) Apply(event watch.Event) {
 		s.EventLogTarget = s.EventTargetLabel(event)
 		s.EventLogStep = ""
 		s.EventLogLast = "target " + FirstNonEmpty(event.Status, "finished")
-	case watch.EventStepStarted:
+	case watchrun.EventStepStarted:
 		target := s.EnsureTarget(event.Agent, event.Target)
 		target.CurrentStep = event.Step.Name
 		target.CurrentStepID = event.Step.ID
@@ -83,7 +83,7 @@ func (s *State) Apply(event watch.Event) {
 		s.EventLogTarget = s.EventTargetLabel(event)
 		s.EventLogStep = event.Step.Name
 		s.EventLogLast = event.Step.Name + " running"
-	case watch.EventStepFinished:
+	case watchrun.EventStepFinished:
 		target := s.EnsureTarget(event.Agent, event.Target)
 		if event.Step.Status != "running" && (event.Step.ID != "" && target.CurrentStepID == event.Step.ID || event.Step.ID == "" && target.CurrentStep == event.Step.Name) {
 			target.CurrentStep = ""
@@ -108,7 +108,7 @@ func (s *State) Apply(event watch.Event) {
 		s.EventLogTarget = s.EventTargetLabel(event)
 		s.EventLogStep = event.Step.Name
 		s.EventLogLast = event.Step.Name + " " + FirstNonEmpty(event.Step.Message, event.Step.Error, event.Step.Status, event.Status)
-	case watch.EventFinding:
+	case watchrun.EventFinding:
 		if event.Finding != nil {
 			s.RemovePassingCheckForFailedCheck(event)
 			s.AddFailedCheck(event.Agent, event.Target, event.Round, event.Time, *event.Finding)
@@ -120,15 +120,15 @@ func (s *State) Apply(event watch.Event) {
 			s.EventLogStep = FirstNonEmpty(event.Step.Name, event.Finding.Check)
 			s.EventLogLast = FirstNonEmpty(event.Finding.Check, event.Step.Name) + " " + FirstNonEmpty(event.Finding.Message, event.Finding.Metric+"="+event.Finding.Observed)
 		}
-	case watch.EventLog:
-	case watch.EventControlRequested:
+	case watchrun.EventLog:
+	case watchrun.EventControlRequested:
 		if event.Status == "pause" {
 			s.Phase = "pausing"
 		}
-	case watch.EventControlApplied:
+	case watchrun.EventControlApplied:
 		s.setAgentProgress(event.Agent, event.Round, event.Status, event.Status)
 		s.aggregateAgents()
-	case watch.EventRunFinished:
+	case watchrun.EventRunFinished:
 		s.Phase = event.Status
 	}
 }
@@ -136,7 +136,7 @@ func (s *State) Apply(event watch.Event) {
 // EnsureTarget returns the mutable target state for agent and snapshot,
 // creating it when a live event references a target that was not in the initial
 // plan. Partial snapshots are merged by the stable check-status target key.
-func (s *State) EnsureTarget(agent watch.AgentSnapshot, snapshot watch.TargetSnapshot) *TargetState {
+func (s *State) EnsureTarget(agent watchrun.AgentSnapshot, snapshot watchrun.TargetSnapshot) *TargetState {
 	name := snapshot.Name
 	if name == "" {
 		name = FirstNonEmpty(snapshot.SSID, snapshot.BSSID, "target")
@@ -162,7 +162,7 @@ func (s *State) EnsureTarget(agent watch.AgentSnapshot, snapshot watch.TargetSna
 }
 
 // MergeTargetSnapshot fills non-empty fields from update into base.
-func MergeTargetSnapshot(base watch.TargetSnapshot, update watch.TargetSnapshot) watch.TargetSnapshot {
+func MergeTargetSnapshot(base watchrun.TargetSnapshot, update watchrun.TargetSnapshot) watchrun.TargetSnapshot {
 	if update.ID != "" {
 		base.ID = update.ID
 	}
@@ -189,7 +189,7 @@ func MergeTargetSnapshot(base watch.TargetSnapshot, update watch.TargetSnapshot)
 
 // AddFailedCheck appends one failed finding and enforces the bounded failure
 // history retention policy.
-func (s *State) AddFailedCheck(agent watch.AgentSnapshot, target watch.TargetSnapshot, round uint64, when time.Time, finding watch.Finding) {
+func (s *State) AddFailedCheck(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, round uint64, when time.Time, finding watchrun.Finding) {
 	if when.IsZero() {
 		when = time.Now()
 	}
@@ -200,7 +200,7 @@ func (s *State) AddFailedCheck(agent watch.AgentSnapshot, target watch.TargetSna
 	s.TrimFailedChecks(when)
 }
 
-func upsertStep(target *TargetState, snapshot watch.StepSnapshot) {
+func upsertStep(target *TargetState, snapshot watchrun.StepSnapshot) {
 	name := snapshot.Name
 	if name == "" {
 		name = snapshot.Type
@@ -214,14 +214,14 @@ func upsertStep(target *TargetState, snapshot watch.StepSnapshot) {
 	target.Steps = append(target.Steps, StepState{ID: snapshot.ID, Name: name, Type: snapshot.Type, Status: snapshot.Status, Message: FirstNonEmpty(snapshot.Message, snapshot.Error)})
 }
 
-func (s *State) setAgentProgress(agent watch.AgentSnapshot, round uint64, state, status string) {
+func (s *State) setAgentProgress(agent watchrun.AgentSnapshot, round uint64, state, status string) {
 	for i := range s.AgentProgress {
 		if SameAgent(s.AgentProgress[i].Agent, agent) {
 			s.AgentProgress[i].Round, s.AgentProgress[i].State, s.AgentProgress[i].Phase = round, state, status
 			return
 		}
 	}
-	s.AgentProgress = append(s.AgentProgress, watch.AgentProgress{Agent: agent, Round: round, State: state, Phase: status})
+	s.AgentProgress = append(s.AgentProgress, watchrun.AgentProgress{Agent: agent, Round: round, State: state, Phase: status})
 }
 
 func (s *State) aggregateAgents() {
@@ -384,7 +384,7 @@ func compactHistory[T any](items []T) []T {
 
 // RemovePassingCheckForFailedCheck removes an optimistic same-round pass when a
 // later finding reports that the same step actually failed.
-func (s *State) RemovePassingCheckForFailedCheck(event watch.Event) {
+func (s *State) RemovePassingCheckForFailedCheck(event watchrun.Event) {
 	key := PassingCheckKey(event.Agent, event.Target, event.Step)
 	if key == "" {
 		return

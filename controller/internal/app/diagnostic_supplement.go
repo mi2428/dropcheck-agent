@@ -17,17 +17,16 @@ type commandResultSupplements struct {
 	textBlocks []func(render.Presentation) string
 }
 
-func collectCommandResultSupplements(ctx context.Context, state *shellState, agent control.AgentInfo, result *controlpb.CommandResult, options commandOptions, format outputFormat, interactive ...bool) commandResultSupplements {
-	if format != outputText || result == nil || options.RawView != "" || options.WifiRenderMode == command.WifiRenderModeStatus {
+func collectCommandResultSupplements(ctx context.Context, state *shellState, agent control.AgentInfo, result *controlpb.CommandResult, options commandOptions) commandResultSupplements {
+	if result == nil || options.RawView != "" || options.WifiRenderMode == command.WifiRenderModeStatus {
 		return commandResultSupplements{}
 	}
 	var supplements commandResultSupplements
-	reportUnavailable := len(interactive) > 0 && interactive[0]
-	if shouldCollectADBIPv6RASupplement(result) || options.WifiRenderMode == command.WifiRenderModeFull && result.GetWifiDiagnostics().GetStatus() != nil || reportUnavailable && result.GetIpStatus() != nil {
-		supplements.addText(collectADBIPv6RASupplement(ctx, state, agent, result, reportUnavailable))
+	if shouldCollectADBIPv6RASupplement(result) || options.WifiRenderMode == command.WifiRenderModeFull && result.GetWifiDiagnostics().GetStatus() != nil || result.GetIpStatus() != nil {
+		supplements.addText(collectADBIPv6RASupplement(ctx, state, agent, result))
 	}
 	if shouldCollectADBMLOSupplement(result, options) {
-		supplements.addText(collectADBMLOSupplement(ctx, state, agent, reportUnavailable))
+		supplements.addText(collectADBMLOSupplement(ctx, state, agent))
 	}
 	return supplements
 }
@@ -46,16 +45,12 @@ func shouldCollectADBMLOSupplement(result *controlpb.CommandResult, options comm
 	return (options.WifiRenderMode == command.WifiRenderModeEHT || options.WifiRenderMode == command.WifiRenderModeFull) && result.GetWifiDiagnostics() != nil
 }
 
-func collectADBIPv6RASupplement(ctx context.Context, state *shellState, agent control.AgentInfo, result *controlpb.CommandResult, reportUnavailable ...bool) func(render.Presentation) string {
-	visible := len(reportUnavailable) != 0 && reportUnavailable[0]
+func collectADBIPv6RASupplement(ctx context.Context, state *shellState, agent control.AgentInfo, result *controlpb.CommandResult) func(render.Presentation) string {
 	if agent.Hello == nil || result == nil {
 		return nil
 	}
 	serial := agent.Hello.GetAdbSerial()
 	if serial == "" {
-		if !visible {
-			return nil
-		}
 		text := sourcedADBSupplement("IPv6 RA supplement\n" + render.SourceFields([][2]string{{"Availability", "unavailable (no pinned ADB serial)"}}))
 		return func(render.Presentation) string { return text }
 	}
@@ -69,9 +64,6 @@ func collectADBIPv6RASupplement(ctx context.Context, state *shellState, agent co
 	}
 	iface := ip.GetInterfaceName()
 	if iface == "" {
-		if !visible {
-			return nil
-		}
 		text := sourcedADBSupplement("IPv6 RA supplement\n" + render.SourceFields([][2]string{{"Availability", "unavailable (no selected physical Wi-Fi interface)"}}))
 		return func(render.Presentation) string { return text }
 	}
@@ -80,34 +72,25 @@ func collectADBIPv6RASupplement(ctx context.Context, state *shellState, agent co
 		Serial:  serial,
 		Timeout: 8 * time.Second,
 	}, iface)
-	if summary.Empty() && !visible {
-		return nil
-	}
 	received := time.Now()
 	return func(render.Presentation) string {
 		text := adbdiag.IPv6RASummaryText(summary)
-		if visible && text == "" {
+		if text == "" {
 			text = "IPv6 RA supplement\n" + render.SourceFields([][2]string{{"Availability", "no host evidence returned"}})
 		}
-		if visible {
-			for _, problem := range summary.Errors {
-				text += render.SourceFields([][2]string{{"Acquisition error", problem}})
-			}
+		for _, problem := range summary.Errors {
+			text += render.SourceFields([][2]string{{"Acquisition error", problem}})
 		}
 		return sourcedADBSupplement(text, received)
 	}
 }
 
-func collectADBMLOSupplement(ctx context.Context, state *shellState, agent control.AgentInfo, reportUnavailable ...bool) func(render.Presentation) string {
-	visible := len(reportUnavailable) != 0 && reportUnavailable[0]
+func collectADBMLOSupplement(ctx context.Context, state *shellState, agent control.AgentInfo) func(render.Presentation) string {
 	if agent.Hello == nil {
 		return nil
 	}
 	serial := agent.Hello.GetAdbSerial()
 	if serial == "" {
-		if !visible {
-			return nil
-		}
 		text := sourcedADBSupplement("MLO supplement\n" + render.SourceFields([][2]string{{"Availability", "unavailable (no pinned ADB serial)"}}))
 		return func(render.Presentation) string { return text }
 	}
@@ -116,19 +99,14 @@ func collectADBMLOSupplement(ctx context.Context, state *shellState, agent contr
 		Serial:  serial,
 		Timeout: 8 * time.Second,
 	})
-	if summary.Empty() && !visible {
-		return nil
-	}
 	received := time.Now()
 	return func(view render.Presentation) string {
 		text := adbdiag.MLOSummaryText(summary, view)
-		if text == "" && visible {
+		if text == "" {
 			text = "MLO supplement\n" + render.SourceFields([][2]string{{"Availability", "no host evidence returned; not an Android observation"}})
 		}
-		if visible {
-			for _, problem := range summary.Errors {
-				text += render.SourceFields([][2]string{{"Acquisition error", problem}})
-			}
+		for _, problem := range summary.Errors {
+			text += render.SourceFields([][2]string{{"Acquisition error", problem}})
 		}
 		return sourcedADBSupplement(text, received)
 	}
