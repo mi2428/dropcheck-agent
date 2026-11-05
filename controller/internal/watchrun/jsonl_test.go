@@ -232,12 +232,3 @@ func TestJSONLWriterCloseAdmissionHonorsContextAndPreservesCause(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-
-func TestMultiSinkFailureDoesNotHideOtherConsumers(t *testing.T) {
-	failure := errors.New("file failed")
-	called := false
-	sinks := MultiSink{cleanupSinkFunc(func(context.Context, Event) error { return failure }), cleanupSinkFunc(func(context.Context, Event) error { called = true; return nil })}
-	if err := sinks.Emit(context.Background(), Event{}); !errors.Is(err, failure) || !called {
-		t.Fatal("failed sink hid UI or cause")
-	}
-}

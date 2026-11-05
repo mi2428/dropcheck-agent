@@ -29,7 +29,7 @@ type watchOptions struct {
 	noTUI      bool
 }
 
-func runWatch(ctx context.Context, opts shellOptions, args []string) (retErr error) {
+func runWatch(ctx context.Context, opts session.Options, args []string) (retErr error) {
 	watchOpts, err := parseWatchOptions(args)
 	if err != nil {
 		if errors.Is(err, errWatchHelpRequested) {
@@ -42,7 +42,11 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) (retErr err
 	if err != nil {
 		return fmt.Errorf("load watch config: %w", err)
 	}
+	if err := watchrun.Validate(plan); err != nil {
+		return fmt.Errorf("validate watch config: %w", err)
+	}
 	eventPipe := newWatchEventPipe(512)
+	defer eventPipe.StopConsumer()
 	if !watchOpts.noTUI {
 		opts.OnLog = watchSessionLogHandler(eventPipe)
 	}
@@ -89,7 +93,7 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) (retErr err
 		}
 		sinks = append(sinks, jsonlWriter)
 	}
-	sinks = append(sinks, watchrun.ChannelSink{C: eventPipe.C})
+	sinks = append(sinks, watchrun.ChannelSink{C: eventPipe.C, Done: eventPipe.done})
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -104,9 +108,11 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) (retErr err
 		for event := range eventPipe.C {
 			printWatchNoTUIEvent(os.Stdout, event, len(agents) > 1)
 		}
-	} else if err := tui.RunWithControls(ctx, preview.Name, preview.Targets, preview.Checks, preview.Agents, eventPipe.C, controls); err != nil {
+	} else {
+		uiErr := tui.RunWithControls(ctx, preview.Name, preview.Targets, preview.Checks, preview.Agents, eventPipe.C, controls)
+		eventPipe.StopConsumer()
 		cancel()
-		return errors.Join(err, collectWatchErrors(errCh))
+		return errors.Join(uiErr, collectWatchErrors(errCh))
 	}
 	cancel()
 	if err := collectWatchErrors(errCh); err != nil {
@@ -158,7 +164,7 @@ func (r watchOperationRunner) Run(ctx context.Context, agent control.AgentInfo, 
 }
 
 func (r watchOperationRunner) FailureCause(ctx context.Context, agent control.AgentInfo, cause watchrun.FailureCauseContext) string {
-	if !watchFailureCauseUsesWifiDiagnostics(cause) {
+	if ctx.Err() != nil || !watchFailureCauseUsesWifiDiagnostics(cause) {
 		return ""
 	}
 	serial := watchAgentADBSerial(agent)
@@ -169,7 +175,7 @@ func (r watchOperationRunner) FailureCause(ctx context.Context, agent control.Ag
 }
 
 func (r watchOperationRunner) WatchFailureCause(ctx context.Context, agent control.AgentInfo, cause watchrun.FailureCauseContext, emit func(string)) func() {
-	if !watchFailureCauseUsesWifiDiagnostics(cause) {
+	if ctx.Err() != nil || !watchFailureCauseUsesWifiDiagnostics(cause) {
 		return nil
 	}
 	serial := watchAgentADBSerial(agent)
@@ -179,6 +185,9 @@ func (r watchOperationRunner) WatchFailureCause(ctx context.Context, agent contr
 	monitorCtx, cancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup
 	wg.Go(func() {
+		if monitorCtx.Err() != nil {
+			return
+		}
 		lastConnectState := r.collectWifiConnectStatus(monitorCtx, serial, watchWifiConnectStatusTimeout)
 		if lastConnectState != "" {
 			emit(lastConnectState)
@@ -190,6 +199,9 @@ func (r watchOperationRunner) WatchFailureCause(ctx context.Context, agent contr
 			case <-monitorCtx.Done():
 				return
 			case <-connectTicker.C:
+				if monitorCtx.Err() != nil {
+					return
+				}
 				message := r.collectWifiConnectState(monitorCtx, serial)
 				if message != "" && message != lastConnectState {
 					lastConnectState = message
@@ -199,6 +211,9 @@ func (r watchOperationRunner) WatchFailureCause(ctx context.Context, agent contr
 		}
 	})
 	wg.Go(func() {
+		if monitorCtx.Err() != nil {
+			return
+		}
 		baseline := r.collectWifiFailureCause(monitorCtx, serial, 1500*time.Millisecond)
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
@@ -207,6 +222,9 @@ func (r watchOperationRunner) WatchFailureCause(ctx context.Context, agent contr
 			case <-monitorCtx.Done():
 				return
 			case <-ticker.C:
+				if monitorCtx.Err() != nil {
+					return
+				}
 				message := r.collectWifiFailureCause(monitorCtx, serial, 1500*time.Millisecond)
 				if message != "" && message != baseline {
 					baseline = message
@@ -222,6 +240,9 @@ func (r watchOperationRunner) WatchFailureCause(ctx context.Context, agent contr
 }
 
 func (r watchOperationRunner) collectWifiFailureCause(ctx context.Context, serial string, timeout time.Duration) string {
+	if ctx.Err() != nil {
+		return ""
+	}
 	diagCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	message := adbdiag.CollectWifiFailureCause(diagCtx, adb.Client{
@@ -243,6 +264,9 @@ func (r watchOperationRunner) collectWifiConnectState(ctx context.Context, seria
 }
 
 func (r watchOperationRunner) collectWifiConnectEvents(ctx context.Context, serial string, timeout time.Duration) string {
+	if ctx.Err() != nil {
+		return ""
+	}
 	diagCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	message := adbdiag.CollectWifiConnectEventState(diagCtx, adb.Client{
@@ -257,6 +281,9 @@ func (r watchOperationRunner) collectWifiConnectEvents(ctx context.Context, seri
 }
 
 func (r watchOperationRunner) collectWifiConnectStatus(ctx context.Context, serial string, timeout time.Duration) string {
+	if ctx.Err() != nil {
+		return ""
+	}
 	diagCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	message := adbdiag.CollectWifiConnectStatusState(diagCtx, adb.Client{
@@ -286,13 +313,25 @@ func watchFailureCauseUsesWifiDiagnostics(cause watchrun.FailureCauseContext) bo
 }
 
 type watchEventPipe struct {
-	C      chan watchrun.Event
-	mu     sync.Mutex
-	closed bool
+	C       chan watchrun.Event
+	done    chan struct{}
+	mu      sync.Mutex
+	closed  bool
+	stopped bool
 }
 
 func newWatchEventPipe(size int) *watchEventPipe {
-	return &watchEventPipe{C: make(chan watchrun.Event, size)}
+	return &watchEventPipe{C: make(chan watchrun.Event, size), done: make(chan struct{})}
+}
+
+// StopConsumer detaches the UI without interrupting durable sinks or cleanup.
+func (p *watchEventPipe) StopConsumer() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.stopped {
+		p.stopped = true
+		close(p.done)
+	}
 }
 
 func (p *watchEventPipe) Emit(event watchrun.Event) {
@@ -301,7 +340,7 @@ func (p *watchEventPipe) Emit(event watchrun.Event) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.closed {
+	if p.closed || p.stopped {
 		return
 	}
 	select {

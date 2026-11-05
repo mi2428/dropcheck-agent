@@ -54,6 +54,8 @@ type Event struct {
 	Status   string          `json:"status,omitempty"`
 	Message  string          `json:"message,omitempty"`
 	Duration int64           `json:"duration_ms,omitempty"`
+	// DurationKnown distinguishes measured sub-millisecond zero from no timing.
+	DurationKnown bool `json:"duration_known,omitempty"`
 }
 
 // AgentSnapshot captures the stable agent identity and display metadata stored with events.
@@ -118,9 +120,6 @@ type StepSnapshot struct {
 	Error      string     `json:"error,omitempty"`
 	Skipped    bool       `json:"skipped,omitempty"`
 }
-
-// Emitter receives watch events without returning delivery errors.
-type Emitter func(Event)
 
 // Sink receives watch events and may report delivery errors.
 type Sink interface {

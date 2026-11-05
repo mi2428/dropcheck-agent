@@ -13,10 +13,13 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 	"github.com/mi2428/dropcheck-agent/controller/internal/control"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/runner"
+	"google.golang.org/protobuf/proto"
 )
 
 const cleanupTimeout = 5 * time.Second
 const deliveryTimeout = time.Second
+const failureCauseTimeout = 2 * time.Second
 
 type execution struct {
 	plan        *CompiledPlan
@@ -291,7 +294,8 @@ func (e *execution) runAgentRound(agent control.AgentInfo, round uint64) {
 
 func (e *execution) runTarget(agent control.AgentInfo, target compiledTarget, round uint64) {
 	scope := Scope{Kind: ScopeTarget, AgentID: agentKey(agent), TargetID: target.preview.ID}
-	_ = e.emit(Event{Kind: EventTargetStarted, Scope: scope, Round: round, Target: snapshotTarget(target.preview), Status: "running"})
+	started := e.now()
+	_ = e.emit(Event{Kind: EventTargetStarted, Time: started, Scope: scope, Round: round, Target: snapshotTarget(target.preview), Status: "running"})
 	if target.network.Rotation == "per_target" && !e.rotate(agent, target, round, "before_target") {
 		e.skipTarget(agent, target, round, SkipPrerequisite, "MAC rotation failed")
 		return
@@ -303,7 +307,8 @@ func (e *execution) runTarget(agent control.AgentInfo, target compiledTarget, ro
 			outcome = combineOutcome(outcome, e.cleanup(agent, target, round))
 		}
 		e.progress(agent, round, "running", target.preview.Name, outcome)
-		_ = e.emit(Event{Kind: EventTargetFinished, Scope: scope, Round: round, Target: snapshotTarget(target.preview), Status: outcomeStatus(outcome)})
+		ended := e.now()
+		_ = e.emit(Event{Kind: EventTargetFinished, Time: ended, Scope: scope, Round: round, Target: snapshotTarget(target.preview), Status: outcomeStatus(outcome), Duration: ended.Sub(started).Milliseconds(), DurationKnown: true})
 	}()
 	ready := true
 	if target.connect.id != "" {
@@ -372,17 +377,23 @@ func (e *execution) checkAttempted(agent control.AgentInfo, target compiledTarge
 				}
 				var result OperationResult
 				var err error
+				stopMonitor := e.monitorFailureCause(attemptCtx, agent, target, s, scope, round)
 				if s.gateway != nil {
 					result, err = executeGateway(attemptCtx, e.runner, agent, target.network, *s.gateway)
 				} else {
 					result, err = executeOperation(attemptCtx, e.runner, agent, s.operation)
 				}
+				ended := e.now()
+				stopMonitor()
 				if err == nil && attemptCtx.Err() != nil {
 					err = attemptCtx.Err()
 				}
 				lastError = err
-				stop()
 				findings, outcome, reason := evaluateAttempt(target.network, s, result, err, context.Cause(stepCtx))
+				if outcome == FailOutcome || outcome == MissingOutcome {
+					e.collectFailureCause(attemptCtx, agent, target, s, scope, round, result, err)
+				}
+				stop()
 				for i := range result.Parts {
 					result.Parts[i].Scope, result.Parts[i].Round = scope, round
 				}
@@ -397,9 +408,9 @@ func (e *execution) checkAttempted(agent control.AgentInfo, target compiledTarge
 					findings[i].ObservedValue, findings[i].ExpectedValue = e.plan.safeValue(findings[i].ObservedValue), e.plan.safeValue(findings[i].ExpectedValue)
 				}
 				result = e.plan.sanitizeResult(result)
-				attempt := Attempt{Scope: scope, Round: round, Repeat: repeat, Sample: sample, Number: number, Started: started, Ended: e.now(), Outcome: outcome, Result: result, Findings: findings, Reason: e.plan.redact(reason)}
+				attempt := Attempt{Scope: scope, Round: round, Repeat: repeat, Sample: sample, Number: number, Started: started, Ended: ended, Outcome: outcome, Result: result, Findings: findings, Reason: e.plan.redact(reason)}
 				report.Attempts = append(report.Attempts, attempt)
-				_ = e.emit(Event{Kind: EventAttemptFinished, Scope: scope, Round: round, Target: snapshotTarget(target.preview), Attempt: &attempt, Status: outcomeStatus(outcome)})
+				_ = e.emit(Event{Kind: EventAttemptFinished, Scope: scope, Round: round, Target: snapshotTarget(target.preview), Step: stepSnapshot(s, outcomeStatus(outcome)), Attempt: &attempt, Status: outcomeStatus(outcome), Duration: ended.Sub(started).Milliseconds(), DurationKnown: true})
 				if last == OutcomePass || last == CanceledOutcome || last == SkipOutcome {
 					break
 				}
@@ -531,7 +542,12 @@ func (e *execution) record(agent control.AgentInfo, target compiledTarget, s com
 	step.Outcome, step.SkipReason = report.Outcome, report.SkipReason
 	step.Skipped = report.Outcome == SkipOutcome
 	step.Message = report.Reason
-	_ = e.emit(Event{Kind: EventStepFinished, Scope: report.Scope, Round: report.Round, Target: snapshotTarget(target.preview), Step: step, Report: &report, Status: outcomeStatus(report.Outcome), Message: report.Reason})
+	var duration int64
+	known := len(report.Attempts) > 0
+	if known {
+		duration = report.Attempts[len(report.Attempts)-1].Ended.Sub(report.Attempts[0].Started).Milliseconds()
+	}
+	_ = e.emit(Event{Kind: EventStepFinished, Scope: report.Scope, Round: report.Round, Target: snapshotTarget(target.preview), Step: step, Report: &report, Status: outcomeStatus(report.Outcome), Message: report.Reason, Duration: duration, DurationKnown: known})
 	if report.Outcome == FailOutcome || report.Outcome == MissingOutcome {
 		for _, finding := range terminalFindings(report) {
 			finding.Target, finding.Check = e.plan.redact(target.preview.Name), e.plan.redact(s.name)
@@ -606,6 +622,7 @@ func (e *execution) cleanup(agent control.AgentInfo, target compiledTarget, roun
 			}
 			e.problem("cleanup", scope, round, err)
 		}
+		ended := e.now()
 		for _, part := range result.Parts {
 			part.Round = round
 			part.Scope = scope
@@ -613,13 +630,65 @@ func (e *execution) cleanup(agent control.AgentInfo, target compiledTarget, roun
 			e.report.Cleanup = append(e.report.Cleanup, part)
 			e.mu.Unlock()
 		}
-		events = append(events, Event{Kind: EventStepStarted, Time: started, Scope: scope, Round: round, Target: snapshotTarget(target.preview), Step: stepSnapshot(s, "running"), Status: "running"}, Event{Kind: EventStepFinished, Time: e.now(), Scope: scope, Round: round, Target: snapshotTarget(target.preview), Step: stepSnapshot(s, outcomeStatus(state)), Status: outcomeStatus(state), Message: message})
+		events = append(events, Event{Kind: EventStepStarted, Time: started, Scope: scope, Round: round, Target: snapshotTarget(target.preview), Step: stepSnapshot(s, "running"), Status: "running"}, Event{Kind: EventStepFinished, Time: ended, Scope: scope, Round: round, Target: snapshotTarget(target.preview), Step: stepSnapshot(s, outcomeStatus(state)), Status: outcomeStatus(state), Message: message, Duration: ended.Sub(started).Milliseconds(), DurationKnown: true})
 	}
 	// Result delivery never prevents disconnect/forget, including at shutdown.
 	for _, event := range events {
 		_ = e.emit(event)
 	}
 	return outcome
+}
+
+func connectionStep(s compiledStep) bool {
+	return s.operation.Name == "wifi.connect" || s.operation.Name == "wifi.wait"
+}
+
+func failureCauseContext(target compiledTarget, s compiledStep, round uint64) FailureCauseContext {
+	// Hooks borrow no compiled command: even a hook modifying its input cannot
+	// alter this attempt or a later retry.
+	op := s.operation
+	op.Command = proto.Clone(op.Command).(*controlpb.RunCommand)
+	op.Options.TracerouteRequiredHops = slices.Clone(op.Options.TracerouteRequiredHops)
+	return FailureCauseContext{Round: round, Target: target.preview, Step: stepSnapshot(s, "running"), Operation: op}
+}
+
+func (e *execution) diagnosticLog(ctx context.Context, target compiledTarget, s compiledStep, scope Scope, round uint64, message string) {
+	if ctx.Err() == nil && message != "" {
+		_ = e.emit(Event{Kind: EventLog, Scope: scope, Round: round, Target: snapshotTarget(target.preview), Step: stepSnapshot(s, "running"), Message: message})
+	}
+}
+
+func (e *execution) monitorFailureCause(ctx context.Context, agent control.AgentInfo, target compiledTarget, s compiledStep, scope Scope, round uint64) func() {
+	monitor, ok := e.runner.(FailureCauseMonitor)
+	if !ok || !connectionStep(s) || ctx.Err() != nil {
+		return func() {}
+	}
+	monitorCtx, cancel := context.WithCancel(ctx)
+	stop := monitor.WatchFailureCause(monitorCtx, agent, failureCauseContext(target, s, round), func(message string) {
+		e.diagnosticLog(monitorCtx, target, s, scope, round, message)
+	})
+	return func() {
+		cancel()
+		if stop != nil {
+			stop()
+		}
+	}
+}
+
+func (e *execution) collectFailureCause(ctx context.Context, agent control.AgentInfo, target compiledTarget, s compiledStep, scope Scope, round uint64, result OperationResult, err error) {
+	collector, ok := e.runner.(FailureCauseCollector)
+	if !ok || !connectionStep(s) || ctx.Err() != nil {
+		return
+	}
+	cause := failureCauseContext(target, s, round)
+	cause.Execution, cause.Err = runner.Result{Result: cloneRaw(result.Raw)}, err
+	if len(result.Parts) > 0 {
+		cause.Execution.CommandID = result.Parts[len(result.Parts)-1].CommandID
+	}
+	diagCtx, cancel := context.WithTimeout(ctx, failureCauseTimeout)
+	defer cancel()
+	message := collector.FailureCause(diagCtx, agent, cause)
+	e.diagnosticLog(ctx, target, s, scope, round, message)
 }
 
 func (e *execution) rotate(agent control.AgentInfo, target compiledTarget, round uint64, phase string) bool {
