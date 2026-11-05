@@ -1,22 +1,20 @@
 package render
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
-	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
 )
 
 type rawDump struct {
-	Label string `json:"label"`
-	Text  string `json:"text"`
+	Label string
+	Text  string
 }
 
 // Debug uses the existing captured payload, never another acquisition or scan.
-func rawDebugResult(agent string, result *controlpb.CommandResult, options command.Options, format pipeline.Format, views ...Presentation) (string, error) {
+func rawDebugResult(agent string, result *controlpb.CommandResult, options command.Options, views ...Presentation) (string, error) {
 	result = presentationResult(result, options)
 	dumps := []rawDump{}
 	var errors []string
@@ -74,18 +72,6 @@ func rawDebugResult(agent string, result *controlpb.CommandResult, options comma
 	}
 	if len(dumps) == 0 {
 		return "", fmt.Errorf("raw %s unavailable (status=%s): %s", options.RawView, resultStatus(result.GetStatus()), result.GetMessage())
-	}
-	if format == pipeline.FormatJSON {
-		data, err := json.MarshalIndent(struct {
-			Status    string    `json:"status"`
-			Message   string    `json:"message,omitempty"`
-			Source    string    `json:"source"`
-			Target    string    `json:"target"`
-			ElapsedMs int64     `json:"elapsed_ms"`
-			Dumps     []rawDump `json:"dumps"`
-			Errors    []string  `json:"errors,omitempty"`
-		}{resultStatus(result.GetStatus()), result.GetMessage(), "android", cleanDisplayCell(agent), result.GetElapsedMs(), dumps, errors}, "", "  ")
-		return string(data) + "\n", err
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Raw Android %s  %s\n", options.RawView, strings.ToUpper(resultStatus(result.GetStatus())))

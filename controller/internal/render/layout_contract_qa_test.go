@@ -192,7 +192,7 @@ func TestLayoutContractCommandTables(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			tc.result.Status = controlpb.CommandResult_STATUS_FAILED
 			tc.result.Message = "partial: failed"
-			out, err := CommandResult("self", tc.result, command.Options{WifiScanBrief: true}, pipeline.FormatText, Presentation{Interactive: true, Width: 120})
+			out, err := CommandResult("self", tc.result, command.Options{WifiScanBrief: true}, Presentation{Width: 120})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -200,7 +200,7 @@ func TestLayoutContractCommandTables(t *testing.T) {
 		})
 	}
 	t.Run("adjacent-capability-tables", func(t *testing.T) {
-		out, err := CommandResult("self", &controlpb.CommandResult{Payload: &controlpb.CommandResult_WifiCapabilities{WifiCapabilities: &controlpb.WifiCapabilities{}}}, command.Options{}, pipeline.FormatText, Presentation{Interactive: true, Width: 120})
+		out, err := CommandResult("self", &controlpb.CommandResult{Payload: &controlpb.CommandResult_WifiCapabilities{WifiCapabilities: &controlpb.WifiCapabilities{}}}, command.Options{}, Presentation{Width: 120})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -210,16 +210,16 @@ func TestLayoutContractCommandTables(t *testing.T) {
 	})
 }
 
-func TestLayoutContractReportAndNoninteractiveFields(t *testing.T) {
+func TestLayoutContractReportAndPermissionFields(t *testing.T) {
 	t.Run("report", func(t *testing.T) {
-		out, err := Report(watchrun.Report{}, Presentation{Interactive: true, Width: 120})
+		out, err := Report(watchrun.Report{}, Presentation{Width: 120})
 		if err != nil {
 			t.Fatal(err)
 		}
 		layoutContractFields(t, out, "Overall outcome (core)", "Core passed", "State", "Counts")
 	})
-	t.Run("noninteractive", func(t *testing.T) {
-		out, err := CommandResult("self", &controlpb.CommandResult{Payload: &controlpb.CommandResult_PermissionSnapshot{PermissionSnapshot: &controlpb.PermissionSnapshot{}}}, command.Options{}, pipeline.FormatText, Presentation{Width: 120})
+	t.Run("permissions", func(t *testing.T) {
+		out, err := CommandResult("self", &controlpb.CommandResult{Payload: &controlpb.CommandResult_PermissionSnapshot{PermissionSnapshot: &controlpb.PermissionSnapshot{}}}, command.Options{}, Presentation{Width: 120})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -258,11 +258,13 @@ func TestLayoutContractRawAndJSONBoundary(t *testing.T) {
 	}
 	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_FAILED, Payload: &controlpb.CommandResult_HttpCheck{HttpCheck: &controlpb.HttpCheckResult{Url: "https://example.test/a:b", Error: "partial: failed"}}}
 	before := proto.Clone(result)
-	for _, width := range []int{8, 24, 40, 80, 120} {
-		out, err := CommandResult("self", result, command.Options{}, pipeline.FormatJSON, Presentation{Width: width, Interactive: true})
-		if err != nil || !json.Valid([]byte(out)) || !strings.Contains(out, "https://example.test/a:b") || !proto.Equal(before, result) {
-			t.Errorf("width=%d: JSON or typed input changed: %v", width, err)
-		}
+	logical, err := CommandResult("self", result, command.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := pipeline.JSON(logical, false)
+	if err != nil || !json.Valid([]byte(out)) || !strings.Contains(out, "https://example.test/a:b") || !proto.Equal(before, result) {
+		t.Errorf("Shell JSON or typed input changed: %v", err)
 	}
 }
 
@@ -307,7 +309,7 @@ func layoutContractSummaryContinuation(t *testing.T, out string, width int) {
 
 func TestLayoutContractMLOTable(t *testing.T) {
 	d := &controlpb.WifiDiagnostics{Scan: &controlpb.WifiScan{Results: []*controlpb.WifiScanResult{{Ssid: "Lab", Bssid: "02:00:00:00:00:01", WifiStandard: "802.11be", ApMldMacAddress: "02:00:00:00:00:02"}}}}
-	out, err := CommandResult("self", &controlpb.CommandResult{Payload: &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: d}}, command.Options{WifiRenderMode: command.WifiRenderModeEHT}, pipeline.FormatText, Presentation{Interactive: true, Width: 120})
+	out, err := CommandResult("self", &controlpb.CommandResult{Payload: &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: d}}, command.Options{WifiRenderMode: command.WifiRenderModeEHT}, Presentation{Width: 120})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +337,7 @@ func TestLayoutContractAgentsTable(t *testing.T) {
 	out, err := Agents(AgentListView{Selected: "qa", Agents: []control.AgentInfo{{
 		ID: "qa", Connected: time.Unix(0, 0).UTC(),
 		Hello: &controlpb.AgentHello{AdbSerial: "literal:serial", Device: &controlpb.DeviceInfo{Model: "東京e\u0301👩\u200d🔬"}},
-	}}}, pipeline.FormatText)
+	}}})
 	if err != nil {
 		t.Fatal(err)
 	}

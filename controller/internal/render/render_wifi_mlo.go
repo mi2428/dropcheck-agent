@@ -19,11 +19,6 @@ type wifiMLOGroup struct {
 	standards  []string
 }
 
-type wifiMLOTableColumn struct {
-	header   string
-	maxWidth int
-}
-
 type wifiMLOFilter struct {
 	ssid  string
 	bssid string
@@ -389,15 +384,15 @@ func renderWifiMLONearbyAPs(b *strings.Builder, groups []wifiMLOGroup, current *
 }
 
 func renderWifiMLONearbyAPTable(b *strings.Builder, groups []wifiMLOGroup, view Presentation) {
-	columns := []wifiMLOTableColumn{
-		{header: "SSID", maxWidth: 14},
-		{header: "BANDS", maxWidth: 8},
-		{header: "RSSI", maxWidth: 4},
-		{header: "SEC", maxWidth: 7},
-		{header: "STANDARD", maxWidth: 8},
-		{header: "COLOR", maxWidth: 8},
-		{header: "EHT_W", maxWidth: 9},
-		{header: "PUNCT", maxWidth: 7},
+	columns := []displayTableColumn{
+		{header: "SSID"},
+		{header: "BANDS"},
+		{header: "RSSI"},
+		{header: "SEC"},
+		{header: "STANDARD"},
+		{header: "COLOR"},
+		{header: "EHT_W"},
+		{header: "PUNCT"},
 	}
 	rows := [][]string{}
 	for _, group := range groups {
@@ -412,22 +407,14 @@ func renderWifiMLONearbyAPTable(b *strings.Builder, groups []wifiMLOGroup, view 
 			wifiMLOGroupEHTOperationPuncturing(group),
 		})
 	}
-	if view.Interactive {
-		fullColumns := make([]displayTableColumn, len(columns))
-		for i, col := range columns {
-			fullColumns[i] = displayTableColumn{header: col.header}
-		}
-		if tableFits(fullColumns, rows, view.Width) {
-			writeDisplayTable(b, fullColumns, rows)
-		} else {
-			for _, row := range rows {
-				for i, column := range fullColumns {
-					writeRecord(b, column.header, row[i])
-				}
+	if tableFits(columns, rows, view.Width) {
+		writeDisplayTable(b, columns, rows)
+	} else {
+		for _, row := range rows {
+			for i, column := range columns {
+				writeRecord(b, column.header, row[i])
 			}
 		}
-	} else {
-		wifiMLOWriteTable(b, columns, rows)
 	}
 }
 
@@ -1696,18 +1683,6 @@ func wifiMLOScanChannelWidth(value string) string {
 		return core + "MHz"
 	}
 	return trimmed
-}
-
-func wifiMLOWriteTable(b *strings.Builder, columns []wifiMLOTableColumn, rows [][]string) {
-	displayColumns := make([]displayTableColumn, len(columns))
-	for i, column := range columns {
-		displayColumns[i] = displayTableColumn{header: column.header, maxWidth: column.maxWidth}
-	}
-	writeDisplayTable(b, displayColumns, rows)
-}
-
-func wifiMLODisplayWidth(value string) int {
-	return displayWidth(value)
 }
 
 func wifiMLOJoinStrings(values []string, emptyValue string) string {

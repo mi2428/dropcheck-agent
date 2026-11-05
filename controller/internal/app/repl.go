@@ -20,6 +20,7 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 	"github.com/mi2428/dropcheck-agent/controller/internal/control"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
 	"github.com/mi2428/dropcheck-agent/controller/internal/render"
 	"github.com/mi2428/dropcheck-agent/controller/internal/runner"
 	"github.com/mi2428/dropcheck-agent/controller/internal/shell"
@@ -46,7 +47,7 @@ func replLineEditor(ctx context.Context, state *shellState) error {
 		Stdin:        input,
 		Prompt:       state.prompt(),
 		HistoryLimit: 1000,
-		AutoComplete: shellReadlineCompleter{state: state},
+		AutoComplete: shellReadlineCompleter{},
 		EOFPrompt:    "\n",
 		FuncFilterInputRune: func(key rune) (rune, bool) {
 			activeMu.Lock()
@@ -65,9 +66,9 @@ func replLineEditor(ctx context.Context, state *shellState) error {
 		if lineReader == nil {
 			return nil, 0, false
 		}
-		newLine, newPos, ok := handleShellHelpKey(lineReader.Stdout(), line, pos, key, state)
+		newLine, newPos, ok := handleShellHelpKey(lineReader.Stdout(), line, pos, key)
 		if !ok {
-			newLine, newPos, ok = handleShellCompletionHintKey(lineReader.Stdout(), line, pos, key, state)
+			newLine, newPos, ok = handleShellCompletionHintKey(lineReader.Stdout(), line, pos, key)
 		}
 		return newLine, newPos, ok
 	})
@@ -149,9 +150,7 @@ func replScanner(ctx context.Context, state *shellState) error {
 	}
 }
 
-type shellReadlineCompleter struct {
-	state *shellState
-}
+type shellReadlineCompleter struct{}
 
 func (c shellReadlineCompleter) Do(line []rune, pos int) ([][]rune, int) {
 	if pos < 0 || pos > len(line) {
@@ -166,7 +165,7 @@ func (c shellReadlineCompleter) Do(line []rune, pos int) ([][]rune, int) {
 	prefixRunes := []rune(prefix)
 	var fullCandidates []string
 	var completions [][]rune
-	for _, candidate := range completeShellLine(prefix, c.state) {
+	for _, candidate := range shell.CompleteLine(prefix) {
 		if pos < len(line) {
 			candidate = strings.TrimSuffix(candidate, " ")
 		}
@@ -179,20 +178,20 @@ func (c shellReadlineCompleter) Do(line []rune, pos int) ([][]rune, int) {
 		if !matches {
 			continue
 		}
-		if isPlaceholderCandidate(completion) {
+		if shell.IsPlaceholderCandidate(completion) {
 			continue
 		}
 		fullCandidates = append(fullCandidates, candidate)
 		completions = append(completions, []rune(completion))
 	}
-	if pos == len(line) && len(completions) == 1 && len(completions[0]) > 0 && shouldAppendReadlineCompletionSpace(fullCandidates[0], c.state) {
+	if pos == len(line) && len(completions) == 1 && len(completions[0]) > 0 && shouldAppendReadlineCompletionSpace(fullCandidates[0]) {
 		completions[0] = append(completions[0], ' ')
 	}
 	return completions, shellCompletionOffset(prefix)
 }
 
-func shouldAppendReadlineCompletionSpace(candidate string, state *shellState) bool {
-	return slices.Contains(completeShellLine(candidate, state), candidate+" ")
+func shouldAppendReadlineCompletionSpace(candidate string) bool {
+	return slices.Contains(shell.CompleteLine(candidate), candidate+" ")
 }
 
 func hasRunePrefix(value []rune, prefix []rune) bool {
@@ -221,12 +220,12 @@ func shellCompletionOffset(line string) int {
 	return offset
 }
 
-func handleShellHelpKey(w io.Writer, line []rune, pos int, key rune, states ...*shellState) ([]rune, int, bool) {
-	if !isShellHelpRune(key) || pos <= 0 || pos > len(line) {
+func handleShellHelpKey(w io.Writer, line []rune, pos int, key rune) ([]rune, int, bool) {
+	if !shell.IsHelpRune(key) || pos <= 0 || pos > len(line) {
 		return nil, 0, false
 	}
 	questionIndex := pos - 1
-	if !isShellHelpRune(line[questionIndex]) {
+	if !shell.IsHelpRune(line[questionIndex]) {
 		return nil, 0, false
 	}
 	if !command.HelpPosition(string(line[:questionIndex])) {
@@ -237,7 +236,7 @@ func handleShellHelpKey(w io.Writer, line []rune, pos int, key rune, states ...*
 	helpLine[len(helpLine)-1] = '?'
 	var b strings.Builder
 	b.WriteByte('\n')
-	writeShellContextHelp(&b, string(helpLine), states...)
+	shell.WriteContextHelp(&b, string(helpLine))
 	_, _ = io.WriteString(w, b.String())
 
 	newLine := append([]rune(nil), line[:questionIndex]...)
@@ -245,7 +244,7 @@ func handleShellHelpKey(w io.Writer, line []rune, pos int, key rune, states ...*
 	return newLine, questionIndex, true
 }
 
-func handleShellCompletionHintKey(w io.Writer, line []rune, pos int, key rune, state *shellState) ([]rune, int, bool) {
+func handleShellCompletionHintKey(w io.Writer, line []rune, pos int, key rune) ([]rune, int, bool) {
 	if key != readline.CharTab || pos < 0 || pos > len(line) {
 		return nil, 0, false
 	}
@@ -256,7 +255,7 @@ func handleShellCompletionHintKey(w io.Writer, line []rune, pos int, key rune, s
 			return nil, 0, false
 		}
 		var choices []string
-		for _, candidate := range completeShellLine(prefix, state) {
+		for _, candidate := range shell.CompleteLine(prefix) {
 			if !strings.HasSuffix(candidate, ">") {
 				choices = append(choices, strings.TrimSuffix(candidate, " "))
 			}
@@ -265,7 +264,7 @@ func handleShellCompletionHintKey(w io.Writer, line []rune, pos int, key rune, s
 			return []rune(choices[0] + string(line)[end:]), len([]rune(choices[0])), true
 		}
 	}
-	hint := shellCompletionHintLine(string(line[:pos]), state)
+	hint := shell.CompletionHintLine(string(line[:pos]))
 	if hint == "" {
 		return nil, 0, false
 	}
@@ -300,74 +299,73 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 	if line == "" {
 		return false, nil
 	}
-	if isHelpLine(line) {
-		printShellContextHelp(line, state)
+	if shell.IsHelpLine(line) {
+		shell.PrintContextHelp(line)
 		return false, nil
 	}
-	command, err := parseShellLine(line)
+	command, err := shell.ParseLine(line)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return false, nil
 	}
-	switch command.kind {
-	case shellSetDefaultPassphrase:
-		state.defaultPassphrase = command.passphrase
+	switch command.Kind {
+	case shell.SetDefaultPassphrase:
+		state.defaultPassphrase = command.Passphrase
 		return false, printLocalOutput(command, func() (string, error) {
-			if command.passphrase == "" {
+			if command.Passphrase == "" {
 				return "default passphrase cleared\n", nil
 			}
 			return "default passphrase updated (session only)\n", nil
 		})
-	case shellClearDefaultPassphrase:
+	case shell.ClearDefaultPassphrase:
 		state.defaultPassphrase = ""
 		return false, printLocalOutput(command, func() (string, error) { return "default passphrase cleared\n", nil })
-	case shellConnect:
+	case shell.Connect:
 		return false, connectShell(ctx, state, command)
-	case shellNoop:
+	case shell.Noop:
 		return false, nil
-	case shellExit:
+	case shell.Exit:
 		return true, nil
-	case shellHelp:
+	case shell.Help:
 		return false, printLocalOutput(command, func() (string, error) {
 			var b strings.Builder
-			if command.helpTopic == "" {
+			if command.HelpTopic == "" {
 				shell.WriteContextHelp(&b, "?")
 			} else {
-				shell.WriteHelpTopic(&b, command.helpTopic)
+				shell.WriteHelpTopic(&b, command.HelpTopic)
 			}
 			return b.String(), nil
 		})
-	case shellVersion:
+	case shell.Version:
 		return false, printLocalOutput(command, func() (string, error) { return "Controller version: " + version.Version + "\n", nil })
-	case shellCLI:
+	case shell.CLI:
 		return false, printLocalOutput(command, func() (string, error) { return renderShellSession(state), nil })
-	case shellShowDevices:
+	case shell.ShowDevices:
 		return false, printLocalOutput(command, func() (string, error) {
-			return render.Agents(agentListView(state), outputText)
+			return render.Agents(agentListView(state))
 		})
-	case shellProfiles:
+	case shell.Profiles:
 		return false, printLocalOutput(command, showProfiles)
-	case shellLastReport:
+	case shell.LastReport:
 		return false, printLocalOutput(command, func() (string, error) {
 			view := terminalPresentation()
-			view.Interactive = true
-			if command.pipeline.pipeline.StageCount() > 0 || command.pipeline.displayJSON {
+			if command.Pipeline.StageCount() > 0 || command.Pipeline.DisplayJSON() {
 				view.Width = 0
 			}
 			return renderLastShellTest(state, view)
 		})
-	case shellProfile:
+	case shell.Profile:
 		state.lastWifiTest = nil
-		if command.profileName == "" {
+		if command.ProfileName == "" {
 			return false, printLocalOutput(command, showProfiles)
 		}
-		err := state.runCheck(ctx, command.profileName, command.ssid, command.family, command.bssid, command.rejection, command.pipeline, command.lab)
+		err := state.runCheck(ctx, command.ProfileName, command.SSID, command.Family, command.BSSID, command.Rejection, command.Pipeline, command.Lab)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 		}
 		return false, nil
-	case shellAgentCommand, shellWifiTest:
-		if command.kind == shellWifiTest && !prepareWifiTest(state, command) {
+	case shell.AgentCommand, shell.WifiTest:
+		if command.Kind == shell.WifiTest && !prepareWifiTest(state, command) {
 			return false, nil
 		}
 		agents, err := state.commandTargets()
@@ -375,32 +373,32 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			return false, nil
 		}
-		return false, runOperationForAgents(ctx, state, agents, command.operation, commandOutputOptions{
-			pipeline:     command.pipeline,
-			singleTarget: command.effect == "mutation" || command.kind == shellWifiTest,
-			wifiTest:     command.kind == shellWifiTest,
+		return false, runOperationForAgents(ctx, state, agents, command.Operation, commandOutputOptions{
+			pipeline:     command.Pipeline,
+			singleTarget: command.Effect == "mutation" || command.Kind == shell.WifiTest,
+			wifiTest:     command.Kind == shell.WifiTest,
 		})
-	case shellADBDiagnostics:
+	case shell.ADBDiagnostics:
 		agents, err := state.commandTargets()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			return false, nil
 		}
-		return false, runADBDiagnosticsForAgents(ctx, state, agents, command.adbKind, commandOutputOptions{
-			pipeline:     command.pipeline,
-			adbTimeoutMs: command.adbTimeoutMs,
+		return false, runADBDiagnosticsForAgents(ctx, state, agents, command.ADBDiagnosticsKind, commandOutputOptions{
+			pipeline:     command.Pipeline,
+			adbTimeoutMs: command.ADBTimeoutMs,
 		})
 	default:
 		return false, nil
 	}
 }
 
-func printLocalOutput(command shellCommand, render func() (string, error)) error {
+func printLocalOutput(command shell.Command, render func() (string, error)) error {
 	out, err := render()
 	if err != nil {
 		return err
 	}
-	out, err = command.pipeline.shellOutput(out, true)
+	out, err = shellOutput(command.Pipeline, out, true)
 	if err != nil {
 		return err
 	}
@@ -448,7 +446,7 @@ func resolveShellAgent(state *shellState, target string) (control.AgentInfo, err
 }
 
 type commandOutputOptions struct {
-	pipeline           pipePipeline
+	pipeline           pipeline.Pipeline
 	includeAgentHeader bool
 	use                bool
 	singleTarget       bool
@@ -566,14 +564,14 @@ func runADBDiagnosticsForAgent(ctx context.Context, state *shellState, agent con
 		return nil
 	}
 	view := terminalPresentation()
-	if output.pipeline.pipeline.StageCount() > 0 || output.pipeline.displayJSON {
+	if output.pipeline.StageCount() > 0 || output.pipeline.DisplayJSON() {
 		view.Width = 0
 	}
-	out, err := adbdiag.Render(bundle, outputText, view)
+	out, err := adbdiag.Render(bundle, view)
 	if err != nil {
 		return err
 	}
-	out, err = output.pipeline.shellOutput(out, bundle.OK())
+	out, err = shellOutput(output.pipeline, out, bundle.OK())
 	if err != nil {
 		return err
 	}
@@ -601,10 +599,6 @@ func resultStatusLabel(status controlpb.CommandResult_Status) string {
 
 func runCommandForAgent(ctx context.Context, state *shellState, agent control.AgentInfo, op Operation, output commandOutputOptions, outputMu *sync.Mutex, printedAny *bool) error {
 	exec, err := acquire.Execute(ctx, runner.New(state.server), agent, op)
-	commandID := ""
-	if len(exec.Parts) != 0 {
-		commandID = exec.Parts[len(exec.Parts)-1].CommandID
-	}
 	result := exec.Raw
 	options := exec.Options
 	if err == nil && result == nil {
@@ -629,9 +623,6 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 		result.Status = controlpb.CommandResult_STATUS_FAILED
 		result.Message = "local operation assertion failed"
 	}
-	// The old text renderer inspects untrusted process output for via. Core's
-	// typed hop findings, not that heuristic, determine the Shell outcome.
-	options.TracerouteRequiredHops = nil
 	supplements := commandResultSupplements{}
 	if err == nil {
 		supplements = collectCommandResultSupplements(ctx, state, agent, result, options)
@@ -652,11 +643,11 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 	outputMu.Lock()
 	defer outputMu.Unlock()
 	if err != nil {
-		out, renderErr := render.CommandError(agentDisplayName(agent), commandID, err, outputText, output.includeAgentHeader)
+		out, renderErr := render.CommandError(agentDisplayName(agent), err, output.includeAgentHeader)
 		if renderErr != nil {
 			return renderErr
 		}
-		out, renderErr = output.pipeline.shellOutput(redactOperationSecret(op, out), false)
+		out, renderErr = shellOutput(output.pipeline, redactOperationSecret(op, out), false)
 		if renderErr != nil {
 			return renderErr
 		}
@@ -669,15 +660,14 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 		return nil
 	}
 	view := terminalPresentation()
-	if output.pipeline.pipeline.StageCount() > 0 || output.pipeline.displayJSON {
+	if output.pipeline.StageCount() > 0 || output.pipeline.DisplayJSON() {
 		view.Width = 0
 	}
 	view.Detail = options.Detail
 	view.DetailAvailable = true
-	view.Interactive = true
-	out, err := render.CommandResult(agentDisplayName(agent), result, options, outputText, view)
+	out, err := render.CommandResult(agentDisplayName(agent), result, options, view)
 	if err == nil {
-		if output.pipeline.pipeline.StageCount() > 0 || output.pipeline.displayJSON {
+		if output.pipeline.StageCount() > 0 || output.pipeline.DisplayJSON() {
 			out = supplements.appendToText(out, render.Presentation{})
 		} else {
 			out = supplements.appendToText(out)
@@ -701,7 +691,7 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 	if op.Name == "wifi.eht" && len(exec.Parts) > 0 && exec.Parts[0].Raw.GetWifiScan() != nil && exec.Parts[0].Raw.GetStatus() != controlpb.CommandResult_STATUS_OK {
 		out += "Fresh scan: cached (refresh failed); scan data is reference\n"
 	}
-	out, err = output.pipeline.shellOutput(redactOperationSecret(op, out), result.GetStatus() == controlpb.CommandResult_STATUS_OK)
+	out, err = shellOutput(output.pipeline, redactOperationSecret(op, out), result.GetStatus() == controlpb.CommandResult_STATUS_OK)
 	if err != nil {
 		return err
 	}

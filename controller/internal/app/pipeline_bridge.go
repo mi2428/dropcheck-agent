@@ -5,29 +5,15 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/render"
 )
 
-const outputText = pipeline.FormatText
-
-type pipePipeline struct {
-	pipeline    pipeline.Pipeline
-	displayJSON bool
-}
-
-func wrapPipePipeline(parsed pipeline.Pipeline) pipePipeline {
-	return pipePipeline{
-		pipeline:    parsed,
-		displayJSON: parsed.DisplayJSON(),
-	}
-}
-
-func (p pipePipeline) shellOutput(text string, ok bool) (string, error) {
+func shellOutput(p pipeline.Pipeline, text string, ok bool) (string, error) {
 	if text != "" {
 		text = render.LayoutText(text, render.Presentation{})
 	}
-	out, err := p.pipeline.Apply(text)
+	out, err := p.Apply(text)
 	if err != nil {
 		return "", err
 	}
-	if p.displayJSON {
+	if p.DisplayJSON() {
 		return pipeline.JSON(out, ok)
 	}
 	if out == "" {

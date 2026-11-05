@@ -182,7 +182,11 @@ func resolveDNSQTypeCount(cmd *controlpb.ResolveDns) int {
 	return len(cmd.GetQtypes())
 }
 
-func splitArgs(line string) ([]string, error) {
+// SplitArgs tokenizes one command line using shell-like quotes and escapes.
+//
+// Quotes are removed from returned tokens. A trailing escape or unterminated
+// quote is reported as a parse error.
+func SplitArgs(line string) ([]string, error) {
 	lexed, err := Lex(line, false)
 	if err != nil {
 		return nil, err
@@ -192,12 +196,4 @@ func splitArgs(line string) ([]string, error) {
 		args = append(args, token.Value)
 	}
 	return args, nil
-}
-
-// SplitArgs tokenizes one command line using shell-like quotes and escapes.
-//
-// Quotes are removed from returned tokens. A trailing escape or unterminated
-// quote is reported as a parse error.
-func SplitArgs(line string) ([]string, error) {
-	return splitArgs(line)
 }

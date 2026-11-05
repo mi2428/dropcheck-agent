@@ -68,13 +68,11 @@ func TestMetadataSeparationCommandFamilies(t *testing.T) {
 			tc.raw.Status = controlpb.CommandResult_STATUS_CANCELED
 			tc.raw.Message = "partial acquisition; Target: literal Source: literal"
 			before := proto.Clone(tc.raw)
-			for _, interactive := range []bool{false, true} {
-				text, err := CommandResult("pinned-PC-target", tc.raw, tc.opts, pipeline.FormatText, Presentation{Interactive: interactive, Detail: true})
-				if err != nil {
-					t.Fatal(err)
-				}
-				metadataQAHeader(t, text, "pinned-PC-target")
+			text, err := CommandResult("pinned-PC-target", tc.raw, tc.opts, Presentation{Detail: true})
+			if err != nil {
+				t.Fatal(err)
 			}
+			metadataQAHeader(t, text, "pinned-PC-target")
 			if !proto.Equal(before, tc.raw) {
 				t.Error("presentation changed the acquired result")
 			}
@@ -88,7 +86,7 @@ func TestMetadataSeparationWidths(t *testing.T) {
 	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_FAILED, Message: "partial\nTarget: free-text value password=qa-synthetic-secret", Payload: &controlpb.CommandResult_HttpCheck{HttpCheck: &controlpb.HttpCheckResult{Url: "https://user:qa-synthetic-secret@example.test/Source:literal?token=qa-synthetic-secret&ordinary=Keep"}}}
 	for _, width := range []int{0, 8, 24, 40, 80, 120} {
 		t.Run(fmt.Sprint(width), func(t *testing.T) {
-			out, err := CommandResult(target, result, command.Options{}, pipeline.FormatText, Presentation{Interactive: true, Width: width})
+			out, err := CommandResult(target, result, command.Options{}, Presentation{Width: width})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -131,19 +129,23 @@ func TestMetadataSeparationDebugViews(t *testing.T) {
 				result.Payload = &controlpb.CommandResult_NetworkSnapshot{NetworkSnapshot: &controlpb.NetworkSnapshot{Networks: []*controlpb.NetworkDiagnostics{{NetworkId: "42", IpStatus: ip}}}}
 			}
 			opts := command.Options{RawView: view, RawNetworkID: "42"}
-			text, err := CommandResult("pinned-PC-target", result, opts, pipeline.FormatText)
+			text, err := CommandResult("pinned-PC-target", result, opts)
 			if err != nil {
 				t.Fatal(err)
 			}
 			metadataQAHeader(t, text, "pinned-PC-target")
-			jsonText, err := CommandResult("pinned-PC-target", result, opts, pipeline.FormatJSON)
-			var value map[string]any
+			jsonText, err := pipeline.JSON(text, false)
+			var value struct {
+				OK    bool     `json:"ok"`
+				Lines []string `json:"lines"`
+			}
 			if err != nil || json.Unmarshal([]byte(jsonText), &value) != nil {
 				t.Fatal("invalid debug JSON", err)
 			}
-			if value["source"] != "android" || value["target"] != "pinned-PC-target" || value["status"] != "failed" {
-				t.Error("existing independent debug JSON metadata changed")
+			if value.OK {
+				t.Error("debug Shell JSON lost failed acquisition outcome")
 			}
+			metadataQAHeader(t, strings.Join(value.Lines, "\n"), "pinned-PC-target")
 			for _, out := range []string{text, jsonText} {
 				if !strings.Contains(out, "Target: literal Source: literal 2001:db8::1") || strings.Contains(out, "qa-synthetic-secret") || strings.Contains(out, "structured-only") {
 					t.Error("raw-only safe values changed or leaked")
@@ -155,11 +157,11 @@ func TestMetadataSeparationDebugViews(t *testing.T) {
 
 func TestMetadataSeparationInteractiveJSONAndFilter(t *testing.T) {
 	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_FAILED, Message: "partial", Payload: &controlpb.CommandResult_GlobalIp{GlobalIp: &controlpb.GlobalIpResult{}}}
-	text, err := CommandResult("pinned-PC-target", result, command.Options{}, pipeline.FormatText, Presentation{Interactive: true})
+	text, err := CommandResult("pinned-PC-target", result, command.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Same public stages as app.pipePipeline.shellOutput; no app import cycle.
+	// Same stages as app.shellOutput; no app import cycle.
 	text = LayoutText(text, Presentation{})
 	jsonText, err := pipeline.JSON(text, false)
 	var value struct {
@@ -198,7 +200,7 @@ func TestMetadataSeparationInteractiveJSONAndFilter(t *testing.T) {
 func TestMetadataSeparationOperationAndHistoricalReport(t *testing.T) {
 	raw := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_CANCELED, Message: "partial capture", Payload: &controlpb.CommandResult_IpStatus{IpStatus: &controlpb.IpStatus{}}}
 	t.Run("operation", func(t *testing.T) {
-		out, err := OperationResult("pinned-PC-target", watchrun.OperationResult{Raw: raw}, pipeline.FormatText, Presentation{})
+		out, err := operationResult("pinned-PC-target", watchrun.OperationResult{Raw: raw}, Presentation{}, func(string) string { return "pinned-PC-target" })
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -226,12 +228,12 @@ func TestMetadataSeparationTypedLiteralValues(t *testing.T) {
 	}
 }
 
-func TestMetadataSeparationStatusMessageAndProtoJSON(t *testing.T) {
+func TestMetadataSeparationStatusMessageAndShellJSON(t *testing.T) {
 	for _, status := range []controlpb.CommandResult_Status{controlpb.CommandResult_STATUS_FAILED, controlpb.CommandResult_STATUS_CANCELED} {
 		message := "Target: literal Source: literal password=qa-synthetic-secret"
 		raw := &controlpb.CommandResult{Status: status, Message: message, Payload: &controlpb.CommandResult_HttpCheck{HttpCheck: &controlpb.HttpCheckResult{Url: "https://example.test/Target:literal?token=qa-synthetic-secret&ordinary=Keep"}}}
 		before := proto.Clone(raw)
-		text, err := CommandResult("pinned-PC-target", raw, command.Options{}, pipeline.FormatText)
+		text, err := CommandResult("pinned-PC-target", raw, command.Options{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -241,13 +243,16 @@ func TestMetadataSeparationStatusMessageAndProtoJSON(t *testing.T) {
 				t.Errorf("independent %s changed: %q", label, got)
 			}
 		}
-		encoded, err := CommandResult("pinned-PC-target", raw, command.Options{}, pipeline.FormatJSON)
-		var value map[string]any
-		if err != nil || json.Unmarshal([]byte(encoded), &value) != nil {
-			t.Fatal("invalid proto JSON", err)
+		encoded, err := pipeline.JSON(text, false)
+		var value struct {
+			OK    bool     `json:"ok"`
+			Lines []string `json:"lines"`
 		}
-		if value["source"] != nil || value["target"] != nil || value["status"] != status.String() || strings.Contains(encoded, "qa-synthetic-secret") || !strings.Contains(encoded, "Target:literal") {
-			t.Error("standard safe proto JSON contract changed")
+		if err != nil || json.Unmarshal([]byte(encoded), &value) != nil {
+			t.Fatal("invalid Shell JSON", err)
+		}
+		if value.OK || strings.Join(value.Lines, "\n")+"\n" != text || strings.Contains(encoded, "qa-synthetic-secret") || !strings.Contains(encoded, "Target:literal") {
+			t.Error("safe Shell JSON outcome or values changed")
 		}
 		if !proto.Equal(before, raw) {
 			t.Error("presentation changed the acquired result")

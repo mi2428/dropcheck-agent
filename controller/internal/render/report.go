@@ -1,57 +1,25 @@
 package render
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
-	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
 	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 )
 
-// OperationResult consumes the shared acquisition contract; Parts never contain commands.
+// operationResult consumes the shared acquisition contract; Parts never contain commands.
 // Required acquisition failures are supplied by core, not reconstructed by the UI.
-func OperationResult(agent string, result watchrun.OperationResult, format pipeline.Format, view Presentation) (string, error) {
-	return operationResult(agent, result, format, view, func(string) string { return agent })
-}
-
-func operationResult(agent string, result watchrun.OperationResult, format pipeline.Format, view Presentation, partAgent func(string) string) (string, error) {
+func operationResult(agent string, result watchrun.OperationResult, view Presentation, partAgent func(string) string) (string, error) {
 	out := Fields([][2]string{{"Acquisition", "? (aggregate typed payload unavailable)"}}, view)
 	if result.Raw != nil {
 		var err error
-		out, err = CommandResult(agent, result.Raw, result.Options, format, view)
+		out, err = CommandResult(agent, result.Raw, result.Options, view)
 		if err != nil {
 			return "", err
 		}
-	}
-	if format == pipeline.FormatJSON {
-		parts := make([]map[string]any, 0, len(result.Parts))
-		for _, part := range result.Parts {
-			value := map[string]any{"name": cleanDisplayCell(part.Name), "started": part.Started, "ended": part.Ended}
-			if part.Error != "" {
-				value["error"] = cleanDisplayCell(safePresentationText(part.Error))
-			}
-			if part.Raw != nil {
-				raw, renderErr := CommandResult(partAgent(part.Scope.AgentID), part.Raw, result.Options, format, view)
-				if renderErr != nil {
-					return "", renderErr
-				}
-				value["result"] = json.RawMessage(raw)
-			}
-			parts = append(parts, value)
-		}
-		value := map[string]any{"parts": parts, "findings": result.Findings}
-		if result.Raw != nil {
-			value["result"] = json.RawMessage(out)
-		}
-		data, marshalErr := json.MarshalIndent(value, "", "  ")
-		if marshalErr != nil {
-			return "", marshalErr
-		}
-		return string(data) + "\n", nil
 	}
 	var b strings.Builder
 	b.WriteString(out)
@@ -68,7 +36,7 @@ func operationResult(agent string, result watchrun.OperationResult, format pipel
 			writeRecord(&b, "Error", safePresentationText(part.Error))
 		}
 		if part.Raw != nil {
-			text, renderErr := CommandResult(partAgent(part.Scope.AgentID), part.Raw, result.Options, format, view)
+			text, renderErr := CommandResult(partAgent(part.Scope.AgentID), part.Raw, result.Options, view)
 			if renderErr != nil {
 				return "", renderErr
 			}
@@ -111,7 +79,7 @@ func Report(report watchrun.Report, view Presentation) (string, error) {
 			writeRecord(&b, "Reason", safePresentationText(cleanup.Raw.GetMessage()))
 		}
 		if view.Detail && cleanup.Raw != nil {
-			text, err := CommandResult(ReportAgentLabel(report, cleanup.Scope.AgentID), cleanup.Raw, command.Options{}, pipeline.FormatText, view)
+			text, err := CommandResult(ReportAgentLabel(report, cleanup.Scope.AgentID), cleanup.Raw, command.Options{}, view)
 			if err != nil {
 				return "", err
 			}
@@ -155,7 +123,7 @@ func Report(report watchrun.Report, view Presentation) (string, error) {
 				}
 			}
 			if view.Detail {
-				text, err := operationResult(ReportAgentLabel(report, attempt.Scope.AgentID), attempt.Result, pipeline.FormatText, view,
+				text, err := operationResult(ReportAgentLabel(report, attempt.Scope.AgentID), attempt.Result, view,
 					func(agentID string) string { return ReportAgentLabel(report, agentID) })
 				if err != nil {
 					return "", err

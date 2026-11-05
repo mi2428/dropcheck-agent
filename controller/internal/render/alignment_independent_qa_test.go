@@ -32,7 +32,7 @@ func TestIndependentAlignmentCanceledPartDoesNotLeakReason(t *testing.T) {
 		Raw:  &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_CANCELED, Message: "password=independent-secret-marker"},
 	}}}
 	for _, width := range []int{8, 24, 40, 80, 120} {
-		out, err := OperationResult("self", result, pipeline.FormatText, Presentation{Interactive: true, Width: width})
+		out, err := operationResult("self", result, Presentation{Width: width}, func(string) string { return "self" })
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -46,7 +46,7 @@ func TestIndependentAlignmentTracerouteRetainsTypedDetail(t *testing.T) {
 	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_FAILED, Payload: &controlpb.CommandResult_Traceroute{Traceroute: &controlpb.TracerouteResult{
 		Host: "2001:db8::1", MaxHops: 29, SizeBytes: 1259, ExitCode: 73, ReachedTarget: new(false), ObservationError: "typed observation unavailable",
 	}}}
-	out, err := CommandResult("self", result, command.Options{Detail: true}, pipeline.FormatText, Presentation{Interactive: true, Detail: true, Width: 120})
+	out, err := CommandResult("self", result, command.Options{Detail: true}, Presentation{Detail: true, Width: 120})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestIndependentAlignmentPopulatedOutputBoundaries(t *testing.T) {
 			fixture.result.Status = controlpb.CommandResult_STATUS_FAILED
 			before := proto.Clone(fixture.result)
 			for _, width := range []int{8, 24, 40, 80, 120} {
-				out, err := CommandResult("self", fixture.result, fixture.options, pipeline.FormatText, Presentation{Interactive: true, Detail: true, Width: width})
+				out, err := CommandResult("self", fixture.result, fixture.options, Presentation{Detail: true, Width: width})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -110,7 +110,11 @@ func TestIndependentAlignmentPopulatedOutputBoundaries(t *testing.T) {
 					}
 				}
 			}
-			out, err := CommandResult("self", fixture.result, fixture.options, pipeline.FormatJSON, Presentation{Interactive: true, Width: 8})
+			logical, err := CommandResult("self", fixture.result, fixture.options, Presentation{Detail: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := pipeline.JSON(logical, false)
 			if err != nil || !json.Valid([]byte(out)) || !proto.Equal(before, fixture.result) {
 				t.Fatalf("JSON or source mutated: %v", err)
 			}
@@ -123,12 +127,12 @@ func TestIndependentAlignmentHelpLocalErrorAndReportBoundaries(t *testing.T) {
 	var help strings.Builder
 	shell.WriteHelpTopic(&help, "request")
 	for _, width := range []int{8, 24, 40, 80, 120} {
-		local := Fields([][2]string{{"Target", marker}, {"Broadcast", "false"}, {"Layout width", "0"}}, Presentation{Interactive: true, Width: width})
-		errorText, err := CommandError("self", "0", fmt.Errorf("%s\npassword=independent-secret-marker\u001b[31m\u0000", marker), pipeline.FormatText, true)
+		local := Fields([][2]string{{"Target", marker}, {"Broadcast", "false"}, {"Layout width", "0"}}, Presentation{Width: width})
+		errorText, err := CommandError("self", fmt.Errorf("%s\npassword=independent-secret-marker\u001b[31m\u0000", marker), true)
 		if err != nil {
 			t.Fatal(err)
 		}
-		report, err := Report(watchrun.Report{Outcome: watchrun.FailOutcome, Problems: []watchrun.Problem{{Message: marker}}, Cleanup: []watchrun.OperationRecord{{Error: "password=independent-secret-marker"}}}, Presentation{Interactive: true, Width: width})
+		report, err := Report(watchrun.Report{Outcome: watchrun.FailOutcome, Problems: []watchrun.Problem{{Message: marker}}, Cleanup: []watchrun.OperationRecord{{Error: "password=independent-secret-marker"}}}, Presentation{Width: width})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -151,7 +155,7 @@ func TestIndependentAlignmentHelpLocalErrorAndReportBoundaries(t *testing.T) {
 func TestIndependentAlignmentRawAndAgeBoundaries(t *testing.T) {
 	raw := "Raw:    preserve:    spaces\nhttps://example.test/a:b"
 	result := &controlpb.CommandResult{Payload: &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{Output: raw}}}
-	out, err := CommandResult("self", result, command.Options{}, pipeline.FormatText, Presentation{Interactive: true})
+	out, err := CommandResult("self", result, command.Options{})
 	if err != nil || !strings.Contains(out, raw) {
 		t.Fatalf("raw colons were interpreted as fields: %v", err)
 	}
@@ -181,7 +185,7 @@ func TestIndependentAlignmentIdentityFilterPrecedesDisplaySanitization(t *testin
 					result.Payload = &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{Scan: scan}}
 					options = command.Options{WifiRenderMode: command.WifiRenderModeEHT, WifiEHTSSID: ap.Ssid}
 				}
-				out, err := CommandResult("self", result, options, pipeline.FormatText, Presentation{Interactive: true, Width: 120})
+				out, err := CommandResult("self", result, options, Presentation{Width: 120})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -203,7 +207,7 @@ func TestIndependentAlignmentScanRowsAndLogicalPipes(t *testing.T) {
 	}
 	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_FAILED, Payload: &controlpb.CommandResult_WifiScan{WifiScan: scan}}
 	for _, width := range []int{8, 24, 40, 80, 120} {
-		out, err := CommandResult("self", result, command.Options{WifiScanBrief: true}, pipeline.FormatText, Presentation{Interactive: true, Width: width})
+		out, err := CommandResult("self", result, command.Options{WifiScanBrief: true}, Presentation{Width: width})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -213,7 +217,7 @@ func TestIndependentAlignmentScanRowsAndLogicalPipes(t *testing.T) {
 			}
 		}
 	}
-	logical, err := CommandResult("self", result, command.Options{WifiScanBrief: true}, pipeline.FormatText, Presentation{Interactive: true})
+	logical, err := CommandResult("self", result, command.Options{WifiScanBrief: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +254,7 @@ func TestIndependentAlignmentDiagnosticTableDoesNotHardwrapHeaders(t *testing.T)
 		Operation: "reconnect", Fields: []*controlpb.DiagnosticField{{Key: "mlo_" + strings.Repeat("日本語", 30), Value: "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff"}},
 	}}}
 	for _, width := range []int{8, 24, 40, 80, 120} {
-		out, err := CommandResult("self", result, command.Options{}, pipeline.FormatText, Presentation{Interactive: true, Width: width})
+		out, err := CommandResult("self", result, command.Options{}, Presentation{Width: width})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -297,13 +301,17 @@ func TestIndependentAlignmentFilteredCloneKeepsTotalsAndJSONContract(t *testing.
 					if len(filtered.GetResults()) != 1 || filtered.GetResults()[0].GetBssid() != ap.Bssid || diagnosticFieldMap(filtered.GetFields())["scan_result_total_count"] != wantTotal {
 						t.Fatalf("%s selected=%d bssid=%t changed target or acquired total", family, selected, byBSSID)
 					}
-					out, err := CommandResult("self", result, options, pipeline.FormatText, Presentation{Interactive: true, Width: 24})
+					out, err := CommandResult("self", result, options, Presentation{Width: 24})
 					if err != nil || !strings.Contains(independentCompact(out), ap.Bssid) || strings.Contains(independentCompact(out), aps[1-selected].Bssid) {
 						t.Fatalf("%s selected=%d bssid=%t re-filtered the sanitized identity: %v", family, selected, byBSSID, err)
 					}
-					encoded, err := CommandResult("self", result, options, pipeline.FormatJSON, Presentation{Interactive: true, Width: 8})
-					if err != nil || !json.Valid([]byte(encoded)) || !strings.Contains(encoded, aps[0].Bssid) || !strings.Contains(encoded, aps[1].Bssid) || !proto.Equal(before, result) {
-						t.Fatalf("%s changed the one-shot JSON contract or input proto: %v", family, err)
+					logical, err := CommandResult("self", result, options)
+					if err != nil {
+						t.Fatal(err)
+					}
+					encoded, err := pipeline.JSON(logical, true)
+					if err != nil || !json.Valid([]byte(encoded)) || !strings.Contains(encoded, ap.Bssid) || strings.Contains(encoded, aps[1-selected].Bssid) || !proto.Equal(before, result) {
+						t.Fatalf("%s changed selected Shell JSON values or input proto: %v", family, err)
 					}
 				}
 			}

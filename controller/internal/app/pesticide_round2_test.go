@@ -24,12 +24,12 @@ func TestRound2UntrustedCredentialEncodings(t *testing.T) {
 		{"url-user-info", "https://user:" + secret + "@example.test/"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			out, err := adbdiag.Render(adbdiag.Bundle{Commands: []adbdiag.CommandResult{{Stdout: tc.value}}}, pipeline.FormatText)
+			out, err := adbdiag.Render(adbdiag.Bundle{Commands: []adbdiag.CommandResult{{Stdout: tc.value}}})
 			if err != nil {
 				t.Fatal(err)
 			}
 			p, _ := pipeline.Parse([]string{"display json"})
-			out, err = wrapPipePipeline(p).shellOutput(out, true)
+			out, err = shellOutput(p, out, true)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -91,7 +91,7 @@ func TestRound2WrongNetworkIsNotSuccessfulShellJSON(t *testing.T) {
 	out, err := captureStdout(t, func() error {
 		var mu sync.Mutex
 		printed := false
-		return runCommandForAgent(t.Context(), state, agent, op, commandOutputOptions{pipeline: wrapPipePipeline(p)}, &mu, &printed)
+		return runCommandForAgent(t.Context(), state, agent, op, commandOutputOptions{pipeline: p}, &mu, &printed)
 	})
 	if err != nil {
 		return

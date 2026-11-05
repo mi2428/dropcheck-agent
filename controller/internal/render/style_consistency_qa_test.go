@@ -126,7 +126,7 @@ func TestStyleConsistencyRichMLOOwnedRoles(t *testing.T) {
 		}
 	}
 	for _, width := range []int{0, 92} {
-		text, err := CommandResult("acquired", result, options, pipeline.FormatText, Presentation{Width: width})
+		text, err := CommandResult("acquired", result, options, Presentation{Width: width})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -145,7 +145,7 @@ func TestStyleConsistencyRichMLOOwnedRoles(t *testing.T) {
 }
 
 func TestStyleConsistencyCommandErrorRecords(t *testing.T) {
-	text, err := CommandError("東京e\u0301👩\u200d🔬", "id", fmt.Errorf("partial: 2001:db8::1"), pipeline.FormatText, true)
+	text, err := CommandError("東京e\u0301👩\u200d🔬", fmt.Errorf("partial: 2001:db8::1"), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func TestStyleConsistencyCommandErrorRecords(t *testing.T) {
 }
 
 func TestStyleConsistencyMissingAcquisitionRecord(t *testing.T) {
-	text, err := OperationResult("self", watchrun.OperationResult{}, pipeline.FormatText, Presentation{})
+	text, err := operationResult("self", watchrun.OperationResult{}, Presentation{}, func(string) string { return "self" })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestStyleConsistencySummaryDynamicLabelColumns(t *testing.T) {
 	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_WifiStatus{WifiStatus: &controlpb.WifiStatus{Permissions: []string{"A=0", label + "=false"}}}}
 	for _, width := range []int{0, 120} {
 		t.Run(fmt.Sprint(width), func(t *testing.T) {
-			text, err := CommandResult("self", result, command.Options{WifiRenderMode: command.WifiRenderModeStatus}, pipeline.FormatText, Presentation{Width: width, Interactive: true})
+			text, err := CommandResult("self", result, command.Options{WifiRenderMode: command.WifiRenderModeStatus}, Presentation{Width: width})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -220,7 +220,7 @@ func TestStyleConsistencyHEOperationColoringFixture(t *testing.T) {
 	operation := &controlpb.WifiHeOperation{BasicMcsNssSetHex: "0000", Flags: flags, Truncated: true, Warnings: []string{"decode: key=0 password=qa-style-secret"}}
 	connection := &controlpb.WifiConnection{Ssid: identity, HeOperation: operation, HeSpatialReuseParameterSet: &controlpb.WifiHeSpatialReuseParameterSet{}, ObservationFields: []*controlpb.DiagnosticField{{Key: "identity.state", Value: "available"}}}
 	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{Status: &controlpb.WifiStatus{Enabled: true, Connection: connection}}}}
-	text, err := CommandResult("self", result, command.Options{WifiRenderMode: command.WifiRenderModeEHT}, pipeline.FormatText, Presentation{})
+	text, err := CommandResult("self", result, command.Options{WifiRenderMode: command.WifiRenderModeEHT}, Presentation{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestStyleConsistencyEHTOperationPuncturingFixture(t *testing.T) {
 	operation := &controlpb.WifiEhtOperation{DisabledSubchannelBitmapPresent: true, DisabledSubchannelBitmapHex: "0000", Flags: flags, Warnings: []string{"decode: key=0 password=qa-style-secret"}}
 	connection := &controlpb.WifiConnection{Ssid: identity, EhtOperation: operation, HeCapabilities: &controlpb.WifiHeCapabilities{Mac: &controlpb.WifiHeMacCapabilities{}}, ObservationFields: []*controlpb.DiagnosticField{{Key: "identity.state", Value: "available"}}}
 	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{Status: &controlpb.WifiStatus{Enabled: true, Connection: connection}}}}
-	text, err := CommandResult("self", result, command.Options{WifiRenderMode: command.WifiRenderModeEHT}, pipeline.FormatText, Presentation{})
+	text, err := CommandResult("self", result, command.Options{WifiRenderMode: command.WifiRenderModeEHT}, Presentation{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func TestStyleConsistencyEHTOperationPuncturingFixture(t *testing.T) {
 
 func TestStyleConsistencyRawDebugAndAvailability(t *testing.T) {
 	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_CANCELED, Message: "partial: reference", Payload: &controlpb.CommandResult_WifiStatus{WifiStatus: &controlpb.WifiStatus{Connection: &controlpb.WifiConnection{Raw: "native foo=0: 2001:db8::1 password=qa-synthetic-secret"}}}}
-	text, err := CommandResult("acquired", result, command.Options{RawView: "wifi info"}, pipeline.FormatText, Presentation{Width: 120})
+	text, err := CommandResult("acquired", result, command.Options{RawView: "wifi info"}, Presentation{Width: 120})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,33 +310,29 @@ func TestStyleConsistencyResultRouteMatrix(t *testing.T) {
 	for i, result := range results {
 		for _, status := range []controlpb.CommandResult_Status{controlpb.CommandResult_STATUS_OK, controlpb.CommandResult_STATUS_FAILED, controlpb.CommandResult_STATUS_CANCELED} {
 			for _, width := range []int{0, 8, 24, 40, 80, 120} {
-				for _, interactive := range []bool{false, true} {
-					t.Run(fmt.Sprintf("%d/%s/%d/interactive=%t", i, status, width, interactive), func(t *testing.T) {
-						result.Status = status
-						result.Message = "partial acquisition\nfree text: key=0"
-						text, err := CommandResult("acquired-device", result, command.Options{}, pipeline.FormatText, Presentation{Width: width, Interactive: interactive, Detail: true})
-						if err != nil || text == "" || strings.Contains(text, "qa-synthetic-secret") {
-							t.Fatalf("safe route failed: %v", err)
+				t.Run(fmt.Sprintf("%d/%s/%d", i, status, width), func(t *testing.T) {
+					result.Status = status
+					result.Message = "partial acquisition\nfree text: key=0"
+					text, err := CommandResult("acquired-device", result, command.Options{}, Presentation{Width: width, Detail: true})
+					if err != nil || text == "" || strings.Contains(text, "qa-synthetic-secret") {
+						t.Fatalf("safe route failed: %v", err)
+					}
+					if width == 0 || width >= 80 {
+						a := styleField(t, text, "Source", "android", 2)
+						b := styleField(t, text, "Target", "acquired-device", 2)
+						if a != b {
+							t.Error("metadata value columns differ")
 						}
-						if width == 0 || width >= 80 {
-							a := styleField(t, text, "Source", "android", 2)
-							b := styleField(t, text, "Target", "acquired-device", 2)
-							if a != b {
-								t.Error("metadata value columns differ")
-							}
-						}
-						encoded, err := CommandResult("acquired-device", result, command.Options{}, pipeline.FormatJSON)
-						var object map[string]json.RawMessage
-						if err != nil || json.Unmarshal([]byte(encoded), &object) != nil {
-							t.Fatalf("invalid proto JSON: %v", err)
-						}
-						for _, key := range []string{"source", "target", "style", "parts"} {
-							if _, ok := object[key]; ok {
-								t.Errorf("style key %s leaked into proto JSON", key)
-							}
-						}
-					})
-				}
+					}
+					encoded, err := pipeline.JSON(text, status == controlpb.CommandResult_STATUS_OK)
+					var object map[string]json.RawMessage
+					if err != nil || json.Unmarshal([]byte(encoded), &object) != nil {
+						t.Fatalf("invalid Shell JSON: %v", err)
+					}
+					if len(object) != 2 || object["ok"] == nil || object["lines"] == nil || strings.Contains(encoded, "qa-synthetic-secret") {
+						t.Error("safe Shell JSON envelope changed or exposed a credential")
+					}
+				})
 			}
 		}
 	}

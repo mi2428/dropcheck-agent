@@ -15,6 +15,7 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 	"github.com/mi2428/dropcheck-agent/controller/internal/control"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
 	"github.com/mi2428/dropcheck-agent/controller/internal/render"
 	"github.com/mi2428/dropcheck-agent/controller/internal/runner"
 	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
@@ -263,7 +264,7 @@ func executeProfile(ctx context.Context, state *shellState, name, ssid, family, 
 	return watchrun.Execute(ctx, compiled, r, watchrun.ExecuteOptions{Rounds: 1})
 }
 
-func (s *shellState) runCheck(ctx context.Context, name, ssid, family, bssid, rejection string, pipe pipePipeline, lab ...command.LabConfig) error {
+func (s *shellState) runCheck(ctx context.Context, name, ssid, family, bssid, rejection string, pipe pipeline.Pipeline, lab ...command.LabConfig) error {
 	var report watchrun.Report
 	var err error
 	if rejection != "" {
@@ -311,15 +312,14 @@ func (s *shellState) runCheck(ctx context.Context, name, ssid, family, bssid, re
 		}
 	}
 	view := terminalPresentation()
-	view.Interactive = true
-	if pipe.pipeline.StageCount() > 0 || pipe.displayJSON {
+	if pipe.StageCount() > 0 || pipe.DisplayJSON() {
 		view.Width = 0
 	}
 	out, renderErr := renderProfileReport(s, false, view)
 	if renderErr != nil {
 		return renderErr
 	}
-	out, renderErr = pipe.shellOutput(out, report.Passed() && err == nil)
+	out, renderErr = shellOutput(pipe, out, report.Passed() && err == nil)
 	if renderErr != nil {
 		return renderErr
 	}
@@ -338,7 +338,6 @@ func renderProfileReport(s *shellState, detail bool, views ...render.Presentatio
 	if len(views) > 0 {
 		view = views[0]
 	}
-	view.Interactive = true
 	view.Detail = detail
 	out, err := render.Report(*s.lastReport, view)
 	if err != nil {

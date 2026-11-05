@@ -16,7 +16,6 @@ type Grammar struct {
 	Required    []string
 	Switches    []string
 	Values      []string
-	Unsupported bool
 	Effect      string
 	Description string
 	Enums       map[string][]string
@@ -33,7 +32,6 @@ type Parsed struct {
 	ADBKind                      string
 	Profile, SSID, Family, BSSID string
 	Lab                          LabConfig
-	Detail                       bool
 	Rejection                    string
 	Passphrase                   string
 	Effect                       string
@@ -228,7 +226,7 @@ func suggestedSiblings(table []Grammar, path []string) []string {
 	var out []string
 	for _, spec := range table {
 		words := strings.Fields(spec.Path)
-		if !spec.Unsupported && len(words) > len(path) && slices.Equal(words[:len(path)], path) && !slices.Contains(out, words[len(path)]) {
+		if len(words) > len(path) && slices.Equal(words[:len(path)], path) && !slices.Contains(out, words[len(path)]) {
 			out = append(out, words[len(path)])
 		}
 	}
