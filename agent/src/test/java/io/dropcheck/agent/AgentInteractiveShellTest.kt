@@ -29,11 +29,11 @@ class AgentInteractiveShellTest {
         "monitor wifi" to RunCommand.CommandCase.MONITOR_WIFI,
         "request ping" to RunCommand.CommandCase.PING,
         "request traceroute" to RunCommand.CommandCase.TRACEROUTE,
-        "request path-mtu" to RunCommand.CommandCase.PATH_MTU,
-        "request global-ip" to RunCommand.CommandCase.GLOBAL_IP,
-        "request dns" to RunCommand.CommandCase.RESOLVE_DNS,
-        "request http" to RunCommand.CommandCase.HTTP_CHECK,
-        "request download" to RunCommand.CommandCase.WGET,
+        "request pmtu" to RunCommand.CommandCase.PATH_MTU,
+        "request ip external" to RunCommand.CommandCase.GLOBAL_IP,
+        "request dns resolve" to RunCommand.CommandCase.RESOLVE_DNS,
+        "request http check" to RunCommand.CommandCase.HTTP_CHECK,
+        "request http download" to RunCommand.CommandCase.WGET,
     )
 
     @Test fun controllerCanonicalCommandsMatchAndroidWireCases() {
@@ -92,17 +92,17 @@ class AgentInteractiveShellTest {
         assertEquals(IpFamily.IP_FAMILY_UNSPECIFIED, ping.family)
         assertEquals(30, live("request traceroute example.test").request.traceroute.maxHops)
         assertEquals(60000, live("request traceroute example.test").request.traceroute.timeoutMs)
-        assertEquals(30000, live("request path-mtu example.test").request.pathMtu.timeoutMs)
-        assertEquals(0, live("request path-mtu example.test").request.pathMtu.minMtuBytes)
-        assertEquals(5000, live("request global-ip").request.globalIp.timeoutMs)
-        assertEquals(IpFamily.IP_FAMILY_ALL, live("request global-ip").request.globalIp.family)
+        assertEquals(30000, live("request pmtu example.test").request.pathMtu.timeoutMs)
+        assertEquals(0, live("request pmtu example.test").request.pathMtu.minMtuBytes)
+        assertEquals(5000, live("request ip external").request.globalIp.timeoutMs)
+        assertEquals(IpFamily.IP_FAMILY_ALL, live("request ip external").request.globalIp.family)
         assertEquals(Int.MAX_VALUE, live("request ping example.test timeout 2147483647").request.ping.timeoutMs)
-        assertEquals(5000, live("request dns example.test").request.resolveDns.timeoutMs)
-        assertEquals(5000, live("request http example.test").request.httpCheck.timeoutMs)
-        assertEquals(200, live("request http example.test").request.httpCheck.expectedStatus)
-        assertEquals("https://example.test", live("request http example.test").request.httpCheck.url)
-        assertEquals(60000, live("request download https://example.test").request.wget.timeoutMs)
-        assertEquals(listOf(DnsRecordType.DNS_RECORD_TYPE_A, DnsRecordType.DNS_RECORD_TYPE_AAAA), live("request dns example.test").request.resolveDns.qtypesList)
+        assertEquals(5000, live("request dns resolve example.test").request.resolveDns.timeoutMs)
+        assertEquals(5000, live("request http check example.test").request.httpCheck.timeoutMs)
+        assertEquals(200, live("request http check example.test").request.httpCheck.expectedStatus)
+        assertEquals("https://example.test", live("request http check example.test").request.httpCheck.url)
+        assertEquals(60000, live("request http download https://example.test").request.wget.timeoutMs)
+        assertEquals(listOf(DnsRecordType.DNS_RECORD_TYPE_A, DnsRecordType.DNS_RECORD_TYPE_AAAA), live("request dns resolve example.test").request.resolveDns.qtypesList)
         assertEquals("Lab", live("request ping example.test ssid Lab").request.ping.selector.ssid)
         assertEquals("Lab", live("show wifi status ip ssid Lab").request.getIpStatus.selector.ssid)
         val selector = live("request ping example.test bssid aa:bb:cc:dd:ee:ff network-id 949").request.ping.selector
@@ -132,10 +132,10 @@ class AgentInteractiveShellTest {
     }
 
     @Test fun familiesEnumsAndControlOptions() {
-        assertEquals(IpFamily.IP_FAMILY_UNSPECIFIED, live("req path-mtu example.test family auto").request.pathMtu.family)
-        assertEquals(IpFamily.IP_FAMILY_ALL, live("request global-ip family all").request.globalIp.family)
-        assertEquals(2, live("request dns example.test record ALL").request.resolveDns.qtypesCount)
-        assertEquals(DnsRecordType.DNS_RECORD_TYPE_AAAA, live("request dns example.test record AAAA").request.resolveDns.qtypesList.single())
+        assertEquals(IpFamily.IP_FAMILY_UNSPECIFIED, live("req pmtu example.test family auto").request.pathMtu.family)
+        assertEquals(IpFamily.IP_FAMILY_ALL, live("request ip external family all").request.globalIp.family)
+        assertEquals(2, live("request dns resolve example.test record ALL").request.resolveDns.qtypesCount)
+        assertEquals(DnsRecordType.DNS_RECORD_TYPE_AAAA, live("request dns resolve example.test record AAAA").request.resolveDns.qtypesList.single())
         val cycle = live("request wifi cycle Lab passphrase test-only security wpa3 bssid aa:bb:cc:dd:ee:ff band 5ghz mac-randomization non-persistent count 2 ping example.test http https://example.test forget-after-each true pause 500").request.cycleWifi
         assertTrue(cycle.forgetAfterEach); assertEquals(2, cycle.count); assertEquals(500, cycle.pauseMs)
         assertEquals(WifiBand.WIFI_BAND_5_GHZ, cycle.connect.band)
@@ -167,8 +167,8 @@ class AgentInteractiveShellTest {
             "request ping", "request ping example.test count 0", "request ping example.test count -1", "request ping example.test count 2147483648",
             "request ping example.test count 4294967295", "request ping example.test count 1073742", "request ping example.test count 1 cou 2",
             "request ping example.test family all", "request ping example.test size 0", "request traceroute example.test max-hops 256",
-            "request path-mtu example.test min-mtu 1500 max-mtu 1280", "request global-ip family nonsense", "request global-ip family auto",
-            "request dns example.test record B", "request http ftp://example.test", "request download https://u:secret@example.test",
+            "request pmtu example.test min-mtu 1500 max-mtu 1280", "request ip external family nonsense", "request ip external family auto",
+            "request dns resolve example.test record B", "request http check ftp://example.test", "request http download https://u:secret@example.test",
             "show version\\", "request wifi connect Lab passphrase 'test-only", "show wifi status extra")) invalid(input)
         assertEquals(AgentShellCommand.Noop, AgentShellParser.parse(""))
         assertTrue(invalid("show wifi s").contains("status, scan")); assertTrue(invalid("s").contains("show, set"))
@@ -189,7 +189,7 @@ class AgentInteractiveShellTest {
         assertFalse(AgentShellParser.help().any { it.contains("show devices") })
         assertEquals(AgentShellCommand.Help(), AgentShellParser.parse("?"))
         assertEquals(AgentShellCommand.Help("request wifi"), AgentShellParser.parse("h req wi"))
-        assertEquals(RunCommand.CommandCase.PATH_MTU, live("req path-mtu example.test").request.commandCase)
+        assertEquals(RunCommand.CommandCase.PATH_MTU, live("req pmtu example.test").request.commandCase)
         assertEquals(RunCommand.CommandCase.PING, live("req pi example.test").request.commandCase)
         invalid("req p example.test")
     }
@@ -211,5 +211,38 @@ class AgentInteractiveShellTest {
             "test LINK", "test link", "test link ssid", "test link ssid Lab family auto", "test link ssid Lab bssid invalid", "test link ssid Lab family ipv4 family ipv6", "show test profiles extra", "clear cli default-passphrase extra")) invalid(input)
         assertTrue(AgentShellParser.help().any { it.contains("test link defaults to family ipv4") })
         assertEquals("<command submitted>", redactAgentShellCommandLine("clear cli default-passphrase"))
+    }
+
+    @Test fun requestSubjectsAreLocalHelpAndLeavesRemainDiscoverable() {
+        for (group in listOf("request ip", "request dns", "request http")) {
+            assertEquals(AgentShellCommand.Help(group), AgentShellParser.parse(group))
+        }
+        for ((prefix, expected) in listOf("request pm" to "request pmtu", "request ip " to "request ip external",
+            "request dns " to "request dns resolve", "request http " to "request http check", "request http " to "request http download")) {
+            assertTrue("$prefix completion missing $expected", expected in AgentShellParser.complete(prefix))
+        }
+        for (line in listOf("req pm example.test", "req ip ext family ipv4", "req dn res resolve", "req ht ch download", "req ht do https://example.test/check")) live(line)
+        assertEquals(listOf("request http check <url>"), AgentShellParser.complete("request http check "))
+        val help = AgentShellParser.contextHelp("request http check https://example.test/?token=naming-secret ").joinToString("\n")
+        assertFalse("naming-secret" in help)
+        assertTrue("timeout" in help)
+    }
+
+    @Test fun renamedProbesRetainSelectorsAndKeywordLookingValues() {
+        val suffix = " ssid 'Case Sensitive' bssid aa:bb:cc:dd:ee:ff network-id 42 timeout 1234"
+        val pmtu = live("request pmtu example.test min-mtu 1200 max-mtu 1500 family ipv6$suffix").request.pathMtu
+        val external = live("request ip external family all$suffix").request.globalIp
+        val dns = live("request dns resolve resolve record AAAA$suffix").request.resolveDns
+        val http = live("request http check download expected-status 204$suffix").request.httpCheck
+        val download = live("request http download https://example.test/check$suffix").request.wget
+        assertEquals(1200, pmtu.minMtuBytes); assertEquals(1500, pmtu.maxMtuBytes); assertEquals(IpFamily.IP_FAMILY_IPV6, pmtu.family)
+        assertEquals(IpFamily.IP_FAMILY_ALL, external.family)
+        assertEquals("resolve", dns.name); assertEquals(listOf(DnsRecordType.DNS_RECORD_TYPE_AAAA), dns.qtypesList)
+        assertEquals("https://download", http.url); assertEquals(204, http.expectedStatus)
+        assertEquals("https://example.test/check", download.url)
+        assertEquals(listOf(1234, 1234, 1234, 1234, 1234), listOf(pmtu.timeoutMs, external.timeoutMs, dns.timeoutMs, http.timeoutMs, download.timeoutMs))
+        for (selector in listOf(pmtu.selector, external.selector, dns.selector, http.selector, download.selector)) {
+            assertEquals("Case Sensitive", selector.ssid); assertEquals("aa:bb:cc:dd:ee:ff", selector.bssid); assertEquals("42", selector.networkId)
+        }
     }
 }

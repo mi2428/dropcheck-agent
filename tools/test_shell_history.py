@@ -35,7 +35,7 @@ def main():
             ('json', b'show wifi status | display json'),
             ('connect', b'request wifi connect Lab passphrase round2-synthetic-secret'),
             ('disconnect', b'request wifi disconnect'),
-            ('probe', b"request http 'https://example.test/?token=round2-synthetic-secret'"),
+            ('probe', b"request http check 'https://example.test/?token=round2-synthetic-secret'"),
             ('monitor', b'monitor wifi'),
             ('test', b'test wifi'),
         ]

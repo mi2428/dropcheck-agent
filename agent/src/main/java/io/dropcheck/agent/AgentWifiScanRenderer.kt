@@ -31,9 +31,9 @@ internal object AgentWifiScanRenderer {
             add(AgentBlockPart.Field("Band", fields["requested_band"] ?: "?"))
             add(AgentBlockPart.Field("Update elapsed", "${fields["fresh_scan_elapsed_ms"] ?: "?"}ms"))
             add(AgentBlockPart.Field("APs", "acquired=${rows.size} total=${fields["scan_result_total_count"] ?: scan.resultsCount}"))
-            if (context.mloOnly) add(AgentBlockPart.Text("Filter: mlo; shown counts filtered APs"))
+            if (context.mloOnly) add(AgentBlockPart.Field("Filter", "mlo; shown counts filtered APs"))
             add(AgentBlockPart.Scan(rows, scanColumns + if (context.brief) listOf(AgentBlockPart.Column("AGE(s)")) else emptyList()))
-            add(AgentBlockPart.Text("BW=MHz; RSSI=dBm; band G=GHz; PHY=802.11"))
+            add(AgentBlockPart.Field("Units", "BW=MHz; RSSI=dBm; band G=GHz; PHY=802.11"))
             if (context.brief) add(AgentBlockPart.Field("AGE(s)", "seconds at collection; ?=timestamp unavailable; wpa3-eap=eap_wpa3_enterprise"))
             // AP numbers refer to row order, including rows retained in Inspect/copy.
             if (!context.brief || context.mloOnly || context.detail) results.forEachIndexed { index, ap ->
@@ -52,8 +52,8 @@ internal object AgentWifiScanRenderer {
             }
             if (!context.brief) scan.fieldsList.filterNot { it.key in listOf("scan_source", "fresh_scan_results_updated", "requested_band", "fresh_scan_elapsed_ms", "scan_result_total_count", "scan_result_count") }
                 .forEach { add(AgentBlockPart.Field(it.key, it.value)) }
-            if (context.brief) add(AgentBlockPart.Text("Full: show wifi scan (new passive observation)"))
-            scan.errorsList.forEach { add(AgentBlockPart.Text("Error: $it")) }
+            if (context.brief) add(AgentBlockPart.Field("Full", "show wifi scan (new passive observation)"))
+            scan.errorsList.forEach { add(AgentBlockPart.Field("Error", it)) }
         }
     }
 

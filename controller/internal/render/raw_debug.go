@@ -89,7 +89,8 @@ func rawDebugResult(agent string, result *controlpb.CommandResult, options comma
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Raw Android %s  %s\n", options.RawView, strings.ToUpper(resultStatus(result.GetStatus())))
-	writeRecord(&b, "Source", "android  Target: "+cleanDisplayCell(agent))
+	writeRecord(&b, "Source", "android")
+	writeRecord(&b, "Target", cleanDisplayCell(agent))
 	writeRecord(&b, "Latency", fmt.Sprintf("%dms", result.GetElapsedMs()))
 	if result.GetMessage() != "" {
 		writeRecord(&b, "Message", result.GetMessage())

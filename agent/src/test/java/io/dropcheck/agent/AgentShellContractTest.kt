@@ -9,7 +9,7 @@ class AgentShellContractTest {
         for (line in listOf("show wifi status", "show wifi scan", "show wifi status full", "show wifi status eht",
             "show network default", "show network id 12", "show adb", "show wifi scan | count",
             "set cli default-passphrase test-only", "request wifi connect Lab passphrase test-only",
-            "request http https://example.test/?token=test-only", "test wifi", "monitor wifi", "invalid command", "unfinished '")) {
+            "request http check https://example.test/?token=test-only", "test wifi", "monitor wifi", "invalid command", "unfinished '")) {
             val session = AgentShellSession()
             session.remember(line)
             assertEquals(line, line, session.recall("", -1))
@@ -80,7 +80,7 @@ class AgentShellContractTest {
         val session = AgentShellSession()
         session.setPassphrase("test-only")
         val commands = listOf("set cli default-passphrase test-only", "request wifi connect Lab passphrase test-only",
-            "request http https://example.test/?token=test-only", "show network | match private-value", "show network")
+            "request http check https://example.test/?token=test-only", "show network | match private-value", "show network")
         commands.forEach(session::remember)
         var current = "show permissions"
         for (line in commands.reversed()) {

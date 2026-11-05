@@ -64,7 +64,8 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 		}
 	}
 	writeRecord(&b, "Latency", fmt.Sprintf("%dms", commandResultLatencyMs(result)))
-	writeRecord(&b, "Source", "android  Target: "+cleanDisplayCell(agent))
+	writeRecord(&b, "Source", "android")
+	writeRecord(&b, "Target", cleanDisplayCell(agent))
 	if view.Interactive && renderInteractiveRequest(&b, result, options, view) {
 		return wrapPresentation(b.String(), view.Width), nil
 	}
@@ -237,9 +238,9 @@ func CommandError(agent string, commandID string, err error, format pipeline.For
 		return string(data) + "\n", nil
 	}
 	if includeAgent {
-		return fmt.Sprintf("Agent: %s\nError: %s\n", agent, message), nil
+		return Fields([][2]string{{"Agent", agent}, {"Error", message}}, Presentation{}), nil
 	}
-	return fmt.Sprintf("Error: %s\n", message), nil
+	return Fields([][2]string{{"Error", message}}, Presentation{}), nil
 }
 
 // AgentListView is the renderer input for the connected-agent list.

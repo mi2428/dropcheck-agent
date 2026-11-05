@@ -9,7 +9,6 @@ import (
 
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/harness"
-	"dropcheck/controller/internal/pipeline"
 	"dropcheck/controller/internal/render"
 
 	tea "charm.land/bubbletea/v2"
@@ -186,7 +185,7 @@ func (m workflowModel) renderWorkflow() string {
 				selectedRow = 2 + m.scopeIndex
 			}
 		} else if m.inspect {
-			body = workflowReportLines(report, m.stepCursor, m.detail)
+			body = workflowReportLines(report, m.stepCursor, m.detail, width)
 			if m.active != nil && m.liveEvicted > 0 {
 				body = append(body, fmt.Sprintf("live inspector: %d prior steps evicted; canonical final Report remains core-owned", m.liveEvicted))
 			}
@@ -347,57 +346,45 @@ func workflowCheckPreview(check harness.CheckInfo) string {
 	return fmt.Sprintf("  %s %s ops=[%s] required=%t destination=%s traffic=%s operation_timeout=%s policy: attempts=%d repeat=%d delay=%s eventual=%s stable=%s interval=%s timeout=%s expected=[%s]", check.ID, check.Name, strings.Join(check.Operations, ","), check.Required, destination, check.Traffic, check.OperationTimeout, p.Attempts, p.Repeat, p.Delay, p.Eventually, p.StableFor, p.Interval, p.Timeout, strings.Join(check.Expectations, "; "))
 }
 
-func workflowReportLines(report harness.Report, cursor int, detail bool) []string {
-	lines := []string{fmt.Sprintf("run=%s state=%s outcome=%s pass=%d fail=%d missing=%d skip=%d canceled=%d", report.RunID, report.State, report.Outcome, report.Counts.Passed, report.Counts.Failed, report.Counts.Missing, report.Counts.Skipped, report.Counts.Canceled)}
-	for _, agent := range report.Agents {
-		lines = append(lines, fmt.Sprintf("agent=%s round=%d state=%s phase=%s outcome=%s pass=%d fail=%d missing=%d skipped=%d canceled=%d", agent.Agent.ID, agent.Round, agent.State, agent.Phase, agent.Outcome, agent.Counts.Passed, agent.Counts.Failed, agent.Counts.Missing, agent.Counts.Skipped, agent.Counts.Canceled))
-	}
-	if !detail {
-		for i, step := range report.Steps {
-			prefix := "  "
-			if i == cursor {
-				prefix = "> "
-			}
-			lines = append(lines, fmt.Sprintf("%sround=%d %s %s outcome=%s skip=%s attempts=%d reason=%s", prefix, step.Round, workflowScopeLabel(step.Scope), step.Name, step.Outcome, step.SkipReason, len(step.Attempts), step.Reason))
+func workflowReportLines(report harness.Report, cursor int, detail bool, widths ...int) []string {
+	if detail {
+		view := render.Presentation{Detail: true}
+		if len(widths) > 0 {
+			view.Width = widths[0]
 		}
-	} else if len(report.Steps) > 0 {
-		step := report.Steps[min(cursor, len(report.Steps)-1)]
-		lines = append(lines, fmt.Sprintf("%s %s outcome=%s skip=%s reason=%s", workflowScopeLabel(step.Scope), step.Name, step.Outcome, step.SkipReason, step.Reason))
-		for _, attempt := range step.Attempts {
-			lines = append(lines, fmt.Sprintf("attempt=%d repeat=%d sample=%d outcome=%s reason=%s", attempt.Number, attempt.Repeat, attempt.Sample, attempt.Outcome, attempt.Reason))
-			for _, finding := range attempt.Findings {
-				lines = append(lines, fmt.Sprintf("  %s observed=%s expected=%s %s", finding.Metric, finding.Observed, finding.Expected, finding.Message))
-			}
-			if attempt.Result.Raw != nil {
-				text, err := render.CommandResult("", attempt.Result.Raw, attempt.Result.Options, pipeline.FormatText)
-				if err != nil {
-					lines = append(lines, "measurement rendering error: "+err.Error())
-				} else {
-					lines = append(lines, strings.Split(text, "\n")...)
-				}
-			}
-			for _, part := range attempt.Result.Parts {
-				lines = append(lines, "acquisition "+part.Name+" error="+part.Error)
-				if part.Raw != nil {
-					text, err := render.CommandResult("", part.Raw, attempt.Result.Options, pipeline.FormatText)
-					if err != nil {
-						lines = append(lines, "measurement rendering error: "+err.Error())
-					} else {
-						lines = append(lines, strings.Split(text, "\n")...)
+		if len(report.Steps) > 0 {
+			report.Steps = report.Steps[min(max(cursor, 0), len(report.Steps)-1):][:1]
+		}
+		text, err := render.Report(report, view)
+		if err != nil {
+			return strings.Split(render.Fields([][2]string{{"Error", "measurement rendering: " + err.Error()}}, view), "\n")
+		}
+		text = render.Fields([][2]string{{"View", "selected step; core outcome/counts cover the whole retained run"}}, view) + "\n" + text
+		for _, step := range report.Steps {
+			if step.Outcome == harness.OutcomePass {
+				for _, attempt := range step.Attempts {
+					if attempt.Outcome != harness.OutcomePass {
+						text += render.Fields([][2]string{{"Recovered", "earlier failed/missing attempt retained."}}, view)
+						break
 					}
 				}
 			}
 		}
-		if step.Outcome == harness.OutcomePass {
-			for _, attempt := range step.Attempts {
-				if attempt.Outcome != harness.OutcomePass {
-					lines = append(lines, "Recovered: earlier failed/missing attempt retained.")
-					break
-				}
-			}
-		}
+		return strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 	}
-	lines = append(lines, "Cleanup (independent from check outcome):")
+	rows := [][2]string{{"Run", fmt.Sprintf("run=%s state=%s outcome=%s pass=%d fail=%d missing=%d skip=%d canceled=%d", report.RunID, report.State, report.Outcome, report.Counts.Passed, report.Counts.Failed, report.Counts.Missing, report.Counts.Skipped, report.Counts.Canceled)}}
+	for _, agent := range report.Agents {
+		rows = append(rows, [2]string{"Agent", fmt.Sprintf("agent=%s round=%d state=%s phase=%s outcome=%s pass=%d fail=%d missing=%d skipped=%d canceled=%d", agent.Agent.ID, agent.Round, agent.State, agent.Phase, agent.Outcome, agent.Counts.Passed, agent.Counts.Failed, agent.Counts.Missing, agent.Counts.Skipped, agent.Counts.Canceled)})
+	}
+	lines := strings.Split(strings.TrimSuffix(render.Fields(rows, render.Presentation{}), "\n"), "\n")
+	for i, step := range report.Steps {
+		prefix := "  "
+		if i == cursor {
+			prefix = "> "
+		}
+		lines = append(lines, fmt.Sprintf("%sround=%d %s %s outcome=%s skip=%s attempts=%d reason=%s", prefix, step.Round, workflowScopeLabel(step.Scope), step.Name, step.Outcome, step.SkipReason, len(step.Attempts), step.Reason))
+	}
+	lines = append(lines, "Cleanup (independent from check outcome)")
 	for _, cleanup := range report.Cleanup {
 		status := "missing result"
 		if cleanup.Raw != nil {

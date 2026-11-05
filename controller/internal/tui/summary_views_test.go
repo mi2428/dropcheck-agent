@@ -307,7 +307,7 @@ func TestFailureHotspotDetailSurvivesSummaryWindow(t *testing.T) {
 		t.Fatalf("hotspot rows after summary window = %d, want %d: %#v", got, want, rows)
 	}
 	view := stripANSI(m.failureHotspotDetailView(140, 20))
-	for _, want := range []string{"radio-a", "Failure History:", "REQUEST_DECLINED", "Logs:", "kind=finding"} {
+	for _, want := range []string{"radio-a", "Failure History", "REQUEST_DECLINED", "Logs", "kind=finding"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("failure hotspot detail should retain %q beyond the 30m summary window:\n%s", want, view)
 		}
@@ -536,7 +536,7 @@ func TestEnterShowsFailureHotspotDetail(t *testing.T) {
 		"REQUEST_DECLINED",
 		"Fail Rate  Failed Runs  Failures  Streak  Last      Latest Check  Metric  Observed  Expected",
 		"100%       2/2          2         2       09:31:00  Connect       status  failed    \"== ok\"",
-		"Causes:",
+		"Causes",
 		"Count  Last      Cause",
 		"2  09:31:00  REQUEST_DECLINED",
 	} {

@@ -155,7 +155,8 @@ func showProfiles(format outputFormat) (string, error) {
 	}
 	var b strings.Builder
 	for _, entry := range profileCatalogue {
-		fmt.Fprintf(&b, "%s (%s): %s; prerequisites: %s; family: %s; cost: %s\n", entry.Name, entry.Status, entry.Purpose, entry.Prerequisites, entry.Family, entry.Cost)
+		fmt.Fprintf(&b, "%s (%s)\n", entry.Name, entry.Status)
+		b.WriteString(render.Fields([][2]string{{"Purpose", entry.Purpose}, {"Prerequisites", entry.Prerequisites}, {"Family", entry.Family}, {"Cost", entry.Cost}}, render.Presentation{}))
 	}
 	b.WriteString("Default: none\n")
 	return b.String(), nil

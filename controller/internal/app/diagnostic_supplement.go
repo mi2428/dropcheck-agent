@@ -14,7 +14,7 @@ import (
 )
 
 type commandResultSupplements struct {
-	textBlocks []string
+	textBlocks []func(render.Presentation) string
 }
 
 func collectCommandResultSupplements(ctx context.Context, state *shellState, agent control.AgentInfo, result *controlpb.CommandResult, options commandOptions, format outputFormat, interactive ...bool) commandResultSupplements {
@@ -46,17 +46,18 @@ func shouldCollectADBMLOSupplement(result *controlpb.CommandResult, options comm
 	return (options.WifiRenderMode == command.WifiRenderModeEHT || options.WifiRenderMode == command.WifiRenderModeFull) && result.GetWifiDiagnostics() != nil
 }
 
-func collectADBIPv6RASupplement(ctx context.Context, state *shellState, agent control.AgentInfo, result *controlpb.CommandResult, reportUnavailable ...bool) string {
+func collectADBIPv6RASupplement(ctx context.Context, state *shellState, agent control.AgentInfo, result *controlpb.CommandResult, reportUnavailable ...bool) func(render.Presentation) string {
 	visible := len(reportUnavailable) != 0 && reportUnavailable[0]
 	if agent.Hello == nil || result == nil {
-		return ""
+		return nil
 	}
 	serial := agent.Hello.GetAdbSerial()
 	if serial == "" {
 		if !visible {
-			return ""
+			return nil
 		}
-		return sourcedADBSupplement("IPv6 RA supplement\nAvailability: unavailable (no pinned ADB serial)\n")
+		text := sourcedADBSupplement("IPv6 RA supplement\n" + render.SourceFields([][2]string{{"Availability", "unavailable (no pinned ADB serial)"}}))
+		return func(render.Presentation) string { return text }
 	}
 	status := result.GetWifiStatus()
 	if result.GetWifiDiagnostics() != nil {
@@ -69,77 +70,104 @@ func collectADBIPv6RASupplement(ctx context.Context, state *shellState, agent co
 	iface := ip.GetInterfaceName()
 	if iface == "" {
 		if !visible {
-			return ""
+			return nil
 		}
-		return sourcedADBSupplement("IPv6 RA supplement\nAvailability: unavailable (no selected physical Wi-Fi interface)\n")
+		text := sourcedADBSupplement("IPv6 RA supplement\n" + render.SourceFields([][2]string{{"Availability", "unavailable (no selected physical Wi-Fi interface)"}}))
+		return func(render.Presentation) string { return text }
 	}
 	summary := adbdiag.CollectIPv6RA(ctx, adb.Client{
 		Path:    state.adbPath,
 		Serial:  serial,
 		Timeout: 8 * time.Second,
 	}, iface)
-	text := adbdiag.RenderIPv6RASummary(summary)
-	if visible && text == "" {
-		text = "IPv6 RA supplement\nAvailability: no host evidence returned\n"
+	if summary.Empty() && !visible {
+		return nil
 	}
-	if visible {
-		for _, problem := range summary.Errors {
-			text += "Acquisition error: " + problem + "\n"
+	received := time.Now()
+	return func(render.Presentation) string {
+		text := adbdiag.IPv6RASummaryText(summary)
+		if visible && text == "" {
+			text = "IPv6 RA supplement\n" + render.SourceFields([][2]string{{"Availability", "no host evidence returned"}})
 		}
+		if visible {
+			for _, problem := range summary.Errors {
+				text += render.SourceFields([][2]string{{"Acquisition error", problem}})
+			}
+		}
+		return sourcedADBSupplement(text, received)
 	}
-	return sourcedADBSupplement(text)
 }
 
-func collectADBMLOSupplement(ctx context.Context, state *shellState, agent control.AgentInfo, reportUnavailable ...bool) string {
+func collectADBMLOSupplement(ctx context.Context, state *shellState, agent control.AgentInfo, reportUnavailable ...bool) func(render.Presentation) string {
 	visible := len(reportUnavailable) != 0 && reportUnavailable[0]
 	if agent.Hello == nil {
-		return ""
+		return nil
 	}
 	serial := agent.Hello.GetAdbSerial()
 	if serial == "" {
 		if !visible {
-			return ""
+			return nil
 		}
-		return sourcedADBSupplement("MLO supplement\nAvailability: unavailable (no pinned ADB serial)\n")
+		text := sourcedADBSupplement("MLO supplement\n" + render.SourceFields([][2]string{{"Availability", "unavailable (no pinned ADB serial)"}}))
+		return func(render.Presentation) string { return text }
 	}
 	summary := adbdiag.CollectMLO(ctx, adb.Client{
 		Path:    state.adbPath,
 		Serial:  serial,
 		Timeout: 8 * time.Second,
 	})
-	text := adbdiag.RenderMLOSummary(summary)
-	if text == "" && visible {
-		text = "MLO supplement\nAvailability: no host evidence returned; not an Android observation\n"
+	if summary.Empty() && !visible {
+		return nil
 	}
-	if visible {
-		for _, problem := range summary.Errors {
-			text += "Acquisition error: " + problem + "\n"
+	received := time.Now()
+	return func(view render.Presentation) string {
+		text := adbdiag.MLOSummaryText(summary, view)
+		if text == "" && visible {
+			text = "MLO supplement\n" + render.SourceFields([][2]string{{"Availability", "no host evidence returned; not an Android observation"}})
 		}
+		if visible {
+			for _, problem := range summary.Errors {
+				text += render.SourceFields([][2]string{{"Acquisition error", problem}})
+			}
+		}
+		return sourcedADBSupplement(text, received)
 	}
-	return sourcedADBSupplement(text)
 }
 
-func sourcedADBSupplement(text string) string {
+func sourcedADBSupplement(text string, receivedAt ...time.Time) string {
 	if text == "" {
 		return ""
 	}
 	lines := strings.SplitN(text, "\n", 2)
-	header := lines[0] + "\nSource: adb (host supplement)\nReceived on controller: " + time.Now().Format(time.RFC3339Nano) + " (not Android observation time)\n"
+	received := time.Now()
+	if len(receivedAt) > 0 {
+		received = receivedAt[0]
+	}
+	// Body records are sanitized at their source; retain their owned boundaries until layout.
+	header := render.TextBlock(lines[0], render.Presentation{}) + render.SourceFields([][2]string{
+		{"Source", "adb (host supplement)"},
+		{"Received on controller", received.Format(time.RFC3339Nano) + " (not Android observation time)"},
+	})
 	if len(lines) > 1 {
 		header += lines[1]
 	}
-	return render.TextBlock(header, render.Presentation{})
+	return header
 }
 
-func (s *commandResultSupplements) addText(text string) {
-	if text == "" {
+func (s *commandResultSupplements) addText(text func(render.Presentation) string) {
+	if text == nil {
 		return
 	}
 	s.textBlocks = append(s.textBlocks, text)
 }
 
 func (s commandResultSupplements) appendToText(out string, views ...render.Presentation) string {
-	for _, block := range s.textBlocks {
+	view := terminalPresentation()
+	if len(views) > 0 {
+		view = views[0]
+	}
+	for _, text := range s.textBlocks {
+		block := text(view)
 		if block == "" {
 			continue
 		}
@@ -150,10 +178,6 @@ func (s commandResultSupplements) appendToText(out string, views ...render.Prese
 			out += "\n"
 		}
 		out += block
-	}
-	view := terminalPresentation()
-	if len(views) > 0 {
-		view = views[0]
 	}
 	return render.LayoutText(out, view)
 }

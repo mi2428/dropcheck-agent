@@ -53,8 +53,8 @@ func TestEnterShowsFailedCheckDetail(t *testing.T) {
 		"09:30:00  0         \"== 5\"",
 		"Message",
 		"constraint failed",
-		"Failure History:",
-		"Logs:",
+		"Failure History",
+		"Logs",
 	} {
 		if !strings.Contains(frame, want) {
 			t.Fatalf("detail view missing %q:\n%s", want, frame)
@@ -308,8 +308,8 @@ func TestFailedCheckDetailModalKeepsInvestigationRowsWhenCompact(t *testing.T) {
 		"7         100%       1",
 		"Last      Observed  Expected",
 		"09:31:00  0         \"== 5\"",
-		"Failure History:",
-		"Logs:",
+		"Failure History",
+		"Logs",
 	} {
 		if !strings.Contains(frame, want) {
 			t.Fatalf("compact detail view missing %q:\n%s", want, frame)
@@ -359,10 +359,10 @@ func TestFailedCheckDetailUsesDenseInvestigationLayout(t *testing.T) {
 		"constraint failed",
 		"90m ago",
 		"now",
-		"Failure History:",
+		"Failure History",
 		"Time      Round  Check",
 		"09:30:40",
-		"Logs:",
+		"Logs",
 		"kind=finding",
 	} {
 		if !strings.Contains(view, want) {
@@ -370,7 +370,7 @@ func TestFailedCheckDetailUsesDenseInvestigationLayout(t *testing.T) {
 		}
 	}
 	axis := lineIndex(view, "90m ago")
-	section := lineIndex(view, "Failure History:")
+	section := lineIndex(view, "Failure History")
 	if axis <= 0 || section <= axis {
 		t.Fatalf("detail view missing expected graph/section order:\n%s", view)
 	}
@@ -384,7 +384,7 @@ func TestFailedCheckDetailUsesDenseInvestigationLayout(t *testing.T) {
 	if lines[section-1] != "" {
 		t.Fatalf("detail graph should have one blank line below it, got line before section = %q:\n%s", lines[section-1], view)
 	}
-	logs := lineIndex(view, "Logs:")
+	logs := lineIndex(view, "Logs")
 	if logs <= section || lines[logs-1] != "" {
 		t.Fatalf("detail sections should be separated by one blank line before Logs, got line before Logs = %q:\n%s", lines[intMax(0, logs-1)], view)
 	}
@@ -417,11 +417,11 @@ func TestFailureHotspotDetailSectionsUseTitledSpacing(t *testing.T) {
 
 	view := stripANSI(m.failureHotspotDetailView(120, 25))
 	for _, want := range []string{
-		"Causes:",
+		"Causes",
 		"2  09:31:00  constraint failed",
-		"Failure History:",
+		"Failure History",
 		"09:31:00  2      public ipv6",
-		"Logs:",
+		"Logs",
 		"kind=finding",
 	} {
 		if !strings.Contains(view, want) {
@@ -429,7 +429,7 @@ func TestFailureHotspotDetailSectionsUseTitledSpacing(t *testing.T) {
 		}
 	}
 	lines := strings.Split(view, "\n")
-	for _, marker := range []string{"Latest Cause", "Fail Rate", "Causes:", "Failure History:", "Logs:"} {
+	for _, marker := range []string{"Latest Cause", "Fail Rate", "Causes", "Failure History", "Logs"} {
 		index := lineIndex(view, marker)
 		if index <= 0 || lines[index-1] != "" {
 			t.Fatalf("%s should have one blank line above it, got %q:\n%s", marker, lines[intMax(0, index-1)], view)
@@ -476,7 +476,7 @@ func TestFailedCheckDetailLogsAreScopedToSelectedCheck(t *testing.T) {
 	})
 
 	view := stripANSI(m.failedCheckDetailView(120, 18))
-	for _, want := range []string{"Logs:", "kind=finding", "step=\"public ipv6\"", "metric=ipv6_global_ips"} {
+	for _, want := range []string{"Logs", "kind=finding", "step=\"public ipv6\"", "metric=ipv6_global_ips"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("selected check detail missing %q:\n%s", want, view)
 		}
@@ -522,7 +522,7 @@ func TestFailedCheckDetailLogsUseStructuredHistoryBeyondVisibleEventLog(t *testi
 	}
 
 	view := stripANSI(m.failedCheckDetailView(120, 18))
-	for _, want := range []string{"Logs:", "kind=finding", "step=\"public ipv6\""} {
+	for _, want := range []string{"Logs", "kind=finding", "step=\"public ipv6\""} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("detail should use structured history for %q:\n%s", want, view)
 		}

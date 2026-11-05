@@ -64,3 +64,32 @@ func TestProfileShellUsesSharedLiteralGrammar(t *testing.T) {
 		t.Fatal("connect must resolve the session credential only at execution", parsed, err)
 	}
 }
+
+func TestRequestSubjectsAreLocalHelpAndLeavesRemainDiscoverable(t *testing.T) {
+	for _, group := range []string{"request ip", "request dns", "request http"} {
+		parsed, err := ParseLine(group)
+		if err != nil || parsed.Kind != Help || parsed.Operation.Command != nil || parsed.HelpTopic != group {
+			t.Fatalf("group must not dispatch: %s %+v %v", group, parsed, err)
+		}
+	}
+	for _, tc := range []struct{ prefix, want string }{
+		{"request pm", "request pmtu"}, {"request ip ", "request ip external"},
+		{"request dns ", "request dns resolve"}, {"request http ", "request http check"},
+		{"request http ", "request http download"}, {"request http check ", "<url>"},
+	} {
+		if got := CompleteLine(tc.prefix); !strings.Contains(strings.Join(got, ","), tc.want) {
+			t.Errorf("%s completion missing %s: %v", tc.prefix, tc.want, got)
+		}
+	}
+	for _, line := range []string{"req pm example.test", "req ip ext family ipv4", "req dn res resolve", "req ht ch download", "req ht do https://example.test/check"} {
+		parsed, err := ParseLine(line)
+		if err != nil || parsed.Kind != AgentCommand || parsed.Operation.Command == nil {
+			t.Errorf("unique prefix failed: %s %+v %v", line, parsed, err)
+		}
+	}
+	var help strings.Builder
+	WriteContextHelp(&help, "request http check https://example.test/?token=naming-secret ?")
+	if strings.Contains(help.String(), "naming-secret") || !strings.Contains(help.String(), "timeout") {
+		t.Fatalf("context help lost options or exposed a value: %s", help.String())
+	}
+}

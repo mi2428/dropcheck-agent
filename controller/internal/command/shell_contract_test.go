@@ -132,3 +132,41 @@ func TestRawDebugReusesPassiveRPCsAndExplicitNetworkIdentity(t *testing.T) {
 		t.Fatal("independent one-shot ADB spelling changed", err)
 	}
 }
+
+func TestRequestNamesPreserveWireOperationsAndIndependentCLI(t *testing.T) {
+	for _, tc := range []struct{ shell, cli, args string }{
+		{"request pmtu", "path-mtu", "example.test min-mtu 1200 max-mtu 1500 family ipv6 timeout 1234"},
+		{"request ip external", "global-ip", "family all timeout 1234"},
+		{"request dns resolve", "dns", "resolve record AAAA timeout 1234"},
+		{"request http check", "http", "download expected-status 204 timeout 1234"},
+		{"request http download", "download", "https://example.test/check timeout 1234"},
+	} {
+		t.Run(tc.shell, func(t *testing.T) {
+			args := tc.args + " ssid 'Case Sensitive' bssid aa:bb:cc:dd:ee:ff network-id 42"
+			shellTokens, err := SplitArgs(tc.shell + " " + args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cliTokens, err := SplitArgs(tc.cli + " " + args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			interactive, err := ParseShellTokens(shellTokens)
+			if err != nil {
+				t.Fatal(err)
+			}
+			independent, err := ParseTokens(cliTokens)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if interactive.Path != tc.shell || interactive.Effect != "probe" || !interactive.Operation.Options.Detail || !proto.Equal(interactive.Operation.Command, independent.Operation.Command) {
+				t.Fatalf("renaming changed the wire operation or selectors: %+v / %+v", interactive, independent)
+			}
+		})
+	}
+	for _, old := range []string{"request path-mtu example.test", "request global-ip", "request dns example.test", "request http https://example.test", "request download https://example.test"} {
+		if _, err := ParseShellTokens(strings.Fields(old)); err == nil {
+			t.Errorf("obsolete interactive spelling accepted: %s", old)
+		}
+	}
+}

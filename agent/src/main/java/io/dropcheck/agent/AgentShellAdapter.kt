@@ -51,7 +51,8 @@ internal class AgentShellAdapter(private val context: Context, private val logge
         is AgentShellCommand.Help -> AgentShellResult(true, AgentShellParser.help(command.topic))
         is AgentShellCommand.SetDefaultPassphrase -> { session.setPassphrase(command.passphrase); AgentShellResult(true, listOf(AgentShellUsePolicy.setDefaultPassphraseMessage(command.passphrase))) }
         AgentShellCommand.ClearDefaultPassphrase -> { session.setPassphrase(""); AgentShellResult(true, listOf(AgentShellUsePolicy.setDefaultPassphraseMessage(""))) }
-        AgentShellCommand.ShowVersion -> AgentShellResult(true, listOf("Android agent version: ${BuildConfig.VERSION_NAME}"))
+        AgentShellCommand.ShowVersion -> AgentShellResult(true, block = AgentPresentationBlock.create(
+            listOf(AgentBlockPart.Field("Android agent version", BuildConfig.VERSION_NAME)), AgentLogStyle.TEXT_COLOR))
         AgentShellCommand.ShowCli -> AgentShellResult(true, block = AgentPresentationBlock.create(listOf(
             AgentBlockPart.Field("Owner", "self"), AgentBlockPart.Field("Target", "self"), AgentBlockPart.Field("Layout", "measured Android content width"),
             AgentBlockPart.Field("History", "all commands; session-only"), AgentBlockPart.Field("Default passphrase", if (session.defaults.defaultPassphrase.isEmpty()) "unset" else "present")), AgentLogStyle.TEXT_COLOR))
@@ -194,7 +195,7 @@ internal class AgentShellAdapter(private val context: Context, private val logge
             }
             RunCommand.CommandCase.WAIT_WIFI_CONNECTED, RunCommand.CommandCase.ASSERT_WIFI -> {
                 row("Passed", result.wifiAssert.passed)
-                result.wifiAssert.checksList.forEach { row(it.key, "expected=${it.expected} actual=${it.actual} passed=${it.passed} message=${it.message}") }
+                addAll(AgentWifiStatusRenderer.assertionChecks(result.wifiAssert.checksList))
                 result.wifiAssert.errorsList.forEach { row("Error", it) }
                 row("Evaluation elapsed ms", result.wifiAssert.elapsedMs)
                 if (result.wifiAssert.hasStatus()) addAll(AgentWifiStatusRenderer.presentation(result.wifiAssert.status, detail = true))
@@ -258,9 +259,13 @@ internal class AgentShellAdapter(private val context: Context, private val logge
             if (safe.status == CommandResult.Status.STATUS_OK) AgentLogStyle.TEXT_COLOR else -44976, title))
     }
 
-    private fun failure(title: String, result: CommandResult, secrets: List<String> = emptyList()): AgentShellResult = AgentShellResult(false,
-        listOf("$title failed (${if (result.status == CommandResult.Status.STATUS_OK) "STATUS_FAILED" else result.status.name}): " +
-            if (result.status == CommandResult.Status.STATUS_OK) "wrong, missing or inconsistent payload" else result.message.ifBlank { "payload unavailable" }.replaceSecrets(secrets)))
+    private fun failure(title: String, result: CommandResult, secrets: List<String> = emptyList()): AgentShellResult {
+        val failed = result.toBuilder()
+            .setStatus(if (result.status == CommandResult.Status.STATUS_OK) CommandResult.Status.STATUS_FAILED else result.status)
+            .setMessage(if (result.status == CommandResult.Status.STATUS_OK) "wrong, missing or inconsistent payload" else result.message.ifBlank { "payload unavailable" })
+            .build()
+        return block(failed, emptyList(), title, secrets)
+    }
 
     private fun String.replaceSecrets(secrets: List<String>): String = secrets.filter(String::isNotEmpty).fold(this) { safe, secret -> safe.replace(secret, "<redacted>") }
 }

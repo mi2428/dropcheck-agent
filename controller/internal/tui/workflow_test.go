@@ -26,6 +26,30 @@ import (
 
 const workflowTestSecret = "synthetic-private-psk"
 
+func TestWorkflowMeasurementTargetsKeepTheirAcquiredAgent(t *testing.T) {
+	scope := harness.Scope{Kind: harness.ScopeCheck, AgentID: "selected-id", TargetID: "ssid-target"}
+	raw := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_CANCELED}
+	report := harness.Report{
+		Agents: []harness.AgentProgress{{Agent: harness.AgentSnapshot{ID: scope.AgentID, Name: "selected-device"}}},
+		Steps: []harness.StepReport{{Scope: scope, Attempts: []harness.Attempt{{Scope: scope, Result: harness.OperationResult{
+			Raw: raw, Parts: []harness.OperationRecord{{Scope: scope, Name: "snapshot", Raw: raw}},
+		}}}}},
+	}
+	text := strings.Join(workflowReportLines(report, 0, true), "\n")
+	count := 0
+	for line := range strings.SplitSeq(text, "\n") {
+		if after, ok := strings.CutPrefix(line, "  Target:"); ok {
+			if strings.TrimSpace(after) != "selected-device" {
+				t.Fatalf("measurement target was lost or conflated with scope: %q", line)
+			}
+			count++
+		}
+	}
+	if count != 2 {
+		t.Fatalf("want aggregate and acquisition target; got %d", count)
+	}
+}
+
 func TestPreviewIncludesTypedDestinationTrafficWithoutURLCredentials(t *testing.T) {
 	preview := workflowCheckPreview(harness.CheckInfo{ID: "check/0", Operations: []string{"wifi.scan.fresh", "wifi.eht"}, Destination: "https://user:credential@example.test/Case?token=credential&ordinary=Keep", Traffic: "HTTP request per attempt"})
 	for _, want := range []string{"ops=[wifi.scan.fresh,wifi.eht]", "destination=", "ordinary=Keep", "traffic=HTTP request per attempt"} {
@@ -379,7 +403,7 @@ func TestWorkflowSelectionPreviewFiniteTransportHistoryAndRerun(t *testing.T) {
 	}
 	m.inspect, m.detail = true, true
 	text := strings.Join(workflowReportLines(m.currentReport(), m.stepCursor, true), "\n")
-	for _, want := range []string{"observed=", "expected=", "attempt=1", "Cleanup"} {
+	for _, want := range []string{"Observed:", "Expected:", "attempt=1", "Cleanup"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("success inspect missing %q", want)
 		}

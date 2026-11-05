@@ -70,6 +70,18 @@ func redactURLParameters(value string) (string, error) {
 	return strings.Join(parts, "&"), nil
 }
 
+func safePresentationField(label, value string) string {
+	name := strings.ToLower(strings.TrimSpace(cleanDisplayCell(label)))
+	switch name {
+	case "passphrase", "password", "token", "access_token", "refresh_token", "authorization", "psk", "api_key", "apikey", "api-key", "client_secret", "x-amz-signature", "x-amz-credential", "x-amz-security-token":
+		return "<redacted>"
+	case "ssid", "bssid", "ap_mld_mac_address":
+		return value
+	default:
+		return safePresentationText(value)
+	}
+}
+
 // Clone before sanitizing: evaluation/measurements never see presentation edits.
 func safePresentationProto(message proto.Message) proto.Message {
 	copy := proto.Clone(message)
@@ -149,14 +161,7 @@ func sanitizePresentationProto(copy proto.Message) {
 			key := m.Descriptor().Fields().ByName("key")
 			value := m.Descriptor().Fields().ByName("value")
 			if key != nil && value != nil {
-				name := strings.ToLower(strings.TrimSpace(cleanDisplayCell(m.Get(key).String())))
-				if name != "ssid" && name != "bssid" && name != "ap_mld_mac_address" {
-					m.Set(value, protoreflect.ValueOfString(safePresentationText(m.Get(value).String())))
-				}
-				switch name {
-				case "passphrase", "password", "token", "access_token", "refresh_token", "authorization", "psk", "api_key", "apikey", "api-key", "client_secret", "x-amz-signature", "x-amz-credential", "x-amz-security-token":
-					m.Set(value, protoreflect.ValueOfString("<redacted>"))
-				}
+				m.Set(value, protoreflect.ValueOfString(safePresentationField(m.Get(key).String(), m.Get(value).String())))
 			}
 		}
 		m.Range(func(field protoreflect.FieldDescriptor, value protoreflect.Value) bool {

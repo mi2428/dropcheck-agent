@@ -242,15 +242,15 @@ func parseInteractiveTokens(args []string) (result Parsed, err error) {
 		op, err = PingOperation(PingOptions{Host: f["host"], Count: f["count"], Size: f["size"], Family: f["family"], Timeout: f["timeout"]})
 	case "request traceroute":
 		op, err = TracerouteOperation(TracerouteOptions{Host: f["host"], MaxHops: f["max-hops"], Via: via, Size: f["size"], Family: f["family"], Timeout: f["timeout"]})
-	case "request path-mtu":
+	case "request pmtu":
 		op, err = PathMTUOperation(PathMTUOptions{Host: f["host"], MinMTU: f["min-mtu"], MaxMTU: f["max-mtu"], Family: f["family"], Timeout: f["timeout"]})
-	case "request global-ip":
+	case "request ip external":
 		op, err = GlobalIPOperation(f["family"], f["timeout"])
-	case "request dns":
+	case "request dns resolve":
 		op, err = DNSOperation(f["name"], f["record"], f["timeout"])
-	case "request http":
+	case "request http check":
 		op, err = HTTPOperation(f["url"], f["expected-status"], f["timeout"])
-	case "request download":
+	case "request http download":
 		op, err = DownloadOperation(f["url"], f["timeout"])
 	default:
 		return Parsed{}, fmt.Errorf("unsupported command")

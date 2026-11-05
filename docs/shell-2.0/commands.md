@@ -34,11 +34,11 @@ request wifi cycle <ssid> passphrase <secret> [connection/cycle options]
 request wifi scan [eht] [ssid <ssid> | bssid <bssid>] [band <band>] [timeout <ms>]
 request ping <host>
 request traceroute <host>
-request path-mtu <host>
-request global-ip
-request dns <name>
-request http <url>
-request download <url>
+request pmtu <host>
+request ip external
+request dns resolve <name>
+request http check <url>
+request http download <url>
 
 test wifi [ssid <ssid>] [bssid <bssid>] [security <mode>] [band <band>]
           [require-ip <true|false>] [require-validated <true|false>] [timeout <ms>]
@@ -58,6 +58,22 @@ The comments above identify scope; they are not input syntax. The inventory/help
 - `show wifi status` is the quick everyday summary; its named children select detailed subjects and `full` selects the complete structured diagnostic bundle. Other executable parents, including `show network`, `debug adb` and `debug adb connectivity`, return their whole subject. Group-only input, such as `debug android`, `request` or `test`, displays local help and performs no acquisition. `detail`, `fresh`, root probe aliases, `show adb`, `use`, `check`, `quit`, and `begin` are not accepted interactive spellings.
 - Keywords are lowercase and accept unique prefixes. Values retain literal case, spaces and punctuation. Quote/escape whitespace and literal pipes. A keyword-looking SSID remains a value. There is no shell expansion, subprocess pipeline, arbitrary ADB shell, pager, configuration mode, candidate state, or fake commit.
 - `?` requests no-Enter contextual help. `help request wifi`, partial-word help, argument/value hints, Tab/cursor-tail completion and Android touch help/history remain local and secret-safe. Space remains a separator, not a completion key. Android retains app navigation instead of pretending to exit the service/process.
+
+### Active request names
+
+The 2026-11-05 naming follow-up uses spaces for subject/action hierarchy rather than inventing compound action names. Wi-Fi `connect/disconnect/reconnect/forget/cycle/scan`, `ping` and `traceroute` keep their names. Technical option keys such as `network-id`, `min-mtu` and `expected-status` are unchanged.
+
+| Previous interactive spelling | Current spelling | Meaning |
+| --- | --- | --- |
+| `request path-mtu <host>` | `request pmtu <host>` | Discover path MTU; do not change interface MTU. |
+| `request global-ip` | `request ip external` | Obtain the source IP seen by the existing external service, not the local address list or a DHCP lease. |
+| `request dns <name>` | `request dns resolve <name>` | Resolve A/AAAA through the selected Network's resolver. |
+| `request http <url>` | `request http check <url>` | Check the expected HTTP status without following redirects. |
+| `request download <url>` | `request http download <url>` | Transfer/count response bytes and measure throughput; follow redirects, discard content and save no file. |
+
+Bare `request ip`, `request dns` and `request http` display local help and perform no acquisition. Unique prefixes, quoted/keyword-looking values, existing defaults/options/Network selectors, finite timeouts, traffic cost, result rendering and typed outcomes are preserved. `ip external` accepts `family ipv4|ipv6|all` (default `all`), not `auto`. These requests remain bound to the selected physical Wi-Fi Network; the new IP subject does not broaden transport selection.
+
+Old executable interactive spellings are rejected rather than retained as aliases. The independent one-shot CLI keeps `path-mtu`, `global-ip`, `dns`, `http` and `download`, and the RPCs/operation identifiers stay unchanged. See [request-name regression evidence](qa-request-names.md).
 
 ## Acquisition, targets and outcomes
 
@@ -124,6 +140,12 @@ Use Up or Ctrl-P for the previous command and Down or Ctrl-N for the next comman
 
 Structured Shell metadata uses aligned field/value columns, including request results, test reports, and monitor output. PC alignment uses display-cell widths, not rune counts. Android aligns native fields with measured text widths and spans; exact retained field facts keep their typed roles after line filters. Repeated probe, test-stage/metric, cycle and address data use tables where useful, with lossless record layouts when tables do not fit. Raw/native reference text and URLs are not inferred to be field records from their colons, and machine JSON is not passed through human column alignment.
 
+Choose syntax by role, not by command or acquisition source. Headings have no trailing colon. Fields use `Label: value`, indented two spaces relative to their heading, with a shared value column for peer fields. Tables express that relationship through headers and columns, not colons in each cell. Named composite values may retain `key=value` components, such as `Radio: band=6ghz ch=5`; decoded security/roaming/IE lists remain complete multiline values beneath a named field. Native Android applies the same relative field hierarchy with measured layout, while logical/filter/copy records keep their established labels. Usage, navigation lists, logs and explicit compact one-shot summaries retain their separate roles.
+
+ADB supplements follow the same field/table rules as Android evidence. Their `Source` and controller receipt time join the owned body records before final layout; display width does not trigger acquisition again or change that receipt time. The time is not an Android observation timestamp. TUI detailed check inspection reuses the structured report renderer at its available width; selecting one step does not recalculate the core's whole-run outcome or counts.
+
+Generated `Source` and `Target` are independent fields, not two labels inside one value. Android results use `Source: android` and `Target: self`; Controller results identify the acquired agent. Historical results keep that acquisition target even after the current selection changes. Status and failure messages are separate fields too. Android filters preserve an unchanged field's original role, including multiline values and availability/wire-value pairs, without promoting identical raw text into a field or restoring explicitly removed lines. Oversized results retain bounded metadata plus full safe values in Inspect/copy.
+
 The colon belongs immediately after the field label; padding belongs after the colon, never inside the label. Only the values share a column:
 
 ```text
@@ -137,6 +159,7 @@ Wrapped values hang beneath that value column. At narrow widths, the label and i
 Explicit filters retain their defined line behavior: `find` may remove an initial blank, and `except '^$'` removes blanks. Formatting does not guess table roles from plain text or silently reinsert lines removed by a filter. See [the field and table-boundary QA](qa-field-layout.md) for this follow-up's checks and limits.
 
 See [the alignment adversarial QA](qa-alignment.md) for reproduced layout, identity-selection and information-retention defects, checks and unverified native behavior.
+See [the cross-surface style QA](qa-style-consistency.md) for the role-based inventory, corrections and verification limits.
 
 Both Shells support `find <pattern>`, `except <pattern>`, `last <lines>`, `match <pattern>`, `trim <start-column>`, `count`, and exclusive `display json`. The whole pipeline is validated before dispatch, with at most 16 stages. `begin`, `display set`, `no-more`, `save`, `tee` and pipe operations are rejected.
 

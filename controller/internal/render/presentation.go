@@ -93,19 +93,22 @@ func wrapPresentation(text string, width int) string {
 				labelWidth = max(labelWidth, displayWidth(strings.TrimRight(label, " ")))
 				end++
 			}
+			indent := 4
 			for _, line := range lines[i:end] {
 				label, value, _ := strings.Cut(line, "\t")
 				label = strings.TrimRight(label, " ")
 				continuation := label == "" && strings.HasPrefix(value, "\t")
 				if continuation {
 					value = strings.TrimPrefix(value, "\t")
+				} else {
+					indent = len(label) - len(strings.TrimLeft(label, " ")) + 4
 				}
 				prefix := "  " + padDisplayEnd(label+":", labelWidth+1) + " "
 				if width > 0 && displayWidth(prefix)+8 > width {
 					if !continuation {
 						writeFieldLabel(&b, "  "+label, width)
 					}
-					prefix = "    "
+					prefix = strings.Repeat(" ", min(indent, max(0, width-2)))
 				} else if continuation {
 					prefix = strings.Repeat(" ", displayWidth(prefix))
 				}
@@ -160,6 +163,38 @@ func Fields(rows [][2]string, view Presentation) string {
 		writeRecord(&b, row[0], row[1])
 	}
 	return wrapPresentation(b.String(), view.Width)
+}
+
+// SourceFields sanitizes free-form host facts before encoding owned logical fields.
+// Compose these records before calling LayoutText; raw text is never parsed as fields.
+func SourceFields(rows [][2]string) string {
+	var b strings.Builder
+	for _, row := range rows {
+		writeRecord(&b, row[0], safePresentationField(row[0], row[1]))
+	}
+	return b.String()
+}
+
+// Table shares display-cell spacing and narrow record layout with sourced tables.
+func Table(headers []string, rows [][]string, view Presentation) string {
+	columns := make([]displayTableColumn, len(headers))
+	for i, header := range headers {
+		columns[i].header = cleanDisplayCell(header)
+	}
+	safe := make([][]string, len(rows))
+	for i, row := range rows {
+		safe[i] = make([]string, len(row))
+		for j, value := range row {
+			label := ""
+			if j < len(headers) {
+				label = headers[j]
+			}
+			safe[i][j] = safePresentationField(label, value)
+		}
+	}
+	var b strings.Builder
+	writeDisplayTable(&b, columns, safe, view.Width)
+	return LayoutText(b.String(), view)
 }
 
 // Exact dictionary only: unknown modes/enum values retain their original spelling.

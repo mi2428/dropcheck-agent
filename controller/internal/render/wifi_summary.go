@@ -19,9 +19,13 @@ func writeWifiSummaryGroup(b *strings.Builder, title string, view Presentation, 
 	if len(rows) == 0 {
 		rows = []kvRow{kv("Observation", "? (not present in this snapshot)")}
 	}
+	column := 29
+	for _, row := range rows {
+		column = max(column, indent+displayWidth(strings.TrimRight(cleanDisplayCell(row.label), " "))+1)
+	}
 	for _, row := range rows {
 		label := strings.Repeat(" ", indent) + strings.TrimRight(cleanDisplayCell(row.label), " ")
-		prefix := padDisplayEnd(label+":", 29) + " "
+		prefix := padDisplayEnd(label+":", column) + " "
 		if view.Width > 0 && displayWidth(prefix)+8 > view.Width {
 			writeFieldLabel(b, label, view.Width)
 			prefix = strings.Repeat(" ", indent+2)

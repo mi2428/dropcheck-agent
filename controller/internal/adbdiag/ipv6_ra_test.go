@@ -136,10 +136,14 @@ func TestRenderIPv6RASummary(t *testing.T) {
 		t.Fatalf("rendered output = %q, missing alignment lines", out)
 	}
 	srcValueColumn := strings.Index(srcLine, "fe80::2132:3")
+	routerValueColumn := strings.Index(findLineContaining(out, "0s"), "0s")
 	prefixValueColumn := strings.Index(prefixLine, "2001:3e8:e:2132::/64")
 	validValueColumn := strings.Index(validLine, "7200s")
-	if srcValueColumn != prefixValueColumn || srcValueColumn != validValueColumn {
-		t.Fatalf("value columns differ: src=%d prefix=%d valid=%d in output %q", srcValueColumn, prefixValueColumn, validValueColumn, out)
+	if srcValueColumn != routerValueColumn || prefixValueColumn != validValueColumn {
+		t.Fatalf("peer value columns differ: src=%d router=%d prefix=%d valid=%d in output %q", srcValueColumn, routerValueColumn, prefixValueColumn, validValueColumn, out)
+	}
+	if !strings.HasPrefix(srcLine, "      src:") || !strings.HasPrefix(prefixLine, "          prefix:") {
+		t.Fatal("RA record hierarchy or attached colon was lost")
 	}
 }
 

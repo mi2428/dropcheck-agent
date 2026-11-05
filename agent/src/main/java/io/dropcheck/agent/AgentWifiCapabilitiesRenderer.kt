@@ -4,7 +4,7 @@ import io.dropcheck.agent.grpc.WifiCapabilities
 
 internal object AgentWifiCapabilitiesRenderer {
     fun presentation(capabilities: WifiCapabilities, detail: Boolean = false, detailAvailable: Boolean = false): List<AgentBlockPart> = buildList {
-        add(AgentBlockPart.Text("Scope: device"))
+        add(AgentBlockPart.Field("Scope", "device"))
         val groups = listOf(
             Group("Band", listOf("2.4ghz", "5ghz", "6ghz", "60ghz"), capabilities.supportedBandsList, capabilities.unsupportedBandsList),
             Group("PHY", listOf("802.11n", "802.11ac", "802.11ax", "802.11be"), capabilities.supportedStandardsList, capabilities.unsupportedStandardsList),
@@ -32,8 +32,8 @@ internal object AgentWifiCapabilitiesRenderer {
             add(AgentBlockPart.Table(listOf(AgentBlockPart.Column(group.label), AgentBlockPart.Column("Support")), rows))
         }
         if (detail || !detailAvailable) capabilities.fieldsList.forEach { add(AgentBlockPart.Field(it.key, it.value)) }
-        capabilities.errorsList.forEach { add(AgentBlockPart.Text("Error: $it")) }
-        if (detailAvailable && !detail) add(AgentBlockPart.Text("More: show wifi capabilities detail"))
+        capabilities.errorsList.forEach { add(AgentBlockPart.Field("Error", it)) }
+        if (detailAvailable && !detail) add(AgentBlockPart.Field("More", "show wifi capabilities detail"))
     }
 
     private data class Group(val label: String, val known: List<String>, val supported: List<String>, val unsupported: List<String>)

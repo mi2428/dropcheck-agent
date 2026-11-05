@@ -7,18 +7,12 @@ internal object AgentShellTextFormatter {
         val out = mutableListOf<String>()
         out += "$commandTitle  ${statusName(result.status).uppercase()}"
         if (result.status != CommandResult.Status.STATUS_OK) {
-            val line = buildString {
-                append("Status: ")
-                append(statusName(result.status))
-                if (result.message.isNotBlank()) {
-                    append("  Message: ")
-                    append(result.message)
-                }
-            }
-            out += line
+            out += "Status: ${statusName(result.status)}"
+            if (result.message.isNotBlank()) out += "Message: ${result.message}"
         }
         out += "Latency: ${result.elapsedMs}ms"
-        out += "Source: android  Target: self"
+        out += "Source: android"
+        out += "Target: self"
         out += "Observation age: ? (metadata unavailable)"
         out += "Received locally: ${java.time.Instant.now()} (not observation time)"
         if (body.isNotEmpty()) {
@@ -36,7 +30,8 @@ internal object AgentShellTextFormatter {
                 if (result.message.isNotBlank()) add(AgentBlockPart.Field("Message", result.message))
             }
             add(AgentBlockPart.Field("Latency", "${result.elapsedMs}ms"))
-            add(AgentBlockPart.Field("Source", "android  Target: self"))
+            add(AgentBlockPart.Field("Source", "android"))
+            add(AgentBlockPart.Field("Target", "self"))
             add(AgentBlockPart.Field("Observation age", "? (metadata unavailable)"))
             add(AgentBlockPart.Field("Received locally", "${java.time.Instant.now()} (not observation time)"))
         }

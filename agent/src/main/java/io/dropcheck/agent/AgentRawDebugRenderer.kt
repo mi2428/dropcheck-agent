@@ -10,6 +10,7 @@ internal object AgentRawDebugRenderer {
         val parts = mutableListOf<AgentBlockPart>()
         fun raw(label: String, value: String) {
             if (value.isNotEmpty()) {
+                parts += AgentBlockPart.Text("")
                 parts += AgentBlockPart.Text(label)
                 parts += AgentBlockPart.Text(value)
             }
@@ -56,7 +57,8 @@ internal object AgentRawDebugRenderer {
         if (result.hasNetworkSnapshot()) result.networkSnapshot.errorsList.forEach { parts += AgentBlockPart.Field("Acquisition error", it) }
         val header = buildList {
             add(AgentBlockPart.Text("Raw Android ${command.rawView}  ${evaluated.status.name.removePrefix("STATUS_")}"))
-            add(AgentBlockPart.Field("Source", "android  Target: self"))
+            add(AgentBlockPart.Field("Source", "android"))
+            add(AgentBlockPart.Field("Target", "self"))
             add(AgentBlockPart.Field("Latency", "${evaluated.elapsedMs}ms"))
             if (evaluated.message.isNotEmpty()) add(AgentBlockPart.Field("Message", evaluated.message))
         }

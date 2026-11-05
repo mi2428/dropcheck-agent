@@ -1013,7 +1013,8 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 		"type=ap ap_mld=02:00:00:00:00:01 link=2 bssid=aa:bb:cc:dd:ee:ff",
 		"band=6ghz ch=5 freq=5975MHz width=80MHz eht_width=320MHz puncture=1,3 rssi=-45dBm",
 		"  affiliated_links",
-		"    [+] type=aff link=1 ap_mac=aa:bb:cc:dd:ee:01",
+		"    [+] affiliated link",
+		"Identity: type=aff link=1 ap_mac=aa:bb:cc:dd:ee:01",
 		"Connected EHT Multi-Link Elements",
 		"ml_control raw=0x07f0 type=basic(0) presence=link_id_info,bss_parameters_change_count,medium_synchronization_delay,eml_capabilities,mld_capabilities_and_operations,ap_mld_id,extended_mld_capabilities_and_operations bytes=37",
 		"common_info len=18 mld_mac=02:00:00:00:00:01 link_id=2 bss_param_change_count=7 medium_sync_delay=0x1032 eml_capabilities=0x8f08 mld_capabilities=0x3370 ap_mld_id=5 ext_mld_capabilities=0x6100",
@@ -1027,9 +1028,9 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 		"Scan EHT Multi-Link Elements",
 		"Connected EHT Puncturing",
 		"Scan EHT Puncturing",
-		"he_preamble_puncturing_rx=preamble_puncturing_rx_80mhz_second_20mhz",
-		"he_punctured_sounding=true",
-		"eht_disabled_subchannel_bitmap=0x000a punctured=1,3",
+		"he_preamble_puncturing_rx: preamble_puncturing_rx_80mhz_second_20mhz",
+		"he_punctured_sounding: true",
+		"eht_disabled_subchannel_bitmap: 0x000a punctured=1,3",
 		"Connected HE 6GHz Details",
 		"Scan HE 6GHz Details",
 		"Connected Wi-Fi Security",
@@ -1045,14 +1046,14 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 		"summary 11k=true 11v_bss_transition=true 11r=true ft_akm=ft_sae_gdh rnr=true",
 		"Connected BSS Coloring",
 		"Scan BSS Coloring",
-		"he_operation bss_color=17 disabled=false partial=true",
-		"srg_bss_color_bitmap=0x0102030405060708",
+		"he_operation: bss_color=17 disabled=false partial=true",
+		"srg_bss_color_bitmap: 0x0102030405060708",
 		"COLOR",
 		"17(part)",
 		"Connected HE Details",
 		"Scan HE Details",
-		"he_mac flags twt_responder,om_control,punctured_sounding",
-		"he features twt_responder,punctured_sounding",
+		"he_mac flags: twt_responder,om_control,punctured_sounding",
+		"he features: twt_responder,punctured_sounding",
 		"ie rsn=false rsnxe=false ext_cap=true rnr=true mbssid=true noninherit=false eht_mle=true ap_mld=true link_id=true",
 		"sdk_flags twt=true 11az_ntb=true ranging_prot=true secure_he_ltf=true 11mc=true",
 		"Scan RNR Details",
@@ -1070,10 +1071,10 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 		"max_mpdu=7991",
 		"triggered_txop_mode1",
 		"scs_traffic_description",
-		"eht features 320mhz_in_6ghz,rx_4096qam_wider_dl_ofdma",
+		"eht features: 320mhz_in_6ghz,rx_4096qam_wider_dl_ofdma",
 		"max_ampdu=262143",
 		"320mhz=true",
-		"oper flags disabled_subchannel_bitmap_present,mcs15_disabled",
+		"oper flags: disabled_subchannel_bitmap_present,mcs15_disabled",
 		"width_mhz=320",
 		"disabled=0x000a",
 		"punctured=1,3",
@@ -1081,13 +1082,17 @@ func TestRenderWifiMLOAggregatesDiagnostics(t *testing.T) {
 		"tid_to_link_mapping_negotiation",
 		"Diagnostics / Warnings",
 	} {
-		if !strings.Contains(out, want) {
+		if !strings.Contains(strings.Join(strings.Fields(out), " "), strings.Join(strings.Fields(want), " ")) {
 			t.Fatalf("rendered output = %q, missing %q", out, want)
 		}
 	}
-	for _, line := range scanEHTDetailLines(out) {
-		if len(line) > 92 {
-			t.Fatalf("Scan EHT detail line too long (%d): %s\n%s", len(line), line, out)
+	wrapped, err := CommandResult("agent", result, command.Options{WifiRenderMode: command.WifiRenderModeEHT}, pipeline.FormatText, Presentation{Width: 92})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for line := range strings.SplitSeq(wrapped, "\n") {
+		if displayWidth(line) > 92 {
+			t.Fatalf("visible detail exceeds width 92: %q", line)
 		}
 	}
 	if strings.Contains(out, "MARK") {
@@ -1436,7 +1441,8 @@ func TestRenderWifiMLOFiltersScanAndConnection(t *testing.T) {
 		"filtered_results: 1",
 		"aa:bb:cc:dd:ee:ff",
 		"affiliated_links",
-		"    [-] type=aff link=2 ap_mac=aa:bb:cc:dd:ee:01",
+		"    [-] affiliated link",
+		"Identity: type=aff link=2 ap_mac=aa:bb:cc:dd:ee:01",
 	} {
 		if !strings.Contains(strings.Join(strings.Fields(out), " "), strings.Join(strings.Fields(want), " ")) {
 			t.Fatalf("rendered output = %q, missing %q", out, want)
@@ -1548,7 +1554,7 @@ func TestRenderWifiMLOUsesEHTMultiLinkElementFallback(t *testing.T) {
 		"eht_candidates",
 		"[*] Lab",
 		"ap_mld=02:00:00:00:00:01 link=2 bssid=aa:bb:cc:dd:ee:ff",
-		"Diagnostics / Warnings\n  none",
+		"Diagnostics / Warnings\n  Warnings: none",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("rendered output = %q, missing %q", out, want)
@@ -1613,8 +1619,8 @@ func TestRenderWifiMLOHidesPlaceholderConnectionAndCapsNearbyTable(t *testing.T)
 		t.Fatalf("CommandResult() error = %v", err)
 	}
 	for _, want := range []string{
-		"Current AP Relation\n  no active Wi-Fi connection",
-		"Connected MLO\n  no active Wi-Fi connection",
+		"Current AP Relation\n  Observation: no active Wi-Fi connection",
+		"Connected MLO\n  Observation: no active Wi-Fi connection",
 		"scan_mlo_metadata_unavailable 11be_results=2 observed_ap_mld=0 observed_link_id=0",
 		"EHT Scan Links",
 	} {
@@ -1902,23 +1908,4 @@ func ehtOperationTestValue() *controlpb.WifiEhtOperation {
 			Standard: "eht", Bandwidth: "20mhz_only", Direction: "tx", McsRange: "0-7", MaxNss: 1,
 		}},
 	}
-}
-
-func scanEHTDetailLines(rendered string) []string {
-	lines := strings.Split(rendered, "\n")
-	out := []string{}
-	inSection := false
-	for _, line := range lines {
-		switch line {
-		case "Scan EHT Details":
-			inSection = true
-			continue
-		case "Diagnostics / Warnings", "MLO Capability Signals":
-			inSection = false
-		}
-		if inSection && strings.TrimSpace(line) != "" {
-			out = append(out, line)
-		}
-	}
-	return out
 }

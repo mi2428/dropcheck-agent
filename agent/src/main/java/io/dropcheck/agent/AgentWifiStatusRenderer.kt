@@ -1,6 +1,7 @@
 package io.dropcheck.agent
 
 import io.dropcheck.agent.grpc.IpStatus
+import io.dropcheck.agent.grpc.DiagnosticCheck
 import io.dropcheck.agent.grpc.WifiConnection
 import io.dropcheck.agent.grpc.WifiEhtCapabilities
 import io.dropcheck.agent.grpc.WifiEhtOperation
@@ -17,6 +18,16 @@ import io.dropcheck.agent.grpc.WifiStatus
 
 /** Typed presentation used by Agent Shell for Wi-Fi and IP observations. */
 internal object AgentWifiStatusRenderer {
+    fun assertionChecks(checks: List<DiagnosticCheck>): List<AgentBlockPart> = buildList {
+        checks.forEach { check ->
+            add(AgentBlockPart.Field("Check", check.key))
+            add(AgentBlockPart.Field("Expected ${check.key}", check.expected))
+            add(AgentBlockPart.Field("Actual ${check.key}", check.actual))
+            add(AgentBlockPart.Field("Passed", check.passed.toString()))
+            add(AgentBlockPart.Field("Message", check.message))
+        }
+    }
+
     fun securitySummary(details: WifiSecurityDetails): String = wifiSecurityDetailRows(details).joinToString("; ") { "${it.first}=${it.second}" }
     fun summary(status: WifiStatus): List<AgentBlockPart> = buildList {
         fun heading(title: String) {
@@ -125,7 +136,7 @@ internal object AgentWifiStatusRenderer {
             text("Associated", AgentObservationPresentation.value(conn.observationFieldsList, "associated_mlo_links", conn.associatedMloLinksCount.toString()))
             text("Affiliated", AgentObservationPresentation.value(conn.observationFieldsList, "affiliated_mlo_links", conn.affiliatedMloLinksCount.toString()))
             if (detail || !detailAvailable) {
-                val lines = mutableListOf<String>()
+                val lines = mutableListOf<AgentBlockPart>()
                 kv(lines, "configuration_id" to conn.networkId.toString(), "signal" to wifiSignalLevel(conn),
                     "frequency" to "${conn.frequencyMhz}MHz", "link_speed" to "${conn.linkSpeedMbps}Mbps", "sta_mac" to conn.macAddress,
                     "supplicant" to conn.supplicantState, "hidden" to conn.hiddenSsid.toString(), "restricted" to conn.restricted.toString(),
@@ -133,7 +144,7 @@ internal object AgentWifiStatusRenderer {
                 renderAPCapabilities(lines, conn)
                 renderWifiSecurityDetails(lines, conn)
                 renderDetailedWifiCapabilities(lines, conn)
-                addAll(lines.map { AgentBlockPart.Text(it) })
+                addAll(lines)
                 add(AgentBlockPart.Field("AP link ID", AgentObservationPresentation.value(conn.observationFieldsList, "ap_mlo_link_id", conn.apMloLinkId.toString()), conn.apMloLinkId.toString()))
                 addAll(mloLinkParts("Associated links", conn.associatedMloLinksList))
                 addAll(mloLinkParts("Affiliated links", conn.affiliatedMloLinksList))
@@ -174,8 +185,8 @@ internal object AgentWifiStatusRenderer {
         add(AgentBlockPart.Field("Validated", AgentObservationPresentation.bool(fields, "capabilities", status.validated), if (status.validated) "yes" else "no"))
         observed("MTU", status.mtu.toString())
         val addresses = splitIPAddresses(status.addressesList)
-        add(AgentBlockPart.Text("IPv4")); values("Addr", addresses.ipv4)
-        add(AgentBlockPart.Text("IPv6")); values("Addr", addresses.ipv6)
+        section(this, "IPv4"); values("Addr", addresses.ipv4)
+        section(this, "IPv6"); values("Addr", addresses.ipv6)
         if (addresses.other.isNotEmpty()) values("Other address", addresses.other)
         values("Routes", status.routesList)
         values("DNS", status.dnsServersList)
@@ -193,14 +204,9 @@ internal object AgentWifiStatusRenderer {
             observed("Domains", status.domains)
             observed("Proxy", status.httpProxy)
             text("Wake on LAN", AgentObservationPresentation.bool(fields, "link_properties", status.wakeOnLanSupported))
-            val lines = mutableListOf<String>()
-            renderIPv6Ra(lines, status.ipv6RaList)
-            addAll(lines.map { AgentBlockPart.Text(it) })
+            renderIPv6Ra(this, status.ipv6RaList)
             if (status.hasWifi()) {
-                add(AgentBlockPart.Text("WifiInfo from this NetworkCapabilities observation"))
-                val connectionLines = mutableListOf<String>()
-                renderConnection(connectionLines, status.wifi)
-                addAll(connectionLines.map { AgentBlockPart.Text(it) })
+                renderConnection(this, status.wifi)
                 val conn = status.wifi
                 text("Network configuration ID", conn.networkId.toString())
                 text("Link speed Mbps", conn.linkSpeedMbps.toString())
@@ -236,10 +242,10 @@ internal object AgentWifiStatusRenderer {
         if (ap.hasHeMuEdcaParameterSet()) conn.setHeMuEdcaParameterSet(ap.heMuEdcaParameterSet)
         if (ap.hasHeSpatialReuseParameterSet()) conn.setHeSpatialReuseParameterSet(ap.heSpatialReuseParameterSet)
         if (ap.hasHe6GhzCapabilities()) conn.setHe6GhzCapabilities(ap.he6GhzCapabilities)
-        val lines = mutableListOf<String>()
+        val lines = mutableListOf<AgentBlockPart>()
         renderAPCapabilities(lines, conn.build())
         renderDetailedWifiCapabilities(lines, conn.build())
-        addAll(lines.map { AgentBlockPart.Text(it) })
+        addAll(lines)
         add(AgentBlockPart.Field("AP link ID", AgentObservationPresentation.value(ap.observationFieldsList, "ap_mlo_link_id", ap.apMloLinkId.toString()), ap.apMloLinkId.toString()))
         addAll(mloLinkParts("Affiliated link details", ap.affiliatedMloLinksList))
         addAll(informationElementParts(ap.informationElementsList))
@@ -265,8 +271,8 @@ internal object AgentWifiStatusRenderer {
         }
     }
 
-    private fun renderConnection(out: MutableList<String>, conn: WifiConnection) {
-        section(out, "Connection")
+    private fun renderConnection(out: MutableList<AgentBlockPart>, conn: WifiConnection) {
+        section(out, "WifiInfo from this NetworkCapabilities observation")
         kv(out,
             "ssid" to AgentObservationPresentation.value(conn.observationFieldsList, "identity", conn.ssid),
             "bssid" to AgentObservationPresentation.value(conn.observationFieldsList, "identity", conn.bssid),
@@ -299,7 +305,7 @@ internal object AgentWifiStatusRenderer {
         return "tx=$tx rx=$rx"
     }
 
-    private fun renderAPCapabilities(out: MutableList<String>, conn: WifiConnection) {
+    private fun renderAPCapabilities(out: MutableList<AgentBlockPart>, conn: WifiConnection) {
         val rows = apCapabilityRows(conn)
         if (rows.isEmpty()) return
         section(out, "AP Capabilities")
@@ -398,7 +404,7 @@ internal object AgentWifiStatusRenderer {
         return "tx=${tx}Mbps rx=${rx}Mbps"
     }
 
-    private fun renderWifiSecurityDetails(out: MutableList<String>, conn: WifiConnection) {
+    private fun renderWifiSecurityDetails(out: MutableList<AgentBlockPart>, conn: WifiConnection) {
         if (!conn.hasSecurityDetails()) return
         val rows = wifiSecurityDetailRows(conn.securityDetails)
         if (rows.isEmpty()) return
@@ -483,7 +489,7 @@ internal object AgentWifiStatusRenderer {
         return byteValue and (1 shl (bit % 8)) != 0
     }
 
-    private fun renderDetailedWifiCapabilities(out: MutableList<String>, conn: WifiConnection) {
+    private fun renderDetailedWifiCapabilities(out: MutableList<AgentBlockPart>, conn: WifiConnection) {
         val rows = detailedWifiCapabilityRows(conn)
         if (rows.isEmpty()) return
         section(out, "HE/EHT Details")
@@ -629,7 +635,7 @@ internal object AgentWifiStatusRenderer {
         return if (values.isEmpty()) fallback else values.joinToString(",")
     }
 
-    private fun renderIPv6Ra(out: MutableList<String>, values: List<io.dropcheck.agent.grpc.DiagnosticField>) {
+    private fun renderIPv6Ra(out: MutableList<AgentBlockPart>, values: List<io.dropcheck.agent.grpc.DiagnosticField>) {
         val rows = ipv6RaDetailRows(values)
         if (rows.isEmpty()) return
         section(out, "IPv6 RA")
@@ -693,24 +699,13 @@ internal object AgentWifiStatusRenderer {
         return parts.takeIf { it.isNotEmpty() }?.joinToString(" ")
     }
 
-    private fun section(out: MutableList<String>, title: String) {
-        if (out.isNotEmpty() && out.last().isNotBlank()) out += ""
-        out += title
+    private fun section(out: MutableList<AgentBlockPart>, title: String) {
+        if (out.isNotEmpty() && (out.last() as? AgentBlockPart.Text)?.value?.isBlank() != true) out += AgentBlockPart.Text("")
+        out += AgentBlockPart.Text(title)
     }
 
-    private fun kv(out: MutableList<String>, vararg rows: Pair<String, String>) {
-        val filtered = rows.filter { it.first.isNotBlank() && it.second.isNotBlank() }
-        val width = filtered.maxOfOrNull { it.first.length } ?: 0
-        filtered.forEach { (key, value) ->
-            if (value.contains("\n")) {
-                out += "  $key"
-                value.lineSequence()
-                    .filter { it.isNotBlank() }
-                    .forEach { line -> out += "    $line" }
-            } else {
-                out += "  ${key.padEnd(width)}  $value"
-            }
-        }
+    private fun kv(out: MutableList<AgentBlockPart>, vararg rows: Pair<String, String>) {
+        rows.filter { it.first.isNotBlank() && it.second.isNotBlank() }.forEach { (key, value) -> out += AgentBlockPart.Field(key, value) }
     }
 
     private fun empty(value: String, fallback: String): String = value.ifBlank { fallback }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"dropcheck/controller/internal/adb"
+	"dropcheck/controller/internal/render"
 )
 
 const ipv6RACommandTimeout = 8 * time.Second
@@ -138,6 +139,11 @@ func CollectIPv6RA(ctx context.Context, client adb.Client, iface string) IPv6RAS
 
 // RenderIPv6RASummary renders ADB IPv6 RA state for text output.
 func RenderIPv6RASummary(summary IPv6RASummary) string {
+	return render.LayoutText(IPv6RASummaryText(summary), render.Presentation{})
+}
+
+// IPv6RASummaryText preserves the known record hierarchy before supplement composition.
+func IPv6RASummaryText(summary IPv6RASummary) string {
 	if summary.Empty() {
 		return ""
 	}
@@ -501,16 +507,6 @@ func buildIPv6RAAdvertisementLines(values []IPv6RAAdvertisement) []ipv6RARenderL
 }
 
 func renderIPv6RALines(b *strings.Builder, lines []ipv6RARenderLine) {
-	maxPrefixWidth := 0
-	for _, line := range lines {
-		if line.label == "" || line.value == "" {
-			continue
-		}
-		width := len(line.indent) + len(line.label)
-		if width > maxPrefixWidth {
-			maxPrefixWidth = width
-		}
-	}
 	for _, line := range lines {
 		if line.heading != "" {
 			_, _ = fmt.Fprintln(b, line.heading)
@@ -519,10 +515,9 @@ func renderIPv6RALines(b *strings.Builder, lines []ipv6RARenderLine) {
 		if line.label == "" || line.value == "" {
 			continue
 		}
-		prefix := line.indent + line.label
-		padding := maxPrefixWidth - len(prefix) + 2
-		padding = max(padding, 2)
-		_, _ = fmt.Fprintf(b, "%s%s%s\n", prefix, strings.Repeat(" ", padding), line.value)
+		// The shared field writer supplies the first two spaces.
+		label := strings.TrimPrefix(line.indent, "  ") + line.label
+		b.WriteString(render.SourceFields([][2]string{{label, line.value}}))
 	}
 }
 

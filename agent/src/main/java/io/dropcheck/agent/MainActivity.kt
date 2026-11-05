@@ -947,22 +947,7 @@ class MainActivity : Activity() {
                 renderShell()
                 return
             }
-            val important = styled.parts.filterIndexed { index, part ->
-                index == 0 || when (part) {
-                    is AgentBlockPart.Text -> part.value.startsWith("Status:") || part.value.startsWith("Source:") || part.value.startsWith("Error:") || part.value.startsWith("Reason:")
-                    is AgentBlockPart.Field -> part.label in listOf("Source", "Target", "Error", "Reason", "Note")
-                    else -> false
-                }
-            }.take(64).map { part ->
-                when (part) {
-                    is AgentBlockPart.Text -> if (part.value.length > 2048) AgentBlockPart.Text("${part.value.take(2048)}\nDisplay note truncated; full safe value is in Inspect/copy full safe values") else part
-                    is AgentBlockPart.Field -> if (part.value.length > 2048) AgentBlockPart.Field(part.label, "${part.value.take(2048)} (display note abbreviated; full safe value in Inspect/copy)") else part
-                    else -> part
-                }
-            }
-            val retained = AgentPresentationBlock.create(important + AgentBlockPart.Text(
-                "shown=0; ${styled.fullText.length} characters exceed in-memory history. All ${values.valueCount} safe values remain in Inspect/copy full safe values; no identity was clipped.",
-            ), styled.color, shellOutputSizeSp, shellMinimumSizeSp, safeValueFile = values)
+            val retained = styled.overflowSummary(values)
             shellTranscript.evictValueFileBlocks()
             shellTranscript.append(retained)
         }

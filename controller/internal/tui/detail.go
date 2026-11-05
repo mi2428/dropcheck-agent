@@ -831,17 +831,17 @@ func detailSectionMinAllocation(section detailSection) int {
 func detailSectionTitle(section detailSection) string {
 	switch detailSectionTitleKey(section) {
 	case "logs":
-		return "Logs:"
+		return "Logs"
 	case "causes":
-		return "Causes:"
+		return "Causes"
 	case "failure history":
-		return "Failure History:"
+		return "Failure History"
 	default:
 		title := strings.TrimSpace(strings.TrimSuffix(section.Title, ":"))
 		if title == "" {
 			return ""
 		}
-		return detailFieldHeader(strings.ReplaceAll(title, " ", "_")) + ":"
+		return detailFieldHeader(strings.ReplaceAll(title, " ", "_"))
 	}
 }
 

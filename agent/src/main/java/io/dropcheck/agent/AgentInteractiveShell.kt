@@ -67,7 +67,7 @@ internal object AgentShellParser {
     fun help(topic: String = ""): List<String> {
         val rows = syntax.filter { topic.isEmpty() || it.path == topic || it.path.startsWith("$topic ") }
         return listOf("Agent Shell (self)", "Options: key value; integers: 1..2147483647 ms/count; show is structured; debug android shows safe raw snapshots", "PSK: 8..63 UTF-8 bytes or 64 ASCII hex; PC-only ADB/device/TTY commands are not available", "") +
-            rows.flatMap { listOf("  ${it.usage()}", "    Description: ${it.description}", "") } + listOf("| find <pattern> | except <pattern> | last <lines> | match <pattern> | trim <start-column> | count", "| display json (alone; safe presentation JSON)", "auto selects one family; global-ip all queries both; dns ALL queries A+AAAA", "test link defaults to family ipv4; ipv6/all supported; bssid strict pin unsupported; lab requires all endpoints and sends active traffic", "All command input, including credentials, is recallable within this session; history is not written to disk")
+            rows.flatMap { listOf("  ${it.usage()}", "    Description: ${it.description}", "") } + listOf("| find <pattern> | except <pattern> | last <lines> | match <pattern> | trim <start-column> | count", "| display json (alone; safe presentation JSON)", "auto selects one family; ip external family all queries both; dns resolve record ALL queries A+AAAA", "test link defaults to family ipv4; ipv6/all supported; bssid strict pin unsupported; lab requires all endpoints and sends active traffic", "All command input, including credentials, is recallable within this session; history is not written to disk")
     }
 
     fun parse(line: String): AgentShellCommand {
@@ -266,10 +266,10 @@ internal object AgentShellParser {
         }
         fun family(global: Boolean = false) = when (value("family")) {
             "" -> if (global) IpFamily.IP_FAMILY_ALL else IpFamily.IP_FAMILY_UNSPECIFIED
-            "auto" -> { require(!global) { "global-ip family must be ipv4, ipv6 or all" }; IpFamily.IP_FAMILY_UNSPECIFIED }
+            "auto" -> { require(!global) { "ip external family must be ipv4, ipv6 or all" }; IpFamily.IP_FAMILY_UNSPECIFIED }
             "ipv4" -> IpFamily.IP_FAMILY_IPV4
             "ipv6" -> IpFamily.IP_FAMILY_IPV6
-            "all" -> { require(global) { "family all is only supported for global-ip" }; IpFamily.IP_FAMILY_ALL }
+            "all" -> { require(global) { "family all is only supported for ip external" }; IpFamily.IP_FAMILY_ALL }
             else -> throw IllegalArgumentException("invalid family (ipv4, ipv6, ${if (global) "all" else "auto"})")
         }
         fun selector(): NetworkSelector {
@@ -371,14 +371,14 @@ internal object AgentShellParser {
                 RunCommand.newBuilder().setTraceroute(Traceroute.newBuilder().setHost(address(position)).setMaxHops(hops).setSizeBytes(number("size"))
                     .setFamily(family()).setTimeoutMs(number("timeout", 60000)).setSelector(selector())).build()
             }
-            "request path-mtu" -> {
+            "request pmtu" -> {
                 val min = number("min-mtu"); val max = number("max-mtu")
                 require(min == 0 || max == 0 || min <= max) { "max-mtu must be greater than or equal to min-mtu" }
                 RunCommand.newBuilder().setPathMtu(PathMtu.newBuilder().setHost(address(position)).setMinMtuBytes(min).setMaxMtuBytes(max)
                     .setFamily(family()).setTimeoutMs(number("timeout", 30000)).setSelector(selector())).build()
             }
-            "request global-ip" -> RunCommand.newBuilder().setGlobalIp(GlobalIp.newBuilder().setFamily(family(true)).setTimeoutMs(number("timeout", 5000)).setSelector(selector())).build()
-            "request dns" -> {
+            "request ip external" -> RunCommand.newBuilder().setGlobalIp(GlobalIp.newBuilder().setFamily(family(true)).setTimeoutMs(number("timeout", 5000)).setSelector(selector())).build()
+            "request dns resolve" -> {
                 val types = when (value("record")) {
                     "", "ALL" -> listOf(DnsRecordType.DNS_RECORD_TYPE_A, DnsRecordType.DNS_RECORD_TYPE_AAAA)
                     "A" -> listOf(DnsRecordType.DNS_RECORD_TYPE_A)
@@ -387,12 +387,12 @@ internal object AgentShellParser {
                 }
                 RunCommand.newBuilder().setResolveDns(ResolveDns.newBuilder().setName(address(position)).addAllQtypes(types).setTimeoutMs(number("timeout", 5000)).setSelector(selector())).build()
             }
-            "request http" -> {
+            "request http check" -> {
                 val status = number("expected-status", 200)
                 require(status in 100..599) { "expected-status must be 100..599" }
                 RunCommand.newBuilder().setHttpCheck(HttpCheck.newBuilder().setUrl(url(position)).setExpectedStatus(status).setTimeoutMs(number("timeout", 5000)).setSelector(selector())).build()
             }
-            "request download" -> RunCommand.newBuilder().setWget(Wget.newBuilder().setUrl(url(position)).setTimeoutMs(number("timeout", 60000)).setSelector(selector())).build()
+            "request http download" -> RunCommand.newBuilder().setWget(Wget.newBuilder().setUrl(url(position)).setTimeoutMs(number("timeout", 60000)).setSelector(selector())).build()
             else -> throw IllegalArgumentException("unsupported command")
         }
         return AgentShellCommand.Execute(request, "brief" in switches, "mlo" in switches, command == "request wifi scan", via, passphrase, value("ssid"), value("bssid"), command == "test wifi", summary = command == "show wifi status",
