@@ -28,11 +28,12 @@
 // subtest names, for example E2E-001_shell_help, so verbose output remains readable.
 // Commands intentionally use placeholders such as <ssid>, <psk>, <serial>,
 // and <bssid> so lab secrets are not committed.
-// Shell and independent one-shot argv use their respective command grammars.
+// Live commands use the same Shell grammar as the device-free parser suite.
 package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -40,15 +41,13 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
-	commandparse "dropcheck/controller/internal/command"
-	f "dropcheck/controller/internal/harness"
-	"dropcheck/controller/internal/harness/dns"
-	"dropcheck/controller/internal/harness/ping"
+	"dropcheck/controller/internal/command"
+	"dropcheck/controller/internal/shell"
 )
 
 const (
@@ -68,10 +67,6 @@ const (
 	defaultADB    = "adb"
 	defaultPkg    = "io.dropcheck.agent"
 	defaultPSKEnv = "DROPCHECK_E2E_WIFI_PSK"
-
-	liveDNSName  = "example.com"
-	livePingHost = "1.1.1.1"
-	liveHTTPURL  = "http://connectivitycheck.gstatic.com/generate_204"
 )
 
 type e2eConfig struct {
@@ -87,7 +82,6 @@ type e2eConfig struct {
 	ssid               string
 	psk                string
 	bssid              string
-	agentPref          string
 	forceStopApp       bool
 	launchAppActivity  bool
 	launchAppEveryCase bool
@@ -95,10 +89,10 @@ type e2eConfig struct {
 
 func TestDropcheckEndToEndMatrix(t *testing.T) {
 	cases := loadCases(t)
-	cfg := loadConfig(t)
-	if !cfg.live {
+	if !envBool(envLive) {
 		t.Skipf("set %s=1 to run real-device E2E", envLive)
 	}
+	cfg := loadConfig(t)
 	filter := os.Getenv(envFilter)
 	selected := filteredCases(cases, filter)
 	if cfg.live && hasLiveProcessCases(selected) {
@@ -106,7 +100,9 @@ func TestDropcheckEndToEndMatrix(t *testing.T) {
 		t.Cleanup(func() {
 			cfg.resetLiveState()
 			if cfg.ssid != "" && cfg.psk != "" {
-				cfg.restoreWiFiConnection()
+				if err := cfg.restoreWiFiConnection(); err != nil {
+					t.Error(err)
+				}
 			}
 			cfg.launchApp(t, "suite cleanup", false)
 		})
@@ -119,14 +115,17 @@ func TestDropcheckEndToEndMatrix(t *testing.T) {
 		}
 		t.Run(tc.testName(), func(t *testing.T) {
 			start := time.Now()
-			commandLine, missing := cfg.expand(tc.Command)
+			commandLine, missing, err := cfg.expand(tc.Command)
+			if err != nil {
+				t.Fatalf("runtime placeholder expansion: %v", err)
+			}
 			if missing != "" {
 				t.Skipf("missing runtime value %s for %s", missing, tc.Command)
 			}
 			expect := tc.Expect
 			t.Logf("START %s title=%q runner=%s expect=%s command=%s", tc.ID, tc.Title, tc.Runner, expect, redact(commandLine, cfg.psk))
 			switch tc.Runner {
-			case "shell", "cli":
+			case "shell":
 				if cfg.serial == "" {
 					t.Skipf("%s or ADB_SERIAL is required", envSerial)
 				}
@@ -137,81 +136,15 @@ func TestDropcheckEndToEndMatrix(t *testing.T) {
 					t.Skip("BSSID could not be resolved from the device")
 				}
 				cfg.prepareLiveCase(t, "case "+tc.ID)
-				var res commandResult
-				if tc.Runner == "shell" {
-					res = cfg.runShellCase(tc, commandLine)
-				} else {
-					res = cfg.runCLICase(tc, commandLine)
-				}
+				res := cfg.runShellCommand(timeoutFor(tc), commandLine)
 				logPath := cfg.writeLog(t, tc, commandLine, res)
 				t.Logf("DONE %s rc=%d err=%v elapsed=%s log=%s output_tail=%q", tc.ID, res.Code, res.Err, time.Since(start).Round(time.Millisecond), logPath, outputTail(redact(res.Output, cfg.psk)))
 				assertProcessResult(t, tc, expect, res)
-				cfg.restoreAfterCase(tc, commandLine)
+				cfg.restoreAfterCase(t, commandLine)
 			default:
 				t.Fatalf("unknown runner %q", tc.Runner)
 			}
 		})
-	}
-}
-
-func TestHarnessLive(t *testing.T) {
-	cfg := loadConfig(t)
-	if !cfg.live {
-		t.Skipf("set %s=1 to run live Dropcheck Harness E2E", envLive)
-	}
-	if cfg.serial == "" {
-		t.Skipf("%s or ADB_SERIAL is required", envSerial)
-	}
-	if cfg.ssid == "" || cfg.psk == "" {
-		t.Skipf("%s and %s are required for live Dropcheck Harness E2E", envSSID, envPSK)
-	}
-
-	f.Run(t, f.Plan{
-		Name: "harness-live-e2e",
-		Networks: []f.Network{
-			f.WiFi("e2e-wifi").
-				SSID(cfg.ssid).
-				PSK(cfg.psk).
-				Security("auto").
-				ConnectTimeout(30 * time.Second).
-				WaitTimeout(30 * time.Second).
-				DisconnectAfter(false),
-		},
-		Checks: liveHarnessChecks(),
-	}, f.WithADBPath(cfg.adb), f.WithSerial(cfg.serial), f.WithPackageName(cfg.packageName))
-}
-
-func liveHarnessChecks() []f.Check {
-	return []f.Check{
-		f.DNS(liveDNSName).
-			A().
-			Timeout(8*time.Second).
-			Expect(dns.AnswerCount().Ge(1), dns.Elapsed().Le(8*time.Second)),
-		f.Ping(livePingHost).
-			Count(1).
-			Timeout(8 * time.Second).
-			Expect(ping.Assert("payload matches request", func(result ping.Result) error {
-				if result.Host != livePingHost {
-					return fmt.Errorf("host=%s want %s", result.Host, livePingHost)
-				}
-				if result.Count != 1 {
-					return fmt.Errorf("count=%d want 1", result.Count)
-				}
-				return nil
-			})),
-		f.HTTP(liveHTTPURL).
-			ExpectedStatus(204).
-			Timeout(10 * time.Second).
-			Expect(f.Assert("http matched", func(result f.Result) error {
-				http := result.Run.Raw.GetHttpCheck()
-				if http == nil {
-					return fmt.Errorf("missing HTTP result payload")
-				}
-				if !http.GetMatched() {
-					return fmt.Errorf("status=%d expected=%d error=%s", http.GetStatus(), http.GetExpectedStatus(), http.GetError())
-				}
-				return nil
-			})),
 	}
 }
 
@@ -267,22 +200,19 @@ func (cfg *e2eConfig) prepareLive(t *testing.T, cases []matrixCase) {
 		t.Logf("using dropcheck binary: %s", cfg.bin)
 	}
 	cfg.resetLiveState()
-	needsAgentPrefix, needsWiFiSetup, needsBSSID := liveSetupNeeds(cases)
-	t.Logf("live setup needs: agent_prefix=%t wifi_setup=%t bssid=%t", needsAgentPrefix, needsWiFiSetup, needsBSSID)
+	needsWiFiSetup, needsBSSID := liveSetupNeeds(cases)
+	t.Logf("live setup needs: wifi_setup=%t bssid=%t", needsWiFiSetup, needsBSSID)
 	cfg.launchApp(t, "suite start", true)
-	if needsAgentPrefix {
-		cfg.agentPref = cfg.resolveAgentPrefix()
-		t.Logf("resolved agent prefix: %s", cfg.agentPref)
-		cfg.launchApp(t, "after agent discovery", true)
-	}
 	if needsWiFiSetup && cfg.ssid != "" && cfg.psk != "" {
 		if needsBSSID {
-			cfg.bssid = cfg.resolveBSSID()
+			cfg.bssid = cfg.resolveBSSID(t)
 			t.Logf("resolved bssid: %s", cfg.bssid)
 			cfg.launchApp(t, "after bssid discovery", true)
 		} else {
 			t.Logf("ensuring Wi-Fi connection to test SSID")
-			cfg.restoreWiFiConnection()
+			if err := cfg.restoreWiFiConnection(); err != nil {
+				t.Fatal(err)
+			}
 			cfg.launchApp(t, "after wifi setup", true)
 		}
 	}
@@ -300,30 +230,16 @@ func (cfg *e2eConfig) prepareLiveCase(t *testing.T, reason string) {
 	}
 }
 
-func (cfg *e2eConfig) runShellCase(tc matrixCase, commandLine string) commandResult {
+func (cfg *e2eConfig) runShellCommand(timeout time.Duration, commandLine string) commandResult {
 	input := shellInput(commandLine)
-	if commandLine != "quit" && commandLine != "exit" {
-		input += "quit\n"
+	if commandLine != "exit" {
+		input += "exit\n"
 	}
-	return cfg.runExternal(timeoutFor(tc), []string{"--serial", cfg.serial, "shell"}, input)
+	return cfg.runExternal(timeout, []string{"--adb", cfg.adb, "--package", cfg.packageName, "--serial", cfg.serial, "shell"}, input)
 }
 
 func shellInput(commandLine string) string {
 	return commandLine + "\n"
-}
-
-func (cfg *e2eConfig) runCLICase(tc matrixCase, commandLine string) commandResult {
-	args, err := commandparse.SplitArgs(commandLine)
-	if err != nil {
-		return commandResult{Output: err.Error(), Code: 1, Err: err}
-	}
-	if len(args) > 0 && args[0] == "dropcheck" {
-		args = args[1:]
-	}
-	if !hasSerialArg(args) {
-		args = append([]string{"--serial", cfg.serial}, args...)
-	}
-	return cfg.runExternal(timeoutFor(tc), args, "")
 }
 
 func (cfg *e2eConfig) runExternal(timeout time.Duration, args []string, stdin string) commandResult {
@@ -363,12 +279,6 @@ func assertProcessResult(t *testing.T, tc matrixCase, expect string, res command
 			t.Fatalf("%s expected success, rc=%d err=%v output=%s", tc.ID, res.Code, res.Err, res.Output)
 		}
 	case "error":
-		if tc.Runner == "cli" {
-			if res.Code == 0 {
-				t.Fatalf("%s expected CLI error, rc=0 output=%s", tc.ID, res.Output)
-			}
-			return
-		}
 		if !isShellErrorOutput(res.Output) {
 			t.Fatalf("%s expected shell error output, rc=%d err=%v output=%s", tc.ID, res.Code, res.Err, res.Output)
 		}
@@ -433,42 +343,126 @@ func isFailureStatusOutput(output string) bool {
 		strings.Contains(lower, "status: failed")
 }
 
-func (cfg *e2eConfig) expand(commandLine string) (string, string) {
-	serial := firstNonEmpty(cfg.serial, "SERIAL")
-	serialPrefix := serial
-	if len(serialPrefix) > 12 {
-		serialPrefix = serialPrefix[:12]
+func (cfg *e2eConfig) expand(commandLine string) (string, string, error) {
+	lexed, err := command.Lex(commandLine, false)
+	if err != nil {
+		return "", "", err
 	}
-	ssid := firstNonEmpty(cfg.ssid, "Test SSID")
-	psk := firstNonEmpty(cfg.psk, "test-passphrase")
-	bssid := firstNonEmpty(cfg.bssid, "aa:bb:cc:dd:ee:ff")
-	agentPrefix := firstNonEmpty(cfg.agentPref, serialPrefix)
-	replacements := map[string]string{
-		"<serial>":                            serial,
-		"<serial-prefix>":                     serialPrefix,
-		"<agent-id-prefix-from-show-devices>": agentPrefix,
-		"<ssid>":                              ssid,
-		"<psk>":                               quoteToken(psk),
-		"<bssid>":                             bssid,
+	replace := strings.NewReplacer("<serial>", cfg.serial, "<ssid>", cfg.ssid, "<psk>", cfg.psk, "<bssid>", cfg.bssid)
+	var out strings.Builder
+	previous := 0
+	for _, token := range lexed.Tokens {
+		if token.Pipe || !strings.Contains(token.Value, "<") {
+			continue
+		}
+		value := replace.Replace(token.Value)
+		quoted, err := quoteToken(value)
+		if err != nil {
+			return "", "", err
+		}
+		out.WriteString(commandLine[previous:token.Start])
+		out.WriteString(quoted)
+		previous = token.End
 	}
-	out := commandLine
-	for key, value := range replacements {
-		out = strings.ReplaceAll(out, key, value)
-	}
+	out.WriteString(commandLine[previous:])
 	if strings.Contains(commandLine, "<bssid>") && cfg.bssid == "" {
-		return out, "<bssid>"
+		return "", "<bssid>", nil
 	}
-	return out, ""
+	return out.String(), "", nil
 }
 
-func quoteToken(value string) string {
-	if value == "" {
-		return `""`
+func quoteToken(value string) (string, error) {
+	if !utf8.ValidString(value) || strings.ContainsAny(value, "\x00\r\n\u0085\u2028\u2029") {
+		return "", errors.New("runtime value must be valid UTF-8 on one Shell input line")
 	}
-	if strings.ContainsAny(value, " \t\r\n\"'\\|&;$<>") {
-		return strconv.Quote(value)
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(value) + `"`, nil
+}
+
+func TestShellQuotePreservesUnicodeLiteral(t *testing.T) {
+	for _, value := range []string{"", "plain", `quote ' " backslash \ pipe |`, "東京 e\u0301👩\u200d🔬 | \"quoted\"\\path", "tab\tvalue", "<psk> ${literal}"} {
+		quoted, err := quoteToken(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lexed, err := command.Lex(quoted, false)
+		if err != nil || len(lexed.Tokens) != 1 || lexed.Tokens[0].Value != value || lexed.Tokens[0].Pipe {
+			t.Fatalf("Shell literal changed: got=%+v want=%q err=%v", lexed.Tokens, value, err)
+		}
 	}
-	return value
+}
+
+func TestShellRuntimePlaceholdersPreserveTokenBoundaries(t *testing.T) {
+	cfg := &e2eConfig{serial: `serial | "\`, ssid: "東京 e\u0301👩\u200d🔬 | \"quoted\"\\<psk>", psk: "秘密 e\u0301👩\u200d🔬 \\\"'|", bssid: "aa:bb:cc:dd:ee:ff"}
+	for _, template := range []string{`request wifi connect <ssid> passphrase <psk>`, `request wifi connect "<ssid>" passphrase '<psk>'`} {
+		line, missing, err := cfg.expand(template)
+		if err != nil || missing != "" {
+			t.Fatalf("placeholder expansion failed: missing=%s err=%v", missing, err)
+		}
+		parsed, err := shell.ParseLine(line)
+		if err != nil || parsed.ConnectOptions == nil || parsed.ConnectOptions.SSID != cfg.ssid || parsed.ConnectOptions.Passphrase != cfg.psk {
+			t.Fatalf("runtime literal changed at the Shell boundary: %+v err=%v", parsed.ConnectOptions, err)
+		}
+	}
+	line, missing, err := cfg.expand(`show devices | match <serial> | count`)
+	if err != nil || missing != "" {
+		t.Fatal(missing, err)
+	}
+	lexed, err := command.Lex(line, false)
+	if err != nil || len(lexed.Tokens) != 7 || lexed.Tokens[4].Value != cfg.serial {
+		t.Fatalf("placeholder became a pipeline: %+v (%v)", lexed.Tokens, err)
+	}
+	for _, value := range []string{"bad\nexit", "bad\rline", "bad\x00value", "bad\u0085line", "bad\u2028line", "bad\u2029line", string([]byte{0xff})} {
+		cfg.ssid = value
+		if _, _, err := cfg.expand(`request wifi connect "<ssid>" passphrase <psk>`); err == nil {
+			t.Fatal("unrepresentable runtime placeholder was accepted")
+		}
+		cfg.bssid = ""
+		if _, missing, err := cfg.expand(`request wifi connect <ssid> passphrase <psk> bssid <bssid>`); err == nil || missing != "" {
+			t.Fatal("missing BSSID hid an invalid runtime value behind a skip")
+		}
+	}
+}
+
+func TestShellLiveTemplatesKeepParserExpectations(t *testing.T) {
+	cfg := &e2eConfig{serial: "synthetic-serial", ssid: "東京 e\u0301👩\u200d🔬 | \"quoted\"\\path", psk: "秘密 e\u0301👩\u200d🔬 \\\"'|", bssid: "aa:bb:cc:dd:ee:ff"}
+	for _, tc := range loadCases(t) {
+		if tc.Runner != "shell" {
+			continue
+		}
+		line, missing, err := cfg.expand(tc.Command)
+		if err != nil || missing != "" {
+			t.Fatalf("%s runtime expansion failed: missing=%s err=%v", tc.ID, missing, err)
+		}
+		if err := parserResultError(tc.Expect, runShellParser(line)); err != nil {
+			t.Fatalf("%s runtime literal changed the parser expectation: %v", tc.ID, err)
+		}
+	}
+}
+
+func TestShellRestoreRejectsUnrepresentableValuesBeforeExecution(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "dispatched")
+	t.Setenv("DROPCHECK_E2E_TEST_DISPATCH", marker)
+	bin := filepath.Join(dir, "fake-dropcheck")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n: > \"$DROPCHECK_E2E_TEST_DISPATCH\"\nprintf '%s\\n' '{\"ok\":true,\"lines\":[]}'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{"bad\nexit", "bad\rline", "bad\x00value", "bad\u0085line", "bad\u2028line", "bad\u2029line", string([]byte{0xff})} {
+		for _, credential := range []bool{false, true} {
+			cfg := &e2eConfig{bin: bin, repoRoot: dir, serial: "synthetic", ssid: "Lab", psk: "synthetic-secret"}
+			if credential {
+				cfg.psk = value
+			} else {
+				cfg.ssid = value
+			}
+			if err := cfg.restoreWiFiConnection(); err == nil || strings.Contains(err.Error(), value) {
+				t.Fatal("invalid runtime value was not rejected safely before dispatch", err)
+			}
+			if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("invalid runtime value dispatched a command", err)
+			}
+		}
+	}
 }
 
 func requiresWiFiSecret(commandLine string) bool {
@@ -480,11 +474,11 @@ func timeoutFor(tc matrixCase) time.Duration {
 	switch {
 	case strings.Contains(commandLine, "traceroute"):
 		return 90 * time.Second
-	case strings.Contains(commandLine, "path-mtu"), strings.Contains(commandLine, "request pmtu"):
+	case strings.Contains(commandLine, "request pmtu"):
 		return 60 * time.Second
 	case strings.Contains(commandLine, "wifi cycle"):
 		return 90 * time.Second
-	case strings.Contains(commandLine, "scan fresh"), strings.Contains(commandLine, "wifi connect"):
+	case strings.Contains(commandLine, "request wifi scan"), strings.Contains(commandLine, "wifi connect"):
 		return 45 * time.Second
 	case tc.Expect == "error":
 		return 20 * time.Second
@@ -493,10 +487,22 @@ func timeoutFor(tc matrixCase) time.Duration {
 	}
 }
 
-func TestPMTUCommandNamesKeepE2ETimeout(t *testing.T) {
-	for _, line := range []string{"request pmtu 1.1.1.1", "dropcheck path-mtu 1.1.1.1"} {
+func TestPMTUCommandKeepsE2ETimeout(t *testing.T) {
+	for _, line := range []string{"request pmtu 1.1.1.1", "request pmtu example.test family ipv6 timeout 30000"} {
 		if got := timeoutFor(matrixCase{Command: line}); got != 60*time.Second {
 			t.Errorf("%s timeout = %s, want 60s", line, got)
+		}
+	}
+}
+
+func TestShellScanDeadlinesDistinguishFreshAndCached(t *testing.T) {
+	for line, want := range map[string]time.Duration{
+		"request wifi scan band all timeout 12000": 45 * time.Second,
+		"request wifi scan eht timeout 12000":      45 * time.Second,
+		"show wifi scan brief":                     35 * time.Second,
+	} {
+		if got := timeoutFor(matrixCase{Command: line}); got != want {
+			t.Errorf("%s timeout=%s want=%s", line, got, want)
 		}
 	}
 }
@@ -522,12 +528,14 @@ func redact(value string, secret string) string {
 	return strings.ReplaceAll(value, secret, "<redacted>")
 }
 
-func (cfg *e2eConfig) restoreAfterCase(tc matrixCase, commandLine string) {
+func (cfg *e2eConfig) restoreAfterCase(t *testing.T, commandLine string) {
 	if !cfg.live || cfg.bin == "" || cfg.serial == "" {
 		return
 	}
 	if shouldRestoreWiFiAfter(commandLine) {
-		cfg.restoreWiFiConnection()
+		if err := cfg.restoreWiFiConnection(); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -538,54 +546,66 @@ func shouldRestoreWiFiAfter(commandLine string) bool {
 		strings.Contains(lower, "wifi cycle")
 }
 
-func (cfg *e2eConfig) restoreWiFiConnection() {
-	if cfg.ssid == "" || cfg.psk == "" {
-		return
+func (cfg *e2eConfig) restoreWiFiConnection() error {
+	if cfg.bin == "" || cfg.serial == "" || cfg.ssid == "" || cfg.psk == "" {
+		return errors.New("Wi-Fi restore requires an executable, serial, SSID and credential")
 	}
-	cfg.runCLICleanup("wifi", "connect", cfg.ssid, "passphrase", cfg.psk, "security", "auto", "timeout", "25000")
-	cfg.runCLICleanup("wifi", "wait", "connected", "ssid", cfg.ssid, "require-ip", "true", "require-validated", "true", "timeout", "30000")
+	ssid, err := quoteToken(cfg.ssid)
+	if err != nil {
+		return err
+	}
+	psk, err := quoteToken(cfg.psk)
+	if err != nil {
+		return err
+	}
+	for _, line := range []string{
+		"request wifi connect " + ssid + " passphrase " + psk + " security auto timeout 25000",
+		"test wifi ssid " + ssid + " require-ip true require-validated true timeout 30000",
+	} {
+		res := cfg.runShellCommand(45*time.Second, line+" | display json")
+		if !shellCommandPassed(res) {
+			return fmt.Errorf("Wi-Fi restore failed: code=%d err=%v output=%s", res.Code, res.Err, redact(res.Output, cfg.psk))
+		}
+	}
+	return nil
+}
+
+func shellCommandPassed(res commandResult) bool {
+	if res.Err != nil || res.Code != 0 {
+		return false
+	}
+	count := 0
+	for line := range strings.SplitSeq(res.Output, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "{") {
+			continue
+		}
+		var envelope struct {
+			OK *bool `json:"ok"`
+		}
+		if err := json.Unmarshal([]byte(line), &envelope); err != nil || envelope.OK == nil || !*envelope.OK {
+			return false
+		}
+		count++
+	}
+	return count == 1
 }
 
 func (cfg *e2eConfig) resetLiveState() {
 	cfg.forceStopPackage()
 }
 
-func (cfg *e2eConfig) runCLICleanup(args ...string) {
-	if cfg.bin == "" || cfg.serial == "" {
-		return
+func (cfg *e2eConfig) resolveBSSID(t *testing.T) string {
+	if err := cfg.restoreWiFiConnection(); err != nil {
+		t.Fatal(err)
 	}
-	fullArgs := append([]string{"--serial", cfg.serial}, args...)
-	_ = cfg.runExternal(45*time.Second, fullArgs, "")
-}
-
-func (cfg *e2eConfig) resolveAgentPrefix() string {
-	res := cfg.runExternal(25*time.Second, []string{"--serial", cfg.serial, "--format", "json", "show", "devices"}, "")
-	if match := agentID.FindStringSubmatch(res.Output); match != nil {
-		value := match[1]
-		if len(value) > 8 {
-			return value[:8]
-		}
-		return value
-	}
-	if len(cfg.serial) > 12 {
-		return cfg.serial[:12]
-	}
-	return cfg.serial
-}
-
-func (cfg *e2eConfig) resolveBSSID() string {
-	cfg.restoreWiFiConnection()
-	res := cfg.runExternal(25*time.Second, []string{"--serial", cfg.serial, "show", "wifi", "status"}, "")
+	res := cfg.runShellCommand(25*time.Second, "show wifi status connection")
 	if match := bssidPattern.FindStringSubmatch(res.Output); match != nil {
 		return strings.ToLower(match[1])
 	}
 	return ""
 }
 
-var (
-	agentID      = regexp.MustCompile(`"id"\s*:\s*"([^"]+)"`)
-	bssidPattern = regexp.MustCompile(`(?i)bssid=([0-9a-f]{2}(?::[0-9a-f]{2}){5})`)
-)
+var bssidPattern = regexp.MustCompile(`(?i)\bbssid(?:\s*:\s*|=)([0-9a-f]{2}(?::[0-9a-f]{2}){5})`)
 
 func (cfg *e2eConfig) forceStop() {
 	if !cfg.forceStopApp || cfg.adb == "" || cfg.serial == "" || cfg.packageName == "" {
@@ -672,15 +692,6 @@ func dirExists(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-func hasSerialArg(args []string) bool {
-	for _, arg := range args {
-		if arg == "--serial" || strings.HasPrefix(arg, "--serial=") {
-			return true
-		}
-	}
-	return false
-}
-
 func envBool(name string) bool {
 	value := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
 	return value == "1" || value == "true" || value == "yes"
@@ -725,20 +736,17 @@ func filteredCases(cases []matrixCase, filter string) []matrixCase {
 
 func hasLiveProcessCases(cases []matrixCase) bool {
 	for _, tc := range cases {
-		if tc.Runner == "shell" || tc.Runner == "cli" {
+		if tc.Runner == "shell" {
 			return true
 		}
 	}
 	return false
 }
 
-func liveSetupNeeds(cases []matrixCase) (agentPrefix bool, wifiSetup bool, bssid bool) {
+func liveSetupNeeds(cases []matrixCase) (wifiSetup bool, bssid bool) {
 	for _, tc := range cases {
-		if tc.Runner != "shell" && tc.Runner != "cli" {
+		if tc.Runner != "shell" {
 			continue
-		}
-		if strings.Contains(tc.Command, "<agent-id-prefix-from-show-devices>") {
-			agentPrefix = true
 		}
 		if strings.Contains(tc.Command, "<bssid>") {
 			bssid = true
@@ -748,7 +756,7 @@ func liveSetupNeeds(cases []matrixCase) (agentPrefix bool, wifiSetup bool, bssid
 			wifiSetup = true
 		}
 	}
-	return agentPrefix, wifiSetup, bssid
+	return wifiSetup, bssid
 }
 
 func caseNeedsWiFiSetup(tc matrixCase) bool {
@@ -756,7 +764,7 @@ func caseNeedsWiFiSetup(tc matrixCase) bool {
 	if strings.Contains(commandLine, "<ssid>") || strings.Contains(commandLine, "<psk>") || strings.Contains(commandLine, "<bssid>") {
 		return true
 	}
-	wifiOrNetworkCommands := []string{"show wifi", "show ip", "wifi connect", "wifi wait", "wifi assert", "wifi reconnect", "wifi cycle", "wifi disconnect", "wifi forget", "wifi monitor", "ping ", "traceroute ", "path-mtu ", "global-ip", "dns ", "http ", "download "}
+	wifiOrNetworkCommands := []string{"show wifi", "show network", "request wifi", "test wifi", "test link", "test lab", "monitor wifi", "request ping ", "request traceroute ", "request pmtu ", "request ip external", "request dns resolve ", "request http "}
 	for _, needle := range wifiOrNetworkCommands {
 		if strings.Contains(commandLine, needle) {
 			return true
@@ -814,5 +822,68 @@ func TestE2EFailureClassifiers(t *testing.T) {
 	}
 	if !isShellErrorOutput("match regex: error parsing regexp: missing closing ]: `[`") {
 		t.Fatalf("regexp parse errors must count as shell errors")
+	}
+}
+
+func TestShellCleanupUsesExplicitTransportAndCurrentGrammar(t *testing.T) {
+	dir := t.TempDir()
+	argsPath, inputPath := filepath.Join(dir, "args"), filepath.Join(dir, "input")
+	t.Setenv("DROPCHECK_E2E_TEST_ARGS", argsPath)
+	t.Setenv("DROPCHECK_E2E_TEST_INPUT", inputPath)
+	bin := filepath.Join(dir, "fake-dropcheck")
+	fixture := `#!/bin/sh
+printf '%s\n' "$@" >> "$DROPCHECK_E2E_TEST_ARGS"
+while IFS= read -r line; do
+  printf '%s\n' "$line" >> "$DROPCHECK_E2E_TEST_INPUT"
+done
+printf '%s\n' '{"ok":true,"lines":[]}'
+`
+	if err := os.WriteFile(bin, []byte(fixture), 0700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &e2eConfig{bin: bin, repoRoot: dir, adb: filepath.Join(dir, "not-installed-adb"), packageName: "test.package", serial: "test-serial", ssid: "東京 e\u0301👩\u200d🔬 | \"quoted\"\\path", psk: "秘密 e\u0301👩\u200d🔬 \\\"'|"}
+	if err := cfg.restoreWiFiConnection(); err != nil {
+		t.Fatal(err)
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantArgs := strings.Join([]string{"--adb", cfg.adb, "--package", cfg.packageName, "--serial", cfg.serial, "shell", ""}, "\n")
+	if string(args) != wantArgs+wantArgs || strings.Contains(string(args), cfg.psk) {
+		t.Fatalf("cleanup escaped the explicit Shell transport: %q", args)
+	}
+	input, err := os.ReadFile(inputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(input)), "\n")
+	if len(lines) != 4 || lines[1] != "exit" || lines[3] != "exit" || !strings.HasPrefix(lines[0], "request wifi connect ") || !strings.HasPrefix(lines[2], "test wifi ssid ") {
+		t.Fatalf("cleanup did not use connect/test/exit: %q", input)
+	}
+	connect, err := shell.ParseLine(lines[0])
+	if err != nil || connect.ConnectOptions == nil || connect.ConnectOptions.SSID != cfg.ssid || connect.ConnectOptions.Passphrase != cfg.psk {
+		t.Fatalf("restore changed the SSID/credential literal: %+v (%v)", connect.ConnectOptions, err)
+	}
+	wait, err := shell.ParseLine(lines[2])
+	assertion := wait.Operation.Command.GetAssertWifi()
+	if err != nil || wait.Rejection != "" || assertion.GetSsid() != cfg.ssid || !assertion.GetRequireIp() || !assertion.GetRequireValidated() || assertion.GetTimeoutMs() != 30000 {
+		t.Fatalf("restore test changed the SSID literal: %+v (%v)", wait, err)
+	}
+}
+
+func TestShellCleanupRequiresOneTypedSuccessfulEnvelope(t *testing.T) {
+	if !shellCommandPassed(commandResult{Output: "startup metadata\n{\"ok\":true,\"lines\":[]}\n"}) {
+		t.Fatal("typed success was rejected")
+	}
+	for _, res := range []commandResult{
+		{}, {Output: "STATUS_OK"}, {Output: `{"lines":[]}`}, {Output: `{"ok":false,"lines":[]}`},
+		{Output: `{"ok":true`, Code: 0}, {Output: "{\"ok\":true}\n{\"ok\":true}\n"},
+		{Output: `{"ok":true}`, Code: 1}, {Output: `{"ok":true}`, Err: context.Canceled},
+		{Output: "{\"ok\":false}\n{\"ok\":true}\n"},
+	} {
+		if shellCommandPassed(res) {
+			t.Fatalf("missing, failed or inconsistent cleanup result passed: %+v", res)
+		}
 	}
 }
