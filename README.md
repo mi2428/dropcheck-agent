@@ -7,33 +7,24 @@ ADB-controlled Android probes for automated Wi-Fi and access-network end-to-end 
 Android handsets act as field probes for event NOCs.
 Instead of checking connectivity from the infrastructure side, each check measures from the same user-facing access network that attendees and staff devices use.
 
-The operator-facing surfaces are the one-shot CLI, Controller Shell, Controller TUI, and the Dropcheck Harness.
-The harness runs the same typed operations as normal Go tests.
-The agent is the on-device probe and hosts Agent Shell for direct handset-side inspection.
+The 2.0 operator surfaces are PC Controller Shell, Android Agent Shell, Android widgets, and `dropcheck watch`.
+The agent is the on-device probe. A small [Go API](docs/go-api.md) exposes basic typed operations, not a scenario or test DSL.
 
 ```mermaid
 sequenceDiagram
   autonumber
   actor NOC as NOC
-  participant Controller as Controller CLI/Shell/TUI
-  participant Harness as Dropcheck Harness
+  participant Controller as Controller Shell/watch
   participant App as Android App
   participant WiFi as Wi-Fi under test
 
   par NOC live control through controller surfaces
-    NOC->>Controller: CLI, Shell, or TUI command
+    NOC->>Controller: Shell command or watch YAML
     Controller->>App: ADB-started gRPC operation
     App->>WiFi: connect, inspect, or probe
     WiFi-->>App: link and probe result
     App-->>Controller: typed result
     Controller-->>NOC: text, JSON, or TUI output
-  and NOC repeatable Go tests through Dropcheck Harness
-    NOC->>Harness: go test -tags harness
-    Harness->>App: ADB-started gRPC operation
-    App->>WiFi: connect, inspect, or probe
-    WiFi-->>App: link and probe result
-    App-->>Harness: typed result
-    Harness-->>NOC: Go test output
   and NOC direct control through Agent Shell
     NOC->>App: Agent Shell command
     App->>WiFi: inspect or probe from the handset
@@ -53,7 +44,7 @@ For the Android agent, use an Android 12+ test device with USB debugging enabled
 $ make install SERIAL=35251JEHN00258
 ```
 
-Wi-Fi provisioning uses Android privileged Wi-Fi APIs. For `wifi connect`, `wifi disconnect`, `wifi cycle`, and `wifi forget`, make the app a device owner on a fresh, unmanaged test device.
+Wi-Fi provisioning uses Android privileged Wi-Fi APIs. For Shell `request wifi connect`, `disconnect`, `cycle`, and `forget`, make the app a device owner on a fresh, unmanaged test device.
 
 > [!WARNING]
 > Device Owner mode is for dedicated test handsets. Do not enable it on a personal daily-driver device. Android can prevent removing a Device Owner unless the APK is `android:testOnly`; the debug APK installed by `make install` is test-only, but a release or manually modified APK may require a factory reset to remove once it owns the device.
@@ -166,22 +157,15 @@ candidates; their IP status must not inherit the underlying network's WifiInfo.
 
 ## Features
 
-The controller/agent toolchain has several entry points that share the same typed agent operations.
-Start with `dropcheck tui [PLAN.yml]` to select, preview, run, review and rerun tests. Use the one-shot controller CLI for ad-hoc checks, Controller Shell for field work, `dropcheck watch` for immediate continuous loops, Agent Shell for on-device inspection, and Dropcheck Harness for Go-authored tests.
+The controller/agent toolchain shares typed agent operations across Shell, widgets and watch.
+Use Controller Shell for field work, Agent Shell for direct handset inspection, and `dropcheck watch` for continuous YAML-driven monitoring with a dashboard, plain findings or JSONL events. The former one-shot CLI, separate `tui` workflow and Go test DSL have been removed; no compatibility aliases are provided.
 
 ### Controller Shell
 
-The controller starts an ADB-backed gRPC session to one or more Android agents.
-One-shot CLI commands are scriptable and can emit text or JSON.
-One-shot `show devices` lists the ADB inventory without starting an agent session,
-configuring reverse forwarding, or contacting a handset service; it includes
-non-ready devices and does not use `--target` or `--all`.
-Controller Shell adds prompts, completion, context help, and output filters on top of the same typed agent operations. Both one-shot argv and Shell use flat `show` (inspection), `wifi` (control), and top-level probes; old request/configure modes and dash-prefixed probe options are removed. Place transport flags (`--adb`, `--serial`, `--package`, `--listen`) first, then one-shot host output/target flags (`--format`, `--target`, `--all`), then the command. `--` ends a host-option group. Network literals after the command are never interpreted as host flags.
-One-shot `--target` selects a unique ADB serial or serial prefix before starting a service; unselected handsets are not started. In Controller Shell, use `#N` for a displayed row number so a numeric serial is never interpreted as a row number.
-For PC `wifi connect`, use `passphrase-env LAB_WIFI_PSK` to read an already-set
-environment variable instead of putting a credential in argv/history. The
-variable must be set, nonempty, and a valid PSK; both credential forms together
-are rejected before ADB or agent startup. This does not store a default PSK.
+The controller starts an ADB-backed authenticated gRPC session to selected Android agents.
+Place transport flags (`--adb`, `--serial`, `--package`, `--listen`) before `shell` or `watch`. Shell supports a startup `--target`; targets remain pinned to their resolved identities. `show devices` inside Shell lists connected agents, not an independent ADB inventory command.
+Shell provides prompts, completion, context help and safe output filters. Use `show` for inspection, `debug` for explicit raw evidence, `request` for scans/probes/mutations, `test` for finite evaluations, and `monitor` for finite sampling. See [the current Shell hierarchy](docs/shell-2.0/commands.md).
+For PC `request wifi connect`, `passphrase-env LAB_WIFI_PSK` reads an already-set environment variable instead of entering the credential itself. It must be nonempty and valid; conflicting or invalid explicit sources fail without fallback. Session defaults are memory-only and do not survive Shell exit.
 
 The controller builds one host-side binary:
 
@@ -191,26 +175,23 @@ $ make build TARGET=controller
 + go build -ldflags -X\ dropcheck/controller/internal/version.Version=0.9.0-dirty -o dist/dropcheck ./cmd/dropcheck
 ```
 
-`dist/dropcheck` supports:
+Inside Shell:
 
-- **Wi-Fi and IP inspection:** `show version`, `show wifi status|diagnostics|capabilities|scan|scan detail|eht`, and `show ip status`.
-- **Wi-Fi control:** `wifi connect|disconnect|forget|wait connected|assert|monitor|reconnect|cycle`.
+- **Wi-Fi and IP inspection:** `show wifi status [full|connection|ip|capabilities|eht]`, `show wifi scan`, and `show network [default|id ID]`.
+- **Wi-Fi control:** `request wifi connect|disconnect|forget|reconnect|cycle`, `test wifi`, and `monitor wifi`.
   Android cycle cleanup is attempted even on interruption; failed disconnect or
   partial network removal is not a successful cycle. HTTP probe connections
   are closed on success, error, and interruption.
-- **Network probes from the handset:** `ping`, `traceroute`, `path-mtu`, `global-ip`, `dns`, `http`, and `download`.
+- **Network probes from the handset:** `request ping`, `request traceroute`, `request pmtu`, `request ip external`, `request dns resolve`, `request http check`, and `request http download`.
 
 Common examples:
 
 ```console
 $ controller/dist/dropcheck --serial R5CT12345 shell
-$ controller/dist/dropcheck --serial R5CT12345 --format json show wifi status
-$ controller/dist/dropcheck --serial R5CT12345 show wifi scan fresh band all timeout 9000
-$ controller/dist/dropcheck --serial R5CT12345 ping 1.1.1.1 count 5
+$ printf '%s\n' 'show wifi status | display json' 'exit' | controller/dist/dropcheck --serial R5CT12345 shell
 ```
 
-In text mode, `show wifi status` appends controller-side ADB IPv6 RA diagnostics when the selected handset is reachable over ADB.
-That `ADB IPv6 RA` block shows `accept_ra*`, IPv6 default-route presence, and decoded router advertisements with `router_lifetime`, `valid_lifetime`, and `preferred_lifetime`, which is useful when SLAAC addresses appear but IPv6 internet access or the default router is missing.
+`show wifi status` is a quick Android observation with no PC ADB supplement. Full/IP/EHT views retain separately labelled host diagnostics, including IPv6 RA settings/default routes and decoded lifetimes where available. Explicit `debug adb` requests only the fixed allowlisted sources under a bounded collection deadline; it is not an arbitrary ADB shell.
 
 A short interactive session (measurement output depends on the connected handset):
 
@@ -220,29 +201,26 @@ dropcheck: selected agent=R5CT12345
 press '?' for Controller Shell context help, or type 'help' for commands
 R5CT12345> show wifi ?
   status
-  diagnostics
-  capabilities
   scan
-  eht
 R5CT12345> show wifi status
-R5CT12345> show ip status
-R5CT12345> ping 192.0.2.1 count 3
+R5CT12345> show wifi status ip
+R5CT12345> request ping 192.0.2.1 count 3
 R5CT12345> exit
 ```
 
-Scalar options use `key value`; `fresh`, `brief`, `mlo`, and `detail` are switches. `mlo` scan requires `brief`; `timeout` on scan/EHT requires `fresh`. `require-ip`, `require-validated`, and `forget-after-each` require explicit `true` or `false`. `traceroute via ADDRESS` may repeat and is checked against typed hops, including in one-shot exit status. Probe family `auto` selects one family, whereas `global-ip family all` checks both; `dns record ALL` requests A+AAAA. Explicit numeric values must be positive and at most 2147483647 (with smaller per-operation limits); omitted options retain Go builder defaults. Wi-Fi passphrases must be 8–63 UTF-8 bytes or 64 hexadecimal digits. Quoting preserves literal SSIDs, hostnames and URLs, including keyword-like names and `|` inside quotes.
+Scalar options use `key value`; `brief` and `mlo` are scan switches. `request wifi scan [eht]` requests a bounded fresh scan; `show wifi scan` reads the cache. `require-ip`, `require-validated`, and `forget-after-each` require explicit booleans. `request traceroute via ADDRESS` may repeat and is checked against typed hops, not stdout. Probe family `auto` selects one family; `request ip external family all` checks both, and `request dns resolve NAME record ALL` requests A+AAAA. Explicit numeric values are bounded per operation; traceroute accepts at most 255 hops. Wi-Fi passphrases must be 8–63 UTF-8 bytes or 64 hexadecimal digits. Quoting preserves literal SSIDs, hostnames and URLs, including keyword-like names and pipes.
 
-Both interactive Shells support `show networks`, `show network default`, `show network <id>`, `show permissions`, no-Enter `?`, completion and session-only safe history. Output stages `| begin`, `| match`, `| except` and `| count` operate on safe logical lines before width layout. `| display json` emits an `ok`/`lines` presentation envelope and cannot be combined with line filters; it does not change one-shot `--format json`. The unimplemented `display set`/`no-more` stages are rejected. See [the Shell command contract and extension guide](docs/shell-2.0/commands.md) for regex limits, credentials, field coverage boundaries and command-addition steps.
+Both Shells support `show network`, `show network default`, `show network id ID`, `show permissions`, no-Enter `?`, completion and session-only in-memory command recall. Output stages `find`, `match`, `except`, `last`, `trim` and `count` operate on safe logical lines before width layout. Exclusive `| display json` emits an `ok`/`lines` presentation envelope. `begin`, `display set` and `no-more` are rejected. Recall may contain submitted credentials; transcript/output redaction is a separate boundary. See [the Shell command contract](docs/shell-2.0/commands.md) for limits and maintenance.
 
-Network-bound status and probe commands can optionally select `ssid`, `bssid` (colon-separated MAC), and `network-id` (Android's decimal Network identity). YAML `observe: true` targets accept `bssid` and `network_id` with the same selection-time meaning; active probes still require `active_probes: true` and explicit destinations. Missing, redacted, or changed requested identity never falls back to a different network. This is **not** an uninterrupted association, roam, or VPN-coexistence guarantee; verify actual routing in the target environment. TUI Review `w` exports one retained Report as private JSON to a new path; `W` explicitly replaces an existing regular file. Current transport heartbeat, acceptance, pending commands, and cleanup errors are shown separately from Wi-Fi outcomes.
+Network-bound status and probes can select `ssid`, `bssid` and canonical decimal `network-id`. YAML observed targets accept `bssid` and `network_id` with the same selection-time meaning. Missing, redacted or changed requested identity never falls back to another Network. This is **not** an uninterrupted association, roam or VPN-coexistence guarantee. Transport heartbeat, pending commands and cleanup errors remain distinct from Wi-Fi outcomes.
 
 #### Named checks: observed and configured active
 
-`check link ssid "Example Lab" [family ipv4|ipv6|all]` inspects an **existing** physical Wi-Fi Network. Omitting family means IPv4; `all` checks both families using the same two observations on PC and Android. Both must report the same Network/interface, the requested case-sensitive SSID, and an address, default route and DNS server for each requested family. Android's `validated` flag is observation only, not a passed internet probe. `link` never connects, disconnects, forgets a network or contacts an external endpoint. A requested `bssid` is still rejected for this profile: selection-time BSSID matching does not establish uninterrupted Network pinning. A detected wrong/unknown Network is MISSING, not a pass. This does **not** prove that no transient roam occurred between observations.
+`test link ssid "Example Lab" [family ipv4|ipv6|all]` inspects an **existing** physical Wi-Fi Network. Omitting family means IPv4; `all` checks both families using the same two observations on PC and Android. Both must report the same Network/interface, the requested case-sensitive SSID, and an address, default route and DNS server for each requested family. Android's `validated` flag is observation only, not a passed internet probe. `link` never connects, disconnects, forgets a network or contacts an external endpoint. A requested `bssid` is still rejected for this profile: selection-time BSSID matching does not establish uninterrupted Network pinning. A detected wrong/unknown Network is MISSING, not a pass. This does **not** prove that no transient roam occurred between observations.
 
-Configured `lab` is available on PC and Android Shell with the same operation order: `check lab ssid "Example Lab" family ipv4 gateway 192.0.2.1 dns lab.example.test resolver selected http https://lab.example.test/health expected-status 204 timeout 5000`. Supply **your own approved endpoints**; no defaults or public fallback exist. An existing physical Wi-Fi is observed before and after three gateway ICMP packets, one A (or AAAA for ipv6) query through the selected Network's configured resolver, and one HTTP request. Failed required stages stop later probes. The URL must have no userinfo, query or fragment; redirects are disabled. No Wi-Fi configuration is changed. HTTP hostname address family and uninterrupted roaming are **not** pinned or proven.
+Configured `lab` is available on PC and Android Shell with the same operation order: `test lab ssid "Example Lab" family ipv4 gateway 192.0.2.1 dns lab.example.test resolver selected http https://lab.example.test/health expected-status 204 timeout 5000`. Supply **your own approved endpoints**; no defaults or public fallback exist. An existing physical Wi-Fi is observed before and after three gateway ICMP packets, one A (or AAAA for ipv6) query through the selected Network's configured resolver, and one HTTP request. Failed required stages stop later probes. The URL must have no userinfo, query or fragment; redirects are disabled. No Wi-Fi configuration is changed. HTTP hostname address family and uninterrupted roaming are **not** pinned or proven.
 
-`use <ssid> [passphrase <psk>]` is connect-only. Both interactive Shells can use a default set by `set default passphrase <psk>` and cleared by `clear default passphrase`; it exists only in the current session's memory. One-shot PC `use` still requires an explicit passphrase. Bare `check` lists candidates without executing; `show checks` lists profiles and costs; `show check last [detail]` reads the in-process historical report without re-running it or granting current readiness. One-shot PC processes do not share Shell report or connection context. Unconfigured `lab`, `internet`, `eht`, strict BSSID pinning, and Go-only callbacks on Android do not fall back to a public service or run a partial check.
+`request wifi connect SSID` can use a session default set by `set cli default-passphrase SECRET` and cleared by `clear cli default-passphrase`. Bare `test` displays local help without executing; `show test profiles` lists profiles and costs, and `show test last` reads the historical session report without rerunning or granting current readiness. Unconfigured `lab`, unsupported `internet`/`eht`, and strict BSSID pinning do not fall back to a public service or run a partial test.
 
 ### Android Agent and Agent Shell
 
@@ -255,15 +233,15 @@ $ make install SERIAL=R5CT12345
 ```
 
 The Android agent executes controller requests, records structured local logs, renders widgets, and hosts Agent Shell for direct handset-side inspection.
-Agent Shell accepts the same flat Wi-Fi inspection/control, handset-probe and output-pipeline grammar as Controller Shell, excluding PC-only device/ADB/TTY commands; its target is always self. Unsupported profile commands never start an operation.
-For direct handset-side joins, `set default passphrase <psk>` retains a default PSK only in session memory for later `use <ssid>`, and `use <ssid> passphrase <psk>` overrides it per command. It is not persisted to preferences, history or saved Activity state.
+Agent Shell accepts the same portable hierarchy and pipelines as Controller Shell, excluding PC-only device/ADB/exit commands; its target is always self. Unsupported profiles never start an operation.
+For handset-side joins, `set cli default-passphrase SECRET` retains a default only in session memory for `request wifi connect SSID`; an explicit passphrase overrides it. The default is not persisted to preferences or saved Activity state. Submitted input remains in session-local recall, including credentials.
 Wrap SSIDs or PSKs in double quotes when they contain spaces or other shell-significant characters.
 
 #### Result presentation and safe copy
 
 - Acquisition `OK` is not a scenario `PASS`. Failed/canceled acquisition and its reason precede reference data; source, selected target, requested fresh, actual scan update, acquisition duration, and observation age are separate facts. Scan age is supplied by Android's monotonic collector, never calculated from a PC wall clock and a device boot timestamp.
 - Wi-Fi status is the L2 view; IP status retains addresses/prefixes, routes/zones, DNS, DHCP, MTU, private DNS, NAT64, and the selected versus Android-default Network. Device capabilities use supported/unsupported lists, not the connected AP. Missing observation metadata is `?`, known empty data is `none`, inapplicable is `n/a`, and an observed false value is `no`.
-- TTY text uses the terminal column budget. Unknown-width/pipe text keeps complete records; JSON retains full safe typed values independently of width. Scan layouts try full tables, SSID groups, radio tables with full MAC continuations, then records. Security sets such as `psk+sae` and unknown enum spellings remain intact. `detail` on status/diagnostics/capabilities/IP/EHT is reachable and retains the additional fields; default text remains compact.
+- TTY text uses the terminal column budget. Unknown-width/pipe text keeps complete records; typed Go results remain independent of width. Scan layouts try full tables, SSID groups, radio tables with full MAC continuations, then records. Security sets such as `psk+sae` and unknown enum spellings remain intact. Named status subjects and `full` expose detailed safe evidence; the removed `detail` suffix is not an alias.
 - Agent Shell uses the laid-out content width and the output TextView's Paint, native grapheme boundaries and tab-stop spans. Width zero waits for layout. Rotation, split-screen, IME/inset changes and font-scale reflow retained presentation data without another scan/probe.
 - **Output size** selects base/minimum sizes for new blocks. The existing 10sp base is unchanged; 12sp is a selectable candidate, not a device-approved default. Input and unrelated older blocks do not shrink to fit a table. Structural layouts currently require no automatic shrink; any later block-only shrink must stay within 10% and above 10sp/the chosen minimum, preserving system font scale.
 - **Copy full result** copies plain sanitized values, not spans, display tabs, ellipsis, ANSI, artificial zero-width spaces, or credentials. History retains at most 32 whole safe blocks and 262144 UTF-16 characters, without commands/credentials. Table display is capped at 96 rows/240 lines, with omission counts; full copy keeps retained rows. A result exceeding in-memory history keeps its header/target/errors plus **Inspect/copy full safe values**: 25-label pages expose each complete safe value, with exact full identity copy and numbered chunks for long opaque values that cannot fit a clipboard transaction. Only the current oversize result has a private app-cache value file (32MiB quota); replacing it evicts the old file/block as a unit, and a new process clears abandoned files. Storage/quota failures are explicit, never silently clipped results. Appends do not force an older reader to the bottom. Native selection/anchor restoration is best effort.
@@ -272,67 +250,27 @@ Wrap SSIDs or PSKs in double quotes when they contain spaces or other shell-sign
 Drive the agent from the controller for live measurements (synthetic addresses and targets shown as commands, not measured output):
 
 ```console
-$ controller/dist/dropcheck show devices
-$ controller/dist/dropcheck --serial R5CT12345 show wifi scan fresh band all timeout 9000
-$ controller/dist/dropcheck --serial R5CT12345 ping 192.0.2.1 count 1
+$ controller/dist/dropcheck --serial R5CT12345 shell
+R5CT12345> show devices
+R5CT12345> request wifi scan band all timeout 9000
+R5CT12345> request ping 192.0.2.1 count 1
 ```
 
 Ping packet counts, loss, and RTT come from typed Agent observations. Missing
-native statistics remain unknown (not zero), including in JSON, Go/YAML
+native statistics remain unknown (not zero), including in JSON, Go results/YAML
 expectations, and text; native output is reference only.
-`--format json` sanitizes typed fields before serialization; text URL
-presentation/wrapping is never applied to serialized JSON. An operator may
-explicitly run `http URL expected-status CODE ssid SSID` and
-`dns NAME record ALL ssid SSID` on an existing connection; these send active
+Shell `| display json` emits sanitized presentation lines with a typed `ok` value; it is not a protobuf dump. The basic Go API returns typed acquisition data, not sanitized presentation; callers must protect raw payloads before logging. An operator may
+explicitly run `request http check URL expected-status CODE ssid SSID` and
+`request dns resolve NAME record ALL ssid SSID` on an existing connection; these send active
 Internet traffic and do not turn an unmanaged public endpoint into a lab profile.
 
-### Controller TUI
+### Android widgets
 
-Use the explicit `dropcheck tui [PLAN.yml]` workflow to load an existing YAML Plan,
-choose agents/targets/checks, preview it, and start Once, N rounds, or Loop.
-Without a path, enter one inside the TUI. No-argument `dropcheck` still shows help;
-the explicit TUI requires terminal input and output and rejects non-TTY use
-before loading a file or discovering devices.
+The Android clock/network and log widgets display on-device observations and local diagnostics. Widget observer start/stop uses the app's own UID; it does not bypass the service caller or Wi-Fi permission boundaries described above.
 
-```console
-$ controller/dist/dropcheck tui examples/watch.yml
-$ controller/dist/dropcheck tui --help
-```
+### Continuous watch dashboard
 
-Loading/preview validates through the same core as Go Plans. Agent metadata/session
-setup is not a measurement: no Wi-Fi mutation or probe occurs until explicit
-Preview -> Start. Credentials are not displayed. Preview shows bound agent IDs,
-SSID/BSSID/band, round interval, operation destinations and per-attempt traffic,
-policy budgets, expectations, secret availability,
-and cleanup. Capability support without a prior probe is pending/unknown, not an
-invented unsupported result. Invalid selection or missing secrets disable start.
-
-Tab switches agent/target/check selection; Space toggles, `1` chooses Once, `n`
-edits N, and `l` selects Loop. Enter previews; Enter again starts. Finite completion
-retains review. During execution, `q`/Ctrl-C requests GLOBAL stop, waits for core
-cleanup, and retains review; `q` in review exits. Ctrl-Z pause/resume and Ctrl-N
-skip are GLOBAL. `v` explicitly selects an execution scope; `p`/`s`/`x` then
-pause/skip/cancel that scope. Dashboard focus never changes execution scope.
-
-Existing dashboard filters, pinned details, Japanese labels and narrow layouts
-remain. `i` inspects result rows, measurements, expectations, all attempts,
-retry recovery, skip/missing/cancel reasons and independent cleanup problems.
-`r` previews the inspected selected work; `f` previews failed/missing work.
-Core selection restores connection/wait and required prerequisites. Every start
-creates a new run/report, leaving previous reports intact (`[`/`]` to review).
-Use `e` to reselect and `o` to explicitly reload agent bindings; a lost agent is
-not automatically replaced. Compiled Go Plans can enter the same adapter through
-`tui.RunWorkflow(ctx, tui.WorkflowOptions{Compiled: compiled, Runner: opRunner})`;
-there is no dynamic Go-source interpreter or separate TUI execution loop.
-
-For an authorized local, device-free real-PTY smoke, build the test child in a
-temporary path and run `controller/internal/tui/testdata/pty_smoke.py` with that
-binary. It uses only synthetic compiled Plans/runners and checks keyboard/resize,
-retained finite review/rerun, safe loop stop/cleanup, and terminal restoration.
-Default CI covers fake runner -> core events -> reducer -> TUI; it does not count
-a pure View test as real terminal or real Wi-Fi evidence.
-
-`dropcheck watch` remains the immediate continuous-run entry.
+`dropcheck watch -c PLAN.yml` is the immediate continuous-run entry. The dashboard consumes private `internal/watchrun` events; there is no separate plan-selection/review/rerun application or public scenario API. Dashboard metadata and bounded histories remain available, along with pause/skip controls and cancellation-safe owned-connection cleanup. JSONL records ordered events independently of the dashboard. `--no-tui` prints findings without opening a terminal UI.
 It is meant for field operation: connection failures and failed `required: true` checks skip the remaining checks for that target, other check failures are recorded as findings, and the next target and round continue.
 Use `--jsonl` when you also want an append-only event log.
 When multiple agents are connected, unassigned targets run on every selected agent.
@@ -349,6 +287,7 @@ implicitly add the two Network identity snapshots.
 
 ```console
 $ controller/dist/dropcheck --serial R5CT12345 watch -c examples/watch.yml --jsonl watch.jsonl
+$ controller/dist/dropcheck --serial R5CT12345 watch -c examples/watch.yml --no-tui --jsonl watch.jsonl
 ```
 
 ```yaml
@@ -424,7 +363,7 @@ Leave `family` unset when the agent should auto-select based on DNS answers and 
 
 Historical standalone archive ingestion/replay and the external MinIO,
 Pushgateway, Prometheus, Grafana, and Compose stack are no longer supported.
-Use Controller TUI/watch or Dropcheck Harness for live measurements; local
+Use Shell or watch for live measurements; local
 diagnostic logs, JSONL output, and in-memory TUI history remain available.
 
 Update the controller and Android APK together; mixed-version compatibility and
@@ -434,177 +373,21 @@ or migrated. Back up any data you need before manually retiring an old deploymen
 Agent Shell no longer reads or writes a persisted default PSK. The retired
 `default_passphrase` key in `agent-shell-use-defaults` is removed when the Activity
 or agent service starts. Enter a session default again with
-`set default passphrase <psk>` or use `use <ssid> passphrase <psk>` explicitly.
+`set cli default-passphrase SECRET` or use `request wifi connect SSID passphrase SECRET` explicitly.
 Other old preferences are left intact; do not include PSKs in migration reports or logs.
 
-### Dropcheck Harness
+### Basic Go API
 
-Dropcheck Harness is a Go test harness for ADB-backed Android network checks.
-Harness tests connect to a requested Wi-Fi target, wait for the expected link state, run typed checks, and fail with normal Go test output.
-Live checks support Retry, Repeat, and StableFor with new measurements.
-Use WithRunner to inject scripted operations in ordinary device-free Go tests.
+Use `dropcheck/controller/pkg/dropcheck` for an ADB-backed client and individual typed operations. The public surface owns session startup/close, agent enumeration and `Client.Run`; internal command/control/session/runner/protocol packages are not public imports. See [the Go API guide](docs/go-api.md). Scenario Plans, test adapters, fluent assertions and the private watch runtime are not a supported Go API.
 
-Available check builders include Wi-Fi status, EHT diagnostics, scan and scan-detail, Wi-Fi capabilities, IP status, ping, DNS, HTTP, download, traceroute, path MTU, and global IP.
-For scan AP selectors, `scan.APs().SSID("Lab").MaxAge(2*time.Second).Exists()`
-checks collector-reported observation age; absent age is MISSING, not fresh.
-
-Scenario execution is independent of `testing.T`: `h.Compile(plan, agents)` validates
-all operations, secrets, policies, and selectors before device dispatch.
-`compiled.Preview()` is credential-free; `compiled.Select(h.Selection{AgentIDs: ..., TargetIDs: ..., CheckIDs: ...})`
-preserves connection/wait/required prerequisites and rejects empty or expired agent selection.
-Preview check metadata includes constituent acquisitions and their combined
-controller deadline (including fresh-scan/EHT and IP-status/gateway-ping), the
-actual compiled network destination and per-attempt
-traffic (HTTP downloads have no Plan response-size cap); multiply by the displayed
-Attempts/Repeat and any Eventually/StableFor samples, rounds or Loop. YAML's existing
-default ping/DNS/HTTP/download destinations remain external when those checks are configured;
-the core does not insert any new probes. A BSSID-only Go target is rejected before
-connect because an SSID-less probe selector could measure Android's default Network.
-`h.Execute(ctx, compiled, operationRunner, h.ExecuteOptions{Rounds: 1})` returns
-a structured report; `Rounds: N` and explicit `Loop: true` use that same engine.
-`h.Run(t, ...)` is only the Go-test adapter, not a second runner.
-
-Use `h.WithPolicy(check, h.Policy{Attempts: 2, Repeat: 3, Eventually: 30*time.Second,
-StableFor: 5*time.Second, Interval: time.Second}, required)` for a common policy.
-Attempts includes the initial call, Repeat is independent, Eventually has a deadline,
-and StableFor permits retry recovery within each sample; it does not prove uninterrupted connectivity.
-Reports retain successful values, every attempt and recovery, missing/skip/cancel reasons,
-and separate primary, cleanup, and delivery errors. Owned target cleanup is bounded
-disconnect-then-forget, each at most once, including cancellation.
-
-YAML uses `watch.Parse`/`watch.LoadFile` to produce this same Plan, then `h.Compile`;
-there is no YAML-specific evaluator. Unknown fields/options and invalid plans fail
-before connect/probe. Typed/custom Go assertions, AP/MLO/IP selectors, raw result
-access and collection/CIDR matching remain Go capabilities rather than being reduced
-to named profiles. Arbitrary Go closures are not portable YAML/Android definitions.
-The operation-runner injection point is unchanged, but callers must consume the
-new structured reports instead of relying on nested Go subtest execution or LIFO cleanup.
-
-```go
-//go:build harness
-
-package harness_test
-
-import (
-	"testing"
-	"time"
-
-	h "dropcheck/controller/internal/harness"
-	"dropcheck/controller/internal/harness/capabilities"
-	"dropcheck/controller/internal/harness/dns"
-	"dropcheck/controller/internal/harness/ip"
-	"dropcheck/controller/internal/harness/ping"
-	"dropcheck/controller/internal/harness/scan"
-	"dropcheck/controller/internal/harness/wifi"
-)
-
-func TestShowNetWiFi(t *testing.T) {
-	h.Run(t, h.Plan{
-		Name: "shownet-wifi",
-		Networks: []h.Network{
-			// Connect to one AP, not just any AP advertising the SSID.
-			h.WiFi("noc-6ghz").
-				SSID("ShowNet").
-				BSSID("aa:bb:cc:dd:ee:ff").
-				PSKEnv("DROPCHECK_HARNESS_WIFI_PSK").
-				Security("wpa3").
-				Band("6ghz").
-				// Wait until Android says the network has validated internet.
-				RequireValidated(true).
-				WaitTimeout(45 * time.Second).
-				// Remove the test network from the handset during cleanup.
-				ForgetAfter(true),
-		},
-		Checks: []h.Check{
-			// Check the current Wi-Fi link after association.
-			h.WiFiStatus().
-				Expect(
-					wifi.Enabled().IsTrue(),
-					wifi.SSID().Eq("ShowNet"),
-					wifi.BSSID().Eq("aa:bb:cc:dd:ee:ff"),
-					wifi.Band().Eq("6ghz"),
-					wifi.Standard().Eq("be"),
-					wifi.TxLinkSpeedMbps().Ge(1000),
-					wifi.AssociatedMLOLinkCount().Ge(1),
-				).
-				Retry(3, 2*time.Second),
-			// Force a fresh scan and verify the target AP advertisement.
-			h.WiFiScan().
-				Fresh().
-				Band("6ghz").
-				Timeout(10*time.Second).
-				Expect(
-					scan.ResultCount().Ge(1),
-					scan.APs().
-						SSID("ShowNet").
-						BSSID("aa:bb:cc:dd:ee:ff").
-						Standard("be").
-						ChannelWidth("320mhz").
-						Security("wpa3_sae").
-						Exists(),
-				),
-			// Assert that the handset can run the requested Wi-Fi mode.
-			h.WiFiCapabilities().
-				Expect(
-					capabilities.Band("6ghz").Supported(),
-					capabilities.Standard("be").Supported(),
-					capabilities.Security("wpa3_sae").Supported(),
-				),
-			// Check layer-3 provisioning from Android's active network.
-			h.IPStatus().
-				Expect(
-					ip.Validated().IsTrue(),
-					ip.Internet().IsTrue(),
-					ip.DefaultRoute().IsTrue(),
-					ip.DNSServerCount().Ge(1),
-					ip.MTU().Ge(1280),
-				),
-			// Run active reachability checks through the connected Wi-Fi.
-			h.Ping("1.1.1.1").
-				Count(5).
-				Expect(
-					ping.Received().Eq(5),
-					ping.LossPercent().Eq(0),
-					ping.AvgLatency().Le(50*time.Millisecond),
-				).
-				Retry(2, time.Second),
-			// Confirm resolver behavior, not only raw IP reachability.
-			h.DNS("www.wide.ad.jp").
-				A().
-				Expect(
-					dns.AnswerCount().Ge(1),
-					dns.Elapsed().Le(time.Second),
-				),
-		},
-	})
-}
-```
-
-```console
-$ cd controller
-$ ADB_SERIAL=R5CT12345 DROPCHECK_HARNESS_WIFI_PSK=secret go test -tags harness -run TestShowNetWiFi -v ./integration/harness
-=== RUN   TestShowNetWiFi
-=== RUN   TestShowNetWiFi/shownet-wifi
-=== RUN   TestShowNetWiFi/shownet-wifi/noc-6ghz
-=== RUN   TestShowNetWiFi/shownet-wifi/noc-6ghz/connect
-=== RUN   TestShowNetWiFi/shownet-wifi/noc-6ghz/wait_connected
-=== RUN   TestShowNetWiFi/shownet-wifi/noc-6ghz/wifi_status
-=== RUN   TestShowNetWiFi/shownet-wifi/noc-6ghz/wifi_scan_fresh
-=== RUN   TestShowNetWiFi/shownet-wifi/noc-6ghz/wifi_capabilities
-=== RUN   TestShowNetWiFi/shownet-wifi/noc-6ghz/ip_status
-=== RUN   TestShowNetWiFi/shownet-wifi/noc-6ghz/ping_1.1.1.1
-=== RUN   TestShowNetWiFi/shownet-wifi/noc-6ghz/dns_www.wide.ad.jp
---- PASS: TestShowNetWiFi (16.84s)
-PASS
-ok  	dropcheck/controller/integration/harness	17.208s
-```
+Watch YAML keeps retry/repeat/eventually/stability policies and flat metric/AP/MLO/CIDR expectations. Attempts includes the first measurement; repeats are independent, and stability permits retry recovery within each sample rather than proving uninterrupted connectivity. Unknown options and invalid plans fail before device dispatch. Reports/events retain attempts, recovery, missing/skip/cancel reasons, and independent primary/cleanup/delivery failures. Owned target cleanup remains bounded disconnect-then-forget, including cancellation. Existing external YAML defaults are not implicit authorization for a lab profile.
 
 ## Controller unit tests
 
 Controller unit tests use temporary fake ADB executables, not connected devices.
-Ordinary untagged tests also check all 282 rows of
+Ordinary untagged tests also check all 236 rows of
 `controller/integration/e2e/testdata/e2e_cases.tsv`: 100 parser/help rows execute
-in-process, and 136 Shell plus 46 CLI rows have their parse expectations checked.
+in-process, and 136 Shell rows have their parse expectations checked.
 The table's surviving IDs are intentionally non-contiguous. These checks use
 deterministic synthetic placeholders, not `loadConfig`, lab credentials, ADB
 discovery, or a controller process. Invalid tables, missing command coverage,
@@ -698,7 +481,7 @@ numbers and retained wire identities, regenerate Go, and validate both
 consumers with `make test TARGET=controller` and
 `make build test TARGET=agent`. The Android tasks regenerate through Gradle;
 do not use the host Go generator versions to override Android's toolchain.
-Go-only workflow maintenance does not require an Android schema change.
+Go-only watch/runtime maintenance does not require an Android schema change.
 
 ## Continuous integration
 
@@ -730,7 +513,7 @@ the existing build/lint Make targets and runs the complete
 installed. No secrets, connected
 handset, or Wi-Fi credentials are needed by either job.
 
-Live `make e2e` and `-tags harness` device tests are excluded: they require
+Live `make e2e` Shell device tests are excluded: they require
 dedicated authorized handsets and network credentials, never an ordinary PR
 runner. Regression tests in the normal controller and Android unit-test suites
 run automatically without adding special workflow filters.
