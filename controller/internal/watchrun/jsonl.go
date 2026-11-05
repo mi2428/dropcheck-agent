@@ -75,6 +75,10 @@ func (w *JSONLWriter) Emit(ctx context.Context, event Event) error {
 	if w == nil || w.requests == nil {
 		return errors.New("JSONL writer is not initialized")
 	}
+	event, err := exportEvent(event)
+	if err != nil {
+		return err
+	}
 	data, err := json.Marshal(event)
 	if err != nil {
 		return err
@@ -228,24 +232,11 @@ func (w *JSONLWriter) contextError(ctx context.Context) error {
 	return errors.Join(ctx.Err(), w.currentError())
 }
 
-// MultiSink emits each event to multiple sinks in order.
-type MultiSink []Sink
-
-// Emit sends event to every sink: a failed file must not suppress UI results.
-func (sinks MultiSink) Emit(ctx context.Context, event Event) error {
-	var failures []error
-	for _, sink := range sinks {
-		if sink == nil {
-			continue
-		}
-		failures = append(failures, sink.Emit(ctx, event))
-	}
-	return errors.Join(failures...)
-}
-
 // ChannelSink sends watch events to a channel until the context is canceled.
 type ChannelSink struct {
 	C chan<- Event
+	// Done detaches a consumer that has exited; other sinks still receive events.
+	Done <-chan struct{}
 }
 
 // Emit sends event to C or returns ctx.Err when ctx is canceled first.
@@ -254,7 +245,14 @@ func (s ChannelSink) Emit(ctx context.Context, event Event) error {
 		return nil
 	}
 	select {
+	case <-s.Done:
+		return nil
+	default:
+	}
+	select {
 	case s.C <- event:
+		return nil
+	case <-s.Done:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
