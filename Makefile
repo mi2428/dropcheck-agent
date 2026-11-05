@@ -133,7 +133,7 @@ install: ## Build and install the debug APK; use SERIAL=<adb serial> when needed
 	done
 
 .PHONY: e2e
-e2e: ## Run real-device shell/CLI e2e matrix; use SERIAL=... SSID=... PSK=...
+e2e: ## Run real-device Shell e2e matrix; use SERIAL=... SSID=... PSK=...
 	@die(){ printf 'make e2e: %s\n' "$$*" >&2; exit 1; }; \
 	run(){ printf '+'; printf ' %q' "$$@"; printf '\n'; "$$@"; }; \
 	serial="$(SERIAL)"; ssid="$(SSID)"; psk="$(PSK)"; psk_env="$(PSK_ENV)"; \
@@ -202,5 +202,5 @@ help: ## Show this help message
 	@printf "\n\033[1mExamples:\033[0m\n"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make build TARGET=agent,controller" "# Build both Android agent and Go controller"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make test TARGET=controller" "# Run controller tests"
-	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make e2e SERIAL=DEVICE SSID=Lab PSK=..." "# Run real-device shell/CLI e2e matrix"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make e2e SERIAL=DEVICE SSID=Lab PSK=..." "# Run real-device Shell e2e matrix"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make install SERIAL=DEVICE" "# Build and adb install the debug APK"

@@ -14,8 +14,6 @@ import (
 	"strings"
 	"testing"
 
-	commandparse "dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/linuxcli"
 	"dropcheck/controller/internal/shell"
 )
 
@@ -34,7 +32,7 @@ type commandResult struct {
 	Err    error
 }
 
-const e2eCaseCount = 282
+const e2eCaseCount = 236
 
 var e2eCaseID = regexp.MustCompile(`^E2E-[0-9]{3}$`)
 
@@ -134,8 +132,6 @@ func titleMatchesRunner(tc matrixCase) bool {
 		return strings.HasPrefix(tc.Title, "Shell ")
 	case "shell-parser":
 		return strings.HasPrefix(tc.Title, "Parser ")
-	case "cli":
-		return strings.HasPrefix(tc.Title, "CLI ")
 	default:
 		return false
 	}
@@ -155,20 +151,14 @@ func containsStaleCaseLanguage(tc matrixCase) bool {
 	return false
 }
 
-func TestE2ECaseTableParsesShellAndCLIExpectations(t *testing.T) {
+func TestE2ECaseTableParsesShellExpectations(t *testing.T) {
 	for _, tc := range loadCases(t) {
-		if tc.Runner != "shell" && tc.Runner != "cli" {
+		if tc.Runner != "shell" {
 			continue
 		}
 		t.Run(tc.testName(), func(t *testing.T) {
 			commandLine := expandParserPlaceholders(tc.Command)
-			var res commandResult
-			switch tc.Runner {
-			case "shell":
-				res = runShellParser(commandLine)
-			case "cli":
-				res = runCLIParser(commandLine)
-			}
+			res := runShellParser(commandLine)
 			if err := parserResultError(tc.Expect, res); err != nil {
 				t.Fatalf("%s command %q: %v", tc.Runner, tc.Command, err)
 			}
@@ -251,23 +241,6 @@ func validateCommandCoverage(cases []matrixCase) error {
 		{name: "shell dns", runner: "shell", text: "request dns resolve"},
 		{name: "shell http", runner: "shell", text: "request http check"},
 		{name: "shell download", runner: "shell", text: "request http download"},
-		{name: "cli show devices", runner: "cli", text: "dropcheck --serial"},
-		{name: "cli ip status", runner: "cli", text: "dropcheck show ip status"},
-		{name: "cli wifi eht", runner: "cli", text: "dropcheck show wifi eht"},
-		{name: "cli wifi scan", runner: "cli", text: "dropcheck show wifi scan"},
-		{name: "cli wifi connect", runner: "cli", text: "dropcheck wifi connect"},
-		{name: "cli wifi wait", runner: "cli", text: "dropcheck wifi wait"},
-		{name: "cli wifi assert", runner: "cli", text: "dropcheck wifi assert"},
-		{name: "cli wifi monitor", runner: "cli", text: "dropcheck wifi monitor"},
-		{name: "cli wifi reconnect", runner: "cli", text: "dropcheck wifi reconnect"},
-		{name: "cli wifi cycle", runner: "cli", text: "dropcheck wifi cycle"},
-		{name: "cli ping", runner: "cli", text: "dropcheck ping"},
-		{name: "cli traceroute", runner: "cli", text: "dropcheck traceroute"},
-		{name: "cli path mtu", runner: "cli", text: "dropcheck path-mtu"},
-		{name: "cli global ip", runner: "cli", text: "dropcheck global-ip"},
-		{name: "cli dns", runner: "cli", text: "dropcheck dns"},
-		{name: "cli http", runner: "cli", text: "dropcheck http"},
-		{name: "cli download", runner: "cli", text: "dropcheck download"},
 	}
 	for _, want := range required {
 		if !e2eTableHasCommand(cases, want.runner, want.text) {
@@ -329,53 +302,6 @@ func runShellParser(commandLine string) commandResult {
 		return commandResult{Output: err.Error(), Code: 1, Err: err}
 	}
 	return commandResult{Output: "parse ok\n", Code: 0}
-}
-
-func runCLIParser(commandLine string) commandResult {
-	args, err := commandparse.SplitArgs(commandLine)
-	if err != nil {
-		return commandResult{Output: err.Error(), Code: 1, Err: err}
-	}
-	if len(args) > 0 && args[0] == "dropcheck" {
-		args = args[1:]
-	}
-	args, err = stripAppFlags(args)
-	if err != nil {
-		return commandResult{Output: err.Error(), Code: 1, Err: err}
-	}
-	_, args, err = linuxcli.ExtractOptions(args)
-	if err != nil {
-		return commandResult{Output: err.Error(), Code: 1, Err: err}
-	}
-	if _, err := linuxcli.Parse(args); err != nil {
-		return commandResult{Output: err.Error(), Code: 1, Err: err}
-	}
-	return commandResult{Output: "parse ok\n", Code: 0}
-}
-
-func stripAppFlags(args []string) ([]string, error) {
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if arg == "--" {
-			return append([]string(nil), args[i+1:]...), nil
-		}
-		if !strings.HasPrefix(arg, "-") {
-			return append([]string(nil), args[i:]...), nil
-		}
-		name, _, hasValue := strings.Cut(arg, "=")
-		switch name {
-		case "--adb", "-adb", "--serial", "-serial", "--package", "-package", "--listen":
-			if !hasValue {
-				if i+1 >= len(args) {
-					return nil, fmt.Errorf("%s requires a value", name)
-				}
-				i++
-			}
-		default:
-			return append([]string(nil), args[i:]...), nil
-		}
-	}
-	return nil, nil
 }
 
 func (tc matrixCase) testName() string {

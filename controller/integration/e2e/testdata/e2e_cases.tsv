@@ -229,55 +229,9 @@ E2E-268	Shell download explicit timeout	shell	request http download https://exam
 E2E-269	Parser missing download timeout	shell-parser	request http download https://example.com timeout	error	`timeout requires a value`.
 E2E-270	Parser download timeout boundary	shell-parser	request http download https://example.com timeout 0	error	Timeout must be positive.
 E2E-271	Parser too many download args	shell-parser	request http download https://example.com https://example.org	error	Unexpected extra download argument.
-E2E-272	CLI top-level --serial	cli	dropcheck --serial <serial> show devices	ok	Devices list is printed for the selected serial.
-E2E-273	CLI --format JSON with equals form	cli	dropcheck --serial=<serial> --format json show devices	ok	JSON devices output.
-E2E-274	CLI --format text	cli	dropcheck --format text show devices	ok	Text devices output.
-E2E-275	CLI invalid global format	cli	dropcheck --format yaml show devices	error	`--format must be text or json`.
-E2E-276	CLI global target conflict	cli	dropcheck --all --target <serial> show devices	error	`--all and --target cannot be used together`.
-E2E-277	CLI global flag arity	cli	dropcheck --all=value show devices	error	`--all does not take a value`.
-E2E-278	CLI missing global flag value	cli	dropcheck --target	error	`--target requires a value`.
-E2E-279	CLI top-level -- delimiter	cli	dropcheck -- --format json show devices	ok	Top-level delimiter leaves args for CLI parsing; JSON devices output is still produced.
-E2E-280	CLI IP status	cli	dropcheck show ip status	ok	IP addressing, routes, DNS, and validation render from the CLI.
-E2E-281	CLI scan band	cli	dropcheck show wifi scan band 5ghz	ok	Cached 5 GHz scan succeeds.
-E2E-282	CLI fresh scan options	cli	dropcheck show wifi scan fresh band 5ghz timeout 12000	ok	Fresh scan succeeds.
-E2E-283	CLI fresh brief MLO	cli	dropcheck show wifi scan fresh brief mlo band 5ghz timeout 12000	ok	Fresh brief MLO scan succeeds.
-E2E-284	CLI scan timeout restriction	cli	dropcheck show wifi scan timeout 12000	error	Timeout requires a fresh scan.
-E2E-285	CLI scan detail band	cli	"dropcheck show wifi scan detail ""<ssid>"" band 5ghz"	ok	Scan detail succeeds.
-E2E-286	CLI scan detail literal all	cli	dropcheck show wifi scan detail all band 5ghz	ok	Literal target named all remains intact.
-E2E-287	CLI detail invalid option combination	cli	"dropcheck show wifi scan detail ""<ssid>"" timeout 12000"	error	Timeout is unsupported for scan detail.
-E2E-288	CLI connect canonical	cli	"dropcheck wifi connect ""<ssid>"" passphrase <psk> security auto timeout 25000"	ok	Explicit passphrase connects.
-E2E-289	CLI connect all options	cli	"dropcheck wifi connect ""<ssid>"" passphrase <psk> security wpa3 band 5ghz mac-randomization auto timeout 25000"	ok	Scalar options accepted.
-E2E-290	CLI missing value	cli	"dropcheck wifi connect ""<ssid>"" passphrase"	error	Passphrase requires a value.
-E2E-291	CLI connect arity	cli	"dropcheck wifi connect ""<ssid>"" passphrase <psk> extra"	error	Too many arguments.
-E2E-292	CLI wait booleans	cli	"dropcheck wifi wait connected ssid ""<ssid>"" require-ip true require-validated true timeout 12000"	ok	Wait succeeds.
-E2E-293	CLI wait selector	cli	"dropcheck wifi wait connected ssid ""<ssid>"" require-ip true timeout 12000"	ok	Wait succeeds with SSID selector.
-E2E-294	CLI wait positional rejection	cli	"dropcheck wifi wait connected ""<ssid>"" other"	error	Usage error.
-E2E-295	CLI assert booleans	cli	"dropcheck wifi assert ssid ""<ssid>"" require-ip true require-validated true timeout 5000"	ok	Assert succeeds.
-E2E-296	CLI assert positional rejection	cli	"dropcheck wifi assert ""<ssid>"""	error	Assert requires SSID key.
-E2E-297	CLI monitor duration interval	cli	dropcheck wifi monitor duration 1500 interval 500	ok	Wi-Fi monitor succeeds.
-E2E-298	CLI monitor defaults	cli	dropcheck wifi monitor	ok	Default monitor duration/interval accepted.
-E2E-299	CLI monitor interval-only	cli	dropcheck wifi monitor interval 500	ok	Monitor uses default duration and explicit interval.
-E2E-300	CLI positional reconnect timeout rejected	cli	dropcheck wifi reconnect 10000	error	Positional timeout removed.
-E2E-301	CLI reconnect timeout	cli	dropcheck wifi reconnect timeout 10000	ok	Explicit reconnect timeout succeeds.
-E2E-302	CLI cycle options	cli	"dropcheck wifi cycle ""<ssid>"" passphrase <psk> count 1 ping 1.1.1.1 http https://www.google.com/generate_204 pause 100 timeout 25000"	ok	Cycle runs with canonical options.
-E2E-303	CLI cycle boolean	cli	"dropcheck wifi cycle ""<ssid>"" passphrase <psk> forget-after-each true count 1 pause 100 timeout 25000"	ok	Cycle forgets after each run.
-E2E-304	CLI ping count	cli	dropcheck ping 1.1.1.1 count 2 size 56 timeout 7000	ok	Explicit ping count succeeds.
-E2E-305	CLI traceroute options	cli	dropcheck traceroute 1.1.1.1 max-hops 8 via 192.168.23.254 size 56 timeout 30000	ok	Hop bound and repeatable via work.
-E2E-306	CLI path MTU options	cli	dropcheck path-mtu 1.1.1.1 min-mtu 1200 max-mtu 1500 timeout 30000	ok	Path-MTU options work.
-E2E-307	CLI numeric family rejected	cli	dropcheck global-ip family 4 timeout 7000	error	Numeric family shorthand is rejected.
-E2E-308	CLI duplicate family	cli	dropcheck global-ip family ipv4 family ipv6	error	Family specified twice error.
-E2E-309	CLI DNS A record	cli	dropcheck dns example.com record A timeout 7000	ok	Explicit DNS A qtype works.
-E2E-310	CLI DNS AAAA record	cli	dropcheck dns example.com record AAAA timeout 7000	ok	Explicit DNS AAAA qtype works.
-E2E-311	CLI HTTP status	cli	dropcheck http https://www.google.com/generate_204 expected-status 204 timeout 7000	ok	Expected status works.
-E2E-312	CLI HTTP selector	cli	"dropcheck http https://www.google.com/generate_204 expected-status 204 timeout 7000 ssid ""<ssid>"""	ok	Selector is preserved.
-E2E-313	CLI download timeout	cli	dropcheck download https://example.com timeout 30000	ok	Download timeout works.
-E2E-319	CLI unsupported option	cli	dropcheck show wifi status --unknown	error	Usage/unknown option error.
-E2E-320	CLI duplicate option	cli	"dropcheck wifi connect ""<ssid>"" passphrase <psk> passphrase other"	error	Duplicate option error.
-E2E-321	CLI repeatable option exception	cli	dropcheck traceroute 1.1.1.1 via 192.168.23.254 via 1.1.1.1	ok	Repeatable via accepted.
 E2E-350	Shell Wi-Fi EHT	shell	show wifi status eht	ok_or_clear	EHT-focused Wi-Fi diagnostics render without dispatch error.
 E2E-351	Shell Wi-Fi EHT fresh	shell	request wifi scan eht timeout 12000	ok_or_clear	EHT-focused Wi-Fi diagnostics can trigger a fresh scan.
 E2E-352	Parser Wi-Fi EHT request	shell-parser	request wifi scan eht timeout 9000	ok	The EHT projection is full by default; timeout bounds the single scan wait.
 E2E-353	Parser Wi-Fi EHT fresh duplicate timeout	shell-parser	request wifi scan eht timeout 100 timeout 200	error	Duplicate Wi-Fi EHT fresh timeout is rejected.
-E2E-354	CLI Wi-Fi EHT	cli	dropcheck show wifi eht	ok_or_clear	EHT-focused Wi-Fi diagnostics render from the CLI.
 E2E-357	Parser rejects unimplemented display set	shell-parser	show devices | display set	error	The removed configuration-format no-op is rejected before execution.
 E2E-358	Parser rejects display set after count	shell-parser	show devices | count | display set	error	Display set after count is rejected.
