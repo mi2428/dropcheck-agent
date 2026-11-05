@@ -5,11 +5,11 @@ import (
 	"strings"
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 )
 
 // FailedCheckKey returns the stable identity for one finding.
-func FailedCheckKey(finding watch.Finding) string {
+func FailedCheckKey(finding watchrun.Finding) string {
 	if finding.CheckID != "" {
 		return strings.Join([]string{finding.TargetID, finding.CheckID, finding.Metric, finding.Expected}, "\x00")
 	}
@@ -19,7 +19,7 @@ func FailedCheckKey(finding watch.Finding) string {
 // FailedCheckSummaryKey returns the summary key for an agent/target/finding
 // tuple. Failed summaries include the agent so device-labelled TUI rows never
 // merge results from different phones into one ambiguous row.
-func FailedCheckSummaryKey(agent watch.AgentSnapshot, target watch.TargetSnapshot, finding watch.Finding) string {
+func FailedCheckSummaryKey(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, finding watchrun.Finding) string {
 	return FailedCheckStateKey(agent, target, finding)
 }
 
@@ -39,7 +39,7 @@ func FailedCheckSummaryIndexByIdentity(rows []FailedCheckSummary, key string) in
 }
 
 // FailedCheckStateKey returns the full per-agent failed-check identity.
-func FailedCheckStateKey(agent watch.AgentSnapshot, target watch.TargetSnapshot, finding watch.Finding) string {
+func FailedCheckStateKey(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, finding watchrun.Finding) string {
 	targetName := FirstNonEmpty(target.Name, target.SSID, target.BSSID, finding.Target)
 	return strings.Join([]string{AgentKey(agent), targetName, target.SSID, target.BSSID, FailedCheckKey(finding)}, "\x00")
 }
@@ -76,20 +76,20 @@ func FailureCauseSummaryIndexByIdentity(rows []FailureCauseSummary, key string) 
 
 // FailureCauseIdentity returns the per-agent cause identity used for
 // cross-target hotspot aggregation.
-func FailureCauseIdentity(agent watch.AgentSnapshot, cause string) string {
+func FailureCauseIdentity(agent watchrun.AgentSnapshot, cause string) string {
 	return strings.Join([]string{RoundAgentKey(agent), strings.ToLower(strings.TrimSpace(cause))}, "\x00")
 }
 
 // FailureHotspotIdentity returns the per-agent target identity used for hotspot
 // aggregation.
-func FailureHotspotIdentity(agent watch.AgentSnapshot, target watch.TargetSnapshot, findingTargets ...string) string {
+func FailureHotspotIdentity(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, findingTargets ...string) string {
 	targetKey := FirstNonEmpty(CheckStatusTargetKey(target), FirstNonEmpty(findingTargets...), "target")
 	return strings.Join([]string{RoundAgentKey(agent), targetKey}, "\x00")
 }
 
 // RoundAgentKey returns a non-empty key for aggregations that must still work
 // when watch data comes from a single unnamed local agent.
-func RoundAgentKey(agent watch.AgentSnapshot) string {
+func RoundAgentKey(agent watchrun.AgentSnapshot) string {
 	if key := AgentKey(agent); key != "" {
 		return key
 	}
@@ -97,7 +97,7 @@ func RoundAgentKey(agent watch.AgentSnapshot) string {
 }
 
 // TargetStateKey returns the map key for one configured or live target state.
-func TargetStateKey(agent watch.AgentSnapshot, target watch.TargetSnapshot) string {
+func TargetStateKey(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot) string {
 	if target.ID != "" {
 		return strings.Join([]string{AgentKey(agent), target.ID}, "\x00")
 	}
@@ -106,17 +106,17 @@ func TargetStateKey(agent watch.AgentSnapshot, target watch.TargetSnapshot) stri
 }
 
 // AgentKey returns the most stable available agent identity.
-func AgentKey(agent watch.AgentSnapshot) string {
+func AgentKey(agent watchrun.AgentSnapshot) string {
 	return FirstNonEmpty(agent.ID, agent.ADBSerial, agent.SessionID, agent.Name)
 }
 
 // AgentLabel returns the operator-facing label for an agent snapshot.
-func AgentLabel(agent watch.AgentSnapshot) string {
+func AgentLabel(agent watchrun.AgentSnapshot) string {
 	return FirstNonEmpty(agent.DisplayName(), "-")
 }
 
 // SameAgent reports whether two snapshots identify the same agent.
-func SameAgent(a watch.AgentSnapshot, b watch.AgentSnapshot) bool {
+func SameAgent(a watchrun.AgentSnapshot, b watchrun.AgentSnapshot) bool {
 	return AgentKey(a) == AgentKey(b)
 }
 
@@ -142,7 +142,7 @@ func DisplayCheckName(name string) string {
 // CheckStatusTargetKey is the target identity used for cross-round check
 // aggregation. It deliberately omits band so late events with partial target
 // snapshots still land on the configured target row.
-func CheckStatusTargetKey(target watch.TargetSnapshot) string {
+func CheckStatusTargetKey(target watchrun.TargetSnapshot) string {
 	if target.ID != "" {
 		return target.ID
 	}
@@ -151,17 +151,17 @@ func CheckStatusTargetKey(target watch.TargetSnapshot) string {
 
 // CheckStatusTargetLabel returns the most useful operator-facing label for a
 // target snapshot.
-func CheckStatusTargetLabel(target watch.TargetSnapshot) string {
+func CheckStatusTargetLabel(target watchrun.TargetSnapshot) string {
 	return FirstNonEmpty(target.Name, target.SSID, target.BSSID, "-")
 }
 
 // CheckStatusTargetShortLabel returns the configured dense label for a target.
-func CheckStatusTargetShortLabel(target watch.TargetSnapshot) string {
+func CheckStatusTargetShortLabel(target watchrun.TargetSnapshot) string {
 	return FirstNonEmpty(target.ShortName, target.Name, target.SSID, target.BSSID, "-")
 }
 
 // EventTargetLabel returns the target label used in event-log summaries.
-func (s State) EventTargetLabel(event watch.Event) string {
+func (s State) EventTargetLabel(event watchrun.Event) string {
 	label := event.Target.Name
 	if !s.MultiAgent {
 		return label
@@ -170,7 +170,7 @@ func (s State) EventTargetLabel(event watch.Event) string {
 }
 
 // PassingCheckEvent reports whether event should be counted as a passing check.
-func PassingCheckEvent(event watch.Event) bool {
+func PassingCheckEvent(event watchrun.Event) bool {
 	status := FirstNonEmpty(event.Step.Status, event.Status)
 	if status != "ok" || event.Step.Skipped {
 		return false
@@ -184,7 +184,7 @@ func PassingCheckEvent(event watch.Event) bool {
 // RequiredStepFailedCheck converts failed required connection steps into
 // findings.
 // PassingCheckKey returns the full per-agent passing-check identity.
-func PassingCheckKey(agent watch.AgentSnapshot, target watch.TargetSnapshot, step watch.StepSnapshot) string {
+func PassingCheckKey(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, step watchrun.StepSnapshot) string {
 	if target.ID != "" && step.ID != "" {
 		return strings.Join([]string{AgentKey(agent), target.ID, step.ID}, "\x00")
 	}
@@ -199,7 +199,7 @@ func PassingCheckKey(agent watch.AgentSnapshot, target watch.TargetSnapshot, ste
 // PassingCheckSummaryKey returns the summary identity for an agent, target, and
 // step. Passing summaries include the agent so device-labelled TUI rows never
 // merge results from different phones into one ambiguous row.
-func PassingCheckSummaryKey(agent watch.AgentSnapshot, target watch.TargetSnapshot, step watch.StepSnapshot) string {
+func PassingCheckSummaryKey(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, step watchrun.StepSnapshot) string {
 	return PassingCheckKey(agent, target, step)
 }
 
@@ -219,7 +219,7 @@ func PassingCheckSummaryIndexByIdentity(rows []PassingCheckSummary, key string) 
 }
 
 // EventTime returns event.Time or wall-clock time when the event is undated.
-func EventTime(event watch.Event) time.Time {
+func EventTime(event watchrun.Event) time.Time {
 	if !event.Time.IsZero() {
 		return event.Time
 	}

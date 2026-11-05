@@ -3,7 +3,6 @@ package app
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -19,11 +18,11 @@ import (
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
-	"dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/render"
 	"dropcheck/controller/internal/runner"
 	"dropcheck/controller/internal/shell"
 	"dropcheck/controller/internal/version"
+	"dropcheck/controller/internal/watchrun"
 	"github.com/chzyer/readline"
 	"google.golang.org/protobuf/proto"
 )
@@ -313,7 +312,7 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 	switch command.kind {
 	case shellSetDefaultPassphrase:
 		state.defaultPassphrase = command.passphrase
-		return false, printLocalOutput(command, func(outputFormat) (string, error) {
+		return false, printLocalOutput(command, func() (string, error) {
 			if command.passphrase == "" {
 				return "default passphrase cleared\n", nil
 			}
@@ -321,7 +320,7 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 		})
 	case shellClearDefaultPassphrase:
 		state.defaultPassphrase = ""
-		return false, printLocalOutput(command, func(outputFormat) (string, error) { return "default passphrase cleared\n", nil })
+		return false, printLocalOutput(command, func() (string, error) { return "default passphrase cleared\n", nil })
 	case shellConnect:
 		return false, connectShell(ctx, state, command)
 	case shellNoop:
@@ -329,7 +328,7 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 	case shellExit:
 		return true, nil
 	case shellHelp:
-		return false, printLocalOutput(command, func(outputFormat) (string, error) {
+		return false, printLocalOutput(command, func() (string, error) {
 			var b strings.Builder
 			if command.helpTopic == "" {
 				shell.WriteContextHelp(&b, "?")
@@ -339,17 +338,17 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 			return b.String(), nil
 		})
 	case shellVersion:
-		return false, printLocalOutput(command, func(outputFormat) (string, error) { return "Controller version: " + version.Version + "\n", nil })
+		return false, printLocalOutput(command, func() (string, error) { return "Controller version: " + version.Version + "\n", nil })
 	case shellCLI:
-		return false, printLocalOutput(command, func(outputFormat) (string, error) { return renderShellSession(state), nil })
+		return false, printLocalOutput(command, func() (string, error) { return renderShellSession(state), nil })
 	case shellShowDevices:
-		return false, printLocalOutput(command, func(format outputFormat) (string, error) {
-			return renderAgents(agentListView(state), format)
+		return false, printLocalOutput(command, func() (string, error) {
+			return render.Agents(agentListView(state), outputText)
 		})
 	case shellProfiles:
 		return false, printLocalOutput(command, showProfiles)
 	case shellLastReport:
-		return false, printLocalOutput(command, func(format outputFormat) (string, error) {
+		return false, printLocalOutput(command, func() (string, error) {
 			view := terminalPresentation()
 			view.Interactive = true
 			if command.pipeline.pipeline.StageCount() > 0 || command.pipeline.displayJSON {
@@ -362,7 +361,7 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 		if command.profileName == "" {
 			return false, printLocalOutput(command, showProfiles)
 		}
-		err := state.runCheck(ctx, command.profileName, command.ssid, command.family, command.bssid, command.rejection, outputText, command.pipeline, false, command.lab)
+		err := state.runCheck(ctx, command.profileName, command.ssid, command.family, command.bssid, command.rejection, command.pipeline, command.lab)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 		}
@@ -377,9 +376,7 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 			return false, nil
 		}
 		return false, runOperationForAgents(ctx, state, agents, command.operation, commandOutputOptions{
-			format:       outputText,
 			pipeline:     command.pipeline,
-			interactive:  true,
 			singleTarget: command.effect == "mutation" || command.kind == shellWifiTest,
 			wifiTest:     command.kind == shellWifiTest,
 		})
@@ -390,9 +387,7 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 			return false, nil
 		}
 		return false, runADBDiagnosticsForAgents(ctx, state, agents, command.adbKind, commandOutputOptions{
-			format:       outputText,
 			pipeline:     command.pipeline,
-			interactive:  true,
 			adbTimeoutMs: command.adbTimeoutMs,
 		})
 	default:
@@ -400,8 +395,8 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 	}
 }
 
-func printLocalOutput(command shellCommand, render func(outputFormat) (string, error)) error {
-	out, err := render(outputText)
+func printLocalOutput(command shellCommand, render func() (string, error)) error {
+	out, err := render()
 	if err != nil {
 		return err
 	}
@@ -453,12 +448,9 @@ func resolveShellAgent(state *shellState, target string) (control.AgentInfo, err
 }
 
 type commandOutputOptions struct {
-	format             outputFormat
 	pipeline           pipePipeline
 	includeAgentHeader bool
-	strict             bool
 	use                bool
-	interactive        bool
 	singleTarget       bool
 	wifiTest           bool
 	adbTimeoutMs       uint32
@@ -496,21 +488,12 @@ func runOperationForAgents(ctx context.Context, state *shellState, agents []cont
 	}
 	if len(agents) == 0 {
 		fmt.Fprintln(os.Stderr, "no Android agents connected")
-		if output.strict {
-			return errors.New("no Android agents connected")
-		}
 		return nil
-	}
-	if output.format == "" {
-		output.format = outputText
 	}
 	if len(agents) > 1 {
 		output.includeAgentHeader = true
 	}
 	if err := command.ValidateOperation(op); err != nil {
-		if output.strict {
-			return err
-		}
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return nil
 	}
@@ -540,10 +523,6 @@ func runADBDiagnosticsForAgents(ctx context.Context, state *shellState, agents [
 		fmt.Fprintln(os.Stderr, "no Android agents connected")
 		return nil
 	}
-	if output.format == "" {
-		output.format = outputText
-	}
-
 	var outputMu sync.Mutex
 	var printedAny bool
 	var wg sync.WaitGroup
@@ -572,29 +551,17 @@ func runADBDiagnosticsForAgent(ctx context.Context, state *shellState, agent con
 		defer outputMu.Unlock()
 		err := fmt.Errorf("%s: adb serial is not available for diagnostics", agentDisplayName(agent))
 		fmt.Fprintln(os.Stderr, err)
-		if output.strict {
-			return err
-		}
 		return nil
 	}
 	client := adb.Client{Path: state.adbPath, Serial: serial}
-	var bundle adbdiag.Bundle
-	var err error
-	if output.interactive {
-		bundle, err = adbdiag.CollectInteractive(ctx, client, agentDisplayName(agent), kind, time.Duration(output.adbTimeoutMs)*time.Millisecond, func(index, total int, name string) {
-			outputMu.Lock()
-			defer outputMu.Unlock()
-			fmt.Fprintf(os.Stderr, "%s: ADB %d/%d %s\n", strings.TrimSpace(render.TextBlock(agentDisplayName(agent), render.Presentation{})), index, total, name)
-		})
-	} else {
-		bundle, err = adbdiag.Collect(ctx, client, agentDisplayName(agent), kind)
-	}
+	bundle, err := adbdiag.CollectInteractive(ctx, client, agentDisplayName(agent), kind, time.Duration(output.adbTimeoutMs)*time.Millisecond, func(index, total int, name string) {
+		outputMu.Lock()
+		defer outputMu.Unlock()
+		fmt.Fprintf(os.Stderr, "%s: ADB %d/%d %s\n", strings.TrimSpace(render.TextBlock(agentDisplayName(agent), render.Presentation{})), index, total, name)
+	})
 	outputMu.Lock()
 	defer outputMu.Unlock()
 	if err != nil {
-		if output.strict {
-			return err
-		}
 		fmt.Fprintf(os.Stderr, "%s: %v\n", agentDisplayName(agent), err)
 		return nil
 	}
@@ -602,28 +569,20 @@ func runADBDiagnosticsForAgent(ctx context.Context, state *shellState, agent con
 	if output.pipeline.pipeline.StageCount() > 0 || output.pipeline.displayJSON {
 		view.Width = 0
 	}
-	out, err := adbdiag.Render(bundle, output.format, view)
+	out, err := adbdiag.Render(bundle, outputText, view)
 	if err != nil {
 		return err
 	}
-	if output.interactive {
-		out, err = output.pipeline.shellOutput(out, bundle.OK())
-	} else {
-		out, err = output.pipeline.apply(out)
-	}
+	out, err = output.pipeline.shellOutput(out, bundle.OK())
 	if err != nil {
 		return err
 	}
-	if output.format == outputText {
-		out = separateTextBlock(out, *printedAny)
-	}
+	out = separateTextBlock(out, *printedAny)
 	fmt.Print(out)
-	if output.interactive && !bundle.OK() {
+	if !bundle.OK() {
 		fmt.Fprintf(os.Stderr, "%s: ADB diagnostics FAILED\n", agentDisplayName(agent))
 	}
-	if output.format == outputText {
-		*printedAny = true
-	}
+	*printedAny = true
 	return nil
 }
 
@@ -641,7 +600,7 @@ func resultStatusLabel(status controlpb.CommandResult_Status) string {
 }
 
 func runCommandForAgent(ctx context.Context, state *shellState, agent control.AgentInfo, op Operation, output commandOutputOptions, outputMu *sync.Mutex, printedAny *bool) error {
-	exec, err := harness.ExecuteOperation(ctx, runner.New(state.server), agent, op)
+	exec, err := watchrun.ExecuteOperation(ctx, runner.New(state.server), agent, op)
 	commandID := ""
 	if len(exec.Parts) != 0 {
 		commandID = exec.Parts[len(exec.Parts)-1].CommandID
@@ -671,13 +630,13 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 		result.Message = "local operation assertion failed"
 	}
 	// The old text renderer inspects untrusted process output for via. Core's
-	// typed hop findings, not that heuristic, determine both result and exit.
+	// typed hop findings, not that heuristic, determine the Shell outcome.
 	options.TracerouteRequiredHops = nil
 	supplements := commandResultSupplements{}
 	if err == nil {
-		supplements = collectCommandResultSupplements(ctx, state, agent, result, options, output.format, output.interactive)
+		supplements = collectCommandResultSupplements(ctx, state, agent, result, options)
 	}
-	if output.interactive && ctx.Err() != nil && result != nil {
+	if ctx.Err() != nil && result != nil {
 		result = proto.Clone(result).(*controlpb.CommandResult)
 		result.Status = controlpb.CommandResult_STATUS_CANCELED
 		result.Message = "collection canceled; retained data is reference, completed device actions are not rolled back"
@@ -693,115 +652,67 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 	outputMu.Lock()
 	defer outputMu.Unlock()
 	if err != nil {
-		out, renderErr := renderCommandError(agentDisplayName(agent), commandID, err, output.format, output.includeAgentHeader)
+		out, renderErr := render.CommandError(agentDisplayName(agent), commandID, err, outputText, output.includeAgentHeader)
 		if renderErr != nil {
 			return renderErr
 		}
-		if output.interactive {
-			out, renderErr = output.pipeline.shellOutput(redactOperationSecret(op, out), false)
-		} else {
-			out, renderErr = output.pipeline.apply(redactOperationSecret(op, out))
-		}
+		out, renderErr = output.pipeline.shellOutput(redactOperationSecret(op, out), false)
 		if renderErr != nil {
 			return renderErr
 		}
-		if output.includeAgentHeader && output.format == outputText {
+		if output.includeAgentHeader {
 			out = separateTextBlock(out, *printedAny)
 		}
 		fmt.Print(out)
-		if output.interactive {
-			fmt.Fprintf(os.Stderr, "%s: command FAILED: %s\n", agentDisplayName(agent), redactOperationSecret(op, safeCommandErrorText(err.Error())))
-		}
-		if output.format == outputText {
-			*printedAny = true
-		}
-		if output.strict {
-			return fmt.Errorf("%s: %s", agentDisplayName(agent), redactOperationSecret(op, safeCommandErrorText(err.Error())))
-		}
+		fmt.Fprintf(os.Stderr, "%s: command FAILED: %s\n", agentDisplayName(agent), redactOperationSecret(op, safeCommandErrorText(err.Error())))
+		*printedAny = true
 		return nil
 	}
-	var out string
-	if output.format == outputJSON && output.includeAgentHeader && options.RawView == "" {
-		out, err = renderCommandResultEnvelope(agentDisplayName(agent), commandID, result)
-	} else {
-		if output.interactive {
-			view := terminalPresentation()
-			if output.pipeline.pipeline.StageCount() > 0 || output.pipeline.displayJSON {
-				view.Width = 0
-			}
-			view.Detail = options.Detail
-			view.DetailAvailable = true
-			view.Interactive = true
-			out, err = render.CommandResult(agentDisplayName(agent), result, options, output.format, view)
+	view := terminalPresentation()
+	if output.pipeline.pipeline.StageCount() > 0 || output.pipeline.displayJSON {
+		view.Width = 0
+	}
+	view.Detail = options.Detail
+	view.DetailAvailable = true
+	view.Interactive = true
+	out, err := render.CommandResult(agentDisplayName(agent), result, options, outputText, view)
+	if err == nil {
+		if output.pipeline.pipeline.StageCount() > 0 || output.pipeline.displayJSON {
+			out = supplements.appendToText(out, render.Presentation{})
 		} else {
-			out, err = renderCommandResult(agentDisplayName(agent), result, options, output.format)
+			out = supplements.appendToText(out)
 		}
-		if err == nil && output.format == outputText {
-			if output.interactive && (output.pipeline.pipeline.StageCount() > 0 || output.pipeline.displayJSON) {
-				out = supplements.appendToText(out, render.Presentation{})
-			} else {
-				out = supplements.appendToText(out)
-			}
-		}
-		if err == nil && output.includeAgentHeader && output.format == outputText {
-			out = agentTextBlock(agentDisplayName(agent), out, *printedAny)
-		}
+	}
+	if err == nil && output.includeAgentHeader {
+		out = agentTextBlock(agentDisplayName(agent), out, *printedAny)
 	}
 	if err != nil {
 		return err
 	}
-	if len(exec.Findings) != 0 {
-		if output.format == outputJSON {
-			var body map[string]json.RawMessage
-			if err := json.Unmarshal([]byte(out), &body); err != nil {
-				return err
-			}
-			findings, err := json.Marshal(exec.Findings)
-			if err != nil {
-				return err
-			}
-			body["findings"] = findings
-			data, err := json.Marshal(body)
-			if err != nil {
-				return err
-			}
-			out = string(data) + "\n"
-		} else {
-			for _, finding := range exec.Findings {
-				status := "PASS"
-				if finding.Missing {
-					status = "MISSING"
-				} else if !finding.Passed {
-					status = "FAIL"
-				}
-				out += fmt.Sprintf("%s %s: %s\n", status, finding.Metric, finding.Message)
-			}
+	for _, finding := range exec.Findings {
+		status := "PASS"
+		if finding.Missing {
+			status = "MISSING"
+		} else if !finding.Passed {
+			status = "FAIL"
 		}
+		out += fmt.Sprintf("%s %s: %s\n", status, finding.Metric, finding.Message)
 	}
-	if output.format == outputText && op.Name == "wifi.eht" && len(exec.Parts) > 0 && exec.Parts[0].Raw.GetWifiScan() != nil && exec.Parts[0].Raw.GetStatus() != controlpb.CommandResult_STATUS_OK {
+	if op.Name == "wifi.eht" && len(exec.Parts) > 0 && exec.Parts[0].Raw.GetWifiScan() != nil && exec.Parts[0].Raw.GetStatus() != controlpb.CommandResult_STATUS_OK {
 		out += "Fresh scan: cached (refresh failed); scan data is reference\n"
 	}
-	if output.interactive {
-		out, err = output.pipeline.shellOutput(redactOperationSecret(op, out), result.GetStatus() == controlpb.CommandResult_STATUS_OK)
-	} else {
-		out, err = output.pipeline.apply(redactOperationSecret(op, out))
-	}
+	out, err = output.pipeline.shellOutput(redactOperationSecret(op, out), result.GetStatus() == controlpb.CommandResult_STATUS_OK)
 	if err != nil {
 		return err
 	}
-	if output.format == outputText && !output.includeAgentHeader {
+	if !output.includeAgentHeader {
 		out = separateTextBlock(out, *printedAny)
 	}
 	fmt.Print(out)
-	if output.interactive && result.GetStatus() != controlpb.CommandResult_STATUS_OK {
+	if result.GetStatus() != controlpb.CommandResult_STATUS_OK {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", agentDisplayName(agent), resultStatusLabel(result.GetStatus()))
 	}
-	if output.format == outputText {
-		*printedAny = true
-	}
-	if output.strict && result.GetStatus() != controlpb.CommandResult_STATUS_OK {
-		return fmt.Errorf("%s: %s: %s", agentDisplayName(agent), resultStatusLabel(result.GetStatus()), redactOperationSecret(op, safeCommandErrorText(result.GetMessage())))
-	}
+	*printedAny = true
 	if output.use && result.GetStatus() == controlpb.CommandResult_STATUS_OK {
 		state.failedUse = false
 	}

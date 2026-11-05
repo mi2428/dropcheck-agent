@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 	"dropcheck/controller/internal/watchstate"
 
 	"charm.land/lipgloss/v2"
@@ -82,7 +82,7 @@ type checkStatusLayout struct {
 	ShortMode      bool
 }
 
-func checkStatusTableLayout(width int, checks []string, targets []watch.TargetSnapshot, agents []watch.AgentSnapshot) checkStatusLayout {
+func checkStatusTableLayout(width int, checks []string, targets []watchrun.TargetSnapshot, agents []watchrun.AgentSnapshot) checkStatusLayout {
 	labelWidth := clamp(maxCheckStatusLabelWidth(checks), 5, intMin(27, intMax(5, width*3/8)))
 	available := intMax(1, width-labelWidth-1)
 	fullMinCellWidth := 9
@@ -114,7 +114,7 @@ func checkStatusVisibleTargetCount(available int, targetCount int, minCellWidth 
 	return intMin(targetCount, intMax(1, (available+1)/(minCellWidth+1)))
 }
 
-func maxCheckStatusShortCellWidth(targets []watch.TargetSnapshot, agents []watch.AgentSnapshot) int {
+func maxCheckStatusShortCellWidth(targets []watchrun.TargetSnapshot, agents []watchrun.AgentSnapshot) int {
 	width := compactCheckStatusTokenWidth(intMax(1, len(agents)))
 	for _, target := range targets {
 		width = intMax(width, lipgloss.Width(checkStatusTargetShortLabel(target)))
@@ -122,7 +122,7 @@ func maxCheckStatusShortCellWidth(targets []watch.TargetSnapshot, agents []watch
 	return intMax(1, width)
 }
 
-func allCheckStatusTargetsHaveShortName(targets []watch.TargetSnapshot) bool {
+func allCheckStatusTargetsHaveShortName(targets []watchrun.TargetSnapshot) bool {
 	if len(targets) == 0 {
 		return false
 	}
@@ -134,7 +134,7 @@ func allCheckStatusTargetsHaveShortName(targets []watch.TargetSnapshot) bool {
 	return true
 }
 
-func checkStatusTargetLabelsNeedCompaction(targets []watch.TargetSnapshot, width int) bool {
+func checkStatusTargetLabelsNeedCompaction(targets []watchrun.TargetSnapshot, width int) bool {
 	if width <= 0 {
 		return false
 	}
@@ -146,7 +146,7 @@ func checkStatusTargetLabelsNeedCompaction(targets []watch.TargetSnapshot, width
 	return false
 }
 
-func (m model) checkStatusVisibleTargets(targets []watch.TargetSnapshot, layout checkStatusLayout) []watch.TargetSnapshot {
+func (m model) checkStatusVisibleTargets(targets []watchrun.TargetSnapshot, layout checkStatusLayout) []watchrun.TargetSnapshot {
 	visible := intMin(layout.VisibleTargets, len(targets))
 	if visible >= len(targets) {
 		return targets
@@ -205,7 +205,7 @@ func (m model) checkStatusMaxOffset(width int) int {
 	return maxOffset
 }
 
-func (m model) checkStatusWindowMetrics(width int) ([]watch.TargetSnapshot, checkStatusLayout, int) {
+func (m model) checkStatusWindowMetrics(width int) ([]watchrun.TargetSnapshot, checkStatusLayout, int) {
 	targets := m.checkStatusTargets()
 	if len(targets) == 0 {
 		return nil, checkStatusLayout{}, 0
@@ -223,7 +223,7 @@ func (m model) checkStatusWindowMetrics(width int) ([]watch.TargetSnapshot, chec
 	return targets, layout, intMax(0, len(targets)-layout.VisibleTargets)
 }
 
-func (m model) filteredCheckStatusAxes(checks []string, targets []watch.TargetSnapshot) ([]string, []watch.TargetSnapshot) {
+func (m model) filteredCheckStatusAxes(checks []string, targets []watchrun.TargetSnapshot) ([]string, []watchrun.TargetSnapshot) {
 	query := watchstate.NormalizedSearchQuery(m.panelFilterQuery(focusCheckStatus))
 	if query == "" {
 		return checks, targets
@@ -234,7 +234,7 @@ func (m model) filteredCheckStatusAxes(checks []string, targets []watch.TargetSn
 			matchedChecks = append(matchedChecks, check)
 		}
 	}
-	matchedTargets := make([]watch.TargetSnapshot, 0, len(targets))
+	matchedTargets := make([]watchrun.TargetSnapshot, 0, len(targets))
 	for _, target := range targets {
 		if checkStatusTargetMatches(target, query) {
 			matchedTargets = append(matchedTargets, target)
@@ -259,7 +259,7 @@ func checkStatusCheckMatches(check string, query string) bool {
 	}, query)
 }
 
-func checkStatusTargetMatches(target watch.TargetSnapshot, query string) bool {
+func checkStatusTargetMatches(target watchrun.TargetSnapshot, query string) bool {
 	return watchstate.FieldsContainQuery([]string{
 		target.Name,
 		target.ShortName,
@@ -272,7 +272,7 @@ func checkStatusTargetMatches(target watch.TargetSnapshot, query string) bool {
 	}, query)
 }
 
-func (m model) checkStatusActiveTargetIndex(targets []watch.TargetSnapshot) int {
+func (m model) checkStatusActiveTargetIndex(targets []watchrun.TargetSnapshot) int {
 	for i := range slices.Backward(targets) {
 		if m.checkStatusTargetRunning(targets[i]) {
 			return i
@@ -286,7 +286,7 @@ func (m model) checkStatusActiveTargetIndex(targets []watch.TargetSnapshot) int 
 	return -1
 }
 
-func (m model) checkStatusTargetRunning(target watch.TargetSnapshot) bool {
+func (m model) checkStatusTargetRunning(target watchrun.TargetSnapshot) bool {
 	targetKey := checkStatusTargetKey(target)
 	if targetKey == "" {
 		return false
@@ -307,7 +307,7 @@ func (m model) checkStatusTargetRunning(target watch.TargetSnapshot) bool {
 	return false
 }
 
-func (m model) checkStatusTargetFailed(target watch.TargetSnapshot) bool {
+func (m model) checkStatusTargetFailed(target watchrun.TargetSnapshot) bool {
 	targetKey := checkStatusTargetKey(target)
 	if targetKey == "" {
 		return false
@@ -328,7 +328,7 @@ func (m model) checkStatusTargetFailed(target watch.TargetSnapshot) bool {
 	return false
 }
 
-func checkStatusHeaderLabel(target watch.TargetSnapshot, layout checkStatusLayout) string {
+func checkStatusHeaderLabel(target watchrun.TargetSnapshot, layout checkStatusLayout) string {
 	if layout.ShortMode {
 		return fitANSI(checkStatusTargetShortLabel(target), layout.CellWidth)
 	}
@@ -339,11 +339,11 @@ func (m model) outcomeEvents() []outcomeEvent {
 	return m.OutcomeEvents()
 }
 
-func (m model) outcomeAgents(events []outcomeEvent) []watch.AgentSnapshot {
+func (m model) outcomeAgents(events []outcomeEvent) []watchrun.AgentSnapshot {
 	return m.OutcomeAgents(events)
 }
 
-func (m model) checkStatusTargets() []watch.TargetSnapshot {
+func (m model) checkStatusTargets() []watchrun.TargetSnapshot {
 	return m.CheckStatusTargets()
 }
 
@@ -351,10 +351,10 @@ func (m model) checkStatusChecks() []string {
 	return m.CheckStatusChecks()
 }
 
-func (m model) checkStatusAgentsForTarget(target watch.TargetSnapshot, fallback []watch.AgentSnapshot) []watch.AgentSnapshot {
+func (m model) checkStatusAgentsForTarget(target watchrun.TargetSnapshot, fallback []watchrun.AgentSnapshot) []watchrun.AgentSnapshot {
 	key := checkStatusTargetKey(target)
 	seen := make(map[string]bool)
-	var agents []watch.AgentSnapshot
+	var agents []watchrun.AgentSnapshot
 	for _, state := range m.Targets {
 		if checkStatusTargetKey(state.Target) != key {
 			continue
@@ -409,7 +409,7 @@ func (m model) connectStatusFooterItems() []connectState {
 	return items
 }
 
-func (m model) connectStatusForAgent(agent watch.AgentSnapshot) (connectState, bool) {
+func (m model) connectStatusForAgent(agent watchrun.AgentSnapshot) (connectState, bool) {
 	for _, state := range m.ConnectStates {
 		if sameAgent(state.Agent, agent) {
 			return state, true
@@ -418,7 +418,7 @@ func (m model) connectStatusForAgent(agent watch.AgentSnapshot) (connectState, b
 	return connectState{}, false
 }
 
-func connectStatusContainsAgent(items []connectState, agent watch.AgentSnapshot) bool {
+func connectStatusContainsAgent(items []connectState, agent watchrun.AgentSnapshot) bool {
 	for _, item := range items {
 		if sameAgent(item.Agent, agent) {
 			return true
@@ -538,19 +538,19 @@ func compactCheckStatusTokenWidth(total int) int {
 	return width
 }
 
-func checkStatusTargetKey(target watch.TargetSnapshot) string {
+func checkStatusTargetKey(target watchrun.TargetSnapshot) string {
 	return watchstate.CheckStatusTargetKey(target)
 }
 
-func checkStatusTargetLabel(target watch.TargetSnapshot) string {
+func checkStatusTargetLabel(target watchrun.TargetSnapshot) string {
 	return watchstate.CheckStatusTargetLabel(target)
 }
 
-func checkStatusTargetShortLabel(target watch.TargetSnapshot) string {
+func checkStatusTargetShortLabel(target watchrun.TargetSnapshot) string {
 	return watchstate.CheckStatusTargetShortLabel(target)
 }
 
-func (m model) checkStatusTargetCell(check string, target watch.TargetSnapshot, agents []watch.AgentSnapshot) checkStatusAggregate {
+func (m model) checkStatusTargetCell(check string, target watchrun.TargetSnapshot, agents []watchrun.AgentSnapshot) checkStatusAggregate {
 	return m.CheckStatusTargetCell(check, target, agents)
 }
 

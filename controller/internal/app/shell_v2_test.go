@@ -28,10 +28,6 @@ func TestShellCredentialsAreSessionOnlyAndClearable(t *testing.T) {
 }
 
 func TestFilteredCheckStillReportsFailure(t *testing.T) {
-	pipe, err := pipeline.Parse([]string{"match absent"})
-	if err != nil {
-		t.Fatal(err)
-	}
 	file, err := os.CreateTemp(t.TempDir(), "stderr")
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +37,8 @@ func TestFilteredCheckStillReportsFailure(t *testing.T) {
 	defer func() { os.Stderr = previous; _ = file.Close() }()
 	state := &shellState{}
 	out, err := captureStdout(t, func() error {
-		return state.runCheck(context.Background(), "link", "", "", "", "invalid check syntax", outputText, wrapPipePipeline(pipe), false)
+		_, err := runReplLine(context.Background(), state, "test link ssid Lab family invalid | match absent")
+		return err
 	})
 	if err != nil || out != "" {
 		t.Fatal(out, err)

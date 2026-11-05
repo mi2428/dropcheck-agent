@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"strings"
 
-	"dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 )
 
 // SafeReportJSON exports a retained report without changing the typed evidence.
 // Sanitize decoded string values, not JSON source (where escaping hides URLs).
-func SafeReportJSON(report harness.Report) ([]byte, error) {
+func SafeReportJSON(report watchrun.Report) ([]byte, error) {
 	encoded, err := json.Marshal(report)
 	if err != nil {
 		return nil, err

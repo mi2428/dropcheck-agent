@@ -2,8 +2,8 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"net/netip"
 	"os"
 	"slices"
 	"strings"
@@ -14,12 +14,9 @@ import (
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
-	"dropcheck/controller/internal/harness"
-	"dropcheck/controller/internal/harness/dns"
-	"dropcheck/controller/internal/harness/ip"
-	"dropcheck/controller/internal/harness/ping"
 	"dropcheck/controller/internal/render"
 	"dropcheck/controller/internal/runner"
+	"dropcheck/controller/internal/watchrun"
 )
 
 type linkIdentity struct {
@@ -36,24 +33,24 @@ func (e linkNetworkExpectation) Description() string {
 	return "same selected physical Wi-Fi Network/interface and SSID"
 }
 
-func (e linkNetworkExpectation) Evaluate(r harness.Result) []harness.Finding {
+func (e linkNetworkExpectation) Evaluate(r watchrun.Result) []watchrun.Finding {
 	selected := r.Run.Raw.GetIpStatus()
 	if selected == nil || selected.GetNetworkId() == "" || selected.GetInterfaceName() == "" || !slices.Contains(selected.GetTransports(), "wifi") || slices.Contains(selected.GetTransports(), "vpn") {
-		return []harness.Finding{harness.MissingFinding("link.network", "<missing>", e.Description(), "physical Wi-Fi Network/interface unavailable")}
+		return []watchrun.Finding{watchrun.MissingFinding("link.network", "<missing>", e.Description(), "physical Wi-Fi Network/interface unavailable")}
 	}
-	if known, _ := harness.Availability(selected.GetObservationFields(), "capabilities"); !known {
-		return []harness.Finding{harness.MissingFinding("link.network", "<missing>", e.Description(), "Network transport unavailable")}
+	if known, _ := watchrun.Availability(selected.GetObservationFields(), "capabilities"); !known {
+		return []watchrun.Finding{watchrun.MissingFinding("link.network", "<missing>", e.Description(), "Network transport unavailable")}
 	}
-	if known, _ := harness.Availability(selected.GetObservationFields(), "link_properties"); !known {
-		return []harness.Finding{harness.MissingFinding("link.network", "<missing>", e.Description(), "Network interface unavailable")}
+	if known, _ := watchrun.Availability(selected.GetObservationFields(), "link_properties"); !known {
+		return []watchrun.Finding{watchrun.MissingFinding("link.network", "<missing>", e.Description(), "Network interface unavailable")}
 	}
-	if known, _ := harness.Availability(selected.GetWifi().GetObservationFields(), "identity"); !known || selected.GetWifi().GetSsid() == "" || strings.EqualFold(selected.GetWifi().GetSsid(), "<unknown ssid>") {
-		return []harness.Finding{harness.MissingFinding("link.network", "<missing>", e.Description(), "selected IP Network Wi-Fi identity unavailable or mismatched")}
+	if known, _ := watchrun.Availability(selected.GetWifi().GetObservationFields(), "identity"); !known || selected.GetWifi().GetSsid() == "" || strings.EqualFold(selected.GetWifi().GetSsid(), "<unknown ssid>") {
+		return []watchrun.Finding{watchrun.MissingFinding("link.network", "<missing>", e.Description(), "selected IP Network Wi-Fi identity unavailable or mismatched")}
 	}
 	if observedSSID := selected.GetWifi().GetSsid(); observedSSID != e.ssid {
-		finding := harness.MissingFinding("wifi.ssid", observedSSID, e.ssid, "selected Wi-Fi SSID differs from requested target")
+		finding := watchrun.MissingFinding("wifi.ssid", observedSSID, e.ssid, "selected Wi-Fi SSID differs from requested target")
 		finding.ObservedValue, finding.ExpectedValue = observedSSID, e.ssid
-		return []harness.Finding{finding}
+		return []watchrun.Finding{finding}
 	}
 	e.identity.Lock()
 	defer e.identity.Unlock()
@@ -63,64 +60,133 @@ func (e linkNetworkExpectation) Evaluate(r harness.Result) []harness.Finding {
 	}
 	expected := e.identity.network + "/" + e.identity.iface
 	if e.identity.network == "" || observed != expected {
-		finding := harness.MissingFinding("link.network", observed, expected, "selected Network changed since initial observation")
+		finding := watchrun.MissingFinding("link.network", observed, expected, "selected Network changed since initial observation")
 		finding.ObservedValue, finding.ExpectedValue = observed, expected
-		return []harness.Finding{finding}
+		return []watchrun.Finding{finding}
 	}
-	finding := harness.Pass("link.network", observed, expected)
+	finding := watchrun.Pass("link.network", observed, expected)
 	finding.ObservedValue, finding.ExpectedValue = observed, expected
-	return []harness.Finding{finding}
+	return []watchrun.Finding{finding}
 }
 
 // linkPlan observes only the SSID-selected physical Wi-Fi Network. Both
 // snapshots detect observed changes, not transient roaming during an operation.
-func linkPlan(ssid, family string) harness.Plan {
+func linkPlan(ssid, family string) watchrun.Plan {
 	identity := &linkIdentity{}
-	expectations := []harness.Expectation{linkNetworkExpectation{identity, ssid}}
+	expectations := []watchrun.Expectation{linkNetworkExpectation{identity, ssid}}
 	if family == "ipv4" || family == "all" {
-		expectations = append(expectations, ip.IPv4AddressCount().Ge(1), ip.IPv4ParsedRoute().Default().Count().Ge(1), ip.IPv4DNSServerCount().Ge(1))
+		expectations = append(expectations, linkProvisioningExpectation("ipv4"))
 	}
 	if family == "ipv6" || family == "all" {
-		expectations = append(expectations, ip.IPv6AddressCount().Ge(1), ip.IPv6ParsedRoute().Default().Count().Ge(1), ip.IPv6DNSServerCount().Ge(1))
+		expectations = append(expectations, linkProvisioningExpectation("ipv6"))
 	}
-	checks := []harness.Check{
-		harness.NewCheck("link "+family+" provisioning", "", command.IPStatusOperation(), harness.Policy{}, true, expectations...),
-		harness.NewCheck("link "+family+" final observation", "", command.IPStatusOperation(), harness.Policy{}, true, expectations...),
+	checks := []watchrun.Check{
+		watchrun.NewCheck("link "+family+" provisioning", "", command.IPStatusOperation(), watchrun.Policy{}, true, expectations...),
+		watchrun.NewCheck("link "+family+" final observation", "", command.IPStatusOperation(), watchrun.Policy{}, true, expectations...),
 	}
-	return harness.Plan{Name: "link", Networks: []harness.Network{harness.ObservedWiFi("link " + ssid).SSID(ssid)}, Checks: checks}
+	return watchrun.Plan{Name: "link", Networks: []watchrun.Network{{Name: "link " + ssid, SSID: ssid, ReadOnly: true}}, Checks: checks}
+}
+
+// linkProvisioningExpectation uses typed family-specific observations only.
+type linkProvisioningExpectation string
+
+func (e linkProvisioningExpectation) Description() string {
+	return string(e) + " address/default route/DNS >=1"
+}
+
+func (e linkProvisioningExpectation) Evaluate(result watchrun.Result) []watchrun.Finding {
+	family := string(e)
+	ip := result.Run.Raw.GetIpStatus()
+	known, reason := watchrun.Availability(ip.GetObservationFields(), "link_properties")
+	counts := [3]int{}
+	for _, value := range ip.GetAddresses() {
+		addr, err := netip.ParseAddr(value)
+		if prefix, prefixErr := netip.ParsePrefix(value); prefixErr == nil {
+			addr, err = prefix.Addr(), nil
+		}
+		if err == nil && addr.Is4() == (family == "ipv4") {
+			counts[0]++
+		}
+	}
+	for _, value := range ip.GetRoutes() {
+		fields := strings.Fields(value)
+		if len(fields) == 0 {
+			continue
+		}
+		prefix, err := netip.ParsePrefix(fields[0])
+		if err == nil && prefix.Bits() == 0 && prefix.Addr().IsUnspecified() && prefix.Addr().Is4() == (family == "ipv4") {
+			counts[1]++
+		}
+	}
+	for _, value := range ip.GetDnsServers() {
+		if addr, err := netip.ParseAddr(value); err == nil && addr.Is4() == (family == "ipv4") {
+			counts[2]++
+		}
+	}
+	var findings []watchrun.Finding
+	for i, metric := range []string{"address_count", "route_entry_count", "dns_server_count"} {
+		metric = "ip." + family + "_" + metric
+		if ip == nil || !known {
+			findings = append(findings, watchrun.MissingFinding(metric, "<missing>", ">= 1", reason))
+		} else if counts[i] < 1 {
+			findings = append(findings, watchrun.Fail(metric, "0", ">= 1", "constraint failed"))
+		} else {
+			findings = append(findings, watchrun.Pass(metric, fmt.Sprint(counts[i]), ">= 1"))
+		}
+		if ip != nil && known {
+			findings[len(findings)-1].ObservedValue, findings[len(findings)-1].ExpectedValue = counts[i], 1
+		}
+	}
+	return findings
 }
 
 // labPlan permits traffic on an existing connection but never owns Wi-Fi
 // configuration. Its two identity snapshots detect only observed changes.
-func labPlan(ssid, family string, config command.LabConfig) harness.Plan {
+func labPlan(ssid, family string, config command.LabConfig) (watchrun.Plan, error) {
 	base := linkPlan(ssid, family)
-	policy := harness.Policy{Attempts: 1, Repeat: 1}
+	policy := watchrun.Policy{Attempts: 1, Repeat: 1}
 	queryType := "A"
 	if family == "ipv6" {
 		queryType = "AAAA"
 	}
-	checks := []harness.Check{base.Checks[0],
-		harness.WithPolicy(harness.Ping(config.Gateway).Family(family).Count(3).Timeout(time.Duration(config.TimeoutMs)*time.Millisecond).Expect(ping.Received().Ge(1)), policy, true),
-		harness.WithPolicy(harness.DNS(config.DNS).Type(queryType).Timeout(time.Duration(config.TimeoutMs)*time.Millisecond).Expect(dns.AnswerCount().Ge(1)), policy, true),
-		harness.WithPolicy(harness.HTTP(config.HTTP).ExpectedStatus(config.ExpectedStatus).Timeout(time.Duration(config.TimeoutMs)*time.Millisecond).Expect(labHTTPStatus(config.ExpectedStatus)), policy, true),
+	timeout := fmt.Sprint(config.TimeoutMs)
+	pingOp, pingErr := command.PingOperation(command.PingOptions{Host: config.Gateway, Family: family, Count: "3", Timeout: timeout})
+	dnsOp, dnsErr := command.DNSOperation(config.DNS, queryType, timeout)
+	httpOp, httpErr := command.HTTPOperation(config.HTTP, fmt.Sprint(config.ExpectedStatus), timeout)
+	for _, err := range []error{pingErr, dnsErr, httpErr} {
+		if err != nil {
+			return watchrun.Plan{}, err
+		}
+	}
+	pingExpect, pingExpectErr := watchrun.CompileExpectations(map[string]any{"received": ">= 1"})
+	dnsExpect, dnsExpectErr := watchrun.CompileExpectations(map[string]any{"answer_count": ">= 1"})
+	for _, err := range []error{pingExpectErr, dnsExpectErr} {
+		if err != nil {
+			return watchrun.Plan{}, err
+		}
+	}
+	checks := []watchrun.Check{base.Checks[0],
+		watchrun.NewCheck("ping "+config.Gateway, "", pingOp, policy, true, pingExpect...),
+		watchrun.NewCheck("dns "+config.DNS, "", dnsOp, policy, true, dnsExpect...),
+		watchrun.NewCheck("http "+config.HTTP, "", httpOp, policy, true, labHTTPStatus(config.ExpectedStatus)),
 		base.Checks[1],
 	}
-	return harness.Plan{Name: "lab", Networks: []harness.Network{harness.ActiveObservedWiFi("lab " + ssid).SSID(ssid)}, Checks: checks}
+	return watchrun.Plan{Name: "lab", Networks: []watchrun.Network{{Name: "lab " + ssid, SSID: ssid, ReadOnly: true, ActiveProbes: true}}, Checks: checks}, nil
 }
 
 type labHTTPStatus uint32
 
 func (s labHTTPStatus) Description() string { return fmt.Sprintf("HTTP status=%d and matched=true", s) }
 
-func (s labHTTPStatus) Evaluate(result harness.Result) []harness.Finding {
+func (s labHTTPStatus) Evaluate(result watchrun.Result) []watchrun.Finding {
 	value := result.Run.Raw.GetHttpCheck()
 	if value == nil {
-		return []harness.Finding{harness.MissingFinding("http.status", "<missing>", s.Description(), "HTTP result unavailable")}
+		return []watchrun.Finding{watchrun.MissingFinding("http.status", "<missing>", s.Description(), "HTTP result unavailable")}
 	}
 	if value.GetStatus() != uint32(s) || !value.GetMatched() {
-		return []harness.Finding{harness.Fail("http.status", fmt.Sprint(value.GetStatus()), s.Description(), "expected HTTP response not matched")}
+		return []watchrun.Finding{watchrun.Fail("http.status", fmt.Sprint(value.GetStatus()), s.Description(), "expected HTTP response not matched")}
 	}
-	return []harness.Finding{harness.Pass("http.status", fmt.Sprint(value.GetStatus()), s.Description())}
+	return []watchrun.Finding{watchrun.Pass("http.status", fmt.Sprint(value.GetStatus()), s.Description())}
 }
 
 var profileCatalogue = []struct {
@@ -137,22 +203,7 @@ var profileCatalogue = []struct {
 	{"eht", "unsupported", "EHT band/MLO/scan", "required expectations and portable contract not configured", "n/a", "zero operations"},
 }
 
-func profileCandidates() string {
-	var names []string
-	for _, entry := range profileCatalogue {
-		names = append(names, entry.Name)
-	}
-	return "check requires an exact name (" + strings.Join(names, ", ") + "); no default configured"
-}
-
-func showProfiles(format outputFormat) (string, error) {
-	if format == outputJSON {
-		data, err := json.Marshal(struct {
-			Default string `json:"default"`
-			Checks  any    `json:"checks"`
-		}{Checks: profileCatalogue})
-		return string(data) + "\n", err
-	}
+func showProfiles() (string, error) {
 	var b strings.Builder
 	for _, entry := range profileCatalogue {
 		fmt.Fprintf(&b, "%s (%s)\n", entry.Name, entry.Status)
@@ -166,21 +217,21 @@ var preflightSequence atomic.Uint64
 
 // profileReport records a failed attempt without contacting the handset. Its
 // callers supply only fixed, credential-free reason/profile strings.
-func profileReport(profile, reason, agentID string) harness.Report {
+func profileReport(profile, reason, agentID string) watchrun.Report {
 	now := time.Now()
-	return harness.Report{RunID: fmt.Sprintf("preflight-%d-%d", now.UnixNano(), preflightSequence.Add(1)), Started: now, Ended: now, State: "failed", Outcome: harness.MissingOutcome, Counts: harness.Counts{Missing: 1}, Steps: []harness.StepReport{{Name: profile + " prerequisite", Outcome: harness.MissingOutcome, Reason: reason, Scope: harness.Scope{Kind: harness.ScopeCheck, AgentID: agentID, TargetID: "target/0", CheckID: "prerequisite"}}}}
+	return watchrun.Report{RunID: fmt.Sprintf("preflight-%d-%d", now.UnixNano(), preflightSequence.Add(1)), Started: now, Ended: now, State: "failed", Outcome: watchrun.MissingOutcome, Counts: watchrun.Counts{Missing: 1}, Steps: []watchrun.StepReport{{Name: profile + " prerequisite", Outcome: watchrun.MissingOutcome, Reason: reason, Scope: watchrun.Scope{Kind: watchrun.ScopeCheck, AgentID: agentID, TargetID: "target/0", CheckID: "prerequisite"}}}}
 }
 
-func unsupportedProfileReport(profile, reason, agentID string) harness.Report {
+func unsupportedProfileReport(profile, reason, agentID string) watchrun.Report {
 	report := profileReport(profile, reason, agentID)
-	report.Outcome = harness.SkipOutcome
-	report.Counts = harness.Counts{Skipped: 1}
-	report.Steps[0].Outcome = harness.SkipOutcome
-	report.Steps[0].SkipReason = harness.SkipUnsupported
+	report.Outcome = watchrun.SkipOutcome
+	report.Counts = watchrun.Counts{Skipped: 1}
+	report.Steps[0].Outcome = watchrun.SkipOutcome
+	report.Steps[0].SkipReason = watchrun.SkipUnsupported
 	return report
 }
 
-func executeProfile(ctx context.Context, state *shellState, name, ssid, family, bssid string, r harness.OperationRunner) (harness.Report, error) {
+func executeProfile(ctx context.Context, state *shellState, name, ssid, family, bssid string, r watchrun.OperationRunner) (watchrun.Report, error) {
 	if name != "link" {
 		profile := "unsupported"
 		if name == "lab" || name == "internet" || name == "eht" {
@@ -204,19 +255,15 @@ func executeProfile(ctx context.Context, state *shellState, name, ssid, family, 
 	if err != nil {
 		return profileReport("link", "selected agent unavailable or ambiguous", state.selected), nil
 	}
-	compiled, err := harness.Compile(linkPlan(ssid, family), []control.AgentInfo{agent})
+	compiled, err := watchrun.Compile(linkPlan(ssid, family), []control.AgentInfo{agent})
 	if err != nil {
 		return profileReport("link", "link plan cannot compile", state.selected), nil
 	}
-	return harness.Execute(ctx, compiled, r, harness.ExecuteOptions{Rounds: 1})
+	return watchrun.Execute(ctx, compiled, r, watchrun.ExecuteOptions{Rounds: 1})
 }
 
-func (s *shellState) runCheck(ctx context.Context, name, ssid, family, bssid, rejection string, format outputFormat, pipe pipePipeline, strict bool, lab ...command.LabConfig) error {
-	if name == "" {
-		fmt.Fprintln(os.Stdout, profileCandidates())
-		return nil
-	}
-	var report harness.Report
+func (s *shellState) runCheck(ctx context.Context, name, ssid, family, bssid, rejection string, pipe pipePipeline, lab ...command.LabConfig) error {
+	var report watchrun.Report
 	var err error
 	if rejection != "" {
 		profile := "link"
@@ -238,10 +285,15 @@ func (s *shellState) runCheck(ctx context.Context, name, ssid, family, bssid, re
 			report = profileReport("lab", "lab configuration or selected target unavailable", s.selected)
 		} else if agent, selectedErr := selectedAgent(s); selectedErr != nil {
 			report = profileReport("lab", "selected agent unavailable or ambiguous", s.selected)
-		} else if compiled, compileErr := harness.Compile(labPlan(ssid, family, lab[0]), []control.AgentInfo{agent}); compileErr != nil {
-			report = profileReport("lab", "lab plan cannot compile", s.selected)
 		} else {
-			report, err = harness.Execute(ctx, compiled, runner.New(s.server), harness.ExecuteOptions{Rounds: 1})
+			plan, planErr := labPlan(ssid, family, lab[0])
+			if planErr != nil {
+				report = profileReport("lab", "lab plan cannot compile", s.selected)
+			} else if compiled, compileErr := watchrun.Compile(plan, []control.AgentInfo{agent}); compileErr != nil {
+				report = profileReport("lab", "lab plan cannot compile", s.selected)
+			} else {
+				report, err = watchrun.Execute(ctx, compiled, runner.New(s.server), watchrun.ExecuteOptions{Rounds: 1})
+			}
 		}
 	} else {
 		report, err = executeProfile(ctx, s, name, ssid, family, bssid, runner.New(s.server))
@@ -258,52 +310,34 @@ func (s *shellState) runCheck(ctx context.Context, name, ssid, family, bssid, re
 		}
 	}
 	view := terminalPresentation()
-	view.Interactive = !strict
+	view.Interactive = true
 	if pipe.pipeline.StageCount() > 0 || pipe.displayJSON {
 		view.Width = 0
 	}
-	out, renderErr := renderProfileReport(s, format, false, view)
+	out, renderErr := renderProfileReport(s, false, view)
 	if renderErr != nil {
 		return renderErr
 	}
-	if !strict && format == outputText {
-		out, renderErr = pipe.shellOutput(out, report.Passed() && err == nil)
-	} else {
-		out, renderErr = pipe.apply(out)
-	}
+	out, renderErr = pipe.shellOutput(out, report.Passed() && err == nil)
 	if renderErr != nil {
 		return renderErr
 	}
 	fmt.Print(out)
-	if !strict && format == outputText && !report.Passed() {
+	if !report.Passed() {
 		fmt.Fprintf(os.Stderr, "check %s: %s\n", s.lastProfile, report.Outcome)
-	}
-	if strict && (!report.Passed() || err != nil) {
-		return fmt.Errorf("check %s: %s", s.lastProfile, report.Outcome)
 	}
 	return err
 }
 
-func renderProfileReport(s *shellState, format outputFormat, detail bool, views ...render.Presentation) (string, error) {
+func renderProfileReport(s *shellState, detail bool, views ...render.Presentation) (string, error) {
 	if s.lastReport == nil {
-		if format == outputJSON {
-			return "{\"report\":null,\"message\":\"no report in this Shell\"}\n", nil
-		}
 		return "No report in this Shell (historical results never authorize a new check).\n", nil
-	}
-	if format == outputJSON {
-		data, err := json.Marshal(struct {
-			Profile    string          `json:"profile"`
-			SSID       string          `json:"ssid"`
-			Historical bool            `json:"historical"`
-			Report     *harness.Report `json:"report"`
-		}{s.lastProfile, s.lastSSID, true, s.lastReport})
-		return string(data) + "\n", err
 	}
 	view := terminalPresentation()
 	if len(views) > 0 {
 		view = views[0]
 	}
+	view.Interactive = true
 	view.Detail = detail
 	out, err := render.Report(*s.lastReport, view)
 	if err != nil {
@@ -322,13 +356,10 @@ func renderProfileReport(s *shellState, format outputFormat, detail bool, views 
 		if ip == nil {
 			continue
 		}
-		if ok, _ := harness.Availability(ip.GetObservationFields(), "capabilities"); ok {
+		if ok, _ := watchrun.Availability(ip.GetObservationFields(), "capabilities"); ok {
 			validated = fmt.Sprint(ip.GetValidated())
 		}
 	}
-	metadata := "Android validated: " + validated + " (observation only)\n"
-	if view.Interactive {
-		metadata = render.Fields([][2]string{{"Android validated", validated + " (observation only)"}}, view)
-	}
+	metadata := render.Fields([][2]string{{"Android validated", validated + " (observation only)"}}, view)
 	return fmt.Sprintf("Historical check %s ssid %q at %s (not current readiness)\n%s%s", s.lastProfile, s.lastSSID, s.lastReport.Started.Format(time.RFC3339), metadata, out), nil
 }

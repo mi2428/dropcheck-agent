@@ -3,15 +3,15 @@ package tui
 import (
 	"strings"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 	"dropcheck/controller/internal/watchstate"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
-func failedCheckKey(finding watch.Finding) string { return watchstate.FailedCheckKey(finding) }
-func failedCheckSummaryKey(agent watch.AgentSnapshot, target watch.TargetSnapshot, finding watch.Finding) string {
+func failedCheckKey(finding watchrun.Finding) string { return watchstate.FailedCheckKey(finding) }
+func failedCheckSummaryKey(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, finding watchrun.Finding) string {
 	return watchstate.FailedCheckSummaryKey(agent, target, finding)
 }
 func failedCheckSummaryIdentity(item failedCheckSummary) string {
@@ -26,15 +26,17 @@ func failureHotspotSummaryIdentity(item failureHotspotSummary) string {
 func failureCauseSummaryIdentity(item failureCauseSummary) string {
 	return watchstate.FailureCauseSummaryIdentity(item)
 }
-func failureCauseIdentity(agent watch.AgentSnapshot, finding watch.Finding) string {
+func failureCauseIdentity(agent watchrun.AgentSnapshot, finding watchrun.Finding) string {
 	return watchstate.FailureCauseIdentity(agent, watchstate.FailureHotspotCause(finding))
 }
-func failureHotspotIdentity(agent watch.AgentSnapshot, target watch.TargetSnapshot, findingTargets ...string) string {
+func failureHotspotIdentity(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, findingTargets ...string) string {
 	return watchstate.FailureHotspotIdentity(agent, target, findingTargets...)
 }
-func agentKey(agent watch.AgentSnapshot) string                   { return watchstate.AgentKey(agent) }
-func agentLabel(agent watch.AgentSnapshot) string                 { return watchstate.AgentLabel(agent) }
-func sameAgent(a watch.AgentSnapshot, b watch.AgentSnapshot) bool { return watchstate.SameAgent(a, b) }
+func agentKey(agent watchrun.AgentSnapshot) string   { return watchstate.AgentKey(agent) }
+func agentLabel(agent watchrun.AgentSnapshot) string { return watchstate.AgentLabel(agent) }
+func sameAgent(a watchrun.AgentSnapshot, b watchrun.AgentSnapshot) bool {
+	return watchstate.SameAgent(a, b)
+}
 
 func (m model) targetLabel(target targetState) string {
 	return m.runQueueTargetLabel(target, m.MultiAgent)
@@ -58,7 +60,7 @@ func durationLabel(duration int64) string { return watchstate.DurationLabel(dura
 
 func displayCheckName(name string) string { return watchstate.DisplayCheckName(name) }
 
-func agentDeviceLabel(agent watch.AgentSnapshot) string {
+func agentDeviceLabel(agent watchrun.AgentSnapshot) string {
 	if agent.DeviceModel != "" {
 		return agent.DeviceModel
 	}

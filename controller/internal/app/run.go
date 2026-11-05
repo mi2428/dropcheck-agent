@@ -13,8 +13,8 @@ import (
 
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
-	"dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/version"
+	"dropcheck/controller/internal/watchrun"
 	"dropcheck/controller/pkg/dropcheck"
 )
 
@@ -260,7 +260,7 @@ type shellState struct {
 	selected              string
 	selectedLabel         string
 	targetAll             bool
-	lastReport            *harness.Report
+	lastReport            *watchrun.Report
 	lastProfile, lastSSID string
 	lastWifiTest          *controlpb.CommandResult
 	lastWifiTestAgent     string

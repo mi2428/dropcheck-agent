@@ -14,7 +14,7 @@ import (
 func TestFullRetainsHostSupplementAvailability(t *testing.T) {
 	result := &controlpb.CommandResult{Payload: &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{Status: &controlpb.WifiStatus{}}}}
 	agent := control.AgentInfo{Hello: &controlpb.AgentHello{}}
-	got := collectCommandResultSupplements(t.Context(), &shellState{}, agent, result, commandOptions{WifiRenderMode: command.WifiRenderModeFull}, outputText, true)
+	got := collectCommandResultSupplements(t.Context(), &shellState{}, agent, result, commandOptions{WifiRenderMode: command.WifiRenderModeFull})
 	if len(got.textBlocks) != 2 {
 		t.Fatalf("full lost host supplement availability: blocks=%d", len(got.textBlocks))
 	}
@@ -121,22 +121,10 @@ func TestShouldCollectADBIPv6RASupplement(t *testing.T) {
 	}
 }
 
-func TestCollectCommandResultSupplementsSkipsNonTextOutput(t *testing.T) {
-	result := &controlpb.CommandResult{
-		Payload: &controlpb.CommandResult_WifiStatus{
-			WifiStatus: &controlpb.WifiStatus{},
-		},
-	}
-	got := collectCommandResultSupplements(context.Background(), &shellState{}, control.AgentInfo{}, result, commandOptions{}, outputJSON)
-	if len(got.textBlocks) != 0 {
-		t.Fatalf("collectCommandResultSupplements() textBlocks = %d, want none", len(got.textBlocks))
-	}
-}
-
 func TestRawDebugNeverCollectsOrAppendsHostSupplements(t *testing.T) {
 	result := &controlpb.CommandResult{Payload: &controlpb.CommandResult_WifiStatus{WifiStatus: &controlpb.WifiStatus{}}}
 	agent := control.AgentInfo{Hello: &controlpb.AgentHello{AdbSerial: "test-only"}}
-	got := collectCommandResultSupplements(t.Context(), &shellState{adbPath: "must-not-run"}, agent, result, commandOptions{RawView: "wifi info"}, outputText, true)
+	got := collectCommandResultSupplements(t.Context(), &shellState{adbPath: "must-not-run"}, agent, result, commandOptions{RawView: "wifi info"})
 	if len(got.textBlocks) != 0 {
 		t.Fatalf("debug appended host supplements: %d", len(got.textBlocks))
 	}
@@ -148,7 +136,7 @@ func TestCollectCommandResultSupplementsSkipsMissingADBSerial(t *testing.T) {
 			WifiStatus: &controlpb.WifiStatus{},
 		},
 	}
-	got := collectCommandResultSupplements(context.Background(), &shellState{}, control.AgentInfo{}, result, commandOptions{}, outputText)
+	got := collectCommandResultSupplements(context.Background(), &shellState{}, control.AgentInfo{}, result, commandOptions{})
 	if len(got.textBlocks) != 0 {
 		t.Fatalf("collectCommandResultSupplements() textBlocks = %d, want none", len(got.textBlocks))
 	}

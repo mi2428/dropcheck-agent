@@ -8,7 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -272,13 +272,13 @@ func detailCauseSummaryFields(item failureCauseSummary, multiAgent bool, width i
 	return fields
 }
 
-func detailAppendAgentField(fields *[]detailField, agent watch.AgentSnapshot, multiAgent bool) {
+func detailAppendAgentField(fields *[]detailField, agent watchrun.AgentSnapshot, multiAgent bool) {
 	if multiAgent && agentKey(agent) != "" {
 		*fields = append(*fields, detailField{Key: "device", Value: agentLabel(agent)})
 	}
 }
 
-func detailAppendTargetFields(fields *[]detailField, target watch.TargetSnapshot) {
+func detailAppendTargetFields(fields *[]detailField, target watchrun.TargetSnapshot) {
 	for _, field := range []detailField{
 		{Key: "ssid", Value: target.SSID},
 		{Key: "bssid", Value: target.BSSID},
@@ -290,7 +290,7 @@ func detailAppendTargetFields(fields *[]detailField, target watch.TargetSnapshot
 	}
 }
 
-func detailAppendOperationFields(fields *[]detailField, step watch.StepSnapshot) {
+func detailAppendOperationFields(fields *[]detailField, step watchrun.StepSnapshot) {
 	display := normalizedScopeToken(displayCheckName(firstNonEmpty(step.Name, step.Type)))
 	for _, field := range []detailField{
 		{Key: "op", Value: step.Operation},
@@ -1036,12 +1036,12 @@ func (m model) passingCheckRelatedLogLines(item passingCheckSummary, limit int) 
 			return false
 		}
 		if targetSummaryStep(item.Step) {
-			return event.Kind == watch.EventTargetStarted || event.Kind == watch.EventTargetFinished
+			return event.Kind == watchrun.EventTargetStarted || event.Kind == watchrun.EventTargetFinished
 		}
 		if !eventMatchesStep(event, item.Step) {
 			return false
 		}
-		return event.Kind == watch.EventStepStarted || event.Kind == watch.EventStepFinished || event.Kind == watch.EventLog
+		return event.Kind == watchrun.EventStepStarted || event.Kind == watchrun.EventStepFinished || event.Kind == watchrun.EventLog
 	})
 }
 
@@ -1057,7 +1057,7 @@ func (m model) failedCheckRelatedLogLines(item failedCheckSummary, limit int) []
 		if !eventMatchesFinding(event, item.Finding) {
 			return false
 		}
-		return event.Kind == watch.EventStepStarted || event.Kind == watch.EventStepFinished || event.Kind == watch.EventLog
+		return event.Kind == watchrun.EventStepStarted || event.Kind == watchrun.EventStepFinished || event.Kind == watchrun.EventLog
 	})
 }
 
@@ -1068,13 +1068,13 @@ func (m model) failureHotspotRelatedLogLines(item failureHotspotSummary, limit i
 			return false
 		}
 		switch event.Kind {
-		case watch.EventFinding:
+		case watchrun.EventFinding:
 			return true
-		case watch.EventStepFinished:
+		case watchrun.EventStepFinished:
 			return eventFailureLike(event)
-		case watch.EventStepStarted:
+		case watchrun.EventStepStarted:
 			return eventMatchesFinding(event, item.LatestFinding)
-		case watch.EventLog:
+		case watchrun.EventLog:
 			return eventFailureLike(event)
 		default:
 			return false
@@ -1091,7 +1091,7 @@ func (m model) failureCauseRelatedLogLines(item failureCauseSummary, limit int) 
 		if event.Finding != nil {
 			return failureCauseIdentity(event.Agent, *event.Finding) == failureCauseSummaryIdentity(item)
 		}
-		if event.Kind != watch.EventStepFinished && event.Kind != watch.EventLog {
+		if event.Kind != watchrun.EventStepFinished && event.Kind != watchrun.EventLog {
 			return false
 		}
 		for _, target := range item.Targets {
@@ -1117,20 +1117,20 @@ func (m model) scopedLogLines(limit int, match func(eventLogEntry) bool) []strin
 	return rows
 }
 
-func scopedEventAgentMatches(eventAgent watch.AgentSnapshot, selected watch.AgentSnapshot) bool {
+func scopedEventAgentMatches(eventAgent watchrun.AgentSnapshot, selected watchrun.AgentSnapshot) bool {
 	if agentKey(selected) == "" || agentKey(eventAgent) == "" {
 		return true
 	}
 	return sameAgent(eventAgent, selected)
 }
 
-func scopedEventTargetMatches(event watch.Event, target watch.TargetSnapshot, aliases ...string) bool {
+func scopedEventTargetMatches(event watchrun.Event, target watchrun.TargetSnapshot, aliases ...string) bool {
 	expected := scopedTargetKey(target, aliases...)
 	actual := scopedEventTargetKey(event)
 	return expected != "" && actual != "" && expected == actual
 }
 
-func scopedEventTargetKey(event watch.Event) string {
+func scopedEventTargetKey(event watchrun.Event) string {
 	findingTarget := ""
 	if event.Finding != nil {
 		findingTarget = event.Finding.Target
@@ -1138,21 +1138,21 @@ func scopedEventTargetKey(event watch.Event) string {
 	return scopedTargetKey(event.Target, findingTarget)
 }
 
-func scopedTargetKey(target watch.TargetSnapshot, aliases ...string) string {
+func scopedTargetKey(target watchrun.TargetSnapshot, aliases ...string) string {
 	values := []string{target.Name}
 	values = append(values, aliases...)
 	values = append(values, target.SSID, target.BSSID)
 	return normalizedScopeToken(firstNonEmpty(values...))
 }
 
-func eventMatchesFinding(event watch.Event, finding watch.Finding) bool {
+func eventMatchesFinding(event watchrun.Event, finding watchrun.Finding) bool {
 	if event.Finding != nil && failedCheckKey(*event.Finding) == failedCheckKey(finding) {
 		return true
 	}
-	return eventMatchesStep(event, watch.StepSnapshot{Name: finding.Check, Type: finding.Check})
+	return eventMatchesStep(event, watchrun.StepSnapshot{Name: finding.Check, Type: finding.Check})
 }
 
-func eventMatchesStep(event watch.Event, step watch.StepSnapshot) bool {
+func eventMatchesStep(event watchrun.Event, step watchrun.StepSnapshot) bool {
 	expected := scopeTokenSet(step.Name, step.Type, step.Operation)
 	if len(expected) == 0 {
 		return false
@@ -1198,11 +1198,11 @@ func normalizedScopeToken(value string) string {
 	return strings.ToLower(strings.TrimSpace(sanitizeLogText(value)))
 }
 
-func targetSummaryStep(step watch.StepSnapshot) bool {
+func targetSummaryStep(step watchrun.StepSnapshot) bool {
 	return normalizedScopeToken(firstNonEmpty(step.Name, step.Type)) == "target"
 }
 
-func eventFailureLike(event watch.Event) bool {
+func eventFailureLike(event watchrun.Event) bool {
 	status := normalizedScopeToken(firstNonEmpty(event.Status, event.Step.Status))
 	if status == "failed" || status == "fail" || status == "warn" || status == "warning" || status == "error" {
 		return true

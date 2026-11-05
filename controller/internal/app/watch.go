@@ -15,10 +15,10 @@ import (
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
-	"dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/runner"
 	"dropcheck/controller/internal/tui"
 	"dropcheck/controller/internal/watch"
+	"dropcheck/controller/internal/watchrun"
 	"dropcheck/controller/pkg/dropcheck"
 )
 
@@ -71,7 +71,7 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) (retErr err
 	if err != nil {
 		return err
 	}
-	compiled, err := harness.Compile(plan, agents)
+	compiled, err := watchrun.Compile(plan, agents)
 	if err != nil {
 		return err
 	}
@@ -79,22 +79,22 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) (retErr err
 
 	watchCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	controls := harness.NewControls()
+	controls := watchrun.NewControls()
 
-	var sinks []harness.Sink
+	var sinks []watchrun.Sink
 	if watchOpts.jsonlPath != "" {
-		jsonlWriter, err := harness.OpenJSONLFile(watchOpts.jsonlPath)
+		jsonlWriter, err := watchrun.OpenJSONLFile(watchOpts.jsonlPath)
 		if err != nil {
 			return fmt.Errorf("open jsonl output: %w", err)
 		}
 		sinks = append(sinks, jsonlWriter)
 	}
-	sinks = append(sinks, harness.ChannelSink{C: eventPipe.C})
+	sinks = append(sinks, watchrun.ChannelSink{C: eventPipe.C})
 
 	errCh := make(chan error, 1)
 	go func() {
 		opRunner := watchOperationRunner{operation: runner.New(controlSession.Server), adbPath: opts.ADBPath}
-		_, runErr := harness.Execute(watchCtx, compiled, opRunner, harness.ExecuteOptions{Loop: true, RoundInterval: plan.RoundInterval, Controls: controls, Sinks: sinks})
+		_, runErr := watchrun.Execute(watchCtx, compiled, opRunner, watchrun.ExecuteOptions{Loop: true, RoundInterval: plan.RoundInterval, Controls: controls, Sinks: sinks})
 		errCh <- runErr
 		eventPipe.Close()
 		close(errCh)
@@ -115,7 +115,7 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) (retErr err
 	return nil
 }
 
-func printWatchNoTUIEvent(w io.Writer, event harness.Event, multiAgent bool) {
+func printWatchNoTUIEvent(w io.Writer, event watchrun.Event, multiAgent bool) {
 	finding, ok := watchNoTUIFinding(event)
 	if !ok {
 		return
@@ -136,11 +136,11 @@ func printWatchNoTUIEvent(w io.Writer, event harness.Event, multiAgent bool) {
 	)
 }
 
-func watchNoTUIFinding(event harness.Event) (harness.Finding, bool) {
-	if event.Kind == harness.EventFinding && event.Finding != nil {
+func watchNoTUIFinding(event watchrun.Event) (watchrun.Finding, bool) {
+	if event.Kind == watchrun.EventFinding && event.Finding != nil {
 		return *event.Finding, true
 	}
-	return harness.Finding{}, false
+	return watchrun.Finding{}, false
 }
 
 type watchOperationRunner struct {
@@ -157,7 +157,7 @@ func (r watchOperationRunner) Run(ctx context.Context, agent control.AgentInfo, 
 	return r.operation.Run(ctx, agent, op)
 }
 
-func (r watchOperationRunner) FailureCause(ctx context.Context, agent control.AgentInfo, cause harness.FailureCauseContext) string {
+func (r watchOperationRunner) FailureCause(ctx context.Context, agent control.AgentInfo, cause watchrun.FailureCauseContext) string {
 	if !watchFailureCauseUsesWifiDiagnostics(cause) {
 		return ""
 	}
@@ -168,7 +168,7 @@ func (r watchOperationRunner) FailureCause(ctx context.Context, agent control.Ag
 	return r.collectWifiFailureCause(ctx, serial, 2*time.Second)
 }
 
-func (r watchOperationRunner) WatchFailureCause(ctx context.Context, agent control.AgentInfo, cause harness.FailureCauseContext, emit func(string)) func() {
+func (r watchOperationRunner) WatchFailureCause(ctx context.Context, agent control.AgentInfo, cause watchrun.FailureCauseContext, emit func(string)) func() {
 	if !watchFailureCauseUsesWifiDiagnostics(cause) {
 		return nil
 	}
@@ -277,7 +277,7 @@ func watchAgentADBSerial(agent control.AgentInfo) string {
 	return agent.Hello.GetAdbSerial()
 }
 
-func watchFailureCauseUsesWifiDiagnostics(cause harness.FailureCauseContext) bool {
+func watchFailureCauseUsesWifiDiagnostics(cause watchrun.FailureCauseContext) bool {
 	switch cause.Operation.Name {
 	case "wifi.connect", "wifi.wait":
 		return true
@@ -286,16 +286,16 @@ func watchFailureCauseUsesWifiDiagnostics(cause harness.FailureCauseContext) boo
 }
 
 type watchEventPipe struct {
-	C      chan harness.Event
+	C      chan watchrun.Event
 	mu     sync.Mutex
 	closed bool
 }
 
 func newWatchEventPipe(size int) *watchEventPipe {
-	return &watchEventPipe{C: make(chan harness.Event, size)}
+	return &watchEventPipe{C: make(chan watchrun.Event, size)}
 }
 
-func (p *watchEventPipe) Emit(event harness.Event) {
+func (p *watchEventPipe) Emit(event watchrun.Event) {
 	if p == nil {
 		return
 	}
@@ -333,14 +333,14 @@ func watchSessionLogHandler(pipe *watchEventPipe) func(control.LogEvent) {
 	}
 }
 
-func watchSessionLogEvent(event control.LogEvent) (harness.Event, bool) {
+func watchSessionLogEvent(event control.LogEvent) (watchrun.Event, bool) {
 	if event.Level == controlpb.CommandLog_LEVEL_DEBUG || event.Level == controlpb.CommandLog_LEVEL_INFO {
-		return harness.Event{}, false
+		return watchrun.Event{}, false
 	}
-	return harness.Event{
+	return watchrun.Event{
 		Time: event.Time,
-		Kind: harness.EventLog,
-		Agent: harness.AgentSnapshot{
+		Kind: watchrun.EventLog,
+		Agent: watchrun.AgentSnapshot{
 			ID:        event.AgentID,
 			SessionID: event.SessionID,
 		},

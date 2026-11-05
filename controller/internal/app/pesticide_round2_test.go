@@ -57,7 +57,7 @@ func TestRound2MultiTargetUseFailsBeforeStateChangeOrDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = runOperationForAgents(t.Context(), state, []control.AgentInfo{{ID: "a"}, {ID: "b"}}, op, commandOutputOptions{use: true, interactive: true})
+	err = runOperationForAgents(t.Context(), state, []control.AgentInfo{{ID: "a"}, {ID: "b"}}, op, commandOutputOptions{use: true})
 	if err == nil || state.failedUse {
 		t.Fatal("unsafe broadcast use was not rejected before state change")
 	}
@@ -91,7 +91,7 @@ func TestRound2WrongNetworkIsNotSuccessfulShellJSON(t *testing.T) {
 	out, err := captureStdout(t, func() error {
 		var mu sync.Mutex
 		printed := false
-		return runCommandForAgent(t.Context(), state, agent, op, commandOutputOptions{format: outputText, interactive: true, pipeline: wrapPipePipeline(p)}, &mu, &printed)
+		return runCommandForAgent(t.Context(), state, agent, op, commandOutputOptions{pipeline: wrapPipePipeline(p)}, &mu, &printed)
 	})
 	if err != nil {
 		return

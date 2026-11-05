@@ -2,7 +2,7 @@
 // packages.
 //
 // This package owns process-level concerns: top-level flag parsing, ADB target
-// discovery, control-session startup, shell state, CLI dispatch, and output
+// discovery, control-session startup, Shell/watch dispatch, and output
 // printing. Domain parsing, rendering, gRPC control, and Android process
 // management are delegated to the internal command, render, control, and
 // session packages so cmd/dropcheck can remain a thin executable wrapper.

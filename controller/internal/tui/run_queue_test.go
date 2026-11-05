@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 )
 
 func TestRunQueueTreeExpandsOnlyRunningTargets(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{}, events)
 	m.Targets = []targetState{
 		{
 			Target: targetSnapshot("done-target"),
@@ -71,8 +71,8 @@ func TestRunQueueTreeExpandsOnlyRunningTargets(t *testing.T) {
 }
 
 func TestRunQueueTreePrioritizesActiveStepsWhenClipped(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{}, events)
 	for i := range 6 {
 		m.Targets = append(m.Targets, targetState{
 			Target: targetSnapshot(fmt.Sprintf("done-%02d", i)),
@@ -127,8 +127,8 @@ func TestRunQueueTreePrioritizesActiveStepsWhenClipped(t *testing.T) {
 }
 
 func TestRunQueueCursorStaysOnChildBetweenStepFinishAndNextStart(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{}, events)
 	m.Targets = []targetState{{
 		Target:      targetSnapshot("running-target"),
 		Status:      "running",
@@ -163,26 +163,26 @@ func TestRunQueueCursorStaysOnChildBetweenStepFinishAndNextStart(t *testing.T) {
 }
 
 func TestRunQueueTreeOmitsTargetOutcomeStrip(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{{Name: "u7-5ghz", SSID: "Example Net"}}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{{Name: "u7-5ghz", SSID: "Example Net"}}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	m.apply(watch.Event{
+	m.apply(watchrun.Event{
 		Time:     at,
-		Kind:     watch.EventStepFinished,
+		Kind:     watchrun.EventStepFinished,
 		Round:    1,
-		Target:   watch.TargetSnapshot{Name: "u7-5ghz", SSID: "Example Net"},
-		Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Target:   watchrun.TargetSnapshot{Name: "u7-5ghz", SSID: "Example Net"},
+		Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 42,
 	})
-	m.apply(watch.Event{
+	m.apply(watchrun.Event{
 		Time:   at.Add(time.Second),
-		Kind:   watch.EventFinding,
+		Kind:   watchrun.EventFinding,
 		Round:  1,
-		Target: watch.TargetSnapshot{Name: "u7-5ghz", SSID: "Example Net"},
-		Step:   watch.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
+		Target: watchrun.TargetSnapshot{Name: "u7-5ghz", SSID: "Example Net"},
+		Step:   watchrun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
 		Status: "failed",
-		Finding: &watch.Finding{
+		Finding: &watchrun.Finding{
 			Target:   "u7-5ghz",
 			Check:    "ping cloudflare",
 			Metric:   "received",
@@ -204,12 +204,12 @@ func TestRunQueueTreeOmitsTargetOutcomeStrip(t *testing.T) {
 }
 
 func TestRunQueuePanelsSplitByAgent(t *testing.T) {
-	events := make(chan watch.Event)
-	agents := []watch.AgentSnapshot{
+	events := make(chan watchrun.Event)
+	agents := []watchrun.AgentSnapshot{
 		{ID: "agent-a", Name: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b"},
 	}
-	m := newModelWithChecks("shownet-watch", []watch.Target{{Name: "u7-5ghz", SSID: "Example Net"}}, []watch.CheckInfo{{Name: "wifi link", Type: "wifi_status"}}, events, agents)
+	m := newModelWithChecks("shownet-watch", []watchrun.Target{{Name: "u7-5ghz", SSID: "Example Net"}}, []watchrun.CheckInfo{{Name: "wifi link", Type: "wifi_status"}}, events, agents)
 	m.width = 120
 	m.height = 30
 	m.Targets[0].Status = "running"
@@ -247,8 +247,8 @@ func TestRunQueuePanelsSplitByAgent(t *testing.T) {
 }
 
 func TestRunQueueTreeKeepsScrollAnchorWhenNoTargetIsActive(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{}, events)
 	m.height = 9
 	for i := range 16 {
 		status := "pending"
@@ -279,8 +279,8 @@ func TestRunQueueTreeKeepsScrollAnchorWhenNoTargetIsActive(t *testing.T) {
 }
 
 func TestRunQueueTreeUsesStableOffsetInsteadOfRecentering(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{}, events)
 	m.height = 9
 	for i := range 12 {
 		m.Targets = append(m.Targets, targetState{

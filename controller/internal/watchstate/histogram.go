@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 )
 
 // RecentEventHistogram builds a fixed-width histogram over the recent time
@@ -188,10 +188,10 @@ func OccurrenceGraphHeight(contentHeight int) int {
 
 // PassingCheckOccurrences returns the event times that belong to one passing
 // summary key.
-func (s State) PassingCheckOccurrences(agent watch.AgentSnapshot, target watch.TargetSnapshot, step watch.StepSnapshot) []time.Time {
+func (s State) PassingCheckOccurrences(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, step watchrun.StepSnapshot) []time.Time {
 	key := PassingCheckKey(agent, target, step)
 	if AgentKey(agent) == "" {
-		key = PassingCheckSummaryKey(watch.AgentSnapshot{}, target, step)
+		key = PassingCheckSummaryKey(watchrun.AgentSnapshot{}, target, step)
 	}
 	if key == "" {
 		return nil
@@ -200,7 +200,7 @@ func (s State) PassingCheckOccurrences(agent watch.AgentSnapshot, target watch.T
 	for _, item := range s.PassingChecks {
 		itemKey := PassingCheckKey(item.Agent, item.Target, item.Step)
 		if AgentKey(agent) == "" {
-			itemKey = PassingCheckSummaryKey(watch.AgentSnapshot{}, item.Target, item.Step)
+			itemKey = PassingCheckSummaryKey(watchrun.AgentSnapshot{}, item.Target, item.Step)
 		}
 		if itemKey == key {
 			times = append(times, item.When)
@@ -211,16 +211,16 @@ func (s State) PassingCheckOccurrences(agent watch.AgentSnapshot, target watch.T
 
 // FailedCheckOccurrences returns the event times that belong to one failed
 // summary key.
-func (s State) FailedCheckOccurrences(agent watch.AgentSnapshot, target watch.TargetSnapshot, finding watch.Finding) []time.Time {
+func (s State) FailedCheckOccurrences(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, finding watchrun.Finding) []time.Time {
 	key := FailedCheckStateKey(agent, target, finding)
 	if AgentKey(agent) == "" {
-		key = FailedCheckSummaryKey(watch.AgentSnapshot{}, target, finding)
+		key = FailedCheckSummaryKey(watchrun.AgentSnapshot{}, target, finding)
 	}
 	times := make([]time.Time, 0, len(s.FailedChecks))
 	for _, item := range s.FailedChecks {
 		itemKey := FailedCheckStateKey(item.Agent, item.Target, item.Finding)
 		if AgentKey(agent) == "" {
-			itemKey = FailedCheckSummaryKey(watch.AgentSnapshot{}, item.Target, item.Finding)
+			itemKey = FailedCheckSummaryKey(watchrun.AgentSnapshot{}, item.Target, item.Finding)
 		}
 		if itemKey == key {
 			times = append(times, item.When)

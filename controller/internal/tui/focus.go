@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -217,9 +217,9 @@ func (m model) currentRunQueueAgentKey() string {
 	return roundAgentKey(agents[0])
 }
 
-func (m model) currentRunQueueAgent() watch.AgentSnapshot {
+func (m model) currentRunQueueAgent() watchrun.AgentSnapshot {
 	if !m.runQueuePanelsSplit() {
-		return watch.AgentSnapshot{}
+		return watchrun.AgentSnapshot{}
 	}
 	key := m.currentRunQueueAgentKey()
 	for _, agent := range m.runQueueAgents() {
@@ -227,7 +227,7 @@ func (m model) currentRunQueueAgent() watch.AgentSnapshot {
 			return agent
 		}
 	}
-	return watch.AgentSnapshot{}
+	return watchrun.AgentSnapshot{}
 }
 
 func (m *model) normalizeFocusRunQueueAgent() {

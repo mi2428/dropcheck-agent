@@ -6,18 +6,18 @@ import (
 	"testing"
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 
 	"charm.land/lipgloss/v2"
 )
 
 func TestRenderShowsRoundTimelineAndCheckStatus(t *testing.T) {
-	events := make(chan watch.Event)
-	agents := []watch.AgentSnapshot{
+	events := make(chan watchrun.Event)
+	agents := []watchrun.AgentSnapshot{
 		{ID: "agent-a", Name: "pixel-a", ADBSerial: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b", ADBSerial: "pixel-b"},
 	}
-	m := newModel([]watch.Target{
+	m := newModel([]watchrun.Target{
 		{Name: "u7-5ghz", SSID: "Example Net", Band: "5ghz"},
 		{Name: "u6-5ghz", SSID: "Example Net", Band: "5ghz"},
 	}, events, agents)
@@ -25,25 +25,25 @@ func TestRenderShowsRoundTimelineAndCheckStatus(t *testing.T) {
 	m.height = 42
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(2 * time.Second)
-	m.apply(watch.Event{
+	m.apply(watchrun.Event{
 		Time:     at,
-		Kind:     watch.EventStepFinished,
+		Kind:     watchrun.EventStepFinished,
 		Agent:    agents[0],
 		Round:    1,
-		Target:   watch.TargetSnapshot{Name: "u7-5ghz", SSID: "Example Net"},
-		Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Target:   watchrun.TargetSnapshot{Name: "u7-5ghz", SSID: "Example Net"},
+		Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 42,
 	})
-	m.apply(watch.Event{
+	m.apply(watchrun.Event{
 		Time:   at.Add(time.Second),
-		Kind:   watch.EventFinding,
+		Kind:   watchrun.EventFinding,
 		Agent:  agents[1],
 		Round:  1,
-		Target: watch.TargetSnapshot{Name: "u6-5ghz", SSID: "Example Net"},
-		Step:   watch.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
+		Target: watchrun.TargetSnapshot{Name: "u6-5ghz", SSID: "Example Net"},
+		Step:   watchrun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
 		Status: "failed",
-		Finding: &watch.Finding{
+		Finding: &watchrun.Finding{
 			Target:   "u6-5ghz",
 			Check:    "ping cloudflare",
 			Metric:   "received",
@@ -106,8 +106,8 @@ func TestRenderShowsRoundTimelineAndCheckStatus(t *testing.T) {
 }
 
 func TestRoundTimelineRendersTargetFailureDensity(t *testing.T) {
-	events := make(chan watch.Event)
-	targets := []watch.Target{
+	events := make(chan watchrun.Event)
+	targets := []watchrun.Target{
 		{Name: "u7-5ghz", SSID: "Example Net"},
 		{Name: "u6-5ghz", SSID: "Example Net"},
 		{Name: "any-5ghz", SSID: "Example Net"},
@@ -117,11 +117,11 @@ func TestRoundTimelineRendersTargetFailureDensity(t *testing.T) {
 	now := time.Date(2026, 5, 16, 9, 30, 30, 0, time.UTC)
 	m.Now = now
 	m.Round = 4
-	target := watch.TargetSnapshot{Name: "u7-5ghz", SSID: "Example Net"}
+	target := watchrun.TargetSnapshot{Name: "u7-5ghz", SSID: "Example Net"}
 	m.FailedChecks = []failedCheckState{
-		{Round: 3, When: now.Add(-3 * time.Second), Target: target, Finding: watch.Finding{Target: "u7-5ghz", Check: "dns a"}},
-		{Round: 3, When: now.Add(-3 * time.Second), Target: target, Finding: watch.Finding{Target: "u7-5ghz", Check: "ping v4"}},
-		{Round: 2, When: now.Add(-20 * time.Second), Target: target, Finding: watch.Finding{Target: "u7-5ghz", Check: "connect"}},
+		{Round: 3, When: now.Add(-3 * time.Second), Target: target, Finding: watchrun.Finding{Target: "u7-5ghz", Check: "dns a"}},
+		{Round: 3, When: now.Add(-3 * time.Second), Target: target, Finding: watchrun.Finding{Target: "u7-5ghz", Check: "ping v4"}},
+		{Round: 2, When: now.Add(-20 * time.Second), Target: target, Finding: watchrun.Finding{Target: "u7-5ghz", Check: "connect"}},
 	}
 
 	buckets, total, peak := m.targetRoundHistory(target, 20)
@@ -159,25 +159,25 @@ func TestRoundTimelineRendersTargetFailureDensity(t *testing.T) {
 }
 
 func TestRoundTimelineConnectFailureXRequiresAllAgents(t *testing.T) {
-	events := make(chan watch.Event)
-	agents := []watch.AgentSnapshot{
+	events := make(chan watchrun.Event)
+	agents := []watchrun.AgentSnapshot{
 		{ID: "agent-a", Name: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b"},
 	}
-	target := watch.TargetSnapshot{Name: "u6-2.4ghz", SSID: "Example Net"}
-	m := newModel([]watch.Target{{Name: "u6-2.4ghz", SSID: "Example Net"}}, events, agents)
+	target := watchrun.TargetSnapshot{Name: "u6-2.4ghz", SSID: "Example Net"}
+	m := newModel([]watchrun.Target{{Name: "u6-2.4ghz", SSID: "Example Net"}}, events, agents)
 	m.Round = 1
 	m.PassingChecks = []passingCheckState{{
 		Round:  1,
 		Agent:  agents[0],
 		Target: target,
-		Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Step:   watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 	}}
 	m.FailedChecks = []failedCheckState{{
 		Round:   1,
 		Agent:   agents[1],
 		Target:  target,
-		Finding: watch.Finding{Target: "u6-2.4ghz", Check: "connect"},
+		Finding: watchrun.Finding{Target: "u6-2.4ghz", Check: "connect"},
 	}}
 
 	buckets, _, _ := m.targetRoundHistory(target, 1)
@@ -190,8 +190,8 @@ func TestRoundTimelineConnectFailureXRequiresAllAgents(t *testing.T) {
 
 	m.PassingChecks = nil
 	m.FailedChecks = []failedCheckState{
-		{Round: 1, Agent: agents[0], Target: target, Finding: watch.Finding{Target: "u6-2.4ghz", Check: "connect"}},
-		{Round: 1, Agent: agents[1], Target: target, Finding: watch.Finding{Target: "u6-2.4ghz", Check: "connect"}},
+		{Round: 1, Agent: agents[0], Target: target, Finding: watchrun.Finding{Target: "u6-2.4ghz", Check: "connect"}},
+		{Round: 1, Agent: agents[1], Target: target, Finding: watchrun.Finding{Target: "u6-2.4ghz", Check: "connect"}},
 	}
 	buckets, _, _ = m.targetRoundHistory(target, 1)
 	if !buckets[0].ConnectFailed {
@@ -200,30 +200,30 @@ func TestRoundTimelineConnectFailureXRequiresAllAgents(t *testing.T) {
 }
 
 func TestRoundTimelineRunningRoundKeepsPreviousRoundHistory(t *testing.T) {
-	events := make(chan watch.Event)
-	targets := []watch.Target{
+	events := make(chan watchrun.Event)
+	targets := []watchrun.Target{
 		{Name: "cs12(5G)", ShortName: "C12_5", SSID: "Lab"},
 		{Name: "ub1(5G)", ShortName: "U1_5", SSID: "Lab"},
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watch.CheckInfo{{Name: "connect", Type: "connect"}}, events)
-	current := watch.TargetSnapshot{Name: "cs12(5G)", ShortName: "C12_5", SSID: "Lab"}
-	future := watch.TargetSnapshot{Name: "ub1(5G)", ShortName: "U1_5", SSID: "Lab"}
-	m.apply(watch.Event{
+	m := newModelWithChecks("shownet-watch", targets, []watchrun.CheckInfo{{Name: "connect", Type: "connect"}}, events)
+	current := watchrun.TargetSnapshot{Name: "cs12(5G)", ShortName: "C12_5", SSID: "Lab"}
+	future := watchrun.TargetSnapshot{Name: "ub1(5G)", ShortName: "U1_5", SSID: "Lab"}
+	m.apply(watchrun.Event{
 		Time:     time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC),
-		Kind:     watch.EventStepFinished,
+		Kind:     watchrun.EventStepFinished,
 		Round:    1,
 		Target:   future,
-		Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 42,
 	})
-	m.apply(watch.Event{Kind: watch.EventRoundStarted, Round: 2, Status: "running"})
-	m.apply(watch.Event{
+	m.apply(watchrun.Event{Kind: watchrun.EventRoundStarted, Round: 2, Status: "running"})
+	m.apply(watchrun.Event{
 		Time:     time.Date(2026, 5, 16, 9, 31, 0, 0, time.UTC),
-		Kind:     watch.EventStepFinished,
+		Kind:     watchrun.EventStepFinished,
 		Round:    2,
 		Target:   current,
-		Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 42,
 	})
@@ -248,12 +248,12 @@ func TestRoundTimelineRunningRoundKeepsPreviousRoundHistory(t *testing.T) {
 }
 
 func TestRunningRoundDashboardKeepsPreviousPassesVisible(t *testing.T) {
-	events := make(chan watch.Event)
-	agents := []watch.AgentSnapshot{
+	events := make(chan watchrun.Event)
+	agents := []watchrun.AgentSnapshot{
 		{ID: "pixel-7a", Name: "Pixel 7a"},
 		{ID: "pixel-9", Name: "Pixel 9"},
 	}
-	targets := []watch.Target{
+	targets := []watchrun.Target{
 		{Name: "cs9(5G)", ShortName: "C9_5", Agent: "pixel-7a", SSID: "Lab"},
 		{Name: "cs9(6G)", ShortName: "C9_6", Agent: "pixel-9", SSID: "Lab"},
 		{Name: "cs10(5G)", ShortName: "C10_5", Agent: "pixel-7a", SSID: "Lab"},
@@ -269,9 +269,9 @@ func TestRunningRoundDashboardKeepsPreviousPassesVisible(t *testing.T) {
 		{Name: "ft1(5G)", ShortName: "F1_5", Agent: "pixel-7a", SSID: "Lab"},
 		{Name: "ft1(6G)", ShortName: "F1_6", Agent: "pixel-9", SSID: "Lab"},
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watch.CheckInfo{{Name: "connect", Type: "connect"}}, events, agents)
+	m := newModelWithChecks("shownet-watch", targets, []watchrun.CheckInfo{{Name: "connect", Type: "connect"}}, events, agents)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	futureTargets := []watch.TargetSnapshot{
+	futureTargets := []watchrun.TargetSnapshot{
 		{Name: "ym1(5G)", ShortName: "Y1_5", Agent: "pixel-7a", SSID: "Lab"},
 		{Name: "ym1(6G)", ShortName: "Y1_6", Agent: "pixel-9", SSID: "Lab"},
 		{Name: "ub1(5G)", ShortName: "U1_5", Agent: "pixel-7a", SSID: "Lab"},
@@ -280,32 +280,32 @@ func TestRunningRoundDashboardKeepsPreviousPassesVisible(t *testing.T) {
 		{Name: "ft1(6G)", ShortName: "F1_6", Agent: "pixel-9", SSID: "Lab"},
 	}
 	for i, target := range futureTargets {
-		m.apply(watch.Event{
+		m.apply(watchrun.Event{
 			Time:     at.Add(time.Duration(i) * time.Second),
-			Kind:     watch.EventStepFinished,
+			Kind:     watchrun.EventStepFinished,
 			Agent:    agents[i%len(agents)],
 			Round:    1,
 			Target:   target,
-			Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+			Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 			Status:   "ok",
 			Duration: 42,
 		})
 	}
 	for _, agent := range agents {
-		m.apply(watch.Event{Kind: watch.EventRoundStarted, Agent: agent, Round: 2, Status: "running"})
+		m.apply(watchrun.Event{Kind: watchrun.EventRoundStarted, Agent: agent, Round: 2, Status: "running"})
 	}
-	currentTargets := []watch.TargetSnapshot{
+	currentTargets := []watchrun.TargetSnapshot{
 		{Name: "cs9(6G)", ShortName: "C9_6", Agent: "pixel-9", SSID: "Lab"},
 		{Name: "cs12(5G)", ShortName: "C12_5", Agent: "pixel-7a", SSID: "Lab"},
 	}
 	for i, target := range currentTargets {
-		m.apply(watch.Event{
+		m.apply(watchrun.Event{
 			Time:   at.Add(time.Minute + time.Duration(i)*time.Second),
-			Kind:   watch.EventStepStarted,
+			Kind:   watchrun.EventStepStarted,
 			Agent:  agents[1-i],
 			Round:  2,
 			Target: target,
-			Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
+			Step:   watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
 			Status: "running",
 		})
 	}
@@ -321,7 +321,7 @@ func TestRunningRoundDashboardKeepsPreviousPassesVisible(t *testing.T) {
 		if buckets[0].Seen {
 			t.Fatalf("one-column history should still show only the latest round bucket: target=%s bucket=%#v", target.Name, buckets[0])
 		}
-		cell := m.checkStatusTargetCell("connect", target, []watch.AgentSnapshot{agents[0], agents[1]})
+		cell := m.checkStatusTargetCell("connect", target, []watchrun.AgentSnapshot{agents[0], agents[1]})
 		if cell.Status != "ok" || !cell.Stale {
 			t.Fatalf("future target check status should keep stale historical pass: target=%s cell=%#v", target.Name, cell)
 		}
@@ -333,8 +333,8 @@ func TestRunningRoundDashboardKeepsPreviousPassesVisible(t *testing.T) {
 }
 
 func TestRoundTimelinePacksColumnsWhileKeepingTenRounds(t *testing.T) {
-	events := make(chan watch.Event)
-	targets := []watch.Target{
+	events := make(chan watchrun.Event)
+	targets := []watchrun.Target{
 		{Name: "t0", SSID: "Example Net"},
 		{Name: "t1", SSID: "Example Net"},
 		{Name: "t2", SSID: "Example Net"},
@@ -382,19 +382,19 @@ func TestRoundTimelinePacksColumnsWhileKeepingTenRounds(t *testing.T) {
 }
 
 func TestRoundTimelineDoesNotPadSingleRoundGraph(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{
 		{Name: "hp1(5G)", SSID: "Lab"},
 		{Name: "hp6(5G)", SSID: "Lab"},
 	}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	for _, target := range []watch.TargetSnapshot{{Name: "hp1(5G)", SSID: "Lab"}, {Name: "hp6(5G)", SSID: "Lab"}} {
-		m.apply(watch.Event{
+	for _, target := range []watchrun.TargetSnapshot{{Name: "hp1(5G)", SSID: "Lab"}, {Name: "hp6(5G)", SSID: "Lab"}} {
+		m.apply(watchrun.Event{
 			Time:   at,
-			Kind:   watch.EventStepFinished,
+			Kind:   watchrun.EventStepFinished,
 			Round:  1,
 			Target: target,
-			Step:   watch.StepSnapshot{Name: "Connect", Type: "connect", Status: "ok"},
+			Step:   watchrun.StepSnapshot{Name: "Connect", Type: "connect", Status: "ok"},
 			Status: "ok",
 		})
 	}
@@ -415,25 +415,25 @@ func TestRoundTimelineDoesNotPadSingleRoundGraph(t *testing.T) {
 }
 
 func TestRoundTimelineAlignsGraphStartWithinColumn(t *testing.T) {
-	events := make(chan watch.Event)
-	targets := []watch.Target{
+	events := make(chan watchrun.Event)
+	targets := []watchrun.Target{
 		{Name: "hp1(5G)", SSID: "Lab"},
 		{Name: "hp10(5G)", SSID: "Lab"},
 		{Name: "hp2(5G)", SSID: "Lab"},
 	}
 	m := newModel(targets, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	for _, target := range []watch.TargetSnapshot{
+	for _, target := range []watchrun.TargetSnapshot{
 		{Name: "hp1(5G)", SSID: "Lab"},
 		{Name: "hp10(5G)", SSID: "Lab"},
 		{Name: "hp2(5G)", SSID: "Lab"},
 	} {
-		m.apply(watch.Event{
+		m.apply(watchrun.Event{
 			Time:   at,
-			Kind:   watch.EventStepFinished,
+			Kind:   watchrun.EventStepFinished,
 			Round:  1,
 			Target: target,
-			Step:   watch.StepSnapshot{Name: "Connect", Type: "connect", Status: "ok"},
+			Step:   watchrun.StepSnapshot{Name: "Connect", Type: "connect", Status: "ok"},
 			Status: "ok",
 		})
 	}
@@ -471,7 +471,7 @@ func TestRoundTimelineKeepsTenTargetRunesAndTenRounds(t *testing.T) {
 	if plotWidth != roundTimelineMinVisibleRounds {
 		t.Fatalf("round timeline plot width = %d, want %d visible rounds", plotWidth, roundTimelineMinVisibleRounds)
 	}
-	if got := roundTimelineTargetLabel(watch.TargetSnapshot{Name: "cs20(5G)-extra"}, labelWidth); got != "cs20(5G)-~" {
+	if got := roundTimelineTargetLabel(watchrun.TargetSnapshot{Name: "cs20(5G)-extra"}, labelWidth); got != "cs20(5G)-~" {
 		t.Fatalf("round timeline target label = %q, want width-10 truncation", got)
 	}
 	if got := roundTimelineColumnCount(35, 2); got != 1 {
@@ -480,10 +480,10 @@ func TestRoundTimelineKeepsTenTargetRunesAndTenRounds(t *testing.T) {
 }
 
 func TestRoundTimelinePanelHeightExpandsForWrappedTargetRows(t *testing.T) {
-	events := make(chan watch.Event)
-	targets := make([]watch.Target, 0, 24)
+	events := make(chan watchrun.Event)
+	targets := make([]watchrun.Target, 0, 24)
 	for i := range 24 {
-		targets = append(targets, watch.Target{Name: fmt.Sprintf("target-%02d", i), SSID: "Example Net"})
+		targets = append(targets, watchrun.Target{Name: fmt.Sprintf("target-%02d", i), SSID: "Example Net"})
 	}
 	m := newModel(targets, events)
 	grid := roundTimelineGrid(100, len(targets))
@@ -497,8 +497,8 @@ func TestRoundTimelinePanelHeightExpandsForWrappedTargetRows(t *testing.T) {
 }
 
 func TestCheckStatusPanelHeightFitsAllChecks(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{{Name: "u7-5ghz", SSID: "Example Net"}}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{{Name: "u7-5ghz", SSID: "Example Net"}}, events)
 	checks := []string{
 		"connect",
 		"wait_connected",
@@ -537,20 +537,20 @@ func TestCheckStatusPanelHeightFitsAllChecks(t *testing.T) {
 }
 
 func TestCheckStatusSpansFullWidthAboveRoundTimelineAndRunQueue(t *testing.T) {
-	events := make(chan watch.Event)
-	agents := []watch.AgentSnapshot{
+	events := make(chan watchrun.Event)
+	agents := []watchrun.AgentSnapshot{
 		{ID: "agent-a", Name: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b"},
 	}
-	m := newModel([]watch.Target{{Name: "u7-5ghz", SSID: "Example Net"}}, events, agents)
+	m := newModel([]watchrun.Target{{Name: "u7-5ghz", SSID: "Example Net"}}, events, agents)
 	m.width = 140
 	m.height = 34
-	m.apply(watch.Event{
-		Kind:     watch.EventStepStarted,
+	m.apply(watchrun.Event{
+		Kind:     watchrun.EventStepStarted,
 		Agent:    agents[0],
 		Round:    1,
-		Target:   watch.TargetSnapshot{Name: "u7-5ghz", SSID: "Example Net"},
-		Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
+		Target:   watchrun.TargetSnapshot{Name: "u7-5ghz", SSID: "Example Net"},
+		Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
 		Status:   "running",
 		Duration: 42,
 	})
@@ -580,28 +580,28 @@ func TestCheckStatusSpansFullWidthAboveRoundTimelineAndRunQueue(t *testing.T) {
 }
 
 func TestCheckStatusFooterShowsLiveConnectStateByAgent(t *testing.T) {
-	events := make(chan watch.Event)
-	agents := []watch.AgentSnapshot{
+	events := make(chan watchrun.Event)
+	agents := []watchrun.AgentSnapshot{
 		{ID: "agent-a", Name: "35251JEHN00258", ADBSerial: "35251JEHN00258", DeviceModel: "Pixel 7a"},
 		{ID: "agent-b", Name: "45240DLAQ007HG", ADBSerial: "45240DLAQ007HG", DeviceModel: "Pixel 9"},
 		{ID: "agent-c", Name: "extra-agent"},
 	}
-	m := newModelWithChecks("shownet-watch", []watch.Target{{Name: "ub1(5G)", SSID: "Example Net"}}, []watch.CheckInfo{{Name: "connect", Type: "connect"}}, events, agents)
-	m.apply(watch.Event{
+	m := newModelWithChecks("shownet-watch", []watchrun.Target{{Name: "ub1(5G)", SSID: "Example Net"}}, []watchrun.CheckInfo{{Name: "connect", Type: "connect"}}, events, agents)
+	m.apply(watchrun.Event{
 		Time:    time.Date(2026, 5, 18, 11, 0, 0, 0, time.UTC),
-		Kind:    watch.EventLog,
+		Kind:    watchrun.EventLog,
 		Agent:   agents[0],
 		Message: "wifi connect state: supplicant=FOUR_WAY_HANDSHAKE bssid=02:00:00:00:00:21",
 	})
-	m.apply(watch.Event{
+	m.apply(watchrun.Event{
 		Time:    time.Date(2026, 5, 18, 11, 0, 0, 0, time.UTC),
-		Kind:    watch.EventLog,
+		Kind:    watchrun.EventLog,
 		Agent:   agents[1],
 		Message: "wifi connect state: supplicant=COMPLETED bssid=02:00:00:00:00:11",
 	})
-	m.apply(watch.Event{
+	m.apply(watchrun.Event{
 		Time:    time.Date(2026, 5, 18, 11, 0, 0, 0, time.UTC),
-		Kind:    watch.EventLog,
+		Kind:    watchrun.EventLog,
 		Agent:   agents[2],
 		Message: "wifi connect state: supplicant=ASSOCIATED bssid=22:0b:8b:b6:2c:e2",
 	})
@@ -624,12 +624,12 @@ func TestCheckStatusFooterShowsLiveConnectStateByAgent(t *testing.T) {
 }
 
 func TestAgentPanelTitlesUseDeviceModelAndSerial(t *testing.T) {
-	events := make(chan watch.Event)
-	agents := []watch.AgentSnapshot{
+	events := make(chan watchrun.Event)
+	agents := []watchrun.AgentSnapshot{
 		{ID: "agent-a", Name: "35251JEHN00258", ADBSerial: "35251JEHN00258", DeviceModel: "Pixel 7a"},
 		{ID: "agent-b", Name: "45240DLAQ007HG", ADBSerial: "45240DLAQ007HG", DeviceModel: "Pixel 9"},
 	}
-	m := newModelWithChecks("shownet-watch", []watch.Target{{Name: "ub1(5G)", SSID: "Example Net"}}, []watch.CheckInfo{{Name: "connect", Type: "connect"}}, events, agents)
+	m := newModelWithChecks("shownet-watch", []watchrun.Target{{Name: "ub1(5G)", SSID: "Example Net"}}, []watchrun.CheckInfo{{Name: "connect", Type: "connect"}}, events, agents)
 	m.width = 220
 	m.height = 60
 
@@ -647,25 +647,25 @@ func TestAgentPanelTitlesUseDeviceModelAndSerial(t *testing.T) {
 }
 
 func TestHotspotsAndRunQueueStartBelowFullWidthRoundTimeline(t *testing.T) {
-	events := make(chan watch.Event)
-	agents := []watch.AgentSnapshot{
+	events := make(chan watchrun.Event)
+	agents := []watchrun.AgentSnapshot{
 		{ID: "agent-a", Name: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b"},
 	}
-	m := newModel([]watch.Target{{Name: "u7-5ghz", SSID: "Example Net"}}, events, agents)
+	m := newModel([]watchrun.Target{{Name: "u7-5ghz", SSID: "Example Net"}}, events, agents)
 	m.width = 220
 	m.height = 42
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	for i, agent := range agents {
-		m.apply(watch.Event{
+		m.apply(watchrun.Event{
 			Time:   at.Add(time.Duration(i) * time.Second),
-			Kind:   watch.EventFinding,
+			Kind:   watchrun.EventFinding,
 			Round:  uint64(i + 1),
 			Agent:  agent,
-			Target: watch.TargetSnapshot{Name: "u7-5ghz", SSID: "Example Net"},
-			Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
+			Target: watchrun.TargetSnapshot{Name: "u7-5ghz", SSID: "Example Net"},
+			Step:   watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
 			Status: "failed",
-			Finding: &watch.Finding{
+			Finding: &watchrun.Finding{
 				Target:   "u7-5ghz",
 				Check:    "connect",
 				Metric:   "status",

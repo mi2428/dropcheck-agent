@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 )
 
 var connectStateFieldREs = map[string]*regexp.Regexp{
@@ -16,7 +16,7 @@ var connectStateFieldREs = map[string]*regexp.Regexp{
 }
 
 // RecordConnectState updates the latest live association phase from an event log.
-func (s *State) RecordConnectState(event watch.Event) {
+func (s *State) RecordConnectState(event watchrun.Event) {
 	state, ok := ParseConnectStateEvent(event)
 	if !ok {
 		return
@@ -32,7 +32,7 @@ func (s *State) RecordConnectState(event watch.Event) {
 }
 
 // ParseConnectStateEvent extracts a ConnectState from watch's live Wi-Fi status log.
-func ParseConnectStateEvent(event watch.Event) (ConnectState, bool) {
+func ParseConnectStateEvent(event watchrun.Event) (ConnectState, bool) {
 	message := strings.TrimSpace(event.Message)
 	if !strings.HasPrefix(message, "wifi connect state:") {
 		return ConnectState{}, false

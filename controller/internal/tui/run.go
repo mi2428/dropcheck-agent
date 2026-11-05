@@ -6,26 +6,20 @@ import (
 	"strings"
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 	"dropcheck/controller/internal/watchstate"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 )
 
-// Run renders watch events until the user quits, ctx is canceled, or the event stream closes.
-func Run(ctx context.Context, title string, targets []watch.Target, checks []watch.CheckInfo, agents []watch.AgentSnapshot, events <-chan watch.Event) error {
-	m := newModelWithChecks(title, targets, checks, events, agents)
-	return runModel(ctx, m)
-}
-
 // RunWithControls renders watch events and lets keyboard input control the
 // watch runner through pause and skip controllers.
-func RunWithControls(ctx context.Context, title string, targets []watch.Target, checks []watch.CheckInfo, agents []watch.AgentSnapshot, events <-chan watch.Event, controls *watch.Controls) error {
+func RunWithControls(ctx context.Context, title string, targets []watchrun.Target, checks []watchrun.CheckInfo, agents []watchrun.AgentSnapshot, events <-chan watchrun.Event, controls *watchrun.Controls) error {
 	m := newModelWithChecks(title, targets, checks, events, agents)
 	m.controls = controls
 	if controls != nil {
-		m.paused = controls.Paused(watch.Scope{Kind: watch.ScopeRun})
+		m.paused = controls.Paused(watchrun.Scope{Kind: watchrun.ScopeRun})
 	}
 	return runModel(ctx, m)
 }
@@ -41,15 +35,15 @@ func runModel(ctx context.Context, m model) error {
 	return err
 }
 
-func newModel(targets []watch.Target, events <-chan watch.Event, agentSets ...[]watch.AgentSnapshot) model {
+func newModel(targets []watchrun.Target, events <-chan watchrun.Event, agentSets ...[]watchrun.AgentSnapshot) model {
 	return newModelWithChecks("shownet-watch", targets, nil, events, agentSets...)
 }
 
-func newModelWithChecks(title string, targets []watch.Target, checks []watch.CheckInfo, events <-chan watch.Event, agentSets ...[]watch.AgentSnapshot) model {
+func newModelWithChecks(title string, targets []watchrun.Target, checks []watchrun.CheckInfo, events <-chan watchrun.Event, agentSets ...[]watchrun.AgentSnapshot) model {
 	if strings.TrimSpace(title) == "" {
 		title = "dropcheck watch"
 	}
-	agents := []watch.AgentSnapshot(nil)
+	agents := []watchrun.AgentSnapshot(nil)
 	if len(agentSets) > 0 {
 		agents = agentSets[0]
 	}
@@ -69,7 +63,7 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(waitEvent(m.events), tickEverySecond())
 }
 
-func waitEvent(events <-chan watch.Event) tea.Cmd {
+func waitEvent(events <-chan watchrun.Event) tea.Cmd {
 	return func() tea.Msg {
 		event, ok := <-events
 		if !ok {
@@ -189,7 +183,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.normalizeCursors()
 		return m, tea.ClearScreen
 	case eventMsg:
-		m.apply(watch.Event(msg))
+		m.apply(watchrun.Event(msg))
 		return m, waitEvent(m.events)
 	case tickMsg:
 		m.Now = time.Time(msg)

@@ -1,13 +1,5 @@
-// Package watch loads watch plans and runs repeated connectivity checks for the
-// Controller TUI.
-//
-// A watch plan comes from the YAML config consumed by `dropcheck watch -c`,
-// which is the Controller TUI entry point. The runner connects to each target,
-// waits for Android network readiness, runs configured checks, emits
-// structured events, and optionally records findings when observed metrics do
-// not match expectations.
-//
-// This package does not render the live dashboard. Events are emitted to Sink
-// implementations so callers can choose JSONL output, a TUI, tests, or another
-// presentation without changing the watch execution path.
+// Package watch loads and validates the YAML configuration for dropcheck watch.
+// It compiles target/check data for internal/watchrun, which owns execution,
+// policies, controls, events and cleanup. The dashboard and JSONL/no-TUI sinks
+// consume that same event stream; there is no public scenario authoring API.
 package watch

@@ -7,37 +7,37 @@ import (
 	"testing"
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
 
 func TestTabFocusAndPanelLocalNavigation(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	target := watch.TargetSnapshot{Name: "Example Net", SSID: "Example Net"}
+	target := watchrun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"}
 	for i, step := range []string{"connect", "wait_connected"} {
-		m.apply(watch.Event{
+		m.apply(watchrun.Event{
 			Time:     at.Add(time.Duration(i) * time.Second),
-			Kind:     watch.EventStepFinished,
+			Kind:     watchrun.EventStepFinished,
 			Round:    1,
 			Target:   target,
-			Step:     watch.StepSnapshot{Name: step, Type: step, Status: "ok"},
+			Step:     watchrun.StepSnapshot{Name: step, Type: step, Status: "ok"},
 			Status:   "ok",
 			Duration: 10,
 		})
 	}
 	for i, check := range []string{"ping cloudflare", "dns cloudflare"} {
-		m.apply(watch.Event{
+		m.apply(watchrun.Event{
 			Time:   at.Add(time.Duration(i+2) * time.Second),
-			Kind:   watch.EventFinding,
+			Kind:   watchrun.EventFinding,
 			Round:  1,
 			Target: target,
-			Step:   watch.StepSnapshot{Name: check, Type: "probe", Status: "failed"},
+			Step:   watchrun.StepSnapshot{Name: check, Type: "probe", Status: "failed"},
 			Status: "failed",
-			Finding: &watch.Finding{
+			Finding: &watchrun.Finding{
 				Target:   "Example Net",
 				Check:    check,
 				Metric:   "status",
@@ -94,17 +94,17 @@ func TestTabFocusAndPanelLocalNavigation(t *testing.T) {
 }
 
 func TestPassingChecksManualScrollPinsSelectionUntilEsc(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	target := watch.TargetSnapshot{Name: "radio-a", SSID: "Lab"}
+	target := watchrun.TargetSnapshot{Name: "radio-a", SSID: "Lab"}
 	for i, check := range []string{"old pass", "middle pass"} {
-		m.apply(watch.Event{
+		m.apply(watchrun.Event{
 			Time:     at.Add(time.Duration(i) * time.Second),
-			Kind:     watch.EventStepFinished,
+			Kind:     watchrun.EventStepFinished,
 			Round:    uint64(i + 1),
 			Target:   target,
-			Step:     watch.StepSnapshot{Name: check, Type: check, Status: "ok"},
+			Step:     watchrun.StepSnapshot{Name: check, Type: check, Status: "ok"},
 			Status:   "ok",
 			Duration: 10,
 		})
@@ -119,12 +119,12 @@ func TestPassingChecksManualScrollPinsSelectionUntilEsc(t *testing.T) {
 	}
 	pinned := passingCheckSummaryIdentity(m.filteredPassingCheckSummaries()[m.passingCheckCursor])
 
-	m.apply(watch.Event{
+	m.apply(watchrun.Event{
 		Time:     at.Add(2 * time.Second),
-		Kind:     watch.EventStepFinished,
+		Kind:     watchrun.EventStepFinished,
 		Round:    3,
 		Target:   target,
-		Step:     watch.StepSnapshot{Name: "new pass", Type: "new pass", Status: "ok"},
+		Step:     watchrun.StepSnapshot{Name: "new pass", Type: "new pass", Status: "ok"},
 		Status:   "ok",
 		Duration: 10,
 	})
@@ -141,19 +141,19 @@ func TestPassingChecksManualScrollPinsSelectionUntilEsc(t *testing.T) {
 }
 
 func TestFailedChecksManualScrollPinsSelectionUntilEsc(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	target := watch.TargetSnapshot{Name: "radio-a", SSID: "Lab"}
+	target := watchrun.TargetSnapshot{Name: "radio-a", SSID: "Lab"}
 	emitFinding := func(offset time.Duration, check string) {
-		m.apply(watch.Event{
+		m.apply(watchrun.Event{
 			Time:   at.Add(offset),
-			Kind:   watch.EventFinding,
+			Kind:   watchrun.EventFinding,
 			Round:  uint64(offset/time.Second) + 1,
 			Target: target,
-			Step:   watch.StepSnapshot{Name: check, Type: "probe", Status: "failed"},
+			Step:   watchrun.StepSnapshot{Name: check, Type: "probe", Status: "failed"},
 			Status: "failed",
-			Finding: &watch.Finding{
+			Finding: &watchrun.Finding{
 				Target:   "radio-a",
 				Check:    check,
 				Metric:   "status",
@@ -186,8 +186,8 @@ func TestFailedChecksManualScrollPinsSelectionUntilEsc(t *testing.T) {
 }
 
 func TestRunQueueFocusScrollsVertically(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{}, events)
 	m.width = 120
 	m.height = 16
 	for i := range 20 {
@@ -212,23 +212,23 @@ func TestRunQueueFocusScrollsVertically(t *testing.T) {
 }
 
 func TestPauseResumeAndRightAlignedStatusItems(t *testing.T) {
-	events := make(chan watch.Event)
-	control := watch.NewControls()
-	m := newModel([]watch.Target{}, events)
+	events := make(chan watchrun.Event)
+	control := watchrun.NewControls()
+	m := newModel([]watchrun.Target{}, events)
 	m.controls = control
 	m.width = 120
 	m.focus = focusFailedChecks
 	m.failedSearchQuery = "hop2"
 
 	m = updateKey(t, m, tea.Key{Code: 'w', Text: "w"})
-	if m.paused || control.Paused(watch.Scope{Kind: watch.ScopeRun}) {
+	if m.paused || control.Paused(watchrun.Scope{Kind: watchrun.ScopeRun}) {
 		t.Fatalf("w should not pause model or controller: model=%v", m.paused)
 	}
 	m = updateKey(t, m, tea.Key{Code: 'z', Mod: tea.ModCtrl})
 	if m.paused {
 		t.Fatal("rejected/inactive pause must not claim execution is paused")
 	}
-	m.apply(watch.Event{Kind: watch.EventControlApplied, Status: "paused", Scope: watch.Scope{Kind: watch.ScopeRun}})
+	m.apply(watchrun.Event{Kind: watchrun.EventControlApplied, Status: "paused", Scope: watchrun.Scope{Kind: watchrun.ScopeRun}})
 	m.State.Phase = "paused"
 	m.paused = true
 	status := stripANSI(m.statusBar(120))
@@ -241,15 +241,15 @@ func TestPauseResumeAndRightAlignedStatusItems(t *testing.T) {
 	}
 
 	m = updateKey(t, m, tea.Key{Code: tea.KeyEscape})
-	if m.paused || control.Paused(watch.Scope{Kind: watch.ScopeRun}) {
+	if m.paused || control.Paused(watchrun.Scope{Kind: watchrun.ScopeRun}) {
 		t.Fatalf("esc should resume model and controller: model=%v", m.paused)
 	}
 }
 
 func TestCtrlNSkipsCurrentWatchOperation(t *testing.T) {
-	events := make(chan watch.Event)
-	control := watch.NewControls()
-	m := newModel([]watch.Target{}, events)
+	events := make(chan watchrun.Event)
+	control := watchrun.NewControls()
+	m := newModel([]watchrun.Target{}, events)
 	m.controls = control
 
 	m = updateKey(t, m, tea.Key{Code: 'n', Mod: tea.ModCtrl})
@@ -263,29 +263,29 @@ func TestCtrlNSkipsCurrentWatchOperation(t *testing.T) {
 }
 
 func TestSlashFilterAppliesToPassingAndFailedChecks(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{}, events)
 	m.width = 150
 	m.height = 34
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	target := watch.TargetSnapshot{Name: "Example Net", SSID: "Example Net"}
-	m.apply(watch.Event{
+	target := watchrun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"}
+	m.apply(watchrun.Event{
 		Time:     at,
-		Kind:     watch.EventStepFinished,
+		Kind:     watchrun.EventStepFinished,
 		Round:    1,
 		Target:   target,
-		Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 10,
 	})
-	m.apply(watch.Event{
+	m.apply(watchrun.Event{
 		Time:   at.Add(time.Second),
-		Kind:   watch.EventFinding,
+		Kind:   watchrun.EventFinding,
 		Round:  1,
 		Target: target,
-		Step:   watch.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
+		Step:   watchrun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
 		Status: "failed",
-		Finding: &watch.Finding{
+		Finding: &watchrun.Finding{
 			Target:   "Example Net",
 			Check:    "ping cloudflare",
 			Metric:   "received",
@@ -341,11 +341,11 @@ func TestSlashFilterAppliesToPassingAndFailedChecks(t *testing.T) {
 }
 
 func TestSlashFilterAppliesToFocusedCheckStatusAxes(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModelWithChecks("shownet-watch", []watch.Target{
+	events := make(chan watchrun.Event)
+	m := newModelWithChecks("shownet-watch", []watchrun.Target{
 		{Name: "alpha-5g", SSID: "Lab"},
 		{Name: "beta-6g", SSID: "Lab"},
-	}, []watch.CheckInfo{
+	}, []watchrun.CheckInfo{
 		{Name: "connect", Type: "connect"},
 		{Name: "download_cf_ipv4", Type: "download"},
 	}, events)
@@ -396,10 +396,10 @@ func TestSlashFilterAppliesToFocusedCheckStatusAxes(t *testing.T) {
 }
 
 func TestRenderLetsSummaryPanelsAbsorbRoundTimelineAndCheckStatusGrowth(t *testing.T) {
-	fewSteps := renderWatchFrameWithSteps(t, []watch.StepSnapshot{
+	fewSteps := renderWatchFrameWithSteps(t, []watchrun.StepSnapshot{
 		{Name: "connect", Type: "connect", Status: "running"},
 	})
-	manySteps := renderWatchFrameWithSteps(t, []watch.StepSnapshot{
+	manySteps := renderWatchFrameWithSteps(t, []watchrun.StepSnapshot{
 		{Name: "connect", Type: "connect", Status: "ok"},
 		{Name: "wait_connected", Type: "wait_connected", Status: "ok"},
 		{Name: "ip provisioning", Type: "ip_status", Status: "ok"},
@@ -425,14 +425,14 @@ func TestRenderLetsSummaryPanelsAbsorbRoundTimelineAndCheckStatusGrowth(t *testi
 }
 
 func TestRenderStylesSpacerRuns(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{
 		{Name: "shownet-6g-ap1", SSID: "ShowNet", Band: "6ghz"},
 		{Name: "shownet-5g-any", SSID: "ShowNet", Band: "5ghz"},
 	}, events)
 	m.width = 140
 	m.height = 30
-	m.apply(watch.Event{Kind: watch.EventWatchStarted, Message: "watch started"})
+	m.apply(watchrun.Event{Kind: watchrun.EventWatchStarted, Message: "watch started"})
 
 	raw := m.render()
 	if match := unstyledSpacerPattern.FindString(raw); match != "" {
@@ -488,16 +488,16 @@ func TestSummaryPanelsUseSemanticPalette(t *testing.T) {
 }
 
 func TestTickAdvancesSummaryRecencyClock(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at
-	m.apply(watch.Event{
+	m.apply(watchrun.Event{
 		Time:     at,
-		Kind:     watch.EventStepFinished,
+		Kind:     watchrun.EventStepFinished,
 		Round:    1,
-		Target:   watch.TargetSnapshot{Name: "Example Net", SSID: "Example Net"},
-		Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Target:   watchrun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"},
+		Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 42,
 	})
@@ -543,37 +543,37 @@ func TestHistoricalCheckStatusKeepsOutcomeHue(t *testing.T) {
 	assertStyleRGB(t, staleStatusStyle("skipped"), 0x9c, 0x64, 0x36)
 }
 
-func renderWatchFrameWithSteps(t *testing.T, steps []watch.StepSnapshot) string {
+func renderWatchFrameWithSteps(t *testing.T, steps []watchrun.StepSnapshot) string {
 	t.Helper()
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{
 		{Name: "shownet-6g-ap1", SSID: "ShowNet", Band: "6ghz"},
 	}, events)
 	m.width = 140
 	m.height = 30
-	m.apply(watch.Event{Kind: watch.EventRoundStarted, Round: 1})
-	m.apply(watch.Event{
-		Kind:   watch.EventTargetStarted,
+	m.apply(watchrun.Event{Kind: watchrun.EventRoundStarted, Round: 1})
+	m.apply(watchrun.Event{
+		Kind:   watchrun.EventTargetStarted,
 		Round:  1,
-		Target: watch.TargetSnapshot{Name: "shownet-6g-ap1", SSID: "ShowNet", Band: "6ghz"},
+		Target: watchrun.TargetSnapshot{Name: "shownet-6g-ap1", SSID: "ShowNet", Band: "6ghz"},
 	})
 	for _, step := range steps {
-		kind := watch.EventStepFinished
+		kind := watchrun.EventStepFinished
 		if step.Status == "running" {
-			kind = watch.EventStepStarted
+			kind = watchrun.EventStepStarted
 		}
-		m.apply(watch.Event{
+		m.apply(watchrun.Event{
 			Kind:   kind,
 			Round:  1,
-			Target: watch.TargetSnapshot{Name: "shownet-6g-ap1", SSID: "ShowNet", Band: "6ghz"},
+			Target: watchrun.TargetSnapshot{Name: "shownet-6g-ap1", SSID: "ShowNet", Band: "6ghz"},
 			Step:   step,
 		})
 	}
 	return stripANSI(m.render())
 }
 
-func targetSnapshot(name string) watch.TargetSnapshot {
-	return watch.TargetSnapshot{Name: name, SSID: name}
+func targetSnapshot(name string) watchrun.TargetSnapshot {
+	return watchrun.TargetSnapshot{Name: name, SSID: name}
 }
 
 func runQueueTexts(lines []runQueueLine) []string {

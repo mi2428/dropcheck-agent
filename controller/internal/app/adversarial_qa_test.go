@@ -75,7 +75,7 @@ func TestAdversarialQABroadcastJSONAgentIdentity(t *testing.T) {
 	out, err := captureStdout(t, func() error {
 		var mu sync.Mutex
 		printed := false
-		return runCommandForAgent(context.Background(), state, agent, op, commandOutputOptions{format: outputText, interactive: true, includeAgentHeader: true, pipeline: wrapPipePipeline(pipe)}, &mu, &printed)
+		return runCommandForAgent(context.Background(), state, agent, op, commandOutputOptions{includeAgentHeader: true, pipeline: wrapPipePipeline(pipe)}, &mu, &printed)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -110,7 +110,7 @@ func TestAdversarialQAFailedADBMustNotBeJSONSuccess(t *testing.T) {
 		var mu sync.Mutex
 		printed := false
 		return runADBDiagnosticsForAgent(context.Background(), state, agent, adbdiag.KindCmdWifiStatus,
-			commandOutputOptions{format: outputText, interactive: true, pipeline: wrapPipePipeline(pipe)}, &mu, &printed)
+			commandOutputOptions{pipeline: wrapPipePipeline(pipe)}, &mu, &printed)
 	})
 	if err != nil {
 		t.Fatal(err)

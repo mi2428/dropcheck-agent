@@ -6,8 +6,8 @@ import (
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/controlpb"
-	"dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/runner"
+	"dropcheck/controller/internal/watchrun"
 	"dropcheck/controller/internal/watchstate"
 	"testing"
 	"time"
@@ -35,28 +35,28 @@ func (r *repeatReviewRunner) Run(_ context.Context, _ control.AgentInfo, op comm
 	return runner.Result{Result: raw}, nil
 }
 
-type repeatReviewSink func(harness.Event)
+type repeatReviewSink func(watchrun.Event)
 
-func (f repeatReviewSink) Emit(_ context.Context, e harness.Event) error { f(e); return nil }
+func (f repeatReviewSink) Emit(_ context.Context, e watchrun.Event) error { f(e); return nil }
 
 func TestReviewRepeatFirstFailureReachesReducerAndNoTUI(t *testing.T) {
-	expect, err := harness.CompileExpectations(map[string]any{"received": 5})
+	expect, err := watchrun.CompileExpectations(map[string]any{"received": 5})
 	if err != nil {
 		t.Fatal(err)
 	}
 	op, _ := command.PingOperation(command.PingOptions{Host: "example.test"})
-	p, err := harness.Compile(harness.Plan{Networks: []harness.Network{harness.WiFi("lab").SSID("Lab")}, Checks: []harness.Check{harness.NewCheck("ping", "", op, harness.Policy{Attempts: 1, Repeat: 2}, false, expect...)}}, []control.AgentInfo{{ID: "a"}})
+	p, err := watchrun.Compile(watchrun.Plan{Networks: []watchrun.Network{{Name: "lab", SSID: "Lab", WaitConnected: true, RequireIP: true, DisconnectAfter: true}}, Checks: []watchrun.Check{{Name: "ping", Operation: op, Policy: watchrun.Policy{Attempts: 1, Repeat: 2}, Expectations: expect}}}, []control.AgentInfo{{ID: "a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	preview := p.Preview()
 	state := watchstate.New(preview.Targets, preview.Checks, preview.Agents, time.Now())
 	var out bytes.Buffer
-	report, err := harness.Execute(context.Background(), p, &repeatReviewRunner{}, harness.ExecuteOptions{Rounds: 1, Sinks: []harness.Sink{repeatReviewSink(func(e harness.Event) { state.Apply(e); printWatchNoTUIEvent(&out, e, false) })}})
+	report, err := watchrun.Execute(context.Background(), p, &repeatReviewRunner{}, watchrun.ExecuteOptions{Rounds: 1, Sinks: []watchrun.Sink{repeatReviewSink(func(e watchrun.Event) { state.Apply(e); printWatchNoTUIEvent(&out, e, false) })}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Outcome != harness.FailOutcome || len(state.FailedChecks) == 0 || out.Len() == 0 {
+	if report.Outcome != watchrun.FailOutcome || len(state.FailedChecks) == 0 || out.Len() == 0 {
 		t.Fatalf("failure disappeared: report=%s history=%d noTUI=%q", report.Outcome, len(state.FailedChecks), out.String())
 	}
 }

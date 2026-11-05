@@ -6,28 +6,28 @@ import (
 	"testing"
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
 
 func TestEnterShowsFailedCheckDetail(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{
 		{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
 	}, events)
 	m.width = 150
 	m.height = 50
 	m.Now = time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	m.apply(watch.Event{
+	m.apply(watchrun.Event{
 		Time:   time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC),
-		Kind:   watch.EventFinding,
+		Kind:   watchrun.EventFinding,
 		Round:  1,
-		Target: watch.TargetSnapshot{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
-		Step:   watch.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
+		Target: watchrun.TargetSnapshot{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
+		Step:   watchrun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
 		Status: "failed",
-		Finding: &watch.Finding{
+		Finding: &watchrun.Finding{
 			Target:   "Example Net",
 			Check:    "ping cloudflare",
 			Metric:   "received",
@@ -63,33 +63,33 @@ func TestEnterShowsFailedCheckDetail(t *testing.T) {
 }
 
 func TestFailedRequiredStepDetailShowsWifiAssertFailurePoint(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{
 		{Name: "ub2(6G)", SSID: "Example Net", BSSID: "02:00:00:00:00:21", Band: "5ghz"},
 	}, events)
 	m.width = 180
 	m.height = 50
 	at := time.Date(2026, 5, 18, 10, 27, 26, 0, time.UTC)
 	m.Now = at
-	target := watch.TargetSnapshot{Name: "ub2(6G)", SSID: "Example Net", BSSID: "02:00:00:00:00:21", Band: "5ghz"}
+	target := watchrun.TargetSnapshot{Name: "ub2(6G)", SSID: "Example Net", BSSID: "02:00:00:00:00:21", Band: "5ghz"}
 	message := "wifi condition timeout: last_pass=band failed=ip(actual=absent expected=present),validated(actual=false expected=true) assert_elapsed_ms=30000"
-	m.apply(watch.Event{
+	m.apply(watchrun.Event{
 		Time:   at,
-		Kind:   watch.EventStepFinished,
+		Kind:   watchrun.EventStepFinished,
 		Round:  1,
 		Target: target,
-		Step:   watch.StepSnapshot{Name: "wait_connected", Type: "wait_connected", Operation: "wifi.wait", Status: "failed", Message: message},
+		Step:   watchrun.StepSnapshot{Name: "wait_connected", Type: "wait_connected", Operation: "wifi.wait", Status: "failed", Message: message},
 		Status: "failed",
 	})
-	m.apply(watch.Event{Time: at, Kind: watch.EventFinding, Round: 1, Target: target,
-		Step:    watch.StepSnapshot{Name: "wait_connected", Type: "wait_connected", Operation: "wifi.wait", Status: "failed"},
-		Finding: &watch.Finding{Target: target.Name, Check: "wait_connected", Metric: "status", Observed: "failed", Expected: "== ok", Message: message}})
-	m.apply(watch.Event{
+	m.apply(watchrun.Event{Time: at, Kind: watchrun.EventFinding, Round: 1, Target: target,
+		Step:    watchrun.StepSnapshot{Name: "wait_connected", Type: "wait_connected", Operation: "wifi.wait", Status: "failed"},
+		Finding: &watchrun.Finding{Target: target.Name, Check: "wait_connected", Metric: "status", Observed: "failed", Expected: "== ok", Message: message}})
+	m.apply(watchrun.Event{
 		Time:    at.Add(time.Second),
-		Kind:    watch.EventLog,
+		Kind:    watchrun.EventLog,
 		Round:   1,
 		Target:  target,
-		Step:    watch.StepSnapshot{Name: "wait_connected", Type: "wait_connected", Operation: "wifi.wait", Status: "failed"},
+		Step:    watchrun.StepSnapshot{Name: "wait_connected", Type: "wait_connected", Operation: "wifi.wait", Status: "failed"},
 		Status:  "warn",
 		Message: `wifi failure cause: disconnected reason=6 locally_generated=false bssid=02:00:00:00:00:21 ssid="Example Net"`,
 	})
@@ -109,8 +109,8 @@ func TestFailedRequiredStepDetailShowsWifiAssertFailurePoint(t *testing.T) {
 }
 
 func TestEnterShowsPassingCheckDetail(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{
 		{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
 	}, events)
 	m.width = 150
@@ -118,12 +118,12 @@ func TestEnterShowsPassingCheckDetail(t *testing.T) {
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(40 * time.Second)
 	for _, second := range []int{0, 20, 40} {
-		m.apply(watch.Event{
+		m.apply(watchrun.Event{
 			Time:     at.Add(time.Duration(second) * time.Second),
-			Kind:     watch.EventStepFinished,
+			Kind:     watchrun.EventStepFinished,
 			Round:    1,
-			Target:   watch.TargetSnapshot{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
-			Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Operation: "wifi.connect", Status: "ok"},
+			Target:   watchrun.TargetSnapshot{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
+			Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Operation: "wifi.connect", Status: "ok"},
 			Status:   "ok",
 			Duration: 120,
 		})
@@ -154,14 +154,14 @@ func TestEnterShowsPassingCheckDetail(t *testing.T) {
 }
 
 func TestTabKeepsModalOpenAndMovesPanelFocus(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
-	m.apply(watch.Event{
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{}, events)
+	m.apply(watchrun.Event{
 		Time:     time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC),
-		Kind:     watch.EventStepFinished,
+		Kind:     watchrun.EventStepFinished,
 		Round:    1,
-		Target:   watch.TargetSnapshot{Name: "Example Net", SSID: "Example Net"},
-		Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Target:   watchrun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"},
+		Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 10,
 	})
@@ -178,28 +178,28 @@ func TestTabKeepsModalOpenAndMovesPanelFocus(t *testing.T) {
 }
 
 func TestDetailModalCursorFollowsOpenedItemAcrossUpdates(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{}, events)
 	m.focus = focusPassingChecks
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(time.Minute)
-	targetA := watch.TargetSnapshot{Name: "target-a", SSID: "Lab"}
-	targetB := watch.TargetSnapshot{Name: "target-b", SSID: "Lab"}
-	m.apply(watch.Event{
+	targetA := watchrun.TargetSnapshot{Name: "target-a", SSID: "Lab"}
+	targetB := watchrun.TargetSnapshot{Name: "target-b", SSID: "Lab"}
+	m.apply(watchrun.Event{
 		Time:     at.Add(-time.Minute),
-		Kind:     watch.EventStepFinished,
+		Kind:     watchrun.EventStepFinished,
 		Round:    1,
 		Target:   targetA,
-		Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 10,
 	})
-	m.apply(watch.Event{
+	m.apply(watchrun.Event{
 		Time:     at,
-		Kind:     watch.EventStepFinished,
+		Kind:     watchrun.EventStepFinished,
 		Round:    1,
 		Target:   targetB,
-		Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 10,
 	})
@@ -209,12 +209,12 @@ func TestDetailModalCursorFollowsOpenedItemAcrossUpdates(t *testing.T) {
 		t.Fatalf("opened row = %q, want target-b", got)
 	}
 
-	m.apply(watch.Event{
+	m.apply(watchrun.Event{
 		Time:     at.Add(time.Minute),
-		Kind:     watch.EventStepFinished,
+		Kind:     watchrun.EventStepFinished,
 		Round:    2,
 		Target:   targetA,
-		Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 12,
 	})
@@ -230,21 +230,21 @@ func TestDetailModalCursorFollowsOpenedItemAcrossUpdates(t *testing.T) {
 }
 
 func TestFailedCheckDetailOverlaysExistingTUI(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{
 		{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
 	}, events)
 	m.width = 150
 	m.height = 32
-	m.apply(watch.Event{Kind: watch.EventWatchStarted, Message: "watch started"})
-	m.apply(watch.Event{
+	m.apply(watchrun.Event{Kind: watchrun.EventWatchStarted, Message: "watch started"})
+	m.apply(watchrun.Event{
 		Time:   time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC),
-		Kind:   watch.EventFinding,
+		Kind:   watchrun.EventFinding,
 		Round:  1,
-		Target: watch.TargetSnapshot{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
-		Step:   watch.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
+		Target: watchrun.TargetSnapshot{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
+		Step:   watchrun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
 		Status: "failed",
-		Finding: &watch.Finding{
+		Finding: &watchrun.Finding{
 			Target:   "Example Net",
 			Check:    "ping cloudflare",
 			Metric:   "received",
@@ -274,8 +274,8 @@ func TestFailedCheckDetailOverlaysExistingTUI(t *testing.T) {
 }
 
 func TestFailedCheckDetailModalKeepsInvestigationRowsWhenCompact(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{
 		{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
 	}, events)
 	m.width = 160
@@ -283,14 +283,14 @@ func TestFailedCheckDetailModalKeepsInvestigationRowsWhenCompact(t *testing.T) {
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(60 * time.Second)
 	for _, second := range []int{0, 0, 15, 30, 30, 30, 60} {
-		m.apply(watch.Event{
+		m.apply(watchrun.Event{
 			Time:   at.Add(time.Duration(second) * time.Second),
-			Kind:   watch.EventFinding,
+			Kind:   watchrun.EventFinding,
 			Round:  1,
-			Target: watch.TargetSnapshot{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
-			Step:   watch.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
+			Target: watchrun.TargetSnapshot{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
+			Step:   watchrun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
 			Status: "failed",
-			Finding: &watch.Finding{
+			Finding: &watchrun.Finding{
 				Target:   "Example Net",
 				Check:    "ping cloudflare",
 				Metric:   "received",
@@ -321,17 +321,17 @@ func TestFailedCheckDetailModalKeepsInvestigationRowsWhenCompact(t *testing.T) {
 }
 
 func TestFailedCheckDetailUsesDenseInvestigationLayout(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(40 * time.Second)
 	for _, second := range []int{0, 20, 40} {
-		m.apply(watch.Event{
+		m.apply(watchrun.Event{
 			Time:   at.Add(time.Duration(second) * time.Second),
-			Kind:   watch.EventFinding,
-			Target: watch.TargetSnapshot{Name: "Example Net"},
-			Step:   watch.StepSnapshot{Name: "ping cloudflare"},
-			Finding: &watch.Finding{
+			Kind:   watchrun.EventFinding,
+			Target: watchrun.TargetSnapshot{Name: "Example Net"},
+			Step:   watchrun.StepSnapshot{Name: "ping cloudflare"},
+			Finding: &watchrun.Finding{
 				Target:   "Example Net",
 				Check:    "ping cloudflare",
 				Metric:   "received",
@@ -391,20 +391,20 @@ func TestFailedCheckDetailUsesDenseInvestigationLayout(t *testing.T) {
 }
 
 func TestFailureHotspotDetailSectionsUseTitledSpacing(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(2 * time.Minute)
-	target := watch.TargetSnapshot{Name: "radio-a", SSID: "Example Net", Band: "5ghz"}
+	target := watchrun.TargetSnapshot{Name: "radio-a", SSID: "Example Net", Band: "5ghz"}
 	for round, when := range []time.Time{at, at.Add(time.Minute)} {
-		m.apply(watch.Event{
+		m.apply(watchrun.Event{
 			Time:   when,
-			Kind:   watch.EventFinding,
+			Kind:   watchrun.EventFinding,
 			Round:  uint64(round + 1),
 			Target: target,
-			Step:   watch.StepSnapshot{Name: "public ipv6", Type: "global_ip", Status: "failed"},
+			Step:   watchrun.StepSnapshot{Name: "public ipv6", Type: "global_ip", Status: "failed"},
 			Status: "failed",
-			Finding: &watch.Finding{
+			Finding: &watchrun.Finding{
 				Target:   target.Name,
 				Check:    "public ipv6",
 				Metric:   "ipv6_global_ips",
@@ -438,26 +438,26 @@ func TestFailureHotspotDetailSectionsUseTitledSpacing(t *testing.T) {
 }
 
 func TestFailedCheckDetailLogsAreScopedToSelectedCheck(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	target := watch.TargetSnapshot{Name: "radio-a", SSID: "Lab", Band: "5ghz"}
-	m.apply(watch.Event{
+	target := watchrun.TargetSnapshot{Name: "radio-a", SSID: "Lab", Band: "5ghz"}
+	m.apply(watchrun.Event{
 		Time:   at,
-		Kind:   watch.EventStepFinished,
+		Kind:   watchrun.EventStepFinished,
 		Round:  1,
 		Target: target,
-		Step:   watch.StepSnapshot{Name: "http cloudflare v6", Type: "http", Status: "ok"},
+		Step:   watchrun.StepSnapshot{Name: "http cloudflare v6", Type: "http", Status: "ok"},
 		Status: "ok",
 	})
-	m.apply(watch.Event{
+	m.apply(watchrun.Event{
 		Time:   at.Add(time.Second),
-		Kind:   watch.EventFinding,
+		Kind:   watchrun.EventFinding,
 		Round:  1,
 		Target: target,
-		Step:   watch.StepSnapshot{Name: "public ipv6", Type: "global_ip", Status: "failed"},
+		Step:   watchrun.StepSnapshot{Name: "public ipv6", Type: "global_ip", Status: "failed"},
 		Status: "failed",
-		Finding: &watch.Finding{
+		Finding: &watchrun.Finding{
 			Target:   "radio-a",
 			Check:    "public ipv6",
 			Metric:   "ipv6_global_ips",
@@ -466,12 +466,12 @@ func TestFailedCheckDetailLogsAreScopedToSelectedCheck(t *testing.T) {
 			Message:  "constraint failed",
 		},
 	})
-	m.apply(watch.Event{
+	m.apply(watchrun.Event{
 		Time:   at.Add(2 * time.Second),
-		Kind:   watch.EventStepFinished,
+		Kind:   watchrun.EventStepFinished,
 		Round:  1,
 		Target: target,
-		Step:   watch.StepSnapshot{Name: "disconnect", Type: "cleanup", Status: "ok"},
+		Step:   watchrun.StepSnapshot{Name: "disconnect", Type: "cleanup", Status: "ok"},
 		Status: "ok",
 	})
 
@@ -489,18 +489,18 @@ func TestFailedCheckDetailLogsAreScopedToSelectedCheck(t *testing.T) {
 }
 
 func TestFailedCheckDetailLogsUseStructuredHistoryBeyondVisibleEventLog(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	target := watch.TargetSnapshot{Name: "radio-a", SSID: "Lab", Band: "5ghz"}
-	m.apply(watch.Event{
+	target := watchrun.TargetSnapshot{Name: "radio-a", SSID: "Lab", Band: "5ghz"}
+	m.apply(watchrun.Event{
 		Time:   at,
-		Kind:   watch.EventFinding,
+		Kind:   watchrun.EventFinding,
 		Round:  1,
 		Target: target,
-		Step:   watch.StepSnapshot{Name: "public ipv6", Type: "global_ip", Status: "failed"},
+		Step:   watchrun.StepSnapshot{Name: "public ipv6", Type: "global_ip", Status: "failed"},
 		Status: "failed",
-		Finding: &watch.Finding{
+		Finding: &watchrun.Finding{
 			Target:   "radio-a",
 			Check:    "public ipv6",
 			Metric:   "ipv6_global_ips",
@@ -510,9 +510,9 @@ func TestFailedCheckDetailLogsUseStructuredHistoryBeyondVisibleEventLog(t *testi
 		},
 	})
 	for i := range visibleEventLogLimit + 25 {
-		m.apply(watch.Event{
+		m.apply(watchrun.Event{
 			Time:    at.Add(time.Duration(i+1) * time.Second),
-			Kind:    watch.EventLog,
+			Kind:    watchrun.EventLog,
 			Message: fmt.Sprintf("unrelated log %03d", i),
 		})
 	}
@@ -669,19 +669,19 @@ func TestDenseDetailTimelineSeparatesHeaderAndGraph(t *testing.T) {
 }
 
 func TestFailureCauseHistoryTableAlignsWithLongCheckNames(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{}, events)
 	at := time.Date(2026, 5, 16, 13, 41, 52, 0, time.UTC)
 	m.Now = at.Add(time.Minute)
-	target := watch.TargetSnapshot{Name: "debug-a1(5G)", SSID: "Example Net"}
-	m.apply(watch.Event{
+	target := watchrun.TargetSnapshot{Name: "debug-a1(5G)", SSID: "Example Net"}
+	m.apply(watchrun.Event{
 		Time:   at,
-		Kind:   watch.EventFinding,
+		Kind:   watchrun.EventFinding,
 		Round:  2,
 		Target: target,
-		Step:   watch.StepSnapshot{Name: "Debug Ping Blackhole", Type: "ping", Status: "failed"},
+		Step:   watchrun.StepSnapshot{Name: "Debug Ping Blackhole", Type: "ping", Status: "failed"},
 		Status: "failed",
-		Finding: &watch.Finding{
+		Finding: &watchrun.Finding{
 			Target:   target.Name,
 			Check:    "Debug Ping Blackhole",
 			Metric:   "status",
@@ -707,19 +707,19 @@ func TestFailureCauseHistoryTableAlignsWithLongCheckNames(t *testing.T) {
 }
 
 func TestFailureHotspotHistoryTableAlignsWithLongCheckNames(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{}, events)
 	at := time.Date(2026, 5, 16, 14, 6, 35, 0, time.UTC)
 	m.Now = at.Add(time.Minute)
-	target := watch.TargetSnapshot{Name: "debug-a1(5G)", SSID: "Example Net"}
-	m.apply(watch.Event{
+	target := watchrun.TargetSnapshot{Name: "debug-a1(5G)", SSID: "Example Net"}
+	m.apply(watchrun.Event{
 		Time:   at,
-		Kind:   watch.EventFinding,
+		Kind:   watchrun.EventFinding,
 		Round:  1,
 		Target: target,
-		Step:   watch.StepSnapshot{Name: "Debug HTTP Wrong Status", Type: "http", Status: "failed"},
+		Step:   watchrun.StepSnapshot{Name: "Debug HTTP Wrong Status", Type: "http", Status: "failed"},
 		Status: "failed",
-		Finding: &watch.Finding{
+		Finding: &watchrun.Finding{
 			Target:   target.Name,
 			Check:    "Debug HTTP Wrong Status",
 			Metric:   "elapsed_ms",
@@ -813,8 +813,8 @@ func detailTestRows(count int, value string) []string {
 }
 
 func TestFailedCheckDetailModalUsesFixedAppRatio(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{}, events)
 	modal := m.failedCheckDetailModal(150, 32)
 
 	if got, want := lipgloss.Width(modal), 81; got != want {
@@ -826,17 +826,17 @@ func TestFailedCheckDetailModalUsesFixedAppRatio(t *testing.T) {
 }
 
 func TestDetailModalShowsExpandedLogRows(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan watchrun.Event)
+	m := newModel([]watchrun.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	target := watch.TargetSnapshot{Name: "radio-a", SSID: "Lab", Band: "5ghz"}
+	target := watchrun.TargetSnapshot{Name: "radio-a", SSID: "Lab", Band: "5ghz"}
 	for i := range 30 {
-		m.apply(watch.Event{
+		m.apply(watchrun.Event{
 			Time:     at.Add(time.Duration(i) * time.Second),
-			Kind:     watch.EventStepFinished,
+			Kind:     watchrun.EventStepFinished,
 			Round:    uint64(i + 1),
 			Target:   target,
-			Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Operation: "wifi.connect", Status: "ok"},
+			Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Operation: "wifi.connect", Status: "ok"},
 			Status:   "ok",
 			Duration: 100,
 		})

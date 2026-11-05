@@ -9,8 +9,8 @@ import (
 
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/controlpb"
-	"dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/pipeline"
+	"dropcheck/controller/internal/watchrun"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -198,15 +198,15 @@ func TestMetadataSeparationInteractiveJSONAndFilter(t *testing.T) {
 func TestMetadataSeparationOperationAndHistoricalReport(t *testing.T) {
 	raw := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_CANCELED, Message: "partial capture", Payload: &controlpb.CommandResult_IpStatus{IpStatus: &controlpb.IpStatus{}}}
 	t.Run("operation", func(t *testing.T) {
-		out, err := OperationResult("pinned-PC-target", harness.OperationResult{Raw: raw}, pipeline.FormatText, Presentation{})
+		out, err := OperationResult("pinned-PC-target", watchrun.OperationResult{Raw: raw}, pipeline.FormatText, Presentation{})
 		if err != nil {
 			t.Fatal(err)
 		}
 		metadataQAHeader(t, out, "pinned-PC-target")
 	})
 	t.Run("historical_report", func(t *testing.T) {
-		scope := harness.Scope{Kind: "check", AgentID: "agent-1", TargetID: "target-1"}
-		report := harness.Report{Outcome: harness.CanceledOutcome, Started: time.Unix(1, 0), Ended: time.Unix(2, 0), Agents: []harness.AgentProgress{{Agent: harness.AgentSnapshot{ID: "agent-1", Name: "pinned-PC-target"}}}, Steps: []harness.StepReport{{Scope: scope, Outcome: harness.CanceledOutcome, Attempts: []harness.Attempt{{Scope: scope, Outcome: harness.CanceledOutcome, Result: harness.OperationResult{Raw: raw}}}}}}
+		scope := watchrun.Scope{Kind: "check", AgentID: "agent-1", TargetID: "target-1"}
+		report := watchrun.Report{Outcome: watchrun.CanceledOutcome, Started: time.Unix(1, 0), Ended: time.Unix(2, 0), Agents: []watchrun.AgentProgress{{Agent: watchrun.AgentSnapshot{ID: "agent-1", Name: "pinned-PC-target"}}}, Steps: []watchrun.StepReport{{Scope: scope, Outcome: watchrun.CanceledOutcome, Attempts: []watchrun.Attempt{{Scope: scope, Outcome: watchrun.CanceledOutcome, Result: watchrun.OperationResult{Raw: raw}}}}}}
 		out, err := Report(report, Presentation{Detail: true})
 		if err != nil {
 			t.Fatal(err)
@@ -263,12 +263,12 @@ func TestMetadataSeparationHistoricalAcquisitionsUseTheirOwnAgentScope(t *testin
 		{"missing_agent", "", "? (agent metadata unavailable)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			scope := harness.Scope{Kind: harness.ScopeCheck, AgentID: "agent-a", TargetID: "ssid-target"}
-			report := harness.Report{
-				Outcome: harness.CanceledOutcome,
-				Agents:  []harness.AgentProgress{{Agent: harness.AgentSnapshot{ID: "agent-a", Name: "acquired-A"}}, {Agent: harness.AgentSnapshot{ID: "agent-b", Name: "acquired-B"}}},
-				Steps: []harness.StepReport{{Scope: scope, Attempts: []harness.Attempt{{Scope: scope, Result: harness.OperationResult{
-					Raw: raw, Parts: []harness.OperationRecord{{Scope: harness.Scope{Kind: harness.ScopeAgent, AgentID: tc.partAgent}, Name: "snapshot", Raw: raw}},
+			scope := watchrun.Scope{Kind: watchrun.ScopeCheck, AgentID: "agent-a", TargetID: "ssid-target"}
+			report := watchrun.Report{
+				Outcome: watchrun.CanceledOutcome,
+				Agents:  []watchrun.AgentProgress{{Agent: watchrun.AgentSnapshot{ID: "agent-a", Name: "acquired-A"}}, {Agent: watchrun.AgentSnapshot{ID: "agent-b", Name: "acquired-B"}}},
+				Steps: []watchrun.StepReport{{Scope: scope, Attempts: []watchrun.Attempt{{Scope: scope, Result: watchrun.OperationResult{
+					Raw: raw, Parts: []watchrun.OperationRecord{{Scope: watchrun.Scope{Kind: watchrun.ScopeAgent, AgentID: tc.partAgent}, Name: "snapshot", Raw: raw}},
 				}}}}},
 			}
 			out, err := Report(report, Presentation{Detail: true})

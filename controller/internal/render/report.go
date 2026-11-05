@@ -8,17 +8,17 @@ import (
 
 	"dropcheck/controller/internal/command"
 	"dropcheck/controller/internal/controlpb"
-	"dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/pipeline"
+	"dropcheck/controller/internal/watchrun"
 )
 
 // OperationResult consumes the shared acquisition contract; Parts never contain commands.
 // Required acquisition failures are supplied by core, not reconstructed by the UI.
-func OperationResult(agent string, result harness.OperationResult, format pipeline.Format, view Presentation) (string, error) {
+func OperationResult(agent string, result watchrun.OperationResult, format pipeline.Format, view Presentation) (string, error) {
 	return operationResult(agent, result, format, view, func(string) string { return agent })
 }
 
-func operationResult(agent string, result harness.OperationResult, format pipeline.Format, view Presentation, partAgent func(string) string) (string, error) {
+func operationResult(agent string, result watchrun.OperationResult, format pipeline.Format, view Presentation, partAgent func(string) string) (string, error) {
 	out := Fields([][2]string{{"Acquisition", "? (aggregate typed payload unavailable)"}}, view)
 	if result.Raw != nil {
 		var err error
@@ -81,7 +81,7 @@ func operationResult(agent string, result harness.OperationResult, format pipeli
 
 // Report consumes the complete safe core report without execution or re-evaluation.
 // Run/check/command identifiers appear only in detail; target ordinals identify scope.
-func Report(report harness.Report, view Presentation) (string, error) {
+func Report(report watchrun.Report, view Presentation) (string, error) {
 	var b strings.Builder
 	labels := reportLabels(report)
 	fmt.Fprintf(&b, "Check  %s  %s\n", strings.ToUpper(string(report.Outcome)), acquisitionElapsed(report.Started, report.Ended))
@@ -133,7 +133,7 @@ func Report(report harness.Report, view Presentation) (string, error) {
 			writeRecord(&b, "Reason", safePresentationText(step.Reason))
 		}
 		if len(step.Attempts) == 0 {
-			if step.Outcome == harness.SkipOutcome {
+			if step.Outcome == watchrun.SkipOutcome {
 				writeRecord(&b, "Time", "n/a (skipped)")
 			} else {
 				writeRecord(&b, "Time", "? (no attempt timeline recorded)")
@@ -173,7 +173,7 @@ func Report(report harness.Report, view Presentation) (string, error) {
 	return wrapPresentation(b.String(), view.Width), nil
 }
 
-func acquisitionRecordStatus(record harness.OperationRecord) string {
+func acquisitionRecordStatus(record watchrun.OperationRecord) string {
 	if record.Raw != nil && record.Raw.GetStatus() != controlpb.CommandResult_STATUS_OK {
 		return strings.ToUpper(resultStatus(record.Raw.GetStatus()))
 	}
@@ -186,12 +186,12 @@ func acquisitionRecordStatus(record harness.OperationRecord) string {
 	return strings.ToUpper(resultStatus(record.Raw.GetStatus()))
 }
 
-func reportCounts(counts harness.Counts) string {
+func reportCounts(counts watchrun.Counts) string {
 	return fmt.Sprintf("pass=%d fail=%d missing=%d skip=%d canceled=%d", counts.Passed, counts.Failed, counts.Missing, counts.Skipped, counts.Canceled)
 }
 
 // ReportAgentLabel resolves the acquired agent, not the check/SSID scope, for result headers.
-func ReportAgentLabel(report harness.Report, agentID string) string {
+func ReportAgentLabel(report watchrun.Report, agentID string) string {
 	for _, progress := range report.Agents {
 		if progress.Agent.ID == agentID {
 			return empty(progress.Agent.DisplayName(), agentID)
@@ -200,7 +200,7 @@ func ReportAgentLabel(report harness.Report, agentID string) string {
 	return empty(agentID, "? (agent metadata unavailable)")
 }
 
-func reportLabels(report harness.Report) map[string]string {
+func reportLabels(report watchrun.Report) map[string]string {
 	labels := make(map[string]string)
 	for _, progress := range report.Agents {
 		labels["agent:"+progress.Agent.ID] = empty(progress.Agent.DisplayName(), progress.Agent.ID)
@@ -217,7 +217,7 @@ func reportLabels(report harness.Report) map[string]string {
 	return labels
 }
 
-func reportScope(scope harness.Scope, labels map[string]string, detail bool) string {
+func reportScope(scope watchrun.Scope, labels map[string]string, detail bool) string {
 	agentName := empty(labels["agent:"+scope.AgentID], scope.AgentID)
 	target := empty(labels["target:"+scope.TargetID], scope.TargetID)
 	parts := []string{scope.Kind}
@@ -233,7 +233,7 @@ func reportScope(scope harness.Scope, labels map[string]string, detail bool) str
 	return strings.Join(parts, " ")
 }
 
-func writeFindings(b *strings.Builder, findings []harness.Finding, includePassed bool) {
+func writeFindings(b *strings.Builder, findings []watchrun.Finding, includePassed bool) {
 	for _, finding := range findings {
 		if finding.Passed && !includePassed {
 			continue

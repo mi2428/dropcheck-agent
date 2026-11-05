@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 )
 
 // OutcomeEvent is the compact historical outcome used by check-status and
@@ -13,8 +13,8 @@ import (
 type OutcomeEvent struct {
 	When   time.Time
 	Round  uint64
-	Agent  watch.AgentSnapshot
-	Target watch.TargetSnapshot
+	Agent  watchrun.AgentSnapshot
+	Target watchrun.TargetSnapshot
 	Status string
 }
 
@@ -57,10 +57,10 @@ func (s State) OutcomeEvents() []OutcomeEvent {
 }
 
 // OutcomeAgents returns the stable agent list used for multi-agent aggregates.
-func (s State) OutcomeAgents(events []OutcomeEvent) []watch.AgentSnapshot {
-	agents := make([]watch.AgentSnapshot, 0, Max(1, len(s.Agents)))
+func (s State) OutcomeAgents(events []OutcomeEvent) []watchrun.AgentSnapshot {
+	agents := make([]watchrun.AgentSnapshot, 0, Max(1, len(s.Agents)))
 	seen := make(map[string]bool)
-	add := func(agent watch.AgentSnapshot) {
+	add := func(agent watchrun.AgentSnapshot) {
 		key := AgentKey(agent)
 		if key == "" && len(agents) > 0 {
 			return
@@ -83,16 +83,16 @@ func (s State) OutcomeAgents(events []OutcomeEvent) []watch.AgentSnapshot {
 		add(event.Agent)
 	}
 	if len(agents) == 0 {
-		agents = append(agents, watch.AgentSnapshot{})
+		agents = append(agents, watchrun.AgentSnapshot{})
 	}
 	return agents
 }
 
 // CheckStatusTargets returns deduplicated targets in configured/history order.
-func (s State) CheckStatusTargets() []watch.TargetSnapshot {
-	targets := make([]watch.TargetSnapshot, 0, len(s.Targets))
+func (s State) CheckStatusTargets() []watchrun.TargetSnapshot {
+	targets := make([]watchrun.TargetSnapshot, 0, len(s.Targets))
 	seen := make(map[string]bool)
-	add := func(target watch.TargetSnapshot) {
+	add := func(target watchrun.TargetSnapshot) {
 		key := CheckStatusTargetKey(target)
 		if key == "" || seen[key] {
 			return
@@ -143,7 +143,7 @@ func (s State) CheckStatusChecks() []string {
 }
 
 // FilterOutcomeEvents returns outcomes scoped to one agent and target.
-func FilterOutcomeEvents(events []OutcomeEvent, agent watch.AgentSnapshot, target watch.TargetSnapshot) []OutcomeEvent {
+func FilterOutcomeEvents(events []OutcomeEvent, agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot) []OutcomeEvent {
 	filtered := make([]OutcomeEvent, 0, len(events))
 	targetKey := CheckStatusTargetKey(target)
 	for _, event := range events {
@@ -209,7 +209,7 @@ func OutcomeBuckets(events []OutcomeEvent, width int) []OutcomeBucket {
 
 // CheckStatusForTarget resolves the current target-level status before falling
 // back to the latest historical outcome.
-func (s State) CheckStatusForTarget(agent watch.AgentSnapshot, target watch.TargetSnapshot, events []OutcomeEvent) string {
+func (s State) CheckStatusForTarget(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, events []OutcomeEvent) string {
 	for _, state := range s.Targets {
 		if SameAgent(state.Agent, agent) && CheckStatusTargetKey(state.Target) == CheckStatusTargetKey(target) {
 			status := NormalizeStatus(state.Status)
@@ -226,9 +226,9 @@ func (s State) CheckStatusForTarget(agent watch.AgentSnapshot, target watch.Targ
 }
 
 // CheckStatusTargetCell aggregates agent results into one target/check cell.
-func (s State) CheckStatusTargetCell(check string, target watch.TargetSnapshot, agents []watch.AgentSnapshot) CheckStatusAggregate {
+func (s State) CheckStatusTargetCell(check string, target watchrun.TargetSnapshot, agents []watchrun.AgentSnapshot) CheckStatusAggregate {
 	if len(agents) == 0 {
-		agents = []watch.AgentSnapshot{{}}
+		agents = []watchrun.AgentSnapshot{{}}
 	}
 	counts := map[string]int{}
 	currentCounts := map[string]int{}
@@ -262,7 +262,7 @@ func (s State) CheckStatusTargetCell(check string, target watch.TargetSnapshot, 
 
 // CheckStatusAgentResult returns the current round state for configured targets
 // and falls back to stale history until the current round emits this check.
-func (s State) CheckStatusAgentResult(agent watch.AgentSnapshot, target watch.TargetSnapshot, check string) CheckStatusAgentResult {
+func (s State) CheckStatusAgentResult(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, check string) CheckStatusAgentResult {
 	if status, ok := s.CurrentCheckStatus(agent, target, check); ok {
 		return CheckStatusAgentResult{Status: status}
 	}
@@ -274,7 +274,7 @@ func (s State) CheckStatusAgentResult(agent watch.AgentSnapshot, target watch.Ta
 
 // HistoricalCheckStatus returns the newest retained pass/fail status for one
 // agent, target, and check.
-func (s State) HistoricalCheckStatus(agent watch.AgentSnapshot, target watch.TargetSnapshot, check string) (string, bool) {
+func (s State) HistoricalCheckStatus(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, check string) (string, bool) {
 	status := "pending"
 	var seen time.Time
 	for _, passingCheck := range s.PassingChecks {
@@ -312,7 +312,7 @@ func (s State) HistoricalCheckStatus(agent watch.AgentSnapshot, target watch.Tar
 // Returning "not found" when the target exists but has not emitted this step in
 // the current round lets the dashboard retain the most recent completed result
 // until fresh data for that check arrives.
-func (s State) CurrentCheckStatus(agent watch.AgentSnapshot, target watch.TargetSnapshot, check string) (string, bool) {
+func (s State) CurrentCheckStatus(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, check string) (string, bool) {
 	for _, state := range s.Targets {
 		if !SameAgent(state.Agent, agent) || CheckStatusTargetKey(state.Target) != CheckStatusTargetKey(target) {
 			continue

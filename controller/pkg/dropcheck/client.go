@@ -10,9 +10,9 @@ import (
 
 	"dropcheck/controller/internal/adb"
 	"dropcheck/controller/internal/control"
-	"dropcheck/controller/internal/harness"
 	"dropcheck/controller/internal/runner"
 	"dropcheck/controller/internal/session"
+	"dropcheck/controller/internal/watchrun"
 )
 
 const DefaultPackageName = session.DefaultPackageName
@@ -20,7 +20,7 @@ const DefaultPackageName = session.DefaultPackageName
 type Options = session.Options
 type Agent = control.AgentInfo
 type LogEvent = control.LogEvent
-type Result = harness.OperationResult
+type Result = watchrun.OperationResult
 type Device = adb.Device
 
 // Devices lists the full ADB inventory without starting any agent session.
@@ -62,7 +62,7 @@ func (c *Client) Run(ctx context.Context, agent Agent, op Operation) (Result, er
 	if c == nil || c.Session == nil || c.Server == nil {
 		return Result{}, fmt.Errorf("client has no control session")
 	}
-	return harness.ExecuteOperation(ctx, runner.New(c.Server), agent, op)
+	return watchrun.ExecuteOperation(ctx, runner.New(c.Server), agent, op)
 }
 
 func discoverADBTargets(ctx context.Context, client adb.Client, serial string) ([]adb.Device, error) {

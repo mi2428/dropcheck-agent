@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
+	"dropcheck/controller/internal/watchrun"
 )
 
 // PushEventLog stores a sanitized, human-readable log line while preserving the
 // structured event for detail-panel scoping.
-func (s *State) PushEventLog(event watch.Event) {
+func (s *State) PushEventLog(event watchrun.Event) {
 	line := strings.TrimSpace(SanitizeLogText(EventLogLine(event)))
 	if line == "" {
 		return
@@ -50,8 +50,8 @@ func (s *State) TrimEventLogEntries(reference time.Time) {
 }
 
 // EventLogLine renders one watch event as stable key=value text.
-func EventLogLine(event watch.Event) string {
-	if event.Kind == watch.EventLog && event.Message != "" {
+func EventLogLine(event watchrun.Event) string {
+	if event.Kind == watchrun.EventLog && event.Message != "" {
 		return SanitizeLogText(event.Message)
 	}
 	fields := []string{LogField("kind", string(event.Kind))}
