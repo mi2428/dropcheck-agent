@@ -54,6 +54,10 @@ func compileAP(raw any) (Expectation, error) {
 				e.linkID = new(int32(n))
 			}
 		case "count", "min_count":
+			n, err := strconv.Atoi(text)
+			if err != nil || n < 0 {
+				return nil, fmt.Errorf("AP %s must be a nonnegative integer", field)
+			}
 		default:
 			return nil, fmt.Errorf("unknown AP selector %q", field)
 		}
