@@ -13,9 +13,9 @@ import (
 
 	"github.com/mi2428/dropcheck-agent/controller/internal/control"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/session"
 	"github.com/mi2428/dropcheck-agent/controller/internal/version"
 	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
-	"github.com/mi2428/dropcheck-agent/controller/pkg/dropcheck"
 )
 
 var errHelpRequested = errors.New("help requested")
@@ -89,7 +89,7 @@ func writeTopLevelHelp(w io.Writer) {
 		{"--version", "print version and exit"},
 		{"--adb PATH", `adb executable (default "adb")`},
 		{"--serial SERIAL", "adb serial; defaults to ADB_SERIAL"},
-		{"--package PACKAGE", fmt.Sprintf("Android package (default %q)", dropcheck.DefaultPackageName)},
+		{"--package PACKAGE", fmt.Sprintf("Android package (default %q)", session.DefaultPackageName)},
 		{"--listen ADDR", `gRPC listen address (default "127.0.0.1:0")`},
 	})
 	_, _ = fmt.Fprintln(w)
@@ -117,7 +117,7 @@ func writeHelpRows(w io.Writer, rows []helpRow) {
 	}
 }
 
-type shellOptions = dropcheck.Options
+type shellOptions = session.Options
 
 type shellTargetOptions struct {
 	target string
@@ -127,7 +127,7 @@ func parseTopLevelArgs(args []string) (shellOptions, []string, error) {
 	opts := shellOptions{
 		ADBPath:     "adb",
 		Serial:      os.Getenv("ADB_SERIAL"),
-		PackageName: dropcheck.DefaultPackageName,
+		PackageName: session.DefaultPackageName,
 		ListenAddr:  "127.0.0.1:0",
 	}
 	for i := 0; i < len(args); i++ {
@@ -185,16 +185,16 @@ func parseTopLevelArgs(args []string) (shellOptions, []string, error) {
 	return opts, nil, nil
 }
 
-func runShell(ctx context.Context, opts shellOptions, args []string) error {
+func runShell(ctx context.Context, opts shellOptions, args []string) (err error) {
 	targetOpts, err := parseShellTargetOptions(args)
 	if err != nil {
 		return err
 	}
-	controlSession, err := dropcheck.Open(ctx, opts)
+	controlSession, err := session.Open(ctx, opts)
 	if err != nil {
 		return err
 	}
-	defer controlSession.Close()
+	defer func() { err = errors.Join(err, controlSession.Close()) }()
 
 	state := &shellState{server: controlSession.Server, adbPath: opts.ADBPath}
 	if err := selectShellStartupTarget(state, controlSession.Agents, targetOpts.target); err != nil {
