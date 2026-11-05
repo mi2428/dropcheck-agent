@@ -19,6 +19,7 @@ import (
 	"dropcheck/controller/internal/runner"
 	"dropcheck/controller/internal/tui"
 	"dropcheck/controller/internal/watch"
+	"dropcheck/controller/pkg/dropcheck"
 )
 
 type watchOptions struct {
@@ -45,7 +46,7 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) (retErr err
 	if !watchOpts.noTUI {
 		opts.OnLog = watchSessionLogHandler(eventPipe)
 	}
-	controlSession, err := startControlSession(ctx, opts)
+	controlSession, err := dropcheck.Open(ctx, opts)
 	if err != nil {
 		return err
 	}
@@ -436,11 +437,11 @@ func writeWatchHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "Usage:")
 	_, _ = fmt.Fprintln(w, "  dropcheck [flags] watch -c CONFIG.yml [--target TARGET|all] [--jsonl PATH] [--no-tui]")
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "Controller TUI options:")
+	_, _ = fmt.Fprintln(w, "Watch options:")
 	writeHelpRows(w, []helpRow{
-		{"-c, --config PATH", "watch YAML plan for the Controller TUI"},
+		{"-c, --config PATH", "YAML plan for continuous monitoring"},
 		{"--target TARGET", "agent ID, prefix, adb serial, model, display number, or all; default is all agents in the session"},
-		{"--jsonl PATH", "append Controller TUI events to JSONL"},
-		{"--no-tui", "print findings without starting the Controller TUI"},
+		{"--jsonl PATH", "append watch events to JSONL"},
+		{"--no-tui", "print findings without starting the watch dashboard"},
 	})
 }

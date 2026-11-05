@@ -258,15 +258,3 @@ func TestLinkInvalidPlanAndHistoricalPreflight(t *testing.T) {
 		t.Fatal(noReport, err)
 	}
 }
-
-func TestOneShotInvalidCheckNeedsNoSession(t *testing.T) {
-	for _, args := range [][]string{
-		{"check", "link", "ssid", "Lab", "bssid", "02:00:00:00:00:11"},
-		{"check", "internet", "ssid", "Lab"},
-		{"check", "link", "ssid", "Lab", "family", "auto"},
-	} {
-		if err := runCLI(context.Background(), shellOptions{ADBPath: "not-a-real-adb"}, args); err == nil {
-			t.Fatalf("invalid check accepted: %v", args)
-		}
-	}
-}

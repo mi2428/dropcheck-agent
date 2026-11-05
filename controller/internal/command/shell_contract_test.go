@@ -103,38 +103,36 @@ func TestRawDebugReusesPassiveRPCsAndExplicitNetworkIdentity(t *testing.T) {
 		{"debug android network link-properties network-id 42", "network link-properties"},
 	} {
 		args, _ := SplitArgs(tc.line)
-		for _, parse := range []func([]string) (Parsed, error){ParseShellTokens, ParseTokens} {
-			parsed, err := parse(args)
-			if err != nil || parsed.Operation.Options.RawView != tc.view || ValidateOperation(parsed.Operation) != nil {
-				t.Fatalf("%s: %+v %v", tc.line, parsed, err)
+		parsed, err := ParseShellTokens(args)
+		if err != nil || parsed.Operation.Options.RawView != tc.view || ValidateOperation(parsed.Operation) != nil {
+			t.Fatalf("%s: %+v %v", tc.line, parsed, err)
+		}
+		wire := parsed.Operation.Command
+		switch tc.view {
+		case "wifi info":
+			if wire.GetGetWifiStatus() == nil {
+				t.Fatal("debug WifiInfo must reuse passive Wi-Fi status")
 			}
-			wire := parsed.Operation.Command
-			switch tc.view {
-			case "wifi info":
-				if wire.GetGetWifiStatus() == nil {
-					t.Fatal("debug WifiInfo must reuse passive Wi-Fi status")
-				}
-			case "wifi scan":
-				if wire.GetGetWifiScan() == nil || wire.GetGetFreshWifiScan() != nil || parsed.Operation.Options.WifiScanSSID != "password=Guest" {
-					t.Fatal("debug scan changed acquisition or literal filtering")
-				}
-			default:
-				if wire.GetGetNetwork().GetNetworkId() != "42" || parsed.Operation.Options.RawNetworkID != "42" {
-					t.Fatal("debug Network lost its explicit identity")
-				}
+		case "wifi scan":
+			if wire.GetGetWifiScan() == nil || wire.GetGetFreshWifiScan() != nil || parsed.Operation.Options.WifiScanSSID != "password=Guest" {
+				t.Fatal("debug scan changed acquisition or literal filtering")
+			}
+		default:
+			if wire.GetGetNetwork().GetNetworkId() != "42" || parsed.Operation.Options.RawNetworkID != "42" {
+				t.Fatal("debug Network lost its explicit identity")
 			}
 		}
 	}
 	if _, err := ParseShellTokens(strings.Fields("show adb")); err == nil {
 		t.Fatal("interactive raw ADB acquisition must move to debug")
 	}
-	if parsed, err := ParseTokens(strings.Fields("show adb wifi status")); err != nil || parsed.ADBKind == "" {
-		t.Fatal("independent one-shot ADB spelling changed", err)
+	if parsed, err := ParseShellTokens(strings.Fields("debug adb wifi")); err != nil || parsed.ADBKind == "" {
+		t.Fatal("Shell ADB debug acquisition changed", err)
 	}
 }
 
-func TestRequestNamesPreserveWireOperationsAndIndependentCLI(t *testing.T) {
-	for _, tc := range []struct{ shell, cli, args string }{
+func TestRequestNamesPreserveTypedOperations(t *testing.T) {
+	for _, tc := range []struct{ shell, name, args string }{
 		{"request pmtu", "path-mtu", "example.test min-mtu 1200 max-mtu 1500 family ipv6 timeout 1234"},
 		{"request ip external", "global-ip", "family all timeout 1234"},
 		{"request dns resolve", "dns", "resolve record AAAA timeout 1234"},
@@ -147,20 +145,41 @@ func TestRequestNamesPreserveWireOperationsAndIndependentCLI(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			cliTokens, err := SplitArgs(tc.cli + " " + args)
-			if err != nil {
-				t.Fatal(err)
-			}
 			interactive, err := ParseShellTokens(shellTokens)
 			if err != nil {
 				t.Fatal(err)
 			}
-			independent, err := ParseTokens(cliTokens)
+			var expected Operation
+			switch tc.name {
+			case "path-mtu":
+				expected, err = PathMTUOperation(PathMTUOptions{Host: "example.test", MinMTU: "1200", MaxMTU: "1500", Family: "ipv6", Timeout: "1234"})
+			case "global-ip":
+				expected, err = GlobalIPOperation("all", "1234")
+			case "dns":
+				expected, err = DNSOperation("resolve", "AAAA", "1234")
+			case "http":
+				expected, err = HTTPOperation("download", "204", "1234")
+			case "download":
+				expected, err = DownloadOperation("https://example.test/check", "1234")
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
-			if interactive.Path != tc.shell || interactive.Effect != "probe" || !interactive.Operation.Options.Detail || !proto.Equal(interactive.Operation.Command, independent.Operation.Command) {
-				t.Fatalf("renaming changed the wire operation or selectors: %+v / %+v", interactive, independent)
+			selector := &controlpb.NetworkSelector{Ssid: "Case Sensitive", Bssid: "aa:bb:cc:dd:ee:ff", NetworkId: "42"}
+			switch c := expected.Command.Command.(type) {
+			case *controlpb.RunCommand_PathMtu:
+				c.PathMtu.Selector = selector
+			case *controlpb.RunCommand_GlobalIp:
+				c.GlobalIp.Selector = selector
+			case *controlpb.RunCommand_ResolveDns:
+				c.ResolveDns.Selector = selector
+			case *controlpb.RunCommand_HttpCheck:
+				c.HttpCheck.Selector = selector
+			case *controlpb.RunCommand_Wget:
+				c.Wget.Selector = selector
+			}
+			if interactive.Path != tc.shell || interactive.Effect != "probe" || !interactive.Operation.Options.Detail || !proto.Equal(interactive.Operation.Command, expected.Command) {
+				t.Fatalf("Shell changed the typed operation or selectors: %+v / %+v", interactive, expected)
 			}
 		})
 	}
