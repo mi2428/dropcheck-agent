@@ -36,16 +36,21 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
           cache-dependency-path: controller/go.sum
-      - name: Provision pinned protoc
+      - name: Provision pinned protobuf generators
         run: |
           archive="$RUNNER_TEMP/protoc-35.0-linux-x86_64.zip"
           curl --fail --location --retry 3 --output "$archive" \
             https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-linux-x86_64.zip
           printf '%s  %s\n' 'a45cda0989c17dd950db55f6fbe1e5814c50fda08e87aa422980ac1f89dddbbc' "$archive" | sha256sum --check --strict
           unzip -q "$archive" -d "$RUNNER_TEMP/protoc-35.0"
+          GOBIN="$RUNNER_TEMP/protoc-35.0/bin" go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.1
+          GOBIN="$RUNNER_TEMP/protoc-35.0/bin" go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.3.0
       - name: Verify Go binding generation
         run: |
-          make generate-go PROTOC="$RUNNER_TEMP/protoc-35.0/bin/protoc"
+          make generate-go \
+            PROTOC="$RUNNER_TEMP/protoc-35.0/bin/protoc" \
+            PROTOC_GEN_GO="$RUNNER_TEMP/protoc-35.0/bin/protoc-gen-go" \
+            PROTOC_GEN_GO_GRPC="$RUNNER_TEMP/protoc-35.0/bin/protoc-gen-go-grpc"
           git diff --exit-code -- controller/internal/controlpb
       - name: Install staticcheck
         run: go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
@@ -62,7 +67,7 @@ jobs:
       - name: Race check
         working-directory: controller
         run: |
-          go test -race -count=1 ./...
+          GOFLAGS='-race -p=1' go test -count=1 ./...
           GOFLAGS='-race -p=1' python3 ../tools/test_shell_history.py
 
   android:

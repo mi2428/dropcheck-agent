@@ -241,7 +241,7 @@ Wrap SSIDs or PSKs in double quotes when they contain spaces or other shell-sign
 
 - Acquisition `OK` is not a scenario `PASS`. Failed/canceled acquisition and its reason precede reference data; source, selected target, requested fresh, actual scan update, acquisition duration, and observation age are separate facts. Scan age is supplied by Android's monotonic collector, never calculated from a PC wall clock and a device boot timestamp.
 - Wi-Fi status is the L2 view; IP status retains addresses/prefixes, routes/zones, DNS, DHCP, MTU, private DNS, NAT64, and the selected versus Android-default Network. Device capabilities use supported/unsupported lists, not the connected AP. Missing observation metadata is `?`, known empty data is `none`, inapplicable is `n/a`, and an observed false value is `no`.
-- TTY text uses the terminal column budget. Unknown-width/pipe text keeps complete records; typed Go results remain independent of width. Scan layouts try full tables, SSID groups, radio tables with full MAC continuations, then records. Security sets such as `psk+sae` and unknown enum spellings remain intact. Named status subjects and `full` expose detailed safe evidence; the removed `detail` suffix is not an alias.
+- TTY text uses the terminal column budget. Unknown-width/pipe text keeps complete records; typed Go results remain independent of width. Scan layouts use complete AP tables when they fit, brief SSID groups where possible, and complete records otherwise. AP indices link supplemental evidence without truncating network identities. Security sets such as `psk+sae` and unknown enum spellings remain intact. Named status subjects and `full` expose detailed safe evidence; the removed `detail` suffix is not an alias.
 - Agent Shell uses the laid-out content width and the output TextView's Paint, native grapheme boundaries and tab-stop spans. Width zero waits for layout. Rotation, split-screen, IME/inset changes and font-scale reflow retained presentation data without another scan/probe.
 - **Output size** selects base/minimum sizes for new blocks. The existing 10sp base is unchanged; 12sp is a selectable candidate, not a device-approved default. Input and unrelated older blocks do not shrink to fit a table. Structural layouts currently require no automatic shrink; any later block-only shrink must stay within 10% and above 10sp/the chosen minimum, preserving system font scale.
 - **Copy full result** copies plain sanitized values, not spans, display tabs, ellipsis, ANSI, artificial zero-width spaces, or credentials. History retains at most 32 whole safe blocks and 262144 UTF-16 characters, without commands/credentials. Table display is capped at 96 rows/240 lines, with omission counts; full copy keeps retained rows. A result exceeding in-memory history keeps its header/target/errors plus **Inspect/copy full safe values**: 25-label pages expose each complete safe value, with exact full identity copy and numbered chunks for long opaque values that cannot fit a clipboard transaction. Only the current oversize result has a private app-cache value file (32MiB quota); replacing it evicts the old file/block as a unit, and a new process clears abandoned files. Storage/quota failures are explicit, never silently clipped results. Appends do not force an older reader to the bottom. Native selection/anchor restoration is best effort.
@@ -380,6 +380,8 @@ Other old preferences are left intact; do not include PSKs in migration reports 
 
 Use `github.com/mi2428/dropcheck-agent/controller/pkg/dropcheck` for an ADB-backed client and individual typed operations. The public surface owns session startup/close, agent enumeration and `Client.Run`; internal command/control/session/runner/protocol packages are not public imports. See [the Go API guide](docs/go-api.md). Scenario Plans, test adapters, fluent assertions and the private watch runtime are not a supported Go API.
 
+For a local checkout, use `replace github.com/mi2428/dropcheck-agent/controller => /absolute/path/to/dropcheck-agent/controller` in the consumer module. Versioned consumption without a replacement is possible once a corresponding `controller/vX.Y.Z` release tag has actually been published; select an available version then. This change does not publish a tag or module version. The offline distribution check validates replacement-free consumption with a synthetic version in a local file proxy, not a remote release.
+
 Watch YAML keeps retry/repeat/eventually/stability policies and flat metric/AP/MLO/CIDR expectations. Attempts includes the first measurement; repeats are independent, and stability permits retry recovery within each sample rather than proving uninterrupted connectivity. Unknown options and invalid plans fail before device dispatch. Reports/events retain attempts, recovery, missing/skip/cancel reasons, and independent primary/cleanup/delivery failures. Owned target cleanup remains bounded disconnect-then-forget, including cancellation. Existing external YAML defaults are not implicit authorization for a lab profile.
 
 ## Controller unit tests
@@ -445,6 +447,9 @@ verify its SHA-256 against the release asset digest, extract it, and put its `bi
 directory on `PATH` (or set `PROTOC` to the extracted executable).
 `protoc --version` must print `libprotoc 35.0`.
 Go must meet `controller/go.mod`'s **1.26.0** minimum; CI also tests **1.26.8**.
+Separately install `protoc-gen-go` **v1.36.1** and `protoc-gen-go-grpc` **v1.3.0**
+before generation. Put their executables on `PATH`, or set `PROTOC_GEN_GO` and
+`PROTOC_GEN_GO_GRPC` to their paths, just as `PROTOC` selects protoc.
 From a clean committed baseline at the repository root:
 
 ```sh
@@ -455,11 +460,11 @@ git diff --exit-code -- controller/internal/controlpb
 make test TARGET=controller GOFLAGS=-p=1
 ```
 
-The target rejects other protoc versions and installs pinned `protoc-gen-go`
-**v1.36.1** and `protoc-gen-go-grpc` **v1.3.0** into a temporary directory, removed
-on exit. It needs network access on first use; no globally installed Go plugins
-are required. These generator versions intentionally preserve the existing Go
-API and are independent of the newer runtime dependencies. The include root is
+The target resolves all three preinstalled executables to absolute paths and
+rejects missing tools or any version mismatch before writing bindings. Generation
+itself never installs tools, fetches dependencies, or falls back to other versions.
+These generator versions intentionally preserve the existing Go API and are
+independent of the newer runtime dependencies. The include root is
 `proto/dropcheck/v1`, so the descriptor source stays `control.proto`;
 `paths=source_relative` maps both outputs directly into `controlpb`.
 Do not hand-edit generated files.
@@ -474,7 +479,8 @@ git diff --exit-code -- controller/internal/controlpb
 
 CI provisions the official `protoc-35.0-linux-x86_64.zip` release asset and verifies
 SHA-256 `a45cda0989c17dd950db55f6fbe1e5814c50fda08e87aa422980ac1f89dddbbc`
-before extracting it. The existing generator target and clean-diff gate reject
+before extracting it. CI provisioning must also supply both pinned Go plugins
+before invoking generation. The generator target and clean-diff gate reject
 binding drift; the second unchanged local generation must also leave no diff.
 For schema edits, reserve both removed field numbers and names, preserve enum
 numbers and retained wire identities, regenerate Go, and validate both
