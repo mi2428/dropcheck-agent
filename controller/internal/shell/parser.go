@@ -35,10 +35,9 @@ type Command struct {
 	Pipeline                         pipeline.Pipeline
 	ProfileName, SSID, Family, BSSID string
 	Lab                              command.LabConfig
-	Detail                           bool
 	Rejection                        string
 	Passphrase                       string
-	Path, Effect                     string
+	Effect                           string
 	ConnectOptions                   *command.WifiConnectOptions
 	ADBTimeoutMs                     uint32
 }
@@ -58,7 +57,7 @@ func ParseLine(line string) (Command, error) {
 			if name == "wifi" {
 				kind = WifiTest
 			}
-			return Command{Kind: kind, Path: "test " + name, ProfileName: name, Rejection: "invalid test syntax"}, nil
+			return Command{Kind: kind, ProfileName: name, Rejection: "invalid test syntax"}, nil
 		}
 		return Command{}, err
 	}
@@ -90,7 +89,7 @@ func ParseLine(line string) (Command, error) {
 	if err != nil {
 		return Command{}, err
 	}
-	result := Command{Kind: AgentCommand, Operation: parsed.Operation, ADBDiagnosticsKind: parsed.ADBKind, HelpTopic: parsed.Topic, Pipeline: pipe, ProfileName: parsed.Profile, SSID: parsed.SSID, Family: parsed.Family, BSSID: parsed.BSSID, Lab: parsed.Lab, Detail: parsed.Detail, Rejection: parsed.Rejection, Passphrase: parsed.Passphrase, Path: parsed.Path, Effect: parsed.Effect, ConnectOptions: parsed.Connect, ADBTimeoutMs: parsed.ADBTimeoutMs}
+	result := Command{Kind: AgentCommand, Operation: parsed.Operation, ADBDiagnosticsKind: parsed.ADBKind, HelpTopic: parsed.Topic, Pipeline: pipe, ProfileName: parsed.Profile, SSID: parsed.SSID, Family: parsed.Family, BSSID: parsed.BSSID, Lab: parsed.Lab, Rejection: parsed.Rejection, Passphrase: parsed.Passphrase, Effect: parsed.Effect, ConnectOptions: parsed.Connect, ADBTimeoutMs: parsed.ADBTimeoutMs}
 	if parsed.Rejection != "" && parsed.Profile != "" {
 		result.Kind = Profile
 		if parsed.Profile == "wifi" {

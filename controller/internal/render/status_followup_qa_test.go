@@ -7,7 +7,6 @@ import (
 
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
-	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -28,7 +27,7 @@ func TestStatusFollowupQACredentialsInExpandedFields(t *testing.T) {
 			mode = command.WifiRenderModeFull
 			result.Payload = &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{Status: status}}
 		}
-		out, err := CommandResult("qa", result, command.Options{Detail: full, WifiRenderMode: mode}, pipeline.FormatText, Presentation{Interactive: true, Detail: full})
+		out, err := CommandResult("qa", result, command.Options{Detail: full, WifiRenderMode: mode}, Presentation{Detail: full})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -52,7 +51,7 @@ func TestStatusFollowupQAUnicodeWidthsAndIdentityInjection(t *testing.T) {
 	}}
 	for _, width := range []int{0, 8, 12, 16, 24, 40, 60, 80} {
 		out, err := CommandResult("qa", &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_WifiStatus{WifiStatus: status}},
-			command.Options{WifiRenderMode: command.WifiRenderModeStatus}, pipeline.FormatText, Presentation{Interactive: true, Width: width})
+			command.Options{WifiRenderMode: command.WifiRenderModeStatus}, Presentation{Width: width})
 		if err != nil {
 			t.Fatal(err)
 		}

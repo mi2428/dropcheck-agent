@@ -10,7 +10,6 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 )
 
-func PrintHelp() { writeHelp(os.Stdout) }
 func writeHelp(w io.Writer) {
 	WriteHelpTopic(w, "")
 }
@@ -19,7 +18,7 @@ func WriteHelpTopic(w io.Writer, topic string) {
 	fmt.Fprintln(w, "Controller Shell (pinned Android target; PC-only ADB/device commands are labelled)")
 	fmt.Fprintln(w)
 	for _, entry := range command.ShellGrammarTable {
-		if entry.Unsupported || topic != "" && entry.Path != topic && !strings.HasPrefix(entry.Path, topic+" ") {
+		if topic != "" && entry.Path != topic && !strings.HasPrefix(entry.Path, topic+" ") {
 			continue
 		}
 		fmt.Fprint(w, "  ", entry.Path)

@@ -55,7 +55,7 @@ func TestStyleConsistencySessionAndHistoryRoles(t *testing.T) {
 	}
 	for _, selected := range []string{"current", "other", ""} {
 		s.selected = selected
-		text, err := renderLastShellTest(s, render.Presentation{Width: 120, Interactive: true})
+		text, err := renderLastShellTest(s, render.Presentation{Width: 120})
 		if err != nil || !strings.Contains(text, "Historical test wifi") || !strings.Contains(text, "CANCELED") {
 			t.Fatal("historical typed outcome lost", err)
 		}

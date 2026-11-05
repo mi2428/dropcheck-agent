@@ -60,7 +60,7 @@ func TestStyleConsistencyADBIPv6Records(t *testing.T) {
 }
 
 func TestStyleConsistencyADBBundleMetadata(t *testing.T) {
-	text, err := Render(Bundle{Serial: "fixture", Kind: KindFull, Commands: []CommandResult{{Name: "capture", Command: "cmd wifi status", ExitCode: 0, NotCollected: true}}}, pipeline.FormatText)
+	text, err := Render(Bundle{Serial: "fixture", Kind: KindFull, Commands: []CommandResult{{Name: "capture", Command: "cmd wifi status", ExitCode: 0, NotCollected: true}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,14 +72,17 @@ func TestStyleConsistencyADBBundleMetadata(t *testing.T) {
 func TestStyleConsistencyADBRawAndTableRoles(t *testing.T) {
 	raw := "native foo=0: 2001:db8::1 password=qa-synthetic-secret"
 	bundle := Bundle{Commands: []CommandResult{{Stdout: raw}}}
-	encoded, err := Render(bundle, pipeline.FormatJSON)
-	var decoded Bundle
-	if err != nil || json.Unmarshal([]byte(encoded), &decoded) != nil || decoded.Commands[0].Stdout != raw {
-		t.Fatal("explicit raw bundle JSON must retain raw data")
-	}
-	text, err := Render(bundle, pipeline.FormatText)
+	text, err := Render(bundle)
 	if err != nil || strings.Contains(text, "qa-synthetic-secret") || !strings.Contains(text, "foo=0: 2001:db8::1") {
 		t.Fatal("safe text changed native syntax or exposed a credential")
+	}
+	encoded, err := pipeline.JSON(text, bundle.OK())
+	var decoded struct {
+		OK    bool     `json:"ok"`
+		Lines []string `json:"lines"`
+	}
+	if err != nil || json.Unmarshal([]byte(encoded), &decoded) != nil || !decoded.OK || !strings.Contains(strings.Join(decoded.Lines, "\n"), "foo=0: 2001:db8::1") || strings.Contains(encoded, "qa-synthetic-secret") || bundle.Commands[0].Stdout != raw {
+		t.Fatal("safe Shell JSON changed native values, exposed a credential or modified acquisition data")
 	}
 	table := RenderMLOSummary(MLOSummary{LinkStats: []MLOLinkStat{{LinkID: "0", RadioID: "1", RSSIMgmt: "-40", BeaconRx: "0"}}})
 	if !strings.Contains(table, "\n\nlink_id") || !strings.HasSuffix(table, "\n\n") || strings.Contains(table, "link_id:") {

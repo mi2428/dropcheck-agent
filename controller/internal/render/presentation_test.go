@@ -23,7 +23,7 @@ func TestPresentationWidthMatrixPreservesSafeIdentity(t *testing.T) {
 	before := proto.Clone(result)
 	for _, width := range []int{24, 32, 40, 48, 60, 80, 96, 120} {
 		t.Run(fmt.Sprint(width), func(t *testing.T) {
-			out, err := CommandResult("self", result, command.Options{WifiScanBrief: true}, pipeline.FormatText, Presentation{Width: width})
+			out, err := CommandResult("self", result, command.Options{WifiScanBrief: true}, Presentation{Width: width})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -46,7 +46,11 @@ func TestPresentationWidthMatrixPreservesSafeIdentity(t *testing.T) {
 	if !proto.Equal(before, result) {
 		t.Fatal("presentation changed typed result")
 	}
-	json, err := CommandResult("self", result, command.Options{}, pipeline.FormatJSON, Presentation{Width: 24})
+	logical, err := CommandResult("self", result, command.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	json, err := pipeline.JSON(logical, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +79,7 @@ func TestInteractiveScanBriefKeepsAgesInTheTable(t *testing.T) {
 	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_FAILED, Message: "refresh failed", Payload: &controlpb.CommandResult_WifiScan{WifiScan: scan}}
 	before := proto.Clone(result)
 	for _, width := range []int{24, 80, 120} {
-		out, err := CommandResult("self", result, command.Options{WifiScanBrief: true}, pipeline.FormatText, Presentation{Interactive: true, Width: width})
+		out, err := CommandResult("self", result, command.Options{WifiScanBrief: true}, Presentation{Width: width})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -112,7 +116,7 @@ func TestInteractiveScanBriefKeepsAgesInTheTable(t *testing.T) {
 		}
 	}
 	for _, brief := range []bool{false, true} {
-		out, err := CommandResult("self", result, command.Options{WifiScanBrief: brief, WifiScanMLO: true}, pipeline.FormatText, Presentation{Interactive: true, Width: 120})
+		out, err := CommandResult("self", result, command.Options{WifiScanBrief: brief, WifiScanMLO: true}, Presentation{Width: 120})
 		if err != nil || !strings.Contains(out, "02:00:00:44:55:77") || !strings.Contains(out, "02:00:00:44:55:66") {
 			t.Fatalf("brief=%t lost requested MLO evidence: %v\n%s", brief, err, out)
 		}
@@ -134,7 +138,7 @@ func TestPresentationIPAndURLWidthMatrix(t *testing.T) {
 	}
 	for _, width := range []int{24, 32, 40, 48, 60, 80, 96, 120} {
 		for i, result := range results {
-			out, err := CommandResult("self", result, command.Options{}, pipeline.FormatText, Presentation{Width: width})
+			out, err := CommandResult("self", result, command.Options{}, Presentation{Width: width})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -165,7 +169,7 @@ func TestScanDetailKeepsFullIdentityAndUnknownLinkAvailability(t *testing.T) {
 			AffiliatedMloLinks: []*controlpb.MloLinkInfo{{ApMacAddress: "06:00:00:11:22:33", ObservationFields: testObservationFields("identity")}}}},
 	}}}
 	for _, width := range []int{24, 120} {
-		out, err := CommandResult("self", result, command.Options{}, pipeline.FormatText, Presentation{Width: width})
+		out, err := CommandResult("self", result, command.Options{}, Presentation{Width: width})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -186,11 +190,15 @@ func TestScanDetailKeepsFullIdentityAndUnknownLinkAvailability(t *testing.T) {
 func TestSafePresentationSanitizesBeforeLayoutAndJSON(t *testing.T) {
 	url := "https://user:credential@example.test/Case?token=credential&ordinary=Keep"
 	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_FAILED, Message: "password=credential\x1b[31m\x00oops", Payload: &controlpb.CommandResult_HttpCheck{HttpCheck: &controlpb.HttpCheckResult{Url: url}}}
-	for _, format := range []pipeline.Format{pipeline.FormatText, pipeline.FormatJSON} {
-		out, err := CommandResult("self", result, command.Options{}, format)
-		if err != nil {
-			t.Fatal(err)
-		}
+	text, err := CommandResult("self", result, command.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := pipeline.JSON(text, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, out := range []string{text, encoded} {
 		for _, unsafe := range []string{"credential", "\x1b", "\x00", "\u200b"} {
 			if strings.Contains(out, unsafe) {
 				t.Fatalf("unsafe output: %q", out)
@@ -209,11 +217,15 @@ func TestSafePresentationDoesNotRedactNonSecretSSIDText(t *testing.T) {
 	ssid := "password=Guest Case"
 	fields := []*controlpb.DiagnosticField{{Key: "identity.state", Value: "available"}}
 	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_WifiStatus{WifiStatus: &controlpb.WifiStatus{Connection: &controlpb.WifiConnection{Ssid: ssid, ObservationFields: fields}}}}
-	for _, format := range []pipeline.Format{pipeline.FormatText, pipeline.FormatJSON} {
-		out, err := CommandResult("self", result, command.Options{}, format)
-		if err != nil {
-			t.Fatal(err)
-		}
+	text, err := CommandResult("self", result, command.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := pipeline.JSON(text, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, out := range []string{text, encoded} {
 		if !strings.Contains(out, ssid) {
 			t.Fatalf("non-secret SSID redacted: %s", out)
 		}
@@ -233,7 +245,7 @@ func TestCapabilityListsArePresenceAuthority(t *testing.T) {
 
 func TestCapabilityLabelIsNotMistakenForCredential(t *testing.T) {
 	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_WifiCapabilities{WifiCapabilities: &controlpb.WifiCapabilities{SupportedSecurityModes: []string{"wpa2_psk"}}}}
-	out, err := CommandResult("self", result, command.Options{}, pipeline.FormatText)
+	out, err := CommandResult("self", result, command.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

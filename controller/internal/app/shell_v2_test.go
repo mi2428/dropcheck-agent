@@ -54,7 +54,7 @@ func TestShellJSONPreservesLiteralIdentityAndFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := wrapPipePipeline(p).shellOutput("SSID: password=Guest\n", false)
+	out, err := shellOutput(p, "SSID: password=Guest\n", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestShellCompletionReplacesTheWholeKeyword(t *testing.T) {
 			line = append(append(append([]rune(nil), line[:pos]...), values[0]...), line[pos:]...)
 			pos += len(values[0])
 		}
-		if replaced, cursor, ok := handleShellCompletionHintKey(io.Discard, line, pos, readline.CharTab, nil); ok {
+		if replaced, cursor, ok := handleShellCompletionHintKey(io.Discard, line, pos, readline.CharTab); ok {
 			line, pos = replaced, cursor
 		}
 		want := "show wifi status"
@@ -93,7 +93,7 @@ func TestShellCompletionReplacesTheWholeKeyword(t *testing.T) {
 		if values, _ := (shellReadlineCompleter{}).Do(line, pos); len(values) != 0 {
 			t.Fatalf("literal completion: %q", values)
 		}
-		if _, _, ok := handleShellCompletionHintKey(io.Discard, line, pos, readline.CharTab, nil); ok {
+		if _, _, ok := handleShellCompletionHintKey(io.Discard, line, pos, readline.CharTab); ok {
 			t.Fatal("literal was replaced")
 		}
 	}

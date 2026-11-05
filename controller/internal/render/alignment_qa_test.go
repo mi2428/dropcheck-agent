@@ -32,7 +32,7 @@ func TestAlignmentQAEveryPayloadAndWidth(t *testing.T) {
 			message.Set(field, message.NewField(field))
 			before := proto.Clone(result)
 			for _, width := range []int{8, 24, 40, 80, 120} {
-				out, err := CommandResult("target", result, command.Options{}, pipeline.FormatText, Presentation{Interactive: true, Width: width})
+				out, err := CommandResult("target", result, command.Options{}, Presentation{Width: width})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -45,7 +45,11 @@ func TestAlignmentQAEveryPayloadAndWidth(t *testing.T) {
 					}
 				}
 			}
-			out, err := CommandResult("target", result, command.Options{}, pipeline.FormatJSON, Presentation{Interactive: true, Width: 8})
+			logical, err := CommandResult("target", result, command.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := pipeline.JSON(logical, false)
 			if err != nil || !json.Valid([]byte(out)) || strings.Contains(out, "alignment-private-marker") || !proto.Equal(result, before) {
 				t.Fatal("layout changed JSON, privacy or acquisition data", err)
 			}
@@ -67,7 +71,7 @@ func TestAlignmentQAUnicodeTablesAcrossCommandFamilies(t *testing.T) {
 	for _, result := range cases {
 		result.Status = controlpb.CommandResult_STATUS_FAILED
 		for _, width := range []int{24, 40, 80, 120} {
-			out, err := CommandResult("target", result, command.Options{}, pipeline.FormatText, Presentation{Interactive: true, Width: width})
+			out, err := CommandResult("target", result, command.Options{}, Presentation{Width: width})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -153,7 +157,7 @@ func TestAlignmentQAKVContinuationSharesTheValueColumn(t *testing.T) {
 func TestAlignmentQAEmptyDNSRetainsNarrowHeaders(t *testing.T) {
 	result := &controlpb.CommandResult{Payload: &controlpb.CommandResult_ResolveDns{ResolveDns: &controlpb.ResolveDnsResult{}}}
 	for _, width := range []int{8, 24, 80} {
-		out, err := CommandResult("self", result, command.Options{}, pipeline.FormatText, Presentation{Interactive: true, Width: width})
+		out, err := CommandResult("self", result, command.Options{}, Presentation{Width: width})
 		if err != nil || !strings.Contains(alignmentCompact(out), "TYPE") || !strings.Contains(alignmentCompact(out), "ADDRESS") || !strings.HasSuffix(out, "\n\n") {
 			t.Fatalf("width=%d empty DNS headers or boundary lost: %q %v", width, out, err)
 		}

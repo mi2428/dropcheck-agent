@@ -11,11 +11,12 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/adbdiag"
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
+	"github.com/mi2428/dropcheck-agent/controller/internal/shell"
 )
 
 // Correctness assertions retained from the independent Shell 2.0 QA.
 func TestAdversarialQARawADBSecretBoundary(t *testing.T) {
-	raw, err := adbdiag.Render(adbdiag.Bundle{Commands: []adbdiag.CommandResult{{Stdout: "password=qa-synthetic-secret\n"}}}, outputText)
+	raw, err := adbdiag.Render(adbdiag.Bundle{Commands: []adbdiag.CommandResult{{Stdout: "password=qa-synthetic-secret\n"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +24,7 @@ func TestAdversarialQARawADBSecretBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	filtered, err := wrapPipePipeline(pipe).shellOutput(raw, true)
+	filtered, err := shellOutput(pipe, raw, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +35,7 @@ func TestAdversarialQARawADBSecretBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := wrapPipePipeline(pipe).shellOutput(raw, true)
+	out, err := shellOutput(pipe, raw, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +76,7 @@ func TestAdversarialQABroadcastJSONAgentIdentity(t *testing.T) {
 	out, err := captureStdout(t, func() error {
 		var mu sync.Mutex
 		printed := false
-		return runCommandForAgent(context.Background(), state, agent, op, commandOutputOptions{includeAgentHeader: true, pipeline: wrapPipePipeline(pipe)}, &mu, &printed)
+		return runCommandForAgent(context.Background(), state, agent, op, commandOutputOptions{includeAgentHeader: true, pipeline: pipe}, &mu, &printed)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -110,7 +111,7 @@ func TestAdversarialQAFailedADBMustNotBeJSONSuccess(t *testing.T) {
 		var mu sync.Mutex
 		printed := false
 		return runADBDiagnosticsForAgent(context.Background(), state, agent, adbdiag.KindCmdWifiStatus,
-			commandOutputOptions{pipeline: wrapPipePipeline(pipe)}, &mu, &printed)
+			commandOutputOptions{pipeline: pipe}, &mu, &printed)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -127,12 +128,12 @@ func TestAdversarialQAFailedADBMustNotBeJSONSuccess(t *testing.T) {
 }
 
 func TestAdversarialQABareLabParity(t *testing.T) {
-	parsed, err := parseShellLine("test lab")
+	parsed, err := shell.ParseLine("test lab")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if parsed.profileName != "lab" {
-		t.Errorf("bare lab changed profile to %q", parsed.profileName)
+	if parsed.ProfileName != "lab" {
+		t.Errorf("bare lab changed profile to %q", parsed.ProfileName)
 	}
 }
 
@@ -145,9 +146,9 @@ func TestAdversarialQAMalformedCorpusDoesNotPanic(t *testing.T) {
 			runes[i] = alphabet[rng.Intn(len(alphabet))]
 		}
 		input := string(runes)
-		_, _ = parseShellLine(input)
-		_ = completeShellLine(input, nil)
+		_, _ = shell.ParseLine(input)
+		_ = shell.CompleteLine(input)
 		var help strings.Builder
-		writeShellContextHelp(&help, input+"?")
+		shell.WriteContextHelp(&help, input+"?")
 	}
 }

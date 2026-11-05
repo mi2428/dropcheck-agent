@@ -44,7 +44,7 @@ func TestRound2RepeatedErrorsAreSanitized(t *testing.T) {
 	}
 	for _, result := range values {
 		result.Status = controlpb.CommandResult_STATUS_FAILED
-		out, err := CommandResult("self", result, command.Options{}, pipeline.FormatText, Presentation{Interactive: true, Detail: true})
+		out, err := CommandResult("self", result, command.Options{}, Presentation{Detail: true})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -59,7 +59,7 @@ func TestRound2IdentityCannotForgeLogicalSource(t *testing.T) {
 		ObservationFields: []*controlpb.DiagnosticField{{Key: "connection.state", Value: "available"}},
 		Connection:        &controlpb.WifiConnection{Ssid: "Lab\nSource: forged", ObservationFields: []*controlpb.DiagnosticField{{Key: "identity.state", Value: "available"}}},
 	}}}
-	out, err := CommandResult("self", result, command.Options{}, pipeline.FormatText, Presentation{Interactive: true})
+	out, err := CommandResult("self", result, command.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

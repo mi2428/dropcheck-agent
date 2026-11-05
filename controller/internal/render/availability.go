@@ -85,9 +85,7 @@ func renderIPView(b *strings.Builder, status *controlpb.IpStatus, view Presentat
 	fields := status.GetObservationFields()
 	metadata := diagnosticFieldMap(fields)
 	writeRecord(b, "Network", empty(status.GetNetworkId(), "?"))
-	if view.Interactive {
-		writeRecord(b, "Transports", observedList(fields, "capabilities", status.GetTransports()))
-	}
+	writeRecord(b, "Transports", observedList(fields, "capabilities", status.GetTransports()))
 	writeRecord(b, "Interface", observedValue(fields, "link_properties", status.GetInterfaceName()))
 	writeRecord(b, "Default network", observedValue(fields, "default_network", metadata["default_network_id"]))
 	selected := metadata["selected_is_default"]
@@ -129,7 +127,7 @@ func renderIPView(b *strings.Builder, status *controlpb.IpStatus, view Presentat
 	privateDNS := "off"
 	if status.GetPrivateDnsActive() {
 		privateDNS = "on; server=" + empty(status.GetPrivateDnsServerName(), "none")
-	} else if view.Interactive {
+	} else {
 		privateDNS += "; server=" + empty(status.GetPrivateDnsServerName(), "none")
 	}
 	writeRecord(b, "Private DNS", observedValue(fields, "link_properties", privateDNS))
@@ -150,7 +148,7 @@ func renderIPView(b *strings.Builder, status *controlpb.IpStatus, view Presentat
 		writeRecord(b, "Proxy", observedValue(fields, "link_properties", status.GetHttpProxy()))
 		writeRecord(b, "Wake on LAN", observedBool(fields, "link_properties", status.GetWakeOnLanSupported()))
 		writeKVSection(b, "IPv6 RA (android)", kv("source", "android"), kv("values", multiLineValue(diagnosticFieldsForDetail(status.GetIpv6Ra()))))
-		if view.Interactive && status.GetWifi() != nil {
+		if status.GetWifi() != nil {
 			writeSection(b, "WifiInfo from this NetworkCapabilities observation")
 			renderWifiConnection(b, status.GetWifi())
 			conn := status.GetWifi()
@@ -172,8 +170,6 @@ func renderIPView(b *strings.Builder, status *controlpb.IpStatus, view Presentat
 			renderInformationElements(b, status.GetWifi().GetInformationElements())
 			renderDiagnosticFields(b, status.GetWifi().GetObservationFields())
 		}
-		if view.Interactive {
-			renderDiagnosticFields(b, fields)
-		}
+		renderDiagnosticFields(b, fields)
 	}
 }

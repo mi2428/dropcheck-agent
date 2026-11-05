@@ -120,7 +120,6 @@ func parseInteractiveTokens(args []string) (result Parsed, err error) {
 	}
 	switch spec.Path {
 	case "show version", "show cli", "show devices", "show test profiles", "show test last", "clear cli default-passphrase":
-		result.Detail = true
 		return result, nil
 	case "set cli default-passphrase":
 		if !ValidPassphrase(f["passphrase"]) {
@@ -265,25 +264,11 @@ func parseInteractiveTokens(args []string) (result Parsed, err error) {
 		op.Options.WifiScanSSID, op.Options.WifiScanBSSID = f["ssid"], f["bssid"]
 	}
 	if spec.Path == "show wifi status ip" || spec.Effect == "probe" && strings.HasPrefix(spec.Path, "request ") {
-		selector := &controlpb.NetworkSelector{Ssid: f["ssid"], Bssid: f["bssid"], NetworkId: f["network-id"]}
-		switch c := op.Command.Command.(type) {
-		case *controlpb.RunCommand_GetIpStatus:
-			c.GetIpStatus.Selector = selector
-		case *controlpb.RunCommand_Ping:
-			c.Ping.Selector = selector
-		case *controlpb.RunCommand_Traceroute:
-			c.Traceroute.Selector = selector
-		case *controlpb.RunCommand_PathMtu:
-			c.PathMtu.Selector = selector
-		case *controlpb.RunCommand_GlobalIp:
-			c.GlobalIp.Selector = selector
-		case *controlpb.RunCommand_ResolveDns:
-			c.ResolveDns.Selector = selector
-		case *controlpb.RunCommand_HttpCheck:
-			c.HttpCheck.Selector = selector
-		case *controlpb.RunCommand_Wget:
-			c.Wget.Selector = selector
+		field := NetworkSelectorField(op.Command)
+		if field == nil {
+			return Parsed{}, fmt.Errorf("%s does not support network selection", spec.Path)
 		}
+		*field = &controlpb.NetworkSelector{Ssid: f["ssid"], Bssid: f["bssid"], NetworkId: f["network-id"]}
 	}
 	op.Options.Detail = spec.Path != "show wifi status"
 	if after, ok := strings.CutPrefix(spec.Path, "debug android "); ok {

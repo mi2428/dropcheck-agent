@@ -1,7 +1,6 @@
 package render
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/mi2428/dropcheck-agent/controller/internal/control"
@@ -14,17 +13,6 @@ func resultStatus(status controlpb.CommandResult_Status) string {
 
 func dnsTypeName(t controlpb.DnsRecordType) string {
 	return strings.TrimPrefix(t.String(), "DNS_RECORD_TYPE_")
-}
-
-func formatMillis(values []float64) string {
-	if len(values) == 0 {
-		return "-"
-	}
-	parts := make([]string, 0, len(values))
-	for _, value := range values {
-		parts = append(parts, fmt.Sprintf("%gms", value))
-	}
-	return strings.Join(parts, "/")
 }
 
 func agentDisplayName(info control.AgentInfo) string {

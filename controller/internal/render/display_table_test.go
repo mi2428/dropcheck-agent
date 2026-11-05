@@ -59,12 +59,14 @@ func TestDisplayWidthHandlesBasicMultibyteCases(t *testing.T) {
 	}
 }
 
-func TestFitDisplayCellTruncatesWideCellsByDisplayWidth(t *testing.T) {
-	got := fitDisplayCell("日本語AP", 5)
-	if got != "日..." {
-		t.Fatalf("fitDisplayCell() = %q, want %q", got, "日...")
+func TestNarrowTablePreservesFullWideCells(t *testing.T) {
+	text := Table([]string{"SSID"}, [][]string{{"日本語AP"}}, Presentation{Width: 5})
+	if !strings.Contains(alignmentCompact(text), "日本語AP") || strings.Contains(text, "...") {
+		t.Fatalf("narrow records lost the full SSID: %q", text)
 	}
-	if width := displayWidth(got); width > 5 {
-		t.Fatalf("fitDisplayCell() display width=%d exceeds limit: %q", width, got)
+	for line := range strings.SplitSeq(text, "\n") {
+		if width := displayWidth(line); width > 5 {
+			t.Fatalf("display width=%d exceeds limit: %q", width, line)
+		}
 	}
 }

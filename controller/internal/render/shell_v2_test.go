@@ -14,7 +14,7 @@ func TestInteractiveScanDoesNotRepeatIdentity(t *testing.T) {
 	mac := "02:00:00:11:22:33"
 	raw := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_WifiScan{WifiScan: &controlpb.WifiScan{Results: []*controlpb.WifiScanResult{{Ssid: ssid, Bssid: mac, FrequencyMhz: 6135}}}}}
 	for _, width := range []int{0, 24, 40, 80, 120} {
-		out, err := CommandResult("self", raw, command.Options{}, pipeline.FormatText, Presentation{Width: width, Interactive: true, DetailAvailable: true})
+		out, err := CommandResult("self", raw, command.Options{}, Presentation{Width: width, DetailAvailable: true})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -23,7 +23,7 @@ func TestInteractiveScanDoesNotRepeatIdentity(t *testing.T) {
 			t.Fatalf("identity duplicated/lost at %d: %s", width, out)
 		}
 	}
-	logical, err := CommandResult("self", raw, command.Options{}, pipeline.FormatText, Presentation{Interactive: true, DetailAvailable: true})
+	logical, err := CommandResult("self", raw, command.Options{}, Presentation{DetailAvailable: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestInteractiveScanDoesNotRepeatIdentity(t *testing.T) {
 
 func TestDiagnosticFieldURLIsSanitizedBeforeFiltering(t *testing.T) {
 	raw := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_PermissionSnapshot{PermissionSnapshot: &controlpb.PermissionSnapshot{Permissions: []*controlpb.DiagnosticField{{Key: "diagnostic_url", Value: "https://example.test/?token=synthetic-private-value"}}}}}
-	out, err := CommandResult("self", raw, command.Options{}, pipeline.FormatText, Presentation{Interactive: true})
+	out, err := CommandResult("self", raw, command.Options{})
 	if err != nil || strings.Contains(out, "synthetic-private-value") {
 		t.Fatalf("unsafe diagnostic field: %s %v", out, err)
 	}

@@ -39,6 +39,10 @@ func TestPortablePipelineContract(t *testing.T) {
 }
 
 func TestPatternBoundsAndJSON(t *testing.T) {
+	display, err := Parse([]string{"display json"})
+	if err != nil || !display.DisplayJSON() || (Pipeline{}).DisplayJSON() {
+		t.Fatalf("JSON presentation selection changed: %+v %v", display, err)
+	}
 	if _, err := Parse([]string{"match " + strings.Repeat("x", 513)}); err == nil {
 		t.Fatal("unbounded pattern")
 	}

@@ -6,14 +6,10 @@
 package adbdiag
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/mi2428/dropcheck-agent/controller/internal/adb"
-	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
 	"github.com/mi2428/dropcheck-agent/controller/internal/render"
 )
 
@@ -109,51 +105,8 @@ func Specs(kind string) ([]CommandSpec, error) {
 	}
 }
 
-// Collect runs the diagnostics commands against one adb device.
-func Collect(ctx context.Context, client adb.Client, agent string, kind string) (Bundle, error) {
-	specs, err := Specs(kind)
-	if err != nil {
-		return Bundle{}, err
-	}
-	if client.Timeout <= 0 {
-		client.Timeout = defaultCommandTimeout
-	}
-	bundle := Bundle{
-		Agent:     agent,
-		Serial:    client.Serial,
-		Kind:      kind,
-		StartedAt: time.Now().Format(time.RFC3339Nano),
-		Commands:  make([]CommandResult, 0, len(specs)),
-	}
-	for _, spec := range specs {
-		result, err := client.Run(ctx, spec.Args...)
-		commandResult := CommandResult{
-			Name:      spec.Name,
-			Args:      result.Args,
-			Command:   "adb " + strings.Join(result.Args, " "),
-			Stdout:    result.Stdout,
-			Stderr:    result.Stderr,
-			ExitCode:  result.ExitCode,
-			TimedOut:  result.TimedOut,
-			ElapsedMs: result.Elapsed.Milliseconds(),
-		}
-		if err != nil {
-			commandResult.Error = err.Error()
-		}
-		bundle.Commands = append(bundle.Commands, commandResult)
-	}
-	return bundle, nil
-}
-
-// Render renders one ADB diagnostics bundle as text or JSON.
-func Render(bundle Bundle, format pipeline.Format, views ...render.Presentation) (string, error) {
-	if format == pipeline.FormatJSON {
-		data, err := json.MarshalIndent(bundle, "", "  ")
-		if err != nil {
-			return "", err
-		}
-		return string(data) + "\n", nil
-	}
+// Render renders one ADB diagnostics bundle as safe text.
+func Render(bundle Bundle, views ...render.Presentation) (string, error) {
 	var b strings.Builder
 	rows := []kvRow{
 		kv("serial", empty(bundle.Serial, "unknown")),
@@ -191,7 +144,7 @@ func Render(bundle Bundle, format pipeline.Format, views ...render.Presentation)
 			b.WriteString(render.TextBlock(result.Stderr, render.Presentation{}))
 		}
 	}
-	// Each source value is sanitized before owned fields are composed; JSON remains raw.
+	// Each source value is sanitized before owned fields are composed.
 	view := render.Presentation{}
 	if len(views) > 0 {
 		view = views[0]

@@ -10,7 +10,7 @@ import (
 )
 
 // Typed Shell records/tables; native output remains a separate reference block.
-func renderInteractiveRequest(b *strings.Builder, result *controlpb.CommandResult, options command.Options, view Presentation) bool {
+func renderRequest(b *strings.Builder, result *controlpb.CommandResult, options command.Options, view Presentation) bool {
 	field := func(label string, value any) { writeRecord(b, label, value) }
 	optional := func(present bool, value any) string {
 		if !present {
@@ -113,14 +113,14 @@ func renderInteractiveRequest(b *strings.Builder, result *controlpb.CommandResul
 	case *controlpb.CommandResult_HttpCheck:
 		p := payload.HttpCheck
 		field("URL", p.GetUrl())
-		field("Status", p.GetStatus())
-		field("Expected status", p.GetExpectedStatus())
+		field("HTTP status", p.GetStatus())
+		field("Expected HTTP status", p.GetExpectedStatus())
 		field("Matched", p.GetMatched())
 		field("Error", p.GetError())
 	case *controlpb.CommandResult_Wget:
 		p := payload.Wget
 		field("URL", p.GetUrl())
-		field("Status", p.GetStatus())
+		field("HTTP status", p.GetStatus())
 		field("Bytes read", p.GetBytesRead())
 		field("Content length", p.GetContentLength())
 		field("Content type", p.GetContentType())

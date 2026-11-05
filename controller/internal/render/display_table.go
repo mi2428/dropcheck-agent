@@ -2,22 +2,15 @@ package render
 
 import (
 	"strings"
-	"unicode"
+
+	"github.com/mi2428/dropcheck-agent/controller/internal/safevalue"
 
 	"github.com/charmbracelet/x/ansi"
 )
 
 type displayTableColumn struct {
-	header   string
-	maxWidth int
-	numeric  bool
-}
-
-func (column displayTableColumn) fitValue(value string) string {
-	if column.header == "SSID" {
-		return fitDisplayCell(value, column.maxWidth)
-	}
-	return cleanDisplayCell(value)
+	header  string
+	numeric bool
 }
 
 func writeDisplayTable(b *strings.Builder, columns []displayTableColumn, rows [][]string, availableWidth ...int) {
@@ -27,17 +20,17 @@ func writeDisplayTable(b *strings.Builder, columns []displayTableColumn, rows []
 	writeTableBoundary(b)
 	preparedHeaders := make([]string, len(columns))
 	for i, column := range columns {
-		preparedHeaders[i] = fitDisplayCell(column.header, column.maxWidth)
+		preparedHeaders[i] = cleanDisplayCell(column.header)
 	}
 	preparedRows := make([][]string, 0, len(rows))
 	for _, row := range rows {
 		prepared := make([]string, len(columns))
-		for i, column := range columns {
+		for i := range columns {
 			value := ""
 			if i < len(row) {
 				value = row[i]
 			}
-			prepared[i] = column.fitValue(value)
+			prepared[i] = cleanDisplayCell(value)
 		}
 		preparedRows = append(preparedRows, prepared)
 	}
@@ -113,25 +106,8 @@ func writeDisplayTableRow(b *strings.Builder, row []string, widths []int) {
 	b.WriteByte('\n')
 }
 
-func fitDisplayCell(value string, maxWidth int) string {
-	cleaned := cleanDisplayCell(value)
-	if maxWidth <= 0 || displayWidth(cleaned) <= maxWidth {
-		return cleaned
-	}
-	if maxWidth <= 3 {
-		return strings.Repeat(".", maxWidth)
-	}
-
-	return ansi.Truncate(cleaned, maxWidth, "...")
-}
-
 func cleanDisplayCell(value string) string {
-	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) || r == '\u061c' || r == '\u200b' || r == '\u200e' || r == '\u200f' || r == '\ufeff' || r == '\u2028' || r == '\u2029' || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2060' && r <= '\u2069') {
-			return ' '
-		}
-		return r
-	}, ansi.Strip(value))
+	return safevalue.Normalize(value)
 }
 
 func padDisplayEnd(value string, width int) string {

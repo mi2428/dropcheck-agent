@@ -7,7 +7,6 @@ import (
 
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
-	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -42,7 +41,7 @@ func TestWifiStatusFullKeepsStructuredEvidenceWithoutRawDumps(t *testing.T) {
 			input = result
 		}
 		for _, width := range []int{0, 24, 40, 80, 120} {
-			out, err := CommandResult("test", input, command.Options{Detail: full, WifiRenderMode: mode}, pipeline.FormatText, Presentation{Interactive: true, Detail: full, Width: width})
+			out, err := CommandResult("test", input, command.Options{Detail: full, WifiRenderMode: mode}, Presentation{Detail: full, Width: width})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -93,7 +92,7 @@ func TestJunosQAFullBundleIncludesEvidenceAtEveryWidth(t *testing.T) {
 	}}}
 	for _, mode := range []string{command.WifiRenderModeFull, command.WifiRenderModeEHT} {
 		for _, width := range []int{0, 24, 40, 80, 120} {
-			out, err := CommandResult("test", raw, command.Options{Detail: true, WifiRenderMode: mode}, pipeline.FormatText, Presentation{Interactive: true, Detail: true, Width: width})
+			out, err := CommandResult("test", raw, command.Options{Detail: true, WifiRenderMode: mode}, Presentation{Detail: true, Width: width})
 			if err != nil || strings.Contains(out, "qa-new-secret") {
 				t.Fatal(width, err, "credential leak")
 			}
@@ -122,7 +121,7 @@ func TestJunosQAHistoricalWifiTestRetainsItsSnapshot(t *testing.T) {
 	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_FAILED, Payload: &controlpb.CommandResult_WifiAssert{WifiAssert: &controlpb.WifiAssertResult{
 		Status: &controlpb.WifiStatus{Connection: &controlpb.WifiConnection{NetworkId: 5432, Raw: "assert-marker password=qa-hidden-secret"}},
 	}}}
-	out, err := CommandResult("target", SanitizedResult(result), command.Options{Detail: true}, pipeline.FormatText, Presentation{Interactive: true, Detail: true})
+	out, err := CommandResult("target", SanitizedResult(result), command.Options{Detail: true}, Presentation{Detail: true})
 	if err != nil || !strings.Contains(out, "5432") || strings.Contains(out, "assert-marker") || strings.Contains(out, "qa-hidden-secret") {
 		t.Fatal("historical observation lost or unsafe", err)
 	}

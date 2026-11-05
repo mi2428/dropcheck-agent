@@ -7,7 +7,6 @@ import (
 
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
-	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
 )
 
 func TestWifiSummaryHierarchyAndAlignment(t *testing.T) {
@@ -21,7 +20,7 @@ func TestWifiSummaryHierarchyAndAlignment(t *testing.T) {
 	}}
 	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_WifiStatus{WifiStatus: status}}
 	for _, width := range []int{0, 80, 120} {
-		out, err := CommandResult("fixture", result, command.Options{WifiRenderMode: command.WifiRenderModeStatus}, pipeline.FormatText, Presentation{Interactive: true, Width: width})
+		out, err := CommandResult("fixture", result, command.Options{WifiRenderMode: command.WifiRenderModeStatus}, Presentation{Width: width})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -86,7 +85,7 @@ func TestWifiSummaryCompactRowsRetainTheirComponents(t *testing.T) {
 		ObservationFields: []*controlpb.DiagnosticField{{Key: "capabilities.state", Value: "available"}, {Key: "link_properties.state", Value: "available"}, {Key: "default_network.state", Value: "available"}, {Key: "default_network_id", Value: "24"}, {Key: "selected_is_default", Value: "true"}},
 	}}
 	var out strings.Builder
-	renderWifiSummary(&out, status, Presentation{Interactive: true})
+	renderWifiSummary(&out, status, Presentation{})
 	for _, want := range []string{"framework=enabled", "active=949; Wi-Fi=2", "network-id=42; subscription-id=7", "hidden=true; restricted=false; redactions=3", "fqdn=passpoint.example.test; provider=Provider; unique-id=unique-marker", "ch=33; width=80MHz; 6115MHz", "-55dBm", "tx=1200Mbps; rx=900Mbps; link=700Mbps", "24; selected=true", "internet=true; validated=false", "active=true; server=resolver.example.test", "uid=1001; enterprise=alpha,beta; subscriptions=7,8"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("compact row lost %q", want)

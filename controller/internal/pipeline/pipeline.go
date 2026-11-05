@@ -11,16 +11,9 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 )
 
-type Format string
-
-const (
-	FormatText Format = "text"
-	FormatJSON Format = "json"
-)
-
 type Pipeline struct {
-	displayFormat Format
-	stages        []stage
+	displayJSON bool
+	stages      []stage
 }
 
 type stage struct {
@@ -102,10 +95,10 @@ func Parse(parts []string) (Pipeline, error) {
 			if len(args) != 2 || args[1] != "json" {
 				return Pipeline{}, fmt.Errorf("usage: | display json")
 			}
-			if p.displayFormat != "" {
+			if p.displayJSON {
 				return Pipeline{}, fmt.Errorf("display format specified twice")
 			}
-			p.displayFormat = FormatJSON
+			p.displayJSON = true
 		case "find", "match", "except":
 			if len(args) != 2 {
 				return Pipeline{}, fmt.Errorf("usage: | %s <quoted-pattern>", args[0])
@@ -142,13 +135,7 @@ func Parse(parts []string) (Pipeline, error) {
 	return p, nil
 }
 
-func (p Pipeline) Format(defaultFormat Format) Format {
-	if p.displayFormat != "" {
-		return p.displayFormat
-	}
-	return defaultFormat
-}
-func (p Pipeline) DisplayJSON() bool { return p.displayFormat == FormatJSON }
+func (p Pipeline) DisplayJSON() bool { return p.displayJSON }
 func (p Pipeline) StageCount() int   { return len(p.stages) }
 
 func Lines(text string) []string {

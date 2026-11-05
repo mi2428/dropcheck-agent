@@ -31,9 +31,16 @@ func TestRawDebugOnlyShowsRequestedDumpsAndPreservesFailureAndPrivacy(t *testing
 			tc.result.Status = controlpb.CommandResult_STATUS_FAILED
 			tc.result.Message = "acquisition incomplete"
 			before := proto.Clone(tc.result)
-			for _, format := range []pipeline.Format{pipeline.FormatText, pipeline.FormatJSON} {
-				out, err := CommandResult("target", tc.result, command.Options{RawView: tc.view, RawNetworkID: "42", WifiScanSSID: "password=Guest"}, format)
-				if err != nil || !strings.Contains(out, tc.want) || !strings.Contains(strings.ToLower(out), "failed") || !strings.Contains(out, "acquisition incomplete") {
+			text, err := CommandResult("target", tc.result, command.Options{RawView: tc.view, RawNetworkID: "42", WifiScanSSID: "password=Guest"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := pipeline.JSON(text, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, out := range []string{text, encoded} {
+				if !strings.Contains(out, tc.want) || !strings.Contains(strings.ToLower(out), "failed") || !strings.Contains(out, "acquisition incomplete") {
 					t.Fatalf("raw evidence or outcome lost: %q %v", out, err)
 				}
 				for _, absent := range []string{tc.absent, "debug-secret", "structured-only", "aabbcc", "MTU:", "1500", "\x1b"} {
@@ -57,14 +64,14 @@ func TestRawDebugRejectsAbsentWrongAndMismatchedPayloads(t *testing.T) {
 		{Payload: &controlpb.CommandResult_NetworkSnapshot{NetworkSnapshot: &controlpb.NetworkSnapshot{Networks: []*controlpb.NetworkDiagnostics{{NetworkId: "42", IpStatus: &controlpb.IpStatus{NetworkId: "43", RawCapabilities: "WRONG-RAW"}}}}}},
 		{Payload: &controlpb.CommandResult_NetworkSnapshot{NetworkSnapshot: &controlpb.NetworkSnapshot{Networks: []*controlpb.NetworkDiagnostics{{NetworkId: "42", IpStatus: &controlpb.IpStatus{NetworkId: "42"}}}}}},
 	} {
-		out, err := CommandResult("target", result, command.Options{RawView: "network capabilities", RawNetworkID: "42"}, pipeline.FormatText)
+		out, err := CommandResult("target", result, command.Options{RawView: "network capabilities", RawNetworkID: "42"})
 		if err == nil || out != "" {
 			t.Fatal("missing/mismatched raw capture was accepted", out, err)
 		}
 	}
 }
 
-func TestStructuredJSONOmitsNestedObjectDumpsButKeepsIEAndSecurityHex(t *testing.T) {
+func TestSafePresentationOmitsObjectDumpsAndSnapshotKeepsTypedEvidence(t *testing.T) {
 	conn := &controlpb.WifiConnection{Raw: "OBJECT-RAW", InformationElements: []*controlpb.WifiInformationElement{{Id: 221, BytesHex: "aabbcc"}},
 		SecurityDetails: &controlpb.WifiSecurityDetails{RawRsnHex: "112233"}, AssociatedMloLinks: []*controlpb.MloLinkInfo{{Raw: "LINK-RAW"}},
 		HeCapabilities: &controlpb.WifiHeCapabilities{McsNss: []*controlpb.WifiMcsNssSupport{{Raw: 7}}}}
@@ -73,11 +80,11 @@ func TestStructuredJSONOmitsNestedObjectDumpsButKeepsIEAndSecurityHex(t *testing
 		Scan:   &controlpb.WifiScan{Results: []*controlpb.WifiScanResult{{Raw: "SCAN-RAW", InformationElements: conn.InformationElements}}},
 	}}}
 	before := proto.Clone(result)
-	plain, err := CommandResult("target", result, command.Options{}, pipeline.FormatJSON)
+	plain, err := CommandResult("target", result, command.Options{}, Presentation{Detail: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	envelope, err := CommandResultEnvelope("target", "command", result)
+	envelope, err := pipeline.JSON(plain, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,13 +94,17 @@ func TestStructuredJSONOmitsNestedObjectDumpsButKeepsIEAndSecurityHex(t *testing
 				t.Fatalf("structured JSON retained %s", absent)
 			}
 		}
-		for _, kept := range []string{"aabbcc", "112233", "raw_rsn_hex"} {
+		for _, kept := range []string{"aabbcc"} {
 			if !strings.Contains(out, kept) {
 				t.Fatalf("typed hex evidence removed: %s", kept)
 			}
 		}
 	}
-	if structuredResult(result).GetWifiDiagnostics().GetStatus().GetConnection().GetHeCapabilities().GetMcsNss()[0].GetRaw() != 7 {
+	safe := SanitizedResult(result).GetWifiDiagnostics().GetStatus().GetConnection()
+	if safe.GetInformationElements()[0].GetBytesHex() != "aabbcc" || safe.GetSecurityDetails().GetRawRsnHex() != "112233" {
+		t.Fatal("safe snapshot changed typed IE/security hex evidence")
+	}
+	if safe.GetHeCapabilities().GetMcsNss()[0].GetRaw() != 7 {
 		t.Fatal("numeric raw bit representation was mistaken for an object string dump")
 	}
 	if !proto.Equal(result, before) {

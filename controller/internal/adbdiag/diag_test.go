@@ -36,7 +36,7 @@ func TestRenderTextIncludesCommandOutput(t *testing.T) {
 			ExitCode:  0,
 			ElapsedMs: 12,
 		}},
-	}, pipeline.FormatText)
+	})
 	if err != nil {
 		t.Fatalf("Render(text) error = %v", err)
 	}
@@ -57,13 +57,13 @@ func TestBundleOutcomeAndPresentationBoundary(t *testing.T) {
 	if !bundle.OK() {
 		t.Fatal("successful acquisition rejected")
 	}
-	text, err := Render(bundle, pipeline.FormatText)
+	text, err := Render(bundle)
 	if err != nil || strings.Contains(text, "synthetic-private-value") || !strings.Contains(text, "<redacted>") {
 		t.Fatal(text, err)
 	}
-	raw, err := Render(bundle, pipeline.FormatJSON)
-	if err != nil || !strings.Contains(raw, "synthetic-private-value") || bundle.Commands[0].Stdout != "password=synthetic-private-value\n" {
-		t.Fatal("explicit raw JSON/acquisition was modified", err)
+	encoded, err := pipeline.JSON(text, bundle.OK())
+	if err != nil || strings.Contains(encoded, "synthetic-private-value") || bundle.Commands[0].Stdout != "password=synthetic-private-value\n" {
+		t.Fatal("safe Shell JSON leaked credentials or modified acquisition data", err)
 	}
 }
 
