@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"dropcheck/controller/internal/adb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/adb"
 )
 
 var (

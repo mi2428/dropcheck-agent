@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
 // Value is a typed probe metric value used by expectation matchers.

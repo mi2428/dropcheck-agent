@@ -1,8 +1,8 @@
 package dropcheck
 
 import (
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
 // These are the same validated operation values used by Shell and watch.

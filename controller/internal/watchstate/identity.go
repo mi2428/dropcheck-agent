@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"dropcheck/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 )
 
 // FailedCheckKey returns the stable identity for one finding.

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"dropcheck/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 )
 
 func TestFailedCheckRemovesSameRoundPassingCheck(t *testing.T) {

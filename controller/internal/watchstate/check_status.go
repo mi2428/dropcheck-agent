@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"dropcheck/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 )
 
 // OutcomeEvent is the compact historical outcome used by check-status and

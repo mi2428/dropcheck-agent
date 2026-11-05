@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"dropcheck/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 )
 
 type Format string

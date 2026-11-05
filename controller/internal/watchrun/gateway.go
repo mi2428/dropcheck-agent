@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/control"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/control"
 )
 
 type GatewayPingOptions struct {

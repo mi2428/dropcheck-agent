@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"dropcheck/controller/internal/shell"
+	"github.com/mi2428/dropcheck-agent/controller/internal/shell"
 )
 
 type matrixCase struct {

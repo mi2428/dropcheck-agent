@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"dropcheck/controller/internal/adb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/adb"
 )
 
 // InteractiveSpecs is the bounded raw Shell union of allowlisted sources.

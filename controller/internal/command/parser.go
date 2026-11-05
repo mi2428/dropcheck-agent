@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
 func parseUint32(value string, name string) (uint32, error) {

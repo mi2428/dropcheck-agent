@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"dropcheck/controller/internal/control"
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/control"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
 func resultStatus(status controlpb.CommandResult_Status) string {

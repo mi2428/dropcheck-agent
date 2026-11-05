@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"dropcheck/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 )
 
 // Apply folds one watch event into target state, histories, and event-log

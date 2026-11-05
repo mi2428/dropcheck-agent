@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
 func TestInspectionOperationBuilders(t *testing.T) {

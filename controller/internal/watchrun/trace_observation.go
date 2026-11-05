@@ -1,6 +1,6 @@
 package watchrun
 
-import "dropcheck/controller/internal/controlpb"
+import "github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 
 // TraceObservations is the shared presence/count rule for typed and YAML
 // expectations. Timed-out TTL records are observations and count as hops.

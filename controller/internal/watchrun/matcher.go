@@ -1,6 +1,6 @@
 package watchrun
 
-import "dropcheck/controller/internal/controlpb"
+import "github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 
 // Result is the input to watch expectations and built-in Shell profile checks.
 type Result struct {

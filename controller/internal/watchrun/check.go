@@ -1,6 +1,6 @@
 package watchrun
 
-import "dropcheck/controller/internal/command"
+import "github.com/mi2428/dropcheck-agent/controller/internal/command"
 
 // Check is a compiled YAML or built-in Shell operation and its evaluation policy.
 type Check struct {

@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 )
 
 func scalar(value *uint32) string {

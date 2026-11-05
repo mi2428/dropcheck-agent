@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
 func renderInformationElements(b *strings.Builder, elements []*controlpb.WifiInformationElement) {

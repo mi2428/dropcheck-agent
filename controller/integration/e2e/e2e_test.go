@@ -46,8 +46,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/shell"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/shell"
 )
 
 const (

@@ -1,6 +1,6 @@
 package tui
 
-import "dropcheck/controller/internal/watchrun"
+import "github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 
 func (m *model) apply(event watchrun.Event) {
 	m.Apply(event)

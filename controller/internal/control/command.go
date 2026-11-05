@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
 // Run sends cmd to one connected agent and waits for the terminal result.

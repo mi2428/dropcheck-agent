@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"dropcheck/controller/internal/control"
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/control"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 )

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"dropcheck/controller/internal/control"
+	"github.com/mi2428/dropcheck-agent/controller/internal/control"
 )
 
 // AgentSnapshotFromInfo captures the stable identity and display metadata for an agent.

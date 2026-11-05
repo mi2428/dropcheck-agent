@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"dropcheck/controller/internal/adb"
-	"dropcheck/controller/internal/control"
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/adb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/control"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 	"google.golang.org/grpc"
 )
 

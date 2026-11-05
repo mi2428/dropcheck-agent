@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"dropcheck/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 )
 
 // CurrentTarget returns the active target, preferring a target with a running

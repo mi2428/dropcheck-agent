@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"dropcheck/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 )
 
 var connectStateFieldREs = map[string]*regexp.Regexp{

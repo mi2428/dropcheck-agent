@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/controlpb"
-	"dropcheck/controller/internal/pipeline"
-	"dropcheck/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
+	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 )
 
 // OperationResult consumes the shared acquisition contract; Parts never contain commands.

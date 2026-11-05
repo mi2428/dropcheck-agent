@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
 func NetworksOperation() Operation {

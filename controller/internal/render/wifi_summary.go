@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"dropcheck/controller/internal/controlpb"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
 // Values share one column; wrapped/list values hang beneath that column.

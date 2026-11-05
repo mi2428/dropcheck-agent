@@ -3,8 +3,8 @@ package watchrun
 import (
 	"testing"
 
-	"dropcheck/controller/internal/control"
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/control"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
 func TestAgentSnapshotFromInfoUsesDeviceModelAndSerialForDisplay(t *testing.T) {

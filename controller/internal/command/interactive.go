@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
 var shellHostGrammar = []Grammar{

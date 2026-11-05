@@ -1,6 +1,6 @@
 package tui
 
-import "dropcheck/controller/internal/watchstate"
+import "github.com/mi2428/dropcheck-agent/controller/internal/watchstate"
 
 func detailValue(value string) string {
 	return watchstate.DetailValue(value)

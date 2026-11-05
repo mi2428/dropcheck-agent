@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
 func TestParseNativeTracerouteOutput(t *testing.T) {

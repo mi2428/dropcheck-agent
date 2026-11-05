@@ -4,8 +4,8 @@ import (
 	"os"
 	"strings"
 
-	"dropcheck/controller/internal/control"
-	"dropcheck/controller/internal/render"
+	"github.com/mi2428/dropcheck-agent/controller/internal/control"
+	"github.com/mi2428/dropcheck-agent/controller/internal/render"
 
 	"github.com/charmbracelet/x/term"
 )
