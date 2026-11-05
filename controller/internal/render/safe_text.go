@@ -2,92 +2,18 @@ package render
 
 import (
 	"fmt"
-	"net/url"
-	"regexp"
 	"slices"
-	"strings"
 
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/safevalue"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-var presentationURL = regexp.MustCompile(`(?i)https?://[^\s<>]+`)
-var presentationCredential = regexp.MustCompile(`(?im)(^|[\s;,=({\[])(["']?(?:passphrase|password|authorization|access_token|refresh_token|token|psk|api_key|apikey|api-key|client_secret|x-amz-signature|x-amz-credential|x-amz-security-token)["']?)(\s*[:=]\s*)("(?:\\.|[^"\\])*(?:"|$)|'(?:\\.|[^'\\])*(?:'|$)|(?:Bearer|Basic)\s+[^\s,;}\]]+|[^\s,;}\]]+)`)
-
-func safePresentationText(value string) string {
-	// Normalize before detecting credentials; later ANSI removal must not
-	// reassemble a key that bypassed redaction. Preserve logical text lines.
-	lines := strings.Split(value, "\n")
-	for i := range lines {
-		lines[i] = cleanDisplayCell(lines[i])
-	}
-	value = strings.Join(lines, "\n")
-	value = presentationCredential.ReplaceAllString(value, "${1}${2}${3}<redacted>")
-	value = presentationURL.ReplaceAllStringFunc(value, func(raw string) string {
-		u, err := url.Parse(raw)
-		if err != nil {
-			return "<unavailable URL>"
-		}
-		if u.User != nil {
-			u.User = url.User("redacted")
-		}
-		query, err := redactURLParameters(u.RawQuery)
-		if err != nil {
-			return "<invalid URL query redacted>"
-		}
-		u.RawQuery = query
-		if fragment := u.EscapedFragment(); strings.Contains(fragment, "=") {
-			fragment, err = redactURLParameters(fragment)
-			if err != nil {
-				return "<invalid URL fragment redacted>"
-			}
-			u.Fragment, err = url.PathUnescape(fragment)
-			if err != nil {
-				return "<invalid URL fragment redacted>"
-			}
-			u.RawFragment = fragment
-		}
-		return u.String()
-	})
-	return value
-}
-
-func redactURLParameters(value string) (string, error) {
-	parts := strings.Split(value, "&")
-	for i, part := range parts {
-		key, _, _ := strings.Cut(part, "=")
-		decoded, err := url.QueryUnescape(key)
-		if err != nil {
-			return "", err
-		}
-		switch strings.ToLower(decoded) {
-		case "password", "passphrase", "token", "access_token", "refresh_token", "authorization", "psk", "api_key", "apikey", "api-key", "client_secret", "x-amz-signature", "x-amz-credential", "x-amz-security-token":
-			parts[i] = key + "=%3Credacted%3E"
-		}
-	}
-	return strings.Join(parts, "&"), nil
-}
-
-func safePresentationField(label, value string) string {
-	name := strings.ToLower(strings.TrimSpace(cleanDisplayCell(label)))
-	switch name {
-	case "passphrase", "password", "token", "access_token", "refresh_token", "authorization", "psk", "api_key", "apikey", "api-key", "client_secret", "x-amz-signature", "x-amz-credential", "x-amz-security-token":
-		return "<redacted>"
-	case "ssid", "bssid", "ap_mld_mac_address":
-		return value
-	default:
-		return safePresentationText(value)
-	}
-}
-
-// Clone before sanitizing: evaluation/measurements never see presentation edits.
-func safePresentationProto(message proto.Message) proto.Message {
-	copy := proto.Clone(message)
-	sanitizePresentationProto(copy)
-	return copy
-}
+func safePresentationText(value string) string                  { return safevalue.Text(value) }
+func safePresentationField(label, value string) string          { return safevalue.Field(label, value) }
+func safePresentationProto(message proto.Message) proto.Message { return safevalue.Proto(message) }
 
 // Structured output omits whole-object string dumps, not typed numeric/IE evidence.
 func structuredResult(result *controlpb.CommandResult) *controlpb.CommandResult {
@@ -150,51 +76,6 @@ func presentationResult(result *controlpb.CommandResult, options command.Options
 			}
 		}
 	}
-	sanitizePresentationProto(copy)
+	safevalue.SanitizeProto(copy)
 	return copy
-}
-
-func sanitizePresentationProto(copy proto.Message) {
-	var sanitize func(protoreflect.Message)
-	sanitize = func(m protoreflect.Message) {
-		if m.Descriptor().Name() == "DiagnosticField" {
-			key := m.Descriptor().Fields().ByName("key")
-			value := m.Descriptor().Fields().ByName("value")
-			if key != nil && value != nil {
-				m.Set(value, protoreflect.ValueOfString(safePresentationField(m.Get(key).String(), m.Get(value).String())))
-			}
-		}
-		m.Range(func(field protoreflect.FieldDescriptor, value protoreflect.Value) bool {
-			clean := func(value string) string {
-				var lines []string
-				switch field.Name() {
-				case "message", "error", "errors", "warnings", "output", "raw", "raw_link_properties", "raw_capabilities", "url",
-					"state", "detailed_state", "supplicant_state", "passpoint_fqdn", "passpoint_provider_friendly_name", "passpoint_unique_id",
-					"applicable_redactions", "network_specifier", "http_proxy", "private_dns_server_name", "domains", "routes", "capabilities", "permissions":
-					value = safePresentationText(value)
-				}
-				for line := range strings.SplitSeq(value, "\n") {
-					lines = append(lines, cleanDisplayCell(line))
-				}
-				return strings.Join(lines, "\n")
-			}
-			if field.IsList() {
-				list := value.List()
-				for i := 0; i < list.Len(); i++ {
-					if field.Kind() == protoreflect.StringKind {
-						list.Set(i, protoreflect.ValueOfString(clean(list.Get(i).String())))
-					}
-					if field.Kind() == protoreflect.MessageKind {
-						sanitize(list.Get(i).Message())
-					}
-				}
-			} else if field.Kind() == protoreflect.StringKind {
-				m.Set(field, protoreflect.ValueOfString(clean(value.String())))
-			} else if field.Kind() == protoreflect.MessageKind {
-				sanitize(value.Message())
-			}
-			return true
-		})
-	}
-	sanitize(copy.ProtoReflect())
 }
