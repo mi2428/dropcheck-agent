@@ -67,6 +67,60 @@ func TestAgentsAreSortedAndResolvedByExactOrPrefix(t *testing.T) {
 	}
 }
 
+func TestAgentSnapshotsDoNotBorrowHelloOrCapabilities(t *testing.T) {
+	s := NewServer("synthetic", nil)
+	addTestAgent(s, AgentInfo{ID: "agent", SessionID: "session", Hello: &controlpb.AgentHello{Capabilities: []string{"original"}, Device: &controlpb.DeviceInfo{Model: "original"}}})
+	first := s.Agents()[0]
+	first.Hello.Capabilities[0] = "mutated"
+	first.Hello.Device.Model = "mutated"
+	second := s.Agents()[0]
+	if second.Hello.Capabilities[0] != "original" || second.Hello.Device.Model != "original" {
+		t.Fatal("snapshot mutated control state")
+	}
+}
+
+func TestPinnedSnapshotRejectsReusedPeerSessionID(t *testing.T) {
+	s := NewServer("synthetic", nil)
+	conn := addTestConn(s, "agent", "same-peer-session")
+	old := s.Agents()[0]
+	old.Connected = time.Unix(1, 0)
+	current := old
+	current.Connected = time.Unix(2, 0)
+	addTestAgent(s, current)
+	_, err := s.RunPinned(t.Context(), old, "must-not-dispatch", &controlpb.RunCommand{})
+	if err == nil || !strings.Contains(err.Error(), "replaced") || len(conn.sendCh) != 0 {
+		t.Fatal("reused peer session ID repinned a stale snapshot")
+	}
+}
+
+func TestLogCallbacksCanOverlapAndRemainInline(t *testing.T) {
+	entered := make(chan string, 2)
+	release := make(chan struct{})
+	s := NewServer("synthetic", func(e LogEvent) { entered <- e.AgentID; <-release })
+	a := addTestConn(s, "a", "a")
+	b := addTestConn(s, "b", "b")
+	done := make(chan struct{}, 2)
+	for _, conn := range []*agentConn{a, b} {
+		go func() {
+			s.handleAgentFrame(conn, &controlpb.AgentFrame{Body: &controlpb.AgentFrame_Accepted{Accepted: &controlpb.CommandAccepted{}}})
+			done <- struct{}{}
+		}()
+	}
+	defer close(release)
+	for range 2 {
+		select {
+		case <-entered:
+		case <-time.After(time.Second):
+			t.Fatal("callbacks did not overlap")
+		}
+	}
+	select {
+	case <-done:
+		t.Fatal("callback no longer blocks its stream")
+	default:
+	}
+}
+
 func TestTransportStatusesUseOnlyCurrentHostLocalFrames(t *testing.T) {
 	server := NewServer("token", nil)
 	old := addTestConn(server, "agent-a", "old")

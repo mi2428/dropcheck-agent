@@ -12,6 +12,7 @@ import (
 
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 )
 
 // AgentInfo is the controller's current view of one connected Android agent.
@@ -150,7 +151,7 @@ func (s *Server) WaitAgent(ctx context.Context) (AgentInfo, error) {
 
 	select {
 	case info := <-s.ready:
-		return info, nil
+		return cloneAgentInfo(info), nil
 	case <-ctx.Done():
 		return AgentInfo{}, ctx.Err()
 	}
@@ -230,12 +231,19 @@ func (s *Server) ResolveAgent(target string) (AgentInfo, error) {
 func (s *Server) agentListLocked() []AgentInfo {
 	agents := make([]AgentInfo, 0, len(s.infos))
 	for _, info := range s.infos {
-		agents = append(agents, info)
+		agents = append(agents, cloneAgentInfo(info))
 	}
 	sort.Slice(agents, func(i, j int) bool {
 		return agentSortKey(agents[i]) < agentSortKey(agents[j])
 	})
 	return agents
+}
+
+func cloneAgentInfo(info AgentInfo) AgentInfo {
+	if info.Hello != nil {
+		info.Hello = proto.Clone(info.Hello).(*controlpb.AgentHello)
+	}
+	return info
 }
 
 func agentSortKey(info AgentInfo) string {

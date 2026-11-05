@@ -14,7 +14,7 @@ import (
 // command is running, Run sends a best-effort cancel frame to the agent before
 // returning the context error. The best-effort delivery is bounded to 100ms.
 func (s *Server) Run(ctx context.Context, agentID string, commandID string, cmd *controlpb.RunCommand) (*controlpb.CommandResult, error) {
-	return s.run(ctx, agentID, "", commandID, cmd)
+	return s.run(ctx, agentID, "", time.Time{}, commandID, cmd)
 }
 
 // RunPinned rejects a replaced stream under the same lock that selects the
@@ -23,10 +23,10 @@ func (s *Server) RunPinned(ctx context.Context, agent AgentInfo, commandID strin
 	if agent.ID == "" || agent.SessionID == "" {
 		return nil, fmt.Errorf("bound agent identity is incomplete")
 	}
-	return s.run(ctx, agent.ID, agent.SessionID, commandID, cmd)
+	return s.run(ctx, agent.ID, agent.SessionID, agent.Connected, commandID, cmd)
 }
 
-func (s *Server) run(ctx context.Context, agentID, expectedSession, commandID string, cmd *controlpb.RunCommand) (*controlpb.CommandResult, error) {
+func (s *Server) run(ctx context.Context, agentID, expectedSession string, expectedConnected time.Time, commandID string, cmd *controlpb.RunCommand) (*controlpb.CommandResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -38,7 +38,7 @@ func (s *Server) run(ctx context.Context, agentID, expectedSession, commandID st
 		s.mu.Unlock()
 		return nil, fmt.Errorf("agent %q is not connected", agentID)
 	}
-	if expectedSession != "" && conn.sessionID != expectedSession {
+	if expectedSession != "" && (conn.sessionID != expectedSession || !expectedConnected.IsZero() && !s.infos[agentID].Connected.Equal(expectedConnected)) {
 		s.mu.Unlock()
 		return nil, fmt.Errorf("selected agent connection was replaced; select it again")
 	}
