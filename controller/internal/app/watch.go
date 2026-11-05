@@ -16,10 +16,10 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/control"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 	"github.com/mi2428/dropcheck-agent/controller/internal/runner"
+	"github.com/mi2428/dropcheck-agent/controller/internal/session"
 	"github.com/mi2428/dropcheck-agent/controller/internal/tui"
 	"github.com/mi2428/dropcheck-agent/controller/internal/watch"
 	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
-	"github.com/mi2428/dropcheck-agent/controller/pkg/dropcheck"
 )
 
 type watchOptions struct {
@@ -46,11 +46,11 @@ func runWatch(ctx context.Context, opts shellOptions, args []string) (retErr err
 	if !watchOpts.noTUI {
 		opts.OnLog = watchSessionLogHandler(eventPipe)
 	}
-	controlSession, err := dropcheck.Open(ctx, opts)
+	controlSession, err := session.Open(ctx, opts)
 	if err != nil {
 		return err
 	}
-	defer controlSession.Close()
+	defer func() { retErr = errors.Join(retErr, controlSession.Close()) }()
 
 	state := &shellState{server: controlSession.Server, adbPath: opts.ADBPath}
 	if len(controlSession.Agents) == 1 {

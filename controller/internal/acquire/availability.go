@@ -1,4 +1,4 @@
-package watchrun
+package acquire
 
 import "github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 

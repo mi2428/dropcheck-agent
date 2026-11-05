@@ -21,7 +21,7 @@ func TestYAMLKnownFieldsAndInvalidOperationsFailBeforeDispatch(t *testing.T) {
 		"type: wifi_scan\n    expect: {ap: {channel: 0}}", "type: wifi_scan\n    expect: {ap: {bssid: bad}}",
 		"type: wifi_eht\n    expect: {mlo_connected: false}", "type: wifi_eht\n    expect: {mlo_coverage: 'true'}",
 	} {
-		input := "version: 1\ntargets:\n  - ssid: Lab\nchecks:\n  - " + fragment + "\n"
+		input := "version: 1\ntargets:\n  - ssid: Lab\n    passphrase: synthetic-passphrase\nchecks:\n  - " + fragment + "\n"
 		plan, err := Parse([]byte(input))
 		if err == nil {
 			_, err = watchrun.Compile(plan, []control.AgentInfo{{ID: "a"}})
@@ -129,7 +129,7 @@ func TestYAMLActiveObservationRequiresExplicitConsentAndDestination(t *testing.T
 }
 
 func TestLegacyYAMLExternalDefaultsAreExplicitInPreview(t *testing.T) {
-	plan, err := Parse([]byte(`targets: [{ssid: Lab}]
+	plan, err := Parse([]byte(`targets: [{ssid: Lab, passphrase: synthetic-passphrase}]
 checks:
   - {type: ping}
   - {type: dns}
@@ -159,6 +159,7 @@ func TestYAMLVariablesTargetChecksAndLiteralSSID(t *testing.T) {
 	plan, err := Parse([]byte(`
 version: 1
 vars: {host: example.test}
+defaults: {passphrase: synthetic-passphrase}
 targets:
   - name: same
     ssid: "Lab "
@@ -211,7 +212,7 @@ func (r *parityRunner) Run(_ context.Context, _ control.AgentInfo, op command.Op
 }
 
 func TestGoYAMLTypedParityAndFamilyInventory(t *testing.T) {
-	yamlPlan, err := Parse([]byte(`targets: [{ssid: Lab}]
+	yamlPlan, err := Parse([]byte(`targets: [{ssid: Lab, passphrase: synthetic-passphrase}]
 checks:
   - type: ping
     host: example.test
@@ -230,7 +231,7 @@ checks:
 	if err != nil {
 		t.Fatal(err)
 	}
-	goPlan := watchrun.Plan{Networks: []watchrun.Network{{Name: "lab", SSID: "Lab", WaitConnected: true, RequireIP: true, DisconnectAfter: true}}, Checks: []watchrun.Check{watchrun.NewCheck("ping", "", op, watchrun.Policy{}, false, expect...)}}
+	goPlan := watchrun.Plan{Networks: []watchrun.Network{{Name: "lab", SSID: "Lab", PSK: watchrun.SecretValue("synthetic-passphrase"), WaitConnected: true, RequireIP: true, DisconnectAfter: true}}, Checks: []watchrun.Check{watchrun.NewCheck("ping", "", op, watchrun.Policy{}, false, expect...)}}
 	for _, plan := range []watchrun.Plan{goPlan, yamlPlan} {
 		p, err := watchrun.Compile(plan, []control.AgentInfo{{ID: "a"}})
 		if err != nil {
@@ -253,7 +254,7 @@ checks:
 
 func TestYAMLCapabilityInventoryCompilesAllRetainedProbes(t *testing.T) {
 	for kind := range strings.FieldsSeq("wifi_status wifi_diagnostics wifi_eht wifi_capabilities wifi_scan scan_detail ip_status ping traceroute path_mtu dns http download global_ip gateway_ping") {
-		plan, err := Parse([]byte("targets: [{ssid: Lab}]\nchecks: [{type: " + kind + "}]"))
+		plan, err := Parse([]byte("targets: [{ssid: Lab, passphrase: synthetic-passphrase}]\nchecks: [{type: " + kind + "}]"))
 		if err == nil {
 			_, err = watchrun.Compile(plan, []control.AgentInfo{{ID: "a"}})
 		}
@@ -264,7 +265,7 @@ func TestYAMLCapabilityInventoryCompilesAllRetainedProbes(t *testing.T) {
 }
 
 func TestYAMLAPMLOExpectationsKeepRuntimeMetricIdentities(t *testing.T) {
-	plan, err := Parse([]byte(`targets: [{ssid: Lab}]
+	plan, err := Parse([]byte(`targets: [{ssid: Lab, passphrase: synthetic-passphrase}]
 checks:
   - type: wifi_scan
     expect: {ap: {ssid: Lab, standard: be, mlo_link_id: 0, count: 1}}

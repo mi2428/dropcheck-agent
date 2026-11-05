@@ -7,7 +7,7 @@ import (
 )
 
 func TestStaticValidationDoesNotBindFakeAgent(t *testing.T) {
-	plan := Plan{Networks: []Network{{Name: "lab", SSID: "Lab", Agent: "synthetic-a", WaitConnected: true, RequireIP: true, DisconnectAfter: true}}}
+	plan := Plan{Networks: []Network{{Name: "lab", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), Agent: "synthetic-a", WaitConnected: true, RequireIP: true, DisconnectAfter: true}}}
 	if err := Validate(plan); err != nil {
 		t.Fatalf("static validation tried to bind a live selector: %v", err)
 	}

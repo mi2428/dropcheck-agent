@@ -1,4 +1,4 @@
-package watchrun
+package acquire
 
 import (
 	"context"
@@ -25,7 +25,7 @@ func TestRound2NetworkResponseIdentityAndConsistency(t *testing.T) {
 		{&controlpb.NetworkSnapshot{Errors: []string{"capabilities denied"}, Networks: []*controlpb.NetworkDiagnostics{{NetworkId: "42", IpStatus: &controlpb.IpStatus{NetworkId: "42"}}}}, false},
 		{&controlpb.NetworkSnapshot{ObservedAtUnixMs: 1, Networks: []*controlpb.NetworkDiagnostics{{NetworkId: "42", IpStatus: &controlpb.IpStatus{NetworkId: "42", ObservationFields: []*controlpb.DiagnosticField{{Key: "capabilities.state", Value: "available"}, {Key: "link_properties.state", Value: "available"}}}}}}, true},
 	} {
-		result, err := ExecuteOperation(t.Context(), agentRunnerFunc(func(context.Context, control.AgentInfo, command.Operation) (runner.Result, error) {
+		result, err := Execute(t.Context(), runnerFunc(func(context.Context, control.AgentInfo, command.Operation) (runner.Result, error) {
 			return runner.Result{Result: &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_NetworkSnapshot{NetworkSnapshot: tc.snapshot}}}, nil
 		}), control.AgentInfo{ID: "round2-agent"}, op)
 		rejected := err != nil || result.Raw.GetStatus() != controlpb.CommandResult_STATUS_OK

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mi2428/dropcheck-agent/controller/internal/acquire"
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 	"github.com/mi2428/dropcheck-agent/controller/internal/control"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
@@ -19,7 +20,7 @@ const deliveryTimeout = time.Second
 
 type execution struct {
 	plan        *CompiledPlan
-	runner      OperationRunner
+	runner      acquire.Runner
 	opts        ExecuteOptions
 	controls    *Controls
 	ctx         context.Context
@@ -47,11 +48,11 @@ func (e redactedError) Unwrap() error { return e.cause }
 
 // Execute runs watch YAML loops and finite built-in Shell profiles.
 // It always returns the report, including when transport, cleanup or sinks fail.
-func Execute(ctx context.Context, plan *CompiledPlan, r OperationRunner, opts ExecuteOptions) (Report, error) {
+func Execute(ctx context.Context, plan *CompiledPlan, r acquire.Runner, opts ExecuteOptions) (Report, error) {
 	return execute(ctx, plan, r, opts, time.Now, sleepContext)
 }
 
-func execute(ctx context.Context, plan *CompiledPlan, r OperationRunner, opts ExecuteOptions, now func() time.Time, sleep func(context.Context, time.Duration) error) (Report, error) {
+func execute(ctx context.Context, plan *CompiledPlan, r acquire.Runner, opts ExecuteOptions, now func() time.Time, sleep func(context.Context, time.Duration) error) (Report, error) {
 	if plan == nil || r == nil || opts.Loop && opts.Rounds != 0 || !opts.Loop && opts.Rounds == 0 || opts.RoundInterval < 0 {
 		return Report{}, fmt.Errorf("invalid execution options")
 	}
@@ -374,7 +375,7 @@ func (e *execution) checkAttempted(agent control.AgentInfo, target compiledTarge
 				if s.gateway != nil {
 					result, err = executeGateway(attemptCtx, e.runner, agent, target.network, *s.gateway)
 				} else {
-					result, err = ExecuteOperation(attemptCtx, e.runner, agent, s.operation)
+					result, err = executeOperation(attemptCtx, e.runner, agent, s.operation)
 				}
 				if err == nil && attemptCtx.Err() != nil {
 					err = attemptCtx.Err()
@@ -489,7 +490,7 @@ func evaluateAttempt(network Network, s compiledStep, result OperationResult, er
 		outcome = FailOutcome
 		findings = append(findings, Fail("status", result.Raw.Status.String(), "STATUS_OK", result.Raw.Message))
 	}
-	valid := s.gateway != nil && result.Raw.GetPing() != nil || s.gateway == nil && payloadMatches(s.operation, result.Raw)
+	valid := s.gateway != nil && result.Raw.GetPing() != nil || s.gateway == nil && acquire.PayloadMatches(s.operation, result.Raw)
 	if !valid {
 		findings = append(findings, MissingFinding("payload", "<missing>", "expected typed payload", "wrong or missing payload"))
 		return findings, combineOutcome(outcome, MissingOutcome), "wrong or missing payload"
@@ -594,7 +595,7 @@ func (e *execution) cleanup(agent control.AgentInfo, target compiledTarget, roun
 	for _, op := range ops {
 		scope := Scope{Kind: ScopeCheck, AgentID: agentKey(agent), TargetID: target.preview.ID, CheckID: "cleanup/" + op.Name}
 		started := e.now()
-		result, err := ExecuteOperation(ctx, e.runner, agent, op)
+		result, err := executeOperation(ctx, e.runner, agent, op)
 		s := compiledStep{id: scope.CheckID, typeName: "cleanup", step: step{name: strings.TrimPrefix(op.Name, "wifi."), operation: op}}
 		_, state, message := evaluateAttempt(target.network, s, result, err, nil)
 		result = e.plan.sanitizeResult(result)

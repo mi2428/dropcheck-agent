@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mi2428/dropcheck-agent/controller/internal/acquire"
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 	"github.com/mi2428/dropcheck-agent/controller/internal/control"
 )
@@ -43,12 +44,12 @@ func optionalNumber(v uint32) string {
 	return strconv.FormatUint(uint64(v), 10)
 }
 
-func executeGateway(ctx context.Context, r OperationRunner, agent control.AgentInfo, target Network, opts GatewayPingOptions) (OperationResult, error) {
+func executeGateway(ctx context.Context, r acquire.Runner, agent control.AgentInfo, target Network, opts GatewayPingOptions) (OperationResult, error) {
 	ipOp, err := bindSelector(command.IPStatusOperation(), target)
 	if err != nil {
 		return OperationResult{}, err
 	}
-	ip, err := ExecuteOperation(ctx, r, agent, ipOp)
+	ip, err := executeOperation(ctx, r, agent, ipOp)
 	if err != nil || ip.Raw == nil || ip.Raw.GetIpStatus() == nil || ip.Raw.GetStatus().String() != "STATUS_OK" {
 		return ip, err
 	}
@@ -83,7 +84,7 @@ func executeGateway(ctx context.Context, r OperationRunner, agent control.AgentI
 	if err != nil {
 		return ip, err
 	}
-	ping, err := ExecuteOperation(ctx, r, agent, op)
+	ping, err := executeOperation(ctx, r, agent, op)
 	ping.Parts = append(ip.Parts, ping.Parts...)
 	return ping, err
 }

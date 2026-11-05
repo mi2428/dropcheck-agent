@@ -115,9 +115,9 @@ func TestWatchAgentPlansAssignTargetsBySerial(t *testing.T) {
 	plan := watchrun.Plan{
 		Name: "assigned-watch",
 		Networks: []watchrun.Network{
-			{Name: "ap-5g", Agent: "35251JEHN00258", SSID: "Lab", Band: "5ghz", WaitConnected: true, RequireIP: true, DisconnectAfter: true},
-			{Name: "ap-6g", Agent: "45240DLAQ007HG", SSID: "Lab", Band: "6ghz", WaitConnected: true, RequireIP: true, DisconnectAfter: true},
-			{Name: "shared", SSID: "Lab", WaitConnected: true, RequireIP: true, DisconnectAfter: true},
+			{Name: "ap-5g", Agent: "35251JEHN00258", SSID: "Lab", PSK: watchrun.SecretValue("synthetic-passphrase"), Band: "5ghz", WaitConnected: true, RequireIP: true, DisconnectAfter: true},
+			{Name: "ap-6g", Agent: "45240DLAQ007HG", SSID: "Lab", PSK: watchrun.SecretValue("synthetic-passphrase"), Band: "6ghz", WaitConnected: true, RequireIP: true, DisconnectAfter: true},
+			{Name: "shared", SSID: "Lab", PSK: watchrun.SecretValue("synthetic-passphrase"), WaitConnected: true, RequireIP: true, DisconnectAfter: true},
 		},
 	}
 
@@ -144,7 +144,7 @@ func TestWatchAgentPlansRejectDeviceModelAgentSelector(t *testing.T) {
 	plan := watchrun.Plan{
 		Name: "assigned-watch",
 		Networks: []watchrun.Network{
-			{Name: "ap-5g", Agent: "Pixel 7a", SSID: "Lab", Band: "5ghz", WaitConnected: true, RequireIP: true, DisconnectAfter: true},
+			{Name: "ap-5g", Agent: "Pixel 7a", SSID: "Lab", PSK: watchrun.SecretValue("synthetic-passphrase"), Band: "5ghz", WaitConnected: true, RequireIP: true, DisconnectAfter: true},
 		},
 	}
 
