@@ -5,6 +5,8 @@ SHELL                   := /bin/bash
 TARGET                  ?= all
 GO                      ?= go
 PROTOC                  ?= protoc
+PROTOC_GEN_GO           ?= protoc-gen-go
+PROTOC_GEN_GO_GRPC      ?= protoc-gen-go-grpc
 GRADLE                  ?= ./gradlew
 ADB                     ?= adb
 SERIAL                  ?= $(ADB_SERIAL)
@@ -41,14 +43,20 @@ check-shell: ## Check portable Shell command bindings for drift
 	python3 tools/generate_shell_contract.py --check
 
 .PHONY: generate-go
-generate-go: ## Regenerate Go protobuf bindings with pinned tools (requires protoc 35.0)
-	@version=$$("$(PROTOC)" --version); [[ "$$version" == "libprotoc 35.0" ]] || { printf 'make generate-go: protoc 35.0 is required; set PROTOC to its executable\n' >&2; exit 1; }; \
-	tools="$$(mktemp -d)"; trap 'rm -rf "$$tools"' EXIT; \
-	GOBIN="$$tools" "$(GO)" install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.1; \
-	GOBIN="$$tools" "$(GO)" install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.3.0; \
-	"$(PROTOC)" --proto_path=proto/dropcheck/v1 \
-		--plugin=protoc-gen-go="$$tools/protoc-gen-go" \
-		--plugin=protoc-gen-go-grpc="$$tools/protoc-gen-go-grpc" \
+generate-go: ## Regenerate Go bindings with preinstalled pinned tools; never install or fetch
+	@resolve(){ local path; path=$$(command -v -- "$$2") && [[ -f "$$path" && -x "$$path" ]] || { printf 'make generate-go: %s executable not found: %s\n' "$$1" "$$2" >&2; return 1; }; \
+		(cd -P -- "$$(dirname -- "$$path")" && printf '%s/%s\n' "$$PWD" "$$(basename -- "$$path")"); }; \
+	check(){ local version; version=$$("$$2" --version) || { printf 'make generate-go: %s version check failed\n' "$$1" >&2; return 1; }; \
+		[[ "$$version" == "$$3" ]] || { printf 'make generate-go: %s requires %s; got %s\n' "$$1" "$$3" "$$version" >&2; return 1; }; }; \
+	protoc=$$(resolve PROTOC "$(PROTOC)") || exit 1; \
+	go_plugin=$$(resolve PROTOC_GEN_GO "$(PROTOC_GEN_GO)") || exit 1; \
+	grpc_plugin=$$(resolve PROTOC_GEN_GO_GRPC "$(PROTOC_GEN_GO_GRPC)") || exit 1; \
+	check PROTOC "$$protoc" 'libprotoc 35.0' || exit 1; \
+	check PROTOC_GEN_GO "$$go_plugin" 'protoc-gen-go v1.36.1' || exit 1; \
+	check PROTOC_GEN_GO_GRPC "$$grpc_plugin" 'protoc-gen-go-grpc 1.3.0' || exit 1; \
+	"$$protoc" --proto_path=proto/dropcheck/v1 \
+		--plugin=protoc-gen-go="$$go_plugin" \
+		--plugin=protoc-gen-go-grpc="$$grpc_plugin" \
 		--go_out=controller/internal/controlpb --go_opt=paths=source_relative \
 		--go-grpc_out=controller/internal/controlpb --go-grpc_opt=paths=source_relative \
 		proto/dropcheck/v1/control.proto
@@ -189,6 +197,8 @@ help: ## Show this help message
 	@printf "\n\033[1mVariables:\033[0m\n"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "TARGET" "agent, controller, or all; comma and space lists are accepted"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "PROTOC" "protoc 35.0 executable for make generate-go"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "PROTOC_GEN_GO" "Preinstalled protoc-gen-go v1.36.1 executable; generation never installs tools"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "PROTOC_GEN_GO_GRPC" "Preinstalled protoc-gen-go-grpc 1.3.0 executable; generation never installs tools"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "VERSION" "Version from git describe; override with VERSION=x.y.z"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "TAGS" "Go build/test tags for controller targets"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "SSID" "Test Wi-Fi SSID for make e2e"
