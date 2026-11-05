@@ -25,7 +25,7 @@ var shellHostGrammar = []Grammar{
 func shellPath(args []string) ([]string, error) {
 	var path []string
 	for _, word := range args {
-		part, err := resolve(word, siblings(ShellGrammarTable, path), false)
+		part, err := resolve(word, siblings(ShellGrammarTable, path))
 		if err != nil {
 			return nil, err
 		}
@@ -48,11 +48,11 @@ func ShellTestProfile(args []string) string {
 	if len(args) < 2 {
 		return ""
 	}
-	root, err := resolve(args[0], siblings(ShellGrammarTable, nil), false)
+	root, err := resolve(args[0], siblings(ShellGrammarTable, nil))
 	if err != nil || root != "test" {
 		return ""
 	}
-	profile, err := resolve(args[1], siblings(ShellGrammarTable, []string{"test"}), false)
+	profile, err := resolve(args[1], siblings(ShellGrammarTable, []string{"test"}))
 	if err != nil {
 		return "unsupported"
 	}
@@ -79,7 +79,7 @@ func parseInteractiveTokens(args []string) (result Parsed, err error) {
 			return Parsed{Path: "help", Topic: strings.Join(path, " "), Effect: "local"}, nil
 		}
 	}
-	spec, consumed, err := commandSpec(ShellGrammarTable, args, false)
+	spec, consumed, err := commandSpec(ShellGrammarTable, args)
 	if err != nil {
 		return Parsed{}, err
 	}

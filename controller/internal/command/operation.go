@@ -7,7 +7,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// Operation is the typed command plan shared by the shell and Linux-style CLI.
+// Operation is the typed command shared by Shell, watch and the basic Go API.
 //
 // It carries the fully built agent command plus controller-local rendering or
 // validation options. Operation intentionally avoids argv-shaped fields: once a

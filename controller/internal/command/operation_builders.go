@@ -9,8 +9,8 @@ import (
 
 // WifiConnectOptions is the typed input for Wi-Fi connect-style operations.
 //
-// String fields intentionally keep the user-facing token form so shell and CLI
-// parsers can share validation, defaulting, and error messages in this package.
+// String fields retain token form so Shell, watch and the basic Go API share
+// validation, defaulting, and error messages in this package.
 type WifiConnectOptions struct {
 	// SSID is the network name to connect to.
 	SSID string

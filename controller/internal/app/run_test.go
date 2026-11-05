@@ -11,72 +11,39 @@ import (
 	"testing"
 )
 
-func TestTopLevelHelpIncludesFlagsCommandsAndExamples(t *testing.T) {
+func TestTopLevelHelpOnlyAdvertisesShellAndWatch(t *testing.T) {
 	help := renderTopLevelHelp()
-	for _, want := range []string{
-		"Usage:",
-		"Global flags:",
-		"--adb PATH",
-		"--listen ADDR",
-		"CLI output and target flags:",
-		"--format text|json",
-		"Common commands:",
-		"show devices",
-		"show wifi scan [fresh] [brief] [mlo]",
-		"ping 1.1.1.1 count 5",
-	} {
+	for _, want := range []string{"Usage:", "Global flags:", "--adb PATH", "--listen ADDR", "dropcheck [flags] shell", "dropcheck [flags] watch", "dropcheck --version"} {
 		if !strings.Contains(help, want) {
-			t.Fatalf("topLevelHelp() missing %q:\n%s", want, help)
+			t.Fatalf("missing %q: %s", want, help)
 		}
 	}
-	if strings.Contains(help, "request wifi scan") {
-		t.Fatalf("topLevelHelp() contains stale request wifi scan help:\n%s", help)
-	}
-	for _, removed := range []string{"standalone", "show config", "configure <set|delete>"} {
+	for _, removed := range []string{"dropcheck [flags] tui", "one-shot", "--format", "Common commands:", "show devices", "ping <host>", "\t"} {
 		if strings.Contains(help, removed) {
-			t.Fatalf("topLevelHelp() advertises removed control %q:\n%s", removed, help)
-		}
-	}
-	if strings.Contains(help, "\t") {
-		t.Fatalf("topLevelHelp() contains tab indentation:\n%s", help)
-	}
-	for _, want := range []string{
-		"  shell                                 start the Controller Shell",
-		"  --format text|json                    output format for one-shot commands",
-		"  ping <host> [count <value>]",
-	} {
-		if !strings.Contains(help, want) {
-			t.Fatalf("topLevelHelp() missing aligned row %q:\n%s", want, help)
+			t.Fatalf("help advertises retired surface %q", removed)
 		}
 	}
 }
 
-func TestCanceledEntryContextDoesNotStartAgent(t *testing.T) {
+func TestRemovedEntrypointsNeverStartADB(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "adb")
 	marker := filepath.Join(t.TempDir(), "called")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\ntouch '"+marker+"'\n"), 0700); err != nil {
+	if err := os.WriteFile(path, []byte("#!/bin/sh\ntouch '"+marker+"'\n"), 0o700); err != nil {
 		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"tui"}, {"tui", "missing.yml"}, {"show", "devices"}, {"ping", "example.test"}, {"--format", "json", "show", "wifi", "status"}, {"wifi", "connect", "Lab", "passphrase", "synthetic-private"}} {
+		full := append([]string{"--adb", path}, args...)
+		if err := runWithContext(context.Background(), full); err == nil || strings.Contains(err.Error(), "synthetic-private") {
+			t.Fatalf("retired entrypoint accepted or disclosed a credential: %v", err)
+		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := runWithContext(ctx, []string{"--adb", path, "--serial", "serial-test", "ping", "example.test"}); err == nil {
-		t.Fatal("canceled entry started a one-shot operation")
+	if err := runWithContext(ctx, []string{"--adb", path, "shell"}); err == nil {
+		t.Fatal("canceled Shell entry started")
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Fatalf("canceled entry ran adb: %v", err)
-	}
-}
-
-func TestHelpTopicUsesLiveGrammarTable(t *testing.T) {
-	var out bytes.Buffer
-	writeCommandHelp(&out, "wifi")
-	if !strings.Contains(out.String(), "wifi cycle <ssid> passphrase <value>") || !strings.Contains(out.String(), "wifi monitor") || strings.Contains(out.String(), "request") {
-		t.Fatalf("wifi topic drift: %s", out.String())
-	}
-	out.Reset()
-	writeCommandHelp(&out, "check")
-	if !strings.Contains(out.String(), "unsupported") {
-		t.Fatalf("unavailable profile advertised: %s", out.String())
+		t.Fatalf("invalid entry ran adb: %v", err)
 	}
 }
 
@@ -96,14 +63,8 @@ func TestParseTopLevelArgsRecognizesFlagPackageHelpForms(t *testing.T) {
 }
 
 func TestParseTopLevelArgsAcceptsSingleDashListen(t *testing.T) {
-	global, rest, err := parseTopLevelArgs([]string{"-listen", "127.0.0.1:37588", "show", "devices"})
-	if err != nil {
-		t.Fatalf("parseTopLevelArgs() error = %v", err)
-	}
-	if global.ListenAddr != "127.0.0.1:37588" {
-		t.Fatalf("listen = %q", global.ListenAddr)
-	}
-	if !slices.Equal(rest, []string{"show", "devices"}) {
-		t.Fatalf("rest = %#v", rest)
+	global, rest, err := parseTopLevelArgs([]string{"-listen", "127.0.0.1:37588", "shell"})
+	if err != nil || global.ListenAddr != "127.0.0.1:37588" || !slices.Equal(rest, []string{"shell"}) {
+		t.Fatalf("global=%+v rest=%v err=%v", global, rest, err)
 	}
 }
