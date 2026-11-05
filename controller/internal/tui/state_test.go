@@ -11,6 +11,10 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 )
 
+func newModel(targets []watchrun.Target, events <-chan watchrun.Event, agentSets ...[]watchrun.AgentSnapshot) model {
+	return newModelWithChecks("shownet-watch", targets, nil, events, agentSets...)
+}
+
 func TestFailedCheckRemovesSameRoundPassingCheck(t *testing.T) {
 	events := make(chan watchrun.Event)
 	m := newModel(nil, events)
@@ -44,7 +48,7 @@ func TestFailedCheckRemovesSameRoundPassingCheck(t *testing.T) {
 		},
 	})
 
-	if rows := m.passingCheckSummaries(); len(rows) != 0 {
+	if rows := m.PassingCheckSummaries(); len(rows) != 0 {
 		t.Fatalf("same-round failed check should remove the prior passing check, got %#v", rows)
 	}
 	frame := stripANSI(m.render())
@@ -108,10 +112,10 @@ func TestMultiAgentResultsStaySeparated(t *testing.T) {
 	if strings.Contains(frame, "   Agent") {
 		t.Fatalf("summary panels should aggregate agents into Cnt instead of rendering an Agent column:\n%s", frame)
 	}
-	if rows := m.passingCheckSummaries(); len(rows) != 1 || rows[0].Count != 1 {
+	if rows := m.PassingCheckSummaries(); len(rows) != 1 || rows[0].Count != 1 {
 		t.Fatalf("passingChecks should aggregate successful agents into count, got %#v", rows)
 	}
-	if rows := m.failedCheckSummaries(); len(rows) != 1 || rows[0].Count != 1 {
+	if rows := m.FailedCheckSummaries(); len(rows) != 1 || rows[0].Count != 1 {
 		t.Fatalf("failedChecks should aggregate failing agents into count, got %#v", rows)
 	}
 }
@@ -137,7 +141,7 @@ func TestPassingCheckPanelShowsDeviceColumn(t *testing.T) {
 		})
 	}
 
-	rows := m.passingCheckSummaries()
+	rows := m.PassingCheckSummaries()
 	if len(rows) != 2 || rows[0].Count != 1 || rows[1].Count != 1 {
 		t.Fatalf("passingChecks should keep device-labelled rows separate, got %#v", rows)
 	}
@@ -180,7 +184,7 @@ func TestFailedCheckPanelShowsDeviceColumn(t *testing.T) {
 		})
 	}
 
-	rows := m.failedCheckSummaries()
+	rows := m.FailedCheckSummaries()
 	if len(rows) != 2 || rows[0].Count != 1 || rows[1].Count != 1 {
 		t.Fatalf("failedChecks should keep device-labelled rows separate, got %#v", rows)
 	}

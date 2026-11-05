@@ -177,15 +177,6 @@ func FormatBucketDuration(duration time.Duration) string {
 	return fmt.Sprintf("%dh", int(duration.Round(time.Hour)/time.Hour))
 }
 
-// OccurrenceGraphHeight reserves roughly half of detail content for a graph.
-func OccurrenceGraphHeight(contentHeight int) int {
-	if contentHeight <= 0 {
-		return 0
-	}
-	height := Max(4, contentHeight*50/100)
-	return Min(height, Max(1, contentHeight-3))
-}
-
 // PassingCheckOccurrences returns the event times that belong to one passing
 // summary key.
 func (s State) PassingCheckOccurrences(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, step watchrun.StepSnapshot) []time.Time {

@@ -27,7 +27,7 @@ func styleADBField(t *testing.T, text, label, value string, indent int) int {
 }
 
 func TestStyleConsistencyADBMLORecords(t *testing.T) {
-	text := RenderMLOSummary(ParseMLOSummary("mlo_mode=0 wifi_link_count=1"))
+	text := render.LayoutText(MLOSummaryText(ParseMLOSummary("mlo_mode=0 wifi_link_count=1"), render.Presentation{}), render.Presentation{})
 	if !strings.HasPrefix(text, "ADB MLO Snapshot\n") {
 		t.Fatal("heading changed")
 	}
@@ -46,7 +46,7 @@ func TestStyleConsistencyADBSharedRecords(t *testing.T) {
 }
 
 func TestStyleConsistencyADBIPv6Records(t *testing.T) {
-	text := RenderIPv6RASummary(IPv6RASummary{Interface: "wlan0", AcceptRA: "0", Advertisements: []IPv6RAAdvertisement{{Source: "fe80::1", Destination: "ff02::1", RouterLifetime: "0"}}})
+	text := render.LayoutText(IPv6RASummaryText(IPv6RASummary{Interface: "wlan0", AcceptRA: "0", Advertisements: []IPv6RAAdvertisement{{Source: "fe80::1", Destination: "ff02::1", RouterLifetime: "0"}}}), render.Presentation{})
 	styleADBField(t, text, "interface", "wlan0", 2)
 	styleADBField(t, text, "accept_ra", "0", 2)
 	a := styleADBField(t, text, "src", "fe80::1", 6)
@@ -84,7 +84,7 @@ func TestStyleConsistencyADBRawAndTableRoles(t *testing.T) {
 	if err != nil || json.Unmarshal([]byte(encoded), &decoded) != nil || !decoded.OK || !strings.Contains(strings.Join(decoded.Lines, "\n"), "foo=0: 2001:db8::1") || strings.Contains(encoded, "qa-synthetic-secret") || bundle.Commands[0].Stdout != raw {
 		t.Fatal("safe Shell JSON changed native values, exposed a credential or modified acquisition data")
 	}
-	table := RenderMLOSummary(MLOSummary{LinkStats: []MLOLinkStat{{LinkID: "0", RadioID: "1", RSSIMgmt: "-40", BeaconRx: "0"}}})
+	table := render.LayoutText(MLOSummaryText(MLOSummary{LinkStats: []MLOLinkStat{{LinkID: "0", RadioID: "1", RSSIMgmt: "-40", BeaconRx: "0"}}}, render.Presentation{}), render.Presentation{})
 	if !strings.Contains(table, "\n\nlink_id") || !strings.HasSuffix(table, "\n\n") || strings.Contains(table, "link_id:") {
 		t.Fatal("table headers are not scalar fields")
 	}

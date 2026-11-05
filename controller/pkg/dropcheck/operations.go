@@ -293,17 +293,13 @@ func WiFiReconnect(timeout time.Duration) (Operation, error) {
 // WiFiForgetSSID forgets a literal SSID, never reinterpreting numeric names.
 // Typed forgetting requires the agent's wifi.forget.typed capability.
 func WiFiForgetSSID(ssid string) (Operation, error) {
-	op := command.WifiForgetOperation("")
-	op.Command.GetForgetWifi().Selector = &controlpb.ForgetWifi_Ssid{Ssid: ssid}
-	return validated(op, nil)
+	return validated(command.WifiForgetSSIDOperation(ssid), nil)
 }
 
 // WiFiForgetConfigID forgets a saved configuration ID (including known ID zero).
 // Negative IDs are invalid; the typed-forget capability is required at Run.
 func WiFiForgetConfigID(id int32) (Operation, error) {
-	op := command.WifiForgetOperation("")
-	op.Command.GetForgetWifi().Selector = &controlpb.ForgetWifi_ConfigId{ConfigId: id}
-	return validated(op, nil)
+	return validated(command.WifiForgetConfigIDOperation(id), nil)
 }
 
 // Network inspects one positive Android Network ID, not a configuration ID.

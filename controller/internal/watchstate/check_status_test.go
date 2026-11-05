@@ -156,22 +156,3 @@ func TestNewPreservesConfiguredTargetOrderAcrossAssignedAgents(t *testing.T) {
 		}
 	}
 }
-
-func TestOutcomeBucketsMapFirstAndLastEventsToGraphEdges(t *testing.T) {
-	base := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	buckets := OutcomeBuckets([]OutcomeEvent{
-		{When: base, Status: "ok"},
-		{When: base.Add(5 * time.Second), Status: "failed"},
-		{When: base.Add(10 * time.Second), Status: "ok"},
-	}, 5)
-
-	if got := buckets[0].OK; got != 1 {
-		t.Fatalf("first bucket ok count = %d, want 1; buckets=%#v", got, buckets)
-	}
-	if got := buckets[2].Failed; got != 1 {
-		t.Fatalf("middle bucket failed count = %d, want 1; buckets=%#v", got, buckets)
-	}
-	if got := buckets[4].OK; got != 1 {
-		t.Fatalf("last bucket ok count = %d, want 1; buckets=%#v", got, buckets)
-	}
-}

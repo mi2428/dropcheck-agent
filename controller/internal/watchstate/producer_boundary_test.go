@@ -29,7 +29,7 @@ func TestPlannedStepsFollowActualCompiledPreviewMetadata(t *testing.T) {
 		{SSID: "Observed", ReadOnly: true},
 		{SSID: "Owned without wait", PSK: watchrun.SecretValue("synthetic-passphrase")},
 		{SSID: "Owned with wait", PSK: watchrun.SecretValue("synthetic-passphrase"), WaitConnected: true, DisconnectAfter: true, ForgetAfter: true},
-	}, Checks: []watchrun.Check{watchrun.NewCheck("status", "status-id", command.WifiStatusOperation(), watchrun.Policy{}, false)}}, []control.AgentInfo{{ID: "a"}})
+	}, Checks: []watchrun.Check{watchrun.NewCheck("status", "status-id", command.WifiStatusOperation(), watchrun.Policy{}, false)}}, []control.AgentInfo{{ID: "a", Hello: &controlpb.AgentHello{Capabilities: []string{"wifi.forget.typed"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}

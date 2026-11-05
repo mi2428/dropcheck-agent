@@ -106,8 +106,8 @@ func ValidateOperation(op Operation) error {
 		return address(c.AssertWifi.GetBssid())
 	case *controlpb.RunCommand_ForgetWifi:
 		f := c.ForgetWifi
-		if f.Selector != nil && f.Target != "" {
-			return fmt.Errorf("forget target and typed selector cannot be combined")
+		if f == nil || f.Selector == nil || f.Target != "" {
+			return fmt.Errorf("forget requires only a typed SSID or configuration ID")
 		}
 		switch selector := f.Selector.(type) {
 		case *controlpb.ForgetWifi_Ssid:

@@ -9,7 +9,7 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 )
 
-func TestRoundTimelineShowsRoundProgressGauge(t *testing.T) {
+func TestRoundTimelineHeaderShowsProgress(t *testing.T) {
 	events := make(chan watchrun.Event)
 	m := newModel([]watchrun.Target{}, events)
 	m.Round = 7
@@ -20,24 +20,14 @@ func TestRoundTimelineShowsRoundProgressGauge(t *testing.T) {
 		{Target: targetSnapshot("pending"), Status: "pending"},
 	}
 
-	text := stripANSI(m.roundProgressView(80))
+	text := stripANSI(m.roundTimelineHeaderView(80, 1, 1, 1, 1))
 	for _, want := range []string{"round=7", "progress=", "50%", "(2/4)", "run=1", "fail=1"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("progress gauge missing %q:\n%s", want, text)
 		}
 	}
-	if strings.ContainsAny(text, "░▁▂▃▄▅▆▇") {
-		t.Fatalf("progress gauge should avoid fragile shade/lower-block glyphs:\n%s", text)
-	}
-	if strings.Contains(text, "█") {
-		t.Fatalf("progress gauge should render a line gauge, not a block bar:\n%s", text)
-	}
-	if !strings.Contains(text, "-") {
-		t.Fatalf("progress gauge should render line progress:\n%s", text)
-	}
-	header := stripANSI(m.roundTimelineHeaderView(80, 1, 1, 1, 1))
-	if !strings.Contains(header, "progress=50% (2/4)") {
-		t.Fatalf("round timeline header should group done/total in parentheses:\n%s", header)
+	if !strings.Contains(text, "progress=50% (2/4)") {
+		t.Fatalf("round timeline header should group done/total in parentheses:\n%s", text)
 	}
 }
 
@@ -182,7 +172,7 @@ func TestPassingSparklineRetainsThirtyMinuteWindowBeyondFourHundredEvents(t *tes
 	m.Now = now
 	for i := range 401 {
 		offset := time.Duration(i) * 29 * time.Minute / 400
-		m.recordPassingCheck(passingCheckState{
+		m.RecordPassingCheck(passingCheckState{
 			When:     now.Add(-29 * time.Minute).Add(offset),
 			Target:   watchrun.TargetSnapshot{Name: "lab"},
 			Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},

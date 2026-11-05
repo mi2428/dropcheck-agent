@@ -3,6 +3,8 @@ package adbdiag
 import (
 	"strings"
 	"testing"
+
+	"github.com/mi2428/dropcheck-agent/controller/internal/render"
 )
 
 const sampleIPv6RARawHex = "33330000000100090f09641a86dd6000000000583afffe800000000000000000000021320003ff02000000000000000000000000000186004042400800000000000000000000010100090f09641a030440c000001c2000000e1000000000200103e8000e21320000000000000000030440c000001c2000000e1000000000200103e8000e21320000000000000000"
@@ -73,8 +75,8 @@ IpClient.wlan0
 	}
 }
 
-func TestRenderIPv6RASummary(t *testing.T) {
-	out := RenderIPv6RASummary(IPv6RASummary{
+func TestIPv6RASummaryText(t *testing.T) {
+	out := render.LayoutText(IPv6RASummaryText(IPv6RASummary{
 		Interface:         "wlan0",
 		DefaultRoute:      "missing",
 		AcceptRA:          "2",
@@ -97,7 +99,7 @@ func TestRenderIPv6RASummary(t *testing.T) {
 				PreferredLifetime: "3600s",
 			}},
 		}},
-	})
+	}), render.Presentation{})
 	for _, want := range []string{
 		"ADB IPv6 RA",
 		"interface",

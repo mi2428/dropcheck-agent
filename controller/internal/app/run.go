@@ -234,7 +234,7 @@ func selectShellStartupTarget(state *shellState, agents []control.AgentInfo, tar
 		return nil
 	}
 	if target != "" {
-		info, err := resolveShellAgent(state, target)
+		info, err := resolveAgent(state.server, target)
 		if err != nil {
 			return err
 		}

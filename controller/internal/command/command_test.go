@@ -16,23 +16,23 @@ func TestSplitArgs(t *testing.T) {
 	}{
 		{
 			name: "plain words",
-			line: "wifi status",
-			want: []string{"wifi", "status"},
+			line: "show wifi status",
+			want: []string{"show", "wifi", "status"},
 		},
 		{
 			name: "quoted ssid",
-			line: `wifi connect "Office Wi-Fi" "secret pass" wpa3`,
-			want: []string{"wifi", "connect", "Office Wi-Fi", "secret pass", "wpa3"},
+			line: `request wifi connect "Office Wi-Fi"`,
+			want: []string{"request", "wifi", "connect", "Office Wi-Fi"},
 		},
 		{
 			name: "escaped space",
-			line: `wifi scan detail Lab\ AP 5ghz`,
-			want: []string{"wifi", "scan", "detail", "Lab AP", "5ghz"},
+			line: `show wifi scan ssid Lab\ AP band 5ghz`,
+			want: []string{"show", "wifi", "scan", "ssid", "Lab AP", "band", "5ghz"},
 		},
 		{
 			name: "single quotes",
-			line: `http 'https://example.test/a b' 204`,
-			want: []string{"http", "https://example.test/a b", "204"},
+			line: `show wifi scan ssid 'Lab AP'`,
+			want: []string{"show", "wifi", "scan", "ssid", "Lab AP"},
 		},
 	}
 

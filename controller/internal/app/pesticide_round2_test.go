@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"strings"
@@ -41,8 +40,14 @@ func TestRound2UntrustedCredentialEncodings(t *testing.T) {
 }
 
 func TestRound2InvalidPipelineHasNoSessionSideEffects(t *testing.T) {
-	state := &shellState{defaultPassphrase: "prior-synthetic-value"}
-	_, err := runReplLine(context.Background(), state, "set default passphrase new-synthetic-value | display json | count")
+	state := &shellState{}
+	const command = "set cli default-passphrase new-synthetic-value"
+	_, err := runReplLine(t.Context(), state, command)
+	if err != nil || state.defaultPassphrase != "new-synthetic-value" {
+		t.Fatal("positive control did not set the credential", err)
+	}
+	state.defaultPassphrase = "prior-synthetic-value"
+	_, err = runReplLine(t.Context(), state, command+" | display json | count")
 	if err != nil {
 		t.Fatal(err)
 	}

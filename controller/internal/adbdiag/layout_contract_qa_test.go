@@ -3,16 +3,18 @@ package adbdiag
 import (
 	"strings"
 	"testing"
+
+	"github.com/mi2428/dropcheck-agent/controller/internal/render"
 )
 
 // Only synthetic rendering is exercised; no ADB collection entry point is called.
 func TestLayoutContractSyntheticMLOTable(t *testing.T) {
 	for _, snapshot := range []string{"", "observed: literal"} {
 		t.Run(snapshot, func(t *testing.T) {
-			out := RenderMLOSummary(MLOSummary{MLOMode: snapshot, LinkStats: []MLOLinkStat{
+			out := render.LayoutText(MLOSummaryText(MLOSummary{MLOMode: snapshot, LinkStats: []MLOLinkStat{
 				{LinkID: "1", RadioID: "literal:radio", RSSIMgmt: "-40", BeaconRx: "0"},
 				{LinkID: "2", RadioID: "other", RSSIMgmt: "-50", BeaconRx: "false"},
-			}})
+			}}, render.Presentation{}), render.Presentation{})
 			lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
 			for i, line := range lines {
 				if fields := strings.Fields(line); len(fields) == 0 || fields[0] != "link_id" {

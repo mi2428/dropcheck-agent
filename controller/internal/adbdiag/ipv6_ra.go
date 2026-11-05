@@ -69,8 +69,8 @@ type ipv6RARenderLine struct {
 
 // CollectIPv6RA reads interface-local IPv6 RA knobs and default-route state via adb.
 //
-// This is supplement-only data: failures are ignored so normal Wi-Fi status
-// commands continue to work even when some adb reads are unavailable.
+// Acquisition errors accompany partial or empty evidence without changing the
+// Android operation's typed outcome.
 func CollectIPv6RA(ctx context.Context, client adb.Client, iface string) IPv6RASummary {
 	if client.Timeout <= 0 {
 		client.Timeout = ipv6RACommandTimeout
@@ -131,15 +131,7 @@ func CollectIPv6RA(ctx context.Context, client adb.Client, iface string) IPv6RAS
 			summary.AcceptRAFromLocal = value
 		}
 	}
-	if summary.Empty() {
-		return IPv6RASummary{}
-	}
 	return summary
-}
-
-// RenderIPv6RASummary renders ADB IPv6 RA state for text output.
-func RenderIPv6RASummary(summary IPv6RASummary) string {
-	return render.LayoutText(IPv6RASummaryText(summary), render.Presentation{})
 }
 
 // IPv6RASummaryText preserves the known record hierarchy before supplement composition.

@@ -11,6 +11,31 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 )
 
+func TestWatchTargetsDefaultToAllConnectedAgents(t *testing.T) {
+	state, _, stopFirst := connectedShellStateWithStream(t)
+	defer stopFirst()
+	_, stopSecond := connectAdditionalTestAgent(t, state.server, "session-b", "agent-b", "serial-b", 35)
+	defer stopSecond()
+	for _, target := range []string{"", "all", "agent-b", "serial-b", "#1"} {
+		agents, err := watchTargetAgents(state.server, target)
+		want := 1
+		if target == "" || target == "all" {
+			want = 2
+		}
+		if err != nil || len(agents) != want || target == "serial-b" && agents[0].ID != "agent-b" {
+			t.Fatalf("watch target %q: agents=%v err=%v", target, agents, err)
+		}
+	}
+	for _, target := range []string{"missing", "#0", "#3"} {
+		if _, err := watchTargetAgents(state.server, target); err == nil {
+			t.Fatalf("unavailable target %q was accepted", target)
+		}
+	}
+	if _, err := watchTargetAgents(control.NewServer("", nil), ""); err == nil {
+		t.Fatal("empty agent inventory accepted")
+	}
+}
+
 func TestWatchSessionLogEventFormatsWarnForTUI(t *testing.T) {
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	event, ok := watchSessionLogEvent(control.LogEvent{

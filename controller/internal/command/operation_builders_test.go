@@ -8,6 +8,22 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
+func TestForgetRejectsUntypedOrConflictingTargets(t *testing.T) {
+	for _, forget := range []*controlpb.ForgetWifi{
+		nil,
+		{},
+		{Target: "123"},
+		{Target: "123", Selector: &controlpb.ForgetWifi_Ssid{Ssid: "123"}},
+		{Selector: &controlpb.ForgetWifi_Ssid{Ssid: "bad\nssid"}},
+		{Selector: &controlpb.ForgetWifi_ConfigId{ConfigId: -1}},
+	} {
+		op := NewOperation("wifi.forget", &controlpb.RunCommand{Command: &controlpb.RunCommand_ForgetWifi{ForgetWifi: forget}}, Options{})
+		if err := ValidateOperation(op); err == nil {
+			t.Fatalf("ambiguous or invalid forget accepted: %v", forget)
+		}
+	}
+}
+
 func TestInspectionOperationBuilders(t *testing.T) {
 	eht, err := WifiEHTOperationWithOptions(WifiEHTOptions{})
 	if err != nil {
@@ -121,13 +137,13 @@ func TestWifiOperationBuildersCarryControllerContract(t *testing.T) {
 		t.Fatalf("fresh MLO subject must not force brief: %+v %v", op, err)
 	}
 
-	forget := WifiForgetOperation("Lab")
+	forget := WifiForgetSSIDOperation("123")
 	forgetCmd, _, err := BuildRunCommand(forget)
 	if err != nil {
 		t.Fatalf("forget command: %v", err)
 	}
-	if forgetCmd.GetForgetWifi().GetTarget() != "Lab" || forgetCmd.GetLabel() != "wifi forget Lab" {
-		t.Fatalf("forget command = %#v label=%q", forgetCmd.GetForgetWifi(), forgetCmd.GetLabel())
+	if forgetCmd.GetForgetWifi().GetSsid() != "123" || forgetCmd.GetForgetWifi().GetTarget() != "" {
+		t.Fatalf("forget command = %#v", forgetCmd.GetForgetWifi())
 	}
 
 	scan, err := WifiScanOperation("5ghz")

@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-func TestParseWifiConnectStateExtractsSupplicantPhase(t *testing.T) {
-	state := ParseWifiConnectState(`WifiInfo: SSID: "Example Net", BSSID: 02:00:00:00:00:11, MAC: 02:00:00:00:00:31, IP: /192.168.22.90, Security type: 4, Supplicant state: FOUR_WAY_HANDSHAKE, Wi-Fi standard: 11ax`)
+func TestParseWifiConnectStatusStateExtractsSupplicantPhase(t *testing.T) {
+	state := ParseWifiConnectStatusState(`WifiInfo: SSID: "Example Net", BSSID: 02:00:00:00:00:11, MAC: 02:00:00:00:00:31, IP: /192.168.22.90, Security type: 4, Supplicant state: FOUR_WAY_HANDSHAKE, Wi-Fi standard: 11ax`)
 	if state.Supplicant != "FOUR_WAY_HANDSHAKE" ||
 		state.SSID != "Example Net" ||
 		state.BSSID != "02:00:00:00:00:11" ||
@@ -27,8 +27,8 @@ func TestParseWifiConnectStateExtractsSupplicantPhase(t *testing.T) {
 	}
 }
 
-func TestParseWifiConnectStatePrefersLatestSupplicantEvent(t *testing.T) {
-	state := ParseWifiConnectState(`
+func TestParseWifiConnectEventStatePrefersLatestSupplicantEvent(t *testing.T) {
+	state := ParseWifiConnectEventState(`
 WifiInfo: SSID: "Example Net", BSSID: 02:00:00:00:00:11, IP: /192.168.22.90, Supplicant state: COMPLETED
 05-18 11:13:39.075 CMD_ASSOCIATED_BSSID screenOn=false, supplicantStateChangeEvents: { ASSOCIATING ASSOCIATED }
 05-18 11:13:39.083 NETWORK_CONNECTION_EVENT screenOn=false, supplicantStateChangeEvents: { FOUR_WAY_HANDSHAKE }

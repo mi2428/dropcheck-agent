@@ -56,22 +56,7 @@ func runWatch(ctx context.Context, opts session.Options, args []string) (retErr 
 	}
 	defer func() { retErr = errors.Join(retErr, controlSession.Close()) }()
 
-	state := &shellState{server: controlSession.Server, adbPath: opts.ADBPath}
-	if len(controlSession.Agents) == 1 {
-		state.setSelectedAgent(controlSession.Agents[0])
-	}
-	if watchOpts.target != "" {
-		if watchOpts.target == "all" {
-			state.targetAll = true
-		} else {
-			info, err := resolveShellAgent(state, watchOpts.target)
-			if err != nil {
-				return err
-			}
-			state.setSelectedAgent(info)
-		}
-	}
-	agents, err := watchTargetAgents(state)
+	agents, err := watchTargetAgents(controlSession.Server, watchOpts.target)
 	if err != nil {
 		return err
 	}
@@ -412,8 +397,19 @@ func watchSessionLogLevelName(level controlpb.CommandLog_Level) string {
 	}
 }
 
-func watchTargetAgents(state *shellState) ([]control.AgentInfo, error) {
-	return state.commandTargets()
+func watchTargetAgents(server *control.Server, target string) ([]control.AgentInfo, error) {
+	if target != "" && target != "all" {
+		agent, err := resolveAgent(server, target)
+		if err != nil {
+			return nil, err
+		}
+		return []control.AgentInfo{agent}, nil
+	}
+	agents := server.Agents()
+	if len(agents) == 0 {
+		return nil, errors.New("no Android agents connected")
+	}
+	return agents, nil
 }
 
 func collectWatchErrors(errCh <-chan error) error {

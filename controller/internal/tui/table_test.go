@@ -9,8 +9,8 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-func TestBarListLineAlignsColumns(t *testing.T) {
-	layout := newBarListLayout(70, [][]string{
+func TestListLineAlignsColumns(t *testing.T) {
+	layout := newListLayout(70, [][]string{
 		{"Agent", "Target", "Check"},
 		{"a", "short", "connect"},
 		{"agent-long", "much longer target", "ping cloudflare v6"},
@@ -19,31 +19,27 @@ func TestBarListLineAlignsColumns(t *testing.T) {
 		{"1", "4.3s", "09:30:01"},
 		{"12", "80ms", "09:30:02"},
 	})
-	short := barListLine([]string{"a", "short", "connect"}, []string{"1", "4.3s", "09:30:01"}, 1, 4, layout)
-	long := barListLine([]string{"agent-long", "much longer target", "ping cloudflare v6"}, []string{"12", "80ms", "09:30:02"}, 4, 4, layout)
-
-	if strings.Index(short, "█") != strings.Index(long, "█") {
-		t.Fatalf("bar column should align:\nshort=%q\nlong=%q", short, long)
-	}
+	short := listLine([]string{"a", "short", "connect"}, []string{"1", "4.3s", "09:30:01"}, layout)
+	long := listLine([]string{"agent-long", "much longer target", "ping cloudflare v6"}, []string{"12", "80ms", "09:30:02"}, layout)
 	shortBefore, _, shortOK := strings.Cut(short, "09:30:01")
 	longBefore, _, longOK := strings.Cut(long, "09:30:02")
 	if !shortOK || !longOK || lipgloss.Width(shortBefore) != lipgloss.Width(longBefore) {
 		t.Fatalf("right column should align:\nshort=%q\nlong=%q", short, long)
 	}
 	if strings.Contains(short, " / ") || strings.Contains(long, " / ") {
-		t.Fatalf("bar rows should not use slash separators:\nshort=%q\nlong=%q", short, long)
+		t.Fatalf("list rows should not use slash separators:\nshort=%q\nlong=%q", short, long)
 	}
 }
 
 func TestPlainListLayoutFillsPanelWidth(t *testing.T) {
-	layout := newPlainListLayout(70, [][]string{
+	layout := newListLayout(70, [][]string{
 		{"Target", "Check", "Metric"},
 		{"radio-u7", "connect", "status"},
 	}, [][]string{
 		{"Cnt", "Last"},
 		{"1", "20:11:27"},
 	})
-	header := barListHeader([]string{"Target", "Check", "Metric"}, []string{"Cnt", "Last"}, layout)
+	header := listLine([]string{"Target", "Check", "Metric"}, []string{"Cnt", "Last"}, layout)
 	if got := lipgloss.Width(header); got != 70 {
 		t.Fatalf("plain list header width = %d, want 70: %q", got, header)
 	}
@@ -82,14 +78,14 @@ func TestFailedCheckLayoutMovesSpareWidthOutOfTargetColumn(t *testing.T) {
 			Metric: "status",
 		},
 	}
-	layout := failedCheckBarListLayout([]failedCheckSummary{row}, 76, true)
+	layout := failedCheckListLayout([]failedCheckSummary{row}, 76, true)
 	if got, want := layout.ColumnWidths[1], lipgloss.Width("ub2(6G)"); got != want {
 		t.Fatalf("target column width = %d, want data-fit width %d; layout=%#v", got, want, layout)
 	}
 	if got, want := layout.ColumnWidths[2], lipgloss.Width("Wait Connected"); got < want {
 		t.Fatalf("check column width = %d, want at least %d to avoid truncation; layout=%#v", got, want, layout)
 	}
-	line := barListLine(failedCheckListColumns(row, true), failedCheckListRightColumns(row), row.Count, row.Count, layout)
+	line := listLine(failedCheckListColumns(row, true), failedCheckListRightColumns(row), layout)
 	if got := lipgloss.Width(line); got != 76 {
 		t.Fatalf("failed check row width = %d, want 76: %q", got, line)
 	}
@@ -99,8 +95,8 @@ func TestFailedCheckLayoutMovesSpareWidthOutOfTargetColumn(t *testing.T) {
 }
 
 func TestEmptyFailedCheckHeaderDistributesColumns(t *testing.T) {
-	layout := failedCheckBarListLayout(nil, 96, true)
-	header := barListHeader(failedCheckListHeaderColumns(true), failedCheckListRightHeaderColumns(), layout)
+	layout := failedCheckListLayout(nil, 96, true)
+	header := listLine(failedCheckListHeaderColumns(true), failedCheckListRightHeaderColumns(), layout)
 	deviceIndex := strings.Index(header, "Device")
 	targetIndex := strings.Index(header, "Target")
 	checkIndex := strings.Index(header, "Check")

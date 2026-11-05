@@ -426,23 +426,23 @@ func selectedAgent(state *shellState) (control.AgentInfo, error) {
 		state.setSelectedAgent(agents[0])
 		return agents[0], nil
 	default:
-		return control.AgentInfo{}, errors.New("multiple Android agents connected; select --target <agent|serial|#number> or deliberate broadcast (--all / --target all)")
+		return control.AgentInfo{}, errors.New("multiple Android agents connected; select --target <agent|serial|#number|all>")
 	}
 }
 
-func resolveShellAgent(state *shellState, target string) (control.AgentInfo, error) {
+func resolveAgent(server *control.Server, target string) (control.AgentInfo, error) {
 	if after, ok := strings.CutPrefix(target, "#"); ok {
 		index, err := strconv.Atoi(after)
 		if err != nil {
 			return control.AgentInfo{}, fmt.Errorf("invalid agent number %q", target)
 		}
-		agents := state.server.Agents()
+		agents := server.Agents()
 		if index < 1 || index > len(agents) {
 			return control.AgentInfo{}, fmt.Errorf("agent number %d is out of range", index)
 		}
 		return agents[index-1], nil
 	}
-	return state.server.ResolveAgent(target)
+	return server.ResolveAgent(target)
 }
 
 type commandOutputOptions struct {

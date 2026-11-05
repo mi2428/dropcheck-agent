@@ -52,29 +52,9 @@ func FailureHotspotSummaryIdentity(item FailureHotspotSummary) string {
 	return FailureHotspotIdentity(item.Agent, item.Target, item.LatestFinding.Target)
 }
 
-// FailureHotspotSummaryIndexByIdentity finds key in hotspot rows or returns -1.
-func FailureHotspotSummaryIndexByIdentity(rows []FailureHotspotSummary, key string) int {
-	for i, row := range rows {
-		if FailureHotspotSummaryIdentity(row) == key {
-			return i
-		}
-	}
-	return -1
-}
-
 // FailureCauseSummaryIdentity returns the stable identity for a cause row.
 func FailureCauseSummaryIdentity(item FailureCauseSummary) string {
 	return FailureCauseIdentity(item.Agent, item.Cause)
-}
-
-// FailureCauseSummaryIndexByIdentity finds key in cause rows or returns -1.
-func FailureCauseSummaryIndexByIdentity(rows []FailureCauseSummary, key string) int {
-	for i, row := range rows {
-		if FailureCauseSummaryIdentity(row) == key {
-			return i
-		}
-	}
-	return -1
 }
 
 // FailureCauseIdentity returns the per-agent cause identity used for
@@ -187,8 +167,6 @@ func PassingCheckEvent(event watchrun.Event) bool {
 	return FirstNonEmpty(event.Step.Name, event.Step.Type) != ""
 }
 
-// RequiredStepFailedCheck converts failed required connection steps into
-// findings.
 // PassingCheckKey returns the full per-agent passing-check identity.
 func PassingCheckKey(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, step watchrun.StepSnapshot) string {
 	if target.ID != "" || step.ID != "" {

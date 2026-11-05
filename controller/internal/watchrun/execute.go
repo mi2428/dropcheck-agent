@@ -604,7 +604,7 @@ func (e *execution) cleanup(agent control.AgentInfo, target compiledTarget, roun
 		ops = append(ops, command.WifiDisconnectOperation())
 	}
 	if target.network.ForgetAfter {
-		ops = append(ops, command.WifiForgetOperation(firstNonEmpty(target.network.SSID, target.network.BSSID)))
+		ops = append(ops, command.WifiForgetSSIDOperation(target.network.SSID))
 	}
 	outcome := OutcomePass
 	var events []Event
@@ -692,7 +692,7 @@ func (e *execution) collectFailureCause(ctx context.Context, agent control.Agent
 }
 
 func (e *execution) rotate(agent control.AgentInfo, target compiledTarget, round uint64, phase string) bool {
-	op := command.WifiForgetOperation(target.network.SSID)
+	op := command.WifiForgetSSIDOperation(target.network.SSID)
 	s, err := compileStep(step{name: "MAC rotation " + phase, operation: op, required: true}, "rotation/"+phase, "mac_rotation")
 	if err != nil {
 		e.problem("primary", Scope{Kind: ScopeTarget, AgentID: agentKey(agent), TargetID: target.preview.ID}, round, err)

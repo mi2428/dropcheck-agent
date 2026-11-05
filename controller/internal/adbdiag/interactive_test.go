@@ -26,10 +26,6 @@ func TestInteractiveCollectionPlansAndCanceledSources(t *testing.T) {
 			seen[key] = true
 		}
 	}
-	legacy, _ := Specs(KindFull)
-	if len(legacy) != 8 {
-		t.Fatal("one-shot collection changed")
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	bundle, err := CollectInteractive(ctx, adb.Client{Path: "/must-not-execute", Serial: "fake"}, "test", "shell-full", time.Second, nil)

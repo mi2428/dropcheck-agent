@@ -214,20 +214,18 @@ func parseInteractiveTokens(args []string) (result Parsed, err error) {
 	case "request wifi reconnect":
 		op, err = WifiReconnectOperation(f["timeout"])
 	case "request wifi forget ssid", "request wifi forget config-id":
-		forget := &controlpb.ForgetWifi{}
 		if spec.Path == "request wifi forget ssid" {
 			if f["ssid"] == "" {
 				return Parsed{}, fmt.Errorf("SSID is required")
 			}
-			forget.Selector = &controlpb.ForgetWifi_Ssid{Ssid: f["ssid"]}
+			op = WifiForgetSSIDOperation(f["ssid"])
 		} else {
 			id, parseErr := strconv.ParseInt(f["config-id"], 10, 32)
 			if parseErr != nil || id < 0 || strconv.FormatInt(id, 10) != f["config-id"] {
 				return Parsed{}, fmt.Errorf("config-id must be a canonical non-negative integer")
 			}
-			forget.Selector = &controlpb.ForgetWifi_ConfigId{ConfigId: int32(id)}
+			op = WifiForgetConfigIDOperation(int32(id))
 		}
-		op = NewOperation("wifi.forget", &controlpb.RunCommand{Command: &controlpb.RunCommand_ForgetWifi{ForgetWifi: forget}}, Options{})
 	case "request wifi cycle":
 		if !ValidPassphrase(f["passphrase"]) {
 			return Parsed{}, fmt.Errorf("invalid passphrase length or encoding")

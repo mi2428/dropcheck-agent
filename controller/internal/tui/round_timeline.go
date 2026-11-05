@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -436,29 +435,6 @@ type roundProgressCounts struct {
 	Total   int
 }
 
-func (m model) roundProgressView(width int) string {
-	counts := m.roundProgressCounts()
-	done := counts.OK + counts.Failed + counts.Skipped
-	percent := 0
-	if counts.Total > 0 {
-		percent = done * 100 / counts.Total
-	}
-	prefixPlain := fmt.Sprintf("round=%d progress=", m.Round)
-	suffixPlain := fmt.Sprintf(" %3d%% (%d/%d) run=%d fail=%d", percent, done, counts.Total, counts.Running, counts.Failed)
-	lineWidth := width - runeLen(prefixPlain) - runeLen(suffixPlain)
-	if lineWidth < 4 {
-		line := prefixPlain + strings.TrimSpace(suffixPlain)
-		return valueStyle.Render(fit(line, width))
-	}
-	lineWidth = clamp(lineWidth, 4, 48)
-	line := keyStyle.Render("round=") +
-		valueStyle.Render(fmt.Sprint(m.Round)) +
-		keyStyle.Render(" progress=") +
-		renderRoundProgressLine(counts, lineWidth) +
-		valueStyle.Render(suffixPlain)
-	return fitANSI(line, width)
-}
-
 func (m model) roundProgressCounts() roundProgressCounts {
 	counts := roundProgressCounts{Total: len(m.Targets)}
 	for _, target := range m.Targets {
@@ -476,50 +452,4 @@ func (m model) roundProgressCounts() roundProgressCounts {
 		}
 	}
 	return counts
-}
-
-func renderRoundProgressLine(counts roundProgressCounts, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	if counts.Total <= 0 {
-		return dimStyle.Render(strings.Repeat("-", width))
-	}
-	widths := proportionalWidths([]int{counts.OK, counts.Failed, counts.Skipped, counts.Running, counts.Pending}, counts.Total, width)
-	var b strings.Builder
-	b.WriteString(okGraphStyle.Render(strings.Repeat("-", widths[0])))
-	b.WriteString(failGraphStyle.Render(strings.Repeat("-", widths[1])))
-	b.WriteString(dimStyle.Render(strings.Repeat("-", widths[2])))
-	b.WriteString(warnStyle.Render(strings.Repeat("-", widths[3])))
-	b.WriteString(dimStyle.Render(strings.Repeat("-", widths[4])))
-	return b.String()
-}
-
-func proportionalWidths(counts []int, total int, width int) []int {
-	widths := make([]int, len(counts))
-	if total <= 0 || width <= 0 {
-		return widths
-	}
-	type remainder struct {
-		Index int
-		Value int
-	}
-	remainders := make([]remainder, 0, len(counts))
-	used := 0
-	for i, count := range counts {
-		if count <= 0 {
-			continue
-		}
-		scaled := count * width
-		widths[i] = scaled / total
-		used += widths[i]
-		remainders = append(remainders, remainder{Index: i, Value: scaled % total})
-	}
-	sort.SliceStable(remainders, func(i, j int) bool {
-		return remainders[i].Value > remainders[j].Value
-	})
-	for remaining, i := width-used, 0; remaining > 0 && len(remainders) > 0; remaining, i = remaining-1, i+1 {
-		widths[remainders[i%len(remainders)].Index]++
-	}
-	return widths
 }

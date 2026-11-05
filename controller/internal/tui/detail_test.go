@@ -12,6 +12,15 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+func renderSelectedDetail(t *testing.T, selectContent func(int) (detailContent, bool), width, height int) string {
+	t.Helper()
+	content, ok := selectContent(width)
+	if !ok {
+		t.Fatal("expected a selected detail row")
+	}
+	return content.render(width, height)
+}
+
 func TestEnterShowsFailedCheckDetail(t *testing.T) {
 	events := make(chan watchrun.Event)
 	m := newModel([]watchrun.Target{
@@ -94,7 +103,7 @@ func TestFailedRequiredStepDetailShowsWifiAssertFailurePoint(t *testing.T) {
 		Message: `wifi failure cause: disconnected reason=6 locally_generated=false bssid=02:00:00:00:00:21 ssid="Example Net"`,
 	})
 
-	view := stripANSI(m.failedCheckDetailView(180, 18))
+	view := stripANSI(renderSelectedDetail(t, m.failedCheckDetailContent, 180, 18))
 	for _, want := range []string{
 		"Target   Check           Metric  Failures  Fail Rate  Streak  Last      Observed  Expected",
 		"ub2(6G)  Wait Connected  status  1         100%       1       10:27:26  failed    \"== ok\"",
@@ -223,7 +232,7 @@ func TestDetailModalCursorFollowsOpenedItemAcrossUpdates(t *testing.T) {
 	if got := rows[m.passingCheckCursor].Target.Name; got != "target-b" {
 		t.Fatalf("cursor should follow opened item after re-sort, got %q rows=%#v", got, rows)
 	}
-	view := stripANSI(m.passingCheckDetailView(100, 12))
+	view := stripANSI(renderSelectedDetail(t, m.passingCheckDetailContent, 100, 12))
 	if !strings.Contains(view, "target-b") {
 		t.Fatalf("detail modal should keep showing opened Item:\n%s", view)
 	}
@@ -342,7 +351,7 @@ func TestFailedCheckDetailUsesDenseInvestigationLayout(t *testing.T) {
 		})
 	}
 
-	view := stripANSI(m.failedCheckDetailView(80, 19))
+	view := stripANSI(renderSelectedDetail(t, m.failedCheckDetailContent, 80, 19))
 	lines := strings.Split(view, "\n")
 	if got, want := len(lines), 19; got != want {
 		t.Fatalf("detail line count = %d, want %d:\n%s", got, want, view)
@@ -415,7 +424,7 @@ func TestFailureHotspotDetailSectionsUseTitledSpacing(t *testing.T) {
 		})
 	}
 
-	view := stripANSI(m.failureHotspotDetailView(120, 25))
+	view := stripANSI(renderSelectedDetail(t, m.failureHotspotDetailContent, 120, 25))
 	for _, want := range []string{
 		"Causes",
 		"2  09:31:00  constraint failed",
@@ -475,7 +484,7 @@ func TestFailedCheckDetailLogsAreScopedToSelectedCheck(t *testing.T) {
 		Status: "ok",
 	})
 
-	view := stripANSI(m.failedCheckDetailView(120, 18))
+	view := stripANSI(renderSelectedDetail(t, m.failedCheckDetailContent, 120, 18))
 	for _, want := range []string{"Logs", "kind=finding", "step=\"public ipv6\"", "metric=ipv6_global_ips"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("selected check detail missing %q:\n%s", want, view)
@@ -521,7 +530,7 @@ func TestFailedCheckDetailLogsUseStructuredHistoryBeyondVisibleEventLog(t *testi
 		t.Fatalf("test setup expected selected finding to be outside the visible Event Log tail")
 	}
 
-	view := stripANSI(m.failedCheckDetailView(120, 18))
+	view := stripANSI(renderSelectedDetail(t, m.failedCheckDetailContent, 120, 18))
 	for _, want := range []string{"Logs", "kind=finding", "step=\"public ipv6\""} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("detail should use structured history for %q:\n%s", want, view)
@@ -631,15 +640,6 @@ func TestDetailHistogramUsesSummarySparklineImplementation(t *testing.T) {
 	}
 }
 
-func TestOccurrenceGraphHeightUsesHalfOfDetailContent(t *testing.T) {
-	if got, want := occurrenceGraphHeight(18), 9; got != want {
-		t.Fatalf("occurrenceGraphHeight(18) = %d, want %d", got, want)
-	}
-	if got, want := occurrenceGraphHeight(6), 3; got != want {
-		t.Fatalf("occurrenceGraphHeight(6) = %d, want %d", got, want)
-	}
-}
-
 func TestDenseDetailTimelineSeparatesHeaderAndGraph(t *testing.T) {
 	now := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	histogram := recentEventHistogram([]time.Time{now.Add(-time.Minute)}, 80, detailTimelineWindow, now)
@@ -690,7 +690,7 @@ func TestFailureCauseHistoryTableAlignsWithLongCheckNames(t *testing.T) {
 			Message:  "ping failed",
 		},
 	})
-	causes := m.failureCauses()
+	causes := m.FailureCauses()
 	if len(causes) != 1 {
 		t.Fatalf("failure causes = %d, want 1: %#v", len(causes), causes)
 	}
@@ -728,7 +728,7 @@ func TestFailureHotspotHistoryTableAlignsWithLongCheckNames(t *testing.T) {
 			Message:  "constraint failed",
 		},
 	})
-	hotspots := m.failureHotspots()
+	hotspots := m.FailureHotspots()
 	if len(hotspots) != 1 {
 		t.Fatalf("failure hotspots = %d, want 1: %#v", len(hotspots), hotspots)
 	}

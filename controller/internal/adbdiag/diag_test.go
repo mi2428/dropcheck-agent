@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
+	"github.com/mi2428/dropcheck-agent/controller/internal/render"
 )
 
 func TestSpecsFullIncludesRawWifiAndConnectivityCommands(t *testing.T) {
@@ -86,8 +87,8 @@ timestamp_ms=1,wifi_link_count=1,Link Stats from link_id=2,state=2,radio_id=0,fr
 	}
 }
 
-func TestRenderMLOSummary(t *testing.T) {
-	out := RenderMLOSummary(MLOSummary{
+func TestMLOSummaryText(t *testing.T) {
+	out := render.LayoutText(MLOSummaryText(MLOSummary{
 		TIDToLinkSupported: "false",
 		APMLDAddress:       "<none>",
 		APMLOLinkID:        "<none>",
@@ -103,7 +104,7 @@ func TestRenderMLOSummary(t *testing.T) {
 			ChannelWidth: "0",
 			BeaconRx:     "472263",
 		}},
-	})
+	}, render.Presentation{}), render.Presentation{})
 	for _, want := range []string{
 		"ADB MLO Snapshot",
 		"tid_to_link",
@@ -119,12 +120,12 @@ func TestRenderMLOSummary(t *testing.T) {
 		"472263",
 	} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("RenderMLOSummary() = %q, missing %q", out, want)
+			t.Fatalf("MLOSummaryText() = %q, missing %q", out, want)
 		}
 	}
 	for _, unwanted := range []string{"source", "ap_mld", "ap_link_id", "MLO Links", "5220"} {
 		if strings.Contains(out, unwanted) {
-			t.Fatalf("RenderMLOSummary() = %q, included %q", out, unwanted)
+			t.Fatalf("MLOSummaryText() = %q, included %q", out, unwanted)
 		}
 	}
 }

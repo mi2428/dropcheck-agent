@@ -35,10 +35,6 @@ func runModel(ctx context.Context, m model) error {
 	return err
 }
 
-func newModel(targets []watchrun.Target, events <-chan watchrun.Event, agentSets ...[]watchrun.AgentSnapshot) model {
-	return newModelWithChecks("shownet-watch", targets, nil, events, agentSets...)
-}
-
 func newModelWithChecks(title string, targets []watchrun.Target, checks []watchrun.CheckInfo, events <-chan watchrun.Event, agentSets ...[]watchrun.AgentSnapshot) model {
 	if strings.TrimSpace(title) == "" {
 		title = "dropcheck watch"

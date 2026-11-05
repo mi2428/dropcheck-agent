@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,6 +11,24 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 	"github.com/mi2428/dropcheck-agent/controller/internal/render"
 )
+
+func TestUnavailableADBSupplementsRetainAcquisitionErrors(t *testing.T) {
+	state := &shellState{adbPath: filepath.Join(t.TempDir(), "missing-adb")}
+	agent := control.AgentInfo{Hello: &controlpb.AgentHello{AdbSerial: "synthetic-device"}}
+	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{Status: &controlpb.WifiStatus{IpStatus: &controlpb.IpStatus{InterfaceName: "wlan0"}}}}}
+	blocks := collectCommandResultSupplements(t.Context(), state, agent, result, commandOptions{WifiRenderMode: command.WifiRenderModeFull})
+	if len(blocks.textBlocks) != 2 {
+		t.Fatal("expected both RA and MLO collectors")
+	}
+	for _, block := range blocks.textBlocks {
+		if text := render.LayoutText(block(render.Presentation{}), render.Presentation{}); !strings.Contains(text, "Acquisition error:") {
+			t.Fatalf("failed collection lost its errors: %s", text)
+		}
+	}
+	if result.Status != controlpb.CommandResult_STATUS_OK {
+		t.Fatal("host diagnostics changed the Android acquisition outcome")
+	}
+}
 
 func TestFullRetainsHostSupplementAvailability(t *testing.T) {
 	result := &controlpb.CommandResult{Payload: &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{Status: &controlpb.WifiStatus{}}}}

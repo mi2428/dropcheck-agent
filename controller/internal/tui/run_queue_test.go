@@ -47,7 +47,7 @@ func TestRunQueueTreeExpandsOnlyRunningTargets(t *testing.T) {
 		},
 	}
 
-	lines := m.runQueueTreeLines(80)
+	lines := m.runQueueTreeLinesForAgent(80, watchrun.AgentSnapshot{}, m.MultiAgent)
 	text := stripANSI(strings.Join(runQueueTexts(lines), "\n"))
 	for _, want := range []string{
 		"OK   done-target",
@@ -153,7 +153,7 @@ func TestRunQueueCursorStaysOnChildBetweenStepFinishAndNextStart(t *testing.T) {
 	if before != 2 || m.runQueueCursor != 2 {
 		t.Fatalf("cursor should stay on the just-finished child row, before=%d after=%d", before, m.runQueueCursor)
 	}
-	lines := m.runQueueTreeLines(80)
+	lines := m.runQueueTreeLinesForAgent(80, watchrun.AgentSnapshot{}, m.MultiAgent)
 	if lines[0].Current {
 		t.Fatalf("parent row should not become current between step finish and next start: %#v", lines)
 	}

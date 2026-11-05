@@ -96,7 +96,7 @@ type TracerouteOptions struct {
 	Host string
 	// MaxHops bounds the number of hops; empty uses the default.
 	MaxHops string
-	// Via lists hops that rendered output should verify when present.
+	// Via lists typed hop identities checked by the shared acquisition evaluator.
 	Via []string
 	// Size is the probe payload size in bytes; empty lets the agent choose.
 	Size string
@@ -188,13 +188,17 @@ func WifiDisconnectOperation() Operation {
 	}, Options{})
 }
 
-// WifiForgetOperation builds an operation that forgets a saved Wi-Fi network.
-//
-// target may be an SSID or Android network ID, matching the agent contract.
-func WifiForgetOperation(target string) Operation {
+// WifiForgetSSIDOperation forgets a literal SSID, including numeric names.
+func WifiForgetSSIDOperation(ssid string) Operation {
 	return NewOperation("wifi.forget", &controlpb.RunCommand{
-		Label:   strings.Join([]string{"wifi", "forget", target}, " "),
-		Command: &controlpb.RunCommand_ForgetWifi{ForgetWifi: &controlpb.ForgetWifi{Target: target}},
+		Command: &controlpb.RunCommand_ForgetWifi{ForgetWifi: &controlpb.ForgetWifi{Selector: &controlpb.ForgetWifi_Ssid{Ssid: ssid}}},
+	}, Options{})
+}
+
+// WifiForgetConfigIDOperation forgets a saved configuration ID, including zero.
+func WifiForgetConfigIDOperation(id int32) Operation {
+	return NewOperation("wifi.forget", &controlpb.RunCommand{
+		Command: &controlpb.RunCommand_ForgetWifi{ForgetWifi: &controlpb.ForgetWifi{Selector: &controlpb.ForgetWifi_ConfigId{ConfigId: id}}},
 	}, Options{})
 }
 

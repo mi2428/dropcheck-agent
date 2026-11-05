@@ -161,7 +161,7 @@ func TestFailureHotspotsRankTargetsByStreakRateCount(t *testing.T) {
 	addFail(6, at.Add(-31*time.Minute), watchrun.TargetSnapshot{Name: "old-radio"}, "old failure")
 	addFail(7, at.Add(-25*time.Hour), watchrun.TargetSnapshot{Name: "expired-radio"}, "expired failure")
 
-	rows := m.failureHotspots()
+	rows := m.FailureHotspots()
 	if got, want := len(rows), 4; got != want {
 		t.Fatalf("hotspot rows = %d, want %d: %#v", got, want, rows)
 	}
@@ -219,7 +219,7 @@ func TestFailureCauseModeRanksCausesByTargetSpread(t *testing.T) {
 	addFail(4, at.Add(3*time.Minute), targetC, "connect timeout")
 	addFail(5, at.Add(4*time.Minute), targetC, "connect timeout")
 
-	rows := m.failureCauses()
+	rows := m.FailureCauses()
 	if got, want := len(rows), 2; got != want {
 		t.Fatalf("cause rows = %d, want %d: %#v", got, want, rows)
 	}
@@ -302,11 +302,11 @@ func TestFailureHotspotDetailSurvivesSummaryWindow(t *testing.T) {
 	m.focus = focusFailureHotspots
 	m.failureHotspotCursor = 0
 
-	rows := m.failureHotspots()
+	rows := m.FailureHotspots()
 	if got, want := len(rows), 1; got != want {
 		t.Fatalf("hotspot rows after summary window = %d, want %d: %#v", got, want, rows)
 	}
-	view := stripANSI(m.failureHotspotDetailView(140, 20))
+	view := stripANSI(renderSelectedDetail(t, m.failureHotspotDetailContent, 140, 20))
 	for _, want := range []string{"radio-a", "Failure History", "REQUEST_DECLINED", "Logs", "kind=finding"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("failure hotspot detail should retain %q beyond the 30m summary window:\n%s", want, view)
@@ -351,7 +351,7 @@ func TestFailureHotspotsPanelSplitsByAgent(t *testing.T) {
 		})
 	}
 
-	rows := m.failureHotspots()
+	rows := m.FailureHotspots()
 	if got, want := len(rows), 2; got != want {
 		t.Fatalf("same target failures from different agents should stay separate, got %d Rows: %#v", got, rows)
 	}
@@ -588,7 +588,7 @@ func TestFailureHotspotDetailCursorFollowsOpenedItemAcrossUpdates(t *testing.T) 
 	if got := rows[m.failureHotspotCursor].Target.Name; got != "radio-b" {
 		t.Fatalf("hotspot cursor should follow opened item after re-sort, got %q rows=%#v", got, rows)
 	}
-	view := stripANSI(m.failureHotspotDetailView(100, 12))
+	view := stripANSI(renderSelectedDetail(t, m.failureHotspotDetailContent, 100, 12))
 	if !strings.Contains(view, "radio-b") {
 		t.Fatalf("hotspot detail modal should keep showing opened Item:\n%s", view)
 	}

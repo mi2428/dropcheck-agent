@@ -151,10 +151,6 @@ the specific SSID selector fails with an identity-unavailable error rather than 
 A blank selector needs no SSID identity. VPNs may report their underlying Wi-Fi transport but are not physical Wi-Fi
 candidates; their IP status must not inherit the underlying network's WifiInfo.
 
-## CI
-
-`ubuntu-latest-self-hosted`でGo/Androidのユニットテスト・Lint・ビルドを自動実行します。Androidは全試験の完了をJUnit XMLで検査し、件数とレポートを保存します。安全なtriggerとActions有効化の条件は[CI運用](docs/ci.md)を参照してください。
-
 ## Features
 
 The controller/agent toolchain shares typed agent operations across Shell, widgets and watch.
@@ -274,6 +270,11 @@ The Android clock/network and log widgets display on-device observations and loc
 It is meant for field operation: connection failures and failed `required: true` checks skip the remaining checks for that target, other check failures are recorded as findings, and the next target and round continue.
 Use `--jsonl` when you also want an append-only event log.
 When multiple agents are connected, unassigned targets run on every selected agent.
+Omitting `--target` selects all connected agents; unlike Shell, watch does not
+require an explicit broadcast choice. A target that needs profile removal or MAC
+rotation requires every bound agent to advertise `wifi.forget.typed`, checked
+before any Wi-Fi operation. Cleanup and rotation always use the literal SSID,
+never an ambiguous numeric configuration target.
 Set `agent:` on a target to bind it to one Android agent by ADB serial; a unique serial prefix is accepted, while device model names are display-only in the YAML plan.
 For an existing connection, set `observe: true` on a target and use only
 `wifi_status` or `ip_status` checks. Observed targets never connect, disconnect,
@@ -427,9 +428,9 @@ handset using the configured JDK/SDK:
 ./gradlew :agent:assembleDebug :agent:testDebugUnitTest :agent:lintDebug --rerun-tasks --no-build-cache
 ```
 
-These fake/parser/JVM checks do not prove real Wi-Fi, selected-Network behavior,
-or terminal restoration. A feature-supplied fake-backed PTY smoke is separate
-local acceptance; permissioned live checks require dedicated authorized handsets,
+The controller target also runs race-instrumented real-readline PTY history and
+cancellation checks without ADB. These fake/parser/JVM/PTY checks do not prove
+real Wi-Fi or selected-Network behavior; permissioned live checks require dedicated authorized handsets,
 approved networks/credentials, bounded scope, and cleanup/restore precautions.
 Record actual execution, skips, and cache usage separately; unavailable device or
 PTY evidence remains pending rather than an ordinary CI pass.
@@ -491,14 +492,15 @@ Go-only watch/runtime maintenance does not require an Android schema change.
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on pushes and pull requests. It also supports
-an explicitly authorized manual run on a safe branch. Jobs use Ubuntu 24.04,
-immutable action revisions, a Go **1.26.0 / 1.26.8** controller matrix,
-staticcheck v0.7.0, and Temurin JDK
-17.0.20.1+1. Android SDK platform 37.2 (`platforms;android-37.2`) and Build Tools
-37.0.0 match the agent's Gradle configuration; target SDK is 37. Gradle and
-application dependency versions come from the committed wrapper and build
-files. Update CI provisioning alongside any changes to those toolchain requirements.
+`.github/workflows/ci.yml` uses `ubuntu-latest-self-hosted` for repository pushes
+and authorized manual runs. It does not run pull-request code because the runner
+can reach the lab LAN. Actions are pinned to immutable revisions. See
+[CI operation and enablement](docs/ci.md); a local pass is not evidence of a remote
+job completing.
+
+The controller matrix uses Go **1.26.0 / 1.26.8** and staticcheck v0.7.0. Android
+uses Temurin JDK 17, SDK platform 37.2 and Build Tools 37.0.0. Gradle and dependency
+versions come from the committed build files.
 
 Each controller matrix entry provisions verified protoc 35.0 and runs
 `make generate-go` plus `git diff --exit-code -- controller/internal/controlpb`,
@@ -507,8 +509,8 @@ then `make fmt-check`, `make modernize-check`, `make build TARGET=controller`,
 `go test -race -count=1 ./...` from `controller/`. Job-wide `GOFLAGS=-p=1`
 serializes package work for tool installation, build, tests, vet, staticcheck,
 and race checks. `GOTOOLCHAIN=local` prevents an automatic toolchain switch from
-hiding a declared-minimum failure. Each GitHub-hosted job has its own runner; local controller
-checks must also run one job at a time per host with `GOFLAGS=-p=1`.
+hiding a declared-minimum failure. Local controller checks must also run one job
+at a time per host with `GOFLAGS=-p=1`.
 The formatting gate is read-only and excludes generated
 `controller/internal/controlpb` files, matching `make fmt TARGET=controller`;
 it does not run the source-rewriting
@@ -520,16 +522,14 @@ installed. No secrets, connected
 handset, or Wi-Fi credentials are needed by either job.
 
 Live `make e2e` Shell device tests are excluded: they require
-dedicated authorized handsets and network credentials, never an ordinary PR
+dedicated authorized handsets and network credentials, never an ordinary CI
 runner. Regression tests in the normal controller and Android unit-test suites
 run automatically without adding special workflow filters.
 
-### Acceptance record (2026-10-04)
-
-- Local Go 1.26.0 and 1.26.8 normal, vet/staticcheck and fresh race suites passed, including the 282 device-free parser cases; pinned Go binding generation twice and `go mod tidy` left no drift. Fresh Android build/JVM/lint passed (170 unit tests, no failures); 23 portable commands and 8 rejected inputs read the same canonical fixture as Go. The Ubuntu CI matrix itself was **not** run locally.
-- A fake-backed real PTY exercised TUI selection, preview, finite review/rerun, loop stop, resize and terminal restoration; it did not touch ADB. On one authorized API 37 handset, a separate-UID fixture verified six DUMP-permission denials while authorized control continued, and a synthetic `Paint` instrumentation check passed 24 width/font-scale cases. The device's owner and Wi-Fi configuration were not changed.
-- On that handset, a failed fresh-scan request returned a failed exit status and labeled cached reference data; fresh-scan **success** was not observed. Four read-only one-shot `show` commands succeeded. In the real Activity, synthetic safe blocks fit the measured portrait content width at 10sp/12sp and font scales 1.0/1.3/2.0; focus/selection, older-block scroll anchor and IME visibility were checked. Landscape could not be measured while the device was locked. Split-screen, actual clipboard copy, TalkBack speech and human readability remain unverified, so the output default remains 10sp with 12sp selectable. API 31/32 and network-changing scenarios are also unverified. The device's owner and Wi-Fi settings were not changed.
-- Read-only `link` passed on the existing handset through both a PC one-shot (two PASS steps, successful exit) and Android instrumentation (exactly two IP-status commands). A wrong-SSID Android check yielded MISSING then SKIP; a strict-BSSID PC request failed before dispatch with unsupported skip and a nonzero exit. No Wi-Fi mutation or external probe was issued. Transient roam/strict BSSID, absent-permission/network cases and network-changing scenarios remain unverified. `lab`, `internet` and `eht` still require configured endpoints/expectations and remain unsupported.
+Historical device results in [the acceptance record](docs/shell-2.0/acceptance.md)
+predate the current Shell cutover and are not acceptance evidence for current
+commands. Record new verification against the actual revision and scope instead
+of carrying old test counts or retired entry-point results forward.
 
 ## License
 
