@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"dropcheck/controller/internal/adb"
+	"dropcheck/controller/internal/render"
 )
 
 const (
@@ -61,20 +61,20 @@ func writeSection(b *strings.Builder, title string) {
 			b.WriteByte('\n')
 		}
 	}
-	b.WriteString(title)
+	b.WriteString(strings.TrimSuffix(render.TextBlock(title, render.Presentation{}), "\n"))
 	b.WriteByte('\n')
 }
 
 func writeKVSection(b *strings.Builder, title string, rows ...kvRow) {
 	writeSection(b, title)
-	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
+	fields := make([][2]string, 0, len(rows))
 	for _, row := range rows {
 		if row.label == "" || row.value == "" {
 			continue
 		}
-		_, _ = fmt.Fprintf(tw, "  %s\t%s\n", row.label, row.value)
+		fields = append(fields, [2]string{row.label, row.value})
 	}
-	_ = tw.Flush()
+	b.WriteString(render.SourceFields(fields))
 }
 
 // CollectMLO runs a short adb-only MLO supplement for EHT-focused Wi-Fi diagnostics.
@@ -131,6 +131,11 @@ func ParseMLOSummary(text string) MLOSummary {
 
 // RenderMLOSummary renders adb MLO data for inclusion in EHT-focused Wi-Fi diagnostics text.
 func RenderMLOSummary(summary MLOSummary) string {
+	return render.LayoutText(MLOSummaryText(summary, render.Presentation{}), render.Presentation{})
+}
+
+// MLOSummaryText retains owned fields until host metadata and the final view are composed.
+func MLOSummaryText(summary MLOSummary, view render.Presentation) string {
 	if summary.Empty() {
 		return ""
 	}
@@ -153,19 +158,16 @@ func RenderMLOSummary(summary MLOSummary) string {
 	}
 	if len(summary.LinkStats) > 0 {
 		writeSection(&b, "ADB MLO Link Stats")
-		b.WriteByte('\n')
-		tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(tw, "link_id\tradio_id\trssi_mgmt\tbeacon_rx")
+		rows := make([][]string, 0, len(summary.LinkStats))
 		for _, link := range summary.LinkStats {
-			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
+			rows = append(rows, []string{
 				empty(link.LinkID, "-"),
 				empty(link.RadioID, "-"),
 				empty(link.RSSIMgmt, "-"),
 				empty(link.BeaconRx, "-"),
-			)
+			})
 		}
-		_ = tw.Flush()
-		b.WriteByte('\n')
+		b.WriteString(render.Table([]string{"link_id", "radio_id", "rssi_mgmt", "beacon_rx"}, rows, view))
 	}
 	return b.String()
 }

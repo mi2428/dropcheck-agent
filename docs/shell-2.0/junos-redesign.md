@@ -1,5 +1,7 @@
 # Junos-inspired interactive Shell redesign
 
+**Superseding request names (2026-11-05):** the current Shell uses `request pmtu`, `request ip external`, `request dns resolve`, `request http check` and `request http download`. Earlier request spellings in this design are historical, not aliases. Wi-Fi command names, operation/RPC identities and independent one-shot spellings are unchanged; see [the current naming contract](commands.md#active-request-names).
+
 **Superseding raw/debug contract (2026-11-04):** whole-object raw strings now belong to `debug android ...`; interactive raw ADB bundles use `debug adb ...`. `show ... full` retains structured IE/hex evidence but not object dumps. Older raw/full and `show adb` statements below are historical; [commands.md](commands.md#raw-only-debug-views) and [raw/debug QA](qa-raw-debug.md) define the current behavior.
 
 Status: **implemented interactive cutover**, 2026-11-03, from baseline `develop` at `ebe9dbc`. The user authorized implementation after reviewing the hierarchy/filter design and then required new adversarial QA. This document retains the design rationale and complete old-to-new mapping; [commands.md](commands.md) is the current operator/maintenance contract and [qa-junos.md](qa-junos.md) records evidence and untested limits. Device operations, commits and push were not authorized or performed.

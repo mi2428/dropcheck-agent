@@ -51,6 +51,7 @@ func renderShellSession(state *shellState) string {
 
 func prepareWifiTest(state *shellState, parsed shellCommand) bool {
 	state.lastWifiTest = nil
+	state.lastWifiTestAgent = ""
 	state.lastTestAt = time.Now()
 	state.lastProfile, state.lastSSID = "wifi", ""
 	reason := parsed.rejection
@@ -68,7 +69,11 @@ func prepareWifiTest(state *shellState, parsed shellCommand) bool {
 
 func renderLastShellTest(state *shellState, view render.Presentation) (string, error) {
 	if state.lastWifiTest != nil {
-		out, err := render.CommandResult(state.selected, state.lastWifiTest, command.Options{Detail: true}, outputText, view)
+		target := state.lastWifiTestAgent
+		if target == "" {
+			target = "? (agent metadata unavailable)"
+		}
+		out, err := render.CommandResult(target, state.lastWifiTest, command.Options{Detail: true}, outputText, view)
 		return fmt.Sprintf("Historical test wifi at %s (not current readiness)\n%s", state.lastTestAt.Format(time.RFC3339Nano), out), err
 	}
 	return renderProfileReport(state, outputText, true, view)

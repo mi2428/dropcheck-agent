@@ -73,7 +73,7 @@ func TestRound2ProbeEndpointTrustBoundaries(t *testing.T) {
 		{"192.0.2.1", true}, {"2001:db8::1", true}, {"example.test", true},
 		{"999.0.0.1", false}, {"256.1.1.1", false}, {"2001:db8:::1", false},
 	} {
-		for _, path := range []string{"ping", "traceroute", "path-mtu"} {
+		for _, path := range []string{"ping", "traceroute", "pmtu"} {
 			tokens, _ := SplitArgs("request " + path + " " + tc.host)
 			_, err := ParseShellTokens(tokens)
 			if (err == nil) != tc.valid {
@@ -82,7 +82,7 @@ func TestRound2ProbeEndpointTrustBoundaries(t *testing.T) {
 		}
 	}
 	for _, port := range []int{443, 65535, 65536, 2147483648} {
-		for _, path := range []string{"http", "download"} {
+		for _, path := range []string{"http check", "http download"} {
 			input := fmt.Sprintf("request %s https://example.test:%d/", path, port)
 			tokens, _ := SplitArgs(input)
 			_, err := ParseShellTokens(tokens)

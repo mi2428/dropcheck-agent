@@ -71,6 +71,29 @@ func TestCleanupCanceledAndMissingAttemptTimelineRemainExplicit(t *testing.T) {
 	}
 }
 
+func TestReportResultTargetsUseAgentIdentityAndKeepScopeSeparate(t *testing.T) {
+	raw := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_CANCELED}
+	scope := harness.Scope{Kind: "check", AgentID: "selected-id", TargetID: "ssid-target", CheckID: "check-id"}
+	report := harness.Report{
+		Agents:  []harness.AgentProgress{{Agent: harness.AgentSnapshot{ID: scope.AgentID, Name: "selected-device"}}},
+		Cleanup: []harness.OperationRecord{{Scope: scope, Name: "disconnect", Raw: raw}},
+		Steps:   []harness.StepReport{{Scope: scope, Attempts: []harness.Attempt{{Scope: scope, Result: harness.OperationResult{Raw: raw}}}}},
+	}
+	out, err := Report(report, Presentation{Detail: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if targets := metadataQAValues(out, "Target"); len(targets) != 2 || targets[0] != "selected-device" || targets[1] != "selected-device" {
+		t.Fatalf("acquisition targets are not the selected agent: %q", targets)
+	}
+	if !strings.Contains(out, "target=ssid-target check=check-id") {
+		t.Fatal("check scope was lost")
+	}
+	if ReportAgentLabel(report, "unknown-id") != "unknown-id" || ReportAgentLabel(report, "") != "? (agent metadata unavailable)" {
+		t.Fatal("missing identity was fabricated")
+	}
+}
+
 func TestReportRedactsFreeTextFailures(t *testing.T) {
 	report := harness.Report{
 		Outcome:  harness.FailOutcome,

@@ -6,7 +6,7 @@ import (
 )
 
 func TestAdversarialQAEmptyQuotedLiteral(t *testing.T) {
-	for _, input := range []string{`request wifi forget ssid ''`, `request ping ''`, `request http ''`, `request dns ''`, `show wifi scan ssid ''`} {
+	for _, input := range []string{`request wifi forget ssid ''`, `request ping ''`, `request http check ''`, `request http download ''`, `request dns resolve ''`, `show wifi scan ssid ''`} {
 		tokens, err := SplitArgs(input)
 		if err != nil {
 			t.Fatal(err)

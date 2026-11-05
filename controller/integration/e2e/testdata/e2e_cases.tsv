@@ -22,11 +22,11 @@ E2E-029	Shell Wi-Fi disconnect	shell	request wifi disconnect	ok_or_clear	Disconn
 E2E-030	Shell Wi-Fi forget	shell	"request wifi forget ssid ""<ssid>"""	ok_or_clear	Saved test network is forgotten or best-effort success is reported.
 E2E-031	Shell ping	shell	request ping 1.1.1.1 count 1 timeout 8000	ok_or_clear	Ping result status OK with transmitted/received counts.
 E2E-032	Shell traceroute	shell	request traceroute 1.1.1.1 max-hops 30 timeout 60000	ok_or_clear	Traceroute result status OK or structured fallback reaches target.
-E2E-033	Shell path MTU	shell	request path-mtu 1.1.1.1 min-mtu 576 max-mtu 1200 timeout 20000	ok_or_clear	Path MTU discovery succeeds.
-E2E-034	Shell global IP	shell	request global-ip family ipv4 timeout 10000	ok_or_clear	Public IPv4 result renders.
-E2E-035	Shell DNS	shell	request dns www.google.com record A timeout 8000	ok_or_clear	A record resolution succeeds.
-E2E-036	Shell HTTP	shell	request http http://connectivitycheck.gstatic.com/generate_204 expected-status 204 timeout 10000	ok_or_clear	HTTP status check matches 204.
-E2E-037	Shell download	shell	request download https://example.com/ timeout 15000	ok_or_clear	Download probe succeeds with 2xx/3xx status.
+E2E-033	Shell path MTU	shell	request pmtu 1.1.1.1 min-mtu 576 max-mtu 1200 timeout 20000	ok_or_clear	Path MTU discovery succeeds.
+E2E-034	Shell external IP	shell	request ip external family ipv4 timeout 10000	ok_or_clear	Public IPv4 result renders.
+E2E-035	Shell DNS	shell	request dns resolve www.google.com record A timeout 8000	ok_or_clear	A record resolution succeeds.
+E2E-036	Shell HTTP	shell	request http check http://connectivitycheck.gstatic.com/generate_204 expected-status 204 timeout 10000	ok_or_clear	HTTP status check matches 204.
+E2E-037	Shell download	shell	request http download https://example.com/ timeout 15000	ok_or_clear	Download probe succeeds with 2xx/3xx status.
 E2E-038	Shell quit	shell	quit	error	The redundant quit spelling is rejected; use exit.
 E2E-039	Shell exit	shell	exit	ok_or_clear	Shell exits cleanly.
 E2E-040	Shell rejects extra help argument	shell	help extra extra	error	Extra help argument is rejected.
@@ -47,12 +47,12 @@ E2E-061	Shell monitor Wi-Fi bad duration	shell	monitor wifi duration 0	error	Dur
 E2E-062	Shell ping bad count	shell	request ping 1.1.1.1 count nope	error	Ping count must be a positive integer.
 E2E-063	Shell ping extra positional	shell	request ping 1.1.1.1 extra	error	Unexpected ping argument error.
 E2E-064	Shell traceroute bad max-hops	shell	request traceroute 1.1.1.1 max-hops 0	error	Max hops must be a positive integer.
-E2E-065	Shell path MTU bad minimum	shell	request path-mtu 1.1.1.1 min-mtu nope	error	Min MTU must be a positive integer.
-E2E-066	Shell global IP duplicate family	shell	request global-ip family ipv4 family ipv6	error	Family specified twice.
-E2E-067	Shell global IP bad family	shell	request global-ip family bad	error	Unsupported IP family error.
-E2E-068	Shell DNS bad type	shell	request dns example.com record MX	error	Unsupported DNS qtype error.
-E2E-069	Shell HTTP bad status	shell	request http https://example.com/ expected-status nope	error	Expected status must be a positive integer.
-E2E-070	Shell download missing URL	shell	request download	error	Download usage error.
+E2E-065	Shell path MTU bad minimum	shell	request pmtu 1.1.1.1 min-mtu nope	error	Min MTU must be a positive integer.
+E2E-066	Shell external IP duplicate family	shell	request ip external family ipv4 family ipv6	error	Family specified twice.
+E2E-067	Shell external IP bad family	shell	request ip external family bad	error	Unsupported IP family error.
+E2E-068	Shell DNS bad type	shell	request dns resolve example.com record MX	error	Unsupported DNS qtype error.
+E2E-069	Shell HTTP bad status	shell	request http check https://example.com/ expected-status nope	error	Expected status must be a positive integer.
+E2E-070	Shell download missing URL	shell	request http download	error	Download usage error.
 E2E-071	Shell pipe bad regex	shell	show devices | match [	error	Regex compile error.
 E2E-072	Shell pipe unknown	shell	show devices | unknown	error	Unknown pipe error.
 E2E-073	Shell quit extra	shell	quit now	error	`usage: quit`.
@@ -191,44 +191,44 @@ E2E-230	Parser missing via	shell-parser	request traceroute 1.1.1.1 via	error	`vi
 E2E-231	Parser traceroute size failure	shell-parser	request traceroute 1.1.1.1 size nope	error	Size parse error.
 E2E-232	Parser traceroute timeout boundary	shell-parser	request traceroute 1.1.1.1 timeout 0	error	Timeout must be positive.
 E2E-233	Parser duplicate max-hops	shell-parser	request traceroute 1.1.1.1 max-hops 1 max-hops 2	error	Duplicate traceroute max-hop values are rejected.
-E2E-234	Shell path MTU defaults	shell	request path-mtu 1.1.1.1	ok_or_clear	Default MTU search succeeds or reports clear network failure.
-E2E-235	Shell accepts path MTU minimum only	shell	request path-mtu 1.1.1.1 min-mtu 1200	ok_or_clear	Min-only path accepted.
-E2E-236	Shell accepts path MTU maximum only	shell	request path-mtu 1.1.1.1 max-mtu 1500	ok_or_clear	Max-only path accepted.
-E2E-237	Shell path MTU full bounds	shell	request path-mtu 1.1.1.1 min-mtu 1200 max-mtu 1500 timeout 30000	ok_or_clear	Full bounds path accepted.
-E2E-238	Parser min greater than max	shell-parser	request path-mtu 1.1.1.1 min-mtu 1600 max-mtu 1200	error	Path MTU minimum must not exceed the maximum.
-E2E-239	Parser max boundary	shell-parser	request path-mtu 1.1.1.1 max-mtu 0	error	Max MTU must be positive if specified.
-E2E-240	Parser path-MTU timeout boundary	shell-parser	request path-mtu 1.1.1.1 timeout 0	error	Timeout must be positive.
-E2E-241	Parser duplicate min	shell-parser	request path-mtu 1.1.1.1 min-mtu 1200 min-mtu 1300	error	Duplicate path MTU minimum values are rejected.
-E2E-242	Shell global IP defaults	shell	request global-ip	ok_or_clear	Default all-family global IP lookup succeeds.
-E2E-243	Shell global IP family IPv6	shell	request global-ip family ipv6 timeout 7000	ok_or_clear	IPv6 family value accepted; succeeds or clear IPv6 unavailable result.
-E2E-244	Shell global IP family all	shell	request global-ip family all timeout 7000	ok_or_clear	All-family explicit value accepted.
-E2E-245	Parser numeric family 4 rejected	shell-parser	request global-ip family 4 timeout 7000	error	Numeric IPv4 shorthand is not accepted.
-E2E-246	Parser numeric family 6 rejected	shell-parser	request global-ip family 6 timeout 7000	error	Numeric IPv6 shorthand is not accepted.
-E2E-247	Shell accepts global IP family keyword	shell	request global-ip family ipv4 timeout 7000	ok_or_clear	Keyword family form accepted.
-E2E-248	Parser missing family	shell-parser	request global-ip family	error	`family requires a value`.
-E2E-249	Parser global-IP timeout boundary	shell-parser	request global-ip timeout 0	error	Timeout must be positive.
-E2E-250	Parser duplicate family	shell-parser	request global-ip family ipv4 family ipv6	error	Duplicate family error.
-E2E-251	Shell DNS defaults	shell	request dns example.com	ok_or_clear	Default ALL qtypes (A and AAAA) succeed.
-E2E-252	Shell DNS AAAA record	shell	request dns example.com record AAAA timeout 7000	ok_or_clear	Explicit AAAA qtype accepted.
-E2E-253	Shell DNS ALL record	shell	request dns example.com record ALL timeout 7000	ok_or_clear	ALL resolves both A and AAAA.
-E2E-254	Shell DNS A record	shell	request dns example.com record A timeout 7000	ok_or_clear	Option qtype after name accepted.
-E2E-255	Parser missing DNS record	shell-parser	request dns example.com record	error	`record requires a value`.
-E2E-256	Parser DNS timeout boundary	shell-parser	request dns example.com timeout 0	error	Timeout must be positive.
-E2E-257	Parser too many DNS args	shell-parser	request dns example.com A AAAA	error	Unexpected extra DNS argument.
-E2E-258	Parser duplicate DNS record	shell-parser	request dns example.com record A record AAAA	error	Duplicate DNS record values are rejected.
-E2E-259	Shell HTTP default scheme status	shell	request http example.com	ok_or_clear	URL is normalized to HTTPS and expected status defaults to 200.
-E2E-260	Shell HTTP explicit default status	shell	request http https://example.com expected-status 200 timeout 7000	ok_or_clear	Explicit default expected status accepted.
-E2E-261	Shell HTTP expected status after URL	shell	request http https://www.google.com/generate_204 expected-status 204 timeout 7000	ok_or_clear	Expected 204 path succeeds.
-E2E-262	Parser HTTP status boundary	shell-parser	request http https://example.com expected-status 0	error	Expected status must be positive.
-E2E-263	Parser HTTP timeout boundary	shell-parser	request http https://example.com timeout 0	error	Timeout must be positive.
-E2E-264	Parser missing status	shell-parser	request http https://example.com expected-status	error	`expected-status requires a value`.
-E2E-265	Parser duplicate HTTP option	shell-parser	request http https://example.com expected-status 200 expected-status 204	error	Duplicate HTTP expected-status values are rejected.
-E2E-266	Parser too many HTTP args	shell-parser	request http https://example.com https://example.org	error	Unexpected extra HTTP argument.
-E2E-267	Shell download default timeout	shell	request download https://example.com	ok_or_clear	Download probe succeeds with default timeout.
-E2E-268	Shell download explicit timeout	shell	request download https://example.com timeout 30000	ok_or_clear	Explicit download timeout accepted.
-E2E-269	Parser missing download timeout	shell-parser	request download https://example.com timeout	error	`timeout requires a value`.
-E2E-270	Parser download timeout boundary	shell-parser	request download https://example.com timeout 0	error	Timeout must be positive.
-E2E-271	Parser too many download args	shell-parser	request download https://example.com https://example.org	error	Unexpected extra download argument.
+E2E-234	Shell path MTU defaults	shell	request pmtu 1.1.1.1	ok_or_clear	Default MTU search succeeds or reports clear network failure.
+E2E-235	Shell accepts path MTU minimum only	shell	request pmtu 1.1.1.1 min-mtu 1200	ok_or_clear	Min-only path accepted.
+E2E-236	Shell accepts path MTU maximum only	shell	request pmtu 1.1.1.1 max-mtu 1500	ok_or_clear	Max-only path accepted.
+E2E-237	Shell path MTU full bounds	shell	request pmtu 1.1.1.1 min-mtu 1200 max-mtu 1500 timeout 30000	ok_or_clear	Full bounds path accepted.
+E2E-238	Parser min greater than max	shell-parser	request pmtu 1.1.1.1 min-mtu 1600 max-mtu 1200	error	Path MTU minimum must not exceed the maximum.
+E2E-239	Parser max boundary	shell-parser	request pmtu 1.1.1.1 max-mtu 0	error	Max MTU must be positive if specified.
+E2E-240	Parser path-MTU timeout boundary	shell-parser	request pmtu 1.1.1.1 timeout 0	error	Timeout must be positive.
+E2E-241	Parser duplicate min	shell-parser	request pmtu 1.1.1.1 min-mtu 1200 min-mtu 1300	error	Duplicate path MTU minimum values are rejected.
+E2E-242	Shell external IP defaults	shell	request ip external	ok_or_clear	Default all-family external IP lookup succeeds.
+E2E-243	Shell external IP family IPv6	shell	request ip external family ipv6 timeout 7000	ok_or_clear	IPv6 family value accepted; succeeds or clear IPv6 unavailable result.
+E2E-244	Shell external IP family all	shell	request ip external family all timeout 7000	ok_or_clear	All-family explicit value accepted.
+E2E-245	Parser numeric family 4 rejected	shell-parser	request ip external family 4 timeout 7000	error	Numeric IPv4 shorthand is not accepted.
+E2E-246	Parser numeric family 6 rejected	shell-parser	request ip external family 6 timeout 7000	error	Numeric IPv6 shorthand is not accepted.
+E2E-247	Shell accepts external IP family keyword	shell	request ip external family ipv4 timeout 7000	ok_or_clear	Keyword family form accepted.
+E2E-248	Parser missing family	shell-parser	request ip external family	error	`family requires a value`.
+E2E-249	Parser external-IP timeout boundary	shell-parser	request ip external timeout 0	error	Timeout must be positive.
+E2E-250	Parser duplicate family	shell-parser	request ip external family ipv4 family ipv6	error	Duplicate family error.
+E2E-251	Shell DNS defaults	shell	request dns resolve example.com	ok_or_clear	Default ALL qtypes (A and AAAA) succeed.
+E2E-252	Shell DNS AAAA record	shell	request dns resolve example.com record AAAA timeout 7000	ok_or_clear	Explicit AAAA qtype accepted.
+E2E-253	Shell DNS ALL record	shell	request dns resolve example.com record ALL timeout 7000	ok_or_clear	ALL resolves both A and AAAA.
+E2E-254	Shell DNS A record	shell	request dns resolve example.com record A timeout 7000	ok_or_clear	Option qtype after name accepted.
+E2E-255	Parser missing DNS record	shell-parser	request dns resolve example.com record	error	`record requires a value`.
+E2E-256	Parser DNS timeout boundary	shell-parser	request dns resolve example.com timeout 0	error	Timeout must be positive.
+E2E-257	Parser too many DNS args	shell-parser	request dns resolve example.com A AAAA	error	Unexpected extra DNS argument.
+E2E-258	Parser duplicate DNS record	shell-parser	request dns resolve example.com record A record AAAA	error	Duplicate DNS record values are rejected.
+E2E-259	Shell HTTP default scheme status	shell	request http check example.com	ok_or_clear	URL is normalized to HTTPS and expected status defaults to 200.
+E2E-260	Shell HTTP explicit default status	shell	request http check https://example.com expected-status 200 timeout 7000	ok_or_clear	Explicit default expected status accepted.
+E2E-261	Shell HTTP expected status after URL	shell	request http check https://www.google.com/generate_204 expected-status 204 timeout 7000	ok_or_clear	Expected 204 path succeeds.
+E2E-262	Parser HTTP status boundary	shell-parser	request http check https://example.com expected-status 0	error	Expected status must be positive.
+E2E-263	Parser HTTP timeout boundary	shell-parser	request http check https://example.com timeout 0	error	Timeout must be positive.
+E2E-264	Parser missing status	shell-parser	request http check https://example.com expected-status	error	`expected-status requires a value`.
+E2E-265	Parser duplicate HTTP option	shell-parser	request http check https://example.com expected-status 200 expected-status 204	error	Duplicate HTTP expected-status values are rejected.
+E2E-266	Parser too many HTTP args	shell-parser	request http check https://example.com https://example.org	error	Unexpected extra HTTP argument.
+E2E-267	Shell download default timeout	shell	request http download https://example.com	ok_or_clear	Download probe succeeds with default timeout.
+E2E-268	Shell download explicit timeout	shell	request http download https://example.com timeout 30000	ok_or_clear	Explicit download timeout accepted.
+E2E-269	Parser missing download timeout	shell-parser	request http download https://example.com timeout	error	`timeout requires a value`.
+E2E-270	Parser download timeout boundary	shell-parser	request http download https://example.com timeout 0	error	Timeout must be positive.
+E2E-271	Parser too many download args	shell-parser	request http download https://example.com https://example.org	error	Unexpected extra download argument.
 E2E-272	CLI top-level --serial	cli	dropcheck --serial <serial> show devices	ok	Devices list is printed for the selected serial.
 E2E-273	CLI --format JSON with equals form	cli	dropcheck --serial=<serial> --format json show devices	ok	JSON devices output.
 E2E-274	CLI --format text	cli	dropcheck --format text show devices	ok	Text devices output.

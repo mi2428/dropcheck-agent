@@ -28,7 +28,7 @@
 // subtest names, for example E2E-001_shell_help, so verbose output remains readable.
 // Commands intentionally use placeholders such as <ssid>, <psk>, <serial>,
 // and <bssid> so lab secrets are not committed.
-// Shell commands use the same flat grammar as one-shot argv.
+// Shell and independent one-shot argv use their respective command grammars.
 package e2e
 
 import (
@@ -480,7 +480,7 @@ func timeoutFor(tc matrixCase) time.Duration {
 	switch {
 	case strings.Contains(commandLine, "traceroute"):
 		return 90 * time.Second
-	case strings.Contains(commandLine, "path-mtu"):
+	case strings.Contains(commandLine, "path-mtu"), strings.Contains(commandLine, "request pmtu"):
 		return 60 * time.Second
 	case strings.Contains(commandLine, "wifi cycle"):
 		return 90 * time.Second
@@ -490,6 +490,14 @@ func timeoutFor(tc matrixCase) time.Duration {
 		return 20 * time.Second
 	default:
 		return 35 * time.Second
+	}
+}
+
+func TestPMTUCommandNamesKeepE2ETimeout(t *testing.T) {
+	for _, line := range []string{"request pmtu 1.1.1.1", "dropcheck path-mtu 1.1.1.1"} {
+		if got := timeoutFor(matrixCase{Command: line}); got != 60*time.Second {
+			t.Errorf("%s timeout = %s, want 60s", line, got)
+		}
 	}
 }
 

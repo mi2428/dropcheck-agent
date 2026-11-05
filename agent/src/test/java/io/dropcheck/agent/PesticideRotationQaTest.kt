@@ -113,11 +113,11 @@ class PesticideRotationQaTest {
     @Test fun probeEndpointTrustBoundaries() {
         for ((host, valid) in listOf("192.0.2.1" to true, "2001:db8::1" to true, "example.test" to true,
             "999.0.0.1" to false, "256.1.1.1" to false, "2001:db8:::1" to false)) {
-            for (path in listOf("ping", "traceroute", "path-mtu")) {
+            for (path in listOf("ping", "traceroute", "pmtu")) {
                 assertEquals("$path $host", valid, AgentShellParser.parse("request $path $host") !is AgentShellCommand.Invalid)
             }
         }
-        for (port in listOf(443L, 65535L, 65536L, 2147483648L)) for (path in listOf("http", "download")) {
+        for (port in listOf(443L, 65535L, 65536L, 2147483648L)) for (path in listOf("http check", "http download")) {
             val line = "request $path https://example.test:$port/"
             assertEquals(line, port <= 65535L, AgentShellParser.parse(line) !is AgentShellCommand.Invalid)
         }

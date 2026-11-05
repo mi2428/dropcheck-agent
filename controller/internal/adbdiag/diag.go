@@ -146,7 +146,7 @@ func Collect(ctx context.Context, client adb.Client, agent string, kind string) 
 }
 
 // Render renders one ADB diagnostics bundle as text or JSON.
-func Render(bundle Bundle, format pipeline.Format) (string, error) {
+func Render(bundle Bundle, format pipeline.Format, views ...render.Presentation) (string, error) {
 	if format == pipeline.FormatJSON {
 		data, err := json.MarshalIndent(bundle, "", "  ")
 		if err != nil {
@@ -184,21 +184,19 @@ func Render(bundle Bundle, format pipeline.Format) (string, error) {
 		}
 		if result.Stdout != "" {
 			writeSection(&b, "stdout")
-			b.WriteString(result.Stdout)
-			if !strings.HasSuffix(result.Stdout, "\n") {
-				b.WriteByte('\n')
-			}
+			b.WriteString(render.TextBlock(result.Stdout, render.Presentation{}))
 		}
 		if result.Stderr != "" {
 			writeSection(&b, "stderr")
-			b.WriteString(result.Stderr)
-			if !strings.HasSuffix(result.Stderr, "\n") {
-				b.WriteByte('\n')
-			}
+			b.WriteString(render.TextBlock(result.Stderr, render.Presentation{}))
 		}
 	}
-	// Preserve raw acquisition/explicit JSON; text is the safe presentation boundary.
-	return render.TextBlock(b.String(), render.Presentation{}), nil
+	// Each source value is sanitized before owned fields are composed; JSON remains raw.
+	view := render.Presentation{}
+	if len(views) > 0 {
+		view = views[0]
+	}
+	return render.LayoutText(b.String(), view), nil
 }
 
 func cmdWifiStatus() CommandSpec {

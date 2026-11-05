@@ -334,6 +334,7 @@ type shellState struct {
 	lastReport            *harness.Report
 	lastProfile, lastSSID string
 	lastWifiTest          *controlpb.CommandResult
+	lastWifiTestAgent     string
 	lastTestAt            time.Time
 	failedUse             bool
 	defaultPassphrase     string

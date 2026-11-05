@@ -27,11 +27,11 @@ request wifi scan	request wifi scan brief mlo band 6ghz
 request wifi scan eht	request wifi scan eht ssid 'Example Lab' timeout 1000
 request ping	request ping example.test count 1
 request traceroute	request traceroute example.test via 192.0.2.1
-request path-mtu	request path-mtu example.test
-request global-ip	request global-ip family all
-request dns	request dns example.test record ALL
-request http	request http https://example.test/health
-request download	request download https://example.test/file
+request pmtu	request pmtu example.test
+request ip external	request ip external family all
+request dns resolve	request dns resolve example.test record ALL
+request http check	request http check https://example.test/health
+request http download	request http download https://example.test/file
 test wifi	test wifi require-validated false
 test link	test link ssid 'Example Lab' family all
 test lab	test lab ssid 'Example Lab' family ipv4 gateway 192.0.2.1 dns example.test resolver selected http https://example.test/health expected-status 204 timeout 1000

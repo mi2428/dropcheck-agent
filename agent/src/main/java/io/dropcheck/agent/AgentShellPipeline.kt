@@ -7,30 +7,38 @@ internal class AgentShellPipeline private constructor(private val stages: List<S
     val active get() = json || stages.isNotEmpty()
 
     fun apply(text: String): String {
-        var lines = logicalLines(text)
+        val lines = applyLines(logicalLines(text).withIndex().toList()).map { it.value }
+        return if (lines.isEmpty()) "" else lines.joinToString("\n", postfix = "\n")
+    }
+
+    private fun applyLines(input: List<IndexedValue<String>>): List<IndexedValue<String>> {
+        var lines = input
         for (stage in stages) {
             when (stage.name) {
-                "count" -> lines = listOf("Count: ${lines.size} lines")
+                "count" -> lines = listOf(IndexedValue(-1, "Count: ${lines.size} lines"))
                 "find" -> {
                     val pattern = stage.pattern!!
-                    val first = lines.indexOfFirst { pattern.matcher(it).find() }
+                    val first = lines.indexOfFirst { pattern.matcher(it.value).find() }
                     lines = if (first < 0) emptyList() else lines.subList(first, lines.size)
                 }
-                "match" -> { val pattern = stage.pattern!!; lines = lines.filter { pattern.matcher(it).find() } }
-                "except" -> { val pattern = stage.pattern!!; lines = lines.filter { !pattern.matcher(it).find() } }
+                "match" -> { val pattern = stage.pattern!!; lines = lines.filter { pattern.matcher(it.value).find() } }
+                "except" -> { val pattern = stage.pattern!!; lines = lines.filter { !pattern.matcher(it.value).find() } }
                 "last" -> { val n = stage.number!!; if (lines.size > n) lines = lines.subList(lines.size - n, lines.size) }
-                "trim" -> { val n = stage.number!!; lines = lines.map { trimLine(it, n) } }
+                "trim" -> { val n = stage.number!!; lines = lines.map { IndexedValue(it.index, trimLine(it.value, n)) } }
             }
         }
-        return if (lines.isEmpty()) "" else lines.joinToString("\n", postfix = "\n")
+        return lines
     }
 
     fun apply(result: AgentShellResult): AgentShellResult {
         val source = result.block ?: AgentPresentationBlock.create(result.lines.map { AgentBlockPart.Text(it.toString()) }, if (result.ok) AgentLogStyle.TEXT_COLOR else -44976)
-        return result.copy(lines = emptyList(), block = source.mapLogicalText { text ->
-            val filtered = apply(text)
-            if (json) "{\"ok\":${result.ok},\"lines\":[${logicalLines(filtered).joinToString(",", transform = ::jsonString)}]}"
-            else filtered + if (result.ok) "" else "Command FAILED (output filtered)\n"
+        return result.copy(lines = emptyList(), block = source.mapLogicalLines { lines ->
+            val filtered = applyLines(if (lines.lastOrNull()?.value == "") lines.dropLast(1) else lines)
+            if (json) listOf(IndexedValue(-1, "{\"ok\":${result.ok},\"lines\":[${filtered.joinToString(",") { jsonString(it.value) }}]}"))
+            else {
+                val output = filtered + if (result.ok) emptyList() else listOf(IndexedValue(-1, "Command FAILED (output filtered)"))
+                if (output.isEmpty()) output else output + IndexedValue(-1, "")
+            }
         })
     }
 

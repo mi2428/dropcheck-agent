@@ -57,7 +57,9 @@ class ActualActivityPresentationInstrumentation : Instrumentation() {
             val initialParams = scroll.layoutParams
             val block = AgentPresentationBlock.create(listOf(
                 AgentBlockPart.Text("Wi-Fi scan FAILED 9000ms"),
-                AgentBlockPart.Text("Source: android  Target: self\nReason: fresh scan timed out"),
+                AgentBlockPart.Field("Source", "android"),
+                AgentBlockPart.Field("Target", "self"),
+                AgentBlockPart.Field("Reason", "fresh scan timed out"),
                 AgentBlockPart.Scan(listOf(
                     listOf("東京Ｇ e\u0301 👩\u200d🔬 Lab Case", "02:00:00:11:22:33", "-48", "6G", "37", "320", "be", "psk+sae+future_Mode"),
                     listOf("東京Ｇ e\u0301 👩\u200d🔬 Lab Case", "06:00:00:11:22:33", "-55", "5G", "36", "80", "ax", "psk+sae"),

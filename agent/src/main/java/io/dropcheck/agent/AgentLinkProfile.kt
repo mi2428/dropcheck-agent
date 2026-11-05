@@ -35,7 +35,7 @@ internal data class LinkReport(
     val validated: Boolean? = null,
 ) {
     fun presentation(): List<AgentBlockPart> = buildList {
-        add(AgentBlockPart.Text("Check: $profile ${outcome.name} (self; ${if (profile == "lab") "explicit active probes" else "observed only"})"))
+        add(AgentBlockPart.Text("Check $profile ${outcome.name} (self; ${if (profile == "lab") "explicit active probes" else "observed only"})"))
         add(AgentBlockPart.Field("SSID", ssid))
         add(AgentBlockPart.Field("Family", family.name))
         add(AgentBlockPart.Field("Started / ended", "$startedMs / $endedMs"))
@@ -51,10 +51,15 @@ internal data class LinkReport(
     }
 
     fun lines(detail: Boolean = false, historical: Boolean = false): List<String> = buildList {
-        add("${if (historical) "Historical last check" else "Check"}: ${safe(profile)} ${outcome.name} (self; ${if (profile == "lab") "explicit active probes" else "observed only"})")
-        add("Target SSID: ${safe(ssid)}; family: ${when (family) { IpFamily.IP_FAMILY_ALL -> "all"; IpFamily.IP_FAMILY_IPV6 -> "ipv6"; else -> "ipv4" }}")
-        add("Started: $startedMs; ended: $endedMs; source: Android selected physical Wi-Fi")
-        add("Network: ${networkId?.let(::safe) ?: "?"}; interface: ${interfaceName?.let(::safe) ?: "?"}; validated (observed, not required): ${validated?.toString() ?: "?"}")
+        add("${if (historical) "Historical last check" else "Check"} ${safe(profile)} ${outcome.name} (self; ${if (profile == "lab") "explicit active probes" else "observed only"})")
+        add("Target SSID: ${safe(ssid)}")
+        add("Family: ${when (family) { IpFamily.IP_FAMILY_ALL -> "all"; IpFamily.IP_FAMILY_IPV6 -> "ipv6"; else -> "ipv4" }}")
+        add("Started: $startedMs")
+        add("Ended: $endedMs")
+        add("Source: Android selected physical Wi-Fi")
+        add("Network: ${networkId?.let(::safe) ?: "?"}")
+        add("Interface: ${interfaceName?.let(::safe) ?: "?"}")
+        add("Validated (observed, not required): ${validated?.toString() ?: "?"}")
         stages.forEach { stage ->
             add("${stage.name}: ${stage.outcome.name}${stage.reason.takeIf(String::isNotEmpty)?.let { " (${safe(it)})" } ?: ""}")
             if (detail || family == IpFamily.IP_FAMILY_ALL) stage.metrics.forEach { metric -> add("  ${metric.name}: ${metric.outcome.name} actual=${metric.actual ?: "?"} expected=>=${metric.required}") }

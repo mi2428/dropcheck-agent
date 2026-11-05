@@ -15,7 +15,11 @@ import (
 // OperationResult consumes the shared acquisition contract; Parts never contain commands.
 // Required acquisition failures are supplied by core, not reconstructed by the UI.
 func OperationResult(agent string, result harness.OperationResult, format pipeline.Format, view Presentation) (string, error) {
-	out := "Acquisition: ? (aggregate typed payload unavailable)\n"
+	return operationResult(agent, result, format, view, func(string) string { return agent })
+}
+
+func operationResult(agent string, result harness.OperationResult, format pipeline.Format, view Presentation, partAgent func(string) string) (string, error) {
+	out := Fields([][2]string{{"Acquisition", "? (aggregate typed payload unavailable)"}}, view)
 	if result.Raw != nil {
 		var err error
 		out, err = CommandResult(agent, result.Raw, result.Options, format, view)
@@ -31,7 +35,7 @@ func OperationResult(agent string, result harness.OperationResult, format pipeli
 				value["error"] = cleanDisplayCell(safePresentationText(part.Error))
 			}
 			if part.Raw != nil {
-				raw, renderErr := CommandResult(agent, part.Raw, result.Options, format, view)
+				raw, renderErr := CommandResult(partAgent(part.Scope.AgentID), part.Raw, result.Options, format, view)
 				if renderErr != nil {
 					return "", renderErr
 				}
@@ -64,7 +68,7 @@ func OperationResult(agent string, result harness.OperationResult, format pipeli
 			writeRecord(&b, "Error", safePresentationText(part.Error))
 		}
 		if part.Raw != nil {
-			text, renderErr := CommandResult(agent, part.Raw, result.Options, format, view)
+			text, renderErr := CommandResult(partAgent(part.Scope.AgentID), part.Raw, result.Options, format, view)
 			if renderErr != nil {
 				return "", renderErr
 			}
@@ -107,7 +111,7 @@ func Report(report harness.Report, view Presentation) (string, error) {
 			writeRecord(&b, "Reason", safePresentationText(cleanup.Raw.GetMessage()))
 		}
 		if view.Detail && cleanup.Raw != nil {
-			text, err := CommandResult("cleanup", cleanup.Raw, command.Options{}, pipeline.FormatText, view)
+			text, err := CommandResult(ReportAgentLabel(report, cleanup.Scope.AgentID), cleanup.Raw, command.Options{}, pipeline.FormatText, view)
 			if err != nil {
 				return "", err
 			}
@@ -151,7 +155,8 @@ func Report(report harness.Report, view Presentation) (string, error) {
 				}
 			}
 			if view.Detail {
-				text, err := OperationResult(reportScope(attempt.Scope, labels, true), attempt.Result, pipeline.FormatText, view)
+				text, err := operationResult(ReportAgentLabel(report, attempt.Scope.AgentID), attempt.Result, pipeline.FormatText, view,
+					func(agentID string) string { return ReportAgentLabel(report, agentID) })
 				if err != nil {
 					return "", err
 				}
@@ -183,6 +188,16 @@ func acquisitionRecordStatus(record harness.OperationRecord) string {
 
 func reportCounts(counts harness.Counts) string {
 	return fmt.Sprintf("pass=%d fail=%d missing=%d skip=%d canceled=%d", counts.Passed, counts.Failed, counts.Missing, counts.Skipped, counts.Canceled)
+}
+
+// ReportAgentLabel resolves the acquired agent, not the check/SSID scope, for result headers.
+func ReportAgentLabel(report harness.Report, agentID string) string {
+	for _, progress := range report.Agents {
+		if progress.Agent.ID == agentID {
+			return empty(progress.Agent.DisplayName(), agentID)
+		}
+	}
+	return empty(agentID, "? (agent metadata unavailable)")
 }
 
 func reportLabels(report harness.Report) map[string]string {

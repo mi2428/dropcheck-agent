@@ -10,6 +10,7 @@ import (
 	"dropcheck/controller/internal/adb"
 	"dropcheck/controller/internal/control"
 	"dropcheck/controller/internal/linuxcli"
+	"dropcheck/controller/internal/render"
 	"dropcheck/controller/internal/version"
 )
 
@@ -73,9 +74,11 @@ func runCLI(ctx context.Context, opts shellOptions, rawArgs []string) error {
 				Devices []deviceRow `json:"devices"`
 			}{rows})
 		}
+		rows := make([][]string, 0, len(devices))
 		for _, device := range devices {
-			fmt.Printf("%s\t%s\t%s\n", device.Serial, device.State, device.Details["model"])
+			rows = append(rows, []string{device.Serial, device.State, device.Details["model"]})
 		}
+		fmt.Print(render.Table([]string{"SERIAL", "STATE", "MODEL"}, rows, terminalPresentation()))
 		return nil
 	}
 	if !cliOpts.All {

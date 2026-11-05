@@ -598,7 +598,11 @@ func runADBDiagnosticsForAgent(ctx context.Context, state *shellState, agent con
 		fmt.Fprintf(os.Stderr, "%s: %v\n", agentDisplayName(agent), err)
 		return nil
 	}
-	out, err := adbdiag.Render(bundle, output.format)
+	view := terminalPresentation()
+	if output.pipeline.pipeline.StageCount() > 0 || output.pipeline.displayJSON {
+		view.Width = 0
+	}
+	out, err := adbdiag.Render(bundle, output.format, view)
 	if err != nil {
 		return err
 	}
@@ -680,6 +684,7 @@ func runCommandForAgent(ctx context.Context, state *shellState, agent control.Ag
 	}
 	if output.wifiTest && result != nil && result.GetWifiAssert() != nil {
 		state.lastWifiTest = render.SanitizedResult(result)
+		state.lastWifiTestAgent = agentDisplayName(agent)
 	}
 
 	// Multiple agents execute concurrently, but terminal output is a shared

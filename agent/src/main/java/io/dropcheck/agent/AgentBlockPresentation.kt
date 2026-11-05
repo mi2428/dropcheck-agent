@@ -25,24 +25,34 @@ internal class AgentPresentationBlock private constructor(
     val minimumSizeSp: Float,
     val safeValueFile: AgentSafeValueFile?,
 ) {
-    val fullText: String get() = buildString {
+    val fullText: String get() = logicalText()
+
+    private fun logicalText(fields: MutableMap<Int, AgentBlockPart.Field>? = null): String = buildString {
         var afterTable = false
         parts.forEachIndexed { index, part ->
+            val owned = if (fields == null) null else mutableMapOf<Int, AgentBlockPart.Field>()
             val text = when (part) {
                 is AgentBlockPart.Text -> part.value
-                is AgentBlockPart.Field -> fieldText(part.label, part.value) + if (part.fullValue != part.value) "\n${fieldText("${part.label} wire value (availability above)", part.fullValue)}" else ""
-                is AgentBlockPart.Table -> tableRecords(part.columns, part.rows)
-                is AgentBlockPart.Scan -> tableRecords(part.columns, part.rows)
+                is AgentBlockPart.Field -> {
+                    owned?.set(0, part)
+                    fieldText(part)
+                }
+                is AgentBlockPart.Table -> tableRecords(part.columns, part.rows, owned)
+                is AgentBlockPart.Scan -> tableRecords(part.columns, part.rows, owned)
+            }
+            fun appendOwned(value: String) {
+                owned?.forEach { (offset, field) -> fields?.set(length + offset, field) }
+                append(value)
             }
             if (part is AgentBlockPart.Table || part is AgentBlockPart.Scan) {
                 tableBoundary()
-                append(text)
+                appendOwned(text)
                 tableBoundary()
                 afterTable = true
             } else {
-                if (afterTable) append(text.trimStart('\n')) else {
+                if (afterTable) appendOwned(text.trimStart('\n')) else {
                     if (index > 0) append('\n')
-                    append(text)
+                    appendOwned(text)
                 }
                 if (text.trimStart('\n').isNotEmpty()) afterTable = false
             }
@@ -68,21 +78,55 @@ internal class AgentPresentationBlock private constructor(
         return AgentPresentationBlock(parts, color, baseSizeSp, minimumSizeSp, safeValueFile)
     }
 
-    fun mapLogicalText(transform: (String) -> String): AgentPresentationBlock {
-        // Exact retained facts keep their roles after line filters; raw text is never parsed as KV.
-        val fields = mutableMapOf<String, AgentBlockPart.Field>()
-        parts.forEach { part -> when (part) {
-            is AgentBlockPart.Field -> if ('\n' !in part.value && part.value == part.fullValue) fields[fieldText(part.label, part.value)] = part
-            is AgentBlockPart.Table -> part.rows.forEach { row -> part.columns.forEachIndexed { i, column ->
-                fields["${column.label}: ${row[i]}"] = AgentBlockPart.Field(column.label, row[i])
-            } }
-            is AgentBlockPart.Scan -> part.rows.forEach { row -> part.columns.forEachIndexed { i, column ->
-                fields["${column.label}: ${row[i]}"] = AgentBlockPart.Field(column.label, row[i])
-            } }
-            is AgentBlockPart.Text -> Unit
-        } }
-        val text = transform(fullText)
-        return AgentPresentationBlock(text.split('\n').map { fields[it] ?: AgentBlockPart.Text(it) }, color, baseSizeSp, minimumSizeSp, null)
+    fun mapLogicalLines(transform: (List<IndexedValue<String>>) -> List<IndexedValue<String>>): AgentPresentationBlock {
+        // Keep provenance through line filters; identical raw text cannot acquire a field's role.
+        val offsets = mutableMapOf<Int, AgentBlockPart.Field>()
+        val original = logicalText(offsets).split('\n').withIndex().toList()
+        val fields = mutableMapOf<Int, AgentBlockPart.Field>()
+        var offset = 0
+        original.forEach { line ->
+            offsets[offset]?.let { fields[line.index] = it }
+            offset += line.value.length + 1
+        }
+        val lines = transform(original)
+        val retained = buildList {
+            var index = 0
+            while (index < lines.size) {
+                val line = lines[index]
+                val field = fields[line.index]
+                val size = field?.let { fieldText(it).count { ch -> ch == '\n' } + 1 } ?: 0
+                if (field != null && index + size <= lines.size &&
+                    lines.subList(index, index + size) == original.subList(line.index, line.index + size)) {
+                    add(field)
+                    index += size
+                } else {
+                    add(AgentBlockPart.Text(line.value))
+                    index++
+                }
+            }
+        }
+        return AgentPresentationBlock(retained, color, baseSizeSp, minimumSizeSp, null)
+    }
+
+    fun overflowSummary(values: AgentSafeValueFile): AgentPresentationBlock {
+        val labels = setOf("Source", "Target", "Status", "Message", "Latency", "Availability", "Observation age", "Received locally", "Error", "Reason", "Note")
+        val important = parts.filterIndexed { index, part ->
+            when (part) {
+                is AgentBlockPart.Text -> index == 0 || labels.any { part.value.startsWith("$it:") }
+                is AgentBlockPart.Field -> part.label in labels
+                else -> false
+            }
+        }.take(64).map { part ->
+            when (part) {
+                is AgentBlockPart.Text -> if (part.value.length > 2048) AgentBlockPart.Text("${part.value.take(2048)}\nDisplay note truncated; full safe value is in Inspect/copy full safe values") else part
+                // Wire values are already in the file; retaining them here defeats the history budget.
+                is AgentBlockPart.Field -> AgentBlockPart.Field(part.label, if (part.value.length > 2048) "${part.value.take(2048)} (display note abbreviated; full safe value in Inspect/copy)" else part.value)
+                else -> part
+            }
+        }
+        return AgentPresentationBlock(important + AgentBlockPart.Text(
+            "shown=0; ${fullText.length} characters exceed in-memory history. All ${values.valueCount} safe values remain in Inspect/copy full safe values; no identity was clipped.",
+        ), color, baseSizeSp, minimumSizeSp, values)
     }
 
     companion object {
@@ -117,9 +161,21 @@ private fun fieldText(label: String, value: String): String {
     return prefix + value.replace("\n", "\n" + " ".repeat(prefix.length))
 }
 
-private fun tableRecords(columns: List<AgentBlockPart.Column>, rows: List<List<String>>): String =
-    if (rows.isEmpty()) columns.joinToString("  ") { it.label }
-    else rows.joinToString("\n\n") { row -> columns.indices.joinToString("\n") { i -> fieldText(columns[i].label, row[i]) } }
+private fun fieldText(field: AgentBlockPart.Field): String = fieldText(field.label, field.value) +
+    if (field.fullValue != field.value) "\n${fieldText("${field.label} wire value (availability above)", field.fullValue)}" else ""
+
+private fun tableRecords(columns: List<AgentBlockPart.Column>, rows: List<List<String>>, fields: MutableMap<Int, AgentBlockPart.Field>?): String = buildString {
+    if (rows.isEmpty()) append(columns.joinToString("  ") { it.label })
+    rows.forEachIndexed { rowIndex, row ->
+        if (rowIndex > 0) append("\n\n")
+        columns.forEachIndexed { index, column ->
+            if (index > 0) append('\n')
+            val field = AgentBlockPart.Field(column.label, row[index])
+            fields?.set(length, field)
+            append(fieldText(field))
+        }
+    }
+}
 
 private fun StringBuilder.tableBoundary() {
     while (isNotEmpty() && last() == '\n') setLength(length - 1)
@@ -184,10 +240,15 @@ internal object AgentSafePresentation {
     fun cell(value: String): String = safeUrls(clean(value)).replace('\n', ' ')
 
     fun field(label: String, value: String): String {
-        val key = clean(label).trim()
+        val labelKey = clean(label).trim().lowercase(Locale.ROOT)
+        val key = when {
+            labelKey.startsWith("expected ") -> labelKey.removePrefix("expected ")
+            labelKey.startsWith("actual ") -> labelKey.removePrefix("actual ")
+            else -> labelKey
+        }
         return when {
-            key.lowercase(Locale.ROOT) in secretKeys -> "<redacted>"
-            key.lowercase(Locale.ROOT) in listOf("ssid", "bssid", "mld", "ap mac", "sta mac", "phy", "sec", "band", "interface", "network", "operator", "venue") -> clean(value).replace('\n', ' ')
+            key in secretKeys -> "<redacted>"
+            key in listOf("ssid", "bssid", "mld", "ap mac", "sta mac", "phy", "sec", "band", "interface", "network", "operator", "venue") -> clean(value).replace('\n', ' ')
             else -> text(value)
         }
     }
@@ -240,7 +301,7 @@ internal object AgentNativeBlockLayout {
             var end = start
             var width = 0f
             while (end < block.parts.size && block.parts[end] is AgentBlockPart.Field) {
-                width = maxOf(width, paint.measureText((block.parts[end] as AgentBlockPart.Field).label + ":"))
+                width = maxOf(width, paint.measureText(fieldLabel((block.parts[end] as AgentBlockPart.Field).label) + ":"))
                 end++
             }
             for (index in start until end) fieldWidths[index] = width
@@ -278,13 +339,13 @@ internal object AgentNativeBlockLayout {
                         else appendTableBoundary(out)
                         rows.groupBy { it[0] }.forEach groupLoop@ { (ssid, group) ->
                             val heading = SpannableStringBuilder()
-                            appendField(heading, "SSID", ssid, paint.measureText("SSID:"), contentWidthPx, paint)
+                            appendField(heading, "SSID", ssid, paint.measureText(fieldLabel("SSID") + ":"), contentWidthPx, paint)
                             if (out.count { it == '\n' } + heading.count { it == '\n' } + 2 >= LINE_BUDGET) return@groupLoop
                             out.append(heading)
                             if (!appendTable(out, part.columns.drop(1), group.map { it.drop(1) }, contentWidthPx, paint)) {
                                 group.forEach { row ->
                                     val record = SpannableStringBuilder()
-                                    val labelWidth = (part.columns.drop(2).map { it.label + ":" } + "BSSID:").maxOf { paint.measureText(it) }
+                                    val labelWidth = (part.columns.drop(2).map { it.label } + "BSSID").maxOf { paint.measureText(fieldLabel(it) + ":") }
                                     if (!appendTable(record, part.columns.drop(2), listOf(row.drop(2)), contentWidthPx, paint)) {
                                         part.columns.drop(2).forEachIndexed { i, column -> appendField(record, column.label, row[i + 2], labelWidth, contentWidthPx, paint) }
                                     }
@@ -320,7 +381,7 @@ internal object AgentNativeBlockLayout {
             return 0
         }
         var shown = 0
-        val labelWidth = columns.maxOf { paint.measureText(it.label + ":") }
+        val labelWidth = columns.maxOf { paint.measureText(fieldLabel(it.label) + ":") }
         for (row in rows) {
             val record = SpannableStringBuilder()
             columns.forEachIndexed { i, column -> appendField(record, column.label, row.getOrElse(i) { "?" }, labelWidth, width, paint) }
@@ -333,10 +394,15 @@ internal object AgentNativeBlockLayout {
         return shown
     }
 
-    private fun appendField(out: SpannableStringBuilder, label: String, value: String, labelWidth: Float, width: Int, paint: Paint) {
+    private fun fieldLabel(label: String): String = if (label.startsWith(' ')) label else "  $label"
+
+    private fun appendField(out: SpannableStringBuilder, key: String, value: String, labelWidth: Float, width: Int, paint: Paint) {
+        val label = fieldLabel(key)
         val valueStart = labelWidth + paint.measureText(" ")
         if (valueStart + paint.measureText("MMMMMMMM") > width) {
-            val indent = label.takeWhile { it == ' ' } + "  "
+            val depth = label.takeWhile { it == ' ' }.length + 2
+            val fitting = ((width - paint.measureText("MM")) / paint.measureText(" ")).toInt().coerceAtLeast(0)
+            val indent = " ".repeat(minOf(depth, fitting))
             val heading = SpannableStringBuilder()
             appendWrapped(heading, label, (width - paint.measureText(":")).toInt().coerceAtLeast(1), paint, indent)
             heading.delete(heading.length - 1, heading.length).append(":\n")
