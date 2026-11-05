@@ -14,7 +14,7 @@ import (
 )
 
 // ValidateOperation validates already-built commands as well as frontend input.
-// It is intentionally independent of transport so a whole scenario can be
+// It is intentionally independent of transport so a whole watch plan can be
 // rejected before its first operation.
 func ValidateOperation(op Operation) error {
 	cmd, _, err := BuildRunCommand(op)
@@ -143,6 +143,9 @@ func ValidateOperation(op Operation) error {
 	case *controlpb.RunCommand_Ping:
 		return host(c.Ping.Host)
 	case *controlpb.RunCommand_Traceroute:
+		if c.Traceroute.GetMaxHops() > 255 {
+			return fmt.Errorf("traceroute max hops exceeds 255")
+		}
 		return host(c.Traceroute.Host)
 	case *controlpb.RunCommand_PathMtu:
 		if err := host(c.PathMtu.Host); err != nil {
