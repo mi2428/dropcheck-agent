@@ -209,7 +209,7 @@ func TestRunQueuePanelsSplitByAgent(t *testing.T) {
 		{ID: "agent-a", Name: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b"},
 	}
-	m := newModelWithChecks("shownet-watch", []watchrun.Target{{Name: "u7-5ghz", SSID: "Example Net"}}, []watchrun.CheckInfo{{Name: "wifi link", Type: "wifi_status"}}, events, agents)
+	m := newModelWithChecks("shownet-watch", []watchrun.Target{{Name: "u7-5ghz", SSID: "Example Net", Connect: &watchrun.CheckInfo{Name: "connect", Type: "connect"}, DisconnectAfter: new(true)}}, []watchrun.CheckInfo{{Name: "wifi link", Type: "wifi_status"}}, events, agents)
 	m.width = 120
 	m.height = 30
 	m.Targets[0].Status = "running"

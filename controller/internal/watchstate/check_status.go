@@ -322,7 +322,7 @@ func (s State) CurrentCheckStatus(agent watchrun.AgentSnapshot, target watchrun.
 				continue
 			}
 			status := NormalizeStatus(step.Status)
-			if status == "pending" && state.CurrentStep == step.Name {
+			if status == "pending" && (step.ID != "" && state.CurrentStepID == step.ID || step.ID == "" && state.CurrentStepID == "" && state.CurrentStep == step.Name) {
 				status = "running"
 			}
 			return status, true

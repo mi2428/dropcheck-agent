@@ -166,7 +166,7 @@ func (m model) runQueueTreeBlocksForAgent(width int, agent watchrun.AgentSnapsho
 		}
 		status := runQueueTargetStatus(target)
 		active := normalizeStatus(status) == "running"
-		failedChecks := m.targetFailedCheckCount(target.Agent, target.Target.Name)
+		failedChecks := m.targetFailedCheckCount(target.Agent, target.Target)
 		suffix := ""
 		if failedChecks > 0 {
 			suffix = fmt.Sprintf(" fail=%d", failedChecks)
@@ -188,7 +188,7 @@ func (m model) runQueueTreeBlocksForAgent(width int, agent watchrun.AgentSnapsho
 			if i == len(steps)-1 {
 				branch = "└──"
 			}
-			stepCurrent := currentStepName == step.Name
+			stepCurrent := runQueueStepCurrent(target, step)
 			status := step.Status
 			if stepCurrent && status == "" {
 				status = "running"
@@ -283,7 +283,7 @@ func runQueueVisibleSteps(target targetState) []stepState {
 }
 
 func runQueueTargetStatus(target targetState) string {
-	active := target.CurrentStep != "" || normalizeStatus(target.Status) == "running"
+	active := target.CurrentStepID != "" || target.CurrentStep != "" || normalizeStatus(target.Status) == "running"
 	if active && normalizeStatus(target.Status) != "failed" {
 		return "running"
 	}
@@ -291,19 +291,34 @@ func runQueueTargetStatus(target targetState) string {
 }
 
 func runQueueCurrentStepName(target targetState) string {
+	return runQueueCurrentStep(target).Name
+}
+
+func runQueueCurrentStep(target targetState) stepState {
+	if target.CurrentStepID != "" {
+		return stepState{ID: target.CurrentStepID, Name: target.CurrentStep}
+	}
 	if strings.TrimSpace(target.CurrentStep) != "" {
-		return target.CurrentStep
+		return stepState{Name: target.CurrentStep}
 	}
 	if normalizeStatus(runQueueTargetStatus(target)) != "running" {
-		return ""
+		return stepState{}
 	}
 	steps := runQueueVisibleSteps(target)
 	for i := range slices.Backward(steps) {
 		if normalizeStatus(steps[i].Status) != "pending" {
-			return steps[i].Name
+			return steps[i]
 		}
 	}
-	return ""
+	return stepState{}
+}
+
+func runQueueStepCurrent(target targetState, step stepState) bool {
+	current := runQueueCurrentStep(target)
+	if current.ID != "" || step.ID != "" {
+		return current.ID != "" && current.ID == step.ID
+	}
+	return current.Name == step.Name
 }
 
 func mergeRunQueueSteps(planned []stepState, actual []stepState) []stepState {
@@ -318,7 +333,10 @@ func mergeRunQueueSteps(planned []stepState, actual []stepState) []stepState {
 		if name == "" {
 			return
 		}
-		key := strings.ToLower(name)
+		key := "id:" + step.ID
+		if step.ID == "" {
+			key = "name:" + strings.ToLower(name)
+		}
 		if pos, ok := index[key]; ok {
 			if replace {
 				steps[pos] = step
@@ -401,7 +419,7 @@ func (m model) currentRunQueueLineIndexForAgent(agent watchrun.AgentSnapshot) (i
 		}
 		index++
 		for _, step := range runQueueVisibleSteps(target) {
-			if currentStepName == step.Name {
+			if active && runQueueStepCurrent(target, step) {
 				return index, true
 			}
 			index++

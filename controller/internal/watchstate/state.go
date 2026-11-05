@@ -56,6 +56,7 @@ func (s *State) Apply(event watchrun.Event) {
 		target := s.EnsureTarget(event.Agent, event.Target)
 		target.Status = event.Status
 		target.CurrentStep = ""
+		target.CurrentStepID = ""
 		if FirstNonEmpty(event.Status, target.Status) == "ok" {
 			s.RecordPassingCheck(PassingCheck{
 				Round:  event.Round,
@@ -67,7 +68,8 @@ func (s *State) Apply(event watchrun.Event) {
 					Type:   "target",
 					Status: "ok",
 				},
-				Duration: event.Duration,
+				Duration:      event.Duration,
+				DurationKnown: event.DurationKnown,
 			})
 		}
 		s.EventLogTarget = s.EventTargetLabel(event)
@@ -85,20 +87,20 @@ func (s *State) Apply(event watchrun.Event) {
 		s.EventLogLast = event.Step.Name + " running"
 	case watchrun.EventStepFinished:
 		target := s.EnsureTarget(event.Agent, event.Target)
-		if event.Step.Status != "running" && (event.Step.ID != "" && target.CurrentStepID == event.Step.ID || event.Step.ID == "" && target.CurrentStep == event.Step.Name) {
+		if event.Step.Status != "running" && (event.Step.ID != "" && target.CurrentStepID == event.Step.ID || event.Step.ID == "" && target.CurrentStepID == "" && target.CurrentStep == event.Step.Name) {
 			target.CurrentStep = ""
 			target.CurrentStepID = ""
 		}
 		upsertStep(target, event.Step)
 		if PassingCheckEvent(event) {
 			s.RecordPassingCheck(PassingCheck{
-				Report:   event.Report,
-				Round:    event.Round,
-				When:     EventTime(event),
-				Agent:    event.Agent,
-				Target:   event.Target,
-				Step:     event.Step,
-				Duration: event.Duration,
+				Round:         event.Round,
+				When:          EventTime(event),
+				Agent:         event.Agent,
+				Target:        event.Target,
+				Step:          event.Step,
+				Duration:      event.Duration,
+				DurationKnown: event.DurationKnown,
 			})
 		}
 		if event.Step.Status == "failed" || event.Step.Status == "missing" || event.Step.Status == "canceled" {
@@ -146,9 +148,9 @@ func (s *State) EnsureTarget(agent watchrun.AgentSnapshot, snapshot watchrun.Tar
 	if index, ok := s.TargetIndex[key]; ok {
 		return &s.Targets[index]
 	}
-	if fallback := CheckStatusTargetKey(snapshot); fallback != "" {
+	if fallback := CheckStatusTargetKey(snapshot); snapshot.ID == "" && fallback != "" {
 		for i := range s.Targets {
-			if !SameAgent(s.Targets[i].Agent, agent) || CheckStatusTargetKey(s.Targets[i].Target) != fallback {
+			if s.Targets[i].Target.ID != "" || !SameAgent(s.Targets[i].Agent, agent) || CheckStatusTargetKey(s.Targets[i].Target) != fallback {
 				continue
 			}
 			s.Targets[i].Target = MergeTargetSnapshot(s.Targets[i].Target, snapshot)
@@ -157,7 +159,7 @@ func (s *State) EnsureTarget(agent watchrun.AgentSnapshot, snapshot watchrun.Tar
 		}
 	}
 	s.TargetIndex[key] = len(s.Targets)
-	s.Targets = append(s.Targets, TargetState{Agent: agent, Target: snapshot, Status: "pending", PlannedSteps: PlannedStepsForChecks(s.Checks)})
+	s.Targets = append(s.Targets, TargetState{Agent: agent, Target: snapshot, Status: "pending"})
 	return &s.Targets[len(s.Targets)-1]
 }
 
@@ -181,6 +183,9 @@ func MergeTargetSnapshot(base watchrun.TargetSnapshot, update watchrun.TargetSna
 	if update.BSSID != "" {
 		base.BSSID = update.BSSID
 	}
+	if update.NetworkID != "" {
+		base.NetworkID = update.NetworkID
+	}
 	if update.Band != "" {
 		base.Band = update.Band
 	}
@@ -196,6 +201,7 @@ func (s *State) AddFailedCheck(agent watchrun.AgentSnapshot, target watchrun.Tar
 	if target.Name == "" {
 		target.Name = FirstNonEmpty(target.SSID, target.BSSID, finding.Target, "target")
 	}
+	finding.ObservedValue, finding.ExpectedValue = nil, nil
 	s.FailedChecks = append(s.FailedChecks, FailedCheck{Round: round, When: when, Agent: agent, Target: target, Finding: finding})
 	s.TrimFailedChecks(when)
 }
@@ -206,7 +212,7 @@ func upsertStep(target *TargetState, snapshot watchrun.StepSnapshot) {
 		name = snapshot.Type
 	}
 	for i := range target.Steps {
-		if snapshot.ID != "" && target.Steps[i].ID == snapshot.ID || snapshot.ID == "" && target.Steps[i].Name == name {
+		if snapshot.ID != "" && target.Steps[i].ID == snapshot.ID || snapshot.ID == "" && target.Steps[i].ID == "" && target.Steps[i].Name == name {
 			target.Steps[i] = StepState{ID: snapshot.ID, Name: name, Type: snapshot.Type, Status: snapshot.Status, Message: FirstNonEmpty(snapshot.Message, snapshot.Error)}
 			return
 		}

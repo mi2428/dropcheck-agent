@@ -199,9 +199,9 @@ func detailPassingSummaryFields(item passingCheckSummary, multiAgent bool) []det
 	detailAppendOperationFields(&fields, item.Step)
 	fields = append(fields,
 		detailField{Key: "last", Value: item.Last.Format("15:04:05")},
-		detailField{Key: "duration", Value: durationLabel(item.Duration)},
-		detailField{Key: "avg", Value: durationLabel(item.AvgDuration())},
-		detailField{Key: "max", Value: durationLabel(item.MaxDuration)},
+		detailField{Key: "duration", Value: knownDurationLabel(item.Duration, item.DurationKnown)},
+		detailField{Key: "avg", Value: knownDurationLabel(item.AvgDuration(), item.DurationCount > 0)},
+		detailField{Key: "max", Value: knownDurationLabel(item.MaxDuration, item.DurationCount > 0)},
 		detailField{Key: "samples", Value: fmt.Sprint(item.Count)},
 	)
 	return fields
@@ -1052,7 +1052,7 @@ func (m model) failedCheckRelatedLogLines(item failedCheckSummary, limit int) []
 			return false
 		}
 		if event.Finding != nil && failedCheckKey(*event.Finding) == failedCheckKey(item.Finding) {
-			return true
+			return eventMatchesFinding(event, item.Finding)
 		}
 		if !eventMatchesFinding(event, item.Finding) {
 			return false
@@ -1118,13 +1118,17 @@ func (m model) scopedLogLines(limit int, match func(eventLogEntry) bool) []strin
 }
 
 func scopedEventAgentMatches(eventAgent watchrun.AgentSnapshot, selected watchrun.AgentSnapshot) bool {
-	if agentKey(selected) == "" || agentKey(eventAgent) == "" {
-		return true
-	}
 	return sameAgent(eventAgent, selected)
 }
 
 func scopedEventTargetMatches(event watchrun.Event, target watchrun.TargetSnapshot, aliases ...string) bool {
+	ids := []string{event.Scope.TargetID, event.Target.ID}
+	if event.Finding != nil {
+		ids = append(ids, event.Finding.TargetID)
+	}
+	if matched, identified := scopeIDsMatch(target.ID, ids...); identified {
+		return matched
+	}
 	expected := scopedTargetKey(target, aliases...)
 	actual := scopedEventTargetKey(event)
 	return expected != "" && actual != "" && expected == actual
@@ -1146,13 +1150,17 @@ func scopedTargetKey(target watchrun.TargetSnapshot, aliases ...string) string {
 }
 
 func eventMatchesFinding(event watchrun.Event, finding watchrun.Finding) bool {
-	if event.Finding != nil && failedCheckKey(*event.Finding) == failedCheckKey(finding) {
-		return true
-	}
-	return eventMatchesStep(event, watchrun.StepSnapshot{Name: finding.Check, Type: finding.Check})
+	return eventMatchesStep(event, watchrun.StepSnapshot{ID: finding.CheckID, Name: finding.Check, Type: finding.Check})
 }
 
 func eventMatchesStep(event watchrun.Event, step watchrun.StepSnapshot) bool {
+	ids := []string{event.Scope.CheckID, event.Step.ID}
+	if event.Finding != nil {
+		ids = append(ids, event.Finding.CheckID)
+	}
+	if matched, identified := scopeIDsMatch(step.ID, ids...); identified {
+		return matched
+	}
 	expected := scopeTokenSet(step.Name, step.Type, step.Operation)
 	if len(expected) == 0 {
 		return false
@@ -1167,6 +1175,23 @@ func eventMatchesStep(event watchrun.Event, step watchrun.StepSnapshot) bool {
 		}
 	}
 	return false
+}
+
+// Any available stable ID is authoritative; inconsistent or absent IDs cannot
+// be repaired by overlapping display names or operation types.
+func scopeIDsMatch(expected string, actual ...string) (matched, identified bool) {
+	identified = expected != ""
+	seen := false
+	for _, id := range actual {
+		if id == "" {
+			continue
+		}
+		identified, seen = true, true
+		if id != expected {
+			return false, true
+		}
+	}
+	return expected != "" && seen, identified
 }
 
 func scopeTokenSet(values ...string) map[string]struct{} {
