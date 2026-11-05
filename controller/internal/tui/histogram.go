@@ -94,10 +94,6 @@ func (m model) failureCauseOccurrences(item failureCauseSummary) []time.Time {
 func formatBucketDuration(duration time.Duration) string {
 	return watchstate.FormatBucketDuration(duration)
 }
-func occurrenceGraphHeight(contentHeight int) int {
-	return watchstate.OccurrenceGraphHeight(contentHeight)
-}
-
 func padVisible(value string, width int) string {
 	if width <= 0 {
 		return ""

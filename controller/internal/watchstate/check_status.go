@@ -18,12 +18,6 @@ type OutcomeEvent struct {
 	Status string
 }
 
-// OutcomeBucket groups outcomes that land in the same rendered graph column.
-type OutcomeBucket struct {
-	OK     int
-	Failed int
-}
-
 // CheckStatusAggregate is the per-check, per-target cell state before terminal
 // styling is applied.
 type CheckStatusAggregate struct {
@@ -142,22 +136,6 @@ func (s State) CheckStatusChecks() []string {
 	return checks
 }
 
-// FilterOutcomeEvents returns outcomes scoped to one agent and target.
-func FilterOutcomeEvents(events []OutcomeEvent, agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot) []OutcomeEvent {
-	filtered := make([]OutcomeEvent, 0, len(events))
-	targetKey := CheckStatusTargetKey(target)
-	for _, event := range events {
-		if AgentKey(agent) != "" && !SameAgent(event.Agent, agent) {
-			continue
-		}
-		if targetKey != "" && CheckStatusTargetKey(event.Target) != targetKey {
-			continue
-		}
-		filtered = append(filtered, event)
-	}
-	return filtered
-}
-
 // OutcomeCounts counts passing and failed events.
 func OutcomeCounts(events []OutcomeEvent) (ok int, failed int) {
 	for _, event := range events {
@@ -169,42 +147,6 @@ func OutcomeCounts(events []OutcomeEvent) (ok int, failed int) {
 		}
 	}
 	return ok, failed
-}
-
-// OutcomeRange returns the time range covered by events.
-func OutcomeRange(events []OutcomeEvent) (time.Time, time.Time) {
-	if len(events) == 0 {
-		now := time.Now()
-		return now, now
-	}
-	return events[0].When, events[len(events)-1].When
-}
-
-// OutcomeBuckets maps outcome events onto a fixed number of graph columns.
-func OutcomeBuckets(events []OutcomeEvent, width int) []OutcomeBucket {
-	width = Max(1, width)
-	buckets := make([]OutcomeBucket, width)
-	if len(events) == 0 {
-		return buckets
-	}
-	first, last := OutcomeRange(events)
-	span := last.Sub(first)
-	for _, event := range events {
-		index := width - 1
-		if span > 0 && width > 1 {
-			index = int(float64(event.When.Sub(first)) / float64(span) * float64(width-1))
-		} else if width > 1 {
-			index = 0
-		}
-		index = Clamp(index, 0, width-1)
-		switch event.Status {
-		case "failed":
-			buckets[index].Failed++
-		case "ok":
-			buckets[index].OK++
-		}
-	}
-	return buckets
 }
 
 // CheckStatusForTarget resolves the current target-level status before falling

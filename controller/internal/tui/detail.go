@@ -14,14 +14,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-func (m model) passingCheckDetailView(width int, height int) string {
-	content, ok := m.passingCheckDetailContent(width)
-	if !ok {
-		return dimStyle.Render("no passing check selected")
-	}
-	return content.render(width, height)
-}
-
 func (m model) passingCheckDetailContent(width int) (detailContent, bool) {
 	rows := m.filteredPassingCheckSummaries()
 	if len(rows) == 0 {
@@ -40,14 +32,6 @@ func (m model) passingCheckDetailContent(width int) (detailContent, bool) {
 		GraphStyle: summaryGraphStyle,
 		Sections:   sections,
 	}, true
-}
-
-func (m model) failedCheckDetailView(width int, height int) string {
-	content, ok := m.failedCheckDetailContent(width)
-	if !ok {
-		return dimStyle.Render("no failed check selected")
-	}
-	return content.render(width, height)
 }
 
 func (m model) failedCheckDetailContent(width int) (detailContent, bool) {
@@ -70,14 +54,6 @@ func (m model) failedCheckDetailContent(width int) (detailContent, bool) {
 		GraphStyle: summaryGraphStyle,
 		Sections:   sections,
 	}, true
-}
-
-func (m model) failureHotspotDetailView(width int, height int) string {
-	content, ok := m.failureHotspotDetailContent(width)
-	if !ok {
-		return dimStyle.Render("no failure hotspot selected")
-	}
-	return content.render(width, height)
 }
 
 func (m model) failureHotspotDetailContent(width int) (detailContent, bool) {

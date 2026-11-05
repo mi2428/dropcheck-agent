@@ -59,10 +59,10 @@ func TestProducerIdentitySurvivesQueueSummariesAndModalLogMatching(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(m.Targets) != 4 || len(m.CheckStatusChecks()) != 2 || len(m.passingCheckSummaries()) != 8 || len(m.failedCheckSummaries()) != 2 {
-		t.Fatalf("identities collapsed: targets=%d checks=%v passes=%d failures=%d", len(m.Targets), m.CheckStatusChecks(), len(m.passingCheckSummaries()), len(m.failedCheckSummaries()))
+	if len(m.Targets) != 4 || len(m.CheckStatusChecks()) != 2 || len(m.PassingCheckSummaries()) != 8 || len(m.FailedCheckSummaries()) != 2 {
+		t.Fatalf("identities collapsed: targets=%d checks=%v passes=%d failures=%d", len(m.Targets), m.CheckStatusChecks(), len(m.PassingCheckSummaries()), len(m.FailedCheckSummaries()))
 	}
-	for _, summary := range m.passingCheckSummaries() {
+	for _, summary := range m.PassingCheckSummaries() {
 		if summary.Count != 2 {
 			t.Fatalf("cross-round/agent/target pass aggregation: %+v", summary)
 		}
@@ -80,7 +80,7 @@ func TestProducerIdentitySurvivesQueueSummariesAndModalLogMatching(t *testing.T)
 			t.Fatalf("pass modal mixed logs: %v", lines)
 		}
 	}
-	for _, summary := range m.failedCheckSummaries() {
+	for _, summary := range m.FailedCheckSummaries() {
 		if summary.Count != 2 || summary.Agent.ID != "agent/b" || summary.Finding.CheckID != "check/a" {
 			t.Fatalf("failure identity: %+v", summary)
 		}

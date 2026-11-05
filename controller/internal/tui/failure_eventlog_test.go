@@ -29,7 +29,7 @@ func TestConnectFailedCheckAppearsInFailedChecks(t *testing.T) {
 		Step:    watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
 		Finding: &watchrun.Finding{Target: "SHIZK RADIO", Check: "connect", Metric: "status", Observed: "failed", Expected: "== ok", Message: "wifi connect failed"}})
 
-	rows := m.failedCheckSummaries()
+	rows := m.FailedCheckSummaries()
 	if len(rows) != 1 {
 		t.Fatalf("failed check summary count = %d, want 1", len(rows))
 	}

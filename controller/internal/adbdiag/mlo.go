@@ -19,7 +19,6 @@ const (
 // MLOSummary is the controller-side, best-effort MLO view extracted from adb.
 type MLOSummary struct {
 	Errors               []string
-	Source               string
 	TIDToLinkSupported   string
 	APMLDAddress         string
 	APMLOLinkID          string
@@ -85,7 +84,7 @@ func CollectMLO(ctx context.Context, client adb.Client) MLOSummary {
 	if client.Timeout <= 0 {
 		client.Timeout = mloCommandTimeout
 	}
-	summary := MLOSummary{Source: "adb"}
+	var summary MLOSummary
 	if ctx.Err() != nil {
 		summary.Errors = []string{"MLO collection not performed: " + ctx.Err().Error()}
 		return summary
@@ -108,10 +107,6 @@ func CollectMLO(ctx context.Context, client adb.Client) MLOSummary {
 	if strings.TrimSpace(result.Stdout) != "" {
 		summary.merge(ParseMLOSummary(result.Stdout))
 	}
-	if summary.Empty() {
-		return MLOSummary{}
-	}
-	summary.Source = "adb"
 	return summary
 }
 
@@ -127,11 +122,6 @@ func ParseMLOSummary(text string) MLOSummary {
 	summary.WifiLinkCount = extractKeyValue(text, "wifi_link_count")
 	summary.LinkStats = parseMLOLinkStats(text)
 	return summary
-}
-
-// RenderMLOSummary renders adb MLO data for inclusion in EHT-focused Wi-Fi diagnostics text.
-func RenderMLOSummary(summary MLOSummary) string {
-	return render.LayoutText(MLOSummaryText(summary, render.Presentation{}), render.Presentation{})
 }
 
 // MLOSummaryText retains owned fields until host metadata and the final view are composed.

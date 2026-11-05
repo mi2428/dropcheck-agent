@@ -507,7 +507,7 @@ func TestTickAdvancesSummaryRecencyClock(t *testing.T) {
 	if !m.Now.Equal(at.Add(recencyWarmWindow + time.Second)) {
 		t.Fatalf("tick should update model clock, got %s", m.Now)
 	}
-	rows := m.passingCheckSummaries()
+	rows := m.PassingCheckSummaries()
 	if len(rows) != 1 {
 		t.Fatalf("passing check summaries = %d, want 1", len(rows))
 	}

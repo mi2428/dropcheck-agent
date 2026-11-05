@@ -3,6 +3,7 @@ package watchrun
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -166,6 +167,14 @@ func compilePlan(plan Plan, agents []control.AgentInfo, bind bool) (*CompiledPla
 			}
 			if network.Agent != "" && len(target.agents) == 1 {
 				target.preview.Agent = target.agents[0].Hello.GetAdbSerial()
+			}
+			// Cleanup must be supported before the first owned connection changes Wi-Fi.
+			if network.ForgetAfter || rotation != "none" {
+				for _, agent := range target.agents {
+					if !slices.Contains(agent.Hello.GetCapabilities(), "wifi.forget.typed") {
+						return nil, fmt.Errorf("target %d: agent %q does not advertise typed Wi-Fi forgetting", i, agent.ID)
+					}
+				}
 			}
 		}
 		p.targets = append(p.targets, target)

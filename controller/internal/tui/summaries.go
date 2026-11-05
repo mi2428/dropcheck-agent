@@ -29,28 +29,12 @@ func (m model) targetFailedCheckCount(agent watchrun.AgentSnapshot, target watch
 	return m.TargetFailedCheckCount(agent, target)
 }
 
-func (m model) passingCheckSummaries() []passingCheckSummary {
-	return m.PassingCheckSummaries()
-}
-
 func (m model) filteredPassingCheckSummaries() []passingCheckSummary {
 	return m.FilteredPassingCheckSummaries(m.panelFilterQuery(focusPassingChecks))
 }
 
-func (m model) failedCheckSummaries() []failedCheckSummary {
-	return m.FailedCheckSummaries()
-}
-
-func (m model) failureHotspots() []failureHotspotSummary {
-	return m.FailureHotspots()
-}
-
 func (m model) filteredFailureHotspots() []failureHotspotSummary {
 	return m.FilteredFailureHotspots(m.panelFilterQuery(focusFailureHotspots))
-}
-
-func (m model) failureCauses() []failureCauseSummary {
-	return m.FailureCauses()
 }
 
 func (m model) filteredFailureCauses() []failureCauseSummary {

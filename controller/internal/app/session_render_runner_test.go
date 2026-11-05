@@ -83,10 +83,10 @@ func TestRenderAgentsAndTargetFromConnectedAgent(t *testing.T) {
 func TestAgentNumberRequiresExplicitMarker(t *testing.T) {
 	state, cleanup := connectedShellState(t)
 	defer cleanup()
-	if agent, err := resolveShellAgent(state, "#1"); err != nil || agent.ID != "agent-a" {
+	if agent, err := resolveAgent(state.server, "#1"); err != nil || agent.ID != "agent-a" {
 		t.Fatalf("explicit display number = %v, %v", agent.ID, err)
 	}
-	if _, err := resolveShellAgent(state, "1"); err == nil {
+	if _, err := resolveAgent(state.server, "1"); err == nil {
 		t.Fatal("bare numeric selector silently chose display number instead of serial")
 	}
 }
@@ -330,73 +330,68 @@ func TestShellSeparatesMultiAgentTextOutput(t *testing.T) {
 	}
 }
 
-func TestTargetResolutionContracts(t *testing.T) {
-	for _, resolve := range []struct {
-		name string
-		run  func(*shellState) ([]control.AgentInfo, error)
-	}{{"command", (*shellState).commandTargets}, {"watch", watchTargetAgents}} {
-		for _, scenario := range []string{"single", "multiple", "explicit", "broadcast", "lost", "lost prefix"} {
-			t.Run(resolve.name+"/"+scenario, func(t *testing.T) {
-				state, _, cleanupA := connectedShellStateWithStream(t)
-				if scenario == "single" {
+func TestShellTargetResolutionContracts(t *testing.T) {
+	for _, scenario := range []string{"single", "multiple", "explicit", "broadcast", "lost", "lost prefix"} {
+		t.Run(scenario, func(t *testing.T) {
+			state, _, cleanupA := connectedShellStateWithStream(t)
+			if scenario == "single" {
+				defer cleanupA()
+				state.selected = ""
+			} else {
+				id := "agent-b"
+				if scenario == "lost prefix" {
+					id = "agent-a-other"
+				}
+				streamB, cleanupB := connectAdditionalTestAgent(t, state.server, "session-b", id, "serial-b", 35)
+				defer cleanupB()
+				switch scenario {
+				case "lost", "lost prefix":
+					cleanupA()
+					if state.selected != "agent-a" || state.prompt() != state.selectedLabel+"> " {
+						t.Fatal("disconnected selection or prompt changed identity")
+					}
+					ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+					defer cancel()
+					for _, line := range []string{"request ping example.test count 1", "debug adb wifi"} {
+						if _, err := runReplLine(ctx, state, line); err != nil {
+							t.Fatal(err)
+						}
+					}
+					for len(streamB.sent) > 0 {
+						if frame := <-streamB.sent; frame.GetRunCommand() != nil {
+							t.Fatal("lost selection dispatched to replacement")
+						}
+					}
+				default:
 					defer cleanupA()
 					state.selected = ""
-				} else {
-					id := "agent-b"
-					if scenario == "lost prefix" {
-						id = "agent-a-other"
+					if scenario == "explicit" {
+						state.selected = id
 					}
-					streamB, cleanupB := connectAdditionalTestAgent(t, state.server, "session-b", id, "serial-b", 35)
-					defer cleanupB()
-					switch scenario {
-					case "lost", "lost prefix":
-						cleanupA()
-						if state.selected != "agent-a" || state.prompt() != state.selectedLabel+"> " {
-							t.Fatal("disconnected selection or prompt changed identity")
-						}
-						ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-						defer cancel()
-						for _, line := range []string{"request ping example.test count 1", "debug adb wifi"} {
-							if _, err := runReplLine(ctx, state, line); err != nil {
-								t.Fatal(err)
-							}
-						}
-						for len(streamB.sent) > 0 {
-							if frame := <-streamB.sent; frame.GetRunCommand() != nil {
-								t.Fatal("lost selection dispatched to replacement")
-							}
-						}
-					default:
-						defer cleanupA()
-						state.selected = ""
-						if scenario == "explicit" {
-							state.selected = id
-						}
-						state.targetAll = scenario == "broadcast"
-					}
+					state.targetAll = scenario == "broadcast"
 				}
-				agents, err := resolve.run(state)
-				if scenario == "multiple" || strings.HasPrefix(scenario, "lost") {
-					want := "multiple"
-					if strings.HasPrefix(scenario, "lost") {
-						want = `selected Android agent "agent-a" is not connected`
-					}
-					if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "token") || len(agents) != 0 {
-						t.Fatalf("targets = %v, error = %v", agents, err)
-					}
-					return
+			}
+			agents, err := state.commandTargets()
+			if scenario == "multiple" || strings.HasPrefix(scenario, "lost") {
+				want := "multiple"
+				if strings.HasPrefix(scenario, "lost") {
+					want = `selected Android agent "agent-a" is not connected`
 				}
-				wantCount, wantID := 1, "agent-a"
-				if scenario == "broadcast" {
-					wantCount = 2
-				} else if scenario == "explicit" {
-					wantID = "agent-b"
-				}
-				if err != nil || len(agents) != wantCount || wantCount == 1 && agents[0].ID != wantID {
+				if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "token") || len(agents) != 0 {
 					t.Fatalf("targets = %v, error = %v", agents, err)
 				}
-			})
-		}
+				return
+			}
+			wantCount, wantID := 1, "agent-a"
+			if scenario == "broadcast" {
+				wantCount = 2
+			} else if scenario == "explicit" {
+				wantID = "agent-b"
+			}
+			if err != nil || len(agents) != wantCount || wantCount == 1 && agents[0].ID != wantID {
+				t.Fatalf("targets = %v, error = %v", agents, err)
+			}
+		})
 	}
 }
 

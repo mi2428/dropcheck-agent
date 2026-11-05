@@ -17,8 +17,7 @@ func (m model) passingChecksView(width int, height int) string {
 		return ""
 	}
 	rows := m.filteredPassingCheckSummaries()
-	maxCount := maxPassingCheckSummaryCount(rows)
-	layout := passingCheckBarListLayout(rows, intMax(1, width-2), m.MultiAgent)
+	layout := passingCheckListLayout(rows, intMax(1, width-2), m.MultiAgent)
 	selected := clamp(m.passingCheckCursor, 0, intMax(0, len(rows)-1))
 	now := m.currentTime()
 	sparkHeight := summarySparklineHeight(height)
@@ -28,9 +27,9 @@ func (m model) passingChecksView(width int, height int) string {
 	tableHeight := intMax(0, height-sparkHeight)
 	lines := make([]tableLine, 0, len(rows)*2+1)
 	selectedLine := -1
-	lines = append(lines, tableLine{Text: "  " + barListHeader(passingCheckListHeaderColumns(m.MultiAgent), passingCheckListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
+	lines = append(lines, tableLine{Text: "  " + listLine(passingCheckListHeaderColumns(m.MultiAgent), passingCheckListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
 	for index, item := range rows {
-		line := barListLine(passingCheckListColumns(item, m.MultiAgent), passingCheckListRightColumns(item), item.Count, maxCount, layout)
+		line := listLine(passingCheckListColumns(item, m.MultiAgent), passingCheckListRightColumns(item), layout)
 		style := orangeSummaryPanelRowStyle(item.Last, now)
 		fill := false
 		if m.focus == focusPassingChecks && index == selected {
@@ -53,8 +52,7 @@ func (m model) failedChecksView(width int, height int) string {
 		return ""
 	}
 	rows := m.filteredFailedCheckSummaries()
-	maxCount := maxFailedCheckSummaryCount(rows)
-	layout := failedCheckBarListLayout(rows, intMax(1, width-2), m.MultiAgent)
+	layout := failedCheckListLayout(rows, intMax(1, width-2), m.MultiAgent)
 	selected := clamp(m.failedCheckCursor, 0, intMax(0, len(rows)-1))
 	now := m.currentTime()
 	sparkHeight := summarySparklineHeight(height)
@@ -64,9 +62,9 @@ func (m model) failedChecksView(width int, height int) string {
 	tableHeight := intMax(0, height-sparkHeight)
 	lines := make([]tableLine, 0, len(rows)*2+1)
 	selectedLine := -1
-	lines = append(lines, tableLine{Text: "  " + barListHeader(failedCheckListHeaderColumns(m.MultiAgent), failedCheckListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
+	lines = append(lines, tableLine{Text: "  " + listLine(failedCheckListHeaderColumns(m.MultiAgent), failedCheckListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
 	for index, item := range rows {
-		line := barListLine(failedCheckListColumns(item, m.MultiAgent), failedCheckListRightColumns(item), item.Count, maxCount, layout)
+		line := listLine(failedCheckListColumns(item, m.MultiAgent), failedCheckListRightColumns(item), layout)
 		style := orangeSummaryPanelRowStyle(item.Last, now)
 		fill := false
 		if m.focus == focusFailedChecks && index == selected {
@@ -96,9 +94,9 @@ func (m model) failureHotspotsView(width int, height int) string {
 	selected := clamp(m.failureHotspotCursor, 0, intMax(0, len(rows)-1))
 	lines := make([]tableLine, 0, len(rows)+1)
 	selectedLine := -1
-	lines = append(lines, tableLine{Text: "  " + barListHeader(failureHotspotListHeaderColumns(), failureHotspotListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
+	lines = append(lines, tableLine{Text: "  " + listLine(failureHotspotListHeaderColumns(), failureHotspotListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
 	for index, item := range rows {
-		line := barListLine(failureHotspotListColumns(item), failureHotspotListRightColumns(item), item.FailCount, 1, layout)
+		line := listLine(failureHotspotListColumns(item), failureHotspotListRightColumns(item), layout)
 		style := orangeSummaryPanelRowStyle(item.Last, m.currentTime())
 		fill := false
 		if m.focus == focusFailureHotspots && index == selected {
@@ -123,9 +121,9 @@ func (m model) failureCausesView(width int, height int) string {
 	selected := clamp(m.failureHotspotCursor, 0, intMax(0, len(rows)-1))
 	lines := make([]tableLine, 0, len(rows)+1)
 	selectedLine := -1
-	lines = append(lines, tableLine{Text: "  " + barListHeader(failureCauseListHeaderColumns(), failureCauseListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
+	lines = append(lines, tableLine{Text: "  " + listLine(failureCauseListHeaderColumns(), failureCauseListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
 	for index, item := range rows {
-		line := barListLine(failureCauseListColumns(item, failureCauseTargetColumnWidth(layout)), failureCauseListRightColumns(item), item.TargetCount, 1, layout)
+		line := listLine(failureCauseListColumns(item, failureCauseTargetColumnWidth(layout)), failureCauseListRightColumns(item), layout)
 		style := orangeSummaryPanelRowStyle(item.Last, m.currentTime())
 		fill := false
 		if m.focus == focusFailureHotspots && index == selected {
@@ -201,10 +199,10 @@ func (m model) failureHotspotsViewForAgent(agent watchrun.AgentSnapshot, width i
 	layout := failureHotspotListLayout(items, intMax(1, width-2))
 	lines := make([]tableLine, 0, len(rows)+1)
 	selectedLine := -1
-	lines = append(lines, tableLine{Text: "  " + barListHeader(failureHotspotListHeaderColumns(), failureHotspotListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
+	lines = append(lines, tableLine{Text: "  " + listLine(failureHotspotListHeaderColumns(), failureHotspotListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
 	for _, row := range rows {
 		item := row.Item
-		line := barListLine(failureHotspotListColumns(item), failureHotspotListRightColumns(item), item.FailCount, 1, layout)
+		line := listLine(failureHotspotListColumns(item), failureHotspotListRightColumns(item), layout)
 		style := orangeSummaryPanelRowStyle(item.Last, m.currentTime())
 		fill := false
 		if m.failureHotspotPanelHasFocus(agent) && row.Index == m.failureHotspotCursor {
@@ -232,10 +230,10 @@ func (m model) failureCausesViewForAgent(agent watchrun.AgentSnapshot, width int
 	layout := failureCauseListLayout(items, intMax(1, width-2))
 	lines := make([]tableLine, 0, len(rows)+1)
 	selectedLine := -1
-	lines = append(lines, tableLine{Text: "  " + barListHeader(failureCauseListHeaderColumns(), failureCauseListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
+	lines = append(lines, tableLine{Text: "  " + listLine(failureCauseListHeaderColumns(), failureCauseListRightHeaderColumns(), layout), Style: summaryTableHeaderStyle, Fill: true})
 	for _, row := range rows {
 		item := row.Item
-		line := barListLine(failureCauseListColumns(item, failureCauseTargetColumnWidth(layout)), failureCauseListRightColumns(item), item.TargetCount, 1, layout)
+		line := listLine(failureCauseListColumns(item, failureCauseTargetColumnWidth(layout)), failureCauseListRightColumns(item), layout)
 		style := orangeSummaryPanelRowStyle(item.Last, m.currentTime())
 		fill := false
 		if m.failureHotspotPanelHasFocus(agent) && row.Index == m.failureHotspotCursor {
@@ -393,9 +391,8 @@ type tableLine struct {
 	Fill  bool
 }
 
-type barListLayout struct {
+type listLayout struct {
 	ColumnWidths []int
-	BarWidth     int
 	RightWidths  []int
 	RightGap     int
 }
@@ -425,95 +422,61 @@ func recencyPanelRowStyle(last time.Time, now time.Time, fresh lipgloss.Style, w
 	}
 }
 
-func passingCheckBarListLayout(rows []passingCheckSummary, width int, multiAgent bool) barListLayout {
+func passingCheckListLayout(rows []passingCheckSummary, width int, multiAgent bool) listLayout {
 	columns := [][]string{passingCheckListHeaderColumns(multiAgent)}
 	rights := [][]string{passingCheckListRightHeaderColumns()}
 	for _, row := range rows {
 		columns = append(columns, passingCheckListColumns(row, multiAgent))
 		rights = append(rights, passingCheckListRightColumns(row))
 	}
-	return newPlainListLayout(width, columns, rights)
+	return newListLayout(width, columns, rights)
 }
 
-func failedCheckBarListLayout(rows []failedCheckSummary, width int, multiAgent bool) barListLayout {
+func failedCheckListLayout(rows []failedCheckSummary, width int, multiAgent bool) listLayout {
 	columns := [][]string{failedCheckListHeaderColumns(multiAgent)}
 	rights := [][]string{failedCheckListRightHeaderColumns()}
 	for _, row := range rows {
 		columns = append(columns, failedCheckListColumns(row, multiAgent))
 		rights = append(rights, failedCheckListRightColumns(row))
 	}
-	return newPlainListLayout(width, columns, rights)
+	return newListLayout(width, columns, rights)
 }
 
-func failureHotspotListLayout(rows []failureHotspotSummary, width int) barListLayout {
+func failureHotspotListLayout(rows []failureHotspotSummary, width int) listLayout {
 	columns := [][]string{failureHotspotListHeaderColumns()}
 	rights := [][]string{failureHotspotListRightHeaderColumns()}
 	for _, row := range rows {
 		columns = append(columns, failureHotspotListColumns(row))
 		rights = append(rights, failureHotspotListRightColumns(row))
 	}
-	return newPlainListLayout(width, columns, rights)
+	return newListLayout(width, columns, rights)
 }
 
-func failureCauseListLayout(rows []failureCauseSummary, width int) barListLayout {
+func failureCauseListLayout(rows []failureCauseSummary, width int) listLayout {
 	columns := [][]string{failureCauseListHeaderColumns()}
 	rights := [][]string{failureCauseListRightHeaderColumns()}
 	for _, row := range rows {
 		columns = append(columns, failureCauseListColumns(row, 0))
 		rights = append(rights, failureCauseListRightColumns(row))
 	}
-	return newPlainListLayout(width, columns, rights)
+	return newListLayout(width, columns, rights)
 }
 
-func newPlainListLayout(width int, columns [][]string, rights [][]string) barListLayout {
-	return newListLayout(width, columns, rights, false)
-}
-
-func newBarListLayout(width int, columns [][]string, rights [][]string) barListLayout {
-	return newListLayout(width, columns, rights, true)
-}
-
-func newListLayout(width int, columns [][]string, rights [][]string, includeBar bool) barListLayout {
+func newListLayout(width int, columns [][]string, rights [][]string) listLayout {
 	if width <= 0 {
-		return barListLayout{}
+		return listLayout{}
 	}
 	emptyRows := len(columns) <= 1
 	columnWidths := maxColumnWidths(columns)
 	rightWidths := maxColumnWidths(rights)
 	rightWidth := joinedWidths(rightWidths)
-	barWidth := 0
-	if includeBar {
-		barWidth = countBarWidth(width)
-		barWidth = intMin(barWidth, intMax(4, width-joinedWidths(columnWidths)-rightWidth-listColumnGap*2))
-	}
-	gapWidth := listColumnGap
-	if includeBar {
-		gapWidth = listColumnGap*2 + barWidth
-	}
-	leftBudget := intMax(4, width-rightWidth-gapWidth)
+	leftBudget := intMax(4, width-rightWidth-listColumnGap)
 	columnWidths = shrinkWidths(columnWidths, leftBudget, 4)
 	if emptyRows {
 		columnWidths = expandWidthsEvenly(columnWidths, leftBudget)
 	}
-	if includeBar {
-		if joinedWidths(columnWidths)+barWidth+rightWidth+listColumnGap*2 > width {
-			barWidth = intMax(4, width-joinedWidths(columnWidths)-rightWidth-listColumnGap*2)
-		}
-		if joinedWidths(columnWidths)+rightWidth+listColumnGap*2 < width {
-			barWidth = intMax(4, width-joinedWidths(columnWidths)-rightWidth-listColumnGap*2)
-		}
-	} else {
-		budget := intMax(1, width-joinedWidths(rightWidths)-listColumnGap)
-		columnWidths = shrinkWidths(columnWidths, budget, 4)
-		if emptyRows {
-			columnWidths = expandWidthsEvenly(columnWidths, budget)
-		}
-	}
-	rightGap := listColumnGap
-	if !includeBar {
-		rightGap = intMax(listColumnGap, width-joinedWidths(columnWidths)-joinedWidths(rightWidths))
-	}
-	return barListLayout{ColumnWidths: columnWidths, BarWidth: barWidth, RightWidths: rightWidths, RightGap: rightGap}
+	rightGap := intMax(listColumnGap, width-joinedWidths(columnWidths)-rightWidth)
+	return listLayout{ColumnWidths: columnWidths, RightWidths: rightWidths, RightGap: rightGap}
 }
 
 func expandWidthsEvenly(widths []int, budget int) []int {
@@ -589,28 +552,13 @@ func joinedWidths(widths []int) int {
 	return total
 }
 
-func barListHeader(columns []string, rightColumns []string, layout barListLayout) string {
+func listLine(columns []string, rightColumns []string, layout listLayout) string {
 	if len(layout.ColumnWidths) == 0 {
 		return ""
 	}
-	left := renderBarListColumns(columns, layout.ColumnWidths, false)
-	right := renderBarListColumns(rightColumns, layout.RightWidths, true)
-	if layout.BarWidth <= 0 {
-		return joinListColumns(left, right, layout.RightGap)
-	}
-	return left + strings.Repeat(" ", listColumnGap) + strings.Repeat(" ", layout.BarWidth) + strings.Repeat(" ", listColumnGap) + right
-}
-
-func barListLine(columns []string, rightColumns []string, count int, maxCount int, layout barListLayout) string {
-	if len(layout.ColumnWidths) == 0 {
-		return ""
-	}
-	left := renderBarListColumns(columns, layout.ColumnWidths, false)
-	right := renderBarListColumns(rightColumns, layout.RightWidths, true)
-	if layout.BarWidth <= 0 {
-		return joinListColumns(left, right, layout.RightGap)
-	}
-	return left + strings.Repeat(" ", listColumnGap) + countBar(count, maxCount, layout.BarWidth) + strings.Repeat(" ", listColumnGap) + right
+	left := renderListColumns(columns, layout.ColumnWidths, false)
+	right := renderListColumns(rightColumns, layout.RightWidths, true)
+	return joinListColumns(left, right, layout.RightGap)
 }
 
 func joinListColumns(left string, right string, gap int) string {
@@ -623,7 +571,7 @@ func joinListColumns(left string, right string, gap int) string {
 	return left + strings.Repeat(" ", intMax(listColumnGap, gap)) + right
 }
 
-func renderBarListColumns(values []string, widths []int, rightAlign bool) string {
+func renderListColumns(values []string, widths []int, rightAlign bool) string {
 	parts := make([]string, 0, len(widths))
 	for i, width := range widths {
 		value := ""
@@ -637,10 +585,6 @@ func renderBarListColumns(values []string, widths []int, rightAlign bool) string
 		}
 	}
 	return strings.Join(parts, strings.Repeat(" ", listColumnGap))
-}
-
-func countBarWidth(width int) int {
-	return clamp(width/8, 4, 18)
 }
 
 func passingCheckListHeaderColumns(multiAgent bool) []string {
@@ -744,7 +688,7 @@ func failureCauseListRightColumns(item failureCauseSummary) []string {
 	}
 }
 
-func failureCauseTargetColumnWidth(layout barListLayout) int {
+func failureCauseTargetColumnWidth(layout listLayout) int {
 	if len(layout.ColumnWidths) < 2 {
 		return 0
 	}
@@ -781,38 +725,6 @@ func failureCauseTargetLabels(item failureCauseSummary) []string {
 		labels = append(labels, compactTargetLabel(label, 18))
 	}
 	return labels
-}
-
-func countBar(count int, maxCount int, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	if count <= 0 || maxCount <= 0 {
-		return strings.Repeat(" ", width)
-	}
-	filled := intMax(1, (count*width+maxCount-1)/maxCount)
-	filled = clamp(filled, 1, width)
-	return strings.Repeat("█", filled) + strings.Repeat(" ", width-filled)
-}
-
-func maxPassingCheckSummaryCount(rows []passingCheckSummary) int {
-	maxCount := 1
-	for _, row := range rows {
-		if row.Count > maxCount {
-			maxCount = row.Count
-		}
-	}
-	return maxCount
-}
-
-func maxFailedCheckSummaryCount(rows []failedCheckSummary) int {
-	maxCount := 1
-	for _, row := range rows {
-		if row.Count > maxCount {
-			maxCount = row.Count
-		}
-	}
-	return maxCount
 }
 
 func renderTableLines(lines []tableLine, width int, visible int, selectedLine int) string {

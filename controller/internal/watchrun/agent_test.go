@@ -24,26 +24,20 @@ func TestAgentSnapshotFromInfoUsesDeviceModelAndSerialForDisplay(t *testing.T) {
 	}
 }
 
-func TestResolveAgentSnapshotMatchesSerial(t *testing.T) {
-	agents := []AgentSnapshot{
-		{ID: "agent-a", ADBSerial: "35251JEHN00258", DeviceModel: "Pixel 7a"},
-		{ID: "agent-b", ADBSerial: "45240DLAQ007HG", DeviceModel: "Pixel 9"},
+func TestBindAgentsMatchesSerial(t *testing.T) {
+	agents := []control.AgentInfo{
+		{ID: "agent-a", Hello: &controlpb.AgentHello{AdbSerial: "35251JEHN00258", Device: &controlpb.DeviceInfo{Model: "Pixel 7a"}}},
+		{ID: "agent-b", Hello: &controlpb.AgentHello{AdbSerial: "45240DLAQ007HG", Device: &controlpb.DeviceInfo{Model: "Pixel 9"}}},
 	}
-	got, err := ResolveAgentSnapshot("35251JEHN00258", agents)
-	if err != nil {
-		t.Fatalf("ResolveAgentSnapshot(serial) error = %v", err)
+	got, err := bindAgents("35251JEHN00258", agents)
+	if err != nil || len(got) != 1 || got[0].ID != "agent-a" {
+		t.Fatalf("bindAgents(serial) = %v, %v", got, err)
 	}
-	if got.ID != "agent-a" {
-		t.Fatalf("ResolveAgentSnapshot(serial) = %#v", got)
+	got, err = bindAgents("45240D", agents)
+	if err != nil || len(got) != 1 || got[0].ID != "agent-b" {
+		t.Fatalf("bindAgents(serial prefix) = %v, %v", got, err)
 	}
-	got, err = ResolveAgentSnapshot("45240D", agents)
-	if err != nil {
-		t.Fatalf("ResolveAgentSnapshot(serial prefix) error = %v", err)
-	}
-	if got.ID != "agent-b" {
-		t.Fatalf("ResolveAgentSnapshot(serial prefix) = %#v", got)
-	}
-	if _, err := ResolveAgentSnapshot("Pixel 9", agents); err == nil {
-		t.Fatalf("ResolveAgentSnapshot(device model) should fail")
+	if _, err := bindAgents("Pixel 9", agents); err == nil {
+		t.Fatal("device model must not select a target")
 	}
 }

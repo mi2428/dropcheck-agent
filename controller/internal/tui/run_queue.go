@@ -137,10 +137,6 @@ func renderRunQueueLine(line runQueueLine, width int) string {
 	return style.Render(fitANSI(line.Text, width))
 }
 
-func (m model) runQueueTreeLines(width int) []runQueueLine {
-	return m.runQueueTreeLinesForAgent(width, watchrun.AgentSnapshot{}, m.MultiAgent)
-}
-
 func (m model) runQueueTreeLinesForAgent(width int, agent watchrun.AgentSnapshot, includeAgentLabel bool) []runQueueLine {
 	blocks := m.runQueueTreeBlocksForAgent(width, agent, includeAgentLabel)
 	lines := make([]runQueueLine, 0, len(m.Targets)*2)

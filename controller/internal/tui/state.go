@@ -17,11 +17,6 @@ func (m *model) apply(event watchrun.Event) {
 	m.normalizeCursors()
 }
 
-func (m *model) recordPassingCheck(passingCheck passingCheckState) {
-	m.RecordPassingCheck(passingCheck)
-	m.normalizeCursors()
-}
-
 func (m *model) pushLog(message string) {
 	m.PushLog(message)
 }

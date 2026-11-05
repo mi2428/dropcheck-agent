@@ -40,6 +40,17 @@ func runtimeFixture(op command.Operation) *controlpb.CommandResult {
 	ip := &controlpb.IpStatus{Validated: true, InterfaceName: "wlan0", Routes: []string{"0.0.0.0/0 -> 192.0.2.1 wlan0", "::/0 -> fe80::1 dev wlan0"}, ObservationFields: available("capabilities", "link_properties")}
 	wifi := &controlpb.WifiStatus{Enabled: true, Connection: &controlpb.WifiConnection{Ssid: "Lab", Bssid: "02:00:00:00:00:01", ObservationFields: available("identity", "rssi", "tx_link_speed_mbps", "rx_link_speed_mbps", "associated_mlo_links", "affiliated_mlo_links", "ap_mld_mac_address", "ap_mlo_link_id")}, IpStatus: ip, ObservationFields: available("radio", "connection")}
 	switch c := op.Command.Command.(type) {
+	case *controlpb.RunCommand_GetNetworks:
+		r.Payload = &controlpb.CommandResult_NetworkSnapshot{NetworkSnapshot: &controlpb.NetworkSnapshot{ObservedAtUnixMs: 1}}
+	case *controlpb.RunCommand_GetNetwork:
+		id := c.GetNetwork.NetworkId
+		if c.GetNetwork.DefaultNetwork {
+			id = "42"
+		}
+		ip.NetworkId = id
+		r.Payload = &controlpb.CommandResult_NetworkSnapshot{NetworkSnapshot: &controlpb.NetworkSnapshot{ObservedAtUnixMs: 1, Networks: []*controlpb.NetworkDiagnostics{{NetworkId: id, Active: c.GetNetwork.DefaultNetwork, IpStatus: ip}}}}
+	case *controlpb.RunCommand_GetPermissions:
+		r.Payload = &controlpb.CommandResult_PermissionSnapshot{PermissionSnapshot: &controlpb.PermissionSnapshot{ObservedAtUnixMs: 1}}
 	case *controlpb.RunCommand_ConnectWifi:
 		r.Payload = &controlpb.CommandResult_ConnectWifi{ConnectWifi: &controlpb.ConnectWifiResult{Ssid: c.ConnectWifi.Ssid, Connected: true, IpStatus: ip}}
 	case *controlpb.RunCommand_DisconnectWifi, *controlpb.RunCommand_ForgetWifi, *controlpb.RunCommand_ReconnectWifi:
@@ -87,7 +98,7 @@ func runtimeFixture(op command.Operation) *controlpb.CommandResult {
 
 func compiledFixture(t *testing.T, plan Plan) *CompiledPlan {
 	t.Helper()
-	compiled, err := Compile(plan, []control.AgentInfo{{ID: "agent-a"}})
+	compiled, err := Compile(plan, []control.AgentInfo{{ID: "agent-a", Hello: &controlpb.AgentHello{Capabilities: []string{"wifi.forget.typed"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,6 +382,9 @@ func TestRuntimeOrdinalIdentityAndAgentSelectionFailClosed(t *testing.T) {
 
 func TestRuntimeScopedSkipReachesOnlyTheSelectedFakeOperation(t *testing.T) {
 	agents := []control.AgentInfo{{ID: "a"}, {ID: "b"}}
+	for i := range agents {
+		agents[i].Hello = &controlpb.AgentHello{Capabilities: []string{"wifi.forget.typed"}}
+	}
 	p, err := Compile(Plan{Networks: []Network{{Name: "lab", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), WaitConnected: true, RequireIP: true, DisconnectAfter: true, ForgetAfter: true}}, Checks: []Check{operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"}))}}, agents)
 	if err != nil {
 		t.Fatal(err)
@@ -754,7 +768,7 @@ func TestCapabilityParityInventory(t *testing.T) {
 	add(command.WifiScanDetailOperation("Lab", "all"))
 	add(command.WifiConnectOperation(command.WifiConnectOptions{SSID: "Lab", Passphrase: "synthetic-passphrase"}))
 	add(command.WifiDisconnectOperation(), nil)
-	add(command.WifiForgetOperation("Lab"), nil)
+	add(command.WifiForgetSSIDOperation("Lab"), nil)
 	add(command.WifiWaitConnectedOperation("Lab", command.WifiExpectationOptions{}))
 	add(command.WifiAssertOperation(command.WifiExpectationOptions{SSID: "Lab"}))
 	add(command.WifiMonitorOperation("1000", "100"))
@@ -768,8 +782,22 @@ func TestCapabilityParityInventory(t *testing.T) {
 	add(command.DNSOperation("example.test", "ALL", "1000"))
 	add(command.HTTPOperation("https://example.test", "200", "1000"))
 	add(command.DownloadOperation("https://example.test", "1000"))
-	if len(operations) != 22 {
-		t.Fatalf("inventory=%d", len(operations))
+	add(command.NetworksOperation(), nil)
+	add(command.NetworkOperation("default"))
+	add(command.PermissionsOperation(), nil)
+	commands := (&controlpb.RunCommand{}).ProtoReflect().Descriptor().Oneofs().ByName("command")
+	seen := map[string]bool{}
+	for _, op := range operations {
+		field := string(op.Command.ProtoReflect().WhichOneof(commands).Name())
+		if seen[field] {
+			t.Fatalf("duplicate wire operation in inventory: %s", field)
+		}
+		seen[field] = true
+	}
+	for i := 0; i < commands.Fields().Len(); i++ {
+		if field := commands.Fields().Get(i); !seen[string(field.Name())] {
+			t.Errorf("wire operation has no acquisition/report coverage: %s", field.Name())
+		}
 	}
 	var checks []Check
 	for _, op := range operations {
@@ -779,7 +807,7 @@ func TestCapabilityParityInventory(t *testing.T) {
 	report, err := Execute(context.Background(), p, cleanupRunnerFunc(func(_ context.Context, op command.Operation) (runner.Result, error) {
 		return runner.Result{Result: runtimeFixture(op)}, nil
 	}), ExecuteOptions{Rounds: 1})
-	if err != nil || !report.Passed() || report.Counts.Passed != 24 {
+	if err != nil || !report.Passed() || report.Counts.Passed != uint64(len(operations)+2) {
 		t.Fatalf("inventory report=%+v err=%v", report, err)
 	}
 	for _, step := range report.Steps {
@@ -819,7 +847,7 @@ func TestGatewayZoneAndFailedIPSuppressPing(t *testing.T) {
 }
 
 func TestBoundTargetsAttributeOperationsAndCleanup(t *testing.T) {
-	agents := []control.AgentInfo{{ID: "a", Hello: &controlpb.AgentHello{AdbSerial: "serial-a"}}, {ID: "b", Hello: &controlpb.AgentHello{AdbSerial: "serial-b"}}}
+	agents := []control.AgentInfo{{ID: "a", Hello: &controlpb.AgentHello{AdbSerial: "serial-a", Capabilities: []string{"wifi.forget.typed"}}}, {ID: "b", Hello: &controlpb.AgentHello{AdbSerial: "serial-b", Capabilities: []string{"wifi.forget.typed"}}}}
 	p, err := Compile(Plan{Networks: []Network{
 		{Name: "one", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), Agent: "serial-a", WaitConnected: true, RequireIP: true, DisconnectAfter: true, ForgetAfter: true, Checks: []Check{operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"}))}},
 		{Name: "two", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), Agent: "serial-b", WaitConnected: true, RequireIP: true, DisconnectAfter: true, ForgetAfter: true, Checks: []Check{operationFixture(command.DNSOperation("example.test", "", ""))}},
