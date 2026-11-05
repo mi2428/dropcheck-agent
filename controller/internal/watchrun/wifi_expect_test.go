@@ -155,14 +155,14 @@ func TestPlainDataCompilationRejectsInconsistentModesAndFreezesGateway(t *testin
 	for _, plan := range []Plan{
 		{Networks: []Network{{SSID: "Lab", ActiveProbes: true}}},
 		{Networks: []Network{{SSID: "Lab", ReadOnly: true, DisconnectAfter: true}}},
-		{Networks: []Network{{SSID: "Lab"}}, Checks: []Check{{Name: "both", Operation: command.IPStatusOperation(), Gateway: &GatewayPingOptions{}}}},
+		{Networks: []Network{{SSID: "Lab", PSK: SecretValue("synthetic-passphrase")}}, Checks: []Check{{Name: "both", Operation: command.IPStatusOperation(), Gateway: &GatewayPingOptions{}}}},
 	} {
 		if err := Validate(plan); err == nil {
 			t.Fatalf("inconsistent runtime data accepted: %+v", plan)
 		}
 	}
 	opts := &GatewayPingOptions{Family: "ipv4", Count: 3}
-	plan, err := Compile(Plan{Networks: []Network{{SSID: "Lab"}}, Checks: []Check{{Name: "gateway", Gateway: opts}}}, []control.AgentInfo{{ID: "a"}})
+	plan, err := Compile(Plan{Networks: []Network{{SSID: "Lab", PSK: SecretValue("synthetic-passphrase")}}, Checks: []Check{{Name: "gateway", Gateway: opts}}}, []control.AgentInfo{{ID: "a"}})
 	if err != nil {
 		t.Fatal(err)
 	}

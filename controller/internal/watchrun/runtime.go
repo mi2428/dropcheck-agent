@@ -65,10 +65,6 @@ type Plan struct {
 	Checks        []Check
 }
 
-type OperationRunner interface {
-	Run(context.Context, control.AgentInfo, command.Operation) (runner.Result, error)
-}
-
 type FailureCauseContext struct {
 	Round     uint64
 	Target    Target
@@ -184,13 +180,9 @@ type Target struct {
 	ID, Name, ShortName, Agent, SSID, BSSID, NetworkID, Band string
 	DisconnectAfter, ForgetAfter                             *bool
 	Checks                                                   []CheckInfo
-	SecretPresent                                            bool
 	Connect, Wait                                            *CheckInfo
 	BoundAgentIDs                                            []string
-	CapabilityPreflight                                      []CapabilityPreflight
 }
-
-type CapabilityPreflight struct{ Operation, Band, State, Reason string }
 
 func (t Target) DisplayName() string { return t.Name }
 

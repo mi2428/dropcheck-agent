@@ -136,12 +136,6 @@ func WifiDiagnosticsOperation() Operation {
 	}, Options{})
 }
 
-// WifiEHTOperation builds an EHT-focused Wi-Fi diagnostics inspection operation.
-func WifiEHTOperation() Operation {
-	op, _ := WifiEHTOperationWithOptions(WifiEHTOptions{})
-	return op
-}
-
 // WifiEHTOperationWithOptions builds an EHT-focused Wi-Fi diagnostics operation.
 //
 // When Fresh is set, the controller runs a fresh scan before the diagnostics
@@ -294,6 +288,9 @@ func WifiConnectOperation(opts WifiConnectOptions) (Operation, error) {
 	if err != nil {
 		return Operation{}, err
 	}
+	if err := validateConnect(connect); err != nil {
+		return Operation{}, err
+	}
 	return NewOperation("wifi.connect", &controlpb.RunCommand{
 		Label:   wifiConnectLabel("connect", opts),
 		Command: &controlpb.RunCommand_ConnectWifi{ConnectWifi: connect},
@@ -304,6 +301,9 @@ func WifiConnectOperation(opts WifiConnectOptions) (Operation, error) {
 func WifiCycleOperation(opts WifiCycleOptions) (Operation, error) {
 	connect, err := connectWifi(opts.WifiConnectOptions)
 	if err != nil {
+		return Operation{}, err
+	}
+	if err := validateConnect(connect); err != nil {
 		return Operation{}, err
 	}
 	count, err := parseOptionalUint32(opts.Count, "count", 3)

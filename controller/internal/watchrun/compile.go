@@ -89,7 +89,7 @@ func compilePlan(plan Plan, agents []control.AgentInfo, bind bool) (*CompiledPla
 		}
 		network.Rotation = rotation
 		id := fmt.Sprintf("target/%d", i)
-		target := compiledTarget{network: network, preview: Target{ID: id, Name: network.displayName(), ShortName: network.ShortName, Agent: network.Agent, SSID: network.SSID, BSSID: network.BSSID, NetworkID: network.NetworkID, Band: network.Band, DisconnectAfter: new(network.DisconnectAfter), ForgetAfter: new(network.ForgetAfter), SecretPresent: passphrase != ""}}
+		target := compiledTarget{network: network, preview: Target{ID: id, Name: network.displayName(), ShortName: network.ShortName, Agent: network.Agent, SSID: network.SSID, BSSID: network.BSSID, NetworkID: network.NetworkID, Band: network.Band, DisconnectAfter: new(network.DisconnectAfter), ForgetAfter: new(network.ForgetAfter)}}
 		var err error
 		if !network.ReadOnly {
 			connect, buildErr := network.connectOperation()
@@ -286,25 +286,7 @@ func bindSelector(op command.Operation, network Network) (command.Operation, err
 	if err != nil {
 		return command.Operation{}, err
 	}
-	var selector **controlpb.NetworkSelector
-	switch c := cmd.Command.(type) {
-	case *controlpb.RunCommand_GetIpStatus:
-		selector = &c.GetIpStatus.Selector
-	case *controlpb.RunCommand_Ping:
-		selector = &c.Ping.Selector
-	case *controlpb.RunCommand_Traceroute:
-		selector = &c.Traceroute.Selector
-	case *controlpb.RunCommand_PathMtu:
-		selector = &c.PathMtu.Selector
-	case *controlpb.RunCommand_GlobalIp:
-		selector = &c.GlobalIp.Selector
-	case *controlpb.RunCommand_ResolveDns:
-		selector = &c.ResolveDns.Selector
-	case *controlpb.RunCommand_HttpCheck:
-		selector = &c.HttpCheck.Selector
-	case *controlpb.RunCommand_Wget:
-		selector = &c.Wget.Selector
-	}
+	selector := command.NetworkSelectorField(cmd)
 	if selector == nil && (network.BSSID != "" || network.NetworkID != "") {
 		return command.Operation{}, fmt.Errorf("check cannot apply an explicit BSSID or Network ID")
 	}
@@ -410,9 +392,6 @@ func (p *CompiledPlan) Preview() Preview {
 		t.BoundAgentIDs = nil
 		for _, agent := range target.agents {
 			t.BoundAgentIDs = append(t.BoundAgentIDs, agentKey(agent))
-		}
-		if target.network.Band != "" && target.network.Band != "all" {
-			t.CapabilityPreflight = []CapabilityPreflight{{Operation: "wifi.capabilities", Band: target.network.Band, State: "pending", Reason: "support observed only after explicit Start; unknown is not unsupported"}}
 		}
 		t.Checks = append([]CheckInfo(nil), t.Checks...)
 		t.Name, t.ShortName, t.SSID, t.BSSID, t.NetworkID, t.Band = p.redact(t.Name), p.redact(t.ShortName), p.redact(t.SSID), p.redact(t.BSSID), p.redact(t.NetworkID), p.redact(t.Band)

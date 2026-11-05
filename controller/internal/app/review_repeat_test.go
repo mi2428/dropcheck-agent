@@ -45,7 +45,7 @@ func TestReviewRepeatFirstFailureReachesReducerAndNoTUI(t *testing.T) {
 		t.Fatal(err)
 	}
 	op, _ := command.PingOperation(command.PingOptions{Host: "example.test"})
-	p, err := watchrun.Compile(watchrun.Plan{Networks: []watchrun.Network{{Name: "lab", SSID: "Lab", WaitConnected: true, RequireIP: true, DisconnectAfter: true}}, Checks: []watchrun.Check{{Name: "ping", Operation: op, Policy: watchrun.Policy{Attempts: 1, Repeat: 2}, Expectations: expect}}}, []control.AgentInfo{{ID: "a"}})
+	p, err := watchrun.Compile(watchrun.Plan{Networks: []watchrun.Network{{Name: "lab", SSID: "Lab", PSK: watchrun.SecretValue("synthetic-passphrase"), WaitConnected: true, RequireIP: true, DisconnectAfter: true}}, Checks: []watchrun.Check{{Name: "ping", Operation: op, Policy: watchrun.Policy{Attempts: 1, Repeat: 2}, Expectations: expect}}}, []control.AgentInfo{{ID: "a"}})
 	if err != nil {
 		t.Fatal(err)
 	}

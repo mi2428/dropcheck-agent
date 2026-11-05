@@ -43,7 +43,7 @@ func TestFailureGatingAndCleanup(t *testing.T) {
 			case "missing_network", "pre_canceled":
 				want = nil
 			}
-			plan := Plan{Networks: []Network{{Name: "lab", SSID: "Lab", PSK: SecretValue("secret"), WaitConnected: true, RequireIP: true, DisconnectAfter: true, ForgetAfter: true}}, Checks: []Check{check, operationFixture(command.DNSOperation("example.com", "", ""))}}
+			plan := Plan{Networks: []Network{{Name: "lab", SSID: "Lab", PSK: SecretValue("synthetic-secret"), WaitConnected: true, RequireIP: true, DisconnectAfter: true, ForgetAfter: true}}, Checks: []Check{check, operationFixture(command.DNSOperation("example.com", "", ""))}}
 			if scenario == "missing_network" {
 				plan.Networks = nil
 				if err := Validate(plan); err == nil {
@@ -102,7 +102,7 @@ func TestStableChecksTakeNewMeasurements(t *testing.T) {
 	check := operationFixture(command.PingOperation(command.PingOptions{Host: "8.8.8.8", Count: "5"}))
 	check.Policy = Policy{StableFor: 3 * time.Millisecond, Interval: time.Millisecond}
 	calls := 0
-	report, err := Execute(context.Background(), compiledFixture(t, Plan{Networks: []Network{{SSID: "Lab"}}, Checks: []Check{check}}), cleanupRunnerFunc(func(_ context.Context, op command.Operation) (runner.Result, error) {
+	report, err := Execute(context.Background(), compiledFixture(t, Plan{Networks: []Network{{SSID: "Lab", PSK: SecretValue("synthetic-passphrase")}}, Checks: []Check{check}}), cleanupRunnerFunc(func(_ context.Context, op command.Operation) (runner.Result, error) {
 		if op.Name == "ping" {
 			calls++
 		}
@@ -122,7 +122,7 @@ func TestExpectationRetryRecoveryKeepsIndependentRepeatMeasurements(t *testing.T
 	check.Expectations, check.Policy = expect, Policy{Attempts: 2, Repeat: 2}
 	replies := []uint32{0, 5, 4}
 	calls := 0
-	report, err := Execute(context.Background(), compiledFixture(t, Plan{Networks: []Network{{SSID: "Lab"}}, Checks: []Check{check}}), cleanupRunnerFunc(func(_ context.Context, op command.Operation) (runner.Result, error) {
+	report, err := Execute(context.Background(), compiledFixture(t, Plan{Networks: []Network{{SSID: "Lab", PSK: SecretValue("synthetic-passphrase")}}, Checks: []Check{check}}), cleanupRunnerFunc(func(_ context.Context, op command.Operation) (runner.Result, error) {
 		raw := runtimeFixture(op)
 		if op.Name == "ping" {
 			if calls >= len(replies) {

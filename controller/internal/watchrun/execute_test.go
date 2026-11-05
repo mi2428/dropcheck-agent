@@ -137,7 +137,7 @@ func TestRuntimeInvalidPlanPerformsZeroOperations(t *testing.T) {
 	for _, options := range []command.PingOptions{{Host: "bad host"}, {Host: "example.test", Family: "invalid"}, {Host: "example.test", Count: "4294967295"}} {
 		op, err := command.PingOperation(options)
 		if err == nil {
-			_, err = Compile(Plan{Networks: []Network{{SSID: "Lab"}}, Checks: []Check{{Name: "invalid", Operation: op}}}, []control.AgentInfo{{ID: "a"}})
+			_, err = Compile(Plan{Networks: []Network{{SSID: "Lab", PSK: SecretValue("synthetic-passphrase")}}, Checks: []Check{{Name: "invalid", Operation: op}}}, []control.AgentInfo{{ID: "a"}})
 		}
 		if err == nil {
 			t.Fatalf("invalid operation compiled: %+v", options)
@@ -145,7 +145,7 @@ func TestRuntimeInvalidPlanPerformsZeroOperations(t *testing.T) {
 	}
 	op := operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"})).Operation
 	for _, check := range []Check{NewCheck("invalid policy", "", op, Policy{Delay: -1}, false), NewCheck("nil", "", command.Operation{}, Policy{}, false), {}} {
-		if _, err := Compile(Plan{Networks: []Network{{Name: "lab", SSID: "Lab", WaitConnected: true, RequireIP: true, DisconnectAfter: true}}, Checks: []Check{check}}, []control.AgentInfo{{ID: "a"}}); err == nil {
+		if _, err := Compile(Plan{Networks: []Network{{Name: "lab", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), WaitConnected: true, RequireIP: true, DisconnectAfter: true}}, Checks: []Check{check}}, []control.AgentInfo{{ID: "a"}}); err == nil {
 			t.Fatalf("invalid check compiled: %T", check)
 		}
 	}
@@ -171,7 +171,7 @@ func TestWireUnsignedValuesCannotWrapAndroidSignedInt(t *testing.T) {
 		t.Fatal(err)
 	}
 	op.Command.GetPing().TimeoutMs = 1 << 31
-	if _, err := Compile(Plan{Networks: []Network{{Name: "lab", SSID: "Lab", WaitConnected: true, RequireIP: true, DisconnectAfter: true}}, Checks: []Check{NewCheck("ping", "", op, Policy{}, false)}}, []control.AgentInfo{{ID: "a"}}); err == nil {
+	if _, err := Compile(Plan{Networks: []Network{{Name: "lab", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), WaitConnected: true, RequireIP: true, DisconnectAfter: true}}, Checks: []Check{NewCheck("ping", "", op, Policy{}, false)}}, []control.AgentInfo{{ID: "a"}}); err == nil {
 		t.Fatal("unsigned timeout would wrap to a negative Java Int after connection")
 	}
 }
@@ -208,7 +208,7 @@ func TestCompoundPreviewMatchesAcquisitionPartsAndTimeout(t *testing.T) {
 		NewCheck("fresh eht", "", eht, Policy{}, false),
 		GatewayPing("gateway", "", GatewayPingOptions{}, Policy{}, false),
 	}
-	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", WaitConnected: true, RequireIP: true, DisconnectAfter: true}}, Checks: checks})
+	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), WaitConnected: true, RequireIP: true, DisconnectAfter: true}}, Checks: checks})
 	view := p.Preview().Targets[0].Checks
 	if len(view) != 2 {
 		t.Fatalf("preview checks=%+v", view)
@@ -239,7 +239,7 @@ func TestCompoundPreviewMatchesAcquisitionPartsAndTimeout(t *testing.T) {
 		}
 		var result OperationResult
 		if i == 0 {
-			result, err = ExecuteOperation(context.Background(), r, control.AgentInfo{ID: "a"}, p.targets[0].checks[i].operation)
+			result, err = executeOperation(context.Background(), r, control.AgentInfo{ID: "a"}, p.targets[0].checks[i].operation)
 		} else {
 			result, err = executeGateway(context.Background(), r, control.AgentInfo{ID: "a"}, p.targets[0].network, *p.targets[0].checks[i].gateway)
 		}
@@ -259,7 +259,7 @@ func TestCostMatchesFakeOperationPartsAndBlocksExcessiveRounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", RequireIP: true, DisconnectAfter: true}}, Checks: []Check{
+	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), RequireIP: true, DisconnectAfter: true}}, Checks: []Check{
 		NewCheck("fresh eht", "", eht, Policy{}, false),
 		GatewayPing("gateway", "", GatewayPingOptions{}, Policy{}, false),
 	}})
@@ -303,7 +303,7 @@ func TestExistingWiFiActiveProbeRequiresExplicitBoundaryWithoutMutation(t *testi
 }
 
 func TestCostIncludesRotationAndPreflightRetainedAttempts(t *testing.T) {
-	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", Band: "5ghz", Rotation: "per_round", WaitConnected: true, RequireIP: true, DisconnectAfter: true}}, Checks: []Check{{Name: "ip status", Operation: command.IPStatusOperation()}}})
+	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), Band: "5ghz", Rotation: "per_round", WaitConnected: true, RequireIP: true, DisconnectAfter: true}}, Checks: []Check{{Name: "ip status", Operation: command.IPStatusOperation()}}})
 	cost, err := p.Cost(1, false)
 	if err != nil || cost.AttemptsPerRound != 6 || cost.OperationsPerRound != 7 {
 		t.Fatalf("cost=%+v err=%v", cost, err)
@@ -320,7 +320,7 @@ func TestCostIncludesRotationAndPreflightRetainedAttempts(t *testing.T) {
 
 func TestRuntimeMissingTransportAndCleanupRemainVisible(t *testing.T) {
 	primary, cleanup, delivery := errors.New("primary"), errors.New("cleanup"), errors.New("delivery")
-	compiled := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", WaitConnected: true, RequireIP: true, DisconnectAfter: true, ForgetAfter: true}}, Checks: []Check{operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"}))}})
+	compiled := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), WaitConnected: true, RequireIP: true, DisconnectAfter: true, ForgetAfter: true}}, Checks: []Check{operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"}))}})
 	var ops []string
 	report, err := Execute(context.Background(), compiled, cleanupRunnerFunc(func(ctx context.Context, op command.Operation) (runner.Result, error) {
 		ops = append(ops, op.Name)
@@ -350,7 +350,7 @@ func TestRuntimeMissingTransportAndCleanupRemainVisible(t *testing.T) {
 
 func TestRuntimeOrdinalIdentityAndAgentSelectionFailClosed(t *testing.T) {
 	agents := []control.AgentInfo{{ID: "a", Hello: &controlpb.AgentHello{AdbSerial: "synthetic-a"}}, {ID: "b", Hello: &controlpb.AgentHello{AdbSerial: "synthetic-b"}}}
-	plan := Plan{Networks: []Network{{Name: "same", SSID: "Lab", Agent: "synthetic-a", WaitConnected: true, RequireIP: true, DisconnectAfter: true}, {Name: "same", SSID: "lab", WaitConnected: true, RequireIP: true, DisconnectAfter: true}}, Checks: []Check{operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"})), operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"}))}}
+	plan := Plan{Networks: []Network{{Name: "same", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), Agent: "synthetic-a", WaitConnected: true, RequireIP: true, DisconnectAfter: true}, {Name: "same", SSID: "lab", PSK: SecretValue("synthetic-passphrase"), WaitConnected: true, RequireIP: true, DisconnectAfter: true}}, Checks: []Check{operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"})), operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"}))}}
 	p, err := Compile(plan, agents)
 	if err != nil {
 		t.Fatal(err)
@@ -371,7 +371,7 @@ func TestRuntimeOrdinalIdentityAndAgentSelectionFailClosed(t *testing.T) {
 
 func TestRuntimeScopedSkipReachesOnlyTheSelectedFakeOperation(t *testing.T) {
 	agents := []control.AgentInfo{{ID: "a"}, {ID: "b"}}
-	p, err := Compile(Plan{Networks: []Network{{Name: "lab", SSID: "Lab", WaitConnected: true, RequireIP: true, DisconnectAfter: true, ForgetAfter: true}}, Checks: []Check{operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"}))}}, agents)
+	p, err := Compile(Plan{Networks: []Network{{Name: "lab", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), WaitConnected: true, RequireIP: true, DisconnectAfter: true, ForgetAfter: true}}, Checks: []Check{operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"}))}}, agents)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,18 +426,6 @@ func (f agentRunnerFunc) Run(ctx context.Context, a control.AgentInfo, op comman
 	return f(ctx, a, op)
 }
 
-func TestOneShotAcquisitionReportsWrongPayload(t *testing.T) {
-	op, err := command.PingOperation(command.PingOptions{Host: "example.test"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := ExecuteOperation(context.Background(), agentRunnerFunc(func(context.Context, control.AgentInfo, command.Operation) (runner.Result, error) {
-		return runner.Result{Result: &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_IpStatus{IpStatus: &controlpb.IpStatus{}}}}, nil
-	}), control.AgentInfo{ID: "a"}, op)
-	if err != nil || len(result.Findings) != 1 || !result.Findings[0].Missing {
-		t.Fatalf("wrong payload accepted: %+v (%v)", result.Findings, err)
-	}
-}
 func countString(values []string, want string) int {
 	count := 0
 	for _, value := range values {
@@ -482,7 +470,7 @@ func TestRuntimeTypedZeroAndContradictoryRawAreNotFallbacks(t *testing.T) {
 func TestRuntimeMACRotationCaseAndFailureGates(t *testing.T) {
 	for _, phase := range []string{"before", "after", "case"} {
 		t.Run(phase, func(t *testing.T) {
-			p := compiledFixture(t, Plan{Networks: []Network{{Name: "one", SSID: "Lab", Rotation: "per_round", WaitConnected: true, RequireIP: true, DisconnectAfter: true}, {Name: "two", SSID: "lab", Rotation: "per_round", WaitConnected: true, RequireIP: true, DisconnectAfter: true}}})
+			p := compiledFixture(t, Plan{Networks: []Network{{Name: "one", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), Rotation: "per_round", WaitConnected: true, RequireIP: true, DisconnectAfter: true}, {Name: "two", SSID: "lab", PSK: SecretValue("synthetic-passphrase"), Rotation: "per_round", WaitConnected: true, RequireIP: true, DisconnectAfter: true}}})
 			var ops []string
 			forget := 0
 			report, _ := Execute(context.Background(), p, cleanupRunnerFunc(func(_ context.Context, op command.Operation) (runner.Result, error) {
@@ -522,7 +510,7 @@ func TestRuntimePolicyClockAndStableRetryRecovery(t *testing.T) {
 	}
 	check := operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"}))
 	check.Policy, check.Required = Policy{Attempts: 2, Repeat: 2, Eventually: time.Second, StableFor: 2 * time.Second, Interval: time.Second}, true
-	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", RequireIP: true}}, Checks: []Check{check}})
+	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), RequireIP: true}}, Checks: []Check{check}})
 	calls := 0
 	report, err := execute(context.Background(), p, cleanupRunnerFunc(func(_ context.Context, op command.Operation) (runner.Result, error) {
 		if op.Name == "ping" {
@@ -543,7 +531,7 @@ func TestRuntimeEventuallyDelayCancellationIsReportedAsCanceled(t *testing.T) {
 	defer cancel()
 	check := operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"}))
 	check.Policy = Policy{Attempts: 1, Eventually: time.Second, Interval: time.Second}
-	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", RequireIP: true, DisconnectAfter: true}}, Checks: []Check{check}})
+	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), RequireIP: true, DisconnectAfter: true}}, Checks: []Check{check}})
 	report, err := execute(ctx, p, cleanupRunnerFunc(func(_ context.Context, op command.Operation) (runner.Result, error) {
 		result := runtimeFixture(op)
 		if op.Name == "ping" {
@@ -562,7 +550,7 @@ func TestRuntimeEventuallyDelayCancellationIsReportedAsCanceled(t *testing.T) {
 func TestPausedCheckDeadlineSkipsProbeAndStillCleansUp(t *testing.T) {
 	check := operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"}))
 	check.Policy = Policy{Timeout: 40 * time.Millisecond}
-	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", RequireIP: true, DisconnectAfter: true}}, Checks: []Check{check}})
+	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), RequireIP: true, DisconnectAfter: true}}, Checks: []Check{check}})
 	controls := NewControls()
 	entered, release := make(chan struct{}), make(chan struct{})
 	var ops []string
@@ -602,7 +590,7 @@ func TestPausedCheckDeadlineSkipsProbeAndStillCleansUp(t *testing.T) {
 }
 
 func TestBlockedResultSinkCannotPreventTargetCleanup(t *testing.T) {
-	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", RequireIP: true, DisconnectAfter: true, ForgetAfter: true}}, Checks: []Check{operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"}))}})
+	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), RequireIP: true, DisconnectAfter: true, ForgetAfter: true}}, Checks: []Check{operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"}))}})
 	var ops []string
 	blocked := false
 	report, err := Execute(context.Background(), p, cleanupRunnerFunc(func(_ context.Context, op command.Operation) (runner.Result, error) {
@@ -626,7 +614,7 @@ func TestBlockedResultSinkCannotPreventTargetCleanup(t *testing.T) {
 }
 
 func TestLoopRetainsBoundedRecentRoundsAndStopsOnCancel(t *testing.T) {
-	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", RequireIP: true, DisconnectAfter: true}}, Checks: []Check{operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"}))}})
+	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), RequireIP: true, DisconnectAfter: true}}, Checks: []Check{operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"}))}})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	report, err := Execute(ctx, p, cleanupRunnerFunc(func(_ context.Context, op command.Operation) (runner.Result, error) {
@@ -668,7 +656,7 @@ func TestRuntimeOrderedEventsAndSecretSafePreview(t *testing.T) {
 }
 
 func TestRetainedBudgetOverflowRejectsBeforeDispatch(t *testing.T) {
-	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", WaitConnected: true, RequireIP: true, DisconnectAfter: true}}, Checks: []Check{operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"}))}})
+	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), WaitConnected: true, RequireIP: true, DisconnectAfter: true}}, Checks: []Check{operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"}))}})
 	// Even a corrupted compiled policy must not wrap the defensive Execute
 	// budget. Explicit Timeout bypasses duration-derived count validation.
 	p.targets[0].checks[0].policy = Policy{Attempts: ^uint32(0), Repeat: ^uint32(0), Eventually: time.Second, Interval: time.Nanosecond, Timeout: time.Second}
@@ -683,7 +671,7 @@ func TestRetainedBudgetOverflowRejectsBeforeDispatch(t *testing.T) {
 }
 
 func TestMutatingSinkCannotChangeNextSinkOrRetainedReport(t *testing.T) {
-	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", WaitConnected: true, RequireIP: true, DisconnectAfter: true}}, Checks: []Check{operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"}))}})
+	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), WaitConnected: true, RequireIP: true, DisconnectAfter: true}}, Checks: []Check{operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"}))}})
 	mutator := cleanupSinkFunc(func(_ context.Context, event Event) error {
 		if event.Attempt != nil && event.Attempt.Result.Raw.GetPing() != nil {
 			event.Attempt.Result.Raw.GetPing().Received = proto.Uint32(999)
@@ -730,7 +718,7 @@ func TestMutatingSinkCannotChangeNextSinkOrRetainedReport(t *testing.T) {
 
 func TestTerminalDeliveryFailureFinalizesConsistentReport(t *testing.T) {
 	failure := errors.New("terminal delivery failed")
-	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", WaitConnected: true, RequireIP: true, DisconnectAfter: true}}})
+	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), WaitConnected: true, RequireIP: true, DisconnectAfter: true}}})
 	report, err := Execute(context.Background(), p, cleanupRunnerFunc(func(_ context.Context, op command.Operation) (runner.Result, error) {
 		return runner.Result{Result: runtimeFixture(op)}, nil
 	}), ExecuteOptions{Rounds: 1, Sinks: []Sink{cleanupSinkFunc(func(_ context.Context, event Event) error {
@@ -787,7 +775,7 @@ func TestCapabilityParityInventory(t *testing.T) {
 	for _, op := range operations {
 		checks = append(checks, NewCheck(op.Name, "", op, Policy{}, false))
 	}
-	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", WaitConnected: true, RequireIP: true, DisconnectAfter: true}}, Checks: checks})
+	p := compiledFixture(t, Plan{Networks: []Network{{Name: "lab", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), WaitConnected: true, RequireIP: true, DisconnectAfter: true}}, Checks: checks})
 	report, err := Execute(context.Background(), p, cleanupRunnerFunc(func(_ context.Context, op command.Operation) (runner.Result, error) {
 		return runner.Result{Result: runtimeFixture(op)}, nil
 	}), ExecuteOptions{Rounds: 1})
@@ -820,7 +808,7 @@ func TestGatewayZoneAndFailedIPSuppressPing(t *testing.T) {
 				t.Errorf("gateway identity/family/zone lost: %v", op.Command.GetPing())
 			}
 			return runner.Result{Result: runtimeFixture(op)}, nil
-		}), control.AgentInfo{ID: "a"}, Network{Name: "lab", SSID: "Lab", WaitConnected: true, RequireIP: true, DisconnectAfter: true}, GatewayPingOptions{Family: "ipv6"})
+		}), control.AgentInfo{ID: "a"}, Network{Name: "lab", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), WaitConnected: true, RequireIP: true, DisconnectAfter: true}, GatewayPingOptions{Family: "ipv6"})
 		if failed && (err == nil || calls != 0) {
 			t.Fatal("failed IP launched gateway ping")
 		}
@@ -833,8 +821,8 @@ func TestGatewayZoneAndFailedIPSuppressPing(t *testing.T) {
 func TestBoundTargetsAttributeOperationsAndCleanup(t *testing.T) {
 	agents := []control.AgentInfo{{ID: "a", Hello: &controlpb.AgentHello{AdbSerial: "serial-a"}}, {ID: "b", Hello: &controlpb.AgentHello{AdbSerial: "serial-b"}}}
 	p, err := Compile(Plan{Networks: []Network{
-		{Name: "one", SSID: "Lab", Agent: "serial-a", WaitConnected: true, RequireIP: true, DisconnectAfter: true, ForgetAfter: true, Checks: []Check{operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"}))}},
-		{Name: "two", SSID: "Lab", Agent: "serial-b", WaitConnected: true, RequireIP: true, DisconnectAfter: true, ForgetAfter: true, Checks: []Check{operationFixture(command.DNSOperation("example.test", "", ""))}},
+		{Name: "one", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), Agent: "serial-a", WaitConnected: true, RequireIP: true, DisconnectAfter: true, ForgetAfter: true, Checks: []Check{operationFixture(command.PingOperation(command.PingOptions{Host: "example.test"}))}},
+		{Name: "two", SSID: "Lab", PSK: SecretValue("synthetic-passphrase"), Agent: "serial-b", WaitConnected: true, RequireIP: true, DisconnectAfter: true, ForgetAfter: true, Checks: []Check{operationFixture(command.DNSOperation("example.test", "", ""))}},
 	}, Checks: []Check{{Name: "ip status", Operation: command.IPStatusOperation(), Required: true}}}, agents)
 	if err != nil {
 		t.Fatal(err)

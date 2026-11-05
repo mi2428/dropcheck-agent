@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mi2428/dropcheck-agent/controller/internal/acquire"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
@@ -145,11 +146,11 @@ func addWifiStatusMetrics(metrics map[string]Value, status *controlpb.WifiStatus
 	if status == nil {
 		return
 	}
-	if known, _ := Availability(status.ObservationFields, "radio"); known {
+	if known, _ := acquire.Availability(status.ObservationFields, "radio"); known {
 		metrics["enabled"] = boolValue(status.GetEnabled())
 	}
 	if ip := status.GetIpStatus(); ip != nil {
-		if known, _ := Availability(ip.ObservationFields, "capabilities"); known {
+		if known, _ := acquire.Availability(ip.ObservationFields, "capabilities"); known {
 			metrics["validated"] = boolValue(ip.GetValidated())
 		}
 	}
@@ -157,11 +158,11 @@ func addWifiStatusMetrics(metrics map[string]Value, status *controlpb.WifiStatus
 	if conn == nil {
 		return
 	}
-	if known, _ := Availability(conn.ObservationFields, "identity"); known {
+	if known, _ := acquire.Availability(conn.ObservationFields, "identity"); known {
 		metrics["ssid"] = stringValue(conn.GetSsid())
 		metrics["bssid"] = stringValue(conn.GetBssid())
 	}
-	if known, _ := Availability(conn.ObservationFields, "rssi"); known {
+	if known, _ := acquire.Availability(conn.ObservationFields, "rssi"); known {
 		metrics["rssi"] = intValue(int64(conn.GetRssiDbm()))
 	}
 	metrics["frequency_mhz"] = intValue(int64(conn.GetFrequencyMhz()))
@@ -169,16 +170,16 @@ func addWifiStatusMetrics(metrics map[string]Value, status *controlpb.WifiStatus
 	metrics["standard"] = stringValue(conn.GetWifiStandard())
 	metrics["security"] = stringValue(conn.GetSecurityType())
 	metrics["link_speed_mbps"] = intValue(int64(conn.GetLinkSpeedMbps()))
-	if known, _ := Availability(conn.ObservationFields, "tx_link_speed_mbps"); known {
+	if known, _ := acquire.Availability(conn.ObservationFields, "tx_link_speed_mbps"); known {
 		metrics["tx_link_speed_mbps"] = intValue(int64(conn.GetTxLinkSpeedMbps()))
 	}
-	if known, _ := Availability(conn.ObservationFields, "rx_link_speed_mbps"); known {
+	if known, _ := acquire.Availability(conn.ObservationFields, "rx_link_speed_mbps"); known {
 		metrics["rx_link_speed_mbps"] = intValue(int64(conn.GetRxLinkSpeedMbps()))
 	}
-	if known, _ := Availability(conn.ObservationFields, "associated_mlo_links"); known {
+	if known, _ := acquire.Availability(conn.ObservationFields, "associated_mlo_links"); known {
 		metrics["associated_mlo_link_count"] = intValue(int64(len(conn.GetAssociatedMloLinks())))
 	}
-	if known, _ := Availability(conn.ObservationFields, "affiliated_mlo_links"); known {
+	if known, _ := acquire.Availability(conn.ObservationFields, "affiliated_mlo_links"); known {
 		metrics["affiliated_mlo_link_count"] = intValue(int64(len(conn.GetAffiliatedMloLinks())))
 	}
 	metrics["channel_width"] = stringValue(conn.GetChannelWidth())
@@ -189,11 +190,11 @@ func addIPStatusMetrics(metrics map[string]Value, status *controlpb.IpStatus) {
 	if status == nil {
 		return
 	}
-	if known, _ := Availability(status.ObservationFields, "capabilities"); known {
+	if known, _ := acquire.Availability(status.ObservationFields, "capabilities"); known {
 		metrics["validated"] = boolValue(status.GetValidated())
 		metrics["internet"] = boolValue(status.GetInternet())
 	}
-	if known, _ := Availability(status.ObservationFields, "link_properties"); !known {
+	if known, _ := acquire.Availability(status.ObservationFields, "link_properties"); !known {
 		return
 	}
 	metrics["interface"] = stringValue(status.GetInterfaceName())

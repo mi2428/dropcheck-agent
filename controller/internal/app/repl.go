@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/chzyer/readline"
+	"github.com/mi2428/dropcheck-agent/controller/internal/acquire"
 	"github.com/mi2428/dropcheck-agent/controller/internal/adb"
 	"github.com/mi2428/dropcheck-agent/controller/internal/adbdiag"
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
@@ -23,7 +24,6 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/runner"
 	"github.com/mi2428/dropcheck-agent/controller/internal/shell"
 	"github.com/mi2428/dropcheck-agent/controller/internal/version"
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -600,7 +600,7 @@ func resultStatusLabel(status controlpb.CommandResult_Status) string {
 }
 
 func runCommandForAgent(ctx context.Context, state *shellState, agent control.AgentInfo, op Operation, output commandOutputOptions, outputMu *sync.Mutex, printedAny *bool) error {
-	exec, err := watchrun.ExecuteOperation(ctx, runner.New(state.server), agent, op)
+	exec, err := acquire.Execute(ctx, runner.New(state.server), agent, op)
 	commandID := ""
 	if len(exec.Parts) != 0 {
 		commandID = exec.Parts[len(exec.Parts)-1].CommandID

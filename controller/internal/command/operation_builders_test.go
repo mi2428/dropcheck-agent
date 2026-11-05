@@ -9,6 +9,10 @@ import (
 )
 
 func TestInspectionOperationBuilders(t *testing.T) {
+	eht, err := WifiEHTOperationWithOptions(WifiEHTOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
 		name      string
 		op        Operation
@@ -25,7 +29,7 @@ func TestInspectionOperationBuilders(t *testing.T) {
 		},
 		{
 			name:      "wifi eht",
-			op:        WifiEHTOperation(),
+			op:        eht,
 			wantName:  "wifi.eht",
 			wantLabel: "wifi eht",
 			check:     func(cmd *controlpb.RunCommand) bool { return cmd.GetGetWifiDiagnostics() != nil },
@@ -211,7 +215,7 @@ func TestWifiOperationBuildersCarryControllerContract(t *testing.T) {
 
 	connect, err := WifiConnectOperation(WifiConnectOptions{
 		SSID:             "Lab",
-		Passphrase:       "secret",
+		Passphrase:       "synthetic-secret",
 		Security:         "wpa3",
 		BSSID:            "aa:bb:cc:dd:ee:ff",
 		Band:             "6ghz",
@@ -226,7 +230,7 @@ func TestWifiOperationBuildersCarryControllerContract(t *testing.T) {
 		t.Fatalf("connect command: %v", err)
 	}
 	connectPayload := connectCmd.GetConnectWifi()
-	if connectPayload.GetPassphrase() != "secret" ||
+	if connectPayload.GetPassphrase() != "synthetic-secret" ||
 		connectPayload.GetSecurity() != controlpb.ConnectWifi_SECURITY_WPA3_SAE ||
 		connectPayload.GetBand() != controlpb.WifiBand_WIFI_BAND_6_GHZ ||
 		connectPayload.GetMacRandomization() != controlpb.ConnectWifi_MAC_RANDOMIZATION_NON_PERSISTENT ||
@@ -240,7 +244,7 @@ func TestWifiOperationBuildersCarryControllerContract(t *testing.T) {
 	cycle, err := WifiCycleOperation(WifiCycleOptions{
 		WifiConnectOptions: WifiConnectOptions{
 			SSID:       "Lab",
-			Passphrase: "secret",
+			Passphrase: "synthetic-secret",
 			Timeout:    "25000",
 		},
 		Count:           "2",

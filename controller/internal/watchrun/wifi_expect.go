@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mi2428/dropcheck-agent/controller/internal/acquire"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
@@ -188,7 +189,7 @@ func (e mloExpectation) Evaluate(result Result) []Finding {
 			return missing("wifi diagnostics do not contain connection")
 		}
 		if !present {
-			if known, reason := Availability(conn.ObservationFields, "ap_mld_mac_address"); !known {
+			if known, reason := acquire.Availability(conn.ObservationFields, "ap_mld_mac_address"); !known {
 				return missing(reason)
 			}
 		}
@@ -197,7 +198,7 @@ func (e mloExpectation) Evaluate(result Result) []Finding {
 		if conn == nil || d.GetScan() == nil {
 			return missing("connection/scan relation unavailable")
 		}
-		if known, reason := Availability(conn.ObservationFields, "associated_mlo_links"); !known {
+		if known, reason := acquire.Availability(conn.ObservationFields, "associated_mlo_links"); !known {
 			return missing(reason)
 		}
 		want := linkIDs(conn.GetAssociatedMloLinks())
@@ -221,7 +222,7 @@ func (e mloExpectation) Evaluate(result Result) []Finding {
 		}
 		value = len(candidates) > 0
 		for _, ap := range candidates {
-			if known, reason := Availability(ap.ObservationFields, "ap_mlo_link_id"); !known {
+			if known, reason := acquire.Availability(ap.ObservationFields, "ap_mlo_link_id"); !known {
 				return missing(reason)
 			}
 			value = value && ap.GetApMldMacAddress() != "" && len(scanLinkIDs(ap)) > 0

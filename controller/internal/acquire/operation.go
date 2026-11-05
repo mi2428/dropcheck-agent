@@ -1,4 +1,4 @@
-package watchrun
+package acquire
 
 import (
 	"context"
@@ -12,23 +12,26 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// ExecuteOperation is the common atomic/compound acquisition boundary. Watch
-// policy calls it once per attempt; it contains no retries or test/UI logic.
-func ExecuteOperation(ctx context.Context, r OperationRunner, agent control.AgentInfo, op command.Operation) (OperationResult, error) {
+// Execute acquires one validated atomic/compound operation on a pinned agent.
+// It applies no retry, expectation policy, round, presentation or cleanup logic.
+// Returned Raw/Parts are independently owned clones, including on partial failure.
+// Transport/context errors retain their causes; agent failures remain in Raw.
+func Execute(ctx context.Context, r Runner, agent control.AgentInfo, op command.Operation) (Result, error) {
 	if r == nil {
-		return OperationResult{}, fmt.Errorf("operation runner is nil")
+		return Result{}, fmt.Errorf("operation runner is nil")
 	}
 	if err := command.ValidateOperation(op); err != nil {
-		return OperationResult{}, err
+		return Result{}, err
 	}
 	if f := op.Command.GetForgetWifi(); f != nil && f.Selector != nil && !slices.Contains(agent.Hello.GetCapabilities(), "wifi.forget.typed") {
-		return OperationResult{}, fmt.Errorf("selected agent does not advertise typed Wi-Fi forgetting")
+		return Result{}, fmt.Errorf("selected agent does not advertise typed Wi-Fi forgetting")
 	}
 	cmd, options, err := command.BuildRunCommand(op)
 	if err != nil {
-		return OperationResult{}, err
+		return Result{}, err
 	}
-	result := OperationResult{Options: options}
+	options.TracerouteRequiredHops = slices.Clone(options.TracerouteRequiredHops)
+	result := Result{Options: options}
 	run := func(operation command.Operation) (*controlpb.CommandResult, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -41,7 +44,7 @@ func ExecuteOperation(ctx context.Context, r OperationRunner, agent control.Agen
 		runCtx, cancel := context.WithTimeout(ctx, command.TimeoutFor(wire))
 		exec, runErr := r.Run(runCtx, agent, operation)
 		cancel()
-		record := OperationRecord{Scope: Scope{Kind: ScopeAgent, AgentID: agentKey(agent)}, Name: operation.Name, CommandID: exec.CommandID, Started: started, Ended: time.Now(), Raw: cloneRaw(exec.Result)}
+		record := Part{AgentID: agent.ID, SessionID: agent.SessionID, Connected: agent.Connected, Name: operation.Name, CommandID: exec.CommandID, Started: started, Ended: time.Now(), Raw: cloneRaw(exec.Result)}
 		if runErr != nil {
 			record.Error = runErr.Error()
 		}
@@ -65,7 +68,7 @@ func ExecuteOperation(ctx context.Context, r OperationRunner, agent control.Agen
 		if fresh == nil {
 			return result, fmt.Errorf("fresh scan returned no result")
 		}
-		if fresh.Status == controlpb.CommandResult_STATUS_OK && !payloadMatches(freshOp, fresh) {
+		if fresh.Status == controlpb.CommandResult_STATUS_OK && !PayloadMatches(freshOp, fresh) {
 			fresh.Status = controlpb.CommandResult_STATUS_FAILED
 			fresh.Message = "fresh scan evidence is missing or inconsistent; retained data is reference"
 		}
@@ -87,8 +90,8 @@ func ExecuteOperation(ctx context.Context, r OperationRunner, agent control.Agen
 	if err != nil {
 		return result, err
 	}
-	if result.Raw != nil && result.Raw.GetStatus() == controlpb.CommandResult_STATUS_OK && !payloadMatches(atomic, result.Raw) {
-		result.Findings = append(result.Findings, MissingFinding("payload", "<invalid>", "consistent typed payload", "wrong, missing or inconsistent payload"))
+	if result.Raw != nil && result.Raw.GetStatus() == controlpb.CommandResult_STATUS_OK && !PayloadMatches(atomic, result.Raw) {
+		result.Findings = append(result.Findings, Finding{Metric: "payload", Observed: "<invalid>", Expected: "consistent typed payload", Missing: true, Message: "wrong, missing or inconsistent payload"})
 	}
 	if options.WifiEHTFreshScan {
 		if result.Raw != nil && result.Raw.GetWifiDiagnostics() != nil && fresh.GetWifiScan() != nil {
@@ -96,9 +99,9 @@ func ExecuteOperation(ctx context.Context, r OperationRunner, agent control.Agen
 			result.Raw.ElapsedMs += fresh.GetElapsedMs()
 		}
 		if fresh == nil || fresh.GetWifiScan() == nil || fresh.GetStatus() != controlpb.CommandResult_STATUS_OK {
-			result.Findings = append(result.Findings, MissingFinding("fresh_scan", "<missing>", "fresh acquisition succeeded", "requested fresh acquisition did not succeed"))
+			result.Findings = append(result.Findings, Finding{Metric: "fresh_scan", Observed: "<missing>", Expected: "fresh acquisition succeeded", Missing: true, Message: "requested fresh acquisition did not succeed"})
 			if fresh != nil && fresh.GetStatus() != controlpb.CommandResult_STATUS_OK {
-				result.Findings[len(result.Findings)-1] = Fail("fresh_scan", fresh.GetStatus().String(), "STATUS_OK", fresh.GetMessage())
+				result.Findings[len(result.Findings)-1] = Finding{Metric: "fresh_scan", Observed: fresh.GetStatus().String(), Expected: "STATUS_OK", Message: fresh.GetMessage()}
 			}
 			if result.Raw != nil {
 				diagnosticsStatus := result.Raw.Status
@@ -113,7 +116,7 @@ func ExecuteOperation(ctx context.Context, r OperationRunner, agent control.Agen
 		trace := result.Raw.GetTraceroute()
 		for _, required := range options.TracerouteRequiredHops {
 			if trace == nil || trace.GetObservationError() != "" || trace.ReachedTarget == nil {
-				result.Findings = append(result.Findings, MissingFinding("trace.via", "<missing>", required, "typed hop observations unavailable"))
+				result.Findings = append(result.Findings, Finding{Metric: "trace.via", Observed: "<missing>", Expected: required, Missing: true, Message: "typed hop observations unavailable"})
 				continue
 			}
 			found := false
@@ -124,17 +127,19 @@ func ExecuteOperation(ctx context.Context, r OperationRunner, agent control.Agen
 				}
 			}
 			if found {
-				result.Findings = append(result.Findings, Pass("trace.via", required, "required hop present"))
+				result.Findings = append(result.Findings, Finding{Metric: "trace.via", Observed: required, Expected: "required hop present", Passed: true})
 			} else {
-				result.Findings = append(result.Findings, Fail("trace.via", "not observed", required, "required hop not present"))
+				result.Findings = append(result.Findings, Finding{Metric: "trace.via", Observed: "not observed", Expected: required, Message: "required hop not present"})
 			}
 		}
 	}
 	return result, nil
 }
 
-func payloadMatches(op command.Operation, raw *controlpb.CommandResult) bool {
-	if raw == nil || raw.Payload == nil {
+// PayloadMatches checks typed acquisition evidence, including selected-Network
+// identity and fresh-scan metadata. It does not evaluate watch expectations.
+func PayloadMatches(op command.Operation, raw *controlpb.CommandResult) bool {
+	if op.Command == nil || raw == nil || raw.Payload == nil {
 		return false
 	}
 	switch op.Command.Command.(type) {
@@ -208,6 +213,13 @@ func payloadMatches(op command.Operation, raw *controlpb.CommandResult) bool {
 		return raw.GetWget() != nil
 	}
 	return false
+}
+
+func cloneRaw(result *controlpb.CommandResult) *controlpb.CommandResult {
+	if result == nil {
+		return nil
+	}
+	return proto.Clone(result).(*controlpb.CommandResult)
 }
 
 func validWifiDiagnostics(value *controlpb.WifiDiagnostics) bool {

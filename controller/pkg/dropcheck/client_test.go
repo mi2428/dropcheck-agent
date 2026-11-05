@@ -2,112 +2,143 @@ package dropcheck
 
 import (
 	"context"
-	"os"
-	"path/filepath"
+	"errors"
+	"math"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/mi2428/dropcheck-agent/controller/internal/adb"
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 	"github.com/mi2428/dropcheck-agent/controller/internal/control"
 	"github.com/mi2428/dropcheck-agent/controller/internal/session"
 )
 
-func TestDiscoverADBTargetsUsesExplicitSerial(t *testing.T) {
-	targets, err := discoverADBTargets(context.Background(), adb.Client{Path: filepath.Join(t.TempDir(), "missing-adb")}, "R5CT12345")
-	if err != nil {
-		t.Fatalf("discoverADBTargets() error = %v", err)
+func TestTypedForgetAndOwnedOptions(t *testing.T) {
+	ssid, err := WiFiForgetSSID("123")
+	if err != nil || ssid.impl.Command.GetForgetWifi().GetSsid() != "123" || ssid.impl.Command.GetForgetWifi().GetTarget() != "" {
+		t.Fatal("numeric SSID changed")
 	}
-	if len(targets) != 1 || targets[0].Serial != "R5CT12345" || targets[0].State != "device" {
-		t.Fatalf("targets = %#v", targets)
+	config, err := WiFiForgetConfigID(0)
+	if err != nil || config.impl.Command.GetForgetWifi().GetSelector() == nil || config.impl.Command.GetForgetWifi().GetConfigId() != 0 {
+		t.Fatal("known zero configuration ID lost")
 	}
-}
-
-func TestDiscoverADBTargetsFiltersConnectedDevices(t *testing.T) {
-	path := fakeADB(t, `
-printf '%s\n' 'List of devices attached
-R5CT11111 device product:one
-R5CT22222 offline product:two
-R5CT33333 unauthorized product:three
-'
-`)
-
-	targets, err := discoverADBTargets(context.Background(), adb.Client{Path: path, Timeout: 5 * time.Second}, "")
-	if err != nil {
-		t.Fatalf("discoverADBTargets() error = %v", err)
+	if _, err := WiFiForgetSSID(""); err == nil {
+		t.Fatal("empty SSID accepted")
 	}
-	if len(targets) != 1 || targets[0].Serial != "R5CT11111" || targets[0].State != "device" {
-		t.Fatalf("targets = %#v", targets)
+	if _, err := WiFiForgetConfigID(-1); err == nil {
+		t.Fatal("negative ID accepted")
 	}
-}
-
-func TestDiscoverADBTargetsRejectsEmptyConnectedSet(t *testing.T) {
-	path := fakeADB(t, `
-printf '%s\n' 'List of devices attached
-R5CT22222 offline product:two
-'
-`)
-
-	_, err := discoverADBTargets(context.Background(), adb.Client{Path: path, Timeout: 5 * time.Second}, "")
-	if err == nil || !strings.Contains(err.Error(), "no connected adb devices") {
-		t.Fatalf("discoverADBTargets() error = %v, want no connected devices", err)
-	}
-}
-
-func fakeADB(t *testing.T, body string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "adb")
-	script := "#!/bin/sh\nset -eu\n" + strings.TrimLeft(body, "\n")
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
-		t.Fatalf("WriteFile(fake adb) error = %v", err)
-	}
-	return path
-}
-
-func TestTypedForgetDoesNotReinterpretNumericSSID(t *testing.T) {
-	ssid := WiFiForgetSSID("123")
-	if got := ssid.Command.GetForgetWifi(); got.GetSsid() != "123" || got.GetTarget() != "" || got.GetSelector() == nil {
-		t.Fatal("numeric SSID became a configuration ID")
-	}
-	config := WiFiForgetConfigID(0)
-	if got := config.Command.GetForgetWifi(); got.GetConfigId() != 0 || got.GetSelector() == nil || got.GetTarget() != "" {
-		t.Fatal("known zero configuration ID was lost")
-	}
-	for _, op := range []Operation{ssid, config} {
-		if err := command.ValidateOperation(op); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, op := range []Operation{WiFiForgetSSID(""), WiFiForgetConfigID(-1)} {
-		if command.ValidateOperation(op) == nil {
-			t.Fatal("invalid typed forget selector accepted")
-		}
-	}
-}
-
-func TestDevicesListsInventoryWithoutStartingAgents(t *testing.T) {
-	path := fakeADB(t, `
-test "$#" = 2 && test "$1" = devices && test "$2" = -l
-printf '%s\n' 'List of devices attached
-ready device model:Phone
-offline offline
-untrusted unauthorized
-'
-`)
-	devices, err := Devices(t.Context(), path)
-	if err != nil || len(devices) != 3 || devices[0].Details["model"] != "Phone" || devices[1].State != "offline" || devices[2].State != "unauthorized" {
-		t.Fatalf("inventory changed or started a session: devices=%v err=%v", devices, err)
-	}
-}
-
-func TestClientUsesSharedValidationBeforeDispatch(t *testing.T) {
-	client := &Client{Session: &session.Session{Server: control.NewServer("synthetic", nil)}}
-	op, err := Traceroute(TracerouteOptions{Host: "192.0.2.1", MaxHops: "256"})
+	via := []string{"192.0.2.1"}
+	op, err := Traceroute(TracerouteOptions{Host: "example.test", Via: via})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.Run(t.Context(), Agent{ID: "not-connected"}, op); err == nil || !strings.Contains(err.Error(), "255") {
-		t.Fatalf("shared validation did not precede transport: %v", err)
+	via[0] = "changed"
+	if op.impl.Options.TracerouteRequiredHops[0] != "192.0.2.1" {
+		t.Fatal("constructor borrowed caller's slice")
+	}
+}
+
+func TestPublicNumericAndDurationBounds(t *testing.T) {
+	for _, duration := range []time.Duration{-time.Millisecond, time.Nanosecond, time.Millisecond + time.Nanosecond, time.Duration(math.MaxInt32+1) * time.Millisecond, time.Duration(math.MaxInt64)} {
+		if _, err := Ping(PingOptions{Host: "example.test", Timeout: duration}); err == nil {
+			t.Fatal("invalid duration accepted")
+		}
+	}
+	for _, duration := range []time.Duration{0, time.Millisecond, time.Duration(math.MaxInt32) * time.Millisecond} {
+		if _, err := Ping(PingOptions{Host: "example.test", Timeout: duration}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	op, err := Ping(PingOptions{Host: "192.0.2.1"})
+	if err != nil || op.impl.Command.GetPing().Count != 3 || op.impl.Command.GetPing().TimeoutMs != 9000 {
+		t.Fatal("ping defaults changed")
+	}
+	for _, opts := range []PingOptions{{Host: ""}, {Host: "--option"}, {Host: "example.test", Count: math.MaxUint32}, {Host: "example.test", Size: math.MaxUint32}, {Host: "example.test", Count: math.MaxInt32}} {
+		if _, err := Ping(opts); err == nil {
+			t.Fatal("invalid ping accepted")
+		}
+	}
+	if _, err := Traceroute(TracerouteOptions{Host: "example.test", MaxHops: 256}); err == nil {
+		t.Fatal("hop limit accepted")
+	}
+	if _, err := HTTP("example.test", 600, 0); err == nil {
+		t.Fatal("HTTP status accepted")
+	}
+	if _, err := PathMTU(PathMTUOptions{Host: "example.test", MinMTU: 1500, MaxMTU: 1000}); err == nil {
+		t.Fatal("MTU bounds accepted")
+	}
+	if _, err := Network(0); err == nil {
+		t.Fatal("Network zero accepted")
+	}
+	if _, err := WiFiMonitor(121*time.Second, time.Second); err == nil {
+		t.Fatal("monitor duration would be silently clamped")
+	}
+	if _, err := WiFiMonitor(time.Second, time.Millisecond); err == nil {
+		t.Fatal("monitor interval would be silently clamped")
+	}
+	if _, err := WiFiCycle(WiFiCycleOptions{WiFiConnectOptions: WiFiConnectOptions{SSID: "Lab", Passphrase: "12345678"}, Count: 101}); err == nil {
+		t.Fatal("cycle count accepted")
+	}
+}
+
+func TestEveryNetworkSelectorIsTypedAndDetached(t *testing.T) {
+	ping, _ := Ping(PingOptions{Host: "192.0.2.1"})
+	trace, _ := Traceroute(TracerouteOptions{Host: "192.0.2.1"})
+	mtu, _ := PathMTU(PathMTUOptions{Host: "192.0.2.1"})
+	ip, _ := GlobalIP("all", 0)
+	dns, _ := DNS("example.test", "ALL", 0)
+	http, _ := HTTP("example.test", 0, 0)
+	download, _ := Download("https://example.test/file", 0)
+	for _, op := range []Operation{IPStatus(), ping, trace, mtu, ip, dns, http, download} {
+		bound, err := op.WithNetwork(NetworkSelector{SSID: " 123 日本語 ", BSSID: "aa:bb:cc:dd:ee:ff", NetworkID: 42})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd, _, _ := command.BuildRunCommand(bound.impl)
+		selector := *command.NetworkSelectorField(cmd)
+		if selector.GetSsid() != " 123 日本語 " || selector.GetNetworkId() != "42" {
+			t.Fatal("selector changed")
+		}
+		original, _, _ := command.BuildRunCommand(op.impl)
+		if (*command.NetworkSelectorField(original)).GetNetworkId() != "" {
+			t.Fatal("WithNetwork mutated original operation")
+		}
+		if _, err := op.WithNetwork(NetworkSelector{NetworkID: -1}); err == nil {
+			t.Fatal("negative ID accepted")
+		}
+		if _, err := op.WithNetwork(NetworkSelector{BSSID: "invalid"}); err == nil {
+			t.Fatal("invalid BSSID accepted")
+		}
+	}
+	if _, err := WiFiStatus().WithNetwork(NetworkSelector{}); err == nil {
+		t.Fatal("unsupported selector silently discarded")
+	}
+}
+
+func TestClientZeroClosedAndExecutionRevalidation(t *testing.T) {
+	for _, client := range []*Client{nil, {}} {
+		if _, err := client.Run(t.Context(), Agent{}, WiFiStatus()); !errors.Is(err, ErrClientNotOpen) {
+			t.Fatal(err)
+		}
+		if err := client.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lifetime, cancel := context.WithCancel(t.Context())
+	client := &Client{session: &session.Session{Server: control.NewServer("synthetic", nil)}, lifetime: lifetime, cancel: cancel}
+	op, _ := Ping(PingOptions{Host: "example.test"})
+	op.impl.Command.GetPing().Host = "--invalid"
+	if _, err := client.Run(t.Context(), Agent{}, op); err == nil || !strings.Contains(err.Error(), "host") {
+		t.Fatalf("validation did not precede dispatch: %v", err)
+	}
+	if client.Close() != nil {
+		t.Fatal("Close failed")
+	}
+	if _, err := client.Run(t.Context(), Agent{}, WiFiStatus()); !errors.Is(err, ErrClientClosed) {
+		t.Fatal(err)
+	}
+	if client.Agents() != nil {
+		t.Fatal("closed snapshots returned")
 	}
 }

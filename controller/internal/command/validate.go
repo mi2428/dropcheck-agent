@@ -54,6 +54,9 @@ func ValidateOperation(op Operation) error {
 		}
 	}
 	address := validateBSSID
+	if err := address(op.Options.WifiEHTBSSID); err != nil {
+		return err
+	}
 	selector := func(value *controlpb.NetworkSelector) error {
 		if value == nil {
 			return nil
@@ -94,18 +97,9 @@ func ValidateOperation(op Operation) error {
 	if err != nil {
 		return err
 	}
-	connect := func(c *controlpb.ConnectWifi) error {
-		if err := validateWifiTarget(c); err != nil {
-			return err
-		}
-		if c.Security != controlpb.ConnectWifi_SECURITY_UNSPECIFIED && c.Passphrase == "" {
-			return fmt.Errorf("passphrase is required for explicit security")
-		}
-		return nil
-	}
 	switch c := cmd.Command.(type) {
 	case *controlpb.RunCommand_ConnectWifi:
-		return connect(c.ConnectWifi)
+		return validateConnect(c.ConnectWifi)
 	case *controlpb.RunCommand_WaitWifiConnected:
 		return address(c.WaitWifiConnected.GetBssid())
 	case *controlpb.RunCommand_AssertWifi:
@@ -126,7 +120,7 @@ func ValidateOperation(op Operation) error {
 			}
 		}
 	case *controlpb.RunCommand_CycleWifi:
-		if err := connect(c.CycleWifi.GetConnect()); err != nil {
+		if err := validateConnect(c.CycleWifi.GetConnect()); err != nil {
 			return err
 		}
 		if c.CycleWifi.Count > 100 || c.CycleWifi.PauseMs > 60000 {
@@ -139,6 +133,10 @@ func ValidateOperation(op Operation) error {
 		}
 		if c.CycleWifi.HttpUrl != "" {
 			return validateHTTPEndpoint(c.CycleWifi.HttpUrl)
+		}
+	case *controlpb.RunCommand_MonitorWifi:
+		if c.MonitorWifi.DurationMs > 120000 || c.MonitorWifi.IntervalMs != 0 && (c.MonitorWifi.IntervalMs < 100 || c.MonitorWifi.IntervalMs > 60000) {
+			return fmt.Errorf("Wi-Fi monitor duration must be 1..120000 ms and interval 100..60000 ms (zero uses defaults)")
 		}
 	case *controlpb.RunCommand_Ping:
 		return host(c.Ping.Host)
@@ -199,6 +197,17 @@ func validateWifiTarget(c *controlpb.ConnectWifi) error {
 		return fmt.Errorf("Wi-Fi target is required")
 	}
 	return validateBSSID(c.Bssid)
+}
+
+func validateConnect(c *controlpb.ConnectWifi) error {
+	if err := validateWifiTarget(c); err != nil {
+		return err
+	}
+	// Auto selects PSK/SAE from Android's scan cache; it does not mean open Wi-Fi.
+	if !ValidPassphrase(c.Passphrase) {
+		return fmt.Errorf("passphrase must be 8..63 UTF-8 bytes without controls or 64 hex digits")
+	}
+	return nil
 }
 
 func validateHTTPEndpoint(value string) error {

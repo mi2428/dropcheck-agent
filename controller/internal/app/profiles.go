@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/mi2428/dropcheck-agent/controller/internal/acquire"
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 	"github.com/mi2428/dropcheck-agent/controller/internal/control"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
@@ -38,13 +39,13 @@ func (e linkNetworkExpectation) Evaluate(r watchrun.Result) []watchrun.Finding {
 	if selected == nil || selected.GetNetworkId() == "" || selected.GetInterfaceName() == "" || !slices.Contains(selected.GetTransports(), "wifi") || slices.Contains(selected.GetTransports(), "vpn") {
 		return []watchrun.Finding{watchrun.MissingFinding("link.network", "<missing>", e.Description(), "physical Wi-Fi Network/interface unavailable")}
 	}
-	if known, _ := watchrun.Availability(selected.GetObservationFields(), "capabilities"); !known {
+	if known, _ := acquire.Availability(selected.GetObservationFields(), "capabilities"); !known {
 		return []watchrun.Finding{watchrun.MissingFinding("link.network", "<missing>", e.Description(), "Network transport unavailable")}
 	}
-	if known, _ := watchrun.Availability(selected.GetObservationFields(), "link_properties"); !known {
+	if known, _ := acquire.Availability(selected.GetObservationFields(), "link_properties"); !known {
 		return []watchrun.Finding{watchrun.MissingFinding("link.network", "<missing>", e.Description(), "Network interface unavailable")}
 	}
-	if known, _ := watchrun.Availability(selected.GetWifi().GetObservationFields(), "identity"); !known || selected.GetWifi().GetSsid() == "" || strings.EqualFold(selected.GetWifi().GetSsid(), "<unknown ssid>") {
+	if known, _ := acquire.Availability(selected.GetWifi().GetObservationFields(), "identity"); !known || selected.GetWifi().GetSsid() == "" || strings.EqualFold(selected.GetWifi().GetSsid(), "<unknown ssid>") {
 		return []watchrun.Finding{watchrun.MissingFinding("link.network", "<missing>", e.Description(), "selected IP Network Wi-Fi identity unavailable or mismatched")}
 	}
 	if observedSSID := selected.GetWifi().GetSsid(); observedSSID != e.ssid {
@@ -97,7 +98,7 @@ func (e linkProvisioningExpectation) Description() string {
 func (e linkProvisioningExpectation) Evaluate(result watchrun.Result) []watchrun.Finding {
 	family := string(e)
 	ip := result.Run.Raw.GetIpStatus()
-	known, reason := watchrun.Availability(ip.GetObservationFields(), "link_properties")
+	known, reason := acquire.Availability(ip.GetObservationFields(), "link_properties")
 	counts := [3]int{}
 	for _, value := range ip.GetAddresses() {
 		addr, err := netip.ParseAddr(value)
@@ -231,7 +232,7 @@ func unsupportedProfileReport(profile, reason, agentID string) watchrun.Report {
 	return report
 }
 
-func executeProfile(ctx context.Context, state *shellState, name, ssid, family, bssid string, r watchrun.OperationRunner) (watchrun.Report, error) {
+func executeProfile(ctx context.Context, state *shellState, name, ssid, family, bssid string, r acquire.Runner) (watchrun.Report, error) {
 	if name != "link" {
 		profile := "unsupported"
 		if name == "lab" || name == "internet" || name == "eht" {
@@ -356,7 +357,7 @@ func renderProfileReport(s *shellState, detail bool, views ...render.Presentatio
 		if ip == nil {
 			continue
 		}
-		if ok, _ := watchrun.Availability(ip.GetObservationFields(), "capabilities"); ok {
+		if ok, _ := acquire.Availability(ip.GetObservationFields(), "capabilities"); ok {
 			validated = fmt.Sprint(ip.GetValidated())
 		}
 	}

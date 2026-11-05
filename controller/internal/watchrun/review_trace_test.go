@@ -1,13 +1,9 @@
 package watchrun_test
 
 import (
-	"context"
 	"testing"
 
-	"github.com/mi2428/dropcheck-agent/controller/internal/command"
-	"github.com/mi2428/dropcheck-agent/controller/internal/control"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
-	"github.com/mi2428/dropcheck-agent/controller/internal/runner"
 	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 )
 
@@ -42,43 +38,6 @@ func TestTypedTraceObservationsRemainAvailableToYAML(t *testing.T) {
 					if !expect[0].Evaluate(input)[0].Missing {
 						t.Fatalf("unknown %s became known empty", family)
 					}
-				}
-			}
-		})
-	}
-}
-
-type traceRunner struct{ raw *controlpb.CommandResult }
-
-func (r traceRunner) Run(context.Context, control.AgentInfo, command.Operation) (runner.Result, error) {
-	return runner.Result{Result: r.raw}, nil
-}
-
-func TestRequiredHopsUseTypedAddressesAndHostnamesNotStdout(t *testing.T) {
-	op, err := command.TracerouteOperation(command.TracerouteOptions{Host: "example.test", Via: []string{"192.0.2.1", "router.example.test"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, tc := range []struct {
-		name    string
-		trace   *controlpb.TracerouteResult
-		pass    bool
-		missing bool
-	}{
-		{"typed hops", &controlpb.TracerouteResult{ReachedTarget: new(true), Hops: []*controlpb.TracerouteHop{{Index: 1, Addresses: []string{"192.0.2.1"}, Hostnames: []string{"router.example.test"}}}}, true, false},
-		{"stdout only", &controlpb.TracerouteResult{ReachedTarget: new(false), Output: "192.0.2.1 router.example.test"}, false, false},
-		{"unavailable observations", &controlpb.TracerouteResult{Output: "192.0.2.1 router.example.test"}, false, true},
-		{"failed observations", &controlpb.TracerouteResult{ReachedTarget: new(false), ObservationError: "not collected"}, false, true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			raw := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_Traceroute{Traceroute: tc.trace}}
-			result, err := watchrun.ExecuteOperation(context.Background(), traceRunner{raw}, control.AgentInfo{ID: "a"}, op)
-			if err != nil || len(result.Findings) != 2 || len(result.Parts) != 1 || result.Parts[0].Scope.AgentID != "a" {
-				t.Fatalf("trace acquisition lost attribution: %+v err=%v", result, err)
-			}
-			for _, f := range result.Findings {
-				if f.Passed != tc.pass || f.Missing != tc.missing {
-					t.Fatalf("stdout replaced typed hops: %+v", f)
 				}
 			}
 		})
