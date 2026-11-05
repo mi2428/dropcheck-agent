@@ -289,3 +289,62 @@ func fakeADB(t *testing.T, body string) string {
 	}
 	return path
 }
+
+func TestOutputMidFlightContextCausesAndTokenRedaction(t *testing.T) {
+	for _, deadline := range []bool{false, true} {
+		t.Run(map[bool]string{false: "cancel", true: "deadline"}[deadline], func(t *testing.T) {
+			ready := filepath.Join(t.TempDir(), "ready")
+			t.Setenv("ADB_TEST_READY", ready)
+			path := fakeADB(t, "printf 'argv:%s\\n' \"$*\" >&2\n: > \"$ADB_TEST_READY\"\nexec sleep 60\n")
+			ctx, cancel := context.WithCancel(t.Context())
+			if deadline {
+				ctx, cancel = context.WithTimeout(t.Context(), 2*time.Second)
+			}
+			defer cancel()
+			type outcome struct {
+				out string
+				err error
+			}
+			done := make(chan outcome, 1)
+			const token = "SYNTHETIC_CANCEL_TOKEN"
+			go func() {
+				out, err := (Client{Path: path}).StartAgentSession(ctx, "test.agent", 12345, token, "id", "serial")
+				done <- outcome{out, err}
+			}()
+			wait := time.NewTicker(5 * time.Millisecond)
+			defer wait.Stop()
+			for {
+				if _, err := os.Stat(ready); err == nil {
+					break
+				} else if !errors.Is(err, os.ErrNotExist) {
+					t.Fatal(err)
+				}
+				select {
+				case <-ctx.Done():
+					t.Fatal("fake process did not reach marker before cancellation")
+				case <-wait.C:
+				}
+			}
+			if !deadline {
+				cancel()
+			}
+			select {
+			case got := <-done:
+				want := context.Canceled
+				if deadline {
+					want = context.DeadlineExceeded
+				}
+				if !errors.Is(got.err, want) || strings.Contains(got.out, token) || strings.Contains(got.err.Error(), token) || !strings.Contains(got.out, "[REDACTED]") {
+					t.Fatalf("unsafe/unclassified context error: %v", got.err)
+				}
+				for err := got.err; err != nil; err = errors.Unwrap(err) {
+					if strings.Contains(err.Error(), token) {
+						t.Fatal("secret in unwrapped error")
+					}
+				}
+			case <-time.After(4 * time.Second):
+				t.Fatal("fake process did not stop")
+			}
+		})
+	}
+}
