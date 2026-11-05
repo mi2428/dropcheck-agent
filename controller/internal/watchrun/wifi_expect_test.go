@@ -8,6 +8,36 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
+func TestAPCountsRejectNegativesAndPreserveKnownEmptyScan(t *testing.T) {
+	for _, field := range []string{"count", "min_count"} {
+		if _, err := CompileExpectations(map[string]any{"ap": map[string]any{field: -1}}); err == nil {
+			t.Fatalf("negative %s compiled", field)
+		}
+	}
+	if _, err := CompileExpectations(map[string]any{"ap": map[string]any{"count": 0, "min_count": -1}}); err == nil {
+		t.Fatal("an ignored negative min_count compiled")
+	}
+	expect, err := CompileExpectations(map[string]any{"ap": map[string]any{"count": 0}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []*controlpb.CommandResult{
+		{Payload: &controlpb.CommandResult_WifiScan{WifiScan: &controlpb.WifiScan{}}},
+		{Payload: &controlpb.CommandResult_WifiScanDetail{WifiScanDetail: &controlpb.WifiScanDetail{}}},
+	} {
+		finding := expect[0].Evaluate(Result{Run: RunResult{Raw: raw}})[0]
+		if !finding.Passed || finding.Missing || finding.ObservedValue != 0 {
+			t.Fatalf("known empty scan was lost: %+v", finding)
+		}
+	}
+	for _, raw := range []*controlpb.CommandResult{nil, {}} {
+		finding := expect[0].Evaluate(Result{Run: RunResult{Raw: raw}})[0]
+		if finding.Passed || !finding.Missing {
+			t.Fatalf("missing scan became a known zero: %+v", finding)
+		}
+	}
+}
+
 func TestWatchAPSelectorsUseTypedPayloads(t *testing.T) {
 	ap := &controlpb.WifiScanResult{
 		Ssid: "Lab", Bssid: "aa:bb:cc:dd:ee:ff", FrequencyMhz: 6135,
