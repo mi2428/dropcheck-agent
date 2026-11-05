@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
 func TestTimeoutForControllerDeadlines(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"dropcheck/controller/internal/pipeline"
 	"github.com/chzyer/readline"
+	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
 )
 
 func TestShellCredentialsAreSessionOnlyAndClearable(t *testing.T) {

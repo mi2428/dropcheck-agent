@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"dropcheck/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 )
 
 // RecentEventHistogram builds a fixed-width histogram over the recent time

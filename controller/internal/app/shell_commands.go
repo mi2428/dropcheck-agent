@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/render"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/render"
 )
 
 func connectShell(ctx context.Context, state *shellState, parsed shellCommand) error {

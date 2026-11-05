@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package dropcheck.v1;
 
-option go_package = "dropcheck/controller/internal/controlpb;controlpb";
+option go_package = "github.com/mi2428/dropcheck-agent/controller/internal/controlpb;controlpb";
 option java_multiple_files = true;
 option java_package = "io.dropcheck.agent.grpc";
 

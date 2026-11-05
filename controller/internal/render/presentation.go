@@ -5,9 +5,9 @@ import (
 	"slices"
 	"strings"
 
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/controlpb"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
 // Presentation is local display state, never an acquisition or evaluation option.

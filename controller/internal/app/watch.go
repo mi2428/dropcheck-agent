@@ -10,16 +10,16 @@ import (
 	"sync"
 	"time"
 
-	"dropcheck/controller/internal/adb"
-	"dropcheck/controller/internal/adbdiag"
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/control"
-	"dropcheck/controller/internal/controlpb"
-	"dropcheck/controller/internal/runner"
-	"dropcheck/controller/internal/tui"
-	"dropcheck/controller/internal/watch"
-	"dropcheck/controller/internal/watchrun"
-	"dropcheck/controller/pkg/dropcheck"
+	"github.com/mi2428/dropcheck-agent/controller/internal/adb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/adbdiag"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/control"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/runner"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tui"
+	"github.com/mi2428/dropcheck-agent/controller/internal/watch"
+	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/pkg/dropcheck"
 )
 
 type watchOptions struct {

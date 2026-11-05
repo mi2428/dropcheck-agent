@@ -1,6 +1,6 @@
 package watchrun
 
-import "dropcheck/controller/internal/controlpb"
+import "github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 
 // Availability consumes collector metadata. Empty lists and scalar zero cannot
 // establish availability; absent metadata is explicitly unknown.

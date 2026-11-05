@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/control"
-	"dropcheck/controller/internal/controlpb"
-	"dropcheck/controller/internal/pipeline"
-	"dropcheck/controller/internal/shell"
-	"dropcheck/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/control"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
+	"github.com/mi2428/dropcheck-agent/controller/internal/shell"
+	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 	"google.golang.org/protobuf/proto"
 )
 

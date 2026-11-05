@@ -3,8 +3,8 @@ package app
 import (
 	"io"
 
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/shell"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/shell"
 )
 
 type shellCommandKind = shell.CommandKind

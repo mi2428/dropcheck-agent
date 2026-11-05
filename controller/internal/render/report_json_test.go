@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"dropcheck/controller/internal/controlpb"
-	"dropcheck/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 )
 
 func TestSafeReportJSONRedactsBeforeEncodingWithoutMutatingTypedReport(t *testing.T) {

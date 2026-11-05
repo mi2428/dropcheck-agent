@@ -3,12 +3,12 @@ package app
 import (
 	"bytes"
 	"context"
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/control"
-	"dropcheck/controller/internal/controlpb"
-	"dropcheck/controller/internal/runner"
-	"dropcheck/controller/internal/watchrun"
-	"dropcheck/controller/internal/watchstate"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/control"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/runner"
+	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/watchstate"
 	"testing"
 	"time"
 )

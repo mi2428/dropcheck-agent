@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"dropcheck/controller/internal/adb"
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/control"
-	"dropcheck/controller/internal/session"
+	"github.com/mi2428/dropcheck-agent/controller/internal/adb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/control"
+	"github.com/mi2428/dropcheck-agent/controller/internal/session"
 )
 
 func TestDiscoverADBTargetsUsesExplicitSerial(t *testing.T) {

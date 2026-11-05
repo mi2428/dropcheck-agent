@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/control"
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/control"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
 const cleanupTimeout = 5 * time.Second

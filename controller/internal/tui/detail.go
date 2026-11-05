@@ -8,7 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"dropcheck/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"

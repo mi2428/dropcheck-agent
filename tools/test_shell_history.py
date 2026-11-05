@@ -20,7 +20,7 @@ def main():
     version = b'round2-local-version'
     with tempfile.TemporaryDirectory(prefix='dropcheck-round2-pty-') as directory:
         binary = Path(directory) / 'round2-app.test'
-        subprocess.run([os.environ.get('GO', 'go'), 'test', '-p=1', '-race', '-c', '-ldflags', '-X dropcheck/controller/internal/version.Version=round2-local-version', '-o', str(binary), './internal/app'], cwd=ROOT / 'controller', check=True, timeout=60)
+        subprocess.run([os.environ.get('GO', 'go'), 'test', '-p=1', '-race', '-c', '-ldflags', '-X github.com/mi2428/dropcheck-agent/controller/internal/version.Version=round2-local-version', '-o', str(binary), './internal/app'], cwd=ROOT / 'controller', check=True, timeout=60)
         secret = b'set cli default-passphrase round2-synthetic-secret'
         commands = [
             ('wifi-status', b'show wifi status'),

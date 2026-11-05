@@ -3,8 +3,8 @@ package watchrun
 import (
 	"testing"
 
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 	"google.golang.org/protobuf/proto"
 )
 

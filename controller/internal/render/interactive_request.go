@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
 // Typed Shell records/tables; native output remains a separate reference block.

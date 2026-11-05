@@ -3,8 +3,8 @@ package tui
 import (
 	"time"
 
-	"dropcheck/controller/internal/watchrun"
-	"dropcheck/controller/internal/watchstate"
+	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/watchstate"
 
 	"charm.land/bubbles/v2/key"
 )

@@ -1,6 +1,6 @@
 package app
 
-import "dropcheck/controller/internal/command"
+import "github.com/mi2428/dropcheck-agent/controller/internal/command"
 
 // Operation is the command boundary consumed by app execution code.
 //

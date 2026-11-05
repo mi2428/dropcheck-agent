@@ -3,8 +3,8 @@ package shell
 import (
 	"fmt"
 
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/pipeline"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
 )
 
 type CommandKind int

@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"dropcheck/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 )
 
 func (m model) roundTimelineView(width int, height int) string {

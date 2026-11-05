@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"dropcheck/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 )
 
 func PrintHelp() { writeHelp(os.Stdout) }

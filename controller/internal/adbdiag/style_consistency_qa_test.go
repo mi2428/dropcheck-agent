@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"dropcheck/controller/internal/pipeline"
-	"dropcheck/controller/internal/render"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
+	"github.com/mi2428/dropcheck-agent/controller/internal/render"
 )
 
 func styleADBField(t *testing.T, text, label, value string, indent int) int {

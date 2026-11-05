@@ -3,7 +3,7 @@ package command
 import (
 	"fmt"
 
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 	"google.golang.org/protobuf/proto"
 )
 

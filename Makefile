@@ -16,7 +16,7 @@ E2E_TIMEOUT             ?= 3h
 E2E_AGENT_PACKAGE       ?= io.dropcheck.agent
 GIT_DESCRIBE            := $(shell git describe --tags --dirty --always 2>/dev/null)
 VERSION                 ?= $(or $(GIT_DESCRIBE),0.0.0-dev)
-GO_LDFLAGS              ?= -X dropcheck/controller/internal/version.Version=$(VERSION)
+GO_LDFLAGS              ?= -X github.com/mi2428/dropcheck-agent/controller/internal/version.Version=$(VERSION)
 
 SSID                    ?= $(DROPCHECK_E2E_WIFI_SSID)
 PSK                     ?= $(DROPCHECK_E2E_WIFI_PSK)

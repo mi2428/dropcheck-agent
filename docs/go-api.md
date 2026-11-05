@@ -1,6 +1,6 @@
 # Basic Go API
 
-The public package is `dropcheck/controller/pkg/dropcheck`. It exposes the same basic typed operations used by PC Shell and watch, without a one-shot CLI, Go test DSL, public Plan or public watch runner. Existing internal operation builders, validation, authenticated transport and compound-acquisition handling remain the implementation; the public package does not duplicate them.
+The public package is `github.com/mi2428/dropcheck-agent/controller/pkg/dropcheck`. It exposes the same basic typed operations used by PC Shell and watch, without a one-shot CLI, Go test DSL, public Plan or public watch runner. Existing internal operation builders, validation, authenticated transport and compound-acquisition handling remain the implementation; the public package does not duplicate them.
 
 ```go
 package main
@@ -11,7 +11,7 @@ import (
     "log"
     "time"
 
-    "dropcheck/controller/pkg/dropcheck"
+    "github.com/mi2428/dropcheck-agent/controller/pkg/dropcheck"
 )
 
 func main() {
@@ -54,4 +54,4 @@ Transport/input failures are returned as errors. Agent outcomes remain in `Resul
 
 Returned protobuf payloads are acquisition data, not presentation-sanitized text. Consumers must protect credentials and other sensitive values before logging or exporting raw payloads. The existing Shell presentation and widget safety boundaries are unchanged.
 
-`TestExternalModuleBasicAPI` compiles and exercises the public API from a separate temporary Go module using a local module replacement. It checks public types, constructors, typed outcomes and cancellation without ADB or a device. In this repository the module path remains `dropcheck/controller`; external consumers must resolve that module using their existing local/workspace/module replacement setup.
+`TestExternalModuleBasicAPI` compiles and exercises the public API from a separate temporary Go module using a local module replacement. It checks public types, constructors, typed outcomes and cancellation without ADB or a device. In this repository the module path remains `github.com/mi2428/dropcheck-agent/controller`; external consumers must resolve that module using their existing local/workspace/module replacement setup.

@@ -172,7 +172,7 @@ The controller builds one host-side binary:
 ```console
 $ make build TARGET=controller
 + mkdir -p dist
-+ go build -ldflags -X\ dropcheck/controller/internal/version.Version=0.9.0-dirty -o dist/dropcheck ./cmd/dropcheck
++ go build -ldflags -X\ github.com/mi2428/dropcheck-agent/controller/internal/version.Version=0.9.0-dirty -o dist/dropcheck ./cmd/dropcheck
 ```
 
 Inside Shell:
@@ -378,7 +378,7 @@ Other old preferences are left intact; do not include PSKs in migration reports 
 
 ### Basic Go API
 
-Use `dropcheck/controller/pkg/dropcheck` for an ADB-backed client and individual typed operations. The public surface owns session startup/close, agent enumeration and `Client.Run`; internal command/control/session/runner/protocol packages are not public imports. See [the Go API guide](docs/go-api.md). Scenario Plans, test adapters, fluent assertions and the private watch runtime are not a supported Go API.
+Use `github.com/mi2428/dropcheck-agent/controller/pkg/dropcheck` for an ADB-backed client and individual typed operations. The public surface owns session startup/close, agent enumeration and `Client.Run`; internal command/control/session/runner/protocol packages are not public imports. See [the Go API guide](docs/go-api.md). Scenario Plans, test adapters, fluent assertions and the private watch runtime are not a supported Go API.
 
 Watch YAML keeps retry/repeat/eventually/stability policies and flat metric/AP/MLO/CIDR expectations. Attempts includes the first measurement; repeats are independent, and stability permits retry recovery within each sample rather than proving uninterrupted connectivity. Unknown options and invalid plans fail before device dispatch. Reports/events retain attempts, recovery, missing/skip/cancel reasons, and independent primary/cleanup/delivery failures. Owned target cleanup remains bounded disconnect-then-forget, including cancellation. Existing external YAML defaults are not implicit authorization for a lab profile.
 

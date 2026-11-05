@@ -8,11 +8,11 @@ import (
 	"os"
 	"strings"
 
-	"dropcheck/controller/internal/adb"
-	"dropcheck/controller/internal/control"
-	"dropcheck/controller/internal/runner"
-	"dropcheck/controller/internal/session"
-	"dropcheck/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/adb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/control"
+	"github.com/mi2428/dropcheck-agent/controller/internal/runner"
+	"github.com/mi2428/dropcheck-agent/controller/internal/session"
+	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 )
 
 const DefaultPackageName = session.DefaultPackageName

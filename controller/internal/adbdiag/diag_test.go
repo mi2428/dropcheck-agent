@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"dropcheck/controller/internal/pipeline"
+	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
 )
 
 func TestSpecsFullIncludesRawWifiAndConnectivityCommands(t *testing.T) {

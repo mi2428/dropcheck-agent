@@ -1,8 +1,8 @@
 package app
 
 import (
-	"dropcheck/controller/internal/pipeline"
-	"dropcheck/controller/internal/render"
+	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
+	"github.com/mi2428/dropcheck-agent/controller/internal/render"
 )
 
 const outputText = pipeline.FormatText

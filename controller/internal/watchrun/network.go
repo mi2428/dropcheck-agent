@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"time"
 
-	"dropcheck/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 )
 
 // Network is watch target data, not a Go scenario builder. Connection ownership

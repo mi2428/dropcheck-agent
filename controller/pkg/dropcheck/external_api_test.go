@@ -18,13 +18,13 @@ func TestExternalModuleBasicAPI(t *testing.T) {
 	}
 	root := filepath.Clean(filepath.Join(here, "../.."))
 	dir := t.TempDir()
-	module := fmt.Sprintf("module example.test/dropcheck-consumer\n\ngo 1.26.0\n\nrequire dropcheck/controller v0.0.0\n\nreplace dropcheck/controller => %q\n", root)
+	module := fmt.Sprintf("module example.test/dropcheck-consumer\n\ngo 1.26.0\n\nrequire github.com/mi2428/dropcheck-agent/controller v0.0.0\n\nreplace github.com/mi2428/dropcheck-agent/controller => %q\n", root)
 	source := `package consumer
 import (
     "context"
     "errors"
     "testing"
-    "dropcheck/controller/pkg/dropcheck"
+    "github.com/mi2428/dropcheck-agent/controller/pkg/dropcheck"
 )
 func TestBasicOperations(t *testing.T) {
     ctx, cancel := context.WithCancel(context.Background())

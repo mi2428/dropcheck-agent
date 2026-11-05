@@ -8,9 +8,9 @@ import (
 	"sync"
 	"testing"
 
-	"dropcheck/controller/internal/adbdiag"
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/pipeline"
+	"github.com/mi2428/dropcheck-agent/controller/internal/adbdiag"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
 )
 
 // Correctness assertions retained from the independent Shell 2.0 QA.

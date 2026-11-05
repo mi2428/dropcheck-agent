@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"dropcheck/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 )
 
 // PushEventLog stores a sanitized, human-readable log line while preserving the

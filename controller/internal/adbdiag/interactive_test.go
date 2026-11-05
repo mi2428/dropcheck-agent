@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"dropcheck/controller/internal/adb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/adb"
 )
 
 func TestInteractiveCollectionPlansAndCanceledSources(t *testing.T) {

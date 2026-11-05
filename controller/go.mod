@@ -1,4 +1,4 @@
-module dropcheck/controller
+module github.com/mi2428/dropcheck-agent/controller
 
 go 1.26.0
 
