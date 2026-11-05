@@ -65,7 +65,7 @@ fi
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	t.Cleanup(session.Close)
+	t.Cleanup(func() { _ = session.Close() })
 	if err := <-agentErr; err != nil {
 		t.Fatalf("agent connect error = %v", err)
 	}
@@ -101,7 +101,7 @@ fi
 		ListenAddr: freeTCPAddr(t),
 	}, []adb.Device{{Serial: "R5CT12345", State: "device"}})
 	if session != nil {
-		t.Cleanup(session.Close)
+		t.Cleanup(func() { _ = session.Close() })
 	}
 	if err == nil {
 		t.Fatal("Start() error = nil, want adb reverse failure")
@@ -127,7 +127,7 @@ fi
 	const token = "TEST_ONLY_SESSION_TOKEN"
 	session, err := startOnce(context.Background(), Options{ADBPath: path, PackageName: "test.agent", ListenAddr: "127.0.0.1:0"}, []adb.Device{{Serial: "serial-test"}}, token)
 	if session != nil {
-		t.Cleanup(session.Close)
+		t.Cleanup(func() { _ = session.Close() })
 	}
 	if err == nil {
 		t.Fatal("startup unexpectedly succeeded")
