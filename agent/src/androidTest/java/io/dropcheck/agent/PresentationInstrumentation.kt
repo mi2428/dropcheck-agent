@@ -21,7 +21,9 @@ class PresentationInstrumentation : Instrumentation() {
         val result = Bundle()
         var checked = 0
         try {
+            var nativeFailure: Throwable? = null
             runOnMainSync {
+                try {
                 val block = AgentPresentationBlock.create(listOf(
                     AgentBlockPart.Text("Wi-Fi scan FAILED 9000ms"),
                     AgentBlockPart.Field("Source", "android"),
@@ -97,7 +99,7 @@ class PresentationInstrumentation : Instrumentation() {
                             val first = text.indexOf("cached", requested)
                             val second = text.indexOf("0ms", updated)
                             check(first >= 0 && second >= 0)
-                            check(kotlin.math.abs(view.layout.getPrimaryHorizontal(first) - view.layout.getPrimaryHorizontal(second)) <= 0.5f) { "native Unicode field columns differ" }
+                            check(kotlin.math.abs(view.layout.getPrimaryHorizontal(first) - view.layout.getPrimaryHorizontal(second)) <= 0.5f) { "native Unicode field columns differ scale=$scale columns=$columns first=${view.layout.getPrimaryHorizontal(first)} second=${view.layout.getPrimaryHorizontal(second)}" }
                             val table = text.indexOf("CJK\tVALUE\tAGE(s)")
                             check(table >= 0)
                             check(text.substring(0, table).endsWith("\n\n") && text.endsWith("123.456\n\n")) { "native table boundary missing" }
@@ -181,7 +183,9 @@ class PresentationInstrumentation : Instrumentation() {
                     "request http check https://example.test:65536/", "request http download https://example.test:2147483648/")) {
                     check(AgentShellParser.parse(line) is AgentShellCommand.Invalid) { "invalid endpoint accepted on ART" }
                 }
+                } catch (failure: Throwable) { nativeFailure = failure }
             }
+            nativeFailure?.let { throw it }
             result.putString("stream", "PASS: native synthetic fitting cases=$checked; ART credential cases=3 identity boundary=1 rejected endpoints=5; zero acquisition entry points. Clipboard/TalkBack/Activity rotation/IME checks remain separate.\n")
             finish(Activity.RESULT_OK, result)
         } catch (failure: Throwable) {

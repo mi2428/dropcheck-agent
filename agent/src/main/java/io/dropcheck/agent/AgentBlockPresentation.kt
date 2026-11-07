@@ -412,19 +412,14 @@ internal object AgentNativeBlockLayout {
         }
         val wrapped = SpannableStringBuilder()
         appendWrapped(wrapped, value, (width - valueStart).toInt(), paint)
-        fun space(pixels: Float) {
-            if (pixels <= 0f) return
-            val start = out.length
-            out.append(' ')
-            out.setSpan(ScaleXSpan(pixels / paint.measureText(" ")), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        }
+        val start = out.length
         wrapped.toString().removeSuffix("\n").split('\n').forEachIndexed { index, line ->
-            if (index == 0) {
-                out.append(label).append(':')
-                space(valueStart - paint.measureText(label + ":"))
-            } else space(valueStart)
+            if (index == 0) out.append(label).append(':')
+            out.append('\t')
             out.append(line).append('\n')
         }
+        // Native tab stops keep values aligned across fallback fonts, like table cells.
+        out.setSpan(TabStopSpan.Standard(kotlin.math.ceil(valueStart).toInt()), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
 
     fun shrinkFloor(baseSizeSp: Float, minimumSizeSp: Float): Float = maxOf(baseSizeSp * 0.9f, 10f, minimumSizeSp)
