@@ -69,10 +69,17 @@ class ShellReadOnlyInstrumentation : Instrumentation() {
             val ssid = ip.ipStatus.wifi.ssid.replace("\\", "\\\\").replace("\"", "\\\"")
             val dual = json("test link ssid \"$ssid\" family all | display json")
             val findings = lines(dual)
-            check(listOf("ipv4.addresses:", "ipv4.default_routes:", "ipv4.dns_servers:", "ipv6.addresses:", "ipv6.default_routes:", "ipv6.dns_servers:").all { metric -> findings.any { metric in it } }) { "dual-family findings missing" }
-            check(dual.getBoolean("ok") || findings.any { ": FAIL" in it || ": MISSING" in it }) { "dual-family outcome inconsistent" }
+            val metrics = checkNotNull(field<AgentShellSession>(current!!, "shellSession").lastTest?.block)
+                .parts.filterIsInstance<AgentBlockPart.Table>().single {
+                    it.columns.map { column -> column.label } == listOf("STAGE", "METRIC", "OUTCOME", "ACTUAL", "EXPECTED")
+                }.rows
+            check(listOf("ipv4.addresses", "ipv4.default_routes", "ipv4.dns_servers", "ipv6.addresses", "ipv6.default_routes", "ipv6.dns_servers").all { metric ->
+                metrics.any { it[1] == metric } && "METRIC: $metric" in findings
+            }) { "dual-family typed/JSON findings missing" }
+            check(metrics.all { it[2] in listOf("PASS", "FAIL", "MISSING") }) { "unknown metric outcome" }
+            check(dual.getBoolean("ok") == metrics.all { it[2] == "PASS" }) { "dual-family outcome inconsistent" }
             dualOutcome = if (dual.getBoolean("ok")) "PASS" else "NOT_PASS_WITH_EXPLICIT_FINDINGS"
-            dualFailedMetrics = findings.mapNotNull { Regex("(ipv[46]\\.(?:addresses|default_routes|dns_servers)): (?:FAIL|MISSING)").find(it)?.groupValues?.get(1) }.distinct().joinToString(",").ifEmpty { "none" }
+            dualFailedMetrics = metrics.filter { it[2] != "PASS" }.map { it[1] }.distinct().joinToString(",").ifEmpty { "none" }
             cases++
             check(submit("show permissions").contains("Device Owner:")) { "unfiltered permission output unavailable" }
             submit("set cli default-passphrase acceptance-only-psk")

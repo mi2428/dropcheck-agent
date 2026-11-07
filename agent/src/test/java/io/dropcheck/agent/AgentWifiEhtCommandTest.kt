@@ -33,13 +33,14 @@ class AgentWifiEhtCommandTest {
         assertTrue(result.message.contains("refresh not confirmed"))
         assertEquals(123L, result.elapsedMs)
         assertEquals(0, fresh.wifiScan.fieldsCount)
-        val out = AgentShellTextFormatter.formatStructuredResult(
+        val out = AgentShellTextFormatter.block(
             result,
-            AgentWifiMloRenderer.render(
+            AgentWifiMloRenderer.presentation(
                 result.wifiDiagnostics.status, result.wifiDiagnostics.scan,
                 AgentWifiMloContext(scanSource = scanSource(result), sdkInt = 36),
             ),
-        ).joinToString("\n")
+            0,
+        ).fullText
         assertFalse(result.status == CommandResult.Status.STATUS_OK)
         assertTrue(out.startsWith("Wi-Fi diagnostics  FAILED\nStatus: failed"))
         assertTrue(out.contains("Latency: 123ms"))

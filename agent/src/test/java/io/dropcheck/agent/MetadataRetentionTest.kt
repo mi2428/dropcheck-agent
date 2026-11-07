@@ -69,10 +69,11 @@ class MetadataRetentionTest {
         }
     }
 
-    @Test fun legacyLinkProjectionDoesNotCombineNamedMetadata() {
-        val lines = LinkReport("link", "Target: literal", IpFamily.IP_FAMILY_ALL, 0, 1, LinkOutcome.MISSING, emptyList(), validated = false).lines()
-        for (line in listOf("Target SSID: Target: literal", "Family: all", "Started: 0", "Ended: 1", "Source: Android selected physical Wi-Fi", "Network: ?", "Interface: ?", "Validated (observed, not required): false")) {
-            assertTrue(line in lines)
+    @Test fun linkPresentationDoesNotCombineNamedMetadata() {
+        val report = LinkReport("link", "Target: literal", IpFamily.IP_FAMILY_ALL, 0, 1, LinkOutcome.MISSING, emptyList(), validated = false)
+        val fields = AgentPresentationBlock.create(report.presentation(), 0).parts.filterIsInstance<AgentBlockPart.Field>().map { it.label to it.value }
+        for (field in listOf("SSID" to "Target: literal", "Family" to "IP_FAMILY_ALL", "Started / ended" to "0 / 1", "Source" to "Android selected physical Wi-Fi", "Network" to "?", "Interface" to "?", "Validated (observed)" to "false")) {
+            assertTrue(field in fields)
         }
     }
 }

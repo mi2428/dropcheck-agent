@@ -874,7 +874,11 @@ class MainActivity : Activity() {
                 if (command.testProfile.isNotEmpty()) shellSession.recordTest(AgentShellResult(false, listOf(command.message)))
                 appendShellLine(command.message, SHELL_ERROR_COLOR)
             }
-            else -> AgentShellAdapter(applicationContext, agentShellLogger(), shellSession).let { adapter ->
+            else -> {
+                val app = applicationContext
+                val logger = agentShellLogger()
+                val executor by lazy { CommandExecutor(app, logger) }
+                val adapter = AgentShellAdapter(shellSession) { executor.execute(it) }
                 val inner = if (command is AgentShellCommand.Piped) command.command else command
                 val name = when (inner) {
                     is AgentShellCommand.Execute -> inner.request.commandCase.name.lowercase().replace('_', '.')

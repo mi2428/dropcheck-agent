@@ -8,7 +8,6 @@ import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
-import io.dropcheck.agent.grpc.CommandLog
 import io.dropcheck.agent.grpc.CommandResult
 import io.dropcheck.agent.grpc.DiagnosticCheck
 import io.dropcheck.agent.grpc.WifiAssertResult
@@ -136,9 +135,7 @@ class PresentationInstrumentation : Instrumentation() {
                         checked++
                     }
                 }
-                val adapter = AgentShellAdapter(targetContext, object : CommandLogger {
-                    override fun log(level: CommandLog.Level, message: String, scope: CommandLogScope) = error("Synthetic rendering must not execute or log")
-                })
+                val adapter = AgentShellAdapter { error("Synthetic rendering must not execute") }
                 val request = (AgentShellParser.parse("test wifi") as AgentShellCommand.Execute)
                 val assertion = CommandResult.newBuilder().setStatus(CommandResult.Status.STATUS_FAILED).setWifiAssert(WifiAssertResult.newBuilder()
                     .addChecks(DiagnosticCheck.newBuilder().setKey("ssid").setExpected("password=Guest Target: literal").setActual("token=Guest Source: literal").setPassed(false)

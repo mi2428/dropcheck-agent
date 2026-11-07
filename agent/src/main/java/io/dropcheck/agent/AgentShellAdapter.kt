@@ -1,6 +1,5 @@
 package io.dropcheck.agent
 
-import android.content.Context
 import io.dropcheck.agent.grpc.CommandResult
 import io.dropcheck.agent.grpc.RunCommand
 
@@ -42,8 +41,7 @@ internal data class AgentShellResult(
 )
 
 /** A thin local-command adapter. All device operations still enter CommandExecutor.execute. */
-internal class AgentShellAdapter(private val context: Context, private val logger: CommandLogger, private val session: AgentShellSession = AgentShellSession()) {
-    private val executor by lazy { CommandExecutor(context, logger) }
+internal class AgentShellAdapter(private val session: AgentShellSession = AgentShellSession(), private val executeCommand: (RunCommand) -> CommandResult) {
 
     fun execute(command: AgentShellCommand): AgentShellResult = when (command) {
         is AgentShellCommand.Piped -> command.pipeline.apply(execute(command.command))
@@ -60,15 +58,14 @@ internal class AgentShellAdapter(private val context: Context, private val logge
         is AgentShellCommand.Connect -> connect(command)
         is AgentShellCommand.Check -> {
             session.recordTest(AgentShellResult(false, listOf("Test did not return a valid result")))
-            (if (session.connectionFailed) AgentShellResult(false, listOf("Previous connection attempt failed; target not ready"))
-            else AgentLinkProfile.run(command) { executor.execute(it) }.let { AgentShellResult(it.outcome == LinkOutcome.PASS, block = AgentPresentationBlock.create(it.presentation(), AgentLogStyle.TEXT_COLOR)) }).also(session::recordTest)
+            AgentLinkProfile.run(command, executeCommand).let { AgentShellResult(it.outcome == LinkOutcome.PASS, block = AgentPresentationBlock.create(it.presentation(), AgentLogStyle.TEXT_COLOR)) }.also(session::recordTest)
         }
         AgentShellCommand.ShowChecks -> AgentShellResult(true, AgentLinkProfile.catalogue())
         is AgentShellCommand.ShowCheckLast -> lastTest()
         is AgentShellCommand.ShowWifiEht -> eht(command)
         is AgentShellCommand.Execute -> {
             if (command.wifiTest) session.recordTest(AgentShellResult(false, listOf("Test did not return a valid result")))
-            render(command, executor.execute(command.request)).also { if (command.wifiTest) session.recordTest(it) }
+            render(command, executeCommand(command.request)).also { if (command.wifiTest) session.recordTest(it) }
         }
     }
 
@@ -76,9 +73,7 @@ internal class AgentShellAdapter(private val context: Context, private val logge
         val decision = AgentShellUsePolicy.resolveUseRequest(command.options.ssid, command.options.passphrase.takeIf(String::isNotEmpty), session.defaults)
         val request = decision.request ?: return AgentShellResult(false, listOf(decision.error))
         val wire = AgentShellUsePolicy.connectCommand(command.options, request)
-        session.connectionFailed = true
-        val result = executor.execute(wire)
-        session.connectionFailed = result.status != CommandResult.Status.STATUS_OK || !result.hasConnectWifi() || !result.connectWifi.connected
+        val result = executeCommand(wire)
         return render(AgentShellCommand.Execute(wire, secret = request.passphrase), result, request.passphraseSource)
     }
 
@@ -89,7 +84,7 @@ internal class AgentShellAdapter(private val context: Context, private val logge
         return AgentShellResult(true, block = AgentPresentationBlock.create(header + parts, AgentLogStyle.TEXT_COLOR))
     }
     private fun eht(command: AgentShellCommand.ShowWifiEht): AgentShellResult {
-        val result = runWifiEhtDiagnostics(command, executor::execute)
+        val result = runWifiEhtDiagnostics(command, executeCommand)
         if (!result.hasWifiDiagnostics() || !result.wifiDiagnostics.hasStatus()) return failure("Wi-Fi EHT", result)
         val diagnostics = result.wifiDiagnostics
         val parts = AgentWifiMloRenderer.presentation(diagnostics.status, diagnostics.scan, AgentWifiMloContext(
@@ -126,12 +121,7 @@ internal class AgentShellAdapter(private val context: Context, private val logge
             RunCommand.CommandCase.WGET -> result.hasWget()
             else -> false
         }
-        val secrets = listOf(command.secret) + when (request.commandCase) {
-            RunCommand.CommandCase.HTTP_CHECK -> listOf(request.httpCheck.url)
-            RunCommand.CommandCase.WGET -> listOf(request.wget.url)
-            RunCommand.CommandCase.CYCLE_WIFI -> listOf(request.cycleWifi.httpUrl)
-            else -> emptyList()
-        }
+        val secrets = listOf(command.secret)
         if (!hasPayload) return failure(request.commandCase.name, result, secrets)
         val evaluated = if (request.commandCase == RunCommand.CommandCase.TRACEROUTE) evaluateShellTraceroute(result, command.via) else evaluateShellPayload(request, result)
         if (command.rawView.isNotEmpty()) return AgentRawDebugRenderer.render(command, evaluated)

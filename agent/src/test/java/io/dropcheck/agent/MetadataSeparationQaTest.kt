@@ -25,16 +25,16 @@ class MetadataSeparationQaTest {
         assertEquals("All typed outcomes require independent headers", emptyList<String>(), defects)
     }
 
-    @Test fun stringFormatterSourceAndTargetAreIndependentLines() {
-        val lines = AgentShellTextFormatter.formatStructuredResult(CommandResult.newBuilder().setStatus(CommandResult.Status.STATUS_OK).build(), emptyList())
+    @Test fun blockSourceAndTargetAreIndependentLines() {
+        val lines = AgentShellTextFormatter.block(CommandResult.newBuilder().setStatus(CommandResult.Status.STATUS_OK).build(), emptyList(), 0).fullText.lines()
         assertEquals(listOf("Source: android", "Target: self"), lines.filter { it.startsWith("Source:") || it.startsWith("Target:") })
     }
 
-    @Test fun stringFormatterStatusAndMessageAreIndependentLines() {
+    @Test fun blockStatusAndMessageAreIndependentLines() {
         val message = "partial Target: literal Source: literal password=qa-synthetic-secret"
         val defects = listOf(CommandResult.Status.STATUS_FAILED, CommandResult.Status.STATUS_CANCELED).mapNotNull { status ->
             val result = CommandResult.newBuilder().setStatus(status).setMessage(message).build()
-            val lines = AgentShellTextFormatter.formatStructuredResult(result, emptyList())
+            val lines = AgentShellTextFormatter.block(result, emptyList(), 0).fullText.lines()
             val actual = lines.filter { it.startsWith("Status:") || it.startsWith("Message:") }
             val expected = listOf("Status: ${status.name.removePrefix("STATUS_").lowercase()}", "Message: ${AgentSafePresentation.text(message)}")
             if (actual == expected) null else "$status: $actual"

@@ -47,7 +47,7 @@ class LinkProfileLiveInstrumentation : Instrumentation() {
                 done(LinkOutcome.MISSING, "ssid_identity_unavailable")
                 return
             }
-            val observedSsid = ip.wifi.ssid // Private process memory only; never emit report.lines or command/result.toString().
+            val observedSsid = ip.wifi.ssid // Private process memory only; never emit the report or command/result.toString().
             val report = AgentLinkProfile.run(AgentShellCommand.Check("link", observedSsid)) { request ->
                 if (request.commandCase != RunCommand.CommandCase.GET_IP_STATUS || request.getIpStatus.selector.ssid != observedSsid) {
                     rejected++
@@ -62,13 +62,13 @@ class LinkProfileLiveInstrumentation : Instrumentation() {
             if (report.outcome == LinkOutcome.PASS) {
                 check(linkReads == 2 && report.stages.all { it.outcome == LinkOutcome.PASS })
                 check(report.stages.all { stage -> stage.metrics.size == 3 && stage.metrics.all { it.outcome == LinkOutcome.PASS } })
-                val adapter = AgentShellAdapter(targetContext.applicationContext, logger)
+                val adapter = AgentShellAdapter(executeCommand = executor::execute)
                 check(adapter.execute(AgentShellCommand.ShowChecks).lines.any { it.toString().contains("link: supported") })
                 val escapedSsid = observedSsid.replace("\\", "\\\\").replace("\"", "\\\"")
                 val parsed = AgentShellParser.parse("test link ssid \"$escapedSsid\"")
                 check(parsed is AgentShellCommand.Check && parsed.ssid == observedSsid)
                 val shellResult = adapter.execute(parsed)
-                check(shellResult.ok && shellResult.lines.any { it.toString().contains("PASS") })
+                check(shellResult.ok && shellResult.block?.fullText?.contains("PASS") == true)
                 val historical = adapter.execute(AgentShellCommand.ShowCheckLast)
                 check(historical.ok && historical.block?.fullText?.startsWith("Historical test") == true)
                 shellAdapterPassed = true
@@ -94,7 +94,7 @@ class LinkProfileLiveInstrumentation : Instrumentation() {
                 }
                 check(rejected == 0 && wrongReads == 1 && wrongTarget.outcome == LinkOutcome.MISSING)
                 check(wrongTarget.stages.map { it.outcome } == listOf(LinkOutcome.MISSING, LinkOutcome.SKIP))
-                val sessionAdapter = AgentShellAdapter(targetContext.applicationContext, logger)
+                val sessionAdapter = AgentShellAdapter(executeCommand = executor::execute)
                 check(sessionAdapter.execute(AgentShellCommand.ShowCheckLast).lines.any { "No test attempted" in it }) { "another session inherited a historical result" }
                 sessionAdapter.execute(AgentShellCommand.Invalid("invalid test syntax", "link"))
                 val latest = sessionAdapter.execute(AgentShellCommand.ShowCheckLast)
