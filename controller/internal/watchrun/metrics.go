@@ -46,14 +46,11 @@ func (v Value) String() string {
 	}
 }
 
-// Bool returns the metric value as a boolean when it can be interpreted as one.
+// Bool returns only a typed boolean, never a boolean-looking identity string.
 func (v Value) Bool() (bool, bool) {
 	switch value := v.value.(type) {
 	case bool:
 		return value, true
-	case string:
-		parsed, err := strconv.ParseBool(strings.ToLower(value))
-		return parsed, err == nil
 	default:
 		return false, false
 	}
@@ -85,9 +82,6 @@ func (v Value) Float() (float64, bool) {
 		return float64(value), true
 	case float64:
 		return value, true
-	case string:
-		parsed, err := strconv.ParseFloat(value, 64)
-		return parsed, err == nil
 	default:
 		return 0, false
 	}

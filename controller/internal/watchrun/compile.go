@@ -153,6 +153,10 @@ func compilePlan(plan Plan, agents []control.AgentInfo, bind bool) (*CompiledPla
 				if err != nil {
 					return nil, fmt.Errorf("target %d check %d: %w", i, j, err)
 				}
+				// Status snapshots have no wire selector; check the observed SSID.
+				if compiled.operation.Command.GetGetWifiStatus() != nil || compiled.operation.Command.GetGetWifiDiagnostics() != nil {
+					compiled.expectations = append(compiled.expectations, metricExpectation{matcher: Matcher{Metric: "ssid", Op: "==", Want: network.SSID}})
+				}
 			}
 			target.checks = append(target.checks, compiled)
 			target.preview.Checks = append(target.preview.Checks, stepInfo(compiled))

@@ -279,7 +279,8 @@ Set `agent:` on a target to bind it to one Android agent by ADB serial; a unique
 For an existing connection, set `observe: true` on a target and use only
 `wifi_status` or `ip_status` checks. Observed targets never connect, disconnect,
 forget, or send active probes; connection and cleanup options are rejected before
-execution. This does not prove that no roam occurred between observations.
+execution. Wi-Fi status snapshots must report the target's exact SSID; unavailable
+identity is MISSING, not a pass. This does not prove that no roam occurred between observations.
 To **explicitly** authorize traffic on that existing connection, also set
 `active_probes: true` and supply every probe host, DNS name or URL. Missing
 destinations and the fixed global-IP endpoint are rejected; Wi-Fi configuration
@@ -314,7 +315,6 @@ targets:
     # A unique serial prefix is accepted; device model names are display-only.
     # agent: R5CT12345
     ssid: ShowNet
-    bssid: aa:bb:cc:dd:ee:ff
     band: 6ghz
 
 checks:

@@ -82,8 +82,9 @@ func TestProducerToStateDurationSummaryKeepsKnownZeroAndUnknownSeparate(t *testi
 	state := New(preview.Targets, preview.Checks, preview.Agents, time.Now())
 	var latest watchrun.Event
 	var total, maximum int64
-	_, err = watchrun.Execute(context.Background(), compiled, boundaryRunner(func(_ context.Context, _ control.AgentInfo, _ command.Operation) (runner.Result, error) {
-		return runner.Result{Result: &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_WifiStatus{WifiStatus: &controlpb.WifiStatus{}}}}, nil
+	report, err := watchrun.Execute(context.Background(), compiled, boundaryRunner(func(_ context.Context, _ control.AgentInfo, _ command.Operation) (runner.Result, error) {
+		status := &controlpb.WifiStatus{Connection: &controlpb.WifiConnection{Ssid: "Lab", ObservationFields: []*controlpb.DiagnosticField{{Key: "identity.state", Value: "available"}}}}
+		return runner.Result{Result: &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_WifiStatus{WifiStatus: status}}}, nil
 	}), watchrun.ExecuteOptions{Rounds: 2, Sinks: []watchrun.Sink{boundarySink(func(_ context.Context, event watchrun.Event) error {
 		state.Apply(event)
 		if event.Kind == watchrun.EventStepFinished {
@@ -96,8 +97,8 @@ func TestProducerToStateDurationSummaryKeepsKnownZeroAndUnknownSeparate(t *testi
 		}
 		return nil
 	})}})
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || !report.Passed() {
+		t.Fatalf("producer did not pass: outcome=%s err=%v", report.Outcome, err)
 	}
 	// Exercise zero and absent observations at the same reducer boundary.
 	latest.Round, latest.Time, latest.Duration, latest.DurationKnown = 3, latest.Time.Add(time.Second), 0, true

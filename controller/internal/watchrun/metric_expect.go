@@ -276,10 +276,8 @@ func cleanStringValues(values []string) []string {
 }
 
 func compileStringMatcher(metric string, value string) (Matcher, error) {
+	literal := value
 	value = strings.TrimSpace(value)
-	if value == "" {
-		return Matcher{Metric: metric, Op: "==", Want: ""}, nil
-	}
 	switch strings.ToLower(value) {
 	case "dontcare", "don'tcare", "any", "either":
 		return Matcher{Metric: metric, Op: "dontcare"}, nil
@@ -295,7 +293,7 @@ func compileStringMatcher(metric string, value string) (Matcher, error) {
 	if value == "present" {
 		return Matcher{Metric: metric, Op: "present"}, nil
 	}
-	return Matcher{Metric: metric, Op: "==", Want: value}, nil
+	return Matcher{Metric: metric, Op: "==", Want: literal}, nil
 }
 
 func (m Matcher) matches(observed Value) bool {
