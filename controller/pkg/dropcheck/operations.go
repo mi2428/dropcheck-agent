@@ -126,10 +126,6 @@ type WiFiEHTOptions struct {
 	// Timeout is zero for 10s. A nonzero timeout requires Fresh and follows
 	// WiFiConnectOptions.Timeout's duration rules.
 	Timeout time.Duration
-	// SSID filters diagnostics to a literal SSID; it cannot be combined with BSSID.
-	SSID string
-	// BSSID filters diagnostics to an access point; it cannot be combined with SSID.
-	BSSID string
 }
 
 // PingOptions configures ICMP ping. Numeric zero fields select the documented
@@ -220,13 +216,14 @@ func WiFiScanDetail(target, band string) (Operation, error) {
 	return validated(command.WifiScanDetailOperation(target, band))
 }
 
-// WiFiEHT acquires EHT diagnostics. Fresh retains both acquisitions in Parts.
+// WiFiEHT acquires unfiltered EHT diagnostics.
+// Fresh retains both acquisitions in Parts.
 func WiFiEHT(opts WiFiEHTOptions) (Operation, error) {
 	d, err := durationTokens(opts.Timeout)
 	if err != nil {
 		return Operation{}, err
 	}
-	return validated(command.WifiEHTOperationWithOptions(command.WifiEHTOptions{Fresh: opts.Fresh, Timeout: d[0], SSID: opts.SSID, BSSID: opts.BSSID}))
+	return validated(command.WifiEHTOperationWithOptions(command.WifiEHTOptions{Fresh: opts.Fresh, Timeout: d[0]}))
 }
 
 // WiFiConnect validates a credential and builds a connection request.

@@ -47,3 +47,33 @@ func TestPublicResultProjectsNeutralAcquisitionWithoutWatchTypes(t *testing.T) {
 		t.Fatal("public Raw aliases an acquisition part")
 	}
 }
+
+func TestPublicEHTAcquisitionKeepsUnfilteredRaw(t *testing.T) {
+	op, err := WiFiEHT(WiFiEHTOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := &CommandResult{Status: StatusOK, Message: "password=synthetic-only", Payload: &WiFiDiagnosticsPayload{WifiDiagnostics: &WiFiDiagnosticsData{
+		Status:       &WiFiStatusData{Connection: &WiFiConnection{Ssid: " Lab "}},
+		Capabilities: &WiFiCapabilitiesData{},
+		Scan: &WiFiScanData{Results: []*WiFiScanResult{
+			{Ssid: " Lab ", Bssid: "aa:bb:cc:dd:ee:01"},
+			{Ssid: "Other", Bssid: "aa:bb:cc:dd:ee:02"},
+		}},
+	}}}
+	value, err := acquire.Execute(t.Context(), projectionRunner{raw}, control.AgentInfo{ID: "agent", SessionID: "session"}, op.impl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := publicResult(value)
+	if len(result.Parts) != 1 || result.Parts[0].Name != "wifi.eht" || len(result.Findings) != 0 {
+		t.Fatalf("unexpected EHT acquisition: parts=%d findings=%v", len(result.Parts), result.Findings)
+	}
+	if !proto.Equal(result.Raw, raw) || !proto.Equal(result.Parts[0].Raw, raw) {
+		t.Fatal("public EHT results filtered or sanitized acquisition data")
+	}
+	result.Raw.GetWifiDiagnostics().Scan.Results[0].Ssid = "edited"
+	if result.Parts[0].Raw.GetWifiDiagnostics().Scan.Results[0].Ssid != " Lab " || raw.GetWifiDiagnostics().Scan.Results[0].Ssid != " Lab " {
+		t.Fatal("public EHT Raw aliases its part or the acquired payload")
+	}
+}

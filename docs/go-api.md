@@ -107,7 +107,7 @@ Operations are opaque immutable values, copied safely for concurrent reuse. The 
 - `operation.WithNetwork(NetworkSelector{SSID: ..., BSSID: ..., NetworkID: ...})` returns a separate bound operation for IPStatus or any network probe. Zero selector means default network. Selectors are checked at selection time, not proof of uninterrupted association. SSID remains literal, including spaces, Unicode and numeric names. `NetworkID: 0` is unspecified, not a saved-profile ID.
 - `WiFiForgetSSID("123")` and `WiFiForgetConfigID(0)` return `(Operation, error)` and preserve the distinction between a numeric SSID and known configuration ID zero. Both require the **actual connection's** `wifi.forget.typed` capability; no ambiguous legacy fallback exists.
 - Connect/cycle credentials must be 8..63 valid UTF-8 bytes without control characters, or 64 hex digits. Empty/short/control-containing/invalid-UTF-8/non-hex credentials fail before dispatch. Empty/`auto` security asks Android to infer PSK/SAE from cached scans; it does **not** request an open network or waive credentials. Shell's separate explicit/default-credential resolution is unchanged. Passphrases and SSIDs are never trimmed.
-- Constructors copy retained input slices, such as `TracerouteOptions.Via`. WiFiEHT with `Fresh` retains both required scan/diagnostic acquisitions and independent per-part results.
+- Constructors copy retained input slices, such as `TracerouteOptions.Via`. WiFiEHT with `Fresh` retains both required scan/diagnostic acquisitions and independent per-part results. EHT results are unfiltered acquisition data; SSID/BSSID filters are Shell presentation options, not public API inputs.
 
 ## Results
 
