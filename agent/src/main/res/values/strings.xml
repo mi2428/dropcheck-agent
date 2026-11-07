@@ -12,6 +12,4 @@
     <string name="background_location_open_settings">Open settings</string>
     <string name="background_location_later">Later</string>
     <string name="shell_operation_status">Shell operation: %1$s</string>
-    <string name="shell_copy_result">Copy full result</string>
-    <string name="shell_inspect_values">Inspect/copy full safe values</string>
 </resources>

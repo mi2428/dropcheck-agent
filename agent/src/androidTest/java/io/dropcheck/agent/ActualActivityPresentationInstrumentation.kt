@@ -65,7 +65,7 @@ class ActualActivityPresentationInstrumentation : Instrumentation() {
                     listOf("東京Ｇ e\u0301 👩\u200d🔬 Lab Case", "06:00:00:11:22:33", "-55", "5G", "36", "80", "ax", "psk+sae"),
                 )),
                 AgentBlockPart.Field("IPv6", "ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255%long-interface-name/128"),
-            ), 0)
+            ), AgentLogStyle.TEXT_COLOR)
             check(block.fullText.contains("FAILED") && block.fullText.contains("psk+sae+future_Mode"))
             check(block.fullText.contains("02:00:00:11:22:33") && block.fullText.contains("06:00:00:11:22:33"))
             check(block.fullText.none { it == '\u001b' || it == '\u200b' || it == '\t' })
@@ -84,7 +84,7 @@ class ActualActivityPresentationInstrumentation : Instrumentation() {
                     runOnMainSync { main.fieldSet("shellOutputSizeSp", base); main.method("appendShellBlock", AgentPresentationBlock::class.java, Boolean::class.javaPrimitiveType!!).invoke(main, block, false) }
                     waitForIdleSync()
                     for (columns in listOf(24, 32, 40, 48, 60, 80, 96, 120)) {
-                        val text = (content.getChildAt(content.childCount - 2) as LinearLayout).getChildAt(0) as TextView
+                        val text = (content.getChildAt(content.childCount - 1) as LinearLayout).getChildAt(0) as TextView
                         val requestedContent = ceil(columns * text.paint.measureText("0")).toInt()
                         val requestedWidth = requestedContent + content.paddingLeft + content.paddingRight
                         if (requestedWidth > main.window.decorView.width) continue
@@ -94,7 +94,7 @@ class ActualActivityPresentationInstrumentation : Instrumentation() {
                             Thread.sleep(50)
                             waitForIdleSync()
                         }
-                        val current = (content.getChildAt(content.childCount - 2) as LinearLayout).getChildAt(0) as TextView
+                        val current = (content.getChildAt(content.childCount - 1) as LinearLayout).getChildAt(0) as TextView
                         val actualContent = content.width - content.paddingLeft - content.paddingRight
                         check(actualContent == requestedContent) { "content width mismatch base=$base columns=$columns requested=$requestedContent actual=$actualContent scroll=${scroll.width} params=${scroll.layoutParams.width} attached=${scroll.isAttachedToWindow} focus=${main.hasWindowFocus()} visible=${scroll.visibility == View.VISIBLE} parent=${scroll.parent?.javaClass?.simpleName}" }
                         check(abs(current.textSize - TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, base, current.resources.displayMetrics)) < 0.1f) { "output size changed base=$base actual=${current.textSize}" }
@@ -103,8 +103,8 @@ class ActualActivityPresentationInstrumentation : Instrumentation() {
                         val layout = checkNotNull(current.layout)
                         for (line in 0 until layout.lineCount) check(layout.getLineWidth(line) <= actualContent + 0.5f) { "Activity native line overflow base=$base columns=$columns line=$line" }
                         check(current.text.contains("FAILED") && current.text.contains("Reason:"))
-                        val container = content.getChildAt(content.childCount - 2) as LinearLayout
-                        check(container.childCount == 2 && (container.getChildAt(1) as TextView).text == "Copy full result")
+                        val container = content.getChildAt(content.childCount - 1) as LinearLayout
+                        check(container.childCount == 1 && current.isTextSelectable) { "result has a permanent control row or lost native text selection" }
                         val window = uiAutomation.rootInActiveWindow
                         if (window != null) {
                             val nodes = mutableListOf<String>()
@@ -114,7 +114,9 @@ class ActualActivityPresentationInstrumentation : Instrumentation() {
                                 for (child in 0 until node.childCount) node.getChild(child)?.let(::collect)
                             }
                             collect(window)
-                            check(nodes.indexOfFirst { it.contains("Wi-Fi scan FAILED") } in 0 until nodes.indexOfLast { it == "Copy full safe result" }) { "AccessibilityNode order" }
+                            val accessible = checkNotNull(nodes.lastOrNull { it.contains("Wi-Fi scan FAILED") && it.contains("Reason:") }) { "result missing from accessibility text" }
+                            check(accessible.indexOf("Wi-Fi scan FAILED") < accessible.indexOf("Reason:")) { "AccessibilityNode order" }
+                            check(nodes.none { it == "Copy full safe result" }) { "permanent copy control remains" }
                             nodeCases++
                         }
                         cases++
@@ -124,13 +126,13 @@ class ActualActivityPresentationInstrumentation : Instrumentation() {
                 // Reflow while the reader is above the newest result: retain an older block as the scroll anchor.
                 runOnMainSync {
                     scroll.layoutParams = initialParams
-                    scroll.scrollTo(0, content.getChildAt(content.childCount - 3).top)
-                    val old = content.getChildAt(content.childCount - 3) as LinearLayout
+                    scroll.scrollTo(0, content.getChildAt(content.childCount - 2).top)
+                    val old = content.getChildAt(content.childCount - 2) as LinearLayout
                     val value = (old.getChildAt(0) as TextView).text as Spannable
                     Selection.setSelection(value, 1, 5)
                 }
                 waitForIdleSync()
-                val anchor = content.getChildAt(content.childCount - 3)
+                val anchor = content.getChildAt(content.childCount - 2)
                 val offset = scroll.scrollY - anchor.top
                 runOnMainSync { main.method("renderShell").invoke(main) }
                 waitForIdleSync()
@@ -143,7 +145,7 @@ class ActualActivityPresentationInstrumentation : Instrumentation() {
                 runOnMainSync { main.window.insetsController?.hide(WindowInsets.Type.ime()); scroll.layoutParams = initialParams }
             }
             check(cases > 0) { "No Activity width fits the device" }
-            result.putString("stream", "PASS: attached MainActivity native layout cases=$cases widths=$widths; AccessibilityNode cases=$nodeCases (remaining NOT MEASURED); fontScale=${main.resources.configuration.fontScale}; orientation=${main.resources.configuration.orientation}; IME requested=$showIme visible=$imeVisible; anchor/selection/input/copy source checked; clipboard=$clipboard; probe invocations=0 (synthetic, no command dispatch). TalkBack service and human readability NOT measured.\n")
+            result.putString("stream", "PASS: attached MainActivity native layout cases=$cases widths=$widths; AccessibilityNode cases=$nodeCases (remaining NOT MEASURED); fontScale=${main.resources.configuration.fontScale}; orientation=${main.resources.configuration.orientation}; IME requested=$showIme visible=$imeVisible; anchor/selection/input/native text selection checked; no permanent result controls; clipboard=$clipboard; probe invocations=0 (synthetic, no command dispatch). TalkBack service and human readability NOT measured.\n")
             finish(Activity.RESULT_OK, result)
         } catch (failure: Throwable) {
             result.putString("stream", "FAIL: ${failure.javaClass.simpleName}: ${failure.message}; completed=$cases; clipboard=$clipboard\n")

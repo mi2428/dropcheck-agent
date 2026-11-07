@@ -8,6 +8,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -28,7 +29,10 @@ import android.text.Spanned
 import android.text.Selection
 import android.text.style.ForegroundColorSpan
 import android.view.Gravity
+import android.view.ActionMode
 import android.view.KeyEvent
+import android.view.Menu
+import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -39,9 +43,9 @@ import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputConnectionWrapper
-import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -102,8 +106,10 @@ class MainActivity : Activity() {
     private lateinit var shellScroll: ScrollView
     private lateinit var shellContent: LinearLayout
     private var shellInput: EditText? = null
-    private var shellInputRowView: LinearLayout? = null
-    private var shellImeBottomInset = 0
+    private lateinit var shellKeyBar: HorizontalScrollView
+    private lateinit var shellInputPanel: LinearLayout
+    private var shellInputPanelHeight = 0
+    private var shellBottomInset = 0
     private var shellSafeLeftInset = 0
     private var shellSafeTopInset = 0
     private var shellSafeRightInset = 0
@@ -115,8 +121,9 @@ class MainActivity : Activity() {
     private var shellOwner = ShellActionOwner()
     private var shellSession = AgentShellSession()
     private val shellCompletionListener: (AgentShellResult) -> Unit = { result ->
-        if (result.block != null && (result.block.fullText.isNotEmpty() || result.ok)) appendShellBlock(result.block, true) else appendShellLines(
+        if (result.block != null && (result.block.fullText.isNotEmpty() || result.ok)) appendShellBlock(result.block, false) else appendShellLines(
             result.lines.ifEmpty { if (result.ok) emptyList() else listOf("Command FAILED (output filtered)") }, if (result.ok) AgentLogStyle.TEXT_COLOR else SHELL_ERROR_COLOR,
+            focusInput = false,
         )
         renderShell()
         syncStatusIcons()
@@ -239,6 +246,20 @@ class MainActivity : Activity() {
             excludeFromContentCapture()
             addView(scroll, matchParentLayout())
             addView(shellScroll, matchParentLayout())
+            shellInputPanel = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(shellInputRow().apply { setPadding(dp(SHELL_PANEL_PADDING_DP), 0, dp(SHELL_PANEL_PADDING_DP), 0) })
+                shellKeyBar = shellKeyboard()
+                addView(shellKeyBar)
+                visibility = View.GONE
+                addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
+                    if (shellInputPanelHeight != view.height) {
+                        shellInputPanelHeight = view.height
+                        updateShellContentPadding()
+                    }
+                }
+            }
+            addView(shellInputPanel, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
             addView(statusIconRow(), statusIconLayout())
             viewerToggle = shellText("Agent Shell", AgentLogStyle.TEXT_COLOR).apply {
                 contentDescription = "Switch to Agent Shell"
@@ -249,24 +270,25 @@ class MainActivity : Activity() {
             addView(viewerToggle, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END).apply { topMargin = dp(48); marginEnd = dp(12) })
         }
         root.setOnApplyWindowInsetsListener { _, insets ->
-            val imeBottom = insets.getInsets(WindowInsets.Type.ime()).bottom
             val cutoutInsets = insets.getInsets(WindowInsets.Type.displayCutout())
             val systemBarInsets = insets.getInsets(WindowInsets.Type.systemBars())
+            val bottomInset = maxOf(insets.getInsets(WindowInsets.Type.ime()).bottom, systemBarInsets.bottom)
             val safeLeft = maxOf(cutoutInsets.left, systemBarInsets.left)
             val safeTop = cutoutInsets.top
             val safeRight = maxOf(cutoutInsets.right, systemBarInsets.right)
             if (
-                shellImeBottomInset != imeBottom ||
+                shellBottomInset != bottomInset ||
                 shellSafeLeftInset != safeLeft ||
                 shellSafeTopInset != safeTop ||
                 shellSafeRightInset != safeRight
             ) {
-                shellImeBottomInset = imeBottom
+                shellBottomInset = bottomInset
                 shellSafeLeftInset = safeLeft
                 shellSafeTopInset = safeTop
                 shellSafeRightInset = safeRight
+                shellInputPanel.setPadding(safeLeft, 0, safeRight, 0)
+                shellInputPanel.layoutParams = (shellInputPanel.layoutParams as FrameLayout.LayoutParams).apply { bottomMargin = bottomInset }
                 updateShellContentPadding()
-                if (shellVisible && shellInput?.hasFocus() == true && !shellScroll.canScrollVertically(1)) scrollShellToInput()
             }
             insets
         }
@@ -613,8 +635,6 @@ class MainActivity : Activity() {
         if (!::shellContent.isInitialized) return
         seedShellTranscript()
         val inputFocused = shellInput?.hasFocus() == true
-        val inputSelectionStart = shellInput?.selectionStart ?: -1
-        val inputSelectionEnd = shellInput?.selectionEnd ?: -1
         val focusedBlock = shellBlockViews.values.firstOrNull { (it.getChildAt(0) as TextView).hasFocus() }
         val anchor = if (::shellScroll.isInitialized) shellScroll.scrollY else 0
         val anchoredView = if (::shellScroll.isInitialized) shellTranscript.blocks.mapNotNull { shellBlockViews[it] }.firstOrNull { it.bottom > anchor } else null
@@ -655,15 +675,8 @@ class MainActivity : Activity() {
             reflowShellBlock(view, block)
             addShellView(view)
         }
-        // Keep the same input View attached during acquisition and reflow.
-        // submitShellInput already rejects concurrent execution.
-        addShellView(ensureShellInputRow())
-        if (inputFocused) {
-            shellInput?.requestFocus()
-            val length = shellInput?.text?.length ?: 0
-            if (inputSelectionStart >= 0 && inputSelectionEnd >= 0) shellInput?.setSelection(inputSelectionStart.coerceAtMost(length), inputSelectionEnd.coerceAtMost(length))
-        }
-        focusedBlock?.takeIf { it.parent === shellContent }?.getChildAt(0)?.requestFocus()
+        if (inputFocused) shellInput?.requestFocus()
+        else focusedBlock?.takeIf { it.parent === shellContent }?.getChildAt(0)?.requestFocus()
         if (::shellScroll.isInitialized) shellScroll.post {
             val newAnchor = anchoredView?.takeIf { it.parent === shellContent }?.let { it.top + (anchorOffset ?: 0) } ?: anchor
             shellScroll.scrollTo(0, newAnchor.coerceAtLeast(0))
@@ -672,20 +685,28 @@ class MainActivity : Activity() {
 
     private fun shellBlockView(block: AgentPresentationBlock): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        addView(shellText("", block.color).apply { setTextIsSelectable(true) })
-        addView(android.widget.Button(this@MainActivity).apply {
-            setText(R.string.shell_copy_result)
-            textSize = SHELL_TEXT_SIZE_SP
-            minHeight = dp(48)
-            contentDescription = "Copy full safe result"
-            if (block.safeValueFile != null) {
-                setText(R.string.shell_inspect_values)
-                contentDescription = "Inspect and copy every full safe result value"
-            }
-            setOnClickListener {
-                if (block.safeValueFile != null) showSafeValuePage(block.safeValueFile, 0) else {
-                    getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Dropcheck result", block.fullText))
+        addView(shellText("", block.color).apply {
+            setTextIsSelectable(true)
+            val inspectAction = View.generateViewId()
+            customSelectionActionModeCallback = object : ActionMode.Callback {
+                override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+                    menu.add(Menu.NONE, inspectAction, Menu.NONE, "Full result")
+                    return true
                 }
+                override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = false
+                override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
+                    if (item.itemId != inspectAction) return false
+                    mode.finish()
+                    val values = block.safeValueFile
+                    if (values != null) showSafeValuePage(values, 0) else {
+                        AlertDialog.Builder(this@MainActivity).setTitle("Full safe result")
+                            .setView(ScrollView(this@MainActivity).apply {
+                                addView(shellText(block.fullText, block.color).apply { setTextIsSelectable(true) })
+                            }).setPositiveButton("Close", null).show()
+                    }
+                    return true
+                }
+                override fun onDestroyActionMode(mode: ActionMode) = Unit
             }
         })
     }
@@ -772,16 +793,16 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun ensureShellInputRow(): LinearLayout {
-        return shellInputRowView ?: shellInputRow().also { shellInputRowView = it }
-    }
-
     private fun shellInputRow(): LinearLayout {
         val input = ShellInputEditText(this).apply {
             onHelp = { prefix -> appendShellLines(AgentShellParser.contextHelp(prefix)) }
             onComplete = { completeShellInput() }
             onRecall = { direction -> recallShellInput(direction) }
+            onInterrupt = { if (shellBusy) shellOwner.cancel() else text.clear() }
+            onEscape = { hideShellInputIme() }
+            onSubmit = { submitShellInput(text.toString()) }
             isSaveEnabled = false
+            hint = "Shell command"
             importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
             setTextColor(AgentLogStyle.TEXT_COLOR)
             setHintTextColor(Color.DKGRAY)
@@ -789,8 +810,8 @@ class MainActivity : Activity() {
             typeface = Typeface.MONOSPACE
             textSize = SHELL_TEXT_SIZE_SP
             includeFontPadding = false
-            minHeight = 0
-            minimumHeight = 0
+            minHeight = dp(48)
+            minimumHeight = dp(48)
             setLineSpacing(0f, 1.0f)
             setPadding(0, 0, 0, 0)
             setSingleLine(true)
@@ -799,8 +820,10 @@ class MainActivity : Activity() {
             useBlockCursor()
             excludeFromContentCapture()
             setOnEditorActionListener { view, actionId, event ->
-                val enterKey = event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_UP
-                if (actionId == EditorInfo.IME_ACTION_GO || actionId == EditorInfo.IME_ACTION_DONE || enterKey) {
+                if (event?.keyCode == KeyEvent.KEYCODE_ENTER) {
+                    if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) submitShellInput(view.text.toString())
+                    true
+                } else if (actionId == EditorInfo.IME_ACTION_GO || actionId == EditorInfo.IME_ACTION_DONE) {
                     submitShellInput(view.text.toString())
                     true
                 } else {
@@ -816,19 +839,75 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
             )
             addView(input, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        }
+    }
+
+    /** Extra keys stay above the system IME instead of scrolling away with output. */
+    private fun shellKeyboard(): HorizontalScrollView {
+        val input = checkNotNull(shellInput) as ShellInputEditText
+        fun press(code: Int, modifiers: Int = 0) {
+            input.requestFocus()
+            val time = android.os.SystemClock.uptimeMillis()
+            for (action in listOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP)) {
+                input.dispatchKeyEvent(KeyEvent(time, time, action, code, 0, modifiers))
+            }
+        }
+        fun insert(value: String) {
+            input.requestFocus()
+            input.clearComposingText()
+            val from = minOf(input.selectionStart, input.selectionEnd).coerceAtLeast(0)
+            val to = maxOf(input.selectionStart, input.selectionEnd).coerceAtLeast(from)
+            input.text.replace(from, to, value)
+            input.setSelection(from + value.length)
+        }
+        fun key(label: String, description: String, action: () -> Unit) = android.widget.Button(this).apply {
+            text = label
+            contentDescription = description
+            isAllCaps = false
+            typeface = Typeface.MONOSPACE
+            textSize = 12f
+            setTextColor(AgentLogStyle.TEXT_COLOR)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(Color.DKGRAY)
+            minWidth = dp(48); minimumWidth = dp(48)
+            minHeight = dp(48); minimumHeight = dp(48)
+            setPadding(dp(4), 0, dp(4), 0)
+            setOnClickListener { action() }
+        }
+        val rows = listOf(
+            listOf(
+                key("Esc", "Hide keyboard") { press(KeyEvent.KEYCODE_ESCAPE) },
+                key("Tab", "Complete command") { press(KeyEvent.KEYCODE_TAB) },
+                key("Ctrl-C", "Cancel current command or clear input") { press(KeyEvent.KEYCODE_C, KeyEvent.META_CTRL_ON) },
+                key("?", "Context help") { input.requestFocus(); input.requestHelp() },
+                key("↑", "Previous command") { press(KeyEvent.KEYCODE_DPAD_UP) },
+                key("\"", "Insert double quote") { insert("\"") },
+            ),
+            listOf(
+                key("/", "Insert slash") { insert("/") },
+                key("-", "Insert hyphen") { insert("-") },
+                key("|", "Insert pipe") { insert("|") },
+                key("←", "Move cursor left") { press(KeyEvent.KEYCODE_DPAD_LEFT) },
+                key("↓", "Next command") { press(KeyEvent.KEYCODE_DPAD_DOWN) },
+                key("→", "Move cursor right") { press(KeyEvent.KEYCODE_DPAD_RIGHT) },
+            ),
+        )
+        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val visibleRows = if (landscape) listOf(rows.flatten()) else rows
+        return HorizontalScrollView(this).apply {
+            isFillViewport = true
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            setBackgroundColor(Color.BLACK)
+            excludeFromContentCapture()
             addView(LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                listOf("?" to "Context help", "Tab" to "Complete command", "Prev" to "Previous command", "Next" to "Next command").forEachIndexed { index, (label, description) ->
-                    addView(android.widget.Button(this@MainActivity).apply {
-                        text = label; contentDescription = description
-                        minimumWidth = 0; minWidth = 0; minHeight = dp(48); textSize = 12f
-                        setOnClickListener { when (index) {
-                            0 -> { val cursor = input.selectionStart.coerceAtLeast(0); val prefix = input.text.toString().take(cursor); if (shellHelpPosition(prefix)) appendShellLines(AgentShellParser.contextHelp(prefix)) }
-                            1 -> completeShellInput()
-                            2 -> recallShellInput(-1)
-                            else -> recallShellInput(1)
-                        } }
-                    }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                orientation = LinearLayout.VERTICAL
+                minimumWidth = dp(visibleRows.first().size * 48)
+                visibleRows.forEach { keys ->
+                    addView(LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        isBaselineAligned = false
+                        gravity = Gravity.CENTER_VERTICAL
+                        keys.forEach { addView(it, LinearLayout.LayoutParams(if (landscape) LinearLayout.LayoutParams.WRAP_CONTENT else 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)) }
+                    })
                 }
             })
         }
@@ -858,11 +937,11 @@ class MainActivity : Activity() {
         val line = raw.trim()
         if (line.isBlank()) {
             shellInput?.setText("")
-            focusShellInput()
+            shellInput?.requestFocus()
             return
         }
         if (shellBusy) {
-            focusShellInput()
+            shellInput?.requestFocus()
             return
         }
         shellInput?.setText("")
@@ -959,8 +1038,8 @@ class MainActivity : Activity() {
         }
         renderShell()
         if (follow) {
-            scrollShellToInput()
-            if (focusInput) focusShellInput()
+            scrollShellToTail()
+            if (focusInput) shellInput?.requestFocus()
         }
     }
 
@@ -970,60 +1049,34 @@ class MainActivity : Activity() {
         shellTranscript.append(AgentPresentationBlock.create(AgentShellParser.help().map { AgentBlockPart.Text(it) }, AgentLogStyle.TEXT_COLOR))
     }
 
-    private fun scrollShellToInput() {
-        shellScroll.post {
-            val inputRow = shellInputRowView ?: return@post
-            val fullViewportHeight = shellScroll.height - shellScroll.paddingTop - shellScroll.paddingBottom
-            if (fullViewportHeight <= 0) return@post
-            val visibleViewportHeight = (fullViewportHeight - shellImeBottomInset).coerceAtLeast(dp(48))
-            val viewportTop = shellScroll.scrollY
-            val viewportBottom = viewportTop + visibleViewportHeight
-            val inputBottom = inputRow.bottom + dp(SHELL_PANEL_PADDING_DP)
-            val targetScrollY = when {
-                inputBottom > viewportBottom -> inputBottom - visibleViewportHeight
-                inputRow.top < viewportTop -> inputRow.top
-                else -> viewportTop
-            }
-            val maxScrollY = (shellContent.height - fullViewportHeight).coerceAtLeast(0)
-            val clampedScrollY = targetScrollY.coerceIn(0, maxScrollY)
-            if (clampedScrollY != viewportTop) {
-                shellScroll.smoothScrollTo(0, clampedScrollY)
-            }
-        }
-    }
+    private fun scrollShellToTail() { shellScroll.post { shellScroll.smoothScrollTo(0, shellContent.height) } }
 
     private fun updateShellContentPadding() {
         if (!::shellContent.isInitialized) return
+        val follow = ::shellScroll.isInitialized && shellVisible && !shellScroll.canScrollVertically(1)
         val sidePadding = dp(SHELL_PANEL_PADDING_DP)
         shellContent.setPadding(
             sidePadding + shellSafeLeftInset,
             dp(SHELL_PANEL_TOP_PADDING_DP) + shellSafeTopInset,
             sidePadding + shellSafeRightInset,
-            sidePadding + shellImeBottomInset,
+            sidePadding + shellBottomInset + shellInputPanelHeight,
         )
+        if (follow) scrollShellToTail()
     }
 
-    private fun focusShellInput(forceIme: Boolean = false) {
+    private fun focusShellInput() {
         val input = shellInput ?: return
         input.requestFocus()
         input.post {
             if (!shellVisible || shellInput !== input) return@post
             input.requestFocus()
-            if (forceIme) {
-                window.insetsController?.show(WindowInsets.Type.ime())
-            }
-            getSystemService(InputMethodManager::class.java)
-                ?.showSoftInput(input, 0)
+            // The controller applies this when the window gains IME control.
+            window.insetsController?.show(WindowInsets.Type.ime())
         }
     }
 
     private fun hideShellInputIme() {
-        val input = shellInput ?: return
-        getSystemService(InputMethodManager::class.java)
-            ?.hideSoftInputFromWindow(input.windowToken, 0)
         window.insetsController?.hide(WindowInsets.Type.ime())
-        input.clearFocus()
-        root.requestFocus()
     }
 
     private fun shellSpacer(heightDp: Int): View {
@@ -1073,7 +1126,7 @@ class MainActivity : Activity() {
 
     private fun handleShellTap(event: MotionEvent) {
         if (!shellBusy && isShellKeyboardTapArea(event)) {
-            focusShellInput(forceIme = true)
+            focusShellInput()
         }
     }
 
@@ -1085,11 +1138,12 @@ class MainActivity : Activity() {
     private fun showShell() {
         if (shellVisible) return
         shellVisible = true
+        shellInputPanel.visibility = View.VISIBLE
         viewerToggle?.visibility = View.GONE
         renderShell()
         shellScroll.visibility = View.VISIBLE
         scroll.visibility = View.GONE
-        scrollShellToInput()
+        scrollShellToTail()
         focusShellInput()
         resetIdleDimTimer()
     }
@@ -1109,8 +1163,11 @@ class MainActivity : Activity() {
             return
         }
         shellVisible = false
+        shellInputPanel.visibility = View.GONE
         viewerToggle?.visibility = View.VISIBLE
         hideShellInputIme()
+        shellInput?.clearFocus()
+        root.requestFocus()
         shellScroll.visibility = View.GONE
         scroll.visibility = View.VISIBLE
         if (autoScroll.isFollowingTail) requestScrollToBottom()
@@ -1159,8 +1216,12 @@ private class ShellInputEditText(context: Context) : EditText(context) {
     var onHelp: ((String) -> Unit)? = null
     var onComplete: (() -> Unit)? = null
     var onRecall: ((Int) -> Unit)? = null
+    var onInterrupt: (() -> Unit)? = null
+    var onEscape: (() -> Unit)? = null
+    var onSubmit: (() -> Unit)? = null
+    private var submitOnEnterUp = false
 
-    private fun requestHelp(): Boolean {
+    fun requestHelp(): Boolean {
         if (selectionStart != selectionEnd || android.view.inputmethod.BaseInputConnection.getComposingSpanStart(text) >= 0) return false
         val prefix = text.toString().take(selectionStart.coerceAtLeast(0))
         if (!shellHelpPosition(prefix)) return false
@@ -1232,12 +1293,38 @@ private class ShellInputEditText(context: Context) : EditText(context) {
         }
     }
 
+    override fun onKeyPreIme(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_C && event.hasModifiers(KeyEvent.META_CTRL_ON)) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) onInterrupt?.invoke()
+            return true
+        }
+        if (keyCode == KeyEvent.KEYCODE_ENTER) {
+            // A composing IME owns the entire Enter gesture, including its key-up.
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                submitOnEnterUp = android.view.inputmethod.BaseInputConnection.getComposingSpanStart(text) < 0
+            }
+            if (submitOnEnterUp) {
+                if (event.action == KeyEvent.ACTION_UP) {
+                    submitOnEnterUp = false
+                    if (!event.isCanceled) onSubmit?.invoke()
+                }
+                return true
+            }
+        }
+        return super.onKeyPreIme(keyCode, event)
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if ((event.unicodeChar == '?'.code || event.unicodeChar == '？'.code) && requestHelp()) return true
         when (keyCode) {
             KeyEvent.KEYCODE_TAB -> { onComplete?.invoke(); return true }
             KeyEvent.KEYCODE_DPAD_UP -> { onRecall?.invoke(-1); return true }
             KeyEvent.KEYCODE_DPAD_DOWN -> { onRecall?.invoke(1); return true }
+            KeyEvent.KEYCODE_ESCAPE -> { onEscape?.invoke(); return true }
+            KeyEvent.KEYCODE_C -> if (event.hasModifiers(KeyEvent.META_CTRL_ON)) {
+                if (event.repeatCount == 0) onInterrupt?.invoke()
+                return true
+            }
             KeyEvent.KEYCODE_P -> if (event.hasModifiers(KeyEvent.META_CTRL_ON)) { onRecall?.invoke(-1); return true }
             KeyEvent.KEYCODE_N -> if (event.hasModifiers(KeyEvent.META_CTRL_ON)) { onRecall?.invoke(1); return true }
         }
@@ -1246,12 +1333,14 @@ private class ShellInputEditText(context: Context) : EditText(context) {
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_DEL) return true
+        if (keyCode == KeyEvent.KEYCODE_DEL || keyCode == KeyEvent.KEYCODE_ESCAPE ||
+            (keyCode == KeyEvent.KEYCODE_C && event.hasModifiers(KeyEvent.META_CTRL_ON))) return true
         return super.onKeyUp(keyCode, event)
     }
 
     override fun onFocusChanged(focused: Boolean, direction: Int, previouslyFocusedRect: android.graphics.Rect?) {
         super.onFocusChanged(focused, direction, previouslyFocusedRect)
+        if (!focused) submitOnEnterUp = false
         restartCursorBlink()
     }
 

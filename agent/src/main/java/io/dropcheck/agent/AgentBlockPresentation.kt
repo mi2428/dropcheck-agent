@@ -118,14 +118,14 @@ internal class AgentPresentationBlock private constructor(
             }
         }.take(64).map { part ->
             when (part) {
-                is AgentBlockPart.Text -> if (part.value.length > 2048) AgentBlockPart.Text("${part.value.take(2048)}\nDisplay note truncated; full safe value is in Inspect/copy full safe values") else part
+                is AgentBlockPart.Text -> if (part.value.length > 2048) AgentBlockPart.Text("${part.value.take(2048)}\nDisplay note truncated; long press and choose Full result for the full safe value") else part
                 // Wire values are already in the file; retaining them here defeats the history budget.
-                is AgentBlockPart.Field -> AgentBlockPart.Field(part.label, if (part.value.length > 2048) "${part.value.take(2048)} (display note abbreviated; full safe value in Inspect/copy)" else part.value)
+                is AgentBlockPart.Field -> AgentBlockPart.Field(part.label, if (part.value.length > 2048) "${part.value.take(2048)} (display note abbreviated; long press and choose Full result)" else part.value)
                 else -> part
             }
         }
         return AgentPresentationBlock(important + AgentBlockPart.Text(
-            "shown=0; ${fullText.length} characters exceed in-memory history. All ${values.valueCount} safe values remain in Inspect/copy full safe values; no identity was clipped.",
+            "shown=0; ${fullText.length} characters exceed in-memory history. Long press and choose Full result for all ${values.valueCount} retained safe values; no identity was clipped.",
         ), color, baseSizeSp, minimumSizeSp, values)
     }
 
@@ -365,7 +365,7 @@ internal object AgentNativeBlockLayout {
                 }
             }
         }
-        if (totalRecords > visibleRecords) appendWrapped(out, "shown=$visibleRecords total=$totalRecords; 96-row / 240-line display budget; Copy full result retains all safe values", contentWidthPx, paint)
+        if (totalRecords > visibleRecords) appendWrapped(out, "shown=$visibleRecords total=$totalRecords; 96-row / 240-line display budget; long press and choose Full result for all retained safe values", contentWidthPx, paint)
         return AgentBlockLayout(out, block.baseSizeSp)
     }
 

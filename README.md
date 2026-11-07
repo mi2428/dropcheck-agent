@@ -44,6 +44,8 @@ For the Android agent, use an Android 12+ test device with USB debugging enabled
 $ make install SERIAL=35251JEHN00258
 ```
 
+For repeatable Shell input and layout checks, see [Android Shell keyboard QA](docs/android-shell-keyboard-qa.md), including build commands, safe device-test boundaries, and known coverage limits.
+
 Wi-Fi provisioning uses Android privileged Wi-Fi APIs. For Shell `request wifi connect`, `disconnect`, `cycle`, and `forget`, make the app a device owner on a fresh, unmanaged test device.
 
 > [!WARNING]
