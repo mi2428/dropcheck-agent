@@ -109,6 +109,29 @@ func TestPrintWatchNoTUIEventIgnoresPassingStep(t *testing.T) {
 	}
 }
 
+func TestPrintWatchNoTUIEventSanitizesOnlyPresentation(t *testing.T) {
+	for _, tc := range []struct {
+		metric, value, want, forbidden string
+	}{
+		{"ssid", "Guest\x1b[2J\nforged-line", "Guest forged-line", "\x1b"},
+		{"ssid", "password=Guest", "password=Guest", "observed=<redacted>"},
+		{"bssid", "aa:bb:cc:dd:ee:ff", "aa:bb:cc:dd:ee:ff", "observed=<redacted>"},
+		{"transport", "password=synthetic-only\nforged-line", "password=<redacted>", "synthetic-only"},
+	} {
+		finding := watchrun.Finding{Target: "target\nname", Check: "check\x1b[2J", Metric: tc.metric, Observed: tc.value, Expected: tc.value}
+		event := watchrun.Event{Kind: watchrun.EventFinding, Agent: watchrun.AgentSnapshot{Name: "model\npassword=synthetic-agent"}, Finding: &finding}
+		var out bytes.Buffer
+		printWatchNoTUIEvent(&out, event, true)
+		text := out.String()
+		if strings.Contains(text, tc.forbidden) || strings.ContainsAny(text, "\x1b\r") || strings.Count(text, "\n") != 1 || strings.Contains(text, "synthetic-agent") || !strings.Contains(text, tc.want) {
+			t.Fatalf("unsafe or corrupted presentation: %q", text)
+		}
+		if finding.Observed != tc.value || finding.Expected != tc.value || finding.Target != "target\nname" {
+			t.Fatal("presentation changed the original finding")
+		}
+	}
+}
+
 func TestWatchSessionLogEventFiltersDebugForTUI(t *testing.T) {
 	_, ok := watchSessionLogEvent(control.LogEvent{
 		AgentID: "agent-a",

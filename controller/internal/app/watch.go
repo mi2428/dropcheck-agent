@@ -16,6 +16,7 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/control"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 	"github.com/mi2428/dropcheck-agent/controller/internal/runner"
+	"github.com/mi2428/dropcheck-agent/controller/internal/safevalue"
 	"github.com/mi2428/dropcheck-agent/controller/internal/session"
 	"github.com/mi2428/dropcheck-agent/controller/internal/tui"
 	"github.com/mi2428/dropcheck-agent/controller/internal/watch"
@@ -113,17 +114,17 @@ func printWatchNoTUIEvent(w io.Writer, event watchrun.Event, multiAgent bool) {
 	}
 	agentLabel := ""
 	if multiAgent {
-		agentLabel = fmt.Sprintf(" agent=%s", event.Agent.DisplayName())
+		agentLabel = fmt.Sprintf(" agent=%s", safevalue.Normalize(safevalue.Text(event.Agent.DisplayName())))
 	}
 	_, _ = fmt.Fprintf(w, "%s%s round=%d target=%s check=%s metric=%s observed=%s expected=%s\n",
 		event.Time.Format("15:04:05"),
 		agentLabel,
 		event.Round,
-		finding.Target,
-		finding.Check,
-		finding.Metric,
-		finding.Observed,
-		finding.Expected,
+		safevalue.Normalize(safevalue.Text(finding.Target)),
+		safevalue.Normalize(safevalue.Text(finding.Check)),
+		safevalue.Normalize(safevalue.Text(finding.Metric)),
+		safevalue.Normalize(safevalue.Field(finding.Metric, finding.Observed)),
+		safevalue.Normalize(safevalue.Field(finding.Metric, finding.Expected)),
 	)
 }
 
