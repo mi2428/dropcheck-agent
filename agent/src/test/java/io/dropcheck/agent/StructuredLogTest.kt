@@ -132,6 +132,13 @@ class StructuredLogTest {
         assertTrue(line.contains("label=\"wifi connect Lab passphrase <redacted>\""))
         assertTrue(line.contains("passphrase_present=true"))
         assertTrue(line.contains("passphrase_len=12"))
+
+        for (passphrase in listOf("", " ".repeat(8))) {
+            val request = command.toBuilder().setConnectWifi(command.connectWifi.toBuilder().setPassphrase(passphrase)).build()
+            val rendered = StructuredLog.format("command.received", request.logFields())
+            assertTrue(rendered.contains("passphrase_present=${passphrase.isNotEmpty()}"))
+            assertTrue(rendered.contains("passphrase_len=${passphrase.length}"))
+        }
     }
 
     @Test

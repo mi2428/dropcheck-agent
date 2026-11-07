@@ -12,6 +12,15 @@ import org.junit.Test
 
 class WifiExpectationEvaluatorTest {
     @Test
+    fun literalSpaceSsidIsConnectedAndMustMatchExactly() {
+        for (ssid in listOf(" ", " Lab ", "\"Lab\"")) {
+            val result = WifiExpectationEvaluator.evaluate(wifiStatus(ssid), WifiExpectation(ssid = ssid), 0)
+            assertTrue(result.passed)
+            assertEquals(ssid, result.checksList.single { it.key == "ssid" }.actual)
+        }
+        assertFalse(WifiExpectationEvaluator.evaluate(wifiStatus("Lab"), WifiExpectation(ssid = " "), 0).passed)
+    }
+    @Test
     fun passesWhenConnectionMatchesEveryRequestedCondition() {
         val status = wifiStatus(
             ssid = "Lab",

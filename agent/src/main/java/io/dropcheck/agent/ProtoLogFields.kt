@@ -432,7 +432,7 @@ private fun GetWifiScanDetail.logFields(): List<Pair<String, Any?>> = listOf(
 private fun ConnectWifi.logFields(prefix: String = ""): List<Pair<String, Any?>> = buildList {
     add("${prefix}ssid" to ssid)
     add("${prefix}ssid_len" to ssid.length)
-    add("${prefix}passphrase_present" to passphrase.isNotBlank())
+    add("${prefix}passphrase_present" to passphrase.isNotEmpty())
     add("${prefix}passphrase_len" to passphrase.length)
     add("${prefix}security" to security.name)
     add("${prefix}security_number" to securityValue)

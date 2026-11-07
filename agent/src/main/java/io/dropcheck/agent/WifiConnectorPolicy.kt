@@ -41,10 +41,26 @@ internal object WifiConnectorPolicy {
         return "\"$value\""
     }
 
+    /** Already validated credentials: raw 64-digit hex PSK, otherwise a quoted passphrase. */
+    fun preSharedKey(passphrase: String): String = if (passphrase.length == 64) passphrase else quoteWifi(passphrase)
+
     /** Reject malformed names before WifiManager configuration can target another AP. */
     fun validConnectSsid(ssid: String): Boolean =
         ssid.toByteArray(Charsets.UTF_8).size in 1..32 && ssid.none(Character::isISOControl) &&
             isKnownWifiSsid(quoteWifi(ssid))
+
+    /** Reject invalid or unsupported settings before any saved profile can change. */
+    fun connectError(command: ConnectWifi, sdk: Int): String? = when {
+        !validConnectSsid(command.ssid) -> "invalid wifi ssid"
+        !AgentShellUsePolicy.validPassphrase(command.passphrase) -> "invalid passphrase length or encoding"
+        command.bssid.isNotEmpty() && !Regex("(?i)[0-9a-f]{2}(:[0-9a-f]{2}){5}").matches(command.bssid) -> "invalid BSSID"
+        command.security == ConnectWifi.Security.UNRECOGNIZED -> "unsupported wifi security"
+        command.band == WifiBand.UNRECOGNIZED -> "unsupported wifi band"
+        command.macRandomization == ConnectWifi.MacRandomization.UNRECOGNIZED -> "unsupported wifi MAC randomization"
+        sdk < 33 && command.macRandomization != ConnectWifi.MacRandomization.MAC_RANDOMIZATION_UNSPECIFIED -> "wifi MAC randomization option requires Android 13/API 33+"
+        command.timeoutMs < 0 -> "wifi timeout exceeds Android signed int range"
+        else -> null
+    }
 
     /**
      * Resolves an omitted connect security mode from cached scan capabilities.
@@ -142,7 +158,10 @@ internal object WifiConnectorPolicy {
         bssid: String,
         security: ConnectWifi.Security,
         band: WifiBand,
+        macRandomization: ConnectWifi.MacRandomization = ConnectWifi.MacRandomization.MAC_RANDOMIZATION_UNSPECIFIED,
     ): Boolean {
+        // WifiInfo cannot establish that a saved profile uses the requested MAC policy.
+        if (macRandomization != ConnectWifi.MacRandomization.MAC_RANDOMIZATION_UNSPECIFIED) return false
         if (current == null || current.networkId < 0) return false
         if (!isKnownWifiSsid(current.ssid) || current.ssid != ssid) return false
         if (bssid.isNotBlank() && !current.bssid.equals(bssid, ignoreCase = true)) return false

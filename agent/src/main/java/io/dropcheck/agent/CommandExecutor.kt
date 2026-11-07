@@ -1,6 +1,7 @@
 package io.dropcheck.agent
 
 import android.content.Context
+import android.os.Build
 import io.dropcheck.agent.grpc.AssertWifi
 import io.dropcheck.agent.grpc.CommandResult
 import io.dropcheck.agent.grpc.ConnectWifi
@@ -37,9 +38,9 @@ class CommandExecutor(
     private val context: Context,
     private val logger: CommandLogger,
 ) {
-    private val networks = NetworkRepository(context, logger)
-    private val wifi = WifiConnector(context, logger)
-    private val networkChecks = NetworkCheckExecutor(networks, logger)
+    private val networks by lazy { NetworkRepository(context, logger) }
+    private val wifi by lazy { WifiConnector(context, logger) }
+    private val networkChecks by lazy { NetworkCheckExecutor(networks, logger) }
 
     /**
      * Dispatches a single protobuf command and returns exactly one command result.
@@ -199,7 +200,7 @@ class CommandExecutor(
             command.timeoutMs,
             WifiCommandPolicy.DEFAULT_CONNECT_TIMEOUT_MS,
         )
-        logger.info("wifi connect requested ssid=${command.ssid} bssid=${command.bssid.ifBlank { "*" }} security=${command.security} band=${command.band} mac_randomization=${command.macRandomization} timeout_ms=$timeoutMs passphrase_present=${command.passphrase.isNotBlank()}")
+        logger.info("wifi connect requested ssid=${command.ssid} bssid=${command.bssid.ifBlank { "*" }} security=${command.security} band=${command.band} mac_randomization=${command.macRandomization} timeout_ms=$timeoutMs passphrase_present=${command.passphrase.isNotEmpty()}")
         logger.debug("wifi connect parameters ssid_len=${command.ssid.length} passphrase_len=${command.passphrase.length} security_number=${command.securityValue} bssid=${command.bssid.ifBlank { "*" }} band=${command.band} mac_randomization=${command.macRandomization} timeout_ms=$timeoutMs")
 
         val setup = wifi.connect(command)
@@ -353,6 +354,7 @@ class CommandExecutor(
      * [WifiCommandPolicy].
      */
     private fun cycleWifi(command: CycleWifi): CommandResult {
+        WifiConnectorPolicy.connectError(command.connect, Build.VERSION.SDK_INT)?.let { return failed(it) }
         val count = WifiCommandPolicy.cycleCount(command)
         val pauseMs = WifiCommandPolicy.cyclePauseMs(command)
         val builder = WifiCycleResult.newBuilder()

@@ -2,7 +2,6 @@ package io.dropcheck.agent
 
 import io.dropcheck.agent.grpc.ConnectWifi
 import io.dropcheck.agent.grpc.WifiBand
-import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -11,24 +10,64 @@ import org.junit.Test
 
 class WifiConnectorPolicyTest {
     @Test
+    fun connectPreflightRejectsInvalidAndUnsupportedSettings() {
+        val valid = ConnectWifi.newBuilder().setSsid("Lab").setPassphrase("synthetic-passphrase").build()
+        assertNull(WifiConnectorPolicy.connectError(valid, 31))
+        assertNull(WifiConnectorPolicy.connectError(valid, 33))
+        for (command in listOf(
+            valid.toBuilder().setSsid("").build(),
+            valid.toBuilder().setPassphrase("").build(),
+            valid.toBuilder().setPassphrase("short").build(),
+            valid.toBuilder().setPassphrase("z".repeat(64)).build(),
+            valid.toBuilder().setBssid("bad").build(),
+            valid.toBuilder().setSecurityValue(999).build(),
+            valid.toBuilder().setBandValue(999).build(),
+            valid.toBuilder().setMacRandomizationValue(999).build(),
+            valid.toBuilder().setTimeoutMs(-1).build(),
+        )) assertTrue(WifiConnectorPolicy.connectError(command, 37) != null)
+        for (mode in ConnectWifi.MacRandomization.values().filter { it != ConnectWifi.MacRandomization.MAC_RANDOMIZATION_UNSPECIFIED && it != ConnectWifi.MacRandomization.UNRECOGNIZED }) {
+            val command = valid.toBuilder().setMacRandomization(mode).build()
+            assertTrue(WifiConnectorPolicy.connectError(command, 31) != null)
+            assertNull(WifiConnectorPolicy.connectError(command, 33))
+        }
+    }
+
+    @Test
+    fun requestedMacPolicyCannotReuseAnUnverifiedSavedConfiguration() {
+        val current = WifiConnectorPolicy.CurrentConnectionRef(7, "Lab", "aa:bb:cc:dd:ee:ff", 2412, "psk")
+        for (mode in ConnectWifi.MacRandomization.values()) {
+            assertEquals(mode == ConnectWifi.MacRandomization.MAC_RANDOMIZATION_UNSPECIFIED,
+                WifiConnectorPolicy.currentConnectionSatisfiesConnect(current, "Lab", "", ConnectWifi.Security.SECURITY_WPA2_PSK, WifiBand.WIFI_BAND_ALL, mode))
+        }
+    }
+    @Test
     fun alwaysQuotesLiteralWifiConfigurationStrings() {
         assertEquals("\"Lab\"", WifiConnectorPolicy.quoteWifi("Lab"))
         assertEquals("\"\"Lab\"\"", WifiConnectorPolicy.quoteWifi("\"Lab\""))
         assertEquals("\" Lab \"", WifiConnectorPolicy.quoteWifi(" Lab "))
     }
 
-    @Test fun invalidConnectNamesFailBeforeWifiManagerButLiteralSpacesAndQuotesRemainValid() {
+    @Test fun validatedCredentialsKeepLiteralSpacesAndRawHexEncoding() {
+        val credentials = listOf(
+            "synthetic-passphrase" to "\"synthetic-passphrase\"",
+            " ".repeat(8) to "\"${" ".repeat(8)}\"",
+            "a".repeat(63) to "\"${"a".repeat(63)}\"",
+            "0123456789abcdef".repeat(4) to "0123456789abcdef".repeat(4),
+            "0123456789ABCDEF".repeat(4) to "0123456789ABCDEF".repeat(4),
+            "0123456789aBcDeF".repeat(4) to "0123456789aBcDeF".repeat(4),
+        )
+        for ((passphrase, configured) in credentials) {
+            val command = ConnectWifi.newBuilder().setSsid("Lab").setPassphrase(passphrase).build()
+            for (sdk in listOf(31, 33)) assertNull(WifiConnectorPolicy.connectError(command, sdk))
+            assertEquals(configured, WifiConnectorPolicy.preSharedKey(passphrase))
+        }
+    }
+
+    @Test fun invalidConnectNamesAreRejectedButLiteralSpacesAndQuotesRemainValid() {
         for (ssid in listOf("Lab", " Lab ", " ", "\"Lab\"", "La\"b")) assertTrue(WifiConnectorPolicy.validConnectSsid(ssid))
         for (ssid in listOf("", "\n", "Lab\u0000", "Lab\u001b", "x".repeat(33), "あ".repeat(11), "<unknown ssid>")) {
             assertFalse(WifiConnectorPolicy.validConnectSsid(ssid))
         }
-        val sourceDir = listOf(File("src/main/java/io/dropcheck/agent"),
-            File("agent/src/main/java/io/dropcheck/agent")).first { it.isDirectory }
-        val source = File(sourceDir, "WifiConnector.kt").readText()
-        assertTrue(source.contains("!WifiConnectorPolicy.validConnectSsid(ssid)"))
-        assertTrue(source.contains("ssid = normalizedWifiSsid(it.ssid)"))
-        assertTrue(source.indexOf("!WifiConnectorPolicy.validForget(command)") in 0 until source.indexOf("val configs = runCatching { wifi.configuredNetworks }"))
-        assertFalse(source.contains("ssid?.trim('\"')"))
     }
 
     @Test fun typedForgetKeepsNumericSsidAndConfigurationIdSeparate() {

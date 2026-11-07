@@ -22,7 +22,7 @@ class WifiConnector(
     context: Context,
     private val logger: CommandLogger,
 ) {
-    private val wifi = context.applicationContext.getSystemService(WifiManager::class.java)
+    private val wifi by lazy { context.applicationContext.getSystemService(WifiManager::class.java) }
 
     /** Result of staging a Wi-Fi configuration before connection assertion. */
     data class Setup(
@@ -51,7 +51,7 @@ class WifiConnector(
     fun connect(command: ConnectWifi): Setup {
         val ssid = command.ssid
         val passphrase = command.passphrase
-        if (!WifiConnectorPolicy.validConnectSsid(ssid)) return Setup(error = if (ssid.isEmpty()) "wifi ssid is required" else "invalid wifi ssid")
+        WifiConnectorPolicy.connectError(command, Build.VERSION.SDK_INT)?.let { return Setup(error = it) }
 
         val needsBandPin = command.bssid.isBlank() &&
             command.band != WifiBand.WIFI_BAND_UNSPECIFIED &&
@@ -72,7 +72,7 @@ class WifiConnector(
             band = command.band,
         )
 
-        logger.info("wifi configure ssid=$ssid security=${command.security} resolved_security=$resolvedSecurity bssid=${command.bssid.ifBlank { "*" }} resolved_bssid=${resolvedBssid.ifBlank { "*" }} band=${command.band} mac_randomization=${command.macRandomization} passphrase_present=${passphrase.isNotBlank()} security_candidates=${securityCandidates.size}")
+        logger.info("wifi configure ssid=$ssid security=${command.security} resolved_security=$resolvedSecurity bssid=${command.bssid.ifBlank { "*" }} resolved_bssid=${resolvedBssid.ifBlank { "*" }} band=${command.band} mac_randomization=${command.macRandomization} passphrase_present=${passphrase.isNotEmpty()} security_candidates=${securityCandidates.size}")
         val beforeInfo = wifi.connectionInfo
         logger.debug("wifi manager state enabled=${wifi.isWifiEnabled} state=${wifi.wifiState} connection_network_id=${beforeInfo?.networkId} connection_ssid=${beforeInfo?.ssid} connection_bssid=${beforeInfo?.bssid} rssi=${beforeInfo?.rssi} freq=${beforeInfo?.frequency}")
         val previousNetworkId = beforeInfo?.networkId?.takeIf { it >= 0 }
@@ -83,18 +83,16 @@ class WifiConnector(
                 bssid = resolvedBssid,
                 security = command.security,
                 band = command.band,
+                macRandomization = command.macRandomization,
             )
         ) {
             logger.info("wifi connect already satisfied ssid=$ssid network_id=${current?.networkId} bssid=${current?.bssid} security=${current?.securityType} freq=${current?.frequencyMhz}")
             return Setup(networkId = previousNetworkId, previousNetworkId = previousNetworkId)
         }
-        cleanupConflictingBssidProfiles(ssid, resolvedBssid, current)?.let { error ->
-            return Setup(error = error)
-        }
         val config = WifiConfiguration().apply {
             SSID = WifiConnectorPolicy.quoteWifi(ssid)
             if (resolvedBssid.isNotBlank()) BSSID = resolvedBssid
-            if (passphrase.isNotBlank()) preSharedKey = WifiConnectorPolicy.quoteWifi(passphrase)
+            preSharedKey = WifiConnectorPolicy.preSharedKey(passphrase)
             when (resolvedSecurity) {
                 ConnectWifi.Security.SECURITY_WPA3_SAE -> setSecurityParams(WifiConfiguration.SECURITY_TYPE_SAE)
                 ConnectWifi.Security.SECURITY_WPA2_WPA3_TRANSITION -> setSecurityParams(WifiConfiguration.SECURITY_TYPE_PSK)
@@ -104,10 +102,10 @@ class WifiConnector(
             }
         }
         val macRandomization = configureMacRandomization(config, command.macRandomization)
-        if (macRandomization.error != null) {
-            return Setup(error = macRandomization.error)
+        cleanupConflictingBssidProfiles(ssid, resolvedBssid, current)?.let { error ->
+            return Setup(error = error)
         }
-        logger.debug("wifi configuration prepared ssid=$ssid bssid=${config.BSSID.orEmpty().ifBlank { "*" }} security=${command.security} resolved_security=$resolvedSecurity band=${command.band} previous_network_id=${previousNetworkId ?: "none"} hidden=${config.hiddenSSID} mac_randomization_requested=${command.macRandomization} mac_randomization_applied=${macRandomization.applied}")
+        logger.debug("wifi configuration prepared ssid=$ssid bssid=${config.BSSID.orEmpty().ifBlank { "*" }} security=${command.security} resolved_security=$resolvedSecurity band=${command.band} previous_network_id=${previousNetworkId ?: "none"} hidden=${config.hiddenSSID} mac_randomization_requested=${command.macRandomization} mac_randomization_applied=$macRandomization")
 
         val add = runCatching { wifi.addNetworkPrivileged(config) }.getOrElse {
             return Setup(error = "wifi addNetworkPrivileged failed: ${errorSummary(it)}")
@@ -363,31 +361,12 @@ class WifiConnector(
         )
     }
 
-    private data class MacRandomizationSetup(
-        val applied: String,
-        val error: String? = null,
-    )
-
-    /**
-     * Applies Android 13+ MAC randomization controls when requested.
-     *
-     * Older API levels reject explicit randomization requests instead of silently
-     * ignoring them, because controller tests depend on knowing what was applied.
-     */
+    /** Applies MAC settings already validated before profile cleanup. */
     private fun configureMacRandomization(
         config: WifiConfiguration,
         requested: ConnectWifi.MacRandomization,
-    ): MacRandomizationSetup {
-        if (Build.VERSION.SDK_INT < 33) {
-            return if (requested == ConnectWifi.MacRandomization.MAC_RANDOMIZATION_UNSPECIFIED) {
-                MacRandomizationSetup("unavailable")
-            } else {
-                MacRandomizationSetup(
-                    applied = "unavailable",
-                    error = "wifi MAC randomization option requires Android 13/API 33+",
-                )
-            }
-        }
+    ): String {
+        if (Build.VERSION.SDK_INT < 33) return "unavailable"
 
         val setting = when (requested) {
             ConnectWifi.MacRandomization.MAC_RANDOMIZATION_UNSPECIFIED -> null
@@ -395,17 +374,12 @@ class WifiConnector(
             ConnectWifi.MacRandomization.MAC_RANDOMIZATION_NONE -> WifiConfiguration.RANDOMIZATION_NONE
             ConnectWifi.MacRandomization.MAC_RANDOMIZATION_PERSISTENT -> WifiConfiguration.RANDOMIZATION_PERSISTENT
             ConnectWifi.MacRandomization.MAC_RANDOMIZATION_NON_PERSISTENT -> WifiConfiguration.RANDOMIZATION_NON_PERSISTENT
-            ConnectWifi.MacRandomization.UNRECOGNIZED -> {
-                return MacRandomizationSetup(
-                    applied = macRandomizationName(config.macRandomizationSetting),
-                    error = "unsupported wifi MAC randomization: $requested",
-                )
-            }
+            ConnectWifi.MacRandomization.UNRECOGNIZED -> error("unvalidated wifi MAC randomization")
         }
         if (setting != null) {
             config.macRandomizationSetting = setting
         }
-        return MacRandomizationSetup(macRandomizationName(config.macRandomizationSetting))
+        return macRandomizationName(config.macRandomizationSetting)
     }
 
     private fun macRandomizationName(value: Int): String {
