@@ -132,7 +132,7 @@ class MainActivity : Activity() {
     private val statusRefresh = object : Runnable {
         override fun run() {
             syncStatusIcons()
-            shellActionStatus?.text = getString(R.string.shell_operation_status, shellOwner.status())
+            shellActionStatus?.text = getString(R.string.shell_operation_status, shellStatus())
             statusRefreshHandler.postDelayed(this, 1_000)
         }
     }
@@ -633,7 +633,7 @@ class MainActivity : Activity() {
         val controllerState = if (ControllerSessionRuntimeState.heartbeatConnected()) "connected" else "idle"
         val defaults = shellSession.defaults
         addShellView(shellText("surface=agent-shell controller=$controllerState ${AgentShellUsePolicy.statusText(defaults)}", AgentLogStyle.TEXT_COLOR))
-        shellActionStatus = shellText("Shell operation: ${shellOwner.status()}", AgentLogStyle.TEXT_COLOR)
+        shellActionStatus = shellText(getString(R.string.shell_operation_status, shellStatus()), AgentLogStyle.TEXT_COLOR)
         addShellView(shellActionStatus!!)
         if (shellBusy) addShellView(shellText("Cancel current Shell operation", AgentLogStyle.TEXT_COLOR).apply {
             contentDescription = "Cancel current Agent Shell operation"
@@ -891,6 +891,8 @@ class MainActivity : Activity() {
             }
         }
     }
+
+    private fun shellStatus(): String = listOfNotNull(shellOwner.status(), TerminalLog.persistenceWarning).joinToString("; ")
 
     private fun runShellLinesCommand(name: String, action: () -> AgentShellResult) {
         if (!shellOwner.start(name, action)) return

@@ -3,6 +3,8 @@ package io.dropcheck.agent
 import android.content.Context
 import android.util.Log
 import java.io.File
+import java.io.IOException
+import java.io.InterruptedIOException
 import java.io.RandomAccessFile
 import java.time.Instant
 import java.util.concurrent.CopyOnWriteArraySet
@@ -20,6 +22,11 @@ object TerminalLog {
     private const val KEEP_BYTES = 512 * 1024
     private const val MAX_LINE_CHARS = 8_000
     private val listeners = CopyOnWriteArraySet<(String) -> Unit>()
+    private var writeFailure: String? = null
+    private var readFailure: String? = null
+
+    /** Persistence is best-effort, but its failure must stay visible until recovery. */
+    @get:Synchronized val persistenceWarning: String? get() = writeFailure ?: readFailure
 
     /** Location of the persisted terminal tail for adb collection and the on-device activity. */
     fun file(context: Context): File = File(context.getExternalFilesDir(null) ?: context.filesDir, "terminal.log")
@@ -47,7 +54,9 @@ object TerminalLog {
     /** Compacts an oversized persisted log without appending a new line. */
     @Synchronized
     fun compactIfNeeded(context: Context) {
-        compactFileIfNeeded(file(context))
+        storageAttempt { compactFileIfNeeded(file(context)) }.exceptionOrNull()?.let {
+            writeFailure = "Terminal log not saved (${it.javaClass.simpleName}); operations continue"
+        }
     }
 
     /**
@@ -67,25 +76,59 @@ object TerminalLog {
             else -> Log.i(TAG, rendered, error)
         }
 
-        val file = file(context)
-        file.parentFile?.mkdirs()
-        compactFileIfNeeded(file)
-        file.appendText(formatted + "\n")
-
-        listeners.forEach { listener -> runCatching { listener(formatted) } }
+        val previous = writeFailure
+        if (!record({ file(context) }, formatted) { line ->
+            listeners.forEach { listener -> runCatching { listener(line) } }
+        } && writeFailure != previous) Log.w(TAG, writeFailure, null)
         AgentLogWidgetProvider.requestUpdate(context)
+    }
+
+    /** Keep live delivery even when persistence fails; do not hide missing log intervals. */
+    @Synchronized
+    internal fun record(file: () -> File, line: String, publish: (String) -> Unit): Boolean {
+        val previous = writeFailure
+        val recovered = previous?.let { "${Instant.now()} WARN  Terminal log storage recovered; earlier lines were not saved" }
+        val result = storageAttempt {
+            val target = file()
+            target.parentFile?.mkdirs()
+            compactFileIfNeeded(target)
+            target.appendText((recovered?.plus("\n") ?: "") + line + "\n")
+        }
+        writeFailure = result.exceptionOrNull()?.let {
+            "Terminal log not saved (${it.javaClass.simpleName}); operations continue"
+        }
+        if (result.isSuccess && recovered != null) publish(recovered)
+        if (writeFailure != null && writeFailure != previous) publish("${Instant.now()} WARN  $writeFailure")
+        publish(line)
+        return result.isSuccess
     }
 
     /** Reads the most recent terminal lines for display when the activity opens. */
     @Synchronized
-    fun tail(context: Context, maxLines: Int = 160): String {
-        val file = file(context)
-        if (!file.exists()) return ""
-        return tailText(file)
-            .lineSequence()
-            .toList()
-            .takeLast(maxLines)
-            .joinToString("\n")
+    fun tail(context: Context, maxLines: Int = 160): String = readTail({ file(context) }, maxLines)
+
+    @Synchronized
+    internal fun readTail(file: () -> File, maxLines: Int): String {
+        val result = storageAttempt {
+            val target = file()
+            if (!target.exists()) "" else tailText(target).lineSequence().toList().takeLast(maxLines).joinToString("\n")
+        }
+        readFailure = result.exceptionOrNull()?.let {
+            "Saved terminal log cannot be read (${it.javaClass.simpleName}); operations continue"
+        }
+        return listOfNotNull(persistenceWarning?.let { "WARN  $it" }, result.getOrNull()?.takeIf(String::isNotEmpty)).joinToString("\n")
+    }
+
+    private inline fun <T> storageAttempt(action: () -> T): Result<T> = try {
+        Result.success(action())
+    } catch (error: InterruptedIOException) {
+        Thread.currentThread().interrupt()
+        throw error
+    } catch (error: IOException) {
+        if (Thread.currentThread().isInterrupted) throw error
+        Result.failure(error)
+    } catch (error: SecurityException) {
+        Result.failure(error)
     }
 
     @Synchronized
@@ -102,6 +145,7 @@ object TerminalLog {
     }
 
     private fun tailText(file: File): String {
+        if (!file.isFile) throw IOException("terminal log is not a regular file")
         val length = file.length()
         if (length <= 0) return ""
         val keep = min(length, KEEP_BYTES.toLong()).toInt()

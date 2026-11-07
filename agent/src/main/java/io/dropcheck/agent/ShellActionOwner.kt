@@ -2,6 +2,7 @@ package io.dropcheck.agent
 
 import android.os.Handler
 import android.os.Looper
+import java.io.InterruptedIOException
 import java.util.concurrent.TimeUnit
 
 /** Owns one Shell action independently of an Activity instance. */
@@ -32,8 +33,10 @@ internal class ShellActionOwner(private val post: (() -> Unit) -> Unit = { Handl
         name = operation
         startedNs = System.nanoTime()
         thread = Thread {
-            val completed = try { action() } catch (_: Exception) {
-                AgentShellResult(false, listOf("command failed or canceled (execution error)"))
+            val completed = try { action() } catch (failure: Exception) {
+                val canceled = failure is InterruptedException || failure is InterruptedIOException || Thread.currentThread().isInterrupted
+                if (canceled) Thread.currentThread().interrupt()
+                AgentShellResult(false, listOf(if (canceled) "Command canceled" else "Command failed (execution error)"))
             }
             synchronized(this) {
                 result = completed
