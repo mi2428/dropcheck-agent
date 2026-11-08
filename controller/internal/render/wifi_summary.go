@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/oui"
 )
 
 // Values share one column; wrapped/list values hang beneath that column.
@@ -79,6 +80,7 @@ func renderWifiSummary(b *strings.Builder, status *controlpb.WifiStatus, view Pr
 			passpoint = fmt.Sprintf("fqdn=%s; provider=%s; unique-id=%s", empty(conn.PasspointFqdn, "none"), empty(conn.PasspointProviderFriendlyName, "none"), empty(conn.PasspointUniqueId, "none"))
 		}
 		group("  Identity", kv("SSID", observed("identity", ssid)), kv("BSSID", observed("identity", bssid)),
+			kv("BSSID vendor", observed("identity", oui.Vendor(bssid))),
 			kv("STA MAC", conn.MacAddress), kv("Configuration", fmt.Sprintf("network-id=%d; subscription-id=%d", conn.NetworkId, conn.SubscriptionId)), kv("Supplicant state", conn.SupplicantState),
 			kv("Flags", fmt.Sprintf("hidden=%t; restricted=%t; redactions=%s", conn.HiddenSsid, conn.Restricted, empty(conn.ApplicableRedactions, "none"))), kv("Passpoint", passpoint))
 		group("  Radio", kv("Channel", fmt.Sprintf("%s; ch=%s; width=%s; %dMHz", wifiBandFromFrequency(conn.FrequencyMhz), wifiChannelFromFrequency(conn.FrequencyMhz), empty(wifiChannelWidth(conn), "?"), conn.FrequencyMhz)),
@@ -111,6 +113,7 @@ func renderWifiSummary(b *strings.Builder, status *controlpb.WifiStatus, view Pr
 				group(fmt.Sprintf("    %s link %d", links.name, i+1),
 					kv("Link ID", observedValue(link.ObservationFields, "identity", fmt.Sprint(link.LinkId))),
 					kv("AP MAC", observedValue(link.ObservationFields, "identity", link.ApMacAddress)),
+					kv("AP MAC vendor", observedValue(link.ObservationFields, "identity", oui.Vendor(link.ApMacAddress))),
 					kv("STA MAC", observedValue(link.ObservationFields, "identity", link.StaMacAddress)),
 					kv("State", observedValue(link.ObservationFields, "identity", link.State)),
 					kv("Band/channel", observedValue(link.ObservationFields, "identity", fmt.Sprintf("%s/%d", link.Band, link.Channel))),

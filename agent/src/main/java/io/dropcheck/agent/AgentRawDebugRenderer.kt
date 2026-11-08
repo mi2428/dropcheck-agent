@@ -10,8 +10,7 @@ internal object AgentRawDebugRenderer {
         val parts = mutableListOf<AgentBlockPart>()
         fun raw(label: String, value: String) {
             if (value.isNotEmpty()) {
-                parts += AgentBlockPart.Text("")
-                parts += AgentBlockPart.Text(label)
+                parts += AgentBlockPart.Text(label, section = true)
                 parts += AgentBlockPart.Text(value)
             }
         }

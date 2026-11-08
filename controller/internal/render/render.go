@@ -12,6 +12,7 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 	"github.com/mi2428/dropcheck-agent/controller/internal/control"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/oui"
 )
 
 // CommandResult renders safe text for one agent command result, including latency.
@@ -44,9 +45,12 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 	switch payload := result.Payload.(type) {
 	case *controlpb.CommandResult_NetworkSnapshot:
 		writeRecord(&b, "Observed at unix ms", payload.NetworkSnapshot.GetObservedAtUnixMs())
-		for _, network := range payload.NetworkSnapshot.GetNetworks() {
-			writeRecord(&b, "Active/default at collection", network.GetActive())
-			renderIPView(&b, network.GetIpStatus(), view)
+		for i, network := range payload.NetworkSnapshot.GetNetworks() {
+			writeSection(&b, fmt.Sprintf("Network %d", i+1))
+			var body strings.Builder
+			writeRecord(&body, "Active/default at collection", network.GetActive())
+			renderIPView(&body, network.GetIpStatus(), view)
+			writeNested(&b, body.String())
 		}
 		renderErrors(&b, payload.NetworkSnapshot.GetErrors())
 	case *controlpb.CommandResult_PermissionSnapshot:
@@ -90,8 +94,10 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 		renderWifiMonitor(&b, payload.WifiMonitor, view)
 		for i, event := range payload.WifiMonitor.GetEvents() {
 			writeSection(&b, fmt.Sprintf("Event %d evidence", i+1))
-			renderDiagnosticFields(&b, event.GetFields())
-			renderWifiSnapshot(&b, event.GetStatus(), view)
+			var body strings.Builder
+			renderDiagnosticFields(&body, event.GetFields())
+			renderWifiSnapshot(&body, event.GetStatus(), view)
+			writeNested(&b, body.String())
 		}
 	case *controlpb.CommandResult_WifiScanDetail:
 		renderWifiScanDetail(&b, payload.WifiScanDetail, options, view)
@@ -198,7 +204,9 @@ func writeBlankLine(b *strings.Builder) {
 
 func writeKVSection(b *strings.Builder, title string, rows ...kvRow) {
 	writeSection(b, title)
-	writeKVRows(b, rows...)
+	var fields strings.Builder
+	writeKVRows(&fields, rows...)
+	writeNested(b, fields.String())
 }
 
 func writeKVRows(b *strings.Builder, rows ...kvRow) {
@@ -247,6 +255,7 @@ func renderWifiConnection(b *strings.Builder, conn *controlpb.WifiConnection) {
 	writeKVSection(b, "Connection",
 		kv("ssid", observedValue(conn.GetObservationFields(), "identity", conn.GetSsid())),
 		kv("bssid", observedValue(conn.GetObservationFields(), "identity", conn.GetBssid())),
+		kv("BSSID vendor", observedValue(conn.GetObservationFields(), "identity", oui.Vendor(conn.GetBssid()))),
 		kv("security", empty(conn.GetSecurityType(), "unknown")),
 		kv("standard", empty(conn.GetWifiStandard(), "unknown")),
 		kv("rssi", observedValue(conn.GetObservationFields(), "rssi", fmt.Sprintf("%ddBm", conn.GetRssiDbm()))),
@@ -503,19 +512,24 @@ func renderMLOLinks(b *strings.Builder, title string, links []*controlpb.MloLink
 		return
 	}
 	writeSection(b, title)
-	for _, link := range links {
-		writeRecord(b, "L", observedValue(link.GetObservationFields(), "identity", fmt.Sprint(link.GetLinkId())))
-		writeRecord(b, "State", observedValue(link.GetObservationFields(), "identity", link.GetState()))
-		writeRecord(b, "Band/CH", observedValue(link.GetObservationFields(), "identity", fmt.Sprintf("%s/%d", link.GetBand(), link.GetChannel())))
-		writeRecord(b, "RSSI", observedValue(link.GetObservationFields(), "rates", fmt.Sprintf("%ddBm", link.GetRssiDbm())))
-		writeRecord(b, "Tx/Rx", observedValue(link.GetObservationFields(), "rates", fmt.Sprintf("%d/%dMbps", link.GetTxLinkSpeedMbps(), link.GetRxLinkSpeedMbps())))
-		writeRecord(b, "Max Tx/Rx", "? (maximum-rate availability metadata not supplied)")
-		writeRecord(b, "AP_MAC", observedValue(link.GetObservationFields(), "identity", link.GetApMacAddress()))
-		writeRecord(b, "STA_MAC", observedValue(link.GetObservationFields(), "identity", link.GetStaMacAddress()))
-		if len(full) != 0 && full[0] {
-			writeRecord(b, "Reported max Tx/Rx (availability uncollected)", fmt.Sprintf("%d/%dMbps", link.GetMaxSupportedTxLinkSpeedMbps(), link.GetMaxSupportedRxLinkSpeedMbps()))
-			renderDiagnosticFields(b, link.GetObservationFields())
+	for i, link := range links {
+		if i > 0 {
+			writeBlankLine(b)
 		}
+		var fields strings.Builder
+		writeRecord(&fields, "L", observedValue(link.GetObservationFields(), "identity", fmt.Sprint(link.GetLinkId())))
+		writeRecord(&fields, "State", observedValue(link.GetObservationFields(), "identity", link.GetState()))
+		writeRecord(&fields, "Band/CH", observedValue(link.GetObservationFields(), "identity", fmt.Sprintf("%s/%d", link.GetBand(), link.GetChannel())))
+		writeRecord(&fields, "RSSI", observedValue(link.GetObservationFields(), "rates", fmt.Sprintf("%ddBm", link.GetRssiDbm())))
+		writeRecord(&fields, "Tx/Rx", observedValue(link.GetObservationFields(), "rates", fmt.Sprintf("%d/%dMbps", link.GetTxLinkSpeedMbps(), link.GetRxLinkSpeedMbps())))
+		writeRecord(&fields, "Max Tx/Rx", "? (maximum-rate availability metadata not supplied)")
+		writeRecord(&fields, "AP_MAC", observedValue(link.GetObservationFields(), "identity", link.GetApMacAddress()))
+		writeRecord(&fields, "STA_MAC", observedValue(link.GetObservationFields(), "identity", link.GetStaMacAddress()))
+		if len(full) != 0 && full[0] {
+			writeRecord(&fields, "Reported max Tx/Rx (availability uncollected)", fmt.Sprintf("%d/%dMbps", link.GetMaxSupportedTxLinkSpeedMbps(), link.GetMaxSupportedRxLinkSpeedMbps()))
+			renderDiagnosticFields(&fields, link.GetObservationFields())
+		}
+		writeNested(b, fields.String())
 	}
 }
 
@@ -591,33 +605,39 @@ func renderWifiScanDetail(b *strings.Builder, detail *controlpb.WifiScanDetail, 
 		kv("total", diagnosticFieldMap(detail.GetFields())["scan_result_total_count"]),
 		kv("requested_band", diagnosticFieldMap(detail.GetFields())["requested_band"]),
 	)
+	writeRecord(b, "Connections at collection", scanConnectionsSummary(detail.GetConnections()))
 	writeBlankLine(b)
-	for _, ap := range detail.GetResults() {
-		writeSection(b, "AP")
-		writeRecord(b, "BSSID", empty(ap.GetBssid(), "?"))
-		writeRecord(b, "SSID", scanDisplaySSID(ap))
+	for i, ap := range detail.GetResults() {
+		writeSection(b, fmt.Sprintf("[%s] AP %d", scanAPMark(ap, detail.GetConnections()), i+1))
+		var details strings.Builder
+		body := &details
+		writeRecord(body, "BSSID", empty(ap.GetBssid(), "?"))
+		writeRecord(body, "BSSID vendor", oui.Vendor(ap.GetBssid()))
+		writeRecord(body, "SSID", scanDisplaySSID(ap))
+		writeRecord(body, "EHT", empty(scanEHTEvidence(ap), "not observed"))
 		if ap.GetOperatorFriendlyName() != "" {
-			writeRecord(b, "Operator", ap.GetOperatorFriendlyName())
+			writeRecord(body, "Operator", ap.GetOperatorFriendlyName())
 		}
 		if ap.GetVenueName() != "" {
-			writeRecord(b, "Venue", ap.GetVenueName())
+			writeRecord(body, "Venue", ap.GetVenueName())
 		}
-		writeRecord(b, "RSSI dBm", ap.GetRssiDbm())
-		writeRecord(b, "PHY", ap.GetWifiStandard())
-		writeRecord(b, "Flags", strings.Join(scanConnectionCapabilityFlags(ap), ","))
-		writeRecord(b, "Observation age", scanObservationAge(ap))
-		writeRecord(b, "Radio", fmt.Sprintf("CH=%s frequency=%dMHz centers=%d/%dMHz BW=%s", wifiChannelFromFrequency(ap.GetFrequencyMhz()), ap.GetFrequencyMhz(), ap.GetCenterFreq0Mhz(), ap.GetCenterFreq1Mhz(), ap.GetChannelWidth()))
-		writeRecord(b, "Security", strings.Join(ap.GetSecurityTypes(), ","))
-		renderWifiSecurityDetails(b, ap.GetSecurityDetails())
-		writeRecord(b, "MLD", observedValue(ap.GetObservationFields(), "ap_mld_mac_address", wifiMLOScanMLDMAC(ap)))
-		writeRecord(b, "Link", scanMLOLinkID(ap))
-		renderMLOLinks(b, "Affiliated", ap.GetAffiliatedMloLinks())
+		writeRecord(body, "RSSI dBm", ap.GetRssiDbm())
+		writeRecord(body, "PHY", ap.GetWifiStandard())
+		writeRecord(body, "Flags", strings.Join(scanConnectionCapabilityFlags(ap), ","))
+		writeRecord(body, "Observation age", scanObservationAge(ap))
+		writeRecord(body, "Radio", fmt.Sprintf("CH=%s frequency=%dMHz centers=%d/%dMHz BW=%s", wifiChannelFromFrequency(ap.GetFrequencyMhz()), ap.GetFrequencyMhz(), ap.GetCenterFreq0Mhz(), ap.GetCenterFreq1Mhz(), ap.GetChannelWidth()))
+		writeRecord(body, "Security", strings.Join(ap.GetSecurityTypes(), ","))
+		writeRecord(body, "MLD", observedValue(ap.GetObservationFields(), "ap_mld_mac_address", wifiMLOScanMLDMAC(ap)))
+		writeRecord(body, "Link", scanMLOLinkID(ap))
+		renderWifiSecurityDetails(body, ap.GetSecurityDetails())
+		renderMLOLinks(body, "Affiliated", ap.GetAffiliatedMloLinks())
 		conn := &controlpb.WifiConnection{HeCapabilities: ap.GetHeCapabilities(), HeOperation: ap.GetHeOperation(), EhtCapabilities: ap.GetEhtCapabilities(), EhtOperation: ap.GetEhtOperation(), HeUoraParameterSet: ap.GetHeUoraParameterSet(), HeMuEdcaParameterSet: ap.GetHeMuEdcaParameterSet(), HeSpatialReuseParameterSet: ap.GetHeSpatialReuseParameterSet(), He_6GhzCapabilities: ap.GetHe_6GhzCapabilities(), InformationElements: ap.GetInformationElements()}
-		renderWifiConnectionCapabilities(b, conn)
-		renderWifiConnectionDetailedCapabilities(b, conn)
+		renderWifiConnectionCapabilities(body, conn)
+		renderWifiConnectionDetailedCapabilities(body, conn)
 		if view.Detail || options.Detail {
-			renderScanReferenceEvidence(b, ap)
+			renderScanReferenceEvidence(body, ap)
 		}
+		writeNested(b, details.String())
 	}
 	renderErrors(b, detail.GetErrors())
 }
@@ -1257,7 +1277,9 @@ func renderDiagnosticFields(b *strings.Builder, fields []*controlpb.DiagnosticFi
 		return
 	}
 	writeSection(b, "Fields")
-	renderDiagnosticFieldRows(b, fields)
+	var rows strings.Builder
+	renderDiagnosticFieldRows(&rows, fields)
+	writeNested(b, rows.String())
 }
 
 func renderDiagnosticFieldRows(b *strings.Builder, fields []*controlpb.DiagnosticField) {
@@ -1271,9 +1293,11 @@ func renderErrors(b *strings.Builder, errors []string) {
 		return
 	}
 	writeSection(b, "Errors")
+	var rows strings.Builder
 	for _, err := range errors {
-		fmt.Fprintf(b, "  %s\n", err)
+		fmt.Fprintf(&rows, "%s\n", err)
 	}
+	writeNested(b, rows.String())
 }
 
 func wifiBandFromFrequency(freq int32) string {

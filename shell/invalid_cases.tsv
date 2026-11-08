@@ -63,3 +63,5 @@ request download https://example.test
 request dns resolve
 request http check
 request http download
+show oui extra
+request oui update extra

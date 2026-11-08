@@ -1,6 +1,7 @@
 package render
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -9,7 +10,7 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
 )
 
-func TestInteractiveScanDoesNotRepeatIdentity(t *testing.T) {
+func TestInteractiveScanAPBlocksKeepIdentityWithOptionalSummaryTable(t *testing.T) {
 	ssid := "Very long safe SSID that must never be clipped"
 	mac := "02:00:00:11:22:33"
 	raw := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_WifiScan{WifiScan: &controlpb.WifiScan{Results: []*controlpb.WifiScanResult{{Ssid: ssid, Bssid: mac, FrequencyMhz: 6135}}}}}
@@ -19,7 +20,11 @@ func TestInteractiveScanDoesNotRepeatIdentity(t *testing.T) {
 			t.Fatal(err)
 		}
 		full := alignmentCompact(out)
-		if strings.Count(full, alignmentCompact(ssid)) != 1 || strings.Count(full, mac) != 1 {
+		want := 1
+		if regexp.MustCompile(`(?m)^AP\s+SSID\s+BSSID`).MatchString(out) {
+			want = 2
+		}
+		if strings.Count(full, alignmentCompact(ssid)) != want || strings.Count(full, mac) != want {
 			t.Fatalf("identity duplicated/lost at %d: %s", width, out)
 		}
 	}

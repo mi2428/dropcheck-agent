@@ -22,6 +22,8 @@ internal object AgentShellContract {
     val rows = listOf(
         AgentShellSyntax("show version", effect = "local", description = "Show local application version"),
         AgentShellSyntax("show cli", effect = "local", description = "Show safe current Shell session state"),
+        AgentShellSyntax("show oui", effect = "local", description = "Show the local offline IEEE vendor database status"),
+        AgentShellSyntax("request oui update", effect = "local", description = "Download official IEEE registries and atomically replace this host's vendor database"),
         AgentShellSyntax("show network", effect = "read", description = "Inspect all Android Networks without scanning Wi-Fi"),
         AgentShellSyntax("show network default", effect = "read", description = "Inspect the captured Android platform default Network"),
         AgentShellSyntax("show network id", positionals = listOf("network-id"), effect = "read", description = "Inspect exactly one Connectivity Network ID"),

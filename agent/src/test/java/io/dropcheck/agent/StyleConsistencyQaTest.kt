@@ -53,7 +53,7 @@ class StyleConsistencyQaTest {
 
     @Test fun mloWarningsHaveFieldOrBulletListRole() {
         val parts = AgentWifiMloRenderer.interpretation(WifiStatus.getDefaultInstance(), WifiScan.getDefaultInstance(), AgentWifiMloContext(sdkInt = 35))
-        val warnings = parts.dropWhile { it != AgentBlockPart.Text("Diagnostics / Warnings") }.drop(1)
+        val warnings = parts.dropWhile { it != AgentBlockPart.Text("Diagnostics / Warnings", section = true) }.drop(1)
         for (token in listOf("wifi_disabled", "eht_scan_results=0")) {
             assertTrue("Generated warning $token needs a Field or consistent bullet list", warnings.any { part ->
                 when (part) {
@@ -229,7 +229,7 @@ class StyleConsistencyQaTest {
 
     @Test fun summaryHierarchyAndAvailabilityRemainTyped() {
         val parts = AgentWifiStatusRenderer.summary(WifiStatus.newBuilder().setConnection(WifiConnection.newBuilder().setSsid(identity)).build())
-        assertTrue(parts.contains(AgentBlockPart.Text("  Identity")))
+        assertTrue(parts.contains(AgentBlockPart.Text("  Identity", section = true)))
         assertTrue(fields(parts).any { it.label == "    SSID" })
         val available = listOf(DiagnosticField.newBuilder().setKey("field.state").setValue("available").build())
         assertEquals("0", AgentObservationPresentation.value(available, "field", "0"))

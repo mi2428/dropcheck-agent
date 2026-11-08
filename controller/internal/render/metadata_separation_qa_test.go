@@ -18,8 +18,11 @@ import (
 func metadataQAValues(text, label string) []string {
 	var values []string
 	for line := range strings.SplitSeq(text, "\n") {
-		if value, ok := strings.CutPrefix(line, "  "+label+":"); ok {
-			values = append(values, strings.TrimLeft(value, " "))
+		for _, indent := range []string{"  ", "    ", "      "} {
+			if value, ok := strings.CutPrefix(line, indent+label+":"); ok {
+				values = append(values, strings.TrimLeft(value, " "))
+				break
+			}
 		}
 	}
 	return values

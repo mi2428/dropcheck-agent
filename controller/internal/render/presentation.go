@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/oui"
 )
 
 // Presentation is local display state, never an acquisition or evaluation option.
@@ -150,6 +151,26 @@ func writeRecord(b *strings.Builder, label string, value any) {
 	}
 }
 
+// writeNested indents exactly the content scoped by its caller.
+func writeNested(b *strings.Builder, text string) {
+	text = strings.TrimSuffix(text, "\n")
+	if text == "" {
+		return
+	}
+	for line := range strings.SplitAfterSeq(text, "\n") {
+		line = strings.TrimSuffix(line, "\n")
+		if line == "" {
+			b.WriteByte('\n')
+			continue
+		}
+		if !strings.HasPrefix(line, "\t\t") {
+			b.WriteString("  ")
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+}
+
 func writeFieldLabel(b *strings.Builder, label string, width int) {
 	wrapped := wrapPresentation(label, max(1, width-1))
 	b.WriteString(strings.TrimSuffix(wrapped, "\n") + ":\n")
@@ -282,12 +303,15 @@ func renderAdaptiveScan(b *strings.Builder, scan *controlpb.WifiScan, options co
 		shown += len(group.results)
 	}
 	writeRecord(b, "APs", fmt.Sprintf("shown=%d total=%s", shown, empty(fields["scan_result_total_count"], fmt.Sprint(total))))
+	writeRecord(b, "Connections at collection", scanConnectionsSummary(scan.GetConnections()))
 	if options.WifiScanMLO {
 		writeRecord(b, "Filter", "mlo; shown counts filtered APs")
 	}
 	columns := []displayTableColumn{{header: "SSID"}, {header: "BSSID"}, {header: "dBm", numeric: true}, {header: "BAND"}, {header: "CH", numeric: true}, {header: "BW", numeric: true}, {header: "PHY"}, {header: "SEC"}}
 	if options.WifiScanBrief {
 		columns = append(columns, displayTableColumn{header: "AGE(s)"})
+	} else {
+		columns = append(columns, displayTableColumn{header: "VENDOR"})
 	}
 	var rows [][]string
 	for _, group := range groups {
@@ -295,14 +319,21 @@ func renderAdaptiveScan(b *strings.Builder, scan *controlpb.WifiScan, options co
 			row := adaptiveScanRow(ap)
 			if options.WifiScanBrief {
 				row = append(row, scanAgeSeconds(ap))
+			} else {
+				row = append(row, oui.Vendor(ap.GetBssid()))
 			}
 			rows = append(rows, row)
 		}
 	}
-	renderScanRows(b, groups, columns, rows, options, view)
+	renderScanRows(b, groups, columns, rows, scan.GetConnections(), options, view)
 	if !options.WifiScanBrief {
+		fieldsWritten := false
 		for _, field := range scan.GetFields() {
 			if !slices.Contains([]string{"scan_source", "fresh_scan_results_updated", "requested_band", "fresh_scan_elapsed_ms", "scan_result_total_count", "scan_result_count"}, field.GetKey()) {
+				if !fieldsWritten {
+					writeSection(b, "Scan fields")
+					fieldsWritten = true
+				}
 				writeRecord(b, field.GetKey(), field.GetValue())
 			}
 		}
@@ -313,7 +344,7 @@ func renderAdaptiveScan(b *strings.Builder, scan *controlpb.WifiScan, options co
 	}
 }
 
-func renderScanRows(b *strings.Builder, groups []scanResultGroup, columns []displayTableColumn, rows [][]string, options command.Options, view Presentation) {
+func renderScanRows(b *strings.Builder, groups []scanResultGroup, columns []displayTableColumn, rows [][]string, connections *controlpb.WifiScanConnections, options command.Options, view Presentation) {
 	// Row numbers connect supplemental fields without repeating SSID/BSSID values.
 	indexedColumns := append([]displayTableColumn{{header: "AP", numeric: true}}, columns...)
 	indexedRows := make([][]string, 0, len(rows))
@@ -323,6 +354,11 @@ func renderScanRows(b *strings.Builder, groups []scanResultGroup, columns []disp
 	table := tableFits(indexedColumns, indexedRows, view.Width)
 	if table {
 		writeDisplayTable(b, indexedColumns, indexedRows)
+	}
+	if !options.WifiScanBrief || options.WifiScanMLO {
+		writeBlankLine(b)
+		writeRecord(b, "AP display", fmt.Sprintf("shown=%d total=%d", len(rows), len(rows)))
+		writeRecord(b, "Marks", "[*]=connected at collection; [+]=EHT observed; [ ]=neither mark; absence is not proof of non-support")
 	}
 	index := 0
 	for _, group := range groups {
@@ -343,29 +379,39 @@ func renderScanRows(b *strings.Builder, groups []scanResultGroup, columns []disp
 			}
 		}
 		for _, ap := range group.results {
-			writeSection(b, fmt.Sprintf("AP %d", index+1))
+			writeSection(b, fmt.Sprintf("[%s] AP %d", scanAPMark(ap, connections), index+1))
+			var details strings.Builder
+			detail := &details
+			if table {
+				writeRecord(detail, "SSID", scanDisplaySSID(ap))
+				writeRecord(detail, "BSSID", empty(ap.GetBssid(), "?"))
+			}
 			if !table {
 				for col, column := range columns {
-					writeRecord(b, column.header, rows[index][col])
+					writeRecord(detail, column.header, rows[index][col])
 				}
 			}
 			if !options.WifiScanBrief {
-				writeRecord(b, "Observation age at collection", scanObservationAge(ap))
+				writeRecord(detail, "EHT", empty(scanEHTEvidence(ap), "not observed"))
+				writeRecord(detail, "Observation age at collection", scanObservationAge(ap))
+				writeRecord(detail, "BSSID vendor", oui.Vendor(ap.GetBssid()))
 			}
 			if !options.WifiScanBrief || options.WifiScanMLO {
-				writeRecord(b, "MLD", empty(wifiMLOScanMLDMAC(ap), "? (metadata availability uncollected)"))
-				renderMLOLinks(b, "Affiliated", ap.GetAffiliatedMloLinks(), true)
+				writeRecord(detail, "MLD", empty(wifiMLOScanMLDMAC(ap), "? (metadata availability uncollected)"))
+				renderMLOLinks(detail, "Affiliated", ap.GetAffiliatedMloLinks(), true)
 			}
 			if !options.WifiScanBrief {
-				writeRecord(b, "Frequency MHz", ap.GetFrequencyMhz())
-				writeRecord(b, "Centers MHz", fmt.Sprintf("%d/%d", ap.GetCenterFreq0Mhz(), ap.GetCenterFreq1Mhz()))
-				writeRecord(b, "FLAGS", empty(strings.Join(scanConnectionCapabilityFlags(ap), ","), "? (availability uncollected)"))
-				renderWifiSecurityDetails(b, ap.GetSecurityDetails())
-				renderFullScanEvidence(b, ap)
+				writeRecord(detail, "Frequency MHz", ap.GetFrequencyMhz())
+				writeRecord(detail, "Centers MHz", fmt.Sprintf("%d/%d", ap.GetCenterFreq0Mhz(), ap.GetCenterFreq1Mhz()))
+				writeRecord(detail, "FLAGS", empty(strings.Join(scanConnectionCapabilityFlags(ap), ","), "? (availability uncollected)"))
+				renderWifiSecurityDetails(detail, ap.GetSecurityDetails())
+				renderFullScanEvidence(detail, ap)
 			}
+			writeNested(b, details.String())
 			index++
 		}
 	}
+	writeBlankLine(b)
 	writeRecord(b, "Units", "RSSI=dBm; BW=MHz; band G=GHz; PHY=802.11")
 	if options.WifiScanBrief {
 		writeRecord(b, "AGE(s)", "seconds at collection; ?=timestamp unavailable; wpa3-eap=eap_wpa3_enterprise")
@@ -411,6 +457,7 @@ func renderL2(b *strings.Builder, status *controlpb.WifiStatus, view Presentatio
 		}
 		writeRecord(b, "SSID", observedValue(conn.GetObservationFields(), "identity", ssid))
 		writeRecord(b, "BSSID", observedValue(conn.GetObservationFields(), "identity", bssid))
+		writeRecord(b, "BSSID vendor", observedValue(conn.GetObservationFields(), "identity", oui.Vendor(bssid)))
 		writeRecord(b, "Band", wifiBandFromFrequency(conn.GetFrequencyMhz()))
 		writeRecord(b, "CH/BW", wifiChannelFromFrequency(conn.GetFrequencyMhz())+"/"+empty(wifiChannelWidth(conn), "?"))
 		writeRecord(b, "PHY", empty(conn.GetWifiStandard(), "?"))
@@ -425,7 +472,9 @@ func renderL2(b *strings.Builder, status *controlpb.WifiStatus, view Presentatio
 		writeRecord(b, "Associated", observedValue(conn.GetObservationFields(), "associated_mlo_links", fmt.Sprint(len(conn.GetAssociatedMloLinks()))))
 		writeRecord(b, "Affiliated", observedValue(conn.GetObservationFields(), "affiliated_mlo_links", fmt.Sprint(len(conn.GetAffiliatedMloLinks()))))
 		if view.Detail || !view.DetailAvailable {
-			renderConnectionExtra(b, conn)
+			var details strings.Builder
+			renderConnectionExtra(&details, conn)
+			writeNested(b, details.String())
 		}
 	}
 	for _, permission := range status.GetPermissions() {
@@ -556,43 +605,65 @@ func renderDiagnosticBundle(b *strings.Builder, diagnostics *controlpb.WifiDiagn
 		writeRecord(b, "Note", "? (diagnostics payload unavailable)")
 		return
 	}
+	childView := view
+	if childView.Width > 0 {
+		childView.Width = max(1, childView.Width-2)
+	}
 	writeSection(b, "Summary")
-	writeRecord(b, "Constituent status", "? (acquisition-result contract unavailable); not an atomic snapshot")
+	var summary strings.Builder
+	writeRecord(&summary, "Constituent status", "? (acquisition-result contract unavailable); not an atomic snapshot")
+	writeNested(b, summary.String())
 	writeSection(b, "Wi-Fi")
-	renderL2(b, diagnostics.GetStatus(), view)
+	var wifi strings.Builder
+	renderL2(&wifi, diagnostics.GetStatus(), childView)
+	writeNested(b, wifi.String())
 	writeSection(b, "IP")
 	if ip := diagnostics.GetStatus().GetIpStatus(); ip != nil {
-		renderIPView(b, ip, view)
+		var network strings.Builder
+		renderIPView(&network, ip, childView)
+		writeNested(b, network.String())
 	} else {
-		writeRecord(b, "Note", "? (IP payload unavailable)")
+		var missing strings.Builder
+		writeRecord(&missing, "Note", "? (IP payload unavailable)")
+		writeNested(b, missing.String())
 	}
 	writeSection(b, "Scan summary")
 	scan := diagnostics.GetScan()
 	if scan != nil {
 		cached := false
-		scanView := view
+		scanView := childView
 		scanView.RequestedFresh = &cached
-		renderAdaptiveScan(b, scan, options, scanView)
+		var scanOutput strings.Builder
+		renderAdaptiveScan(&scanOutput, scan, options, scanView)
+		writeNested(b, scanOutput.String())
 	} else {
-		writeRecord(b, "Note", "? (scan payload unavailable)")
+		var missing strings.Builder
+		writeRecord(&missing, "Note", "? (scan payload unavailable)")
+		writeNested(b, missing.String())
 	}
 	writeSection(b, "Device")
-	renderDeviceCapabilities(b, diagnostics.GetCapabilities(), view)
+	var device strings.Builder
+	renderDeviceCapabilities(&device, diagnostics.GetCapabilities(), childView)
+	writeNested(b, device.String())
 	if view.Detail || !view.DetailAvailable {
-		for _, network := range diagnostics.GetNetworks() {
-			writeSection(b, "Network")
-			writeRecord(b, "Active/default at bundle enumeration", network.GetActive())
-			renderIPView(b, network.GetIpStatus(), view)
+		for i, network := range diagnostics.GetNetworks() {
+			writeSection(b, fmt.Sprintf("Network %d", i+1))
+			var body strings.Builder
+			writeRecord(&body, "Active/default at bundle enumeration", network.GetActive())
+			renderIPView(&body, network.GetIpStatus(), childView)
+			writeNested(b, body.String())
 		}
 	}
 	current := wifiMLOCurrentConnection(diagnostics.GetStatus())
 	candidates := wifiMLOScanCandidates(diagnostics.GetScan().GetResults())
 	writeSection(b, "EHT/MLO interpretation (references the observations above)")
-	renderWifiMLOCurrentRelation(b, current, diagnostics.GetScan(), candidates)
-	renderWifiMLOConnectedEHT(b, current)
-	renderWifiMLOScanEHT(b, wifiMLOGroups(candidates))
-	renderWifiMLODeviceReadiness(b, diagnostics.GetCapabilities())
-	renderWifiMLODiagnostics(b, diagnostics.GetStatus(), diagnostics.GetCapabilities(), diagnostics.GetScan(), current, candidates)
+	var interpretation strings.Builder
+	renderWifiMLOCurrentRelation(&interpretation, current, diagnostics.GetScan(), candidates)
+	renderWifiMLOConnectedEHT(&interpretation, current)
+	renderWifiMLOScanEHT(&interpretation, wifiMLOGroups(candidates))
+	renderWifiMLODeviceReadiness(&interpretation, diagnostics.GetCapabilities())
+	renderWifiMLODiagnostics(&interpretation, diagnostics.GetStatus(), diagnostics.GetCapabilities(), diagnostics.GetScan(), current, candidates)
+	writeNested(b, interpretation.String())
 }
 
 func renderCurrentMLO(b *strings.Builder, diagnostics *controlpb.WifiDiagnostics, options command.Options, view Presentation) {
@@ -603,6 +674,7 @@ func renderCurrentMLO(b *strings.Builder, diagnostics *controlpb.WifiDiagnostics
 	}
 	writeRecord(b, "SSID", empty(conn.GetSsid(), "?"))
 	writeRecord(b, "BSSID", empty(conn.GetBssid(), "?"))
+	writeRecord(b, "BSSID vendor", observedValue(conn.GetObservationFields(), "identity", oui.Vendor(conn.GetBssid())))
 	writeRecord(b, "MLD", observedValue(conn.GetObservationFields(), "ap_mld_mac_address", wifiMLOConnectionMLDMAC(conn)))
 	writeRecord(b, "PHY", empty(conn.GetWifiStandard(), "?"))
 	writeRecord(b, "Associated", observedValue(conn.GetObservationFields(), "associated_mlo_links", fmt.Sprint(len(conn.GetAssociatedMloLinks()))))
@@ -614,6 +686,7 @@ func renderCurrentMLO(b *strings.Builder, diagnostics *controlpb.WifiDiagnostics
 		writeSection(b, section.title)
 		for _, link := range section.links {
 			writeRecord(b, "AP MAC", observedValue(link.GetObservationFields(), "identity", link.GetApMacAddress()))
+			writeRecord(b, "AP MAC vendor", observedValue(link.GetObservationFields(), "identity", oui.Vendor(link.GetApMacAddress())))
 			writeRecord(b, "State", observedValue(link.GetObservationFields(), "identity", link.GetState()))
 			writeRecord(b, "Radio", observedValue(link.GetObservationFields(), "identity", fmt.Sprintf("%s CH=%d", link.GetBand(), link.GetChannel())))
 			writeRecord(b, "RSSI", observedValue(link.GetObservationFields(), "rates", fmt.Sprintf("%ddBm", link.GetRssiDbm())))

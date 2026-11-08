@@ -176,6 +176,7 @@ $ make build TARGET=controller
 Inside Shell:
 
 - **Wi-Fi and IP inspection:** `show wifi status [full|connection|ip|capabilities|eht]`, `show wifi scan`, and `show network [default|id ID]`.
+- **Offline BSSID vendors:** `show oui` inspects the local IEEE database; `request oui update` explicitly updates that Shell host's copy. See [OUI lookup and update rules](docs/oui-vendors.md).
 - **Wi-Fi control:** `request wifi connect|disconnect|forget|reconnect|cycle`, `test wifi`, and `monitor wifi`.
   Android cycle cleanup is attempted even on interruption; failed disconnect or
   partial network removal is not a successful cycle. HTTP probe connections

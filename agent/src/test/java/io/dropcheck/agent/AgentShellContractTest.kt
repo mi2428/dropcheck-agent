@@ -5,6 +5,24 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AgentShellContractTest {
+    @Test fun lastCommandIsIndependentOfRecallAndPreservesRawInput() {
+        val session = AgentShellSession()
+        assertNull(session.lastCommand)
+        val first = "  sh version | count  "
+        val last = "sh cli | count"
+        session.remember(first)
+        assertEquals(first, session.lastCommand)
+        session.remember(last)
+        assertEquals(last, session.lastCommand)
+        assertEquals(last, session.recall("retained draft", -1))
+        assertEquals(first, session.recall(last, -1))
+        assertEquals(last, session.lastCommand)
+        assertEquals(last, session.recall(first, 1))
+        assertEquals("retained draft", session.recall(last, 1))
+        session.remember(" ")
+        assertEquals(last, session.lastCommand)
+    }
+
     @Test fun everySubmittedCommandIsRecallableWithoutParsingOrFiltering() {
         for (line in listOf("show wifi status", "show wifi scan", "show wifi status full", "show wifi status eht",
             "show network default", "show network id 12", "show adb", "show wifi scan | count",

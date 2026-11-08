@@ -9,6 +9,7 @@ The PC and Android interactive Shells use the Junos-inspired hierarchy below, wi
 ```text
 show version
 show cli
+show oui
 show permissions
 show network [default | id <network-id>]
 show wifi status [full | connection | ip | capabilities | eht]
@@ -39,6 +40,7 @@ request ip external
 request dns resolve <name>
 request http check <url>
 request http download <url>
+request oui update
 
 test wifi [ssid <ssid>] [bssid <bssid>] [security <mode>] [band <band>]
           [require-ip <true|false>] [require-validated <true|false>] [timeout <ms>]
@@ -54,6 +56,34 @@ exit                                                     # PC only
 ```
 
 The comments above identify scope; they are not input syntax. The inventory/help lists every option. Standalone requests retain their prior probe options and `ssid/bssid/network-id` selectors. Scan requests without `eht` also accept `mlo` and `brief`. `show wifi status ip` retains physical Wi-Fi selectors; `eht` accepts mutually exclusive SSID/BSSID evidence filters.
+
+`show oui` and `request oui update` operate locally in both Shells, independently of Android target selection. BSSID vendor fields use offline IEEE longest-prefix lookup; only an explicit update downloads the four public registries. See [database ownership, attribution limits and failure behavior](../oui-vendors.md).
+
+### Scan AP headings and semantic spacing
+
+Full scan AP headings use one fixed-width prefix: `[*] AP 1` for a BSSID
+observed connected at collection, `[+] AP 2` for an otherwise unmarked AP with
+observed EHT support, and `[ ] AP 3` otherwise. Connected takes precedence;
+the body's EHT field retains the evidence for a connected EHT AP. EHT evidence
+is Android's `802.11be` standard or successfully decoded, non-truncated EHT
+capabilities/operation, not merely a 6GHz band, wide channel or MLD identity.
+No mark is not proof of non-support. The existing MLO-view related-MLD mark is
+now `~`, not `+`; that view includes its own legend.
+
+Scan results retain a typed connection observation collected after reading
+the scan results: physical Wi-Fi BSSIDs, timestamp, completeness and errors.
+Matching never uses the SSID, the default Network, another device, a related
+MLD or a later rendering-time lookup. Multiple physical Wi-Fi connections can
+match separately. Known partial identities can be marked while missing
+identities remain explicitly unknown. A complete empty observation means
+disconnected; missing, invalid or incomplete data does not. Scan and connection
+observations are not claimed to be atomic. Cached scan evidence is still cached.
+
+Paragraphs are separated by exactly one blank line: summary, table, display
+metadata/legend, each AP, child information groups, fields and errors. Headings
+stay adjacent to their own body; consecutive fields and table rows remain
+compact. Android retains section roles rather than guessing from text.
+The original brief-table columns and native raw reference text are retained.
 
 - `show wifi status` is the quick everyday summary; its named children select detailed subjects and `full` selects the complete structured diagnostic bundle. Other executable parents, including `show network`, `debug adb` and `debug adb connectivity`, return their whole subject. Group-only input, such as `debug android`, `request` or `test`, displays local help and performs no acquisition. `detail`, `fresh`, root probe aliases, `show adb`, `use`, `check`, `quit`, and `begin` are not accepted interactive spellings.
 - Keywords are lowercase and accept unique prefixes. Values retain literal case, spaces and punctuation. Quote/escape whitespace and literal pipes. A keyword-looking SSID remains a value. There is no shell expansion, subprocess pipeline, arbitrary ADB shell, pager, configuration mode, candidate state, or fake commit.
@@ -114,7 +144,7 @@ Related WifiInfo/Network observations are independent captures, not an atomic sn
 
 `show wifi scan` never starts a scan. `request wifi scan [eht]` starts one bounded scan; the EHT composite uses that exact returned AP payload with independently acquired passive prerequisites. Scan selectors filter evidence, not radio scan destinations. Failed/throttled/timed-out refresh data is reference cache, not fresh success. Five unique true metadata values (registration, start, broadcast, update, wait) and no acquisition errors are required for fresh success. Cancellation prevents later acquisition and does not undo completed radio actions.
 
-`show wifi scan brief` keeps each AP's observation age in the left-aligned `AGE(s)` column, not in repeated blocks below the table. Seconds retain the exact millisecond fraction (up to three decimal places), using integer arithmetic even at the uint64 boundary. Zero is a known zero age; `?` means the observation timestamp is unavailable. Table columns have a two-space minimum gap; `eap_wpa3_enterprise` is displayed as `wpa3-eap`, while unknown security spellings remain intact. For ordinary brief output, layouts group by SSID when the complete table does not fit, before using narrower records without clipping identities or age values. Collection errors remain visible, `mlo` still includes the requested link evidence, and omitting `brief` retains the complete details. Presentation does not change typed probe/watch results.
+`show wifi scan brief` keeps its original SSID/BSSID/radio/security/`AGE(s)` table columns, without a vendor column or repeated AP-detail blocks. Seconds retain the exact millisecond fraction (up to three decimal places), using integer arithmetic even at the uint64 boundary. Zero is a known zero age; `?` means the observation timestamp is unavailable. Table columns have a two-space minimum gap; `eap_wpa3_enterprise` is displayed as `wpa3-eap`, while unknown security spellings remain intact. For ordinary brief output, layouts group by SSID when the complete table does not fit, before using narrower records without clipping identities or age values. Collection errors remain visible, `mlo` still includes the requested link evidence, and omitting `brief` retains the complete details and vendor fields, with one blank line between AP blocks. Presentation does not change typed probe/watch results.
 
 PC full/IP/EHT views retain separately labelled existing structured ADB host supplements. Missing serial/interface and attempted acquisition errors are visible. These optional host sources do not redefine Android typed success. Explicit `debug adb` instead requests ten raw sources (five Wi-Fi plus five Connectivity); a leaf requests one. Its whole-collection budget defaults to 90,000 ms and accepts 1..900,000 ms, with the existing 90-second per-process ceiling. Completed sections remain visible; unstarted sources after a deadline/cancel are marked not collected. Any requested-source failure makes the ADB result non-successful. Android/ADB structured-field reconciliation is a separate follow-up, not a text-deduplication side effect of raw separation.
 

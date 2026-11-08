@@ -25,6 +25,8 @@ const (
 	Connect
 	CLI
 	WifiTest
+	ShowOUI
+	UpdateOUI
 )
 
 type Command struct {
@@ -106,6 +108,10 @@ func ParseLine(line string) (Command, error) {
 		result.Kind = Connect
 	case "show cli":
 		result.Kind = CLI
+	case "show oui":
+		result.Kind = ShowOUI
+	case "request oui update":
+		result.Kind = UpdateOUI
 	case "test wifi":
 		result.Kind = WifiTest
 	case "test link", "test lab":

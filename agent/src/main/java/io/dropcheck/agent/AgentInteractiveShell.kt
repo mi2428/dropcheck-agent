@@ -14,6 +14,8 @@ internal sealed class AgentShellCommand {
     data object ShowCheckLast : AgentShellCommand()
     data object ShowVersion : AgentShellCommand()
     data object ShowCli : AgentShellCommand()
+    data object ShowOui : AgentShellCommand()
+    data object UpdateOui : AgentShellCommand()
     data class ShowWifiEht(val fresh: Boolean = false, val timeoutMs: Int = 0, val ssid: String = "", val bssid: String = "", val band: WifiBand = WifiBand.WIFI_BAND_ALL) : AgentShellCommand()
     data class Connect(val options: ConnectWifi) : AgentShellCommand()
     data class Execute(
@@ -205,6 +207,10 @@ internal object AgentShellParser {
         if (command == "show version") {
             require(index == tokens.size) { "usage: show version" }
             return AgentShellCommand.ShowVersion
+        }
+        if (command == "show oui" || command == "request oui update") {
+            require(index == tokens.size) { "usage: $command" }
+            return if (command == "show oui") AgentShellCommand.ShowOui else AgentShellCommand.UpdateOui
         }
         if (command == "set cli default-passphrase") {
             require(tokens.size - index == 1) { "usage: set cli default-passphrase PASSPHRASE" }

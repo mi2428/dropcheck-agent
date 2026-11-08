@@ -8,7 +8,7 @@ import io.dropcheck.agent.grpc.TracerouteResult
 internal object AgentProbeRenderer {
     fun renderPing(result: PingResult, status: CommandResult.Status, message: String): List<AgentBlockPart> {
         val out = mutableListOf<AgentBlockPart>(
-            AgentBlockPart.Text("Ping"),
+            AgentBlockPart.Text("Ping", section = true),
             row("host", result.host),
             row("status", statusName(status)),
             row("message", message.ifBlank { "-" }),
@@ -32,7 +32,7 @@ internal object AgentProbeRenderer {
 
     fun renderTraceroute(result: TracerouteResult, status: CommandResult.Status, message: String): List<AgentBlockPart> {
         val out = mutableListOf<AgentBlockPart>(
-            AgentBlockPart.Text("Traceroute"),
+            AgentBlockPart.Text("Traceroute", section = true),
             row("host", result.host),
             row("status", statusName(status)),
             row("message", message.ifBlank { "-" }),
@@ -57,8 +57,7 @@ internal object AgentProbeRenderer {
     private fun appendOutput(out: MutableList<AgentBlockPart>, output: String) {
         val trimmed = output.trimEnd()
         if (trimmed.isBlank()) return
-        out += AgentBlockPart.Text("")
-        out += AgentBlockPart.Text("Output (native reference)")
+        out += AgentBlockPart.Text("Output (native reference)", section = true)
         out += AgentBlockPart.Text(trimmed)
     }
 

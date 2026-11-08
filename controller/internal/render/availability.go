@@ -111,10 +111,13 @@ func renderIPView(b *strings.Builder, status *controlpb.IpStatus, view Presentat
 	}{{"IPv4", ipv4}, {"IPv6", ipv6}, {"Other addresses", other}} {
 		writeSection(b, family.name)
 		value := observedList(fields, "link_properties", family.values)
+		var body strings.Builder
 		for line := range strings.SplitSeq(value, "\n") {
-			writeRecord(b, "Addr", line)
+			writeRecord(&body, "Addr", line)
 		}
+		writeNested(b, body.String())
 	}
+	writeBlankLine(b)
 	for _, field := range []struct {
 		label  string
 		values []string
@@ -133,6 +136,7 @@ func renderIPView(b *strings.Builder, status *controlpb.IpStatus, view Presentat
 	writeRecord(b, "Private DNS", observedValue(fields, "link_properties", privateDNS))
 	writeRecord(b, "NAT64", observedValue(fields, "link_properties", status.GetNat64Prefix()))
 	if view.Detail || !view.DetailAvailable {
+		writeBlankLine(b)
 		writeRecord(b, "Capabilities", observedList(fields, "capabilities", status.GetCapabilities()))
 		writeRecord(b, "Bandwidth", observedValue(fields, "capabilities", networkBandwidth(status)))
 		writeRecord(b, "Signal strength", observedValue(fields, "capabilities", fmt.Sprint(status.GetSignalStrength())))
@@ -147,29 +151,35 @@ func renderIPView(b *strings.Builder, status *controlpb.IpStatus, view Presentat
 		writeRecord(b, "Domains", observedValue(fields, "link_properties", status.GetDomains()))
 		writeRecord(b, "Proxy", observedValue(fields, "link_properties", status.GetHttpProxy()))
 		writeRecord(b, "Wake on LAN", observedBool(fields, "link_properties", status.GetWakeOnLanSupported()))
-		writeKVSection(b, "IPv6 RA (android)", kv("source", "android"), kv("values", multiLineValue(diagnosticFieldsForDetail(status.GetIpv6Ra()))))
+		var ra strings.Builder
+		writeKVSection(&ra, "IPv6 RA (android)", kv("source", "android"), kv("values", multiLineValue(diagnosticFieldsForDetail(status.GetIpv6Ra()))))
+		writeNested(b, ra.String())
 		if status.GetWifi() != nil {
 			writeSection(b, "WifiInfo from this NetworkCapabilities observation")
-			renderWifiConnection(b, status.GetWifi())
+			var wifi strings.Builder
+			renderWifiConnection(&wifi, status.GetWifi())
 			conn := status.GetWifi()
-			writeRecord(b, "Network configuration ID", conn.GetNetworkId())
-			writeRecord(b, "Link speed Mbps", conn.GetLinkSpeedMbps())
-			writeRecord(b, "WifiInfo IPv4 (separate observation)", conn.GetIpv4Address())
-			writeRecord(b, "Subscription ID", conn.GetSubscriptionId())
-			writeRecord(b, "Applicable redactions", conn.GetApplicableRedactions())
+			writeRecord(&wifi, "Network configuration ID", conn.GetNetworkId())
+			writeRecord(&wifi, "Link speed Mbps", conn.GetLinkSpeedMbps())
+			writeRecord(&wifi, "WifiInfo IPv4 (separate observation)", conn.GetIpv4Address())
+			writeRecord(&wifi, "Subscription ID", conn.GetSubscriptionId())
+			writeRecord(&wifi, "Applicable redactions", conn.GetApplicableRedactions())
 			if !conn.GetHiddenSsid() {
-				writeRecord(b, "Hidden SSID", false)
+				writeRecord(&wifi, "Hidden SSID", false)
 			}
 			if !conn.GetRestricted() {
-				writeRecord(b, "Restricted", false)
+				writeRecord(&wifi, "Restricted", false)
 			}
-			writeRecord(b, "MLD", observedValue(conn.GetObservationFields(), "ap_mld_mac_address", conn.GetApMldMacAddress()))
-			writeRecord(b, "AP link ID", observedValue(conn.GetObservationFields(), "ap_mlo_link_id", fmt.Sprint(conn.GetApMloLinkId())))
-			renderMLOLinks(b, "Associated links", status.GetWifi().GetAssociatedMloLinks(), true)
-			renderMLOLinks(b, "Affiliated links", status.GetWifi().GetAffiliatedMloLinks(), true)
-			renderInformationElements(b, status.GetWifi().GetInformationElements())
-			renderDiagnosticFields(b, status.GetWifi().GetObservationFields())
+			writeRecord(&wifi, "MLD", observedValue(conn.GetObservationFields(), "ap_mld_mac_address", conn.GetApMldMacAddress()))
+			writeRecord(&wifi, "AP link ID", observedValue(conn.GetObservationFields(), "ap_mlo_link_id", fmt.Sprint(conn.GetApMloLinkId())))
+			renderMLOLinks(&wifi, "Associated links", status.GetWifi().GetAssociatedMloLinks(), true)
+			renderMLOLinks(&wifi, "Affiliated links", status.GetWifi().GetAffiliatedMloLinks(), true)
+			renderInformationElements(&wifi, status.GetWifi().GetInformationElements())
+			renderDiagnosticFields(&wifi, status.GetWifi().GetObservationFields())
+			writeNested(b, wifi.String())
 		}
-		renderDiagnosticFields(b, fields)
+		var diagnostics strings.Builder
+		renderDiagnosticFields(&diagnostics, fields)
+		writeNested(b, diagnostics.String())
 	}
 }

@@ -15,6 +15,21 @@ class AgentShellAdapterTest {
         return adapter.execute(command)
     }
 
+    @Test fun monitorEventTimestampTypeAndMetadataBelongToTheirEventBlock() {
+        val event = WifiEvent.newBuilder().setUnixTimeMs(1234).setType("connected").setMessage("joined")
+            .addFields(DiagnosticField.newBuilder().setKey("network_id").setValue("7")).build()
+        val request = RunCommand.newBuilder().setMonitorWifi(MonitorWifi.getDefaultInstance()).build()
+        val result = CommandResult.newBuilder().setStatus(CommandResult.Status.STATUS_OK)
+            .setWifiMonitor(WifiMonitorResult.newBuilder().addEvents(event)).build()
+        val block = AgentShellAdapter { result }.execute(AgentShellCommand.Execute(request)).block!!
+        val eventTitle = block.parts.indexOf(AgentBlockPart.Text("Event 1", section = true))
+        val fields = block.parts.drop(eventTitle + 1).filterIsInstance<AgentBlockPart.Field>().take(3)
+        assertEquals(listOf("Event unix ms", "connected", "network_id"), fields.map { it.label })
+        assertEquals(listOf("1234", "joined", "7"), fields.map { it.value })
+        assertTrue(fields.all { it.indent == 2 })
+        assertTrue(block.fullText.contains("Event 1\n  Event unix ms: 1234"))
+    }
+
     private fun ip(network: String = "7"): CommandResult = CommandResult.newBuilder().setStatus(CommandResult.Status.STATUS_OK)
         .setIpStatus(IpStatus.newBuilder().setNetworkId(network).setInterfaceName("wlan0").addTransports("wifi")
             .setWifi(WifiConnection.newBuilder().setSsid(target).addAllObservationFields(observationAvailability("identity", true)))

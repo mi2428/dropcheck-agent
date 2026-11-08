@@ -50,6 +50,7 @@ internal class AgentShellSession {
     private val history = ArrayDeque<String>()
     private var index = 0
     private var draft = ""
+    val lastCommand: String? get() = history.lastOrNull()
     var lastTest: AgentShellResult? = null
         private set
     var lastTestAtMs = 0L

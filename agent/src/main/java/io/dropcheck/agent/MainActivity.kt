@@ -624,14 +624,24 @@ class MainActivity : Activity() {
         return object : ScrollView(this) {
             private var tapCandidate = false
             private var dismissedImeOnDrag = false
+            private var upperDoubleTap = false
+            private var upperTapCommand: String? = null
+            private val replayGestures = GestureDetector(this@MainActivity, object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDown(event: MotionEvent) = true
+                override fun onDoubleTapEvent(event: MotionEvent): Boolean {
+                    if (event.actionMasked == MotionEvent.ACTION_UP) upperDoubleTap = true
+                    return false
+                }
+            })
 
             override fun dispatchTouchEvent(event: MotionEvent): Boolean {
                 // Observe output children too, without taking over controls, long presses or drags.
                 when (event.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> { captureSwipeStart(event); tapCandidate = true; dismissedImeOnDrag = false }
+                    MotionEvent.ACTION_DOWN -> { captureSwipeStart(event); tapCandidate = true; dismissedImeOnDrag = false; upperDoubleTap = false }
                     MotionEvent.ACTION_MOVE -> if (!isTapGesture(event)) tapCandidate = false
                     MotionEvent.ACTION_CANCEL -> tapCandidate = false
                 }
+                replayGestures.onTouchEvent(event)
                 val shortTap = event.actionMasked == MotionEvent.ACTION_UP && tapCandidate && isTapGesture(event) &&
                     event.eventTime - event.downTime < ViewConfiguration.getLongPressTimeout()
                 val imeVisible = window.decorView.rootWindowInsets?.isVisible(WindowInsets.Type.ime())
@@ -642,16 +652,20 @@ class MainActivity : Activity() {
                         val y = event.y + scrollY - shellContent.top
                         child.isClickable && x >= child.left && x < child.right && y >= child.top && y < child.bottom
                     }
-                if (outputTap && imeVisible == true) {
-                    // A short output tap is not an editor-focus action. Cancel the child's pending
-                    // click before TextView can steal input focus and resize/scroll the viewport.
+                if (outputTap) {
+                    val upper = event.y < height / 2f
+                    val replay = upper && upperDoubleTap && upperTapCommand != null && upperTapCommand == shellSession.lastCommand
+                    upperTapCommand = if (upper && !upperDoubleTap) shellSession.lastCommand else null
+                    // Short output taps belong to Shell gestures, not native TextView focus/selection.
                     val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
                     try { super.dispatchTouchEvent(cancel) } finally { cancel.recycle() }
                     tapCandidate = false
                     performClick()
+                    if (replay && !shellBusy) submitShellInput(checkNotNull(shellSession.lastCommand), clearInput = false)
+                    else if (event.y >= height * 2f / 3f && imeVisible == false) focusShellInput()
                     return true
                 }
-                val openIme = outputTap && event.y >= height * 2f / 3f && imeVisible == false
+                if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) upperTapCommand = null
                 val previousY = scrollY
                 val handled = super.dispatchTouchEvent(event)
                 val dy = event.y - swipeStartY
@@ -661,7 +675,6 @@ class MainActivity : Activity() {
                     hideShellInputIme()
                 }
                 if (event.actionMasked == MotionEvent.ACTION_UP) tapCandidate = false
-                if (openIme) focusShellInput()
                 return handled
             }
 
@@ -1015,9 +1028,9 @@ class MainActivity : Activity() {
             key("↓", "Next command") { press(KeyEvent.KEYCODE_DPAD_DOWN) },
             key("C-c", "Cancel running command; clear unsent input when idle") { press(KeyEvent.KEYCODE_C, KeyEvent.META_CTRL_ON) },
             key("?", "Context help") { input.requestFocus(); input.requestHelp() },
-            command("sh wi status"),
-            command("req wi scan"),
-            command("sh wi status ip"),
+            command("sh wi st"),
+            command("req wi scan br"),
+            command("sh wi st ip"),
             shortcut(" | match "),
             shortcut(" | count "),
             shortcut(" | display json "),
@@ -1062,7 +1075,7 @@ class MainActivity : Activity() {
         input.setSelection(input.text.length)
     }
 
-    private fun submitShellInput(raw: String) {
+    private fun submitShellInput(raw: String, clearInput: Boolean = true) {
         val line = raw.trim()
         if (line.isBlank()) {
             shellInput?.setText("")
@@ -1073,15 +1086,15 @@ class MainActivity : Activity() {
             shellInput?.requestFocus()
             return
         }
-        shellInput?.setText("")
+        if (clearInput) shellInput?.setText("")
         shellSession.remember(raw)
         scrollShellToTail()
-        appendShellBlock(AgentPresentationBlock.commandLine("$SHELL_PROMPT$raw", AgentLogStyle.TEXT_COLOR, SHELL_PROMPT.length), true)
+        appendShellBlock(AgentPresentationBlock.commandLine("$SHELL_PROMPT$raw", AgentLogStyle.TEXT_COLOR, SHELL_PROMPT.length), clearInput)
         when (val command = AgentShellParser.parse(line)) {
             AgentShellCommand.Noop -> Unit
             is AgentShellCommand.Invalid -> {
                 if (command.testProfile.isNotEmpty()) shellSession.recordTest(AgentShellResult(false, listOf(command.message)))
-                appendShellLine(command.message, SHELL_ERROR_COLOR)
+                appendShellLine(command.message, SHELL_ERROR_COLOR, focusInput = clearInput)
             }
             else -> {
                 val app = applicationContext

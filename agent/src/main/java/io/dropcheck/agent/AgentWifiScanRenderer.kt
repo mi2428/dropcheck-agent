@@ -21,39 +21,52 @@ internal object AgentWifiScanRenderer {
                 result.ssid.ifEmpty { "? (SSID presence unavailable)" }, result.bssid.ifEmpty { "?" }, result.rssiDbm.toString(),
                 band(result.band.ifEmpty { bandNameForFrequency(result.frequencyMhz) }), channel(result.frequencyMhz),
                 result.channelWidth.removeSuffix("MHz").ifEmpty { "?" }, phy(result.wifiStandard), security(result.securityTypesList),
-            ) + if (context.brief) listOf(ageSeconds(result)) else emptyList()
+            ) + if (context.brief) listOf(ageSeconds(result)) else listOf(OuiDatabase.current.vendor(result.bssid))
         }
         return buildList {
-            add(AgentBlockPart.Text("Wi-Fi Scan"))
+            add(AgentBlockPart.Text("Wi-Fi Scan", section = true))
             add(AgentBlockPart.Field("Requested", context.requestedFresh?.let { if (it) "fresh" else "cached" } ?: "? (request metadata unavailable)"))
             add(AgentBlockPart.Field("Data source", fields["scan_source"] ?: "? (source metadata unavailable)"))
             add(AgentBlockPart.Field("Updated", fields["fresh_scan_results_updated"] ?: "?"))
             add(AgentBlockPart.Field("Band", fields["requested_band"] ?: "?"))
             add(AgentBlockPart.Field("Update elapsed", "${fields["fresh_scan_elapsed_ms"] ?: "?"}ms"))
             add(AgentBlockPart.Field("APs", "acquired=${rows.size} total=${fields["scan_result_total_count"] ?: scan.resultsCount}"))
+            add(AgentBlockPart.Field("Connections at collection", scanConnectionsSummary(scan.connections)))
             if (context.mloOnly) add(AgentBlockPart.Field("Filter", "mlo; shown counts filtered APs"))
-            add(AgentBlockPart.Scan(rows, scanColumns + if (context.brief) listOf(AgentBlockPart.Column("AGE(s)")) else emptyList()))
+            add(AgentBlockPart.Scan(rows, scanColumns + AgentBlockPart.Column(if (context.brief) "AGE(s)" else "VENDOR")))
             add(AgentBlockPart.Field("Units", "BW=MHz; RSSI=dBm; band G=GHz; PHY=802.11"))
+            if (!context.brief || context.mloOnly || context.detail) add(AgentBlockPart.Field("Marks", "[*]=connected at collection; [+]=EHT observed; [ ]=neither mark; absence is not proof of non-support"))
             if (context.brief) add(AgentBlockPart.Field("AGE(s)", "seconds at collection; ?=timestamp unavailable; wpa3-eap=eap_wpa3_enterprise"))
             // AP numbers refer to row order, including rows retained in Inspect/copy.
             if (!context.brief || context.mloOnly || context.detail) results.forEachIndexed { index, ap ->
-                add(AgentBlockPart.Text("AP ${index + 1}"))
-                if (!context.brief) add(AgentBlockPart.Field("Observation age at collection", observationAge(ap)))
-                if (!context.brief || context.mloOnly) {
-                    add(AgentBlockPart.Field("MLD", ap.apMldMacAddress.ifEmpty { parseEhtMultiLinkElements(ap.informationElementsList).firstNotNullOfOrNull { it.commonInfo?.mldMacAddress }.orEmpty().ifEmpty { "? (metadata unavailable)" } }))
-                    if (!context.detail) add(AgentBlockPart.Field("Affiliated", ap.affiliatedMloLinksList.joinToString("; ") { link -> "${link.linkId} ${link.state} ${link.band} AP=${link.apMacAddress} STA=${link.staMacAddress}" }.ifEmpty { "? (metadata unavailable)" }))
+                add(AgentBlockPart.Text("[${scanApMark(ap, scan.connections)}] AP ${index + 1}", section = true))
+                val details = buildList {
+                    add(AgentBlockPart.Field("SSID", ap.ssid))
+                    add(AgentBlockPart.Field("BSSID", ap.bssid))
+                    add(AgentBlockPart.Field("EHT", scanEhtEvidence(ap).ifEmpty { "not observed" }))
+                    if (!context.brief) add(AgentBlockPart.Field("Observation age at collection", observationAge(ap)))
+                    if (!context.brief) add(AgentBlockPart.Field("BSSID vendor", OuiDatabase.current.vendor(ap.bssid)))
+                    if (!context.brief || context.mloOnly) {
+                        add(AgentBlockPart.Field("MLD", ap.apMldMacAddress.ifEmpty { parseEhtMultiLinkElements(ap.informationElementsList).firstNotNullOfOrNull { it.commonInfo?.mldMacAddress }.orEmpty().ifEmpty { "? (metadata unavailable)" } }))
+                        if (!context.detail) add(AgentBlockPart.Field("Affiliated", ap.affiliatedMloLinksList.joinToString("; ") { link -> "${link.linkId} ${link.state} ${link.band} AP=${link.apMacAddress} STA=${link.staMacAddress}" }.ifEmpty { "? (metadata unavailable)" }))
+                    }
+                    if (!context.brief) {
+                        add(AgentBlockPart.Field("Frequency MHz", ap.frequencyMhz.toString()))
+                        add(AgentBlockPart.Field("Centers MHz", "${ap.centerFreq0Mhz}/${ap.centerFreq1Mhz}"))
+                        add(AgentBlockPart.Field("Security details", if (ap.hasSecurityDetails()) AgentWifiStatusRenderer.securitySummary(ap.securityDetails) else "?"))
+                    }
+                    if (context.detail) addAll(AgentWifiStatusRenderer.scanEvidence(ap))
                 }
-                if (!context.brief) {
-                    add(AgentBlockPart.Field("Frequency MHz", ap.frequencyMhz.toString()))
-                    add(AgentBlockPart.Field("Centers MHz", "${ap.centerFreq0Mhz}/${ap.centerFreq1Mhz}"))
-                    add(AgentBlockPart.Field("Security details", if (ap.hasSecurityDetails()) AgentWifiStatusRenderer.securitySummary(ap.securityDetails) else "?"))
-                }
-                if (context.detail) addAll(AgentWifiStatusRenderer.scanEvidence(ap))
+                addAll(nestedPresentation(details))
             }
-            if (!context.brief) scan.fieldsList.filterNot { it.key in listOf("scan_source", "fresh_scan_results_updated", "requested_band", "fresh_scan_elapsed_ms", "scan_result_total_count", "scan_result_count") }
-                .forEach { add(AgentBlockPart.Field(it.key, it.value)) }
+            if (!context.brief) {
+                val extra = scan.fieldsList.filterNot { it.key in listOf("scan_source", "fresh_scan_results_updated", "requested_band", "fresh_scan_elapsed_ms", "scan_result_total_count", "scan_result_count") }
+                if (extra.isNotEmpty()) add(AgentBlockPart.Text("Fields", section = true))
+                addAll(nestedPresentation(extra.map { AgentBlockPart.Field(it.key, it.value) }))
+            }
             if (context.brief) add(AgentBlockPart.Field("Full", "show wifi scan (new passive observation)"))
-            scan.errorsList.forEach { add(AgentBlockPart.Field("Error", it)) }
+            if (scan.errorsCount > 0) add(AgentBlockPart.Text("Errors", section = true))
+            addAll(nestedPresentation(scan.errorsList.map { AgentBlockPart.Field("Error", it) }))
         }
     }
 

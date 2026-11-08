@@ -4,6 +4,8 @@ package command
 var portableGrammar = []Grammar{
 	{Path: "show version", Effect: "local", Description: "Show local application version"},
 	{Path: "show cli", Effect: "local", Description: "Show safe current Shell session state"},
+	{Path: "show oui", Effect: "local", Description: "Show the local offline IEEE vendor database status"},
+	{Path: "request oui update", Effect: "local", Description: "Download official IEEE registries and atomically replace this host's vendor database"},
 	{Path: "show network", Effect: "read", Description: "Inspect all Android Networks without scanning Wi-Fi"},
 	{Path: "show network default", Effect: "read", Description: "Inspect the captured Android platform default Network"},
 	{Path: "show network id", Positionals: []string{"network-id"}, Effect: "read", Description: "Inspect exactly one Connectivity Network ID"},

@@ -84,6 +84,9 @@ func TestInteractiveScanBriefKeepsAgesInTheTable(t *testing.T) {
 			t.Fatal(err)
 		}
 		joined := alignmentCompact(out)
+		if strings.Contains(out, "VENDOR") || strings.Contains(out, "BSSID vendor") {
+			t.Fatalf("brief changed its original table columns:\n%s", out)
+		}
 		for _, value := range []string{"AGE(s)", "51845.845", "password=Guest", "FAILED", "refresh failed", "timestamp unavailable", "show wifi scan"} {
 			if !strings.Contains(joined, alignmentCompact(value)) {
 				t.Fatalf("width=%d lost %q", width, value)
@@ -94,11 +97,11 @@ func TestInteractiveScanBriefKeepsAgesInTheTable(t *testing.T) {
 				t.Fatalf("width=%d overflow: %q", width, line)
 			}
 		}
-		if width >= 80 && (strings.Contains(out, "\nAP 1\n") || strings.Contains(out, "Observation age at collection:")) {
+		if width >= 80 && (strings.Contains(out, "\nAP 1\n") || strings.Contains(out, "\n[ ] AP 1\n") || strings.Contains(out, "Observation age at collection:")) {
 			t.Fatalf("brief appended per-AP records after its table:\n%s", out)
 		}
 		if width == 120 {
-			if strings.Count(out, "\n") > 47 {
+			if strings.Count(out, "\n") > 48 {
 				t.Fatalf("brief appended per-AP records after its table:\n%s", out)
 			}
 			for i, ap := range scan.Results {

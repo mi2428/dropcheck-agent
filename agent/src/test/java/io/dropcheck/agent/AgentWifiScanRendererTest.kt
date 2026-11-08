@@ -7,6 +7,7 @@ import io.dropcheck.agent.grpc.WifiScan
 import io.dropcheck.agent.grpc.WifiScanResult
 import io.dropcheck.agent.grpc.WifiSecurityDetails
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -21,7 +22,9 @@ class AgentWifiScanRendererTest {
             scan.addResults(ap)
         }
         val parts = AgentWifiScanRenderer.presentation(scan.build(), AgentWifiScanContext(brief = true))
-        val rows = parts.filterIsInstance<AgentBlockPart.Scan>().single().rows
+        val table = parts.filterIsInstance<AgentBlockPart.Scan>().single()
+        val rows = table.rows
+        assertEquals(listOf("SSID", "BSSID", "dBm", "BAND", "CH", "BW", "PHY", "SEC", "AGE(s)"), table.columns.map { it.label })
         assertTrue(rows.all { it.size == 9 })
         for ((index, age) in listOf("0", "51845.845", "18446744073709551.615", "?").withIndex()) {
             assertTrue("age lost its AP row", rows.single { it[1].endsWith("%02x".format(index)) }.last() == age)
@@ -217,15 +220,16 @@ class AgentWifiScanRendererTest {
         }
     }
 
-    @Test fun briefChangesDepthWithoutRepeatingIdentities() {
+    @Test fun briefKeepsCompactIdentitiesWhileFullApBlocksAreSelfIdentifying() {
         val scan = WifiScan.newBuilder().addResults(WifiScanResult.newBuilder().setSsid("Long safe SSID that stays intact")
             .setBssid("02:00:00:11:22:33").setFrequencyMhz(6135)).build()
         val brief = AgentWifiScanRenderer.render(scan, AgentWifiScanContext(brief = true)).joinToString("\n")
         val full = AgentWifiScanRenderer.render(scan).joinToString("\n")
         assertFalse(brief.contains("Centers MHz"))
         assertTrue(full.contains("Centers MHz"))
-        assertTrue(Regex("02:00:00:11:22:33").findAll(full).count() == 1)
-        assertTrue(Regex("Long safe SSID that stays intact").findAll(full).count() == 1)
+        assertTrue(Regex("02:00:00:11:22:33").findAll(brief).count() == 1)
+        assertTrue(Regex("Long safe SSID that stays intact").findAll(brief).count() == 1)
+        assertTrue(full.contains("[ ] AP 1\n  SSID: Long safe SSID that stays intact\n  BSSID: 02:00:00:11:22:33"))
     }
 
     private fun field(key: String, value: String): DiagnosticField =

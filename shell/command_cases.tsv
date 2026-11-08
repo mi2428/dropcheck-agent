@@ -1,6 +1,8 @@
 path	input
 show version	show version
 show cli	show cli
+show oui	show oui
+request oui update	request oui update
 show network	show network
 show network default	show network default
 show network id	show network id 42

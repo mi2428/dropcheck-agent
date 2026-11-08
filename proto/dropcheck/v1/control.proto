@@ -471,6 +471,16 @@ message WifiScan {
   repeated DiagnosticField fields = 1;
   repeated WifiScanResult results = 2;
   repeated string errors = 3;
+  WifiScanConnections connections = 4;
+}
+
+// Physical Wi-Fi associations observed after reading scan results. Not an atomic snapshot.
+message WifiScanConnections {
+  int64 observed_at_unix_ms = 1;
+  repeated string bssids = 2;
+  // True with no BSSIDs means observed disconnected; false means incomplete evidence.
+  bool complete = 3;
+  repeated string errors = 4;
 }
 
 message WifiScanResult {
@@ -917,6 +927,7 @@ message WifiScanDetail {
   repeated DiagnosticField fields = 2;
   repeated WifiScanResult results = 3;
   repeated string errors = 4;
+  WifiScanConnections connections = 5;
 }
 
 message WifiCycleStep {

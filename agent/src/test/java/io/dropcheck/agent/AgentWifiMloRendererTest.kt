@@ -93,7 +93,7 @@ class AgentWifiMloRendererTest {
             "ie rsn=false rsnxe=false ext_cap=true rnr=true mbssid=true noninherit=false eht_mle=true ap_mld=true link_id=true",
             "sdk_flags twt=true 11az_ntb=true ranging_prot=true secure_he_ltf=true 11mc=true",
             "  affiliated_links",
-            "    [+] affiliated link",
+            "    [~] affiliated link",
             "Identity: type=aff link=1 ap_mac=02:00:00:00:00:01",
             "Connected Roaming / Transition",
             "summary 11k=true 11v_bss_transition=true 11r=true ft_akm=<none> rnr=true",

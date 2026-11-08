@@ -8,6 +8,7 @@ import (
 
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/oui"
 )
 
 type wifiMLOGroup struct {
@@ -239,6 +240,7 @@ func renderWifiMLOConnected(b *strings.Builder, current *controlpb.WifiConnectio
 	writeKVRows(b,
 		kv("ssid", empty(current.GetSsid(), "<hidden>")),
 		kv("bssid", empty(current.GetBssid(), "<unknown>")),
+		kv("BSSID vendor", observedValue(current.GetObservationFields(), "identity", oui.Vendor(current.GetBssid()))),
 		kv("standard", empty(current.GetWifiStandard(), "<unknown>")),
 		kv("present", present),
 		kv("ap_mld", empty(wifiMLOConnectionMLDMAC(current), "<none>")),
@@ -658,7 +660,10 @@ func renderWifiMLOScanHE6GHzDetails(b *strings.Builder, groups []wifiMLOGroup) {
 		return
 	}
 	writeSection(b, "Scan HE 6GHz Details")
-	for _, result := range results {
+	for i, result := range results {
+		if i > 0 {
+			writeBlankLine(b)
+		}
 		label := fmt.Sprintf("ap ssid=%s bssid=%s", empty(result.GetSsid(), "<hidden>"), empty(result.GetBssid(), "<unknown>"))
 		fmt.Fprintf(b, "  %s\n", label)
 		wifiMLOWriteDetailRows(b, kv("he_6ghz", wifiMLOHE6GHzSummary(result.GetHe_6GhzCapabilities())))
@@ -1073,6 +1078,7 @@ func renderWifiMLOScanLinks(b *strings.Builder, groups []wifiMLOGroup, current *
 		return
 	}
 	writeSection(b, "EHT Scan Links")
+	writeRecord(b, "Marks", "*=connected BSSID ~=same MLD -=other observed MLO link")
 	first := true
 	for _, group := range groups {
 		for _, result := range group.results {
@@ -1089,6 +1095,7 @@ func renderWifiMLOScanLinks(b *strings.Builder, groups []wifiMLOGroup, current *
 func renderWifiMLOScanLinkBlock(b *strings.Builder, group wifiMLOGroup, result *controlpb.WifiScanResult, current *controlpb.WifiConnection) {
 	fmt.Fprintf(b, "[%s] %s\n", wifiMLOBlockMark(wifiMLOResultMark(group, result, current)), empty(result.GetSsid(), "<hidden>"))
 	writeRecord(b, "Identity", fmt.Sprintf("type=ap ap_mld=%s link=%s bssid=%s", group.displayMLD, wifiMLOScanLinkID(result), empty(result.GetBssid(), "<unknown>")))
+	writeRecord(b, "BSSID vendor", oui.Vendor(result.GetBssid()))
 	writeRecord(b, "Radio", fmt.Sprintf("band=%s ch=%s freq=%dMHz width=%s%s rssi=%ddBm",
 		empty(result.GetBand(), wifiBandFromFrequency(result.GetFrequencyMhz())),
 		wifiChannelFromFrequency(result.GetFrequencyMhz()),
@@ -1105,8 +1112,12 @@ func renderWifiMLOAffiliatedLinkBlocks(b *strings.Builder, group wifiMLOGroup, r
 	if len(result.GetAffiliatedMloLinks()) == 0 {
 		return
 	}
+	writeBlankLine(b)
 	fmt.Fprintf(b, "  affiliated_links\n")
-	for _, link := range result.GetAffiliatedMloLinks() {
+	for i, link := range result.GetAffiliatedMloLinks() {
+		if i > 0 {
+			writeBlankLine(b)
+		}
 		renderWifiMLOAffiliatedLinkBlock(b, group, result, link, current)
 	}
 }
@@ -1402,7 +1413,7 @@ func wifiMLOResultMark(group wifiMLOGroup, result *controlpb.WifiScanResult, cur
 	}
 	for _, candidate := range group.results {
 		if wifiMLOSameMLD(current, candidate) {
-			return "+"
+			return "~"
 		}
 	}
 	if wifiMLOScanHasMetadata(result) {
@@ -1420,7 +1431,7 @@ func wifiMLOLinkMark(group wifiMLOGroup, link *controlpb.MloLinkInfo, current *c
 	}
 	for _, result := range group.results {
 		if wifiMLOSameMLD(current, result) {
-			return "+"
+			return "~"
 		}
 	}
 	return "-"

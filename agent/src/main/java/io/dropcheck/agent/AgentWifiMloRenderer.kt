@@ -37,17 +37,18 @@ internal object AgentWifiMloRenderer {
     fun presentation(status: WifiStatus, scan: WifiScan, context: AgentWifiMloContext): List<AgentBlockPart> = buildList {
         val filter = MloFilter(context.ssidFilter, context.bssidFilter)
         filter.connection(activeWifiConnection(status))?.let { current ->
-            add(AgentBlockPart.Text("Connected identity"))
+            add(AgentBlockPart.Text("Connected identity", section = true))
             add(AgentBlockPart.Field("SSID", AgentObservationPresentation.value(current.observationFieldsList, "identity", current.ssid), current.ssid))
             add(AgentBlockPart.Field("BSSID", AgentObservationPresentation.value(current.observationFieldsList, "identity", current.bssid), current.bssid))
+            add(AgentBlockPart.Field("BSSID vendor", AgentObservationPresentation.value(current.observationFieldsList, "identity", OuiDatabase.current.vendor(current.bssid))))
         }
         val candidates = filter.scanResults(scan.resultsList).filter(::isMloCapableCandidate)
         if (candidates.isNotEmpty()) {
-            add(AgentBlockPart.Text("AP identity index (same observations used by the analysis)"))
-            add(AgentBlockPart.Table(listOf(AgentBlockPart.Column("AP", true), AgentBlockPart.Column("SSID"), AgentBlockPart.Column("BSSID")),
-                candidates.mapIndexed { index, ap -> listOf((index + 1).toString(), ap.ssid, ap.bssid) }))
+            add(AgentBlockPart.Text("AP identity index (same observations used by the analysis)", section = true))
+            add(AgentBlockPart.Table(listOf(AgentBlockPart.Column("AP", true), AgentBlockPart.Column("SSID"), AgentBlockPart.Column("BSSID"), AgentBlockPart.Column("VENDOR")),
+                candidates.mapIndexed { index, ap -> listOf((index + 1).toString(), ap.ssid, ap.bssid, OuiDatabase.current.vendor(ap.bssid)) }))
         }
-        add(AgentBlockPart.Text("EHT/MLO analysis (references the identities above)"))
+        add(AgentBlockPart.Text("EHT/MLO analysis (references the identities above)", section = true))
         addAll(renderParts(status, scan, context))
     }
 
@@ -255,7 +256,7 @@ internal object AgentWifiMloRenderer {
     }
 
     private fun renderSecurityDetails(out: MutableList<AgentBlockPart>, label: String, value: WifiSecurityDetails) {
-        out += "  $label"
+        out += AgentBlockPart.Text("  $label", section = true)
         detail(out, listOf("Security" to wifiMloSecuritySummaryLines(value).joinToString("\n")))
     }
 
@@ -267,7 +268,7 @@ internal object AgentWifiMloRenderer {
         )
         if (lines.isEmpty()) return
         section(out, "Connected Roaming / Transition")
-        out += "  connection"
+        out += AgentBlockPart.Text("  connection", section = true)
         detail(out, listOf("Roaming" to lines.joinToString("\n")))
     }
 
@@ -287,7 +288,7 @@ internal object AgentWifiMloRenderer {
         section(out, "Scan Roaming / Transition")
         entries.forEachIndexed { index, (label, lines) ->
             if (index > 0) out += ""
-            out += "  $label"
+            out += AgentBlockPart.Text("  $label", section = true)
             detail(out, listOf("Roaming" to lines.joinToString("\n")))
         }
     }
@@ -325,7 +326,7 @@ internal object AgentWifiMloRenderer {
         operation: WifiHeOperation?,
         spatialReuse: WifiHeSpatialReuseParameterSet?,
     ) {
-        out += "  $label"
+        out += AgentBlockPart.Text("  $label", section = true)
         detail(out, bssColoringSummaryLines(operation, spatialReuse))
     }
 
@@ -430,7 +431,7 @@ internal object AgentWifiMloRenderer {
         uora: WifiHeUoraParameterSet?,
         muEdca: WifiHeMuEdcaParameterSet?,
     ) {
-        out += "  $label"
+        out += AgentBlockPart.Text("  $label", section = true)
         capabilities?.let { cap ->
             if (cap.hasMac()) detail(out, heMacSummaryLines(cap))
             if (cap.hasPhy()) detail(out, hePhySummaryLines(cap))
@@ -496,7 +497,7 @@ internal object AgentWifiMloRenderer {
     private fun renderConnectedHe6GhzDetails(out: MutableList<AgentBlockPart>, conn: WifiConnection?) {
         if (conn == null || !conn.hasHe6GhzCapabilities()) return
         section(out, "Connected HE 6GHz Details")
-        out += "  connection"
+        out += AgentBlockPart.Text("  connection", section = true)
         detail(out, listOf("he_6ghz" to he6GhzSummary(conn.he6GhzCapabilities)))
     }
 
@@ -506,7 +507,7 @@ internal object AgentWifiMloRenderer {
         section(out, "Scan HE 6GHz Details")
         he6Results.forEach { result ->
             val label = "ap ssid=${empty(result.ssid, "<hidden>")} bssid=${empty(result.bssid, "<unknown>")}"
-            out += "  $label"
+            out += AgentBlockPart.Text("  $label", section = true)
             detail(out, listOf("he_6ghz" to he6GhzSummary(result.he6GhzCapabilities)))
         }
     }
@@ -556,7 +557,7 @@ internal object AgentWifiMloRenderer {
         he: WifiHeCapabilities?,
         operation: WifiEhtOperation?,
     ) {
-        out += "  $label"
+        out += AgentBlockPart.Text("  $label", section = true)
         detail(out, ehtPuncturingSummaryLines(he, operation))
     }
 
@@ -577,7 +578,7 @@ internal object AgentWifiMloRenderer {
         capabilities: WifiEhtCapabilities?,
         operation: WifiEhtOperation?,
     ) {
-        out += "  $label"
+        out += AgentBlockPart.Text("  $label", section = true)
         capabilities?.let { cap ->
             if (cap.hasMac()) detail(out, ehtMacSummaryLines(cap))
             if (cap.hasPhy()) detail(out, ehtPhySummaryLines(cap))
@@ -704,6 +705,7 @@ internal object AgentWifiMloRenderer {
     private fun renderScanLinks(out: MutableList<AgentBlockPart>, groups: List<MloGroup>, current: WifiConnection?) {
         if (groups.isEmpty()) return
         section(out, "EHT Scan Links")
+        kv(out, "Marks" to "*=connected BSSID ~=same MLD -=other observed MLO link; +=EHT only in scan AP headings")
         groups.forEach { group ->
             group.results.forEach { result ->
                 renderScanLinkBlock(out, group, result, current)
@@ -718,7 +720,6 @@ internal object AgentWifiMloRenderer {
         result: WifiScanResult,
         current: WifiConnection?,
     ) {
-        blockGap(out)
         blockTitle(out, resultMark(group, result, current), empty(result.ssid, "<hidden>"))
         kv(out, "Identity" to "type=ap ap_mld=${group.displayMld} link=${scanLinkID(result)} bssid=${empty(result.bssid, "<unknown>")}",
             "Radio" to "band=${empty(result.band, wifiBandFromFrequency(result.frequencyMhz))} ch=${wifiChannelFromFrequency(result.frequencyMhz)} freq=${result.frequencyMhz}MHz width=${empty(formatWifiChannelWidth(result.channelWidth), "<unknown>")}${scanEhtOperationSuffix(result)} rssi=${result.rssiDbm}dBm",
@@ -732,7 +733,7 @@ internal object AgentWifiMloRenderer {
         current: WifiConnection?,
     ) {
         if (result.affiliatedMloLinksCount == 0) return
-        out += "  affiliated_links"
+        out += AgentBlockPart.Text("  affiliated_links", section = true)
         result.affiliatedMloLinksList.forEach { link ->
             renderAffiliatedLinkBlock(out, group, result, link, current)
         }
@@ -745,24 +746,19 @@ internal object AgentWifiMloRenderer {
         link: MloLinkInfo,
         current: WifiConnection?,
     ) {
-        out += "    [${blockMarker(linkMark(group, link, current))}] affiliated link"
+        out += AgentBlockPart.Text("    [${blockMarker(linkMark(group, link, current))}] affiliated link", section = true)
         out += AgentBlockPart.Field("      Identity", "type=aff link=${link.linkId} ap_mac=${empty(link.apMacAddress, "<unknown>")}")
         out += AgentBlockPart.Field("      Radio", "band=${empty(link.band, "<unknown>")} ch=${link.channel} state=${empty(link.state, "<unknown>")} rssi=${link.rssiDbm}dBm tx=${link.txLinkSpeedMbps} rx=${link.rxLinkSpeedMbps} max_tx=${link.maxSupportedTxLinkSpeedMbps} max_rx=${link.maxSupportedRxLinkSpeedMbps} parent_bssid=${empty(result.bssid, "<unknown>")}")
     }
 
     private fun blockTitle(out: MutableList<AgentBlockPart>, mark: String, label: String) {
-        out += "[${blockMarker(mark)}] $label"
+        out += AgentBlockPart.Text("[${blockMarker(mark)}] $label", section = true)
     }
 
     private fun blockMarker(mark: String): String {
         return mark.ifBlank { " " }
     }
 
-    private fun blockGap(out: MutableList<AgentBlockPart>) {
-        if (out.isNotEmpty() && (out.last() as? AgentBlockPart.Text)?.value?.isBlank() != true && out.last() != AgentBlockPart.Text("EHT Scan Links")) {
-            out += ""
-        }
-    }
 
     private fun briefCell(value: String): String {
         return when (value.trim()) {
@@ -1130,7 +1126,7 @@ internal object AgentWifiMloRenderer {
         if (current == null) return if (result.hasMloScanMetadata()) "-" else ""
         return when {
             AgentObservationPresentation.available(current.observationFieldsList, "identity") && bssidEquals(result.bssid, current.bssid) -> "*"
-            group.results.any { sameMld(current, it) } -> "+"
+            group.results.any { sameMld(current, it) } -> "~"
             result.hasMloScanMetadata() -> "-"
             else -> ""
         }
@@ -1140,7 +1136,7 @@ internal object AgentWifiMloRenderer {
         if (current == null) return "-"
         return when {
             AgentObservationPresentation.available(current.observationFieldsList, "identity") && bssidEquals(link.apMacAddress, current.bssid) -> "*"
-            group.results.any { sameMld(current, it) } -> "+"
+            group.results.any { sameMld(current, it) } -> "~"
             else -> "-"
         }
     }
@@ -1295,8 +1291,7 @@ internal object AgentWifiMloRenderer {
     }
 
     private fun section(out: MutableList<AgentBlockPart>, title: String) {
-        if (out.isNotEmpty() && (out.last() as? AgentBlockPart.Text)?.value?.isBlank() != true) out += ""
-        out += title
+        out += AgentBlockPart.Text(title, section = true)
     }
 
     private fun kv(out: MutableList<AgentBlockPart>, vararg rows: Pair<String, String>) {

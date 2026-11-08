@@ -41,30 +41,30 @@ class LayoutContractQaTest {
     @Test fun tableRecordProjectionHasOuterBlankLines() {
         val table = table()
         val cases = listOf(
-            listOf(table) to "\nH: x\nV: 0\n\n",
+            listOf(table) to "H: x\nV: 0\n\n",
             listOf(AgentBlockPart.Text("before"), table, AgentBlockPart.Text("after")) to "before\n\nH: x\nV: 0\n\nafter",
             listOf(AgentBlockPart.Text("before\n"), table) to "before\n\nH: x\nV: 0\n\n",
             listOf(AgentBlockPart.Text("before\n\n"), table) to "before\n\nH: x\nV: 0\n\n",
-            listOf(table, table) to "\nH: x\nV: 0\n\nH: x\nV: 0\n\n",
+            listOf(table, table) to "H: x\nV: 0\n\nH: x\nV: 0\n\n",
         )
         assertEquals(cases.map { it.second }, cases.map { AgentPresentationBlock.create(it.first, 0).fullText })
     }
 
     @Test fun emptyTableRetainsHeaderAndBoundary() {
         val block = AgentPresentationBlock.create(listOf(table().copy(rows = emptyList())), 0)
-        assertEquals("\nH  V\n\n", block.fullText)
+        assertEquals("H  V\n\n", block.fullText)
     }
 
     @Test fun scanRecordProjectionHasOuterBlankLines() {
         val scan = AgentBlockPart.Scan(listOf(listOf("東京e\u0301👩\u200d🔬", "02:00:00:00:00:01", "0", "?", "?", "?", "?", "wpa3-eap")))
         val text = AgentPresentationBlock.create(listOf(scan), 0).fullText
-        assertTrue("Missing blank above first scan record", text.startsWith("\nSSID:"))
+        assertTrue("Leading blank before first scan record", text.startsWith("SSID:"))
         assertTrue("Missing blank below final scan record", text.endsWith("\n\n"))
     }
 
     @Test fun tableRecordFiltersPreserveExplicitLineSemantics() {
         for ((stage, expected) in listOf(
-            "match .*" to "\nH: x\nV: 0\n\n",
+            "match .*" to "H: x\nV: 0\n\n",
             "find ^H:" to "H: x\nV: 0\n\n",
             "except ^$" to "H: x\nV: 0\n",
         )) {
@@ -140,7 +140,8 @@ class LayoutContractQaTest {
             .setWifiStandard("802.11be").setApMldMacAddress("02:00:00:00:00:02")).build()
         val text = AgentPresentationBlock.create(AgentWifiMloRenderer.presentation(WifiStatus.getDefaultInstance(), scan, AgentWifiMloContext(sdkInt = 37)), 0).fullText
         assertTrue("MLO index lacks a blank above its first record", text.contains("\n\nAP:"))
-        assertTrue("MLO index lacks a blank below its last record", text.contains("02:00:00:00:00:01\n\nEHT/MLO analysis"))
+        assertTrue("MLO index lost its BSSID", text.contains("BSSID: 02:00:00:00:00:01"))
+        assertTrue("MLO index lacks a blank below its last record", text.contains("VENDOR: ${OuiDatabase.current.vendor("02:00:00:00:00:01")}\n\nEHT/MLO analysis"))
     }
 
     @Test fun helpAndDisplayJsonDoNotReparseRawColonText() {

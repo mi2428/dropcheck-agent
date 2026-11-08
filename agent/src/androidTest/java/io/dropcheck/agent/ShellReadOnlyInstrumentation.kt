@@ -23,8 +23,15 @@ class ShellReadOnlyInstrumentation : Instrumentation() {
     private var current: MainActivity? = null
     private var phase = "startup"
     private var cases = 0
+    private var scanOnly = false
 
-    override fun onCreate(arguments: Bundle?) { super.onCreate(arguments); start() }
+    override fun onCreate(arguments: Bundle?) {
+        super.onCreate(arguments)
+        val selected = arguments?.getString("case")
+        require(selected == null || selected == "scan-connection") { "unknown read-only case" }
+        scanOnly = selected == "scan-connection"
+        start()
+    }
 
     override fun onStart() {
         val report = Bundle()
@@ -33,8 +40,24 @@ class ShellReadOnlyInstrumentation : Instrumentation() {
         var dualFailedMetrics = "NOT_MEASURED"
         var lanPermission = "NOT_APPLICABLE"
         try {
+            sendStatus(0, Bundle().apply { putString("phase", phase); putLong("elapsed_ms", SystemClock.elapsedRealtime()) })
             current = startActivitySync(Intent(targetContext, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
             waitForIdleSync()
+            if (scanOnly) {
+                val scan = json("show wifi scan | display json")
+                check(lines(scan).any { it.startsWith("Connections at collection: ") && !it.contains("not captured") && !it.contains("inconsistent connection observation") }) { "scan did not retain its typed collection-time connection observation" }
+                submit("set cli default-passphrase acceptance-only-psk")
+                runOnMainSync {
+                    session = field(current!!, "shellSession")
+                    check(session!!.defaults.defaultPassphrase == "acceptance-only-psk") { "session command after scan failed" }
+                    check(field<AgentBlockHistory>(current!!, "shellTranscript").blocks.any { it.promptLength > 0 && it.fullText == "self> set cli default-passphrase acceptance-only-psk" }) { "command echo after scan was not retained verbatim" }
+                }
+                submit("clear cli default-passphrase")
+                runOnMainSync { check(session!!.defaults.defaultPassphrase.isEmpty()) { "session default after scan not cleared" } }
+                report.putString("stream", "PASS: passive scan collection-time connection observation and following session/verbatim echo cases=1; mutation=0 fresh_scan=0 external_probe=0; private identities omitted.\n")
+                finish(Activity.RESULT_OK, report)
+                return
+            }
             val permissions = json("show permissions | display json")
             check(permissions.getBoolean("ok") && lines(permissions).any { it.startsWith("Device Owner:") }) { "permission snapshot unavailable" }
             if (Build.VERSION.SDK_INT >= 37) {
@@ -59,7 +82,7 @@ class ShellReadOnlyInstrumentation : Instrumentation() {
             check(!absent.getBoolean("ok") && ids(absent).isEmpty()) { "stale Network silently fell back" }
             check(submit("show network id $stale | match acceptance-no-output-3a7f").contains("Command FAILED (output filtered)")) { "filtered failure disappeared" }
             cases++
-            check(Regex("Count: [1-9][0-9]* lines").containsMatchIn(submit("show network | find '^Network:' | match '^Network:' | count"))) { "logical pipeline count failed" }
+            check(Regex("Count: [1-9][0-9]* lines").containsMatchIn(submit("show network | find '^ *Network:' | match '^ *Network:' | count"))) { "logical pipeline count failed" }
             check(submit("show permissions | display json | count").contains("cannot be combined")) { "unsafe JSON combination accepted" }
             cases++
             phase = "link family all"
@@ -86,7 +109,7 @@ class ShellReadOnlyInstrumentation : Instrumentation() {
             runOnMainSync {
                 session = field(current!!, "shellSession")
                 check(session!!.defaults.defaultPassphrase == "acceptance-only-psk") { "session default not set" }
-                check(field<AgentBlockHistory>(current!!, "shellTranscript").blocks.any { it.fullText == "self> set cli default-passphrase acceptance-only-psk" }) { "command input was not echoed verbatim" }
+                check(field<AgentBlockHistory>(current!!, "shellTranscript").blocks.any { it.promptLength > 0 && it.fullText == "self> set cli default-passphrase acceptance-only-psk" }) { "command input was not echoed verbatim" }
             }
             cases++
             phase = "orientation recreation"
@@ -133,9 +156,11 @@ class ShellReadOnlyInstrumentation : Instrumentation() {
 
     private fun submit(line: String): String {
         check(line.startsWith("show network ") || line.startsWith("show permissions") ||
+            line == "show wifi scan | display json" ||
             line.startsWith("test link ssid ") ||
             line == "set cli default-passphrase acceptance-only-psk" || line == "clear cli default-passphrase") { "read-only/session command boundary" }
-        phase = when { line.startsWith("show network ") -> "Network selection/pipeline"; line.startsWith("test link ") -> "link family all"; else -> "permissions/session" }
+        phase = when { line == "show wifi scan | display json" -> "passive scan connection observation"; line.startsWith("show network ") -> "Network selection/pipeline"; line.startsWith("test link ") -> "link family all"; else -> "permissions/session" }
+        sendStatus(0, Bundle().apply { putString("phase", phase); putLong("elapsed_ms", SystemClock.elapsedRealtime()) })
         val activity = current!!
         var previous: AgentPresentationBlock? = null
         runOnMainSync {
@@ -161,6 +186,6 @@ class ShellReadOnlyInstrumentation : Instrumentation() {
 
     private fun json(line: String) = JSONObject(submit(line))
     private fun lines(value: JSONObject): List<String> = value.getJSONArray("lines").let { rows -> (0 until rows.length()).map { rows.getString(it) } }
-    private fun ids(value: JSONObject) = lines(value).filter { it.startsWith("Network: ") }.map { it.removePrefix("Network: ").trim() }
+    private fun ids(value: JSONObject) = lines(value).map { it.trimStart(' ') }.filter { it.startsWith("Network: ") }.map { it.removePrefix("Network: ").trim() }
     @Suppress("UNCHECKED_CAST") private fun <T> field(activity: MainActivity, name: String): T = MainActivity::class.java.getDeclaredField(name).apply { isAccessible = true }.get(activity) as T
 }

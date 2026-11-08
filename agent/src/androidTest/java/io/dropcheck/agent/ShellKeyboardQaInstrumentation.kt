@@ -69,6 +69,9 @@ class ShellKeyboardQaInstrumentation : Instrumentation() {
         val allCases: List<Pair<String, (MainActivity) -> Unit>> = listOf(
             "startup-input" to ::startupInput,
             "geometry" to ::geometry,
+            "vendor-hierarchy" to ::vendorHierarchy,
+            "repeat-command-guards" to ::repeatCommandGuards,
+            "repeat-command" to ::repeatCommand,
             "tap-policy" to ::tapPolicy,
             "ime-visible-tap" to ::imeVisibleTap,
             "scrollback-ime" to ::scrollbackIme,
@@ -184,7 +187,8 @@ class ShellKeyboardQaInstrumentation : Instrumentation() {
             }
             uiAutomation.serviceInfo = uiAutomation.serviceInfo.apply { flags = accessibilityFlags }
         }
-        lines += "Synthetic data and read-only snapshots; no fresh scans, connectivity changes, external probes or global settings changes."
+        lines += if (options.getString("ouiLive") == "true") "Explicit public IEEE database download/update; no fresh scans, connectivity changes, diagnostic probes or global settings changes."
+            else "Synthetic data and read-only snapshots; no fresh scans, connectivity changes, external probes or global settings changes."
         finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK, Bundle().apply { putString("stream", lines.joinToString("\n", postfix = "\n")) })
     }
 
@@ -196,6 +200,72 @@ class ShellKeyboardQaInstrumentation : Instrumentation() {
             check(editor.hasFocus() && visibleBounds(editor) == bounds(editor)) { "startup command input is offscreen or unfocused" }
             check(bounds(editor).bottom <= bounds(main.field<View>("shellKeyBar")).top + 1) { "startup input overlaps the extra keys" }
         }
+    }
+
+    private fun vendorHierarchy(main: MainActivity) {
+        check(OuiDatabase.parseIEEE("Organization\n00-11-22 (hex) Café Labs\n001122 (base 16) Café\u00a0\u0085Labs\n".toByteArray(), 6)["001122"] == "Café Labs") { "native OUI whitespace normalization differs from JVM/Go" }
+        val bundled = OuiDatabase(null)
+        check(bundled.info().assignments > 50000 && bundled.vendor("e8:0a:b9:00:00:01").contains("Cisco")) { "native bundled OUI Java resource unavailable" }
+        val adapter = AgentShellAdapter { error("OUI commands must not dispatch an Android acquisition") }
+        if (options.getString("ouiLive") == "true") {
+            val updated = adapter.execute(AgentShellParser.parse("request oui update"))
+            check(updated.ok) { "official OUI update failed: ${updated.block?.fullText ?: updated.lines}" }
+        }
+        val info = adapter.execute(AgentShellParser.parse("show oui"))
+        check(info.ok && info.block?.fullText?.contains("IEEE MA-L/MA-M/MA-S/IAB") == true) { "local OUI status unavailable" }
+        check(OuiDatabase.current.info().assignments > 50000) { "bundled OUI resource missing or incomplete" }
+        val scan = io.dropcheck.agent.grpc.WifiScan.newBuilder()
+            .setConnections(io.dropcheck.agent.grpc.WifiScanConnections.newBuilder().setObservedAtUnixMs(1234).setComplete(true).addBssids("e8:0a:b9:00:00:01"))
+            .addResults(io.dropcheck.agent.grpc.WifiScanResult.newBuilder().setSsid("hierarchy-qa").setBssid("e8:0a:b9:00:00:01").setRssiDbm(-30)
+                .setWifiStandard("802.11be")
+                .setSecurityDetails(io.dropcheck.agent.grpc.WifiSecurityDetails.newBuilder().setRsnPresent(true).setRsnVersion(1))
+                .addInformationElements(io.dropcheck.agent.grpc.WifiInformationElement.newBuilder().setId(48).setByteCount(2).setBytesHex("0100"))
+                .addObservationFields(io.dropcheck.agent.grpc.DiagnosticField.newBuilder().setKey("fixture.state").setValue("available")))
+            .addResults(io.dropcheck.agent.grpc.WifiScanResult.newBuilder().setSsid("second-qa").setBssid("02:00:00:00:00:01").setRssiDbm(-40))
+            .addResults(io.dropcheck.agent.grpc.WifiScanResult.newBuilder().setSsid("third-qa").setBssid("00:11:22:33:44:55").setWifiStandard("802.11be").setRssiDbm(-50)).build()
+        val block = AgentPresentationBlock.create(AgentWifiScanRenderer.presentation(scan, AgentWifiScanContext(detail = true)), AgentLogStyle.TEXT_COLOR)
+        check(block.fullText.contains("Cisco") && block.fullText.contains("local MAC")) { "scan lost vendor attribution or local-MAC rejection" }
+        onMain { append(main, block) }
+        settle(main)
+        val text = onMain {
+            val retained = main.field<AgentBlockHistory>("shellTranscript").blocks.last()
+            main.field<Map<AgentPresentationBlock, LinearLayout>>("shellBlockViews").getValue(retained).getChildAt(0) as TextView
+        }
+        onMain {
+            for (heading in listOf("[*] AP 1", "[ ] AP 2", "[+] AP 3", "  AP Capabilities", "  Information Elements", "  Fields")) {
+                check(text.text.contains("\n\n$heading\n") && !text.text.contains("\n\n\n$heading\n")) { "native section needs exactly one blank separator: $heading" }
+            }
+            check(text.text.contains("AP display: shown=3 total=3")) { "native scan footer lost actual display count" }
+            fun x(needle: String): Float {
+                val index = text.text.indexOf(needle)
+                check(index >= 0) { "native hierarchy label missing: $needle" }
+                return text.layout.getPrimaryHorizontal(index)
+            }
+            check(x("Info") > x("[*] AP 1") + 1 && x("IE 1") > x("Info") + 1) { "native AP/section/field indentation collapsed" }
+            val start = text.text.indexOf("[*] AP 1")
+            val contextLine = (text.layout.getLineForOffset(start) - 6).coerceAtLeast(0)
+            main.field<ScrollView>("shellScroll").scrollTo(0, text.top + (text.parent as View).top + text.layout.getLineTop(contextLine))
+        }
+        settle(main)
+        if (options.getString("capture") == "true") capture(main, "vendor-hierarchy")
+        val briefParts = AgentWifiScanRenderer.presentation(scan, AgentWifiScanContext(brief = true))
+        check(briefParts.filterIsInstance<AgentBlockPart.Scan>().single().columns.map { it.label } ==
+            listOf("SSID", "BSSID", "dBm", "BAND", "CH", "BW", "PHY", "SEC", "AGE(s)")) { "brief scan changed its original table columns" }
+        val brief = AgentPresentationBlock.create(briefParts, AgentLogStyle.TEXT_COLOR)
+        check(!brief.fullText.contains("VENDOR") && !brief.fullText.contains("Cisco")) { "brief scan expanded vendor details" }
+        onMain { append(main, brief) }
+        settle(main)
+        onMain {
+            val retained = main.field<AgentBlockHistory>("shellTranscript").blocks.last()
+            val view = main.field<Map<AgentPresentationBlock, LinearLayout>>("shellBlockViews").getValue(retained)
+            val body = view.getChildAt(0) as TextView
+            if (main.resources.configuration.fontScale == 0.85f && main.field<View>("root").width >= 1080) {
+                check(body.layout.getLineForOffset(body.text.indexOf("SSID")) == body.layout.getLineForOffset(body.text.indexOf("BSSID"))) { "brief scan stopped using the fitting native table" }
+            }
+            main.field<ScrollView>("shellScroll").scrollTo(0, view.top)
+        }
+        settle(main)
+        if (options.getString("capture") == "true") capture(main, "scan-brief")
     }
 
     private fun tapPolicy(main: MainActivity) {
@@ -264,6 +334,144 @@ class ShellKeyboardQaInstrumentation : Instrumentation() {
         verify(false)
         withAction(main) { _, _ -> verify(true) }
         if (options.getString("capture") == "true") capture(main, "tap-policy")
+    }
+
+    private fun repeatCommand(main: MainActivity) {
+        submitLocal(main, "sh version | count")
+        val command = "  sh cli | count  "
+        submitLocal(main, command)
+        for (showIme in listOf(false, true)) for (word in listOf(false, true)) {
+            val draft = if (!showIme && !word) "sh version | count" else "retained repeat draft"
+            onMain { input(main).apply { setText(draft); setSelection(2, 7); requestFocus() } }
+            prepareRepeatTap(main, showIme)
+            val point = repeatPoint(main, word)
+            sendStatus(0, Bundle().apply { putString("phase", "repeat-command ime=$showIme word=$word") })
+            val before = onMain { main.field<AgentBlockHistory>("shellTranscript").blocks.count { it.fullText == "self> $command" } }
+            injectTap(point)
+            onMain { check(main.field<AgentBlockHistory>("shellTranscript").blocks.count { it.fullText == "self> $command" } == before) { "single upper tap repeated a command" } }
+            Thread.sleep(70)
+            injectTap(point)
+            if (showIme && word) { Thread.sleep(70); injectTap(point) }
+            await("upper double tap did not repeat exactly once") { onMain {
+                !main.field<ShellActionOwner>("shellOwner").busy && main.field<AgentBlockHistory>("shellTranscript").blocks.count { it.fullText == "self> $command" } == before + 1
+            } }
+            settle(main)
+            onMain {
+                check(main.field<AgentBlockHistory>("shellTranscript").blocks.count { it.fullText == "self> $command" } == before + 1) { "upper double tap repeated more than once" }
+                checkEditSelection(main, draft, 2, 7)
+                check(imeVisible(main) == showIme) { "repeat changed IME visibility" }
+            }
+            assertTail(main, "repeated command")
+        }
+        if (options.getString("capture") == "true") capture(main, "repeat-command")
+        val invalid = "invalid-repeat-qa"
+        submitLocal(main, invalid)
+        onMain { input(main).apply { setText("retained rejected-command draft"); setSelection(2, 7) } }
+        prepareRepeatTap(main, false)
+        val point = repeatPoint(main, false)
+        injectTap(point); Thread.sleep(70); injectTap(point)
+        settle(main)
+        onMain {
+            val blocks = main.field<AgentBlockHistory>("shellTranscript").blocks
+            check(blocks.count { it.fullText == "self> $invalid" } == 2 && blocks.last().fullText.contains("unknown keyword")) { "rejected command did not repeat once" }
+            checkEditSelection(main, "retained rejected-command draft", 2, 7)
+            check(!imeVisible(main)) { "rejected command replay reopened IME" }
+        }
+        assertTail(main, "repeated rejected command")
+        if (options.getString("capture") == "true") capture(main, "repeat-command-invalid")
+    }
+
+    private fun repeatCommandGuards(main: MainActivity) {
+        val initial = onMain { main.field<AgentBlockHistory>("shellTranscript").blocks.last() }
+        onMain { check(main.field<AgentBlockHistory>("shellTranscript").blocks.none { it.fullText.startsWith("self> ") }) { "empty-history repeat check requires a fresh Shell" } }
+        onMain { input(main).apply { setText("retained guard draft"); setSelection(2, 7) } }
+        for (showIme in listOf(false, true)) {
+            prepareRepeatTap(main, showIme)
+            val point = repeatPoint(main, false)
+            injectTap(point); Thread.sleep(70); injectTap(point)
+            settle(main)
+            onMain {
+                check(main.field<AgentBlockHistory>("shellTranscript").blocks.last() === initial) { "empty-history gesture submitted input" }
+                checkEditSelection(main, "retained guard draft", 2, 7)
+                check(imeVisible(main) == showIme) { "empty-history gesture changed IME" }
+            }
+        }
+        submitLocal(main, "sh cli | count")
+        onMain { input(main).apply { setText("retained guard draft"); setSelection(2, 7) } }
+        val previous = onMain { main.field<AgentBlockHistory>("shellTranscript").blocks.last() }
+        for (guard in listOf("slow", "middle", "long", "cancel")) {
+            prepareRepeatTap(main, true)
+            val point = repeatPoint(main, false, if (guard == "middle") 0.58f else 0.35f)
+            injectTap(point)
+            Thread.sleep(if (guard == "slow") ViewConfiguration.getDoubleTapTimeout().toLong() + 50 else 70)
+            if (guard == "cancel") {
+                val down = SystemClock.uptimeMillis()
+                for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_CANCEL)) {
+                    val event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, point.first, point.second, 0).apply { source = InputDevice.SOURCE_TOUCHSCREEN }
+                    try { check(uiAutomation.injectInputEvent(event, true)) } finally { event.recycle() }
+                    Thread.sleep(30)
+                }
+            } else injectTap(point, if (guard == "long") ViewConfiguration.getLongPressTimeout().toLong() + 100 else 30)
+            settle(main)
+            onMain {
+                check(main.field<AgentBlockHistory>("shellTranscript").blocks.last() === previous && !main.field<ShellActionOwner>("shellOwner").busy) { "$guard gesture repeated a command" }
+                checkEditSelection(main, "retained guard draft", 2, 7)
+            }
+        }
+        withAction(main) { _, _ ->
+            prepareRepeatTap(main, true)
+            val point = repeatPoint(main, true)
+            injectTap(point); Thread.sleep(70); injectTap(point)
+            settle(main)
+            onMain {
+                check(main.field<ShellActionOwner>("shellOwner").busy && main.field<AgentBlockHistory>("shellTranscript").blocks.last() === previous) { "busy repeat gesture dispatched a command" }
+                checkEditSelection(main, "retained guard draft", 2, 7)
+            }
+        }
+    }
+
+    private fun prepareRepeatTap(main: MainActivity, showIme: Boolean) {
+        onMain {
+            if (showIme) main.window.insetsController?.show(WindowInsets.Type.ime()) else main.window.insetsController?.hide(WindowInsets.Type.ime())
+        }
+        await("repeat tap IME state did not settle") { onMain { imeVisible(main) == showIme } }
+        settle(main)
+        onMain { main.field<ScrollView>("shellScroll").apply { scrollTo(0, (getChildAt(0).height - height).coerceAtLeast(0) / 2) } }
+        settle(main)
+        Thread.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 30)
+    }
+
+    private fun repeatPoint(main: MainActivity, word: Boolean, fraction: Float = 0.35f): Pair<Float, Float> = onMain {
+        val scroll = main.field<ScrollView>("shellScroll")
+        val content = main.field<ViewGroup>("shellContent")
+        val area = bounds(scroll)
+        if (word) {
+            area.top += (area.height() * 0.15f).toInt()
+            area.bottom = bounds(scroll).top + (scroll.height * 0.49f).toInt()
+            main.field<Map<AgentPresentationBlock, LinearLayout>>("shellBlockViews").values.firstNotNullOfOrNull {
+                textPoint(it.getChildAt(0) as TextView, area)
+            } ?: error("no visible upper-half result word")
+        } else bounds(content).left + content.paddingLeft - 2f to area.top + area.height() * fraction
+    }
+
+    private fun submitLocal(main: MainActivity, command: String) {
+        check(command.trim() in listOf("sh version | count", "sh cli | count", "invalid-repeat-qa")) { "repeat test only submits local commands" }
+        val previous = onMain {
+            val last = main.field<AgentBlockHistory>("shellTranscript").blocks.last()
+            input(main).apply {
+                setText(command); setSelection(text.length); requestFocus()
+                check(checkNotNull(onCreateInputConnection(EditorInfo())).performEditorAction(EditorInfo.IME_ACTION_GO))
+            }
+            last
+        }
+        await("local repeat-test command remained busy") { onMain {
+            !main.field<ShellActionOwner>("shellOwner").busy && main.field<AgentBlockHistory>("shellTranscript").blocks.last() !== previous
+        } }
+        settle(main)
+    }
+
+    private fun checkEditSelection(main: MainActivity, expected: String, start: Int, end: Int) {
+        check(input(main).let { it.text.toString() == expected && it.selectionStart == start && it.selectionEnd == end && it.hasFocus() }) { "repeat gesture changed draft, selection or focus" }
     }
 
     private fun prompt(main: MainActivity) {
@@ -724,8 +932,8 @@ class ShellKeyboardQaInstrumentation : Instrumentation() {
         val labels = mapOf(
             "Tab" to "Complete command", "↑" to "Previous command", "↓" to "Next command",
             "C-c" to "Cancel running command; clear unsent input when idle", "?" to "Context help",
-            "sh wi status" to "Insert sh wi status; double tap to execute", "req wi scan" to "Insert req wi scan; double tap to execute",
-            "sh wi status ip" to "Insert sh wi status ip; double tap to execute", "| match" to "Insert | match",
+            "sh wi st" to "Insert sh wi st; double tap to execute", "req wi scan br" to "Insert req wi scan br; double tap to execute",
+            "sh wi st ip" to "Insert sh wi st ip; double tap to execute", "| match" to "Insert | match",
             "| count" to "Insert | count", "| display json" to "Insert | display json",
             "\"" to "Insert double quote", "|" to "Insert pipe",
             "sh permissions" to "Insert sh permissions; double tap to execute",
@@ -774,15 +982,15 @@ class ShellKeyboardQaInstrumentation : Instrumentation() {
 
     private fun shortcutInput(main: MainActivity) {
         val before = onMain { main.field<AgentBlockHistory>("shellTranscript").blocks.size }
-        for (command in listOf("sh wi status", "req wi scan", "sh wi status ip", "sh permissions")) {
+        for (command in listOf("sh wi st", "req wi scan br", "sh wi st ip", "sh permissions")) {
             onMain { input(main).apply { setText("draft"); setSelection(0, text.length) } }
             tap(main, command)
             onMain {
                 checkEdit(main, command, command.length)
                 check(AgentShellParser.parse(command) !is AgentShellCommand.Invalid) { "shortcut contains an invalid Dropcheck command" }
                 val parsed = AgentShellParser.parse(command) as AgentShellCommand.Execute
-                if (command == "req wi scan") check(parsed.request.hasGetFreshWifiScan()) { "scan shortcut did not request a fresh scan" }
-                if (command == "sh wi status ip") check(parsed.request.hasGetIpStatus()) { "IP shortcut does not inspect IP status" }
+                if (command == "req wi scan br") check(parsed.request.hasGetFreshWifiScan() && parsed.brief) { "scan shortcut did not request a brief fresh scan" }
+                if (command == "sh wi st ip") check(parsed.request.hasGetIpStatus()) { "IP shortcut does not inspect IP status" }
             }
         }
         for (filter in listOf("| match", "| count", "| display json")) {
@@ -817,7 +1025,7 @@ class ShellKeyboardQaInstrumentation : Instrumentation() {
     }
 
     private fun shortcutDoubleTap(main: MainActivity) {
-        for ((index, command) in listOf("sh permissions", "sh wi status", "sh wi status ip").withIndex()) {
+        for ((index, command) in listOf("sh permissions", "sh wi st", "sh wi st ip").withIndex()) {
             val suffix = " | match '^double-tap-qa-$index$'"
             val expected = command + suffix
             onMain { input(main).apply { setText("replace-me$suffix"); setSelection(0, "replace-me".length) } }
@@ -923,7 +1131,7 @@ class ShellKeyboardQaInstrumentation : Instrumentation() {
 
     private fun shortcutDoubleTapBusy(main: MainActivity) = withAction(main) { _, _ ->
         val previous = onMain { main.field<AgentBlockHistory>("shellTranscript").blocks.last() }
-        for (command in listOf("sh wi status", "req wi scan", "sh wi status ip", "sh permissions")) {
+        for (command in listOf("sh wi st", "req wi scan br", "sh wi st ip", "sh permissions")) {
             onMain { input(main).apply { setText("draft"); setSelection(0, text.length) } }
             reveal(main, command)
             val point = chipPoint(main, command)

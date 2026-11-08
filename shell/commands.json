@@ -8,6 +8,8 @@
   "commands": [
     {"path":"show version", "effect":"local", "description":"Show local application version"},
     {"path":"show cli", "effect":"local", "description":"Show safe current Shell session state"},
+    {"path":"show oui", "effect":"local", "description":"Show the local offline IEEE vendor database status"},
+    {"path":"request oui update", "effect":"local", "description":"Download official IEEE registries and atomically replace this host's vendor database"},
     {"path":"show network", "effect":"read", "description":"Inspect all Android Networks without scanning Wi-Fi"},
     {"path":"show network default", "effect":"read", "description":"Inspect the captured Android platform default Network"},
     {"path":"show network id", "positionals":["network-id"], "effect":"read", "description":"Inspect exactly one Connectivity Network ID"},

@@ -29,6 +29,7 @@ import io.dropcheck.agent.grpc.WifiBand
 import io.dropcheck.agent.grpc.WifiEvent
 import io.dropcheck.agent.grpc.WifiMonitorResult
 import io.dropcheck.agent.grpc.WifiScan
+import io.dropcheck.agent.grpc.WifiScanConnections
 import io.dropcheck.agent.grpc.WifiScanDetail
 import io.dropcheck.agent.grpc.WifiStatus
 import java.io.File
@@ -320,6 +321,7 @@ class NetworkRepository(
         builder.addFields(diagnosticField("scan_result_count", results.size))
         builder.addFields(diagnosticField("scan_result_total_count", allResults.size))
         results.forEach { builder.addResults(mapper.scanResult(it)) }
+        builder.connections = scanConnections()
         logger.debug("wifi scan collected requested_band=${wifiBandName(band)} results=${results.size} total=${allResults.size} errors=${builder.errorsList.joinToString(",")}")
         return builder.build()
     }
@@ -411,11 +413,43 @@ class NetworkRepository(
         builder.addFields(diagnosticField("scan_result_total_count", allResults.size))
         builder.addFields(diagnosticField("scan_result_match_count", results.size))
         results.forEach { builder.addResults(mapper.scanResult(it)) }
+        builder.connections = scanConnections()
         if (results.isEmpty()) {
             builder.addErrors("scan_detail_no_match")
         }
         logger.debug("wifi scan detail target=$target band=${wifiBandName(band)} matches=${results.size} total=${allResults.size}")
         return builder.build()
+    }
+
+    /** Point-in-time association evidence, never inferred from SSID, MLD or the default Network. */
+    @SuppressLint("MissingPermission")
+    private fun scanConnections(): WifiScanConnections {
+        val result = WifiScanConnections.newBuilder()
+        val addresses = sortedSetOf<String>()
+        if (Thread.currentThread().isInterrupted) throw InterruptedException("Wi-Fi connection observation canceled")
+        try {
+            for (network in connectivity.allNetworks) {
+                if (Thread.currentThread().isInterrupted) throw InterruptedException("Wi-Fi connection observation canceled")
+                val caps = connectivity.getNetworkCapabilities(network)
+                if (caps == null) {
+                    result.addErrors("Network $network capabilities unavailable during collection")
+                    continue
+                }
+                if (!caps.isPhysicalWifiNetwork()) continue
+                val info = networkWifiInfo(context, network, caps)
+                if (info == null || info.supplicantState != android.net.wifi.SupplicantState.COMPLETED || scanBssid(info.bssid.orEmpty()) == null) {
+                    result.addErrors("Network $network connected BSSID unavailable")
+                    continue
+                }
+                addresses.add(checkNotNull(scanBssid(info.bssid.orEmpty())))
+            }
+        } catch (failure: Exception) {
+            if (failure is InterruptedException || Thread.currentThread().isInterrupted) throw failure
+            result.addErrors("connection_observation=${errorSummary(failure)}")
+        }
+        if (Thread.currentThread().isInterrupted) throw InterruptedException("Wi-Fi connection observation canceled")
+        return result.setObservedAtUnixMs(System.currentTimeMillis()).addAllBssids(addresses)
+            .setComplete(result.errorsCount == 0).build()
     }
 
     /**

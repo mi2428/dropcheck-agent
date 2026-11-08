@@ -340,6 +340,8 @@ func runReplLine(ctx context.Context, state *shellState, rawLine string) (bool, 
 		return false, printLocalOutput(command, func() (string, error) { return "Controller version: " + version.Version + "\n", nil })
 	case shell.CLI:
 		return false, printLocalOutput(command, func() (string, error) { return renderShellSession(state), nil })
+	case shell.ShowOUI, shell.UpdateOUI:
+		return false, printLocalOutput(command, func() (string, error) { return renderOUI(ctx, command.Kind == shell.UpdateOUI) })
 	case shell.ShowDevices:
 		return false, printLocalOutput(command, func() (string, error) {
 			return render.Agents(agentListView(state))

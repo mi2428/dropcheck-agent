@@ -118,8 +118,8 @@ class JunosAdversarialQaTest {
             }
             assertTrue(json.contains("\"ok\":false"))
             if (!full) {
-                assertTrue("summary contains excessive vertical spacing", block.fullText.lines().size <= 105)
-                assertFalse("blank separators between subsections", "\n\n  " in block.fullText)
+                assertFalse("multiple blank separators between subsections", "\n\n\n" in block.fullText)
+                for (heading in listOf("  Identity", "  Radio", "  Security", "  MLO", "  Network capabilities", "  IPv6 RA (Android)")) assertTrue("subsection lacks a semantic boundary: $heading", "\n\n$heading\n" in block.fullText)
                 for (heading in listOf("  Identity", "  Radio", "  Security", "  MLO", "  Network capabilities", "  IPv6 RA (Android)")) assertTrue(heading in block.fullText.lines())
                 parts.filterIsInstance<AgentBlockPart.Field>().forEach { assertEquals("label carries pre-colon padding", it.label.trimEnd(), it.label) }
             }

@@ -54,6 +54,8 @@ internal class AgentShellAdapter(private val session: AgentShellSession = AgentS
         AgentShellCommand.ShowCli -> AgentShellResult(true, block = AgentPresentationBlock.create(listOf(
             AgentBlockPart.Field("Owner", "self"), AgentBlockPart.Field("Target", "self"), AgentBlockPart.Field("Layout", "measured Android content width"),
             AgentBlockPart.Field("History", "all commands; session-only"), AgentBlockPart.Field("Default passphrase", if (session.defaults.defaultPassphrase.isEmpty()) "unset" else "present")), AgentLogStyle.TEXT_COLOR))
+        AgentShellCommand.ShowOui -> oui(false)
+        AgentShellCommand.UpdateOui -> oui(true)
         is AgentShellCommand.Invalid -> AgentShellResult(false, listOf(command.message)).also { if (command.testProfile.isNotEmpty()) session.recordTest(it) }
         is AgentShellCommand.Connect -> connect(command)
         is AgentShellCommand.Check -> {
@@ -75,6 +77,17 @@ internal class AgentShellAdapter(private val session: AgentShellSession = AgentS
         val wire = AgentShellUsePolicy.connectCommand(command.options, request)
         val result = executeCommand(wire)
         return render(AgentShellCommand.Execute(wire, secret = request.passphrase), result, request.passphraseSource)
+    }
+
+    private fun oui(update: Boolean): AgentShellResult = try {
+        val info = if (update) OuiDatabase.current.update() else OuiDatabase.current.info()
+        AgentShellResult(true, block = AgentPresentationBlock.create(listOf(
+            AgentBlockPart.Field("Owner", "self (Android app)"), AgentBlockPart.Field("Database", "IEEE MA-L/MA-M/MA-S/IAB"),
+            AgentBlockPart.Field("Fetched at", info.fetchedAt), AgentBlockPart.Field("Assignments", info.assignments.toString()),
+            AgentBlockPart.Field("Source", info.source), AgentBlockPart.Field("Lookup", "offline IEEE assignee; not a device model or proof of manufacturer")), AgentLogStyle.TEXT_COLOR))
+    } catch (failure: java.io.IOException) {
+        if (Thread.currentThread().isInterrupted) throw failure
+        AgentShellResult(false, listOf("OUI database failed: ${failure.message}"))
     }
 
     private fun lastTest(): AgentShellResult {
@@ -128,13 +141,18 @@ internal class AgentShellAdapter(private val session: AgentShellSession = AgentS
         val parts = when (request.commandCase) {
             RunCommand.CommandCase.GET_NETWORKS, RunCommand.CommandCase.GET_NETWORK -> buildList {
                 add(AgentBlockPart.Field("Observed at unix ms", result.networkSnapshot.observedAtUnixMs.toString()))
-                result.networkSnapshot.networksList.forEach { network ->
-                    add(AgentBlockPart.Field("Active/default at collection", network.active.toString()))
-                    addAll(AgentWifiStatusRenderer.ipPresentation(network.ipStatus, true, true))
+                result.networkSnapshot.networksList.forEachIndexed { index, network ->
+                    add(AgentBlockPart.Text("Network ${index + 1}", section = true))
+                    addAll(nestedPresentation(buildList {
+                        add(AgentBlockPart.Field("Active/default at collection", network.active.toString()))
+                        addAll(AgentWifiStatusRenderer.ipPresentation(network.ipStatus, true, true))
+                    }))
                 }
+                if (result.networkSnapshot.errorsCount > 0) add(AgentBlockPart.Text("Errors", section = true))
                 result.networkSnapshot.errorsList.forEach { add(AgentBlockPart.Field("Error", it)) }
             }
             RunCommand.CommandCase.GET_PERMISSIONS -> buildList {
+                add(AgentBlockPart.Text("Permissions", section = true))
                 add(AgentBlockPart.Field("Observed at unix ms", result.permissionSnapshot.observedAtUnixMs.toString()))
                 add(AgentBlockPart.Field("Device Owner", result.permissionSnapshot.deviceOwner.toString()))
                 result.permissionSnapshot.permissionsList.forEach { add(AgentBlockPart.Field(it.key, it.value)) }
@@ -151,7 +169,7 @@ internal class AgentShellAdapter(private val session: AgentShellSession = AgentS
                 add(AgentBlockPart.Field("Target", result.wifiScanDetail.target))
                 result.wifiScanDetail.fieldsList.forEach { add(AgentBlockPart.Field(it.key, it.value)) }
                 addAll(AgentWifiScanRenderer.presentation(io.dropcheck.agent.grpc.WifiScan.newBuilder().addAllResults(result.wifiScanDetail.resultsList)
-                    .addAllErrors(result.wifiScanDetail.errorsList).build(), AgentWifiScanContext(detail = true)))
+                    .addAllErrors(result.wifiScanDetail.errorsList).setConnections(result.wifiScanDetail.connections).build(), AgentWifiScanContext(detail = true)))
             }
             RunCommand.CommandCase.GET_IP_STATUS -> AgentWifiStatusRenderer.ipPresentation(result.ipStatus, true, true)
             else -> textRows(request, evaluated, source, command.via)
@@ -192,13 +210,18 @@ internal class AgentShellAdapter(private val session: AgentShellSession = AgentS
                 else row("Observation", "? (snapshot unavailable)")
             }
             RunCommand.CommandCase.MONITOR_WIFI -> {
-                result.wifiMonitor.eventsList.forEach {
-                    row("Event unix ms", it.unixTimeMs)
-                    row(it.type, it.message)
-                    it.fieldsList.forEach { field -> row(field.key, field.value) }
-                    if (it.hasStatus()) addAll(AgentWifiStatusRenderer.presentation(it.status, detail = true))
+                result.wifiMonitor.eventsList.forEachIndexed { index, event ->
+                    add(AgentBlockPart.Text("Event ${index + 1}", section = true))
+                    addAll(nestedPresentation(buildList {
+                        add(AgentBlockPart.Field("Event unix ms", event.unixTimeMs.toString()))
+                        add(AgentBlockPart.Field(event.type, event.message))
+                        event.fieldsList.forEach { field -> add(AgentBlockPart.Field(field.key, field.value)) }
+                        if (event.hasStatus()) addAll(AgentWifiStatusRenderer.presentation(event.status, detail = true))
+                    }))
                 }
+                if (result.wifiMonitor.errorsCount > 0) add(AgentBlockPart.Text("Errors", section = true))
                 result.wifiMonitor.errorsList.forEach { row("Error", it) }
+                add(AgentBlockPart.Text("Monitor summary", section = true))
                 row("Events", result.wifiMonitor.eventsCount)
             }
             RunCommand.CommandCase.CYCLE_WIFI -> {

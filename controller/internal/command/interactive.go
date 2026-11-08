@@ -119,7 +119,7 @@ func parseInteractiveTokens(args []string) (result Parsed, err error) {
 		return result, nil
 	}
 	switch spec.Path {
-	case "show version", "show cli", "show devices", "show test profiles", "show test last", "clear cli default-passphrase":
+	case "show version", "show cli", "show oui", "request oui update", "show devices", "show test profiles", "show test last", "clear cli default-passphrase":
 		return result, nil
 	case "set cli default-passphrase":
 		if !ValidPassphrase(f["passphrase"]) {

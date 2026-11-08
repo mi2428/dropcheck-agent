@@ -16,7 +16,7 @@ internal object AgentShellTextFormatter {
             add(AgentBlockPart.Field("Observation age", "? (metadata unavailable)"))
             add(AgentBlockPart.Field("Received locally", "${java.time.Instant.now()} (not observation time)"))
         }
-        return AgentPresentationBlock.create(header + parts, color)
+        return AgentPresentationBlock.create(header + listOf(AgentBlockPart.Text("", section = true)) + parts, color)
     }
 
     private fun title(result: CommandResult): String = when {
