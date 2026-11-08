@@ -2,7 +2,7 @@
     <string name="app_name">dropcheck agent</string>
     <string name="device_admin_description">Allows dropcheck to control Wi-Fi for automated network tests.</string>
     <string name="agent_log_widget_label">Log Viewer</string>
-    <string name="agent_log_widget_description">Transparent dropcheck agent log viewer.</string>
+    <string name="agent_log_widget_description">Recent logs, updated in batches. Tap to browse full saved history.</string>
     <string name="agent_log_widget_placeholder">dropcheck agent&#10;waiting for logs</string>
     <string name="agent_clock_widget_label">Clock</string>
     <string name="agent_clock_widget_description">Transparent clock with Wi-Fi state and IP addresses.</string>
@@ -12,4 +12,10 @@
     <string name="background_location_open_settings">Open settings</string>
     <string name="background_location_later">Later</string>
     <string name="shell_operation_status">Shell operation: %1$s</string>
+    <string name="log_history_loading">Loading saved history…</string>
+    <string name="log_history_unavailable">Saved history unavailable (%1$s)</string>
+    <plurals name="log_history_unsaved_evicted">
+        <item quantity="one">%1$d unsaved live line evicted</item>
+        <item quantity="other">%1$d unsaved live lines evicted</item>
+    </plurals>
 </resources>

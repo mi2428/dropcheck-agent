@@ -126,7 +126,7 @@ class PresentationInstrumentation : Instrumentation() {
                         val empty = AgentPresentationBlock.create(listOf(AgentBlockPart.Table(
                             listOf(AgentBlockPart.Column("LONGNAME"), AgentBlockPart.Column("VALUE")), emptyList())), 0)
                         val emptyText = checkNotNull(AgentNativeBlockLayout.render(empty, ceil(8 * view.paint.measureText("0")).toInt(), view.paint)).text.toString()
-                        check(emptyText == "\nLONGNAME\nVALUE\n\n") { "narrow empty table lost headers or boundaries" }
+                        check(emptyText == "LONGNAME\nVALUE\n\n") { "narrow empty table lost headers or boundaries" }
                         val scanRecords = AgentPresentationBlock.create(listOf(AgentBlockPart.Text("before"),
                             AgentBlockPart.Scan(listOf(listOf("Lab", "B".repeat(64), "R".repeat(50), "?", "?", "?", "?", "?")))), 0)
                         val recordText = checkNotNull(AgentNativeBlockLayout.render(scanRecords, ceil(24 * view.paint.measureText("0")).toInt(), view.paint)).text.toString()

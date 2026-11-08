@@ -26,6 +26,8 @@ class ShellLifecycleInstrumentation : Instrumentation() {
         val callbacks = object : Application.ActivityLifecycleCallbacks {
             override fun onActivityResumed(activity: Activity) {
                 if (activity is MainActivity && activity !== initial) {
+                    activity.setShowWhenLocked(true)
+                    activity.setTurnScreenOn(true)
                     current.set(activity)
                     recreated.countDown()
                 }
@@ -45,7 +47,12 @@ class ShellLifecycleInstrumentation : Instrumentation() {
             initial = first
             current.set(first)
             waitForIdleSync()
-            runOnMainSync { application.registerActivityLifecycleCallbacks(callbacks) }
+            runOnMainSync {
+                first.setShowWhenLocked(true)
+                first.setTurnScreenOn(true)
+                application.registerActivityLifecycleCallbacks(callbacks)
+            }
+            settle(first)
             val owner = first.field<ShellActionOwner>("shellOwner")
             val started = CountDownLatch(1)
             val marker = "synthetic lifecycle retained result"
@@ -112,10 +119,10 @@ class ShellLifecycleInstrumentation : Instrumentation() {
                     next = monitor.waitForActivityWithTimeout(5000) as? MainActivity ?: error("position recreate did not resume")
                 } finally { removeMonitor(monitor) }
                 settle(next)
-                runOnMainSync {
+                onMain {
                     val scroll = next.field<ScrollView>("shellScroll")
                     check(if (following) !scroll.canScrollVertically(1) else kotlin.math.abs(scroll.scrollY - position) <= 2) {
-                        "recreate lost ${if (following) "tail" else "history"}: expected=$position actual=${scroll.scrollY}"
+                        "recreate lost ${if (following) "tail" else "history"}: expected=$position actual=${scroll.scrollY} height=${scroll.height} content=${scroll.getChildAt(0).height}"
                     }
                 }
             }
@@ -156,17 +163,26 @@ class ShellLifecycleInstrumentation : Instrumentation() {
 
     private fun await(latch: CountDownLatch, message: String) { check(latch.await(5, TimeUnit.SECONDS)) { message } }
 
+    private fun <T> onMain(action: () -> T): T {
+        var result: Result<T>? = null
+        runOnMainSync { result = runCatching(action) }
+        return checkNotNull(result).getOrThrow()
+    }
+
     private fun settle(main: MainActivity) {
         var previous: List<Int>? = null
         var stable = 0
         repeat(80) {
             var sample = emptyList<Int>()
+            var ready = false
             runOnMainSync {
                 val scroll = main.field<ScrollView>("shellScroll")
                 sample = listOf(scroll.scrollY, scroll.height, scroll.getChildAt(0).height,
                     main.window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0)
+                ready = main.hasWindowFocus() && scroll.isShown && !scroll.isLayoutRequested &&
+                    !scroll.getChildAt(0).isLayoutRequested && main.field<Any?>("shellScrollTarget") == null
             }
-            stable = if (sample == previous) stable + 1 else 0
+            stable = if (ready && sample == previous) stable + 1 else 0
             if (stable >= 4) return
             previous = sample
             Thread.sleep(50)

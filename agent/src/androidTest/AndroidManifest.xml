@@ -31,4 +31,13 @@
     <instrumentation
         android:name="io.dropcheck.agent.ShellKeyboardQaInstrumentation"
         android:targetPackage="io.dropcheck.agent" />
+    <instrumentation
+        android:name="io.dropcheck.agent.WidgetQaInstrumentation"
+        android:targetPackage="io.dropcheck.agent" />
+    <instrumentation
+        android:name="io.dropcheck.agent.LogHistoryQaInstrumentation"
+        android:targetPackage="io.dropcheck.agent" />
+    <instrumentation
+        android:name="io.dropcheck.agent.CoreRuntimeQaInstrumentation"
+        android:targetPackage="io.dropcheck.agent" />
 </manifest>

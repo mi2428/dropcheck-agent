@@ -15,21 +15,14 @@ import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
-import android.graphics.text.LineBreakConfig
-import android.graphics.text.LineBreaker
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.LocaleList
-import android.text.Layout
 import android.text.InputType
-import android.text.SpannableString
-import android.text.SpannableStringBuilder
-import android.text.Spanned
 import android.text.Selection
-import android.text.style.ForegroundColorSpan
 import android.view.Gravity
 import android.view.GestureDetector
 import android.view.ActionMode
@@ -105,8 +98,7 @@ internal fun terminalDisplayText(line: String): String {
  * shell for interactive Wi-Fi inspection, direct connect tests, and probes.
  */
 class MainActivity : Activity() {
-    private lateinit var logView: TextView
-    private lateinit var scroll: ScrollView
+    private lateinit var logViewer: TerminalLogViewer
     private lateinit var root: FrameLayout
     private lateinit var shellScroll: ScrollView
     private lateinit var shellContent: LinearLayout
@@ -153,14 +145,6 @@ class MainActivity : Activity() {
         setScreenDimmed(true)
     }
 
-    private val displayLineLengths = ArrayDeque<Int>()
-    private var displayLogChars = 0
-    private var logStartIndex = 0
-    private var lastLogLine: String? = null
-    private val autoScroll = TerminalAutoScrollState()
-
-    private var logGeneration = 0L
-    private var terminalLogListener: ((String) -> Unit)? = null
     private val statusListener: () -> Unit = {
         runOnUiThread { syncStatusIcons() }
     }
@@ -186,62 +170,15 @@ class MainActivity : Activity() {
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
-        TerminalLog.compactIfNeeded(this)
-        TerminalLog.info(this, "activity onCreate")
-
-        val tail = TerminalLog.tail(
-            this,
-            TerminalDisplayPolicy.STARTUP_TAIL_LINES.coerceAtMost(TerminalDisplayPolicy.MAX_DISPLAY_LINES),
-        )
-        val initialText = SpannableStringBuilder().apply {
-            appendColored("dropcheck agent\n")
-            appendColored("controller commands arrive over adb reverse + gRPC bidi\n")
-            appendColored("\n")
-            if (tail.isNotBlank()) {
-                appendColored("-- terminal.log tail --\n")
-            }
-            logStartIndex = length
-        }
-
-        logView = TextView(this).apply {
-            setTextColor(AgentLogStyle.TEXT_COLOR)
-            setBackgroundColor(Color.BLACK)
-            typeface = Typeface.MONOSPACE
-            textSize = TERMINAL_TEXT_SIZE_SP
-            includeFontPadding = false
-            setLineSpacing(0f, 1.05f)
-            setPadding(0, 0, 0, 0)
-            setHorizontallyScrolling(false)
-            breakStrategy = LineBreaker.BREAK_STRATEGY_SIMPLE
-            hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NONE
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                lineBreakWordStyle = LineBreakConfig.LINE_BREAK_WORD_STYLE_NONE
-            }
-            excludeFromContentCapture()
-            setText(initialText, TextView.BufferType.SPANNABLE)
-        }
-        if (tail.isNotBlank()) {
-            tail.lineSequence().forEach { appendLogLine(it) }
-        }
-        scroll = ScrollView(this).apply {
-            setBackgroundColor(Color.BLACK)
-            isFillViewport = true
-            addView(logView)
-            setOnTouchListener { view, event ->
+        logViewer = TerminalLogViewer(this).apply {
+            list.setOnTouchListener { view, event ->
                 captureSwipeStart(event)
-                if (event.actionMasked == MotionEvent.ACTION_MOVE) autoScroll.onUserScrollMove()
-                if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
-                    autoScroll.onUserScrollEnd(scrollY >= bottomScrollY() - 2)
-                }
                 if (event.actionMasked == MotionEvent.ACTION_UP && maybeHandleSwipe(event, SwipeDirection.RIGHT)) {
                     return@setOnTouchListener true
                 }
-                if (event.actionMasked == MotionEvent.ACTION_UP && isTapGesture(event)) {
-                    view.performClick()
-                }
+                if (event.actionMasked == MotionEvent.ACTION_UP && isTapGesture(event)) view.performClick()
                 false
             }
-            setOnScrollChangeListener { _, _, y, _, _ -> autoScroll.onScrollChanged(y >= bottomScrollY() - 2) }
         }
         shellScroll = shellScreen().apply {
             visibility = View.GONE
@@ -250,7 +187,7 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.BLACK)
             isFocusableInTouchMode = true
             excludeFromContentCapture()
-            addView(scroll, matchParentLayout())
+            addView(logViewer, matchParentLayout())
             addView(shellScroll, matchParentLayout())
             shellInputPanel = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -272,7 +209,7 @@ class MainActivity : Activity() {
                 minHeight = dp(48)
                 setOnClickListener { showShell() }
             }
-            addView(viewerToggle, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END).apply { topMargin = dp(48); marginEnd = dp(12) })
+            addView(viewerToggle, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END).apply { marginEnd = dp(12) })
         }
         root.setOnApplyWindowInsetsListener { _, insets ->
             val cutoutInsets = insets.getInsets(WindowInsets.Type.displayCutout())
@@ -326,11 +263,7 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
-        val generation = ++logGeneration
-        val listener: (String) -> Unit = { line -> runOnUiThread { if (logGeneration == generation) append(line) } }
-        terminalLogListener = listener
-        val snapshot = TerminalLog.addListenerWithTail(this, listener, TerminalDisplayPolicy.STARTUP_TAIL_LINES)
-        terminalCatchUp(lastLogLine, snapshot).forEach(::appendLogLine)
+        logViewer.start()
         AgentStatusBroadcast.addListener(statusListener)
         statusRefreshHandler.post(statusRefresh)
     }
@@ -366,38 +299,18 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
-        logGeneration++
+        logViewer.stop()
         statusRefreshHandler.removeCallbacks(statusRefresh)
         stopIdleDimTimer()
-        terminalLogListener?.let(TerminalLog::removeListener)
-        terminalLogListener = null
         AgentStatusBroadcast.removeListener(statusListener)
         super.onStop()
     }
 
     override fun onDestroy() {
+        logViewer.close()
         shellOwner.detach(shellCompletionListener)
         if (!isChangingConfigurations) shellOwner.cancel()
         super.onDestroy()
-    }
-
-    /** Appends one terminal line and trims the view to a bounded size. */
-    private fun append(line: String) {
-        syncStatusIcons()
-        appendLogLine(line)
-    }
-
-    private fun appendLogLine(line: String) {
-        lastLogLine = line
-        val follow = !::scroll.isInitialized || scroll.visibility != View.VISIBLE && autoScroll.isFollowingTail ||
-            ::scroll.isInitialized && scroll.visibility == View.VISIBLE && autoScroll.shouldFollowTail(scroll.scrollY >= bottomScrollY() - 2)
-        val displayLine = boundedLine(line)
-        val terminalLine = terminalDisplayText(displayLine)
-        logView.append(colored(displayLine, terminalLine))
-        displayLineLengths.addLast(terminalLine.length)
-        displayLogChars += terminalLine.length
-        trimDisplayIfNeeded()
-        if (follow) requestScrollToBottom()
     }
 
     private fun ensureWifiLocationPermissions() {
@@ -434,85 +347,6 @@ class MainActivity : Activity() {
         val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, uri)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         startActivity(intent)
-    }
-
-    private fun trimDisplayIfNeeded(): Int {
-        if (
-            displayLineLengths.size <= TerminalDisplayPolicy.MAX_DISPLAY_LINES &&
-            displayLogChars <= TerminalDisplayPolicy.MAX_DISPLAY_CHARS
-        ) return 0
-
-        val text = mutableDisplayText()
-        var removedLines = 0
-        while (
-            displayLineLengths.isNotEmpty() &&
-            (displayLineLengths.size > TerminalDisplayPolicy.MAX_DISPLAY_LINES ||
-                displayLogChars > TerminalDisplayPolicy.MAX_DISPLAY_CHARS)
-        ) {
-            val charsToRemove = displayLineLengths.removeFirst()
-            removedLines += 1
-            val start = logStartIndex.coerceAtMost(text.length)
-            val end = (start + charsToRemove).coerceAtMost(text.length)
-            if (end > start) {
-                text.delete(start, end)
-            }
-            displayLogChars = (displayLogChars - charsToRemove).coerceAtLeast(0)
-        }
-        return removedLines
-    }
-
-    private fun mutableDisplayText(): SpannableStringBuilder {
-        val current = logView.text
-        if (current is SpannableStringBuilder) return current
-
-        return SpannableStringBuilder(current).also {
-            logView.setText(it, TextView.BufferType.SPANNABLE)
-        }
-    }
-
-    private fun boundedLine(line: String): String {
-        return TerminalDisplayPolicy.boundedLine(line, appendNewline = true)
-    }
-
-    private fun requestScrollToBottom() {
-        if (!::scroll.isInitialized || !autoScroll.markScrollToBottomPending()) return
-
-        val observer = scroll.viewTreeObserver
-        observer.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
-            override fun onPreDraw(): Boolean {
-                val currentObserver = scroll.viewTreeObserver
-                if (observer.isAlive) {
-                    observer.removeOnPreDrawListener(this)
-                } else if (currentObserver.isAlive) {
-                    currentObserver.removeOnPreDrawListener(this)
-                }
-                autoScroll.finishScrollToBottomPending()
-                scrollToBottomNow()
-                return true
-            }
-        })
-        scroll.invalidate()
-    }
-
-    private fun scrollToBottomNow() {
-        scroll.scrollTo(0, bottomScrollY())
-    }
-
-    private fun bottomScrollY(): Int {
-        val child = scroll.getChildAt(0) ?: return 0
-        return (child.bottom - scroll.height).coerceAtLeast(0)
-    }
-
-    private fun SpannableStringBuilder.appendColored(line: String) {
-        append(colored(line, terminalDisplayText(line)))
-    }
-
-    /** Colors notable lines while leaving log text unparsed. */
-    private fun colored(line: String, terminalLine: String): CharSequence {
-        val color = AgentLogStyle.colorForLine(line)
-        val span = SpannableString(terminalLine)
-        span.setSpan(ForegroundColorSpan(color), 0, terminalLine.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        return span
     }
 
     private fun statusIconRow(): LinearLayout {
@@ -1296,7 +1130,7 @@ class MainActivity : Activity() {
         viewerToggle?.visibility = View.GONE
         renderShell()
         shellScroll.visibility = View.VISIBLE
-        scroll.visibility = View.GONE
+        logViewer.hide()
         scrollShellToTail()
         focusShellInput()
         resetIdleDimTimer()
@@ -1312,7 +1146,7 @@ class MainActivity : Activity() {
 
     private fun showViewer() {
         if (!shellVisible) {
-            if (autoScroll.isFollowingTail) requestScrollToBottom()
+            logViewer.show()
             resetIdleDimTimer()
             return
         }
@@ -1323,8 +1157,7 @@ class MainActivity : Activity() {
         shellInput?.clearFocus()
         root.requestFocus()
         shellScroll.visibility = View.GONE
-        scroll.visibility = View.VISIBLE
-        if (autoScroll.isFollowingTail) requestScrollToBottom()
+        logViewer.show()
         resetIdleDimTimer()
     }
 
@@ -1357,14 +1190,6 @@ class MainActivity : Activity() {
         val session: AgentShellSession,
         val followTail: Boolean,
     )
-}
-
-/** A bounded tail is enough to catch up without rereading the whole log. */
-internal fun terminalCatchUp(last: String?, snapshot: String): List<String> {
-    if (last == null || snapshot.isEmpty()) return emptyList()
-    val lines = snapshot.lineSequence().toList()
-    val marker = lines.indexOfLast { it == last }
-    return (if (marker < 0) listOf("[older stopped log lines omitted]") else emptyList()) + lines.drop(marker + 1)
 }
 
 private class ShellInputEditText(context: Context) : EditText(context) {

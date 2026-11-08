@@ -37,7 +37,7 @@ public final class UntrustedServiceCallerActivity extends Activity {
                 throw new IllegalStateException("test caller must not hold DUMP");
             }
             StringBuilder evidence = new StringBuilder();
-            for (String action : new String[] {"GRPC_SESSION", "WIDGET_REFRESH_OBSERVER", "WIDGET_REFRESH_STOP"}) {
+            for (String action : new String[] {"GRPC_SESSION", "WIDGET_START", "WIDGET_STOP"}) {
                 Intent intent = new Intent().setComponent(component).setAction(AGENT_PACKAGE + ".action." + action)
                         .putExtra("grpc_host", "127.0.0.1").putExtra("grpc_port", 43123)
                         .putExtra("grpc_token", "synthetic-denied-session");

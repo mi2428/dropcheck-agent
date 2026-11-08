@@ -42,7 +42,16 @@ class ShellReadOnlyInstrumentation : Instrumentation() {
         try {
             sendStatus(0, Bundle().apply { putString("phase", phase); putLong("elapsed_ms", SystemClock.elapsedRealtime()) })
             current = startActivitySync(Intent(targetContext, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+            runOnMainSync { current!!.setShowWhenLocked(true); current!!.setTurnScreenOn(true) }
             waitForIdleSync()
+            val focusDeadline = SystemClock.elapsedRealtime() + 3_000
+            while (SystemClock.elapsedRealtime() < focusDeadline) {
+                var focused = false
+                runOnMainSync { focused = current!!.hasWindowFocus() }
+                if (focused) break
+                Thread.sleep(25)
+            }
+            runOnMainSync { check(current!!.hasWindowFocus()) { "Read-only fixture window is obscured" } }
             if (scanOnly) {
                 val scan = json("show wifi scan | display json")
                 check(lines(scan).any { it.startsWith("Connections at collection: ") && !it.contains("not captured") && !it.contains("inconsistent connection observation") }) { "scan did not retain its typed collection-time connection observation" }

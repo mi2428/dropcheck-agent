@@ -22,6 +22,7 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = dropcheckVersion
+        testInstrumentationRunner = "io.dropcheck.agent.ServiceSameUidInstrumentation"
     }
 
     buildFeatures {

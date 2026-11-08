@@ -16,20 +16,21 @@ import java.util.concurrent.Executors
 import java.util.concurrent.Future
 
 /**
- * Foreground service entry point for controller gRPC sessions.
+ * Foreground service entry point for controller sessions and Clock widget access.
  *
  * The service performs only Android lifecycle work: it validates the start
- * intent and keeps one active controller session started through ADB.
+ * intent, keeps one active controller session started through ADB, and maintains
+ * the foreground lifetime for widget location access. Widget triggers live in the provider.
  */
 class AgentService : Service() {
     private val executor = Executors.newSingleThreadExecutor()
     private val sessionLock = Any()
-    private lateinit var clockWidgetObserver: ClockWidgetRefreshObserver
     private var wifiEvents: WifiEventLogger? = null
     private var wifiEventsStarted = false
     private var current: Future<*>? = null
     private var currentSessionKey: String = ""
     private var currentStartId: Int = 0
+    private var latestStartId: Int = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -37,10 +38,6 @@ class AgentService : Service() {
         ensureNotificationChannel()
         startForegroundWithType("starting")
         TerminalLog.compactIfNeeded(this)
-        clockWidgetObserver = ClockWidgetRefreshObserver(this)
-        if (AgentClockWidgetProvider.hasClockWidgets(this)) {
-            clockWidgetObserver.start()
-        }
         TerminalLog.infoEvent(this, "service.create", listOf(
             "sdk" to Build.VERSION.SDK_INT,
             "manufacturer" to Build.MANUFACTURER,
@@ -52,6 +49,7 @@ class AgentService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        latestStartId = startId
         startForegroundWithType(notificationText(intent?.action))
         TerminalLog.infoEvent(this, "service.start", listOf(
             "action" to intent?.action,
@@ -60,24 +58,10 @@ class AgentService : Service() {
             "extras" to intent?.extras?.keySet()?.toList().orEmpty(),
         ))
         when (intent?.action) {
-            ACTION_WIDGET_REFRESH_OBSERVER -> {
-                clockWidgetObserver.start()
-                TerminalLog.infoEvent(this, "widget.observer.start", listOf(
-                    "clock_widgets" to AgentClockWidgetProvider.hasClockWidgets(this),
-                ))
-                AgentClockWidgetProvider.requestUpdate(this)
-            }
-            ACTION_WIDGET_REFRESH_STOP -> {
-                if (!AgentClockWidgetProvider.hasClockWidgets(this)) {
-                    clockWidgetObserver.stop()
-                }
-                TerminalLog.infoEvent(this, "widget.observer.stop", listOf(
-                    "clock_widgets" to AgentClockWidgetProvider.hasClockWidgets(this),
-                ))
-                if (!shouldStayStarted()) {
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf(startId)
-                }
+            ACTION_WIDGET_START -> AgentClockWidgetProvider.requestUpdate(this)
+            ACTION_WIDGET_STOP -> if (!AgentClockWidgetProvider.hasClockWidgets(this) && current?.isDone != false) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf(startId)
             }
             ACTION_GRPC_SESSION -> {
                 val host = intent.getStringExtra(EXTRA_GRPC_HOST) ?: "127.0.0.1"
@@ -85,7 +69,6 @@ class AgentService : Service() {
                 val token = intent.getStringExtra(EXTRA_GRPC_TOKEN).orEmpty()
                 val agentId = intent.getStringExtra(EXTRA_AGENT_ID).orEmpty()
                 val adbSerial = intent.getStringExtra(EXTRA_ADB_SERIAL).orEmpty()
-                ensureWifiEventsStarted()
                 TerminalLog.debugEvent(this, "grpc.session.intent", listOf(
                     "host" to host,
                     "port" to port,
@@ -100,7 +83,12 @@ class AgentService : Service() {
                         "port" to port,
                         "token_present" to token.isNotBlank(),
                     ))
+                    if (current?.isDone != false && !shouldStayStarted()) {
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelf(startId)
+                    }
                 } else {
+                    ensureWifiEventsStarted()
                     startGrpcSession(host, port, token, agentId, adbSerial, startId)
                 }
             }
@@ -115,9 +103,6 @@ class AgentService : Service() {
 
     override fun onDestroy() {
         current?.cancel(true)
-        if (::clockWidgetObserver.isInitialized) {
-            clockWidgetObserver.shutdown()
-        }
         stopWifiEvents()
         executor.shutdownNow()
         TerminalLog.infoEvent(this, "service.destroy", emptyList())
@@ -192,14 +177,14 @@ class AgentService : Service() {
      * may still run its finally block after the replacement has been queued; the
      * session key prevents stale cleanup from clearing the fresh session state.
      */
-    private fun afterGrpcSessionFinished(sessionKey: String, startId: Int) {
+    private fun afterGrpcSessionFinished(sessionKey: String, startId: Int) = mainExecutor.execute {
         synchronized(sessionLock) {
             if (currentSessionKey != sessionKey || currentStartId != startId) {
                 TerminalLog.debug(
                     this,
                     "ignoring stale session cleanup current_start_id=$currentStartId",
                 )
-                return
+                return@execute
             }
             current = null
             currentSessionKey = ""
@@ -208,7 +193,8 @@ class AgentService : Service() {
         stopWifiEvents()
         if (!shouldStayStarted()) {
             stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf(startId)
+            // Widget start/stop intents may have advanced the service ID during this session.
+            stopSelf(latestStartId)
         }
     }
 
@@ -219,7 +205,7 @@ class AgentService : Service() {
     private fun notificationText(action: String?): String {
         return when (action) {
             ACTION_GRPC_SESSION -> "controller session"
-            ACTION_WIDGET_REFRESH_OBSERVER -> "widget updates"
+            ACTION_WIDGET_START -> "clock widget updates"
             else -> "waiting for controller"
         }
     }
@@ -289,25 +275,23 @@ class AgentService : Service() {
         private const val CHANNEL_ID = "dropcheck-agent"
         private const val NOTIFICATION_ID = 1001
         const val ACTION_GRPC_SESSION = "io.dropcheck.agent.action.GRPC_SESSION"
-        const val ACTION_WIDGET_REFRESH_OBSERVER = "io.dropcheck.agent.action.WIDGET_REFRESH_OBSERVER"
-        const val ACTION_WIDGET_REFRESH_STOP = "io.dropcheck.agent.action.WIDGET_REFRESH_STOP"
+        const val ACTION_WIDGET_START = "io.dropcheck.agent.action.WIDGET_START"
+        const val ACTION_WIDGET_STOP = "io.dropcheck.agent.action.WIDGET_STOP"
         const val EXTRA_GRPC_HOST = "grpc_host"
         const val EXTRA_GRPC_PORT = "grpc_port"
         const val EXTRA_GRPC_TOKEN = "grpc_token"
         const val EXTRA_AGENT_ID = "agent_id"
         const val EXTRA_ADB_SERIAL = "adb_serial"
 
-        fun requestWidgetObserver(context: Context) {
-            val intent = Intent(context, AgentService::class.java).setAction(ACTION_WIDGET_REFRESH_OBSERVER)
-            runCatching {
-                context.startForegroundService(intent)
-            }
-        }
+        fun requestWidgetUpdates(context: Context) = startWidgetService(context, ACTION_WIDGET_START)
 
-        fun requestWidgetObserverStop(context: Context) {
-            val intent = Intent(context, AgentService::class.java).setAction(ACTION_WIDGET_REFRESH_STOP)
-            runCatching {
-                context.startForegroundService(intent)
+        fun stopWidgetUpdates(context: Context) = startWidgetService(context, ACTION_WIDGET_STOP)
+
+        private fun startWidgetService(context: Context, action: String) {
+            try {
+                context.startForegroundService(Intent(context, AgentService::class.java).setAction(action))
+            } catch (error: RuntimeException) {
+                TerminalLog.error(context.applicationContext, "Clock widget service start failed ($action)", error)
             }
         }
 

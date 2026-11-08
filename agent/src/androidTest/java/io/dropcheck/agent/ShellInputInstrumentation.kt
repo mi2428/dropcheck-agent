@@ -27,7 +27,14 @@ class ShellInputInstrumentation : Instrumentation() {
         try {
             activity = startActivitySync(Intent(targetContext, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
             val main = activity
+            runOnMainSync { main.setShowWhenLocked(true) }
             waitForIdleSync()
+            val focusDeadline = android.os.SystemClock.elapsedRealtime() + 3000
+            while (!main.hasWindowFocus() && android.os.SystemClock.elapsedRealtime() < focusDeadline) {
+                Thread.sleep(25)
+                waitForIdleSync()
+            }
+            check(main.hasWindowFocus()) { "Shell test window is obscured" }
             val inputField = MainActivity::class.java.getDeclaredField("shellInput").apply { isAccessible = true }
             runOnMainSync {
                 val input = checkNotNull(inputField.get(main) as EditText?)

@@ -17,6 +17,7 @@ import android.net.wifi.SupplicantState
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Looper
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
@@ -40,6 +41,7 @@ internal class WifiEventLogger(
     private val started = AtomicBoolean(false)
     private val executor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
     private val lock = Any()
+    private val submitLock = Any()
 
     private var pollTask: ScheduledFuture<*>? = null
     private var broadcastRegistered = false
@@ -195,7 +197,9 @@ internal class WifiEventLogger(
             defaultCallbackRegistered = false
         }
         TerminalLog.infoEvent(appContext, "wifi.events.stop", emptyList())
-        executor.shutdownNow()
+        // Shutdown under submitLock so a main-thread capture cannot race into a
+        // rejected executor submission between its started check and execute().
+        synchronized(submitLock) { executor.shutdownNow() }
     }
 
     private fun registerBroadcasts() {
@@ -249,7 +253,26 @@ internal class WifiEventLogger(
         TerminalLog.debugEvent(appContext, event, listOf("network" to network.toString()) + extra + networkFields(network))
     }
 
-    private fun capture(reason: String, triggerFields: List<Pair<String, Any?>>) {
+    /**
+     * Shared capture entry.
+     *
+     * Broadcast receivers and start() run on the main thread, where the
+     * snapshot's on-demand WifiInfo lookup must not block input dispatch. It can
+     * wait for a callback identity that may be redacted even when location is
+     * granted, so those callers hand the work to the logger executor. Callback
+     * and poll threads keep the existing inline path.
+     */
+    internal fun capture(reason: String, triggerFields: List<Pair<String, Any?>>) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            synchronized(submitLock) {
+                if (started.get()) executor.execute { captureNow(reason, triggerFields) }
+            }
+        } else {
+            captureNow(reason, triggerFields)
+        }
+    }
+
+    private fun captureNow(reason: String, triggerFields: List<Pair<String, Any?>>) {
         if (!started.get() && reason != "stop") return
         runCatching {
             val snapshot = snapshot()

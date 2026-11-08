@@ -21,44 +21,38 @@ import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
-import android.util.TypedValue
 import android.widget.RemoteViews
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.util.Locale
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.roundToInt
 
 /**
  * App widget provider for the compact clock, Wi-Fi status, and network address display.
  *
- * The widget refreshes from broadcasts, connectivity callbacks, and bounded
- * follow-up alarms so transient Android Wi-Fi state changes settle on screen.
+ * The provider owns refresh triggers independently of AgentService; the service
+ * stays alive while installed widgets need permission-safe location access.
  */
 class AgentClockWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
+        if (appWidgetIds.isEmpty()) return
         schedulePeriodicUpdate(context)
         registerWidgetNetworkCallback(context)
-        AgentService.requestWidgetObserver(context)
-        updateWidgets(context, appWidgetManager, appWidgetIds)
+        AgentService.requestWidgetUpdates(context)
+        requestUpdate(context)
     }
 
     override fun onEnabled(context: Context) {
         super.onEnabled(context)
         schedulePeriodicUpdate(context)
         registerWidgetNetworkCallback(context)
-        AgentService.requestWidgetObserver(context)
-        updateAll(context)
+        AgentService.requestWidgetUpdates(context)
+        requestUpdate(context)
     }
 
     override fun onDisabled(context: Context) {
-        unregisterWidgetNetworkCallback(context)
-        cancelPeriodicUpdate(context)
-        cancelEventFollowUpUpdates(context)
-        AgentService.requestWidgetObserverStop(context)
+        stopUpdates(context)
+        AgentService.stopWidgetUpdates(context)
         super.onDisabled(context)
     }
 
@@ -68,7 +62,7 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
         appWidgetId: Int,
         newOptions: Bundle,
     ) {
-        updateWidgets(context, appWidgetManager, intArrayOf(appWidgetId))
+        requestUpdate(context)
     }
 
     @Suppress("DEPRECATION")
@@ -76,15 +70,22 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
         super.onReceive(context, intent)
         when (intent.action) {
             Intent.ACTION_MY_PACKAGE_REPLACED -> {
-                registerWidgetNetworkCallback(context)
-                schedulePeriodicUpdate(context)
-                AgentService.requestWidgetObserver(context)
-                requestUpdate(context)
+                if (hasClockWidgets(context)) {
+                    registerWidgetNetworkCallback(context)
+                    schedulePeriodicUpdate(context)
+                    AgentService.requestWidgetUpdates(context)
+                    requestUpdate(context)
+                } else {
+                    stopUpdates(context)
+                }
             }
             ACTION_PERIODIC_UPDATE -> {
-                registerWidgetNetworkCallback(context)
-                schedulePeriodicUpdate(context)
-                requestUpdate(context)
+                if (hasClockWidgets(context)) {
+                    schedulePeriodicUpdate(context)
+                    requestUpdate(context)
+                } else {
+                    stopUpdates(context)
+                }
             }
             ACTION_NETWORK_CALLBACK_UPDATE -> {
                 requestUpdate(context)
@@ -100,33 +101,31 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
     }
 
     companion object {
-        private val updatePending = AtomicBoolean(false)
-        private val lastUpdateElapsedMs = AtomicLong(0)
-        private val updateExecutor = Executors.newSingleThreadScheduledExecutor { task ->
-            Thread(task, "dropcheck-clock-widget-update")
-        }
-
         fun requestUpdate(context: Context) {
             val appContext = context.applicationContext
-            if (!updatePending.compareAndSet(false, true)) return
-            val elapsedMs = SystemClock.elapsedRealtime()
-            val nextAllowedMs = lastUpdateElapsedMs.get() + MIN_UPDATE_INTERVAL_MS
-            val delayMs = maxOf(UPDATE_DEBOUNCE_MS, nextAllowedMs - elapsedMs)
-            updateExecutor.schedule(
-                {
+            if (!hasClockWidgets(appContext)) return
+            try {
+                widgetUpdateQueue.request {
                     try {
                         updateAll(appContext)
-                        lastUpdateElapsedMs.set(SystemClock.elapsedRealtime())
-                    } finally {
-                        updatePending.set(false)
+                    } catch (error: Exception) {
+                        TerminalLog.error(appContext, "Clock widget update failed", error)
+                        throw error
                     }
-                },
-                delayMs,
-                TimeUnit.MILLISECONDS,
-            )
+                }
+            } catch (error: RuntimeException) {
+                TerminalLog.error(appContext, "Clock widget update could not be queued", error)
+                throw error
+            }
         }
 
-        fun updateAll(context: Context) {
+        private val widgetUpdateQueue = WidgetUpdateQueue(
+            name = "clock-widget",
+            debounceMs = UPDATE_DEBOUNCE_MS,
+            minIntervalMs = MIN_UPDATE_INTERVAL_MS,
+        )
+
+        private fun updateAll(context: Context) {
             val appContext = context.applicationContext
             val manager = AppWidgetManager.getInstance(appContext)
             val appWidgetIds = clockWidgetIds(appContext, manager)
@@ -161,6 +160,7 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
         }
 
         private fun scheduleEventFollowUpUpdates(context: Context) {
+            if (!hasClockWidgets(context)) return
             EVENT_FOLLOW_UP_DELAYS_MS.forEachIndexed { index, delayMs ->
                 scheduleUpdateAlarm(
                     context = context,
@@ -171,7 +171,10 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
             }
         }
 
-        private fun cancelEventFollowUpUpdates(context: Context) {
+        private fun stopUpdates(context: Context) {
+            widgetUpdateQueue.cancel()
+            unregisterWidgetNetworkCallback(context)
+            cancelPeriodicUpdate(context)
             EVENT_FOLLOW_UP_DELAYS_MS.indices.forEach { index ->
                 cancelUpdateAlarm(
                     context,
@@ -194,8 +197,12 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
                 .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
                 .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
                 .build()
-            runCatching { connectivity.unregisterNetworkCallback(pendingIntent) }
-            runCatching { connectivity.registerNetworkCallback(request, pendingIntent) }
+            try {
+                runCatching { connectivity.unregisterNetworkCallback(pendingIntent) }
+                connectivity.registerNetworkCallback(request, pendingIntent)
+            } catch (error: RuntimeException) {
+                TerminalLog.error(appContext, "Clock widget network callback registration failed", error)
+            }
         }
 
         private fun unregisterWidgetNetworkCallback(context: Context) {
@@ -242,22 +249,23 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
         }
 
         private fun updateWidgets(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
+            if (appWidgetIds.isEmpty()) return
             val wifiText = currentWifiText(context)
 
             appWidgetIds.forEach { appWidgetId ->
-                val size = clockSize(appWidgetManager.getAppWidgetOptions(appWidgetId))
-                val views = RemoteViews(context.packageName, R.layout.agent_clock_widget).apply {
-                    setTextViewText(R.id.agentClockWifiInfo, wifiText.infoLine)
-                    setTextViewText(R.id.agentClockIpInfo, wifiText.ipLine)
-                    setTextViewText(R.id.agentClockLocationInfo, wifiText.locationLine)
-                    setTextViewTextSize(R.id.agentClockDate, TypedValue.COMPLEX_UNIT_SP, size.dateSp)
-                    setTextViewTextSize(R.id.agentClockTime, TypedValue.COMPLEX_UNIT_SP, size.timeSp)
-                    setTextViewTextSize(R.id.agentClockWifiInfo, TypedValue.COMPLEX_UNIT_SP, size.wifiSp)
-                    setTextViewTextSize(R.id.agentClockIpInfo, TypedValue.COMPLEX_UNIT_SP, size.wifiSp)
-                    setTextViewTextSize(R.id.agentClockLocationInfo, TypedValue.COMPLEX_UNIT_SP, size.wifiSp)
-                    setOnClickPendingIntent(R.id.agentClockRoot, settingsPendingIntent(context))
-                }
+                val views = remoteViews(context, wifiText)
                 appWidgetManager.updateAppWidget(appWidgetId, views)
+            }
+        }
+
+        internal fun remoteViews(context: Context): RemoteViews = remoteViews(context, currentWifiText(context))
+
+        private fun remoteViews(context: Context, wifiText: ClockWifiText): RemoteViews {
+            return RemoteViews(context.packageName, R.layout.agent_clock_widget).apply {
+                setTextViewText(R.id.agentClockWifiInfo, wifiText.infoLine)
+                setTextViewText(R.id.agentClockIpInfo, wifiText.ipLine)
+                setTextViewText(R.id.agentClockLocationInfo, wifiText.locationLine)
+                setOnClickPendingIntent(R.id.agentClockRoot, settingsPendingIntent(context))
             }
         }
 
@@ -504,48 +512,8 @@ class AgentClockWidgetProvider : AppWidgetProvider() {
             return wifiState == WifiManager.WIFI_STATE_DISABLED ||
                 wifiState == WifiManager.WIFI_STATE_DISABLING
         }
-
-        private fun clockSize(options: Bundle): ClockSize {
-            val widthDp = optionDp(
-                options,
-                AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH,
-                AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH,
-                fallback = 260,
-            )
-            val heightDp = optionDp(
-                options,
-                AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT,
-                AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT,
-                fallback = 130,
-            )
-
-            val timeByWidth = widthDp * 0.36f
-            val timeByHeight = heightDp * 0.72f
-            val baseTimeSp = minOf(timeByWidth, timeByHeight).coerceIn(72f, 132f)
-            val timeSp = baseTimeSp + 12f
-            val dateSp = (baseTimeSp * 0.24f).coerceIn(16f, 28f)
-            val wifiSp = (widthDp * 0.036f).coerceIn(9f, 13f)
-            return ClockSize(dateSp = dateSp, timeSp = timeSp, wifiSp = wifiSp)
-        }
-
-        private fun optionDp(options: Bundle, minKey: String, maxKey: String, fallback: Int): Int {
-            val min = options.getInt(minKey, 0)
-            val max = options.getInt(maxKey, 0)
-            return listOf(min, max)
-                .filter { it > 0 }
-                .average()
-                .takeIf { !it.isNaN() }
-                ?.toInt()
-                ?: fallback
-        }
     }
 }
-
-private data class ClockSize(
-    val dateSp: Float,
-    val timeSp: Float,
-    val wifiSp: Float,
-)
 
 private data class WifiSnapshot(
     val connected: Boolean,

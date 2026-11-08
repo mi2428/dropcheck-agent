@@ -24,13 +24,27 @@ class ServiceSameUidInstrumentation : Instrumentation() {
             check(Process.myUid() == targetContext.applicationInfo.uid)
             check(targetContext.packageName == AGENT_PACKAGE)
             val component = ComponentName(AGENT_PACKAGE, SERVICE)
-            for (action in listOf("WIDGET_REFRESH_OBSERVER", "WIDGET_REFRESH_STOP")) {
+            for (action in listOf("WIDGET_START", "WIDGET_STOP")) {
                 check(targetContext.startForegroundService(
                     Intent().setComponent(component).setAction(ACTION_PREFIX + action),
                 ) == component)
                 waitForIdleSync()
             }
-            result.putString("stream", "PASS: same-UID widget start/stop accepted\n")
+            val ignored = java.util.concurrent.CountDownLatch(1)
+            val observers = java.util.concurrent.atomic.AtomicInteger()
+            val listener: (TerminalLogEntry) -> Unit = { entry ->
+                if ("event=wifi.events.start" in entry.text) observers.incrementAndGet()
+                if ("event=grpc.session.ignored" in entry.text) ignored.countDown()
+            }
+            TerminalLog.addListener(listener)
+            try {
+                check(targetContext.startForegroundService(Intent().setComponent(component)
+                    .setAction(AgentService.ACTION_GRPC_SESSION)) == component)
+                check(ignored.await(3, java.util.concurrent.TimeUnit.SECONDS))
+                waitForIdleSync()
+                check(observers.get() == 0) { "Invalid session started Wi-Fi observers" }
+            } finally { TerminalLog.removeListener(listener) }
+            result.putString("stream", "PASS: same-UID widget start/stop accepted; invalid session did not start observers\n")
             finish(Activity.RESULT_OK, result)
         } catch (failure: Throwable) {
             result.putString("stream", "FAIL: ${failure.javaClass.simpleName}: ${failure.message}\n")
