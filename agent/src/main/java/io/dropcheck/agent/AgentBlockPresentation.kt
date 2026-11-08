@@ -1,11 +1,13 @@
 package io.dropcheck.agent
 
 import android.graphics.Paint
+import android.graphics.Color
 import android.icu.text.BreakIterator
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.TabStopSpan
 import android.text.style.ScaleXSpan
+import android.text.style.ForegroundColorSpan
 import java.util.Locale
 
 /** Result parts are sanitized on creation; local command echoes explicitly retain verbatim input. */
@@ -24,6 +26,7 @@ internal class AgentPresentationBlock private constructor(
     val baseSizeSp: Float,
     val minimumSizeSp: Float,
     val safeValueFile: AgentSafeValueFile?,
+    val promptLength: Int = 0,
 ) {
     val fullText: String get() = logicalText()
 
@@ -75,7 +78,7 @@ internal class AgentPresentationBlock private constructor(
      * literal identities a second time (an SSID may itself contain password=). */
     fun withStyle(baseSizeSp: Float, minimumSizeSp: Float): AgentPresentationBlock {
         require(baseSizeSp.isFinite() && minimumSizeSp.isFinite() && baseSizeSp >= minimumSizeSp && minimumSizeSp >= 10f)
-        return AgentPresentationBlock(parts, color, baseSizeSp, minimumSizeSp, safeValueFile)
+        return AgentPresentationBlock(parts, color, baseSizeSp, minimumSizeSp, safeValueFile, promptLength)
     }
 
     fun mapLogicalLines(transform: (List<IndexedValue<String>>) -> List<IndexedValue<String>>): AgentPresentationBlock {
@@ -126,13 +129,15 @@ internal class AgentPresentationBlock private constructor(
         }
         return AgentPresentationBlock(important + AgentBlockPart.Text(
             "shown=0; ${fullText.length} characters exceed in-memory history. Long press and choose Full result for all ${values.valueCount} retained safe values; no identity was clipped.",
-        ), color, baseSizeSp, minimumSizeSp, values)
+        ), color, baseSizeSp, minimumSizeSp, values, promptLength)
     }
 
     companion object {
         /** Local input is intentionally echoed exactly, including credentials and malformed syntax. */
-        fun commandLine(text: String, color: Int): AgentPresentationBlock =
-            AgentPresentationBlock(listOf(AgentBlockPart.Text(text)), color, 10f, 10f, null)
+        fun commandLine(text: String, color: Int, promptLength: Int): AgentPresentationBlock {
+            require(promptLength in 0..text.length)
+            return AgentPresentationBlock(listOf(AgentBlockPart.Text(text)), color, 10f, 10f, null, promptLength)
+        }
 
         fun create(parts: List<AgentBlockPart>, color: Int, baseSizeSp: Float = 10f, minimumSizeSp: Float = 10f, safeValueFile: AgentSafeValueFile? = null): AgentPresentationBlock {
             require(baseSizeSp.isFinite() && minimumSizeSp.isFinite() && baseSizeSp >= minimumSizeSp && minimumSizeSp >= 10f)
@@ -370,6 +375,13 @@ internal object AgentNativeBlockLayout {
             }
         }
         if (totalRecords > visibleRecords) appendWrapped(out, "shown=$visibleRecords total=$totalRecords; 96-row / 240-line display budget; long press and choose Full result for all retained safe values", contentWidthPx, paint)
+        if (block.promptLength > 0) {
+            var end = 0
+            var remaining = block.promptLength
+            // Reflow adds line breaks; the prompt keeps its color even across those breaks.
+            while (remaining > 0 && end < out.length) if (out[end++] != '\n') remaining--
+            out.setSpan(ForegroundColorSpan(Color.YELLOW), 0, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
         return AgentBlockLayout(out, block.baseSizeSp)
     }
 

@@ -622,11 +622,12 @@ class MainActivity : Activity() {
         renderShell()
         return object : ScrollView(this) {
             private var tapCandidate = false
+            private var dismissedImeOnDrag = false
 
             override fun dispatchTouchEvent(event: MotionEvent): Boolean {
                 // Observe output children too, without taking over controls, long presses or drags.
                 when (event.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> { captureSwipeStart(event); tapCandidate = true }
+                    MotionEvent.ACTION_DOWN -> { captureSwipeStart(event); tapCandidate = true; dismissedImeOnDrag = false }
                     MotionEvent.ACTION_MOVE -> if (!isTapGesture(event)) tapCandidate = false
                     MotionEvent.ACTION_CANCEL -> tapCandidate = false
                 }
@@ -650,7 +651,14 @@ class MainActivity : Activity() {
                     return true
                 }
                 val openIme = outputTap && event.y >= height * 2f / 3f && imeVisible == false
+                val previousY = scrollY
                 val handled = super.dispatchTouchEvent(event)
+                val dy = event.y - swipeStartY
+                if (event.actionMasked == MotionEvent.ACTION_MOVE && !dismissedImeOnDrag && imeVisible == true &&
+                    scrollY < previousY && dy > shellTapSlopPx && dy > kotlin.math.abs(event.x - swipeStartX)) {
+                    dismissedImeOnDrag = true
+                    hideShellInputIme()
+                }
                 if (event.actionMasked == MotionEvent.ACTION_UP) tapCandidate = false
                 if (openIme) focusShellInput()
                 return handled
@@ -968,9 +976,9 @@ class MainActivity : Activity() {
             key("↓", "Next command") { press(KeyEvent.KEYCODE_DPAD_DOWN) },
             key("C-c", "Cancel running command; clear unsent input when idle") { press(KeyEvent.KEYCODE_C, KeyEvent.META_CTRL_ON) },
             key("?", "Context help") { input.requestFocus(); input.requestHelp() },
-            shortcut("sh wifi status"),
-            shortcut("request wifi scan"),
-            shortcut("sh wifi status ip"),
+            shortcut("sh wi status"),
+            shortcut("req wi scan"),
+            shortcut("sh wi status ip"),
             shortcut(" | match "),
             shortcut(" | count "),
             shortcut(" | display json "),
@@ -1029,7 +1037,7 @@ class MainActivity : Activity() {
         shellInput?.setText("")
         shellSession.remember(raw)
         scrollShellToTail()
-        appendShellBlock(AgentPresentationBlock.commandLine("$SHELL_PROMPT$raw", AgentLogStyle.TEXT_COLOR), true)
+        appendShellBlock(AgentPresentationBlock.commandLine("$SHELL_PROMPT$raw", AgentLogStyle.TEXT_COLOR, SHELL_PROMPT.length), true)
         when (val command = AgentShellParser.parse(line)) {
             AgentShellCommand.Noop -> Unit
             is AgentShellCommand.Invalid -> {

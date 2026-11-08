@@ -71,6 +71,7 @@ class ShellKeyboardQaInstrumentation : Instrumentation() {
             "geometry" to ::geometry,
             "tap-policy" to ::tapPolicy,
             "ime-visible-tap" to ::imeVisibleTap,
+            "scrollback-ime" to ::scrollbackIme,
             "prompt" to ::prompt,
             "english-ime" to ::englishIme,
             "keybar-scroll" to ::keybarScroll,
@@ -282,6 +283,17 @@ class ShellKeyboardQaInstrumentation : Instrumentation() {
                     val block = main.field<AgentBlockHistory>("shellTranscript").blocks.single { it.fullText == "self> $command" }
                     val text = main.field<Map<AgentPresentationBlock, LinearLayout>>("shellBlockViews").getValue(block).getChildAt(0) as TextView
                     check(!text.text.contains("<redacted>") && !text.text.contains("<command submitted>")) { "displayed command was masked" }
+                    checkPromptColor(text.text)
+                    for (width in listOf(text.width, (text.paint.measureText("self>") / 2).toInt().coerceAtLeast(1))) {
+                        checkPromptColor(checkNotNull(AgentNativeBlockLayout.render(block.withStyle(16f, 10f), width, text.paint)).text)
+                    }
+                    android.text.Selection.setSelection(text.text as android.text.Spannable, 1, 3)
+                    main.javaClass.getDeclaredMethod("renderShell").apply { isAccessible = true }.invoke(main)
+                    checkPromptColor(text.text)
+                    check(text.selectionStart == 1 && text.selectionEnd == 3) { "prompt redraw lost selection" }
+                    val ordinary = AgentPresentationBlock.create(listOf(AgentBlockPart.Text("self> ordinary result text")), AgentLogStyle.TEXT_COLOR)
+                    val resultText = checkNotNull(AgentNativeBlockLayout.render(ordinary, text.width, text.paint)).text as android.text.Spanned
+                    check(resultText.getSpans(0, resultText.length, android.text.style.ForegroundColorSpan::class.java).isEmpty()) { "ordinary output was mistaken for a prompt" }
                     check(input(main).text.isEmpty() && input(main).hasFocus()) { "command echo lost its live editor" }
                     val session = main.field<AgentShellSession>("shellSession")
                     check(session.recall("", -1) == command && session.recall(command, 1).isEmpty()) { "recall changed the original command input" }
@@ -345,6 +357,71 @@ class ShellKeyboardQaInstrumentation : Instrumentation() {
         if (options.getString("capture") == "true") capture(main, "ime-visible-tap")
     }
 
+    private fun checkPromptColor(value: CharSequence) {
+        val styled = value as android.text.Spanned
+        var promptChars = 0
+        for (index in value.indices) {
+            if (value[index] == '\n') continue
+            val colors = styled.getSpans(index, index + 1, android.text.style.ForegroundColorSpan::class.java)
+            if (promptChars < "self> ".length) {
+                check(colors.singleOrNull()?.foregroundColor == android.graphics.Color.YELLOW) { "history prompt is not yellow at character $promptChars" }
+                promptChars++
+            } else check(colors.isEmpty()) { "command text inherited the prompt color" }
+        }
+        check(promptChars == "self> ".length) { "prompt characters missing" }
+    }
+
+    private fun scrollbackIme(main: MainActivity) {
+        val scroll = main.field<ScrollView>("shellScroll")
+        onMain {
+            append(main, AgentPresentationBlock.create(List(160) { AgentBlockPart.Text("scrollback keyboard QA row $it") }, AgentLogStyle.TEXT_COLOR))
+            input(main).apply { setText("retained scrollback draft"); setSelection(3, 8) }
+        }
+        settle(main)
+        fun swipe(backward: Boolean) {
+            val area = onMain { bounds(scroll) }
+            val down = SystemClock.uptimeMillis()
+            for (step in 0..8) {
+                val action = when (step) { 0 -> MotionEvent.ACTION_DOWN; 8 -> MotionEvent.ACTION_UP; else -> MotionEvent.ACTION_MOVE }
+                val fraction = if (backward) 0.15f + 0.65f * step / 8 else 0.8f - 0.65f * step / 8
+                val event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, area.exactCenterX(),
+                    area.top + area.height() * fraction, 0).apply { source = InputDevice.SOURCE_TOUCHSCREEN }
+                try { check(uiAutomation.injectInputEvent(event, true)) { "scrollback injection failed" } } finally { event.recycle() }
+                Thread.sleep(if (step == 7) 250 else 40)
+            }
+        }
+        fun verify(busy: Boolean) {
+            for (fromTail in listOf(false, true)) {
+                onMain { input(main).requestFocus(); main.window.insetsController?.show(WindowInsets.Type.ime()) }
+                await("scrollback requires visible IME") { onMain { imeVisible(main) } }
+                settle(main)
+                onMain { scroll.scrollTo(0, if (fromTail) scroll.getChildAt(0).bottom else (scroll.getChildAt(0).height - scroll.height) / 2) }
+                settle(main)
+                val before = onMain { scroll.scrollY }
+                swipe(backward = true)
+                await("scrollback did not hide IME: busy=$busy tail=$fromTail") { onMain { !imeVisible(main) } }
+                settle(main)
+                onMain {
+                    check(scroll.scrollY < before) { "scrollback did not move toward history" }
+                    check(input(main).let { it.text.toString() == "retained scrollback draft" && it.selectionStart == 3 && it.selectionEnd == 8 && it.hasFocus() }) { "scrollback changed input/selection/focus" }
+                    check(main.field<ShellActionOwner>("shellOwner").busy == busy) { "scrollback changed action state" }
+                }
+            }
+            onMain { main.window.insetsController?.show(WindowInsets.Type.ime()) }
+            await("forward scroll requires visible IME") { onMain { imeVisible(main) } }
+            settle(main)
+            onMain { scroll.scrollTo(0, (scroll.getChildAt(0).height - scroll.height) / 2) }
+            settle(main)
+            val before = onMain { scroll.scrollY }
+            swipe(backward = false)
+            settle(main)
+            onMain { check(imeVisible(main) && scroll.scrollY > before) { "forward scroll hid IME or did not move" } }
+        }
+        verify(false)
+        withAction(main) { _, _ -> verify(true) }
+        if (options.getString("capture") == "true") capture(main, "scrollback-ime")
+    }
+
     private fun prepare(main: MainActivity) {
         await("previous synthetic action remained busy") { !main.field<ShellActionOwner>("shellOwner").busy }
         onMain {
@@ -394,6 +471,7 @@ class ShellKeyboardQaInstrumentation : Instrumentation() {
         else onMain { check(bar.scrollX == 0) { "fitting extra-key row scrolled unexpectedly" } }
         onMain {
             check(input(main).text.toString() == "retained swipe draft" && main.field<AgentBlockHistory>("shellTranscript").blocks.size == history) { "toolbar swipe activated a chip" }
+            check(imeVisible(main)) { "horizontal extra-key swipe hid IME" }
         }
     }
 
@@ -437,8 +515,8 @@ class ShellKeyboardQaInstrumentation : Instrumentation() {
 
     private fun commandTail(main: MainActivity) {
         // No scrolling after submission: checking only busy/idle used to miss stale anchors.
-        val commands = listOf("sh wifi status", "show wifi scan", "sh wifi status ip", "sh permissions",
-            "sh wifi status | count", "sh wifi status | display json", "sh cli", "invalid-tail-qa")
+        val commands = listOf("sh wi status", "show wifi scan", "sh wi status ip", "sh permissions",
+            "sh wi status | count", "sh wi status | display json", "sh cli", "invalid-tail-qa")
         val imeStates = options.getString("ime")?.let { listOf(it.toBooleanStrict()) } ?: listOf(true, false)
         for (showIme in imeStates) {
             onMain { if (showIme) main.window.insetsController?.show(WindowInsets.Type.ime()) else main.window.insetsController?.hide(WindowInsets.Type.ime()) }
@@ -643,8 +721,8 @@ class ShellKeyboardQaInstrumentation : Instrumentation() {
         val labels = mapOf(
             "Tab" to "Complete command", "↑" to "Previous command", "↓" to "Next command",
             "C-c" to "Cancel running command; clear unsent input when idle", "?" to "Context help",
-            "sh wifi status" to "Insert sh wifi status", "request wifi scan" to "Insert request wifi scan",
-            "sh wifi status ip" to "Insert sh wifi status ip", "| match" to "Insert | match",
+            "sh wi status" to "Insert sh wi status", "req wi scan" to "Insert req wi scan",
+            "sh wi status ip" to "Insert sh wi status ip", "| match" to "Insert | match",
             "| count" to "Insert | count", "| display json" to "Insert | display json",
             "\"" to "Insert double quote", "|" to "Insert pipe",
             "sh permissions" to "Insert sh permissions",
@@ -693,19 +771,19 @@ class ShellKeyboardQaInstrumentation : Instrumentation() {
 
     private fun shortcutInput(main: MainActivity) {
         val before = onMain { main.field<AgentBlockHistory>("shellTranscript").blocks.size }
-        for (command in listOf("sh wifi status", "request wifi scan", "sh wifi status ip", "sh permissions")) {
+        for (command in listOf("sh wi status", "req wi scan", "sh wi status ip", "sh permissions")) {
             onMain { input(main).apply { setText("draft"); setSelection(0, text.length) } }
             tap(main, command)
             onMain {
                 checkEdit(main, command, command.length)
                 check(AgentShellParser.parse(command) !is AgentShellCommand.Invalid) { "shortcut contains an invalid Dropcheck command" }
                 val parsed = AgentShellParser.parse(command) as AgentShellCommand.Execute
-                if (command == "request wifi scan") check(parsed.request.hasGetFreshWifiScan()) { "scan shortcut did not request a fresh scan" }
-                if (command == "sh wifi status ip") check(parsed.request.hasGetIpStatus()) { "IP shortcut does not inspect IP status" }
+                if (command == "req wi scan") check(parsed.request.hasGetFreshWifiScan()) { "scan shortcut did not request a fresh scan" }
+                if (command == "sh wi status ip") check(parsed.request.hasGetIpStatus()) { "IP shortcut does not inspect IP status" }
             }
         }
         for (filter in listOf("| match", "| count", "| display json")) {
-            val source = "sh wifi status"
+            val source = "sh wi status"
             val expected = "$source $filter "
             onMain { input(main).apply { setText(source); setSelection(text.length) } }
             tap(main, filter)

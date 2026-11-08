@@ -17,10 +17,11 @@ class AgentBlockPresentationTest {
             "self> invalid password=visible https://user:visible@example.test/?token=visible",
             "self> request wifi connect 'quoted\\ value' passphrase 'unfinished",
         )) {
-            val block = AgentPresentationBlock.commandLine(line, 0)
+            val block = AgentPresentationBlock.commandLine(line, 0, "self> ".length)
             assertEquals(line, block.fullText)
             assertEquals(line, block.safeValues().single().second)
             assertEquals(line, block.withStyle(16f, 10f).fullText)
+            assertEquals("self> ".length, block.withStyle(16f, 10f).promptLength)
             assertEquals(line, block.mapLogicalLines { it }.fullText)
         }
     }
