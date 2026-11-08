@@ -5,7 +5,7 @@ import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
 
-/** One current oversize result, sanitized label/value data only. No command or log archive. */
+/** One current oversized presentation block in private cache; command echoes retain verbatim input. */
 internal class AgentSafeValueFile private constructor(private val file: File, val valueCount: Int) {
     fun labels(start: Int, count: Int = 25): List<String> = read(start, count, values = false)
     fun value(index: Int): String = read(index, 1, values = true).single()

@@ -86,19 +86,26 @@ class ShellReadOnlyInstrumentation : Instrumentation() {
             runOnMainSync {
                 session = field(current!!, "shellSession")
                 check(session!!.defaults.defaultPassphrase == "acceptance-only-psk") { "session default not set" }
-                check(!field<AgentBlockHistory>(current!!, "shellTranscript").blocks.any { "acceptance-only-psk" in it.fullText }) { "credential entered display history" }
+                check(field<AgentBlockHistory>(current!!, "shellTranscript").blocks.any { it.fullText == "self> set cli default-passphrase acceptance-only-psk" }) { "command input was not echoed verbatim" }
             }
             cases++
-            phase = "landscape recreation"
-            val monitor = addMonitor(MainActivity::class.java.name, null, false)
+            phase = "orientation recreation"
             val previous = current!!
+            val beforeOrientation = previous.resources.configuration.orientation
+            val (requested, expected) = when (beforeOrientation) {
+                Configuration.ORIENTATION_PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE to Configuration.ORIENTATION_LANDSCAPE
+                Configuration.ORIENTATION_LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT to Configuration.ORIENTATION_PORTRAIT
+                else -> error("unexpected starting orientation: $beforeOrientation")
+            }
+            sendStatus(0, Bundle().apply { putString("rotation", "before=$beforeOrientation expected=$expected") })
+            val monitor = addMonitor(MainActivity::class.java.name, null, false)
             try {
-                runOnMainSync { previous.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
-                current = monitor.waitForActivityWithTimeout(5000) as? MainActivity ?: error("landscape Activity did not resume")
+                runOnMainSync { previous.requestedOrientation = requested }
+                current = monitor.waitForActivityWithTimeout(5000) as? MainActivity ?: error("rotated Activity did not resume: before=$beforeOrientation expected=$expected")
             } finally { removeMonitor(monitor) }
             waitForIdleSync()
             runOnMainSync {
-                check(current !== previous && current!!.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) { "Activity did not rotate" }
+                check(current !== previous && current!!.resources.configuration.orientation == expected) { "Activity did not rotate" }
                 check(field<AgentShellSession>(current!!, "shellSession") === session && session!!.defaults.defaultPassphrase == "acceptance-only-psk") { "session lost on rotation" }
                 val input = field<EditText>(current!!, "shellInput")
                 check(input.text.isEmpty() && !input.isSaveEnabled) { "input was persisted across recreation" }
@@ -113,7 +120,7 @@ class ShellReadOnlyInstrumentation : Instrumentation() {
             runOnMainSync { check(session!!.defaults.defaultPassphrase.isEmpty()) { "session default not cleared" } }
             check(json("show network default | display json").getBoolean("ok")) { "post-rotation read failed" }
             cases++
-            report.putString("stream", "PASS: actual IME submit/async Shell results cases=$cases; target_sdk=${targetContext.applicationInfo.targetSdkVersion} runtime_lan=$lanPermission; Networks/default/explicit/stale IDs, permissions, pipelines/JSON, filtered failure, dual_link=$dualOutcome dual_failed_metrics=$dualFailedMetrics, session credential/privacy/history and landscape recreation; networks=${knownIds.size}; mutation=0 fresh_scan=0 external_probe=0; private identities omitted.\n")
+            report.putString("stream", "PASS: actual IME submit/async Shell results cases=$cases; target_sdk=${targetContext.applicationInfo.targetSdkVersion} runtime_lan=$lanPermission; Networks/default/explicit/stale IDs, permissions, pipelines/JSON, filtered failure, dual_link=$dualOutcome dual_failed_metrics=$dualFailedMetrics, session credential/verbatim echo/history and orientation recreation $beforeOrientation->$expected; networks=${knownIds.size}; mutation=0 fresh_scan=0 external_probe=0; private identities omitted.\n")
             finish(Activity.RESULT_OK, report)
         } catch (failure: Throwable) {
             report.putString("stream", "FAIL: stage=$phase cases=$cases ${failure.javaClass.simpleName}: ${failure.message}\n")

@@ -433,6 +433,3 @@ internal object AgentShellParser {
         return normalized
     }
 }
-
-/** No raw input is echoed: even malformed, duplicate, or keyword-looking credentials stay private. */
-internal fun redactAgentShellCommandLine(line: String): String = if (line.isBlank()) "" else "<command submitted>"

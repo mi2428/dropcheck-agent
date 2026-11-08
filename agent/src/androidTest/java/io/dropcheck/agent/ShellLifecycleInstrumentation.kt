@@ -5,6 +5,7 @@ import android.app.Application
 import android.app.Instrumentation
 import android.content.Intent
 import android.os.Bundle
+import android.widget.ScrollView
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -60,17 +61,19 @@ class ShellLifecycleInstrumentation : Instrumentation() {
             runOnMainSync { first.recreate() }
             await(recreated, "Activity did not recreate")
             waitForIdleSync()
-            val next = checkNotNull(current.get())
+            var next = checkNotNull(current.get())
             check(next !== first)
             check(next.field<ShellActionOwner>("shellOwner") === owner) { "in-flight owner was replaced" }
             check(next.field<AgentBlockHistory>("shellTranscript") === first.field<AgentBlockHistory>("shellTranscript"))
             check(owner.busy) { "recreate canceled the in-flight action" }
             release.countDown()
             awaitIdle(owner)
+            settle(next)
             runOnMainSync {
                 check(next.historyCount(marker) == 1) { "result was lost or delivered more than once" }
                 check(next.viewCount(marker) == 1) { "new screen did not receive the result" }
                 check(first.viewCount(marker) == 0) { "detached screen received the result" }
+                check(!next.field<ScrollView>("shellScroll").canScrollVertically(1)) { "recreated completion stopped before tail" }
             }
             // A reattach must not deliver the already consumed result a second time.
             runOnMainSync {
@@ -94,6 +97,29 @@ class ShellLifecycleInstrumentation : Instrumentation() {
             awaitIdle(owner)
             runOnMainSync { check(next.historyCount(retry) == 1 && next.viewCount(retry) == 1) }
 
+            for (following in listOf(false, true)) {
+                settle(next)
+                var position = 0
+                runOnMainSync {
+                    val scroll = next.field<ScrollView>("shellScroll")
+                    scroll.scrollTo(0, if (following) scroll.getChildAt(0).bottom else scroll.getChildAt(0).height / 3)
+                    position = scroll.scrollY
+                }
+                settle(next)
+                val monitor = addMonitor(MainActivity::class.java.name, null, false)
+                try {
+                    runOnMainSync { next.recreate() }
+                    next = monitor.waitForActivityWithTimeout(5000) as? MainActivity ?: error("position recreate did not resume")
+                } finally { removeMonitor(monitor) }
+                settle(next)
+                runOnMainSync {
+                    val scroll = next.field<ScrollView>("shellScroll")
+                    check(if (following) !scroll.canScrollVertically(1) else kotlin.math.abs(scroll.scrollY - position) <= 2) {
+                        "recreate lost ${if (following) "tail" else "history"}: expected=$position actual=${scroll.scrollY}"
+                    }
+                }
+            }
+
             val finishStarted = CountDownLatch(1)
             val interrupted = CountDownLatch(1)
             runOnMainSync {
@@ -113,7 +139,7 @@ class ShellLifecycleInstrumentation : Instrumentation() {
             runOnMainSync { next.finish() }
             await(destroyed, "Activity did not finish")
             await(interrupted, "finish did not interrupt the owner action")
-            result.putString("stream", "PASS: real MainActivity in-flight recreate retained owner; result delivered once to new screen; exception cleared busy and retry completed; finish interrupted action. Synthetic actions only; no command dispatch or network acquisition.\n")
+            result.putString("stream", "PASS: real MainActivity in-flight recreate retained owner; result delivered once at tail to new screen; tail/history positions survived recreation; exception cleared busy and retry completed; finish interrupted action. Synthetic actions only; no command dispatch or network acquisition.\n")
             finish(Activity.RESULT_OK, result)
         } catch (failure: Throwable) {
             result.putString("stream", "FAIL: ${failure.javaClass.simpleName}: ${failure.message}\n")
@@ -129,6 +155,24 @@ class ShellLifecycleInstrumentation : Instrumentation() {
     }
 
     private fun await(latch: CountDownLatch, message: String) { check(latch.await(5, TimeUnit.SECONDS)) { message } }
+
+    private fun settle(main: MainActivity) {
+        var previous: List<Int>? = null
+        var stable = 0
+        repeat(80) {
+            var sample = emptyList<Int>()
+            runOnMainSync {
+                val scroll = main.field<ScrollView>("shellScroll")
+                sample = listOf(scroll.scrollY, scroll.height, scroll.getChildAt(0).height,
+                    main.window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0)
+            }
+            stable = if (sample == previous) stable + 1 else 0
+            if (stable >= 4) return
+            previous = sample
+            Thread.sleep(50)
+        }
+        error("recreated layout did not settle")
+    }
 
     private fun awaitIdle(owner: ShellActionOwner) {
         for (attempt in 0 until 100) {

@@ -84,7 +84,7 @@ class ActualActivityPresentationInstrumentation : Instrumentation() {
                     runOnMainSync { main.fieldSet("shellOutputSizeSp", base); main.method("appendShellBlock", AgentPresentationBlock::class.java, Boolean::class.javaPrimitiveType!!).invoke(main, block, false) }
                     waitForIdleSync()
                     for (columns in listOf(24, 32, 40, 48, 60, 80, 96, 120)) {
-                        val text = (content.getChildAt(content.childCount - 1) as LinearLayout).getChildAt(0) as TextView
+                        val text = (content.getChildAt(content.childCount - 2) as LinearLayout).getChildAt(0) as TextView
                         val requestedContent = ceil(columns * text.paint.measureText("0")).toInt()
                         val requestedWidth = requestedContent + content.paddingLeft + content.paddingRight
                         if (requestedWidth > main.window.decorView.width) continue
@@ -94,7 +94,7 @@ class ActualActivityPresentationInstrumentation : Instrumentation() {
                             Thread.sleep(50)
                             waitForIdleSync()
                         }
-                        val current = (content.getChildAt(content.childCount - 1) as LinearLayout).getChildAt(0) as TextView
+                        val current = (content.getChildAt(content.childCount - 2) as LinearLayout).getChildAt(0) as TextView
                         val actualContent = content.width - content.paddingLeft - content.paddingRight
                         check(actualContent == requestedContent) { "content width mismatch base=$base columns=$columns requested=$requestedContent actual=$actualContent scroll=${scroll.width} params=${scroll.layoutParams.width} attached=${scroll.isAttachedToWindow} focus=${main.hasWindowFocus()} visible=${scroll.visibility == View.VISIBLE} parent=${scroll.parent?.javaClass?.simpleName}" }
                         check(abs(current.textSize - TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, base, current.resources.displayMetrics)) < 0.1f) { "output size changed base=$base actual=${current.textSize}" }
@@ -103,7 +103,7 @@ class ActualActivityPresentationInstrumentation : Instrumentation() {
                         val layout = checkNotNull(current.layout)
                         for (line in 0 until layout.lineCount) check(layout.getLineWidth(line) <= actualContent + 0.5f) { "Activity native line overflow base=$base columns=$columns line=$line" }
                         check(current.text.contains("FAILED") && current.text.contains("Reason:"))
-                        val container = content.getChildAt(content.childCount - 1) as LinearLayout
+                        val container = content.getChildAt(content.childCount - 2) as LinearLayout
                         check(container.childCount == 1 && current.isTextSelectable) { "result has a permanent control row or lost native text selection" }
                         val window = uiAutomation.rootInActiveWindow
                         if (window != null) {
@@ -124,20 +124,21 @@ class ActualActivityPresentationInstrumentation : Instrumentation() {
                     }
                 }
                 // Reflow while the reader is above the newest result: retain an older block as the scroll anchor.
+                runOnMainSync { scroll.layoutParams = initialParams }
+                settle(scroll)
+                val selected = (content.getChildAt(content.childCount - 3) as LinearLayout).getChildAt(0) as TextView
                 runOnMainSync {
-                    scroll.layoutParams = initialParams
-                    scroll.scrollTo(0, content.getChildAt(content.childCount - 2).top)
-                    val old = content.getChildAt(content.childCount - 2) as LinearLayout
-                    val value = (old.getChildAt(0) as TextView).text as Spannable
+                    scroll.scrollTo(0, (content.height - scroll.height).coerceAtLeast(0) / 2)
+                    check(scroll.canScrollVertically(1)) { "history check must start away from the tail" }
+                    val value = selected.text as Spannable
                     Selection.setSelection(value, 1, 5)
                 }
-                waitForIdleSync()
-                val anchor = content.getChildAt(content.childCount - 2)
+                settle(scroll)
+                val anchor = (0 until content.childCount).map { content.getChildAt(it) }.first { it.bottom > scroll.scrollY }
                 val offset = scroll.scrollY - anchor.top
                 runOnMainSync { main.method("renderShell").invoke(main) }
-                waitForIdleSync()
-                val selected = (anchor as LinearLayout).getChildAt(0) as TextView
-                check(abs(scroll.scrollY - anchor.top - offset) <= 2) { "scroll anchor lost" }
+                settle(scroll)
+                check(abs(scroll.scrollY - anchor.top - offset) <= 2) { "scroll anchor lost: offset=$offset actual=${scroll.scrollY - anchor.top}" }
                 check(selected.selectionStart == 1 && selected.selectionEnd == 5) { "output selection lost" }
                 imeVisible = main.window.decorView.rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true
                 check(imeVisible == showIme) { "IME requested=$showIme visible=$imeVisible" }
@@ -153,6 +154,25 @@ class ActualActivityPresentationInstrumentation : Instrumentation() {
         } finally {
             activity?.let { runOnMainSync { it.setShowWhenLocked(false); it.finish() } }
         }
+    }
+
+    private fun settle(scroll: ScrollView) {
+        var previous: List<Int>? = null
+        var stable = 0
+        repeat(80) {
+            var sample = emptyList<Int>()
+            var laidOut = false
+            runOnMainSync {
+                val content = scroll.getChildAt(0)
+                sample = listOf(scroll.width, scroll.height, content.height, scroll.scrollY)
+                laidOut = scroll.width > 0 && !scroll.isLayoutRequested && !content.isLayoutRequested
+            }
+            stable = if (laidOut && sample == previous) stable + 1 else 0
+            if (stable >= 3) return
+            previous = sample
+            Thread.sleep(50)
+        }
+        error("Activity output layout did not settle")
     }
 
     @Suppress("UNCHECKED_CAST")

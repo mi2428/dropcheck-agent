@@ -33,7 +33,10 @@ class ShellInputInstrumentation : Instrumentation() {
                 val input = checkNotNull(inputField.get(main) as EditText?)
                 input.requestFocus()
                 input.setText("show "); input.setSelection(5)
-                val connection = checkNotNull(input.onCreateInputConnection(EditorInfo()))
+                val editorInfo = EditorInfo()
+                val connection = checkNotNull(input.onCreateInputConnection(editorInfo))
+                check(editorInfo.imeOptions and EditorInfo.IME_FLAG_FORCE_ASCII != 0) { "Shell did not request an ASCII keyboard" }
+                check(editorInfo.hintLocales?.get(0)?.language == "en") { "Shell did not request English input" }
                 check(connection.commitText("?", 1))
                 check(input.text.toString() == "show " && input.selectionStart == 5) { "help changed input" }
 
@@ -44,7 +47,11 @@ class ShellInputInstrumentation : Instrumentation() {
                 input.setText("show "); input.setSelection(5)
                 connection.setComposingText("?", 1)
                 check(input.text.toString() == "show ?") { "IME composition was intercepted" }
+                val beforeConfirm = field<AgentBlockHistory>(main, "shellTranscript").blocks.size
+                check(!input.onKeyPreIme(KeyEvent.KEYCODE_ENTER, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER)))
                 connection.finishComposingText()
+                check(!input.onKeyPreIme(KeyEvent.KEYCODE_ENTER, KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER)))
+                check(field<AgentBlockHistory>(main, "shellTranscript").blocks.size == beforeConfirm && input.text.toString() == "show ?") { "composition confirmation submitted a command" }
 
                 input.setText("show  status"); input.setSelection(5)
                 connection.commitText("?", 1)
@@ -106,12 +113,14 @@ class ShellInputInstrumentation : Instrumentation() {
                 val bar = field<View>(main, "shellKeyBar")
                 val panel = field<View>(main, "shellInputPanel")
                 check(panel.parent === field<View>(main, "root") && bar.parent === panel && bar.isShown) { "extra keys are not docked outside the transcript" }
+                check(input.parent === field<View>(main, "shellContent")) { "command input is still in a fixed bar" }
                 check((panel.layoutParams as FrameLayout.LayoutParams).gravity and Gravity.BOTTOM == Gravity.BOTTOM)
-                for (label in listOf("Esc", "Tab", "Ctrl-C", "?", "↑", "\"", "/", "-", "|", "←", "↓", "→")) {
+                for (label in listOf("Tab", "↑", "↓", "C-c", "?", "\"", "|")) {
                     val button = key(main, label)
                     check(!button.contentDescription.isNullOrEmpty()) { "extra key has no accessible name" }
-                    check(button.minimumWidth >= (48 * main.resources.displayMetrics.density).toInt())
-                    check(button.minimumHeight >= (48 * main.resources.displayMetrics.density).toInt())
+                    check(button.tooltipText == button.contentDescription) { "extra key has no explanatory tooltip" }
+                    check(button.minimumWidth >= (48 * 0.8f * main.resources.displayMetrics.density).toInt())
+                    check(button.minimumHeight >= (48 * 0.78f * main.resources.displayMetrics.density).toInt())
                 }
                 input.setText("sho"); input.setSelection(3)
                 key(main, "Tab").performClick()
@@ -125,25 +134,27 @@ class ShellInputInstrumentation : Instrumentation() {
                 check(input.text.toString() == "show " && input.selectionStart == 5) { "touch help modified input" }
 
                 input.setText("A\uD83D\uDE00B"); input.setSelection(3)
-                key(main, "←").performClick()
+                input.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_LEFT))
+                input.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_LEFT))
                 check(input.selectionStart == 1) { "left key split a Unicode character" }
-                key(main, "→").performClick()
+                input.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT))
+                input.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_RIGHT))
                 check(input.selectionStart == 3) { "right key split a Unicode character" }
-                for (symbol in listOf("/", "-", "|", "\"")) {
+                for (symbol in listOf("|", "\"")) {
                     input.setText("日本語 tail"); input.setSelection(3, 0)
                     key(main, symbol).performClick()
                     check(input.text.toString() == "$symbol tail" && input.selectionStart == 1 && input.hasFocus()) { "symbol key did not replace the selection" }
                 }
                 input.setText("show "); input.setSelection(5)
                 connection.setComposingText("日本", 1)
-                key(main, "/").performClick()
-                check(input.text.toString() == "show 日本/" && BaseInputConnection.getComposingSpanStart(input.text) == -1) { "symbol key corrupted IME composition" }
+                key(main, "|").performClick()
+                check(input.text.toString() == "show 日本|" && BaseInputConnection.getComposingSpanStart(input.text) == -1) { "symbol key corrupted IME composition" }
                 connection.commitText("語", 1)
-                check(input.text.toString() == "show 日本/語") { "IME could not continue after an extra key" }
+                check(input.text.toString() == "show 日本|語") { "IME could not continue after an extra key" }
 
                 val beforeCancel = field<AgentBlockHistory>(main, "shellTranscript").blocks.size
                 input.setText(secret); input.setSelection(input.text.length)
-                key(main, "Ctrl-C").performClick()
+                key(main, "C-c").performClick()
                 check(input.text.isEmpty() && input.hasFocus()) { "Ctrl-C did not clear idle input" }
                 check(field<AgentBlockHistory>(main, "shellTranscript").blocks.size == beforeCancel) { "cleared input was echoed to the transcript" }
                 for (modifiers in listOf(KeyEvent.META_CTRL_LEFT_ON, KeyEvent.META_CTRL_RIGHT_ON)) {
@@ -151,10 +162,11 @@ class ShellInputInstrumentation : Instrumentation() {
                     input.dispatchKeyEvent(KeyEvent(0L, 0L, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_C, 0, modifiers))
                     check(input.text.isEmpty()) { "hardware Ctrl-C differs from the extra key" }
                 }
-                key(main, "Esc").performClick()
+                input.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ESCAPE))
+                input.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ESCAPE))
                 check(input.hasFocus()) { "Esc lost physical keyboard input focus" }
-                key(main, "-").performClick()
-                check(input.text.toString() == "-" && input.hasFocus()) { "editing did not resume after Esc" }
+                key(main, "\"").performClick()
+                check(input.text.toString() == "\"" && input.hasFocus()) { "editing did not resume after Esc" }
             }
 
             val started = CountDownLatch(1)
@@ -177,11 +189,15 @@ class ShellInputInstrumentation : Instrumentation() {
             check(started.await(5, TimeUnit.SECONDS)) { "synthetic action did not start" }
             runOnMainSync {
                 val input = inputField.get(main) as EditText
-                input.setText("next draft"); input.setSelection(input.text.length)
+                input.setText("next "); input.setSelection(input.text.length)
+                val connection = checkNotNull(input.onCreateInputConnection(EditorInfo()))
+                check(connection.setComposingText("draft", 1))
                 key(main, "↑").performClick()
                 check(input.text.toString() == "next draft") { "busy history replaced the next draft" }
-                key(main, "Ctrl-C").performClick()
+                check(BaseInputConnection.getComposingSpanStart(input.text) == 5) { "busy history cleared composition" }
+                key(main, "C-c").performClick()
                 check(input.text.toString() == "next draft") { "busy cancellation discarded the next draft" }
+                check(BaseInputConnection.getComposingSpanStart(input.text) == 5) { "busy cancellation cleared composition" }
             }
             check(interrupted.await(5, TimeUnit.SECONDS)) { "Ctrl-C did not interrupt the active action" }
             for (attempt in 0 until 100) {
@@ -212,11 +228,8 @@ class ShellInputInstrumentation : Instrumentation() {
     }
 
     private fun key(activity: MainActivity, label: String): Button {
-        val rows = field<ViewGroup>(activity, "shellKeyBar").getChildAt(0) as ViewGroup
-        return (0 until rows.childCount).flatMap { index ->
-            val row = rows.getChildAt(index) as ViewGroup
-            (0 until row.childCount).map { row.getChildAt(it) as Button }
-        }.single { it.text.toString() == label }
+        val row = field<ViewGroup>(activity, "shellKeyBar").getChildAt(0) as ViewGroup
+        return (0 until row.childCount).map { row.getChildAt(it) as Button }.single { it.text.toString() == label }
     }
 
     @Suppress("UNCHECKED_CAST")

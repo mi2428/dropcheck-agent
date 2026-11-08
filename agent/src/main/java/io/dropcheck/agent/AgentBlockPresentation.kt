@@ -8,7 +8,7 @@ import android.text.style.TabStopSpan
 import android.text.style.ScaleXSpan
 import java.util.Locale
 
-/** Only sanitized presentation values; never RunCommand, credentials or raw log history. */
+/** Result parts are sanitized on creation; local command echoes explicitly retain verbatim input. */
 internal sealed interface AgentBlockPart {
     data class Text(val value: String) : AgentBlockPart
     data class Field(val label: String, val value: String, val fullValue: String = value) : AgentBlockPart
@@ -71,7 +71,7 @@ internal class AgentPresentationBlock private constructor(
         }
     }
 
-    /** Parts are already sanitized. Styling and line filtering must not redact
+    /** Parts have already crossed their presentation boundary. Styling and line filtering must not redact
      * literal identities a second time (an SSID may itself contain password=). */
     fun withStyle(baseSizeSp: Float, minimumSizeSp: Float): AgentPresentationBlock {
         require(baseSizeSp.isFinite() && minimumSizeSp.isFinite() && baseSizeSp >= minimumSizeSp && minimumSizeSp >= 10f)
@@ -130,6 +130,10 @@ internal class AgentPresentationBlock private constructor(
     }
 
     companion object {
+        /** Local input is intentionally echoed exactly, including credentials and malformed syntax. */
+        fun commandLine(text: String, color: Int): AgentPresentationBlock =
+            AgentPresentationBlock(listOf(AgentBlockPart.Text(text)), color, 10f, 10f, null)
+
         fun create(parts: List<AgentBlockPart>, color: Int, baseSizeSp: Float = 10f, minimumSizeSp: Float = 10f, safeValueFile: AgentSafeValueFile? = null): AgentPresentationBlock {
             require(baseSizeSp.isFinite() && minimumSizeSp.isFinite() && baseSizeSp >= minimumSizeSp && minimumSizeSp >= 10f)
             return AgentPresentationBlock(parts.map { part ->

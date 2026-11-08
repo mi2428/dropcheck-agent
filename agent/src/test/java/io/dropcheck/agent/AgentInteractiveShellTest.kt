@@ -177,7 +177,6 @@ class AgentInteractiveShellTest {
         for (input in listOf("request wifi connect Lab passphrase test-only", "request wifi cycle Lab passphrase test-only",
             "req wi c Lab pass test-only", "use Lab test-only", "set cli default-passphrase test-only",
             "request wifi connect Lab passphrase 'test-only", "request wifi connect Lab passphrase test-only\\")) {
-            assertFalse(redactAgentShellCommandLine(input).contains("test-only"))
             assertFalse((AgentShellParser.parse(input) as? AgentShellCommand.Invalid)?.message.orEmpty().contains("test-only"))
         }
         invalid("request wifi connect Lab passphrase short"); invalid("set cli default-passphrase short")
@@ -210,7 +209,6 @@ class AgentInteractiveShellTest {
             "test lab ssid Lab family ipv4 gateway 192.0.2.1 dns lab.example.test resolver selected http https://lab.example.test/?token=synthetic-private expected-status 204 timeout 5000",
             "test LINK", "test link", "test link ssid", "test link ssid Lab family auto", "test link ssid Lab bssid invalid", "test link ssid Lab family ipv4 family ipv6", "show test profiles extra", "clear cli default-passphrase extra")) invalid(input)
         assertTrue(AgentShellParser.help().any { it.contains("test link defaults to family ipv4") })
-        assertEquals("<command submitted>", redactAgentShellCommandLine("clear cli default-passphrase"))
     }
 
     @Test fun requestSubjectsAreLocalHelpAndLeavesRemainDiscoverable() {

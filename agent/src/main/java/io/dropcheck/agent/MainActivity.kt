@@ -8,12 +8,13 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.graphics.text.LineBreakConfig
 import android.graphics.text.LineBreaker
 import android.net.Uri
@@ -21,6 +22,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.LocaleList
 import android.text.Layout
 import android.text.InputType
 import android.text.SpannableString
@@ -52,6 +54,8 @@ import android.widget.ScrollView
 import android.widget.TextView
 import io.dropcheck.agent.grpc.CommandLog
 import java.util.IdentityHashMap
+import java.util.Locale
+import kotlin.math.roundToInt
 
 private const val TERMINAL_BREAK_OPPORTUNITY = "\u200B"
 internal const val ACTION_OPEN_LOG_VIEWER = "io.dropcheck.agent.action.OPEN_LOG_VIEWER"
@@ -105,6 +109,8 @@ class MainActivity : Activity() {
     private lateinit var root: FrameLayout
     private lateinit var shellScroll: ScrollView
     private lateinit var shellContent: LinearLayout
+    private val shellAutoScroll = TerminalAutoScrollState()
+    private var shellScrollTarget: (() -> Int)? = null
     private var shellInput: EditText? = null
     private lateinit var shellKeyBar: HorizontalScrollView
     private lateinit var shellInputPanel: LinearLayout
@@ -125,7 +131,6 @@ class MainActivity : Activity() {
             result.lines.ifEmpty { if (result.ok) emptyList() else listOf("Command FAILED (output filtered)") }, if (result.ok) AgentLogStyle.TEXT_COLOR else SHELL_ERROR_COLOR,
             focusInput = false,
         )
-        renderShell()
         syncStatusIcons()
     }
     private var shellActionStatus: TextView? = null
@@ -248,7 +253,6 @@ class MainActivity : Activity() {
             addView(shellScroll, matchParentLayout())
             shellInputPanel = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
-                addView(shellInputRow().apply { setPadding(dp(SHELL_PANEL_PADDING_DP), 0, dp(SHELL_PANEL_PADDING_DP), 0) })
                 shellKeyBar = shellKeyboard()
                 addView(shellKeyBar)
                 visibility = View.GONE
@@ -298,7 +302,11 @@ class MainActivity : Activity() {
         resetIdleDimTimer()
         showInitialScreen(intent)
         (lastNonConfigurationInstance as? ShellDisplayState)?.let { state ->
-            shellScroll.post { shellScroll.scrollTo(0, state.scrollY) }
+            shellAutoScroll.onUserScrollEnd(state.followTail)
+            if (!state.followTail) {
+                shellAutoScroll.finishScrollToBottomPending()
+                requestShellScroll({ state.scrollY }, replace = true)
+            }
         }
         shellOwner.attach(shellCompletionListener)
     }
@@ -306,6 +314,7 @@ class MainActivity : Activity() {
     @Suppress("DEPRECATION")
     override fun onRetainNonConfigurationInstance(): Any = ShellDisplayState(
         shellTranscript, shellOutputSizeSp, shellMinimumSizeSp, if (::shellScroll.isInitialized) shellScroll.scrollY else 0, shellOwner, shellSession,
+        shouldFollowShellTail(),
     )
 
     override fun onNewIntent(intent: Intent) {
@@ -597,18 +606,67 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.BLACK)
             excludeFromContentCapture()
-            addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
+            addOnLayoutChangeListener { view, _, top, _, bottom, _, oldTop, _, oldBottom ->
                 val width = (view.width - view.paddingLeft - view.paddingRight).coerceAtLeast(0)
+                val follow = ::shellScroll.isInitialized && shellAutoScroll.isFollowingTail &&
+                    (shellAutoScroll.isScrollToBottomPending || shellScroll.scrollY >= oldBottom - oldTop - shellScroll.height - 2)
+                if (follow && (bottom - top != oldBottom - oldTop || width != shellContentWidthPx)) scrollShellToTail()
                 if (width != shellContentWidthPx) {
                     shellContentWidthPx = width
-                    view.post { renderShell() }
+                    renderShell()
                 }
             }
         }
+        shellContent.addView(createShellInput())
         updateShellContentPadding()
         renderShell()
-        return ScrollView(this).apply {
+        return object : ScrollView(this) {
+            private var tapCandidate = false
+
+            override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+                // Observe output children too, without taking over controls, long presses or drags.
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> { captureSwipeStart(event); tapCandidate = true }
+                    MotionEvent.ACTION_MOVE -> if (!isTapGesture(event)) tapCandidate = false
+                    MotionEvent.ACTION_CANCEL -> tapCandidate = false
+                }
+                val shortTap = event.actionMasked == MotionEvent.ACTION_UP && tapCandidate && isTapGesture(event) &&
+                    event.eventTime - event.downTime < ViewConfiguration.getLongPressTimeout()
+                val imeVisible = window.decorView.rootWindowInsets?.isVisible(WindowInsets.Type.ime())
+                val outputTap = shortTap && event.y >= 0 && event.y < height && event.x >= 0 && event.x < width &&
+                    (0 until shellContent.childCount).none { index ->
+                        val child = shellContent.getChildAt(index)
+                        val x = event.x + scrollX - shellContent.left
+                        val y = event.y + scrollY - shellContent.top
+                        child.isClickable && x >= child.left && x < child.right && y >= child.top && y < child.bottom
+                    }
+                if (outputTap && imeVisible == true) {
+                    // A short output tap is not an editor-focus action. Cancel the child's pending
+                    // click before TextView can steal input focus and resize/scroll the viewport.
+                    val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
+                    try { super.dispatchTouchEvent(cancel) } finally { cancel.recycle() }
+                    tapCandidate = false
+                    performClick()
+                    return true
+                }
+                val openIme = outputTap && event.y >= height * 2f / 3f && imeVisible == false
+                val handled = super.dispatchTouchEvent(event)
+                if (event.actionMasked == MotionEvent.ACTION_UP) tapCandidate = false
+                if (openIme) focusShellInput()
+                return handled
+            }
+
+            override fun requestChildRectangleOnScreen(child: View, rectangle: android.graphics.Rect, immediate: Boolean): Boolean {
+                if (shellInput?.hasFocus() == true) {
+                    // Caret visibility shares the tail coordinator, never a second native smooth scroll.
+                    if (shellAutoScroll.isFollowingTail) scrollShellToTail()
+                    return false
+                }
+                return super.requestChildRectangleOnScreen(child, rectangle, immediate)
+            }
+        }.apply {
             setBackgroundColor(Color.BLACK)
+            isSmoothScrollingEnabled = false
             isFillViewport = true
             addView(shellContent, FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -616,32 +674,50 @@ class MainActivity : Activity() {
             ))
             setOnTouchListener { view, event ->
                 captureSwipeStart(event)
+                if (event.actionMasked == MotionEvent.ACTION_MOVE) {
+                    shellAutoScroll.onUserScrollMove()
+                    // A reader gesture wins over a queued tail or anchor restoration.
+                    if (shellScrollTarget != null) shellScrollTarget = { scrollY }
+                }
+                if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                    shellAutoScroll.onUserScrollEnd(!canScrollVertically(1))
+                }
                 if (event.actionMasked == MotionEvent.ACTION_UP) {
                     if (maybeHandleSwipe(event, SwipeDirection.LEFT)) {
                         return@setOnTouchListener true
                     }
                     if (isTapGesture(event)) {
                         view.performClick()
-                        handleShellTap(event)
                         return@setOnTouchListener true
                     }
                 }
                 false
+            }
+            setOnScrollChangeListener { _, _, _, _, _ ->
+                // Honor explicit navigation, not layout-driven clamps while following.
+                if (!isLayoutRequested && !shellContent.isLayoutRequested && shellScrollTarget == null) {
+                    shellAutoScroll.onUserScrollEnd(!canScrollVertically(1))
+                } else shellAutoScroll.onScrollChanged(!canScrollVertically(1))
+            }
+            addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
+                if (bottom - top != oldBottom - oldTop && shellAutoScroll.isFollowingTail) scrollShellToTail()
             }
         }
     }
 
     private fun renderShell() {
         if (!::shellContent.isInitialized) return
+        val follow = shouldFollowShellTail()
         seedShellTranscript()
         val inputFocused = shellInput?.hasFocus() == true
         val focusedBlock = shellBlockViews.values.firstOrNull { (it.getChildAt(0) as TextView).hasFocus() }
         val anchor = if (::shellScroll.isInitialized) shellScroll.scrollY else 0
         val anchoredView = if (::shellScroll.isInitialized) shellTranscript.blocks.mapNotNull { shellBlockViews[it] }.firstOrNull { it.bottom > anchor } else null
         val anchorOffset = anchoredView?.let { anchor - it.top }
-        shellContent.removeAllViews()
+        // Keep the live editor attached so reflow cannot reset IME composition or focus.
+        shellContent.removeViews(0, shellContent.childCount - 1)
         fun addShellView(view: View) {
-            shellContent.addView(view)
+            shellContent.addView(view, shellContent.childCount - 1)
         }
         addShellView(shellText("Agent Shell", AgentLogStyle.TEXT_COLOR))
         addShellView(shellText("Log Viewer", AgentLogStyle.TEXT_COLOR).apply {
@@ -677,9 +753,10 @@ class MainActivity : Activity() {
         }
         if (inputFocused) shellInput?.requestFocus()
         else focusedBlock?.takeIf { it.parent === shellContent }?.getChildAt(0)?.requestFocus()
-        if (::shellScroll.isInitialized) shellScroll.post {
-            val newAnchor = anchoredView?.takeIf { it.parent === shellContent }?.let { it.top + (anchorOffset ?: 0) } ?: anchor
-            shellScroll.scrollTo(0, newAnchor.coerceAtLeast(0))
+        if (::shellScroll.isInitialized) {
+            if (follow) scrollShellToTail() else requestShellScroll({
+                anchoredView?.takeIf { it.parent === shellContent }?.let { it.top + (anchorOffset ?: 0) } ?: anchor
+            })
         }
     }
 
@@ -793,8 +870,9 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun shellInputRow(): LinearLayout {
+    private fun createShellInput(): EditText {
         val input = ShellInputEditText(this).apply {
+            onEdit = { scrollShellToTail() }
             onHelp = { prefix -> appendShellLines(AgentShellParser.contextHelp(prefix)) }
             onComplete = { completeShellInput() }
             onRecall = { direction -> recallShellInput(direction) }
@@ -810,13 +888,14 @@ class MainActivity : Activity() {
             typeface = Typeface.MONOSPACE
             textSize = SHELL_TEXT_SIZE_SP
             includeFontPadding = false
-            minHeight = dp(48)
-            minimumHeight = dp(48)
+            minHeight = 0
+            minimumHeight = 0
             setLineSpacing(0f, 1.0f)
             setPadding(0, 0, 0, 0)
             setSingleLine(true)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-            imeOptions = EditorInfo.IME_ACTION_GO or EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
+            imeOptions = EditorInfo.IME_ACTION_GO or EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING or EditorInfo.IME_FLAG_FORCE_ASCII
+            imeHintLocales = LocaleList(Locale.ENGLISH)
             useBlockCursor()
             excludeFromContentCapture()
             setOnEditorActionListener { view, actionId, event ->
@@ -832,19 +911,18 @@ class MainActivity : Activity() {
             }
         }
         shellInput = input
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-            )
-            addView(input, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        }
+        return input
     }
 
     /** Extra keys stay above the system IME instead of scrolling away with output. */
     private fun shellKeyboard(): HorizontalScrollView {
         val input = checkNotNull(shellInput) as ShellInputEditText
+        val keyWidth = (48 * 0.8f * resources.displayMetrics.density).roundToInt()
+        val keyHeight = (48 * 0.78f * resources.displayMetrics.density).roundToInt()
+        // Measured from the connected Gboard dark theme; Android exposes no cross-IME theme API.
+        val keyColor = Color.rgb(49, 43, 42)
+        val surfaceColor = Color.rgb(28, 25, 24)
+        val textColor = Color.rgb(238, 227, 226)
         fun press(code: Int, modifiers: Int = 0) {
             input.requestFocus()
             val time = android.os.SystemClock.uptimeMillis()
@@ -863,52 +941,56 @@ class MainActivity : Activity() {
         fun key(label: String, description: String, action: () -> Unit) = android.widget.Button(this).apply {
             text = label
             contentDescription = description
+            tooltipText = description
             isAllCaps = false
-            typeface = Typeface.MONOSPACE
-            textSize = 12f
-            setTextColor(AgentLogStyle.TEXT_COLOR)
-            backgroundTintList = android.content.res.ColorStateList.valueOf(Color.DKGRAY)
-            minWidth = dp(48); minimumWidth = dp(48)
-            minHeight = dp(48); minimumHeight = dp(48)
-            setPadding(dp(4), 0, dp(4), 0)
+            maxLines = 1
+            typeface = Typeface.SANS_SERIF
+            textSize = 16f
+            letterSpacing = 0f
+            setTextColor(textColor)
+            backgroundTintList = null
+            background = RippleDrawable(android.content.res.ColorStateList.valueOf(Color.argb(48, 238, 227, 226)), GradientDrawable().apply {
+                setColor(keyColor)
+                cornerRadius = dp(10).toFloat()
+            }, null)
+            stateListAnimator = null
+            elevation = 0f
+            minWidth = keyWidth; minimumWidth = keyWidth
+            minHeight = keyHeight; minimumHeight = keyHeight
+            setPadding(dp(6), 0, dp(6), 0)
             setOnClickListener { action() }
         }
-        val rows = listOf(
-            listOf(
-                key("Esc", "Hide keyboard") { press(KeyEvent.KEYCODE_ESCAPE) },
-                key("Tab", "Complete command") { press(KeyEvent.KEYCODE_TAB) },
-                key("Ctrl-C", "Cancel current command or clear input") { press(KeyEvent.KEYCODE_C, KeyEvent.META_CTRL_ON) },
-                key("?", "Context help") { input.requestFocus(); input.requestHelp() },
-                key("↑", "Previous command") { press(KeyEvent.KEYCODE_DPAD_UP) },
-                key("\"", "Insert double quote") { insert("\"") },
-            ),
-            listOf(
-                key("/", "Insert slash") { insert("/") },
-                key("-", "Insert hyphen") { insert("-") },
-                key("|", "Insert pipe") { insert("|") },
-                key("←", "Move cursor left") { press(KeyEvent.KEYCODE_DPAD_LEFT) },
-                key("↓", "Next command") { press(KeyEvent.KEYCODE_DPAD_DOWN) },
-                key("→", "Move cursor right") { press(KeyEvent.KEYCODE_DPAD_RIGHT) },
-            ),
+        fun shortcut(text: String) = key(text.trim(), "Insert ${text.trim()}") { insert(text) }
+        // Expected workflow frequency, not telemetry. Shortcuts edit the draft and never execute commands.
+        val keys = listOf(
+            key("Tab", "Complete command") { press(KeyEvent.KEYCODE_TAB) },
+            key("↑", "Previous command") { press(KeyEvent.KEYCODE_DPAD_UP) },
+            key("↓", "Next command") { press(KeyEvent.KEYCODE_DPAD_DOWN) },
+            key("C-c", "Cancel running command; clear unsent input when idle") { press(KeyEvent.KEYCODE_C, KeyEvent.META_CTRL_ON) },
+            key("?", "Context help") { input.requestFocus(); input.requestHelp() },
+            shortcut("sh wifi status"),
+            shortcut("request wifi scan"),
+            shortcut("sh wifi status ip"),
+            shortcut(" | match "),
+            shortcut(" | count "),
+            shortcut(" | display json "),
+            key("\"", "Insert double quote") { insert("\"") },
+            key("|", "Insert pipe") { insert("|") },
+            shortcut("sh permissions"),
         )
-        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-        val visibleRows = if (landscape) listOf(rows.flatten()) else rows
         return HorizontalScrollView(this).apply {
             isFillViewport = true
             layoutDirection = View.LAYOUT_DIRECTION_LTR
-            setBackgroundColor(Color.BLACK)
+            setBackgroundColor(surfaceColor)
+            setPadding(0, dp(4), 0, dp(4))
             excludeFromContentCapture()
             addView(LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                minimumWidth = dp(visibleRows.first().size * 48)
-                visibleRows.forEach { keys ->
-                    addView(LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        isBaselineAligned = false
-                        gravity = Gravity.CENTER_VERTICAL
-                        keys.forEach { addView(it, LinearLayout.LayoutParams(if (landscape) LinearLayout.LayoutParams.WRAP_CONTENT else 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)) }
-                    })
-                }
+                orientation = LinearLayout.HORIZONTAL
+                isBaselineAligned = false
+                gravity = Gravity.CENTER_VERTICAL
+                keys.forEach { addView(it, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    marginStart = dp(2); marginEnd = dp(2)
+                }) }
             })
         }
     }
@@ -945,8 +1027,9 @@ class MainActivity : Activity() {
             return
         }
         shellInput?.setText("")
-        shellSession.remember(line)
-        appendShellLine(shellCommandLine(redactAgentShellCommandLine(line)))
+        shellSession.remember(raw)
+        scrollShellToTail()
+        appendShellBlock(AgentPresentationBlock.commandLine("$SHELL_PROMPT$raw", AgentLogStyle.TEXT_COLOR), true)
         when (val command = AgentShellParser.parse(line)) {
             AgentShellCommand.Noop -> Unit
             is AgentShellCommand.Invalid -> {
@@ -993,18 +1076,6 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun shellCommandLine(command: String): CharSequence {
-        val text = "$SHELL_PROMPT$command"
-        return SpannableString(text).apply {
-            setSpan(
-                ForegroundColorSpan(Color.YELLOW),
-                0,
-                SHELL_PROMPT.length,
-                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
-            )
-        }
-    }
-
     private fun appendShellLine(text: CharSequence, color: Int = AgentLogStyle.TEXT_COLOR, focusInput: Boolean = true) {
         appendShellLines(listOf(text), color, focusInput)
     }
@@ -1018,7 +1089,7 @@ class MainActivity : Activity() {
     }
 
     private fun appendShellBlock(block: AgentPresentationBlock, focusInput: Boolean) {
-        val follow = !::shellScroll.isInitialized || !shellScroll.canScrollVertically(1)
+        val follow = shouldFollowShellTail()
         val styled = block.withStyle(shellOutputSizeSp, shellMinimumSizeSp)
         if (shellTranscript.fits(styled)) {
             shellTranscript.append(styled)
@@ -1037,10 +1108,7 @@ class MainActivity : Activity() {
             shellTranscript.append(retained)
         }
         renderShell()
-        if (follow) {
-            scrollShellToTail()
-            if (focusInput) shellInput?.requestFocus()
-        }
+        if (follow && focusInput) shellInput?.requestFocus()
     }
 
     private fun seedShellTranscript() {
@@ -1049,23 +1117,60 @@ class MainActivity : Activity() {
         shellTranscript.append(AgentPresentationBlock.create(AgentShellParser.help().map { AgentBlockPart.Text(it) }, AgentLogStyle.TEXT_COLOR))
     }
 
-    private fun scrollShellToTail() { shellScroll.post { shellScroll.smoothScrollTo(0, shellContent.height) } }
+    private fun shouldFollowShellTail(): Boolean = !::shellScroll.isInitialized ||
+        shellAutoScroll.shouldFollowTail(!shellScroll.canScrollVertically(1))
+
+    private fun scrollShellToTail() {
+        if (!::shellScroll.isInitialized) return
+        shellAutoScroll.resumeFollowingTail()
+        shellAutoScroll.markScrollToBottomPending()
+        requestShellScroll({
+            if (shellAutoScroll.isFollowingTail) (shellContent.height - shellScroll.height).coerceAtLeast(0) else shellScroll.scrollY
+        }, replace = true)
+    }
+
+    /** Resolve one position after measurement; a tail request overrides stale render anchors. */
+    private fun requestShellScroll(target: () -> Int, replace: Boolean = false) {
+        if (shellScrollTarget != null) {
+            if (replace) shellScrollTarget = target
+            return
+        }
+        shellScrollTarget = target
+        val observer = shellScroll.viewTreeObserver
+        observer.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                if (shellScroll.visibility == View.VISIBLE && (shellScroll.isLayoutRequested || shellContent.isLayoutRequested)) return false
+                if (observer.isAlive) observer.removeOnPreDrawListener(this)
+                else shellScroll.viewTreeObserver.takeIf { it.isAlive }?.removeOnPreDrawListener(this)
+                val position = checkNotNull(shellScrollTarget)
+                shellScrollTarget = null
+                shellAutoScroll.finishScrollToBottomPending()
+                shellScroll.scrollTo(0, position().coerceAtLeast(0))
+                return true
+            }
+        })
+        shellScroll.invalidate()
+    }
 
     private fun updateShellContentPadding() {
         if (!::shellContent.isInitialized) return
-        val follow = ::shellScroll.isInitialized && shellVisible && !shellScroll.canScrollVertically(1)
+        val follow = ::shellScroll.isInitialized && shellVisible && shouldFollowShellTail()
         val sidePadding = dp(SHELL_PANEL_PADDING_DP)
         shellContent.setPadding(
             sidePadding + shellSafeLeftInset,
             dp(SHELL_PANEL_TOP_PADDING_DP) + shellSafeTopInset,
             sidePadding + shellSafeRightInset,
-            sidePadding + shellBottomInset + shellInputPanelHeight,
+            sidePadding,
         )
+        if (::shellScroll.isInitialized) shellScroll.layoutParams = (shellScroll.layoutParams as FrameLayout.LayoutParams).apply {
+            bottomMargin = shellBottomInset + shellInputPanelHeight
+        }
         if (follow) scrollShellToTail()
     }
 
     private fun focusShellInput() {
         val input = shellInput ?: return
+        scrollShellToTail()
         input.requestFocus()
         input.post {
             if (!shellVisible || shellInput !== input) return@post
@@ -1122,17 +1227,6 @@ class MainActivity : Activity() {
         val dx = event.x - swipeStartX
         val dy = event.y - swipeStartY
         return kotlin.math.abs(dx) <= shellTapSlopPx && kotlin.math.abs(dy) <= shellTapSlopPx
-    }
-
-    private fun handleShellTap(event: MotionEvent) {
-        if (!shellBusy && isShellKeyboardTapArea(event)) {
-            focusShellInput()
-        }
-    }
-
-    private fun isShellKeyboardTapArea(event: MotionEvent): Boolean {
-        val height = shellScroll.height.takeIf { it > 0 } ?: root.height
-        return height <= 0 || event.y >= height * 2f / 3f
     }
 
     private fun showShell() {
@@ -1201,6 +1295,7 @@ class MainActivity : Activity() {
         val scrollY: Int,
         val owner: ShellActionOwner,
         val session: AgentShellSession,
+        val followTail: Boolean,
     )
 }
 
@@ -1213,6 +1308,7 @@ internal fun terminalCatchUp(last: String?, snapshot: String): List<String> {
 }
 
 private class ShellInputEditText(context: Context) : EditText(context) {
+    var onEdit: (() -> Unit)? = null
     var onHelp: ((String) -> Unit)? = null
     var onComplete: (() -> Unit)? = null
     var onRecall: ((Int) -> Unit)? = null
@@ -1346,11 +1442,13 @@ private class ShellInputEditText(context: Context) : EditText(context) {
 
     override fun onSelectionChanged(selStart: Int, selEnd: Int) {
         super.onSelectionChanged(selStart, selEnd)
+        if (hasFocus()) onEdit?.invoke()
         restartCursorBlink()
     }
 
     override fun onTextChanged(text: CharSequence?, start: Int, lengthBefore: Int, lengthAfter: Int) {
         super.onTextChanged(text, start, lengthBefore, lengthAfter)
+        onEdit?.invoke()
         restartCursorBlink()
     }
 

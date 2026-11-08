@@ -10,6 +10,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentBlockPresentationTest {
+    @Test fun commandEchoRetainsVerbatimInputThroughPresentation() {
+        for (line in listOf(
+            "self>   sh wifi status  | count  ",
+            "self> set cli default-passphrase 'test-only password=value'",
+            "self> invalid password=visible https://user:visible@example.test/?token=visible",
+            "self> request wifi connect 'quoted\\ value' passphrase 'unfinished",
+        )) {
+            val block = AgentPresentationBlock.commandLine(line, 0)
+            assertEquals(line, block.fullText)
+            assertEquals(line, block.safeValues().single().second)
+            assertEquals(line, block.withStyle(16f, 10f).fullText)
+            assertEquals(line, block.mapLogicalLines { it }.fullText)
+        }
+    }
+
     @Test fun indentedFieldsAlignWithoutChangingPrivacyOrCopyValues() {
         val label = "    SSID".padEnd(32)
         val block = AgentPresentationBlock.create(listOf(

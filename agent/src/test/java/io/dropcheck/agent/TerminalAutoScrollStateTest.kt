@@ -43,4 +43,26 @@ class TerminalAutoScrollStateTest {
 
         assertTrue(state.isFollowingTail)
     }
+
+    @Test
+    fun explicitTailRequestResumesFromHistoryBeforeLayoutCatchesUp() {
+        val state = TerminalAutoScrollState()
+        state.onUserScrollEnd(atBottom = false)
+        state.resumeFollowingTail()
+        state.markScrollToBottomPending()
+
+        assertTrue(state.shouldFollowTail(atBottom = false))
+    }
+
+    @Test
+    fun userGestureWinsEvenWhileTailRequestIsStillPending() {
+        val state = TerminalAutoScrollState()
+        state.markScrollToBottomPending()
+        state.onUserScrollMove()
+
+        assertFalse(state.shouldFollowTail(atBottom = false))
+        state.onUserScrollEnd(atBottom = false)
+        state.finishScrollToBottomPending()
+        assertFalse(state.shouldFollowTail(atBottom = false))
+    }
 }
