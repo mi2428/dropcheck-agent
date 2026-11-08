@@ -31,6 +31,7 @@ import android.text.Spanned
 import android.text.Selection
 import android.text.style.ForegroundColorSpan
 import android.view.Gravity
+import android.view.GestureDetector
 import android.view.ActionMode
 import android.view.KeyEvent
 import android.view.Menu
@@ -931,6 +932,7 @@ class MainActivity : Activity() {
         val keyColor = Color.rgb(49, 43, 42)
         val surfaceColor = Color.rgb(28, 25, 24)
         val textColor = Color.rgb(238, 227, 226)
+        var keyClickSequence = 0
         fun press(code: Int, modifiers: Int = 0) {
             input.requestFocus()
             val time = android.os.SystemClock.uptimeMillis()
@@ -946,7 +948,7 @@ class MainActivity : Activity() {
             input.text.replace(from, to, value)
             input.setSelection(from + value.length)
         }
-        fun key(label: String, description: String, action: () -> Unit) = android.widget.Button(this).apply {
+        fun key(label: String, description: String, button: android.widget.Button = android.widget.Button(this), action: () -> Unit) = button.apply {
             text = label
             contentDescription = description
             tooltipText = description
@@ -966,25 +968,62 @@ class MainActivity : Activity() {
             minWidth = keyWidth; minimumWidth = keyWidth
             minHeight = keyHeight; minimumHeight = keyHeight
             setPadding(dp(6), 0, dp(6), 0)
-            setOnClickListener { action() }
+            setOnClickListener { keyClickSequence++; action() }
         }
         fun shortcut(text: String) = key(text.trim(), "Insert ${text.trim()}") { insert(text) }
-        // Expected workflow frequency, not telemetry. Shortcuts edit the draft and never execute commands.
+        fun command(text: String): android.widget.Button {
+            var doubleTap = false
+            var insertedDraft: String? = null
+            var insertedCursor = -1
+            var insertedSequence = -1
+            val gestures = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDown(event: MotionEvent) = true
+                override fun onDoubleTapEvent(event: MotionEvent): Boolean {
+                    if (event.actionMasked == MotionEvent.ACTION_UP) doubleTap = true
+                    return false
+                }
+            })
+            val button = object : android.widget.Button(this) {
+                override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+                    if (event.actionMasked == MotionEvent.ACTION_DOWN) doubleTap = false
+                    gestures.onTouchEvent(event)
+                    if (event.actionMasked == MotionEvent.ACTION_CANCEL ||
+                        event.actionMasked == MotionEvent.ACTION_UP && event.eventTime - event.downTime >= ViewConfiguration.getLongPressTimeout()) {
+                        doubleTap = false
+                        insertedDraft = null
+                    }
+                    return super.dispatchTouchEvent(event)
+                }
+            }
+            return key(text, "Insert $text; double tap to execute", button) {
+                val execute = doubleTap && insertedSequence == keyClickSequence - 1 &&
+                    input.text.toString() == insertedDraft && input.selectionStart == insertedCursor && input.selectionEnd == insertedCursor
+                doubleTap = false
+                insertedDraft = null
+                if (execute) submitShellInput(input.text.toString()) else {
+                    insert(text)
+                    insertedDraft = input.text.toString()
+                    insertedCursor = input.selectionStart
+                    insertedSequence = keyClickSequence
+                }
+            }
+        }
+        // Expected workflow frequency, not telemetry. Only command chips support double-tap execution.
         val keys = listOf(
             key("Tab", "Complete command") { press(KeyEvent.KEYCODE_TAB) },
             key("↑", "Previous command") { press(KeyEvent.KEYCODE_DPAD_UP) },
             key("↓", "Next command") { press(KeyEvent.KEYCODE_DPAD_DOWN) },
             key("C-c", "Cancel running command; clear unsent input when idle") { press(KeyEvent.KEYCODE_C, KeyEvent.META_CTRL_ON) },
             key("?", "Context help") { input.requestFocus(); input.requestHelp() },
-            shortcut("sh wi status"),
-            shortcut("req wi scan"),
-            shortcut("sh wi status ip"),
+            command("sh wi status"),
+            command("req wi scan"),
+            command("sh wi status ip"),
             shortcut(" | match "),
             shortcut(" | count "),
             shortcut(" | display json "),
             key("\"", "Insert double quote") { insert("\"") },
             key("|", "Insert pipe") { insert("|") },
-            shortcut("sh permissions"),
+            command("sh permissions"),
         )
         return HorizontalScrollView(this).apply {
             isFillViewport = true

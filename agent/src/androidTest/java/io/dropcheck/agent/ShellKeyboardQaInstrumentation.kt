@@ -83,6 +83,9 @@ class ShellKeyboardQaInstrumentation : Instrumentation() {
             "gesture-tail" to ::gestureTail,
             "touch-editing" to ::touchEditing,
             "shortcut-input" to ::shortcutInput,
+            "shortcut-double-tap" to ::shortcutDoubleTap,
+            "shortcut-double-tap-guards" to ::shortcutDoubleTapGuards,
+            "shortcut-double-tap-busy" to ::shortcutDoubleTapBusy,
             "result-context" to ::resultContext,
             "raw-enter-canceled" to ::rawEnterCanceled,
             "cancel-repeat" to ::cancelRepeat,
@@ -721,11 +724,11 @@ class ShellKeyboardQaInstrumentation : Instrumentation() {
         val labels = mapOf(
             "Tab" to "Complete command", "↑" to "Previous command", "↓" to "Next command",
             "C-c" to "Cancel running command; clear unsent input when idle", "?" to "Context help",
-            "sh wi status" to "Insert sh wi status", "req wi scan" to "Insert req wi scan",
-            "sh wi status ip" to "Insert sh wi status ip", "| match" to "Insert | match",
+            "sh wi status" to "Insert sh wi status; double tap to execute", "req wi scan" to "Insert req wi scan; double tap to execute",
+            "sh wi status ip" to "Insert sh wi status ip; double tap to execute", "| match" to "Insert | match",
             "| count" to "Insert | count", "| display json" to "Insert | display json",
             "\"" to "Insert double quote", "|" to "Insert pipe",
-            "sh permissions" to "Insert sh permissions",
+            "sh permissions" to "Insert sh permissions; double tap to execute",
         )
         onMain { check(keys(main).map { it.text.toString() } == labels.keys.toList()) { "key labels/order changed" } }
         for ((label, description) in labels) {
@@ -811,6 +814,125 @@ class ShellKeyboardQaInstrumentation : Instrumentation() {
         settle(main)
         assertTail(main, "Ctrl-C result")
         onMain { checkEdit(main, "retained next draft", "retained next draft".length) }
+    }
+
+    private fun shortcutDoubleTap(main: MainActivity) {
+        for ((index, command) in listOf("sh permissions", "sh wi status", "sh wi status ip").withIndex()) {
+            val suffix = " | match '^double-tap-qa-$index$'"
+            val expected = command + suffix
+            onMain { input(main).apply { setText("replace-me$suffix"); setSelection(0, "replace-me".length) } }
+            reveal(main, command)
+            val point = chipPoint(main, command)
+            val previous = onMain { main.field<AgentBlockHistory>("shellTranscript").blocks.last() }
+            injectTap(point)
+            onMain {
+                checkEdit(main, expected, command.length)
+                check(main.field<AgentBlockHistory>("shellTranscript").blocks.last() === previous) { "first tap executed a command" }
+            }
+            Thread.sleep(70)
+            injectTap(point)
+            if (index == 0) { Thread.sleep(70); injectTap(point) }
+            await("double tap did not submit its command") { onMain {
+                !main.field<ShellActionOwner>("shellOwner").busy && main.field<AgentBlockHistory>("shellTranscript").blocks.last() !== previous
+            } }
+            settle(main)
+            onMain {
+                check(main.field<AgentBlockHistory>("shellTranscript").blocks.count { it.fullText == "self> $expected" } == 1) { "double tap did not submit exactly once" }
+                val draft = if (index == 0) command else ""
+                checkEdit(main, draft, draft.length)
+            }
+            assertTail(main, "double-tap result")
+        }
+        if (options.getString("capture") == "true") capture(main, "shortcut-double-tap")
+    }
+
+    private fun shortcutDoubleTapGuards(main: MainActivity) {
+        val command = "sh permissions"
+        fun reset(): Pair<Float, Float> {
+            onMain { input(main).apply { setText(""); requestFocus() } }
+            reveal(main, command)
+            return chipPoint(main, command)
+        }
+        val previous = onMain { main.field<AgentBlockHistory>("shellTranscript").blocks.last() }
+        var point = reset()
+        injectTap(point)
+        Thread.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 50)
+        injectTap(point)
+        onMain { check(input(main).text.toString() == command + command) { "two slow taps were treated as a double tap" } }
+
+        point = reset()
+        injectTap(point)
+        onMain { input(main).text.append(" edited") }
+        Thread.sleep(70)
+        injectTap(point)
+        onMain { check(input(main).text.toString() == "$command edited$command") { "double tap executed an edited draft" } }
+
+        point = reset()
+        injectTap(point)
+        onMain { input(main).setSelection(0) }
+        Thread.sleep(70)
+        injectTap(point)
+        onMain { check(input(main).text.toString() == command + command) { "double tap executed after cursor movement" } }
+
+        point = reset()
+        injectTap(point)
+        Thread.sleep(70)
+        injectTap(point, ViewConfiguration.getLongPressTimeout().toLong() + 100)
+        Thread.sleep(70)
+        injectTap(point)
+        onMain { check(input(main).text.toString() == command + command) { "long press armed double-tap execution" } }
+
+        point = reset()
+        injectTap(point)
+        Thread.sleep(70)
+        val down = SystemClock.uptimeMillis()
+        for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_CANCEL)) {
+            val event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, point.first, point.second, 0).apply { source = InputDevice.SOURCE_TOUCHSCREEN }
+            try { check(uiAutomation.injectInputEvent(event, true)) } finally { event.recycle() }
+            Thread.sleep(30)
+        }
+        onMain { check(input(main).text.toString() == command) { "canceled second tap changed the draft" } }
+        settle(main)
+        onMain { check(main.field<AgentBlockHistory>("shellTranscript").blocks.last() === previous && !main.field<ShellActionOwner>("shellOwner").busy) { "guarded gesture submitted a command" } }
+
+        onMain { input(main).apply { setText("sh wi status"); setSelection(text.length) } }
+        reveal(main, "| count")
+        point = chipPoint(main, "| count")
+        injectTap(point); Thread.sleep(70); injectTap(point)
+        settle(main)
+        onMain {
+            check(input(main).text.toString() == "sh wi status | count  | count ") { "filter double tap stopped being insertion-only" }
+            check(main.field<AgentBlockHistory>("shellTranscript").blocks.last() === previous) { "filter double tap submitted input" }
+        }
+
+        point = reset()
+        injectTap(point)
+        val afterHelp = onMain {
+            key(main, "?").performClick()
+            main.field<AgentBlockHistory>("shellTranscript").blocks.last()
+        }
+        Thread.sleep(70)
+        injectTap(point)
+        onMain {
+            check(input(main).text.toString() == command + command && main.field<AgentBlockHistory>("shellTranscript").blocks.last() === afterHelp) { "intervening key did not cancel double-tap execution" }
+            input(main).setText("")
+            repeat(2) { key(main, command).performClick() }
+            check(input(main).text.toString() == command + command && main.field<AgentBlockHistory>("shellTranscript").blocks.last() === afterHelp) { "accessibility clicks bypassed touch-only double-tap recognition" }
+        }
+    }
+
+    private fun shortcutDoubleTapBusy(main: MainActivity) = withAction(main) { _, _ ->
+        val previous = onMain { main.field<AgentBlockHistory>("shellTranscript").blocks.last() }
+        for (command in listOf("sh wi status", "req wi scan", "sh wi status ip", "sh permissions")) {
+            onMain { input(main).apply { setText("draft"); setSelection(0, text.length) } }
+            reveal(main, command)
+            val point = chipPoint(main, command)
+            injectTap(point); Thread.sleep(70); injectTap(point)
+            onMain {
+                checkEdit(main, command, command.length)
+                check(main.field<ShellActionOwner>("shellOwner").busy && main.field<AgentBlockHistory>("shellTranscript").blocks.last() === previous) { "busy double tap dispatched another command" }
+            }
+        }
     }
 
     private fun rawEnterCanceled(main: MainActivity) {
@@ -1065,15 +1187,16 @@ class ShellKeyboardQaInstrumentation : Instrumentation() {
 
     private fun tap(main: MainActivity, label: String, holdMs: Long = 30) {
         reveal(main, label)
-        val point = onMain {
+        injectTap(chipPoint(main, label), holdMs)
+        onMain { Unit }
+    }
+
+    private fun chipPoint(main: MainActivity, label: String): Pair<Float, Float> = onMain {
             check(main.hasWindowFocus()) { "refusing touch outside the focused Activity" }
             val rect = bounds(key(main, label))
             check(visibleBounds(key(main, label)) == rect && rect.width() > 0 && rect.height() > 0) { "touch key is clipped: $label" }
             check(!imeVisible(main) || rect.bottom <= imeTop(main) + 1) { "touch key is behind the IME: $label" }
             rect.exactCenterX() to rect.exactCenterY()
-        }
-        injectTap(point, holdMs)
-        onMain { Unit }
     }
 
     private fun tapImeKey(label: String) {
