@@ -7,14 +7,14 @@ internal object AgentShellTextFormatter {
         val header = buildList {
             add(AgentBlockPart.Text("$commandTitle  ${statusName(result.status).uppercase()}"))
             if (result.status != CommandResult.Status.STATUS_OK) {
-                add(AgentBlockPart.Field("Status", statusName(result.status)))
-                if (result.message.isNotBlank()) add(AgentBlockPart.Field("Message", result.message))
+                add(AgentBlockPart.Field("Status", statusName(result.status), indent = 2))
+                if (result.message.isNotBlank()) add(AgentBlockPart.Field("Message", result.message, indent = 2))
             }
-            add(AgentBlockPart.Field("Latency", "${result.elapsedMs}ms"))
-            add(AgentBlockPart.Field("Source", "android"))
-            add(AgentBlockPart.Field("Target", "self"))
-            add(AgentBlockPart.Field("Observation age", "? (metadata unavailable)"))
-            add(AgentBlockPart.Field("Received locally", "${java.time.Instant.now()} (not observation time)"))
+            add(AgentBlockPart.Field("Latency", "${result.elapsedMs}ms", indent = 2))
+            add(AgentBlockPart.Field("Source", "android", indent = 2))
+            add(AgentBlockPart.Field("Target", "self", indent = 2))
+            add(AgentBlockPart.Field("Observation age", "? (metadata unavailable)", indent = 2))
+            add(AgentBlockPart.Field("Received locally", "${java.time.Instant.now()} (not observation time)", indent = 2))
         }
         return AgentPresentationBlock.create(header + listOf(AgentBlockPart.Text("", section = true)) + parts, color)
     }

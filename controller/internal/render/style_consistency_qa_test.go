@@ -72,7 +72,7 @@ func TestStyleConsistencyTableRoles(t *testing.T) {
 	writeDisplayTable(&b, []displayTableColumn{{header: "SSID"}, {header: "AGE(s)"}}, [][]string{{"東京", "0"}, {"e\u0301👩\u200d🔬", "12.5"}})
 	writeRecord(&b, "More", "show wifi scan")
 	text := wrapPresentation(b.String(), 120)
-	if !strings.HasPrefix(text, "Scan\n\nSSID  AGE(s)\n") || !strings.Contains(text, "12.5\n\n  More:") {
+	if !strings.HasPrefix(text, "Scan\n\nSSID  AGE(s)\n") || !strings.Contains(text, "12.5\n\nMore:") {
 		t.Fatal("table boundaries or header role changed")
 	}
 	for _, row := range []string{"東京  0", "e\u0301👩\u200d🔬   12.5"} {
@@ -120,7 +120,7 @@ func TestStyleConsistencyRichMLOOwnedRoles(t *testing.T) {
 	options := command.Options{WifiRenderMode: command.WifiRenderModeEHT}
 	var logical strings.Builder
 	renderWifiMLO(&logical, presentationResult(result, options).GetWifiDiagnostics(), options, Presentation{})
-	for label, count := range map[string]int{"  Security": 2, "  Roaming": 2, "Elements": 2, "RNR": 1, "Multiple BSSID": 1, "Identity": 1, "Radio": 1, "Information elements": 1, "SDK flags": 1} {
+	for label, count := range map[string]int{"    Security": 2, "    Roaming": 2, "  Elements": 2, "  RNR": 1, "  Multiple BSSID": 1, "  Identity": 1, "  Radio": 1, "  Information elements": 1, "  SDK flags": 1} {
 		if got := strings.Count("\n"+logical.String(), "\n"+label+"\t"); got != count {
 			t.Errorf("owned %s fields: got %d, want %d", label, got, count)
 		}

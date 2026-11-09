@@ -61,7 +61,7 @@ internal object AgentProbeRenderer {
         out += AgentBlockPart.Text(trimmed)
     }
 
-    private fun row(key: String, value: String) = AgentBlockPart.Field(key, value)
+    private fun row(key: String, value: String) = AgentBlockPart.Field(key, value, indent = 2)
 
     private fun statusName(status: CommandResult.Status): String =
         status.name.removePrefix("STATUS_").lowercase()

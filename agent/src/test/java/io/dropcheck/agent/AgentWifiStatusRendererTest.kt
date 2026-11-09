@@ -152,10 +152,11 @@ class AgentWifiStatusRendererTest {
         ).forEach { want ->
             assertTrue("rendered output missing $want:\n$out", out.replace(Regex("\n +"), "\n").contains(want.replace(Regex("\n +"), "\n")))
         }
-        assertTrue(
-            "sections are not ordered Network -> IPv6 RA:\n$out",
-            out.indexOf("\nNetwork:") < out.indexOf("\nIPv6 RA"),
-        )
+        val network = out.indexOf("\n  Network:")
+        val ipv6Ra = out.indexOf("\n  IPv6 RA")
+        assertTrue("Network section missing:\n$out", network >= 0)
+        assertTrue("IPv6 RA section missing:\n$out", ipv6Ra >= 0)
+        assertTrue("sections are not ordered Network -> IPv6 RA:\n$out", network < ipv6Ra)
         listOf(
             "Connection Capabilities",
             "Connection State",

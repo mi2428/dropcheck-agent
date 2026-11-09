@@ -137,9 +137,9 @@ func TestScanAPDetailsKeepParentAndChildLevels(t *testing.T) {
 		t.Fatalf("AP blocks need exactly one blank separator:\n%s", out)
 	}
 	for _, want := range []string{
-		"AP 1\n    SSID:                          first",
+		"AP 1\n  SSID:                          first",
 		"    IE 1: id=48",
-		"AP 2\n    SSID:                          second",
+		"AP 2\n  SSID:                          second",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing hierarchy %q in:\n%s", want, out)
@@ -149,10 +149,10 @@ func TestScanAPDetailsKeepParentAndChildLevels(t *testing.T) {
 		label  string
 		value  string
 		indent int
-	}{{"Wi-Fi Security Details", "", 2}, {"rsn:", "version=1", 6}, {"Fields", "", 2}, {"ap_link_id:", "2", 6}} {
+	}{{"Wi-Fi Security Details", "", 2}, {"rsn:", "version=1", 4}, {"Fields", "", 2}, {"ap_link_id:", "2", 4}} {
 		found := false
 		for _, line := range strings.Split(out, "\n") {
-			if strings.Contains(line, want.label) && strings.Contains(line, want.value) && len(line)-len(strings.TrimLeft(line, " ")) >= want.indent {
+			if strings.Contains(line, want.label) && strings.Contains(line, want.value) && len(line)-len(strings.TrimLeft(line, " ")) == want.indent {
 				found = true
 				break
 			}
@@ -169,10 +169,10 @@ func TestScanAPDetailsKeepParentAndChildLevels(t *testing.T) {
 		}
 		return -1
 	}
-	if operatorIndent, securityIndent := indentOf("Operator:", "owner-property"), indentOf("rsn:", "version=1"); operatorIndent < 0 || securityIndent < 0 || operatorIndent >= securityIndent {
+	if operatorIndent, securityIndent := indentOf("Operator:", "owner-property"), indentOf("rsn:", "version=1"); operatorIndent != 4 || securityIndent != 4 {
 		t.Fatalf("AP property after the Security section was captured by that section: operator=%d security=%d\n%s", operatorIndent, securityIndent, out)
 	}
-	if linkIndent, securityIndent := indentOf("AP link ID:", "2"), indentOf("rsn:", "version=1"); linkIndent < 0 || linkIndent >= securityIndent {
+	if linkIndent, securityIndent := indentOf("AP link ID:", "2"), indentOf("rsn:", "version=1"); linkIndent != 4 || securityIndent != 4 {
 		t.Fatalf("AP link ID was captured by the Security section: link=%d security=%d\n%s", linkIndent, securityIndent, out)
 	}
 	if strings.Contains(out, "\nWi-Fi Security Details\n") || strings.Contains(out, "\nap_link_id:") {
@@ -259,10 +259,10 @@ func TestMonitorEventFieldsStayWithinTheirEventEvidence(t *testing.T) {
 	for _, want := range []struct {
 		value  string
 		indent int
-	}{{"Event 1 evidence", 0}, {"Fields", 2}, {"network_id:", 6}} {
+	}{{"Event 1 evidence", 0}, {"Fields", 2}, {"network_id:", 4}} {
 		found := false
 		for _, line := range strings.Split(out, "\n") {
-			if strings.Contains(line, want.value) && len(line)-len(strings.TrimLeft(line, " ")) >= want.indent {
+			if strings.Contains(line, want.value) && len(line)-len(strings.TrimLeft(line, " ")) == want.indent {
 				found = true
 				break
 			}
@@ -401,12 +401,12 @@ func TestRenderWifiStatusShowsChannelAndBandwidth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("renderCommandResult() error = %v", err)
 	}
-	for _, want := range []string{"  Connection detail\n", "CH/BW", "40/80MHz", "Link speed Mbps", "573"} {
+	for _, want := range []string{"\nConnection detail\n", "CH/BW", "40/80MHz", "Link speed Mbps", "573"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("rendered output = %q, missing %q", out, want)
 		}
 	}
-	if strings.Count(out, "\n  Connection detail\n") != 1 {
+	if strings.Count(out, "\nConnection detail\n") != 1 {
 		t.Fatalf("rendered output = %q, duplicated wifi connection", out)
 	}
 }
@@ -534,7 +534,7 @@ func TestRenderWifiStatusShowsCapabilities(t *testing.T) {
 			t.Fatalf("rendered output = %q, missing %q", out, want)
 		}
 	}
-	if strings.Index(out, "\n  Routes:") >= strings.Index(out, "\n  DNS:") || strings.Index(out, "\n  DNS:") >= strings.Index(out, "\n  Domains:") {
+	if strings.Index(out, "\nRoutes:") >= strings.Index(out, "\nDNS:") || strings.Index(out, "\nDNS:") >= strings.Index(out, "\nDomains:") {
 		t.Fatalf("network rows are not ordered routes -> DNS -> domains:\n%s", out)
 	}
 	for _, unwanted := range []string{

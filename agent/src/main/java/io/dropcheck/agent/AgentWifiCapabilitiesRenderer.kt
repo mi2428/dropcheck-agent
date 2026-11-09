@@ -33,10 +33,10 @@ internal object AgentWifiCapabilitiesRenderer {
         }
         if (detail || !detailAvailable) {
             if (capabilities.fieldsCount > 0) add(AgentBlockPart.Text("Fields", section = true))
-            capabilities.fieldsList.forEach { add(AgentBlockPart.Field(it.key, it.value)) }
+            capabilities.fieldsList.forEach { add(AgentBlockPart.Field(it.key, it.value, indent = 2)) }
         }
         if (capabilities.errorsCount > 0) add(AgentBlockPart.Text("Errors", section = true))
-        capabilities.errorsList.forEach { add(AgentBlockPart.Field("Error", it)) }
+        capabilities.errorsList.forEach { add(AgentBlockPart.Field("Error", it, indent = 2)) }
         if (detailAvailable && !detail) add(AgentBlockPart.Field("More", "show wifi capabilities detail"))
     }
 

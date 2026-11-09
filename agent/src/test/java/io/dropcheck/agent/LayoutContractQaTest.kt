@@ -128,11 +128,11 @@ class LayoutContractQaTest {
         assertEquals(labels, fields.map { it.label })
         fields.forEach { field ->
             assertEquals(field.label.trimEnd(), field.label)
-            assertTrue(block.fullText.lines().contains("${field.label}: ${field.value}"))
+            assertTrue(block.fullText.lines().contains("  ${field.label}: ${field.value}"))
         }
-        val filtered = AgentShellPipeline.parse(listOf("match '^(Latency|Source|Observation age|Received locally):'")).apply(AgentShellResult(true, block = block)).block!!
+        val filtered = AgentShellPipeline.parse(listOf("match '^  (Latency|Source|Observation age|Received locally):'")).apply(AgentShellResult(true, block = block)).block!!
         assertEquals(fields, filtered.parts.filterIsInstance<AgentBlockPart.Field>())
-        assertEquals(fields.joinToString("\n", postfix = "\n") { "${it.label}: ${it.value}" }, filtered.fullText)
+        assertEquals(fields.joinToString("\n", postfix = "\n") { "  ${it.label}: ${it.value}" }, filtered.fullText)
     }
 
     @Test fun mloIdentityTableHasBlankBoundaries() {

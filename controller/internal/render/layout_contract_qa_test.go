@@ -355,14 +355,14 @@ func TestLayoutContractMultilineKVAndLabelEdges(t *testing.T) {
 			writeKVRows(&b, kv("a", value))
 			out := wrapPresentation(b.String(), width)
 			lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
-			column := 5
+			column := 3
 			if width == 8 {
-				if lines[0] != "  a:" {
+				if lines[0] != "a:" {
 					t.Fatalf("narrow KV label = %q", lines[0])
 				}
 				lines = lines[1:]
-				column = 4
-			} else if !strings.HasPrefix(lines[0], "  a: ") {
+				column = 2
+			} else if !strings.HasPrefix(lines[0], "a: ") {
 				t.Fatalf("KV colon prefix = %q", lines[0])
 			}
 			var joined strings.Builder

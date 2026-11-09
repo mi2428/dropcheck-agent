@@ -21,7 +21,7 @@ func TestInteractiveScanAPBlocksKeepIdentityWithOptionalSummaryTable(t *testing.
 		}
 		full := alignmentCompact(out)
 		want := 1
-		if regexp.MustCompile(`(?m)^AP\s+SSID\s+BSSID`).MatchString(out) {
+		if regexp.MustCompile(`(?m)^AP\s+(SSID\s+)?BSSID`).MatchString(out) {
 			want = 2
 		}
 		if strings.Count(full, alignmentCompact(ssid)) != want || strings.Count(full, mac) != want {

@@ -26,6 +26,9 @@
         android:name="io.dropcheck.agent.ShellReadOnlyInstrumentation"
         android:targetPackage="io.dropcheck.agent" />
     <instrumentation
+        android:name="io.dropcheck.agent.ShellIndentationInstrumentation"
+        android:targetPackage="io.dropcheck.agent" />
+    <instrumentation
         android:name="io.dropcheck.agent.ShellLifecycleInstrumentation"
         android:targetPackage="io.dropcheck.agent" />
     <instrumentation

@@ -23,6 +23,13 @@ type Presentation struct {
 	DetailAvailable bool
 }
 
+func (view Presentation) nested() Presentation {
+	if view.Width > 0 {
+		view.Width = max(1, view.Width-2)
+	}
+	return view
+}
+
 // TextBlock sanitizes a sourced host supplement with the same width budget.
 func TextBlock(text string, view Presentation) string {
 	return wrapPresentation(safePresentationText(text), view.Width)
@@ -79,6 +86,7 @@ func resultTitle(result *controlpb.CommandResult, options command.Options) strin
 	}
 }
 
+// Field labels already own their depth, just like headings and table rows.
 func wrapPresentation(text string, width int) string {
 	var b strings.Builder
 	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
@@ -93,7 +101,7 @@ func wrapPresentation(text string, width int) string {
 				labelWidth = max(labelWidth, displayWidth(strings.TrimRight(label, " ")))
 				end++
 			}
-			indent := 4
+			indent := 2
 			for _, line := range lines[i:end] {
 				label, value, _ := strings.Cut(line, "\t")
 				label = strings.TrimRight(label, " ")
@@ -101,12 +109,12 @@ func wrapPresentation(text string, width int) string {
 				if continuation {
 					value = strings.TrimPrefix(value, "\t")
 				} else {
-					indent = len(label) - len(strings.TrimLeft(label, " ")) + 4
+					indent = len(label) - len(strings.TrimLeft(label, " ")) + 2
 				}
-				prefix := "  " + padDisplayEnd(label+":", labelWidth+1) + " "
+				prefix := padDisplayEnd(label+":", labelWidth+1) + " "
 				if width > 0 && displayWidth(prefix)+8 > width {
 					if !continuation {
-						writeFieldLabel(&b, "  "+label, width)
+						writeFieldLabel(&b, label, width)
 					}
 					prefix = strings.Repeat(" ", min(indent, max(0, width-2)))
 				} else if continuation {
@@ -180,7 +188,7 @@ func writeFieldLabel(b *strings.Builder, label string, width int) {
 func Fields(rows [][2]string, view Presentation) string {
 	var b strings.Builder
 	for _, row := range rows {
-		writeRecord(&b, row[0], row[1])
+		writeRecord(&b, "  "+row[0], row[1])
 	}
 	return wrapPresentation(b.String(), view.Width)
 }
@@ -190,7 +198,7 @@ func Fields(rows [][2]string, view Presentation) string {
 func SourceFields(rows [][2]string) string {
 	var b strings.Builder
 	for _, row := range rows {
-		writeRecord(&b, row[0], safePresentationField(row[0], row[1]))
+		writeRecord(&b, "  "+row[0], safePresentationField(row[0], row[1]))
 	}
 	return b.String()
 }
@@ -362,31 +370,33 @@ func renderScanRows(b *strings.Builder, groups []scanResultGroup, columns []disp
 	}
 	index := 0
 	for _, group := range groups {
-		if options.WifiScanBrief && !options.WifiScanMLO {
-			if table {
-				continue
-			}
+		grouped := false
+		if !table {
 			groupColumns := append([]displayTableColumn{{header: "AP", numeric: true}}, columns[1:]...)
 			var groupRows [][]string
 			for i := range group.results {
 				groupRows = append(groupRows, append([]string{fmt.Sprint(index + i + 1)}, rows[index+i][1:]...))
 			}
 			if tableFits(groupColumns, groupRows, view.Width) {
+				writeBlankLine(b)
 				writeRecord(b, "SSID", group.ssid)
 				writeDisplayTable(b, groupColumns, groupRows)
-				index += len(group.results)
-				continue
+				grouped = true
 			}
+		}
+		if options.WifiScanBrief && !options.WifiScanMLO && (table || grouped) {
+			index += len(group.results)
+			continue
 		}
 		for _, ap := range group.results {
 			writeSection(b, fmt.Sprintf("[%s] AP %d", scanAPMark(ap, connections), index+1))
 			var details strings.Builder
 			detail := &details
-			if table {
+			if table || grouped {
 				writeRecord(detail, "SSID", scanDisplaySSID(ap))
 				writeRecord(detail, "BSSID", empty(ap.GetBssid(), "?"))
 			}
-			if !table {
+			if !table && !grouped {
 				for col, column := range columns {
 					writeRecord(detail, column.header, rows[index][col])
 				}
@@ -472,9 +482,7 @@ func renderL2(b *strings.Builder, status *controlpb.WifiStatus, view Presentatio
 		writeRecord(b, "Associated", observedValue(conn.GetObservationFields(), "associated_mlo_links", fmt.Sprint(len(conn.GetAssociatedMloLinks()))))
 		writeRecord(b, "Affiliated", observedValue(conn.GetObservationFields(), "affiliated_mlo_links", fmt.Sprint(len(conn.GetAffiliatedMloLinks()))))
 		if view.Detail || !view.DetailAvailable {
-			var details strings.Builder
-			renderConnectionExtra(&details, conn)
-			writeNested(b, details.String())
+			renderConnectionExtra(b, conn)
 		}
 	}
 	for _, permission := range status.GetPermissions() {
@@ -488,24 +496,26 @@ func renderL2(b *strings.Builder, status *controlpb.WifiStatus, view Presentatio
 // The overview already owns identity, radio, rates and MLO counts.
 func renderConnectionExtra(b *strings.Builder, conn *controlpb.WifiConnection) {
 	writeSection(b, "Connection detail")
-	writeRecord(b, "Network configuration ID", conn.GetNetworkId())
-	writeRecord(b, "Signal level", wifiSignalLevel(conn))
-	writeRecord(b, "Frequency MHz", conn.GetFrequencyMhz())
-	writeRecord(b, "Link speed Mbps", conn.GetLinkSpeedMbps())
-	writeRecord(b, "STA MAC", conn.GetMacAddress())
-	writeRecord(b, "Supplicant state", conn.GetSupplicantState())
-	writeRecord(b, "Hidden SSID", conn.GetHiddenSsid())
-	writeRecord(b, "Restricted", conn.GetRestricted())
-	writeRecord(b, "Subscription ID", conn.GetSubscriptionId())
-	writeRecord(b, "Applicable redactions", conn.GetApplicableRedactions())
-	writeRecord(b, "AP link ID", observedValue(conn.GetObservationFields(), "ap_mlo_link_id", fmt.Sprint(conn.GetApMloLinkId())))
+	var properties strings.Builder
+	writeRecord(&properties, "Network configuration ID", conn.GetNetworkId())
+	writeRecord(&properties, "Signal level", wifiSignalLevel(conn))
+	writeRecord(&properties, "Frequency MHz", conn.GetFrequencyMhz())
+	writeRecord(&properties, "Link speed Mbps", conn.GetLinkSpeedMbps())
+	writeRecord(&properties, "STA MAC", conn.GetMacAddress())
+	writeRecord(&properties, "Supplicant state", conn.GetSupplicantState())
+	writeRecord(&properties, "Hidden SSID", conn.GetHiddenSsid())
+	writeRecord(&properties, "Restricted", conn.GetRestricted())
+	writeRecord(&properties, "Subscription ID", conn.GetSubscriptionId())
+	writeRecord(&properties, "Applicable redactions", conn.GetApplicableRedactions())
+	writeRecord(&properties, "AP link ID", observedValue(conn.GetObservationFields(), "ap_mlo_link_id", fmt.Sprint(conn.GetApMloLinkId())))
+	writeRecord(&properties, "WifiInfo IPv4 (separate observation)", conn.GetIpv4Address())
+	writeNested(b, properties.String())
 	capabilityRows := slices.DeleteFunc(wifiAPCapabilityRows(conn), func(row kvRow) bool { return row.label == "hidden" || row.label == "restricted" })
 	writeKVSection(b, "AP Capabilities", capabilityRows...)
 	renderWifiSecurityDetails(b, conn.GetSecurityDetails())
 	renderWifiConnectionDetailedCapabilities(b, conn)
 	renderMLOLinks(b, "Associated links", conn.GetAssociatedMloLinks(), true)
 	renderMLOLinks(b, "Affiliated links", conn.GetAffiliatedMloLinks(), true)
-	writeRecord(b, "WifiInfo IPv4 (separate observation)", conn.GetIpv4Address())
 	renderInformationElements(b, conn.GetInformationElements())
 	renderDiagnosticFields(b, conn.GetObservationFields())
 }
@@ -518,7 +528,9 @@ func renderWifiSnapshot(b *strings.Builder, status *controlpb.WifiStatus, view P
 	renderL2(b, status, view)
 	if status.GetIpStatus() != nil {
 		writeSection(b, "Related IP snapshot")
-		renderIPView(b, status.GetIpStatus(), view)
+		var body strings.Builder
+		renderIPView(&body, status.GetIpStatus(), view.nested())
+		writeNested(b, body.String())
 	}
 }
 
@@ -588,10 +600,12 @@ func renderDeviceCapabilities(b *strings.Builder, capabilities *controlpb.WifiCa
 		if tableFits(columns, rows, view.Width) {
 			writeDisplayTable(b, columns, rows)
 		} else {
-			writeSection(b, group.name)
+			var records strings.Builder
 			for _, row := range rows {
-				writeRecord(b, row[0], row[1])
+				writeRecord(&records, row[0], row[1])
 			}
+			writeSection(b, group.name)
+			writeNested(b, records.String())
 		}
 	}
 	if view.Detail || !view.DetailAvailable {
@@ -605,10 +619,7 @@ func renderDiagnosticBundle(b *strings.Builder, diagnostics *controlpb.WifiDiagn
 		writeRecord(b, "Note", "? (diagnostics payload unavailable)")
 		return
 	}
-	childView := view
-	if childView.Width > 0 {
-		childView.Width = max(1, childView.Width-2)
-	}
+	childView := view.nested()
 	writeSection(b, "Summary")
 	var summary strings.Builder
 	writeRecord(&summary, "Constituent status", "? (acquisition-result contract unavailable); not an atomic snapshot")
@@ -685,12 +696,14 @@ func renderCurrentMLO(b *strings.Builder, diagnostics *controlpb.WifiDiagnostics
 	}{{"Associated", conn.GetAssociatedMloLinks()}, {"Affiliated", conn.GetAffiliatedMloLinks()}} {
 		writeSection(b, section.title)
 		for _, link := range section.links {
-			writeRecord(b, "AP MAC", observedValue(link.GetObservationFields(), "identity", link.GetApMacAddress()))
-			writeRecord(b, "AP MAC vendor", observedValue(link.GetObservationFields(), "identity", oui.Vendor(link.GetApMacAddress())))
-			writeRecord(b, "State", observedValue(link.GetObservationFields(), "identity", link.GetState()))
-			writeRecord(b, "Radio", observedValue(link.GetObservationFields(), "identity", fmt.Sprintf("%s CH=%d", link.GetBand(), link.GetChannel())))
-			writeRecord(b, "RSSI", observedValue(link.GetObservationFields(), "rates", fmt.Sprintf("%ddBm", link.GetRssiDbm())))
-			writeRecord(b, "Tx/Rx", observedValue(link.GetObservationFields(), "rates", fmt.Sprintf("%d/%dMbps", link.GetTxLinkSpeedMbps(), link.GetRxLinkSpeedMbps())))
+			var body strings.Builder
+			writeRecord(&body, "AP MAC", observedValue(link.GetObservationFields(), "identity", link.GetApMacAddress()))
+			writeRecord(&body, "AP MAC vendor", observedValue(link.GetObservationFields(), "identity", oui.Vendor(link.GetApMacAddress())))
+			writeRecord(&body, "State", observedValue(link.GetObservationFields(), "identity", link.GetState()))
+			writeRecord(&body, "Radio", observedValue(link.GetObservationFields(), "identity", fmt.Sprintf("%s CH=%d", link.GetBand(), link.GetChannel())))
+			writeRecord(&body, "RSSI", observedValue(link.GetObservationFields(), "rates", fmt.Sprintf("%ddBm", link.GetRssiDbm())))
+			writeRecord(&body, "Tx/Rx", observedValue(link.GetObservationFields(), "rates", fmt.Sprintf("%d/%dMbps", link.GetTxLinkSpeedMbps(), link.GetRxLinkSpeedMbps())))
+			writeNested(b, body.String())
 		}
 	}
 	fields := diagnosticFieldMap(diagnostics.GetScan().GetFields())

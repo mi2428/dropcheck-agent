@@ -38,9 +38,9 @@ internal object AgentWifiMloRenderer {
         val filter = MloFilter(context.ssidFilter, context.bssidFilter)
         filter.connection(activeWifiConnection(status))?.let { current ->
             add(AgentBlockPart.Text("Connected identity", section = true))
-            add(AgentBlockPart.Field("SSID", AgentObservationPresentation.value(current.observationFieldsList, "identity", current.ssid), current.ssid))
-            add(AgentBlockPart.Field("BSSID", AgentObservationPresentation.value(current.observationFieldsList, "identity", current.bssid), current.bssid))
-            add(AgentBlockPart.Field("BSSID vendor", AgentObservationPresentation.value(current.observationFieldsList, "identity", OuiDatabase.current.vendor(current.bssid))))
+            add(AgentBlockPart.Field("SSID", AgentObservationPresentation.value(current.observationFieldsList, "identity", current.ssid), current.ssid, indent = 2))
+            add(AgentBlockPart.Field("BSSID", AgentObservationPresentation.value(current.observationFieldsList, "identity", current.bssid), current.bssid, indent = 2))
+            add(AgentBlockPart.Field("BSSID vendor", AgentObservationPresentation.value(current.observationFieldsList, "identity", OuiDatabase.current.vendor(current.bssid)), indent = 2))
         }
         val candidates = filter.scanResults(scan.resultsList).filter(::isMloCapableCandidate)
         if (candidates.isNotEmpty()) {
@@ -64,13 +64,8 @@ internal object AgentWifiMloRenderer {
         return out
     }
 
-    /** String callers project the same parts; native callers never receive padded records. */
-    fun render(status: WifiStatus, scan: WifiScan, context: AgentWifiMloContext = AgentWifiMloContext()): List<String> {
-        val parts = renderParts(status, scan, context).map { part ->
-            if (part is AgentBlockPart.Field && !part.label.startsWith(' ')) part.copy(label = "  ${part.label}") else part
-        }
-        return AgentPresentationBlock.create(parts, 0).fullText.lines()
-    }
+    fun render(status: WifiStatus, scan: WifiScan, context: AgentWifiMloContext = AgentWifiMloContext()): List<String> =
+        AgentPresentationBlock.create(renderParts(status, scan, context), 0).fullText.lines()
 
     private fun renderParts(status: WifiStatus, scan: WifiScan, context: AgentWifiMloContext): List<AgentBlockPart> {
         val out = mutableListOf<AgentBlockPart>()
@@ -1299,7 +1294,7 @@ internal object AgentWifiMloRenderer {
     }
 
     private fun kv(out: MutableList<AgentBlockPart>, rows: List<Pair<String, String>>) {
-        rows.filter { it.first.isNotBlank() && it.second.isNotBlank() }.forEach { (key, value) -> out += AgentBlockPart.Field(key, value) }
+        rows.filter { it.first.isNotBlank() && it.second.isNotBlank() }.forEach { (key, value) -> out += AgentBlockPart.Field(key, value, indent = 2) }
     }
 
     private fun detail(out: MutableList<AgentBlockPart>, rows: List<Pair<String, String>>) {

@@ -27,7 +27,7 @@ class MetadataSeparationQaTest {
 
     @Test fun blockSourceAndTargetAreIndependentLines() {
         val lines = AgentShellTextFormatter.block(CommandResult.newBuilder().setStatus(CommandResult.Status.STATUS_OK).build(), emptyList(), 0).fullText.lines()
-        assertEquals(listOf("Source: android", "Target: self"), lines.filter { it.startsWith("Source:") || it.startsWith("Target:") })
+        assertEquals(listOf("  Source: android", "  Target: self"), lines.filter { it.startsWith("  Source:") || it.startsWith("  Target:") })
     }
 
     @Test fun blockStatusAndMessageAreIndependentLines() {
@@ -35,8 +35,8 @@ class MetadataSeparationQaTest {
         val defects = listOf(CommandResult.Status.STATUS_FAILED, CommandResult.Status.STATUS_CANCELED).mapNotNull { status ->
             val result = CommandResult.newBuilder().setStatus(status).setMessage(message).build()
             val lines = AgentShellTextFormatter.block(result, emptyList(), 0).fullText.lines()
-            val actual = lines.filter { it.startsWith("Status:") || it.startsWith("Message:") }
-            val expected = listOf("Status: ${status.name.removePrefix("STATUS_").lowercase()}", "Message: ${AgentSafePresentation.text(message)}")
+            val actual = lines.filter { it.startsWith("  Status:") || it.startsWith("  Message:") }
+            val expected = listOf("  Status: ${status.name.removePrefix("STATUS_").lowercase()}", "  Message: ${AgentSafePresentation.text(message)}")
             if (actual == expected) null else "$status: $actual"
         }
         assertEquals("Status and Message must not share a value", emptyList<String>(), defects)
@@ -71,19 +71,19 @@ class MetadataSeparationQaTest {
         val json = AgentShellPipeline.parse(listOf("display json")).apply(AgentShellResult(false, block = block)).block!!.fullText
         assertTrue(json.startsWith("{\"ok\":false,"))
         assertEquals("JSON lines must retain both independent fields", listOf(true, true),
-            listOf("\"Source: android\"" in json, "\"Target: self\"" in json))
+            listOf("\"  Source: android\"" in json, "\"  Target: self\"" in json))
     }
 
     @Test fun exceptSourceDoesNotRemoveTarget() {
         val block = AgentShellTextFormatter.block(CommandResult.newBuilder().setStatus(CommandResult.Status.STATUS_OK).build(), emptyList(), 0)
-        val filtered = AgentShellPipeline.parse(listOf("except '^Source:'")).apply(AgentShellResult(true, block = block)).block!!
+        val filtered = AgentShellPipeline.parse(listOf("except '^  Source:'")).apply(AgentShellResult(true, block = block)).block!!
         assertFalse(fields(filtered).any { it.label == "Source" })
         assertEquals(listOf("self"), fields(filtered).filter { it.label == "Target" }.map { it.value })
     }
 
     @Test fun exceptTargetDoesNotDamageSourceOrReinsertTarget() {
         val block = AgentShellTextFormatter.block(CommandResult.newBuilder().setStatus(CommandResult.Status.STATUS_OK).build(), emptyList(), 0)
-        val filtered = AgentShellPipeline.parse(listOf("except '^Target:'")).apply(AgentShellResult(true, block = block)).block!!
+        val filtered = AgentShellPipeline.parse(listOf("except '^  Target:'")).apply(AgentShellResult(true, block = block)).block!!
         assertFalse(fields(filtered).any { it.label == "Target" })
         assertEquals(listOf("android"), fields(filtered).filter { it.label == "Source" }.map { it.value })
     }

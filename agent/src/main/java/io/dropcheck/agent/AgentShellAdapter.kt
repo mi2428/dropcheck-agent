@@ -149,13 +149,13 @@ internal class AgentShellAdapter(private val session: AgentShellSession = AgentS
                     }))
                 }
                 if (result.networkSnapshot.errorsCount > 0) add(AgentBlockPart.Text("Errors", section = true))
-                result.networkSnapshot.errorsList.forEach { add(AgentBlockPart.Field("Error", it)) }
+                result.networkSnapshot.errorsList.forEach { add(AgentBlockPart.Field("Error", it, indent = 2)) }
             }
             RunCommand.CommandCase.GET_PERMISSIONS -> buildList {
                 add(AgentBlockPart.Text("Permissions", section = true))
-                add(AgentBlockPart.Field("Observed at unix ms", result.permissionSnapshot.observedAtUnixMs.toString()))
-                add(AgentBlockPart.Field("Device Owner", result.permissionSnapshot.deviceOwner.toString()))
-                result.permissionSnapshot.permissionsList.forEach { add(AgentBlockPart.Field(it.key, it.value)) }
+                add(AgentBlockPart.Field("Observed at unix ms", result.permissionSnapshot.observedAtUnixMs.toString(), indent = 2))
+                add(AgentBlockPart.Field("Device Owner", result.permissionSnapshot.deviceOwner.toString(), indent = 2))
+                result.permissionSnapshot.permissionsList.forEach { add(AgentBlockPart.Field(it.key, it.value, indent = 2)) }
             }
             RunCommand.CommandCase.GET_WIFI_STATUS -> if (command.summary) AgentWifiStatusRenderer.summary(result.wifiStatus) else AgentWifiStatusRenderer.presentation(result.wifiStatus, true, true, true)
             RunCommand.CommandCase.GET_WIFI_DIAGNOSTICS -> AgentWifiDiagnosticsRenderer.presentation(result.wifiDiagnostics, true, true, true)
@@ -220,9 +220,9 @@ internal class AgentShellAdapter(private val session: AgentShellSession = AgentS
                     }))
                 }
                 if (result.wifiMonitor.errorsCount > 0) add(AgentBlockPart.Text("Errors", section = true))
-                result.wifiMonitor.errorsList.forEach { row("Error", it) }
+                result.wifiMonitor.errorsList.forEach { add(AgentBlockPart.Field("Error", it, indent = 2)) }
                 add(AgentBlockPart.Text("Monitor summary", section = true))
-                row("Events", result.wifiMonitor.eventsCount)
+                add(AgentBlockPart.Field("Events", result.wifiMonitor.eventsCount.toString(), indent = 2))
             }
             RunCommand.CommandCase.CYCLE_WIFI -> {
                 row("Passed", "${result.wifiCycle.passedCount}/${result.wifiCycle.requestedCount}")

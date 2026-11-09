@@ -74,6 +74,7 @@ class PresentationInstrumentation : Instrumentation() {
                         val rendered = checkNotNull(AgentNativeBlockLayout.render(block, actualContent, view.paint))
                         val header = checkNotNull(AgentNativeBlockLayout.render(metadata, actualContent, view.paint)).text.toString()
                         check(header.filterNot(Char::isWhitespace).contains("Source:androidTarget:self")) { "native generated metadata conflated or lost" }
+                        check(header.contains("\n  Source:") && metadata.fullText.contains("\n  Source: android")) { "metadata native indent changed logical fields" }
                         check(header.filterNot(Char::isWhitespace).contains("Message:partialTarget:literal")) { "native multiline message lost" }
                         view.text = rendered.text
                         view.measure(View.MeasureSpec.makeMeasureSpec(content + 56, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
@@ -131,9 +132,25 @@ class PresentationInstrumentation : Instrumentation() {
                             AgentBlockPart.Scan(listOf(listOf("Lab", "B".repeat(64), "R".repeat(50), "?", "?", "?", "?", "?")))), 0)
                         val recordText = checkNotNull(AgentNativeBlockLayout.render(scanRecords, ceil(24 * view.paint.measureText("0")).toInt(), view.paint)).text.toString()
                         val counter = recordText.indexOf("AP display:")
-                        check(recordText.startsWith("before\n\n  SSID:")) { "Scan record top boundary or field indent missing" }
+                        check(recordText.startsWith("before\n\nSSID:")) { "root Scan record kept an implicit indent" }
                         check(counter > 0 && recordText.substring(0, counter).endsWith("\n\n")) { "Scan record bottom boundary missing" }
                         check(recordText.filterNot(Char::isWhitespace).contains("B".repeat(64))) { "Scan record identity lost" }
+                        val nestedScan = AgentPresentationBlock.create(listOf(AgentBlockPart.Text("before"),
+                            AgentBlockPart.Scan(listOf(listOf("Lab", "B".repeat(64), "-50", "?", "?", "?", "?", "?")), indent = 2)), 0)
+                        val nestedRecordText = checkNotNull(AgentNativeBlockLayout.render(nestedScan, ceil(24 * view.paint.measureText("0")).toInt(), view.paint)).text.toString()
+                        check(nestedRecordText.startsWith("before\n\n  SSID:")) { "nested Scan fallback did not preserve its exact depth" }
+                        val nestedParts = nestedPresentation(listOf(
+                            AgentBlockPart.Field("Child", "value"),
+                            AgentBlockPart.Table(listOf(AgentBlockPart.Column("A"), AgentBlockPart.Column("B")), listOf(listOf("a", "b"))),
+                        ))
+                        val nestedBlock = AgentPresentationBlock.create(nestedParts, 0)
+                        val nestedText = checkNotNull(AgentNativeBlockLayout.render(nestedBlock, actualContent, view.paint)).text.toString()
+                        check(nestedText.startsWith("  Child:") && nestedText.contains("\n\n  A\tB\n  a\tb")) { "nested field/table native depth diverged" }
+                        val wideScan = AgentPresentationBlock.create(listOf(AgentBlockPart.Text("before")) + nestedPresentation(listOf(
+                            AgentBlockPart.Scan(listOf(listOf("a", "b")), listOf(AgentBlockPart.Column("SSID"), AgentBlockPart.Column("BSSID"))),
+                        )), 0)
+                        val wideScanText = checkNotNull(AgentNativeBlockLayout.render(wideScan, actualContent, view.paint)).text.toString()
+                        check(wideScanText.startsWith("before\n\n  SSID\tBSSID\n  a\tb")) { "wide nested Scan table lost its exact depth" }
                         checked++
                     }
                 }

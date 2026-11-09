@@ -167,8 +167,7 @@ func wifiMLOKnownBSSID(value string) bool {
 
 func renderWifiMLOCurrentRelation(b *strings.Builder, current *controlpb.WifiConnection, scan *controlpb.WifiScan, candidates []*controlpb.WifiScanResult) {
 	if current == nil {
-		writeSection(b, "Current AP Relation")
-		writeRecord(b, "Observation", "no active Wi-Fi connection")
+		writeKVSection(b, "Current AP Relation", kv("Observation", "no active Wi-Fi connection"))
 		return
 	}
 	sameMLDResults := make([]*controlpb.WifiScanResult, 0)
@@ -231,13 +230,12 @@ func wifiMLOComparison(current *controlpb.WifiConnection, scan *controlpb.WifiSc
 }
 
 func renderWifiMLOConnected(b *strings.Builder, current *controlpb.WifiConnection) {
-	writeSection(b, "Connected MLO")
 	if current == nil {
-		writeRecord(b, "Observation", "no active Wi-Fi connection")
+		writeKVSection(b, "Connected MLO", kv("Observation", "no active Wi-Fi connection"))
 		return
 	}
 	present := wifiConnectionHasMLO(current)
-	writeKVRows(b,
+	writeKVSection(b, "Connected MLO",
 		kv("ssid", empty(current.GetSsid(), "<hidden>")),
 		kv("bssid", empty(current.GetBssid(), "<unknown>")),
 		kv("BSSID vendor", observedValue(current.GetObservationFields(), "identity", oui.Vendor(current.GetBssid()))),
@@ -260,8 +258,7 @@ func renderWifiMLOConnectedEHT(b *strings.Builder, current *controlpb.WifiConnec
 	if len(lines) == 0 {
 		return
 	}
-	writeSection(b, "Connected EHT Multi-Link Elements")
-	writeRecord(b, "Elements", strings.Join(lines, "\n"))
+	writeKVSection(b, "Connected EHT Multi-Link Elements", kv("Elements", strings.Join(lines, "\n")))
 }
 
 func renderWifiMLOConnectedEHTDetails(b *strings.Builder, current *controlpb.WifiConnection) {
@@ -368,7 +365,7 @@ func wifiMLOScanSource(fields map[string]string) string {
 func renderWifiMLONearbyAPs(b *strings.Builder, groups []wifiMLOGroup, current *controlpb.WifiConnection, view Presentation) {
 	writeSection(b, "Nearby EHT APs")
 	if len(groups) == 0 {
-		writeRecord(b, "Observation", "no EHT-capable scan results")
+		writeRecord(b, "  Observation", "no EHT-capable scan results")
 		return
 	}
 	renderWifiMLONearbyAPTable(b, groups, view)
@@ -757,8 +754,7 @@ func renderWifiMLOScanEHT(b *strings.Builder, groups []wifiMLOGroup) {
 	if len(lines) == 0 {
 		return
 	}
-	writeSection(b, "Scan EHT Multi-Link Elements")
-	writeRecord(b, "Elements", strings.Join(lines, "\n"))
+	writeKVSection(b, "Scan EHT Multi-Link Elements", kv("Elements", strings.Join(lines, "\n")))
 }
 
 func renderWifiMLOConnectedEHTPuncturing(b *strings.Builder, current *controlpb.WifiConnection) {
@@ -1078,7 +1074,7 @@ func renderWifiMLOScanLinks(b *strings.Builder, groups []wifiMLOGroup, current *
 		return
 	}
 	writeSection(b, "EHT Scan Links")
-	writeRecord(b, "Marks", "*=connected BSSID ~=same MLD -=other observed MLO link")
+	writeRecord(b, "  Marks", "*=connected BSSID ~=same MLD -=other observed MLO link")
 	first := true
 	for _, group := range groups {
 		for _, result := range group.results {
@@ -1094,9 +1090,9 @@ func renderWifiMLOScanLinks(b *strings.Builder, groups []wifiMLOGroup, current *
 
 func renderWifiMLOScanLinkBlock(b *strings.Builder, group wifiMLOGroup, result *controlpb.WifiScanResult, current *controlpb.WifiConnection) {
 	fmt.Fprintf(b, "[%s] %s\n", wifiMLOBlockMark(wifiMLOResultMark(group, result, current)), empty(result.GetSsid(), "<hidden>"))
-	writeRecord(b, "Identity", fmt.Sprintf("type=ap ap_mld=%s link=%s bssid=%s", group.displayMLD, wifiMLOScanLinkID(result), empty(result.GetBssid(), "<unknown>")))
-	writeRecord(b, "BSSID vendor", oui.Vendor(result.GetBssid()))
-	writeRecord(b, "Radio", fmt.Sprintf("band=%s ch=%s freq=%dMHz width=%s%s rssi=%ddBm",
+	writeRecord(b, "  Identity", fmt.Sprintf("type=ap ap_mld=%s link=%s bssid=%s", group.displayMLD, wifiMLOScanLinkID(result), empty(result.GetBssid(), "<unknown>")))
+	writeRecord(b, "  BSSID vendor", oui.Vendor(result.GetBssid()))
+	writeRecord(b, "  Radio", fmt.Sprintf("band=%s ch=%s freq=%dMHz width=%s%s rssi=%ddBm",
 		empty(result.GetBand(), wifiBandFromFrequency(result.GetFrequencyMhz())),
 		wifiChannelFromFrequency(result.GetFrequencyMhz()),
 		result.GetFrequencyMhz(),
@@ -1104,8 +1100,8 @@ func renderWifiMLOScanLinkBlock(b *strings.Builder, group wifiMLOGroup, result *
 		wifiMLOScanEHTOperationSuffix(result),
 		result.GetRssiDbm(),
 	))
-	writeRecord(b, "Information elements", wifiMLOInformationElementChecklist(result))
-	writeRecord(b, "SDK flags", wifiMLOScanSDKFlags(result))
+	writeRecord(b, "  Information elements", wifiMLOInformationElementChecklist(result))
+	writeRecord(b, "  SDK flags", wifiMLOScanSDKFlags(result))
 }
 
 func renderWifiMLOAffiliatedLinkBlocks(b *strings.Builder, group wifiMLOGroup, result *controlpb.WifiScanResult, current *controlpb.WifiConnection) {
@@ -1124,8 +1120,8 @@ func renderWifiMLOAffiliatedLinkBlocks(b *strings.Builder, group wifiMLOGroup, r
 
 func renderWifiMLOAffiliatedLinkBlock(b *strings.Builder, group wifiMLOGroup, result *controlpb.WifiScanResult, link *controlpb.MloLinkInfo, current *controlpb.WifiConnection) {
 	fmt.Fprintf(b, "    [%s] affiliated link\n", wifiMLOBlockMark(wifiMLOLinkMark(group, link, current)))
-	writeRecord(b, "    Identity", fmt.Sprintf("type=aff link=%d ap_mac=%s", link.GetLinkId(), empty(link.GetApMacAddress(), "<unknown>")))
-	writeRecord(b, "    Radio", fmt.Sprintf("band=%s ch=%d state=%s rssi=%ddBm tx=%d rx=%d max_tx=%d max_rx=%d parent_bssid=%s", empty(link.GetBand(), "<unknown>"), link.GetChannel(), empty(link.GetState(), "<unknown>"), link.GetRssiDbm(), link.GetTxLinkSpeedMbps(), link.GetRxLinkSpeedMbps(), link.GetMaxSupportedTxLinkSpeedMbps(), link.GetMaxSupportedRxLinkSpeedMbps(), empty(result.GetBssid(), "<unknown>")))
+	writeRecord(b, "      Identity", fmt.Sprintf("type=aff link=%d ap_mac=%s", link.GetLinkId(), empty(link.GetApMacAddress(), "<unknown>")))
+	writeRecord(b, "      Radio", fmt.Sprintf("band=%s ch=%d state=%s rssi=%ddBm tx=%d rx=%d max_tx=%d max_rx=%d parent_bssid=%s", empty(link.GetBand(), "<unknown>"), link.GetChannel(), empty(link.GetState(), "<unknown>"), link.GetRssiDbm(), link.GetTxLinkSpeedMbps(), link.GetRxLinkSpeedMbps(), link.GetMaxSupportedTxLinkSpeedMbps(), link.GetMaxSupportedRxLinkSpeedMbps(), empty(result.GetBssid(), "<unknown>")))
 }
 
 func renderWifiMLOCapabilities(b *strings.Builder, capabilities *controlpb.WifiCapabilities) {
@@ -1155,7 +1151,7 @@ func renderWifiMLOCapabilities(b *strings.Builder, capabilities *controlpb.WifiC
 	if len(capabilities.GetErrors()) > 0 {
 		writeSection(b, "MLO Capability Errors")
 		for _, err := range capabilities.GetErrors() {
-			writeRecord(b, "Error", err)
+			writeRecord(b, "  Error", err)
 		}
 	}
 }
@@ -1243,11 +1239,11 @@ func renderWifiMLODiagnostics(b *strings.Builder, status *controlpb.WifiStatus, 
 	}
 	writeSection(b, "Diagnostics / Warnings")
 	if len(warnings) == 0 {
-		writeRecord(b, "Warnings", "none")
+		writeRecord(b, "  Warnings", "none")
 		return
 	}
 	for _, warning := range wifiMLOUniqueStrings(warnings) {
-		writeRecord(b, "Warning", warning)
+		writeRecord(b, "  Warning", warning)
 	}
 }
 
@@ -1608,7 +1604,7 @@ func wifiMLOWrappedListLines(label string, values []string) []kvRow {
 
 func wifiMLOWriteDetailRows(b *strings.Builder, rows ...kvRow) {
 	for _, row := range rows {
-		writeRecord(b, "  "+row.label, row.value)
+		writeRecord(b, "    "+row.label, row.value)
 	}
 }
 

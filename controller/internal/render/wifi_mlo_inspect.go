@@ -200,8 +200,7 @@ func renderWifiMLORNRDetails(b *strings.Builder, groups []wifiMLOGroup) {
 	if len(lines) == 0 {
 		return
 	}
-	writeSection(b, "Scan RNR Details")
-	writeRecord(b, "RNR", strings.Join(lines, "\n"))
+	writeKVSection(b, "Scan RNR Details", kv("RNR", strings.Join(lines, "\n")))
 }
 
 func formatWifiMLORNRDetails(label string, elements []*controlpb.WifiInformationElement) []string {
@@ -487,8 +486,7 @@ func renderWifiMLOMultipleBSSIDDetails(b *strings.Builder, groups []wifiMLOGroup
 	if len(lines) == 0 {
 		return
 	}
-	writeSection(b, "Scan Multiple BSSID Details")
-	writeRecord(b, "Multiple BSSID", strings.Join(lines, "\n"))
+	writeKVSection(b, "Scan Multiple BSSID Details", kv("Multiple BSSID", strings.Join(lines, "\n")))
 }
 
 func formatWifiMLOMultipleBSSIDDetails(label string, elements []*controlpb.WifiInformationElement) []string {

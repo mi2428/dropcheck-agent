@@ -31,14 +31,14 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 	}
 	fmt.Fprintf(&b, "%s  %s\n", resultTitle(result, options), strings.ToUpper(resultStatus(result.GetStatus())))
 	if result.GetStatus() != controlpb.CommandResult_STATUS_OK {
-		writeRecord(&b, "Status", resultStatus(result.GetStatus()))
+		writeRecord(&b, "  Status", resultStatus(result.GetStatus()))
 		if result.GetMessage() != "" {
-			writeRecord(&b, "Message", result.GetMessage())
+			writeRecord(&b, "  Message", result.GetMessage())
 		}
 	}
-	writeRecord(&b, "Latency", fmt.Sprintf("%dms", commandResultLatencyMs(result)))
-	writeRecord(&b, "Source", "android")
-	writeRecord(&b, "Target", cleanDisplayCell(agent))
+	writeRecord(&b, "  Latency", fmt.Sprintf("%dms", commandResultLatencyMs(result)))
+	writeRecord(&b, "  Source", "android")
+	writeRecord(&b, "  Target", cleanDisplayCell(agent))
 	if renderRequest(&b, result, options, view) {
 		return wrapPresentation(b.String(), view.Width), nil
 	}
@@ -49,7 +49,7 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 			writeSection(&b, fmt.Sprintf("Network %d", i+1))
 			var body strings.Builder
 			writeRecord(&body, "Active/default at collection", network.GetActive())
-			renderIPView(&body, network.GetIpStatus(), view)
+			renderIPView(&body, network.GetIpStatus(), view.nested())
 			writeNested(&b, body.String())
 		}
 		renderErrors(&b, payload.NetworkSnapshot.GetErrors())
@@ -96,7 +96,7 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 			writeSection(&b, fmt.Sprintf("Event %d evidence", i+1))
 			var body strings.Builder
 			renderDiagnosticFields(&body, event.GetFields())
-			renderWifiSnapshot(&body, event.GetStatus(), view)
+			renderWifiSnapshot(&body, event.GetStatus(), view.nested())
 			writeNested(&b, body.String())
 		}
 	case *controlpb.CommandResult_WifiScanDetail:

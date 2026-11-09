@@ -21,9 +21,11 @@ func renderInformationElements(b *strings.Builder, elements []*controlpb.WifiInf
 // Shared decoded capability renderers receive the exact AP's evidence, not a new observation.
 func renderFullScanEvidence(b *strings.Builder, ap *controlpb.WifiScanResult) {
 	writeSection(b, "AP properties")
-	writeRecord(b, "Operator", ap.GetOperatorFriendlyName())
-	writeRecord(b, "Venue", ap.GetVenueName())
-	writeRecord(b, "AP link ID", observedValue(ap.GetObservationFields(), "ap_mlo_link_id", fmt.Sprint(ap.GetApMloLinkId())))
+	var properties strings.Builder
+	writeRecord(&properties, "Operator", ap.GetOperatorFriendlyName())
+	writeRecord(&properties, "Venue", ap.GetVenueName())
+	writeRecord(&properties, "AP link ID", observedValue(ap.GetObservationFields(), "ap_mlo_link_id", fmt.Sprint(ap.GetApMloLinkId())))
+	writeNested(b, properties.String())
 	conn := &controlpb.WifiConnection{InformationElements: ap.GetInformationElements(), HeCapabilities: ap.GetHeCapabilities(), HeOperation: ap.GetHeOperation(), EhtCapabilities: ap.GetEhtCapabilities(), EhtOperation: ap.GetEhtOperation(), HeUoraParameterSet: ap.GetHeUoraParameterSet(), HeMuEdcaParameterSet: ap.GetHeMuEdcaParameterSet(), HeSpatialReuseParameterSet: ap.GetHeSpatialReuseParameterSet(), He_6GhzCapabilities: ap.GetHe_6GhzCapabilities()}
 	renderWifiConnectionDetailedCapabilities(b, conn)
 	renderScanReferenceEvidence(b, ap)
@@ -31,10 +33,12 @@ func renderFullScanEvidence(b *strings.Builder, ap *controlpb.WifiScanResult) {
 
 func renderScanReferenceEvidence(b *strings.Builder, ap *controlpb.WifiScanResult) {
 	writeSection(b, "Scan properties")
-	writeRecord(b, "Capabilities", ap.GetCapabilities())
-	writeRecord(b, "WifiSsid representation", ap.GetWifiSsid())
-	writeRecord(b, "Timestamp us (boot clock)", ap.GetTimestampUs())
-	writeRecord(b, "Passpoint", ap.GetPasspoint())
+	var properties strings.Builder
+	writeRecord(&properties, "Capabilities", ap.GetCapabilities())
+	writeRecord(&properties, "WifiSsid representation", ap.GetWifiSsid())
+	writeRecord(&properties, "Timestamp us (boot clock)", ap.GetTimestampUs())
+	writeRecord(&properties, "Passpoint", ap.GetPasspoint())
+	writeNested(b, properties.String())
 	renderInformationElements(b, ap.GetInformationElements())
 	renderDiagnosticFields(b, ap.GetObservationFields())
 }

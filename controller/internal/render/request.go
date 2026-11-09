@@ -11,7 +11,7 @@ import (
 
 // Typed Shell records/tables; native output remains a separate reference block.
 func renderRequest(b *strings.Builder, result *controlpb.CommandResult, options command.Options, view Presentation) bool {
-	field := func(label string, value any) { writeRecord(b, label, value) }
+	field := func(label string, value any) { writeRecord(b, "  "+label, value) }
 	optional := func(present bool, value any) string {
 		if !present {
 			return "?"

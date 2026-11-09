@@ -140,7 +140,7 @@ internal class AgentPresentationBlock private constructor(
             when (part) {
                 is AgentBlockPart.Text -> if (part.value.length > 2048) AgentBlockPart.Text("${part.value.take(2048)}\nDisplay note truncated; long press and choose Full result for the full safe value") else part
                 // Wire values are already in the file; retaining them here defeats the history budget.
-                is AgentBlockPart.Field -> AgentBlockPart.Field(part.label, if (part.value.length > 2048) "${part.value.take(2048)} (display note abbreviated; long press and choose Full result)" else part.value)
+                is AgentBlockPart.Field -> AgentBlockPart.Field(part.label, if (part.value.length > 2048) "${part.value.take(2048)} (display note abbreviated; long press and choose Full result)" else part.value, indent = part.indent)
                 else -> part
             }
         }
@@ -439,7 +439,7 @@ internal object AgentNativeBlockLayout {
         return shown
     }
 
-    private fun fieldLabel(label: String, indent: Int = 0): String = " ".repeat(indent) + if (label.startsWith(' ')) label else "  $label"
+    private fun fieldLabel(label: String, indent: Int = 0): String = " ".repeat(indent) + label
 
     private fun appendField(out: SpannableStringBuilder, key: String, value: String, labelWidth: Float, width: Int, paint: Paint, indent: Int = 0) {
         val label = fieldLabel(key, indent)

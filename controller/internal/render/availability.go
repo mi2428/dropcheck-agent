@@ -151,9 +151,7 @@ func renderIPView(b *strings.Builder, status *controlpb.IpStatus, view Presentat
 		writeRecord(b, "Domains", observedValue(fields, "link_properties", status.GetDomains()))
 		writeRecord(b, "Proxy", observedValue(fields, "link_properties", status.GetHttpProxy()))
 		writeRecord(b, "Wake on LAN", observedBool(fields, "link_properties", status.GetWakeOnLanSupported()))
-		var ra strings.Builder
-		writeKVSection(&ra, "IPv6 RA (android)", kv("source", "android"), kv("values", multiLineValue(diagnosticFieldsForDetail(status.GetIpv6Ra()))))
-		writeNested(b, ra.String())
+		writeKVSection(b, "IPv6 RA (android)", kv("source", "android"), kv("values", multiLineValue(diagnosticFieldsForDetail(status.GetIpv6Ra()))))
 		if status.GetWifi() != nil {
 			writeSection(b, "WifiInfo from this NetworkCapabilities observation")
 			var wifi strings.Builder
@@ -178,8 +176,6 @@ func renderIPView(b *strings.Builder, status *controlpb.IpStatus, view Presentat
 			renderDiagnosticFields(&wifi, status.GetWifi().GetObservationFields())
 			writeNested(b, wifi.String())
 		}
-		var diagnostics strings.Builder
-		renderDiagnosticFields(&diagnostics, fields)
-		writeNested(b, diagnostics.String())
+		renderDiagnosticFields(b, fields)
 	}
 }

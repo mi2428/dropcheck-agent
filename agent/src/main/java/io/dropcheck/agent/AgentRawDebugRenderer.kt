@@ -52,14 +52,14 @@ internal object AgentRawDebugRenderer {
         if (evaluated.status == CommandResult.Status.STATUS_OK && result.hasNetworkSnapshot() && !validNetworkSnapshot(result.networkSnapshot, command.request.getNetwork)) {
             evaluated = result.toBuilder().setStatus(CommandResult.Status.STATUS_FAILED).setMessage("incomplete raw Network capture; retained data is reference").build()
         }
-        if (result.hasWifiScan()) result.wifiScan.errorsList.forEach { parts += AgentBlockPart.Field("Acquisition error", it) }
-        if (result.hasNetworkSnapshot()) result.networkSnapshot.errorsList.forEach { parts += AgentBlockPart.Field("Acquisition error", it) }
+        if (result.hasWifiScan()) result.wifiScan.errorsList.forEach { parts += AgentBlockPart.Field("Acquisition error", it, indent = 2) }
+        if (result.hasNetworkSnapshot()) result.networkSnapshot.errorsList.forEach { parts += AgentBlockPart.Field("Acquisition error", it, indent = 2) }
         val header = buildList {
             add(AgentBlockPart.Text("Raw Android ${command.rawView}  ${evaluated.status.name.removePrefix("STATUS_")}"))
-            add(AgentBlockPart.Field("Source", "android"))
-            add(AgentBlockPart.Field("Target", "self"))
-            add(AgentBlockPart.Field("Latency", "${evaluated.elapsedMs}ms"))
-            if (evaluated.message.isNotEmpty()) add(AgentBlockPart.Field("Message", evaluated.message))
+            add(AgentBlockPart.Field("Source", "android", indent = 2))
+            add(AgentBlockPart.Field("Target", "self", indent = 2))
+            add(AgentBlockPart.Field("Latency", "${evaluated.elapsedMs}ms", indent = 2))
+            if (evaluated.message.isNotEmpty()) add(AgentBlockPart.Field("Message", evaluated.message, indent = 2))
         }
         val ok = evaluated.status == CommandResult.Status.STATUS_OK
         return AgentShellResult(ok, block = AgentPresentationBlock.create(header + parts, if (ok) AgentLogStyle.TEXT_COLOR else -44976))
