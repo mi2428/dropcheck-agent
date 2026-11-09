@@ -582,8 +582,8 @@ func TestCheckStatusSpansFullWidthAboveRoundTimelineAndRunQueue(t *testing.T) {
 func TestCheckStatusFooterShowsLiveConnectStateByAgent(t *testing.T) {
 	events := make(chan tuirun.Event)
 	agents := []tuirun.AgentSnapshot{
-		{ID: "agent-a", Name: "35251JEHN00258", ADBSerial: "35251JEHN00258", DeviceModel: "Pixel 7a"},
-		{ID: "agent-b", Name: "45240DLAQ007HG", ADBSerial: "45240DLAQ007HG", DeviceModel: "Pixel 9"},
+		{ID: "agent-a", Name: "FAKE123456789", ADBSerial: "FAKE123456789", DeviceModel: "Pixel 7a"},
+		{ID: "agent-b", Name: "FAKE987654321", ADBSerial: "FAKE987654321", DeviceModel: "Pixel 9"},
 		{ID: "agent-c", Name: "extra-agent"},
 	}
 	m := newModelWithChecks("shownet-tui", []tuirun.Target{{Name: "ub1(5G)", SSID: "Example Net"}}, []tuirun.CheckInfo{{Name: "connect", Type: "connect"}}, events, agents)
@@ -609,10 +609,10 @@ func TestCheckStatusFooterShowsLiveConnectStateByAgent(t *testing.T) {
 	view := stripANSI(m.checkStatusView(140, 5))
 	lines := strings.Split(view, "\n")
 	if got := lines[len(lines)-1]; !strings.Contains(got, "Pixel 7a (") ||
-		!strings.Contains(got, "35251") ||
+		!strings.Contains(got, "FAKE123") ||
 		!strings.Contains(got, "FOUR_WAY_HANDSHAKE") ||
 		!strings.Contains(got, "Pixel 9 (") ||
-		!strings.Contains(got, "45240") ||
+		!strings.Contains(got, "FAKE987") ||
 		!strings.Contains(got, "COMPLETED") ||
 		!strings.Contains(got, "extra-agent=") ||
 		!strings.Contains(got, "ASSOCIATED") {
@@ -626,8 +626,8 @@ func TestCheckStatusFooterShowsLiveConnectStateByAgent(t *testing.T) {
 func TestAgentPanelTitlesUseDeviceModelAndSerial(t *testing.T) {
 	events := make(chan tuirun.Event)
 	agents := []tuirun.AgentSnapshot{
-		{ID: "agent-a", Name: "35251JEHN00258", ADBSerial: "35251JEHN00258", DeviceModel: "Pixel 7a"},
-		{ID: "agent-b", Name: "45240DLAQ007HG", ADBSerial: "45240DLAQ007HG", DeviceModel: "Pixel 9"},
+		{ID: "agent-a", Name: "FAKE123456789", ADBSerial: "FAKE123456789", DeviceModel: "Pixel 7a"},
+		{ID: "agent-b", Name: "FAKE987654321", ADBSerial: "FAKE987654321", DeviceModel: "Pixel 9"},
 	}
 	m := newModelWithChecks("shownet-tui", []tuirun.Target{{Name: "ub1(5G)", SSID: "Example Net"}}, []tuirun.CheckInfo{{Name: "connect", Type: "connect"}}, events, agents)
 	m.width = 220
@@ -635,10 +635,10 @@ func TestAgentPanelTitlesUseDeviceModelAndSerial(t *testing.T) {
 
 	text := stripANSI(m.failureHotspotPanelsView(100, 12) + "\n" + m.runQueuePanelsView(100, 12))
 	for _, want := range []string{
-		"Failure Hotspots: Pixel 7a (35251JEHN00258)",
-		"Failure Hotspots: Pixel 9 (45240DLAQ007HG)",
-		"Run Queue: Pixel 7a (35251JEHN00258)",
-		"Run Queue: Pixel 9 (45240DLAQ007HG)",
+		"Failure Hotspots: Pixel 7a (FAKE123456789)",
+		"Failure Hotspots: Pixel 9 (FAKE987654321)",
+		"Run Queue: Pixel 7a (FAKE123456789)",
+		"Run Queue: Pixel 9 (FAKE987654321)",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("agent panel title missing %q:\n%s", want, text)

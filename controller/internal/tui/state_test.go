@@ -123,8 +123,8 @@ func TestMultiAgentResultsStaySeparated(t *testing.T) {
 func TestPassingCheckPanelShowsDeviceColumn(t *testing.T) {
 	events := make(chan tuirun.Event)
 	agents := []tuirun.AgentSnapshot{
-		{ID: "agent-a", Name: "35251JEHN00258", ADBSerial: "35251JEHN00258", DeviceModel: "Pixel 7a"},
-		{ID: "agent-b", Name: "45240DLAQ007HG", ADBSerial: "45240DLAQ007HG", DeviceModel: "Pixel 9"},
+		{ID: "agent-a", Name: "FAKE123456789", ADBSerial: "FAKE123456789", DeviceModel: "Pixel 7a"},
+		{ID: "agent-b", Name: "FAKE987654321", ADBSerial: "FAKE987654321", DeviceModel: "Pixel 9"},
 	}
 	m := newModel([]tuirun.Target{{Name: "Example Net", SSID: "Example Net"}}, events, agents)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
@@ -151,7 +151,7 @@ func TestPassingCheckPanelShowsDeviceColumn(t *testing.T) {
 			t.Fatalf("passingChecks table should render %q:\n%s", want, table)
 		}
 	}
-	if strings.Contains(table, "35251JEHN00258") || strings.Contains(table, "45240DLAQ007HG") {
+	if strings.Contains(table, "FAKE123456789") || strings.Contains(table, "FAKE987654321") {
 		t.Fatalf("passingChecks table should use device names without serials:\n%s", table)
 	}
 }
@@ -159,8 +159,8 @@ func TestPassingCheckPanelShowsDeviceColumn(t *testing.T) {
 func TestFailedCheckPanelShowsDeviceColumn(t *testing.T) {
 	events := make(chan tuirun.Event)
 	agents := []tuirun.AgentSnapshot{
-		{ID: "agent-a", Name: "35251JEHN00258", ADBSerial: "35251JEHN00258", DeviceModel: "Pixel 7a"},
-		{ID: "agent-b", Name: "45240DLAQ007HG", ADBSerial: "45240DLAQ007HG", DeviceModel: "Pixel 9"},
+		{ID: "agent-a", Name: "FAKE123456789", ADBSerial: "FAKE123456789", DeviceModel: "Pixel 7a"},
+		{ID: "agent-b", Name: "FAKE987654321", ADBSerial: "FAKE987654321", DeviceModel: "Pixel 9"},
 	}
 	m := newModel([]tuirun.Target{{Name: "Example Net", SSID: "Example Net"}}, events, agents)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
@@ -194,7 +194,7 @@ func TestFailedCheckPanelShowsDeviceColumn(t *testing.T) {
 			t.Fatalf("failedChecks table should render %q:\n%s", want, table)
 		}
 	}
-	if strings.Contains(table, "35251JEHN00258") || strings.Contains(table, "45240DLAQ007HG") {
+	if strings.Contains(table, "FAKE123456789") || strings.Contains(table, "FAKE987654321") {
 		t.Fatalf("failedChecks table should use device names without serials:\n%s", table)
 	}
 }
@@ -878,19 +878,19 @@ func TestCheckStatusManualScrollUnpinsWhenFocusLeaves(t *testing.T) {
 func TestAssignedTargetsUseAssignedAgentAsCheckStatusDenominator(t *testing.T) {
 	events := make(chan tuirun.Event)
 	agents := []tuirun.AgentSnapshot{
-		{ID: "agent-a", Name: "35251JEHN00258", ADBSerial: "35251JEHN00258", DeviceModel: "Pixel 7a"},
-		{ID: "agent-b", Name: "45240DLAQ007HG", ADBSerial: "45240DLAQ007HG", DeviceModel: "Pixel 9"},
+		{ID: "agent-a", Name: "FAKE123456789", ADBSerial: "FAKE123456789", DeviceModel: "Pixel 7a"},
+		{ID: "agent-b", Name: "FAKE987654321", ADBSerial: "FAKE987654321", DeviceModel: "Pixel 9"},
 	}
 	targets := []tuirun.Target{
-		{Name: "ap-5g", ShortName: "A5", Agent: "35251JEHN00258", SSID: "Lab"},
-		{Name: "ap-6g", ShortName: "A6", Agent: "45240DLAQ007HG", SSID: "Lab"},
+		{Name: "ap-5g", ShortName: "A5", Agent: "FAKE123456789", SSID: "Lab"},
+		{Name: "ap-6g", ShortName: "A6", Agent: "FAKE987654321", SSID: "Lab"},
 	}
 	m := newModelWithChecks("shownet-tui", targets, []tuirun.CheckInfo{{Name: "connect", Type: "connect"}}, events, agents)
 	m.apply(tuirun.Event{
 		Kind:     tuirun.EventStepFinished,
 		Agent:    agents[0],
 		Round:    1,
-		Target:   tuirun.TargetSnapshot{Name: "ap-5g", ShortName: "A5", Agent: "35251JEHN00258", SSID: "Lab"},
+		Target:   tuirun.TargetSnapshot{Name: "ap-5g", ShortName: "A5", Agent: "FAKE123456789", SSID: "Lab"},
 		Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 10,
@@ -899,7 +899,7 @@ func TestAssignedTargetsUseAssignedAgentAsCheckStatusDenominator(t *testing.T) {
 		Kind:   tuirun.EventFinding,
 		Agent:  agents[1],
 		Round:  1,
-		Target: tuirun.TargetSnapshot{Name: "ap-6g", ShortName: "A6", Agent: "45240DLAQ007HG", SSID: "Lab"},
+		Target: tuirun.TargetSnapshot{Name: "ap-6g", ShortName: "A6", Agent: "FAKE987654321", SSID: "Lab"},
 		Step:   tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
 		Status: "failed",
 		Finding: &tuirun.Finding{
@@ -919,11 +919,11 @@ func TestAssignedTargetsUseAssignedAgentAsCheckStatusDenominator(t *testing.T) {
 		t.Fatalf("assigned run queue should keep both assigned targets:\n%s", runQueue)
 	}
 
-	buckets, _, _ := m.targetRoundHistory(tuirun.TargetSnapshot{Name: "ap-5g", ShortName: "A5", Agent: "35251JEHN00258", SSID: "Lab"}, 1)
+	buckets, _, _ := m.targetRoundHistory(tuirun.TargetSnapshot{Name: "ap-5g", ShortName: "A5", Agent: "FAKE123456789", SSID: "Lab"}, 1)
 	if buckets[0].ConnectFailed {
 		t.Fatalf("passing assigned target should not render connect failure: %#v", buckets[0])
 	}
-	buckets, _, _ = m.targetRoundHistory(tuirun.TargetSnapshot{Name: "ap-6g", ShortName: "A6", Agent: "45240DLAQ007HG", SSID: "Lab"}, 1)
+	buckets, _, _ = m.targetRoundHistory(tuirun.TargetSnapshot{Name: "ap-6g", ShortName: "A6", Agent: "FAKE987654321", SSID: "Lab"}, 1)
 	if !buckets[0].ConnectFailed {
 		t.Fatalf("failed assigned target should render connect failure with one assigned agent: %#v", buckets[0])
 	}

@@ -50,8 +50,8 @@ class NetworkCheckPolicyTest {
     fun selectsProbeFamilyAndSourceAddress() {
         val addresses = listOf(
             "fe80::1234%wlan0/64",
-            "192.168.22.91/22",
-            "240d:1a:beef::123/64",
+            "192.0.2.91/22",
+            "2001:db8:1::123/64",
         )
         val dualStackResolved = listOf(
             InetAddress.getByName("1.1.1.1"),
@@ -59,7 +59,7 @@ class NetworkCheckPolicyTest {
         )
         val ipv6OnlyAddresses = listOf(
             "fe80::1234%wlan0/64",
-            "240d:1a:beef::123/64",
+            "2001:db8:1::123/64",
         )
 
         assertEquals(
@@ -68,7 +68,7 @@ class NetworkCheckPolicyTest {
         )
         assertEquals(
             IpFamily.IP_FAMILY_IPV4,
-            NetworkCheckPolicy.probeFamily("one.one.one.one", listOf("192.168.22.91/22"), dualStackResolved),
+            NetworkCheckPolicy.probeFamily("one.one.one.one", listOf("192.0.2.91/22"), dualStackResolved),
         )
         assertEquals(
             IpFamily.IP_FAMILY_IPV6,
@@ -78,9 +78,9 @@ class NetworkCheckPolicyTest {
             IpFamily.IP_FAMILY_IPV6,
             NetworkCheckPolicy.probeFamily("2001:db8::1", addresses, emptyList()),
         )
-        assertEquals("192.168.22.91", NetworkCheckPolicy.sourceAddressForFamily(addresses, IpFamily.IP_FAMILY_IPV4))
-        assertEquals("240d:1a:beef::123", NetworkCheckPolicy.sourceAddressForFamily(addresses, IpFamily.IP_FAMILY_IPV6))
-        assertEquals("192.168.22.91", NetworkCheckPolicy.pingBindTarget("wlan0", addresses, IpFamily.IP_FAMILY_IPV4))
+        assertEquals("192.0.2.91", NetworkCheckPolicy.sourceAddressForFamily(addresses, IpFamily.IP_FAMILY_IPV4))
+        assertEquals("2001:db8:1::123", NetworkCheckPolicy.sourceAddressForFamily(addresses, IpFamily.IP_FAMILY_IPV6))
+        assertEquals("192.0.2.91", NetworkCheckPolicy.pingBindTarget("wlan0", addresses, IpFamily.IP_FAMILY_IPV4))
         assertEquals("wlan0", NetworkCheckPolicy.pingBindTarget("wlan0", listOf("fe80::1234%wlan0/64"), IpFamily.IP_FAMILY_IPV4))
     }
 

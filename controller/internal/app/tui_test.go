@@ -148,14 +148,14 @@ func TestTUIAgentPlansAssignTargetsBySerial(t *testing.T) {
 		{
 			ID: "agent-a",
 			Hello: &controlpb.AgentHello{
-				AdbSerial: "35251JEHN00258",
+				AdbSerial: "FAKE123456789",
 				Device:    &controlpb.DeviceInfo{Model: "Pixel 7a"},
 			},
 		},
 		{
 			ID: "agent-b",
 			Hello: &controlpb.AgentHello{
-				AdbSerial: "45240DLAQ007HG",
+				AdbSerial: "FAKE987654321",
 				Device:    &controlpb.DeviceInfo{Model: "Pixel 9"},
 			},
 		},
@@ -163,8 +163,8 @@ func TestTUIAgentPlansAssignTargetsBySerial(t *testing.T) {
 	plan := tuirun.Plan{
 		Name: "assigned-tui",
 		Networks: []tuirun.Network{
-			{Name: "ap-5g", Agent: "35251JEHN00258", SSID: "Lab", PSK: tuirun.SecretValue("synthetic-passphrase"), Band: "5ghz", WaitConnected: true, RequireIP: true, DisconnectAfter: true},
-			{Name: "ap-6g", Agent: "45240DLAQ007HG", SSID: "Lab", PSK: tuirun.SecretValue("synthetic-passphrase"), Band: "6ghz", WaitConnected: true, RequireIP: true, DisconnectAfter: true},
+			{Name: "ap-5g", Agent: "FAKE123456789", SSID: "Lab", PSK: tuirun.SecretValue("synthetic-passphrase"), Band: "5ghz", WaitConnected: true, RequireIP: true, DisconnectAfter: true},
+			{Name: "ap-6g", Agent: "FAKE987654321", SSID: "Lab", PSK: tuirun.SecretValue("synthetic-passphrase"), Band: "6ghz", WaitConnected: true, RequireIP: true, DisconnectAfter: true},
 			{Name: "shared", SSID: "Lab", PSK: tuirun.SecretValue("synthetic-passphrase"), WaitConnected: true, RequireIP: true, DisconnectAfter: true},
 		},
 	}
@@ -174,7 +174,7 @@ func TestTUIAgentPlansAssignTargetsBySerial(t *testing.T) {
 		t.Fatalf("tuiAgentPlans() error = %v", err)
 	}
 	uiPlan := compiled.Preview()
-	if uiPlan.Targets[0].Agent != "35251JEHN00258" || uiPlan.Targets[1].Agent != "45240DLAQ007HG" || uiPlan.Targets[2].Agent != "" {
+	if uiPlan.Targets[0].Agent != "FAKE123456789" || uiPlan.Targets[1].Agent != "FAKE987654321" || uiPlan.Targets[2].Agent != "" {
 		t.Fatalf("ui target agents = %#v", uiPlan.Targets)
 	}
 }
@@ -184,7 +184,7 @@ func TestTUIAgentPlansRejectDeviceModelAgentSelector(t *testing.T) {
 		{
 			ID: "agent-a",
 			Hello: &controlpb.AgentHello{
-				AdbSerial: "35251JEHN00258",
+				AdbSerial: "FAKE123456789",
 				Device:    &controlpb.DeviceInfo{Model: "Pixel 7a"},
 			},
 		},

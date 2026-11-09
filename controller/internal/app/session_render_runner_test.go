@@ -314,7 +314,7 @@ func TestTypedTracerouteViaControlsShellOutcome(t *testing.T) {
 func TestShellSeparatesMultiAgentTextOutput(t *testing.T) {
 	state, streamA, cleanupA := connectedShellStateWithStream(t)
 	defer cleanupA()
-	streamB, cleanupB := connectAdditionalTestAgent(t, state.server, "session-b", "agent-b", "45240DLAQ007HG", 36)
+	streamB, cleanupB := connectAdditionalTestAgent(t, state.server, "session-b", "agent-b", "FAKE987654321", 36)
 	defer cleanupB()
 	state.targetAll = true
 	respondToPingCommand(streamA, 4)
@@ -323,7 +323,7 @@ func TestShellSeparatesMultiAgentTextOutput(t *testing.T) {
 	if err != nil || strings.Count(out, "Agent: ") != 2 || !strings.Contains(out, "\n\nAgent: ") {
 		t.Fatalf("agent text blocks merged: %s (%v)", out, err)
 	}
-	for _, want := range []string{"R5CT12345", "45240DLAQ007HG", "4ms", "7ms"} {
+	for _, want := range []string{"R5CT12345", "FAKE987654321", "4ms", "7ms"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("broadcast lost %q: %s", want, out)
 		}

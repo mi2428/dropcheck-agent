@@ -132,14 +132,14 @@ func TestCheckStatusTargetCellCountsReachedAgentsForRunning(t *testing.T) {
 
 func TestNewPreservesConfiguredTargetOrderAcrossAssignedAgents(t *testing.T) {
 	agents := []tuirun.AgentSnapshot{
-		{ID: "agent-a", ADBSerial: "35251JEHN00258", DeviceModel: "Pixel 7a"},
-		{ID: "agent-b", ADBSerial: "45240DLAQ007HG", DeviceModel: "Pixel 9"},
+		{ID: "agent-a", ADBSerial: "FAKE123456789", DeviceModel: "Pixel 7a"},
+		{ID: "agent-b", ADBSerial: "FAKE987654321", DeviceModel: "Pixel 9"},
 	}
 	state := New([]tuirun.Target{
-		{Name: "n1(5G)", Agent: "35251JEHN00258", SSID: "Lab"},
-		{Name: "n1(6G)", Agent: "45240DLAQ007HG", SSID: "Lab"},
-		{Name: "n2(5G)", Agent: "35251JEHN00258", SSID: "Lab"},
-		{Name: "n2(6G)", Agent: "45240DLAQ007HG", SSID: "Lab"},
+		{Name: "n1(5G)", Agent: "FAKE123456789", SSID: "Lab"},
+		{Name: "n1(6G)", Agent: "FAKE987654321", SSID: "Lab"},
+		{Name: "n2(5G)", Agent: "FAKE123456789", SSID: "Lab"},
+		{Name: "n2(6G)", Agent: "FAKE987654321", SSID: "Lab"},
 	}, []tuirun.CheckInfo{}, agents, time.Now())
 
 	var got []string
