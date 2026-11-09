@@ -537,9 +537,6 @@ func PathMTUOperation(opts PathMTUOptions) (Operation, error) {
 	if err != nil {
 		return Operation{}, err
 	}
-	if minMTU != 0 && maxMTU != 0 && maxMTU < minMTU {
-		return Operation{}, errors.New("max-mtu must be greater than or equal to min-mtu")
-	}
 	timeoutMs, err := parseOptionalUint32(opts.Timeout, "timeout", 30000)
 	if err != nil {
 		return Operation{}, err
@@ -553,12 +550,16 @@ func PathMTUOperation(opts PathMTUOptions) (Operation, error) {
 	appendValueOption(&parts, "--max-mtu", opts.MaxMTU)
 	appendValueOption(&parts, "--family", opts.Family)
 	appendValueOption(&parts, "--timeout", opts.Timeout)
-	return NewOperation("path-mtu", &controlpb.RunCommand{
+	op := NewOperation("path-mtu", &controlpb.RunCommand{
 		Label: strings.Join(parts, " "),
 		Command: &controlpb.RunCommand_PathMtu{PathMtu: &controlpb.PathMtu{
 			Host: opts.Host, MinMtuBytes: minMTU, MaxMtuBytes: maxMTU, Family: family, TimeoutMs: timeoutMs, Selector: &controlpb.NetworkSelector{},
 		}},
-	}, Options{}), nil
+	}, Options{})
+	if err := validatePathMTUBounds(op.Command.GetPathMtu()); err != nil {
+		return Operation{}, err
+	}
+	return op, nil
 }
 
 // GlobalIPOperation builds an operation that discovers the device's public IP

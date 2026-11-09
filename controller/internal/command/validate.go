@@ -149,8 +149,8 @@ func ValidateOperation(op Operation) error {
 		if err := host(c.PathMtu.Host); err != nil {
 			return err
 		}
-		if c.PathMtu.MinMtuBytes != 0 && c.PathMtu.MaxMtuBytes != 0 && c.PathMtu.MinMtuBytes > c.PathMtu.MaxMtuBytes {
-			return fmt.Errorf("invalid MTU bounds")
+		if err := validatePathMTUBounds(c.PathMtu); err != nil {
+			return err
 		}
 	case *controlpb.RunCommand_ResolveDns:
 		if err := host(c.ResolveDns.Name); err != nil {
@@ -177,6 +177,24 @@ func ValidateOperation(op Operation) error {
 	}
 	if TimeoutFor(cmd) <= 0 {
 		return fmt.Errorf("operation deadline overflow")
+	}
+	return nil
+}
+
+func validatePathMTUBounds(c *controlpb.PathMtu) error {
+	overhead, defaultMin := uint32(28), uint32(576)
+	ip, _ := netip.ParseAddr(c.Host)
+	if c.Family == controlpb.IpFamily_IP_FAMILY_IPV6 || c.Family == controlpb.IpFamily_IP_FAMILY_UNSPECIFIED && ip.Is6() && !ip.Is4In6() {
+		overhead, defaultMin = 48, 1280
+	}
+	minMTU := c.MinMtuBytes
+	if minMTU == 0 {
+		minMTU = defaultMin
+	} else if minMTU < overhead {
+		return fmt.Errorf("min-mtu must be at least %d bytes for IP and ICMP headers", overhead)
+	}
+	if c.MaxMtuBytes != 0 && c.MaxMtuBytes < minMTU {
+		return fmt.Errorf("max-mtu must be greater than or equal to min-mtu (%d)", minMTU)
 	}
 	return nil
 }

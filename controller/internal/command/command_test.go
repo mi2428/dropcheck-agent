@@ -2,6 +2,7 @@ package command
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -95,6 +96,40 @@ func TestPathMTUOperationRejectsInvertedBounds(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "max-mtu must be greater than or equal to min-mtu") {
 		t.Fatalf("PathMTUOperation() error = %v", err)
+	}
+}
+
+func TestPathMTUBoundsMatchThePacketActuallySent(t *testing.T) {
+	for _, tc := range []struct {
+		family, host, minMTU, maxMTU string
+		valid                        bool
+	}{
+		{"ipv4", "192.0.2.1", "1", "1", false},
+		{"ipv4", "192.0.2.1", "28", "28", true},
+		{"ipv6", "2001:db8::1", "28", "1500", false},
+		{"ipv6", "2001:db8::1", "48", "48", true},
+		{"", "2001:db8::1", "28", "1500", false},
+		{"", "::ffff:192.0.2.1", "28", "28", true},
+		{"ipv6", "example.test", "", "1200", false},
+		{"ipv4", "example.test", "", "575", false},
+		{"ipv6", "example.test", "1200", "1500", true},
+		{"", "example.test", "", "", true},
+	} {
+		op, err := PathMTUOperation(PathMTUOptions{Host: tc.host, Family: tc.family, MinMTU: tc.minMTU, MaxMTU: tc.maxMTU})
+		if (err == nil) != tc.valid {
+			t.Fatalf("%+v: constructor error=%v", tc, err)
+		}
+		// Raw operations must enforce the same boundary as frontend constructors.
+		minMTU, _ := strconv.ParseUint(tc.minMTU, 10, 32)
+		maxMTU, _ := strconv.ParseUint(tc.maxMTU, 10, 32)
+		family, _ := parseOptionalProbeFamily(tc.family)
+		raw := NewOperation("path-mtu", &controlpb.RunCommand{Command: &controlpb.RunCommand_PathMtu{PathMtu: &controlpb.PathMtu{Host: tc.host, Family: family, MinMtuBytes: uint32(minMTU), MaxMtuBytes: uint32(maxMTU)}}}, Options{})
+		if (ValidateOperation(raw) == nil) != tc.valid {
+			t.Fatalf("%+v: raw operation validation differs", tc)
+		}
+		if tc.valid && ValidateOperation(op) != nil {
+			t.Fatalf("%+v: valid constructor output rejected", tc)
+		}
 	}
 }
 
