@@ -218,16 +218,21 @@ internal object NetworkCheckPolicy {
         }
     }
 
-    /** Use protocol MTU floors so discovery never probes below a packet size the IP version must support. */
+    /** Default to protocol MTU floors; explicit bounds must fit the IP and ICMP headers. */
     fun pathMtuMinBytes(value: Int, ipv6: Boolean): Int {
+        require(value == 0 || value >= if (ipv6) IPV6_PING_OVERHEAD_BYTES else IPV4_PING_OVERHEAD_BYTES) {
+            "minimum MTU cannot be smaller than the IP and ICMP headers"
+        }
         if (value > 0) return value
         return if (ipv6) DEFAULT_IPV6_PATH_MTU_MIN_BYTES else DEFAULT_IPV4_PATH_MTU_MIN_BYTES
     }
 
     /** Prefer Android's link MTU as the search ceiling, falling back to Ethernet MTU when unavailable. */
     fun pathMtuMaxBytes(value: Int, interfaceMtu: Int, minMtu: Int): Int {
+        require(value >= 0) { "maximum MTU cannot be negative" }
         val fallback = if (interfaceMtu > 0) interfaceMtu else DEFAULT_PATH_MTU_MAX_BYTES
         val maxMtu = if (value > 0) value else fallback
+        require(value == 0 || maxMtu >= minMtu) { "maximum MTU cannot be smaller than the minimum MTU" }
         return maxMtu.coerceAtLeast(minMtu)
     }
 
@@ -238,7 +243,8 @@ internal object NetworkCheckPolicy {
 
     /** Convert target IP MTU to ping payload bytes: IPv4 overhead is 20+8, IPv6 overhead is 40+8. */
     fun pathMtuPayloadBytes(mtuBytes: Int, overheadBytes: Int): Int {
-        return (mtuBytes - overheadBytes).coerceAtLeast(0)
+        require(mtuBytes >= overheadBytes) { "MTU cannot be smaller than the IP and ICMP headers" }
+        return mtuBytes - overheadBytes
     }
 
     /** Android ping accepts "-M do" to set DF/no-fragmentation; a failed probe means the MTU is too large. */

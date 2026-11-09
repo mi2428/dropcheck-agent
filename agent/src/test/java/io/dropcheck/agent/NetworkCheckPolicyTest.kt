@@ -7,6 +7,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class NetworkCheckPolicyTest {
@@ -164,7 +165,11 @@ class NetworkCheckPolicyTest {
         assertEquals(1200, NetworkCheckPolicy.pathMtuMinBytes(1200, ipv6 = false))
         assertEquals(1400, NetworkCheckPolicy.pathMtuMaxBytes(0, interfaceMtu = 1400, minMtu = 576))
         assertEquals(1500, NetworkCheckPolicy.pathMtuMaxBytes(0, interfaceMtu = 0, minMtu = 576))
-        assertEquals(1280, NetworkCheckPolicy.pathMtuMaxBytes(1200, interfaceMtu = 0, minMtu = 1280))
+        assertThrows(IllegalArgumentException::class.java) { NetworkCheckPolicy.pathMtuMaxBytes(1200, interfaceMtu = 0, minMtu = 1280) }
+        assertThrows(IllegalArgumentException::class.java) { NetworkCheckPolicy.pathMtuMinBytes(1, ipv6 = false) }
+        assertThrows(IllegalArgumentException::class.java) { NetworkCheckPolicy.pathMtuMinBytes(28, ipv6 = true) }
+        assertThrows(IllegalArgumentException::class.java) { NetworkCheckPolicy.pathMtuPayloadBytes(1, 28) }
+        assertEquals(0, NetworkCheckPolicy.pathMtuPayloadBytes(28, 28))
         assertEquals(NetworkCheckPolicy.IPV4_PING_OVERHEAD_BYTES, NetworkCheckPolicy.pathMtuOverheadBytes(IpFamily.IP_FAMILY_IPV4))
         assertEquals(NetworkCheckPolicy.IPV6_PING_OVERHEAD_BYTES, NetworkCheckPolicy.pathMtuOverheadBytes(IpFamily.IP_FAMILY_IPV6))
         assertEquals(1472, NetworkCheckPolicy.pathMtuPayloadBytes(1500, NetworkCheckPolicy.IPV4_PING_OVERHEAD_BYTES))
