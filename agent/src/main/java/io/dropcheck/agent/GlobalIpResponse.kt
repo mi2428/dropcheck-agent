@@ -3,21 +3,10 @@ package io.dropcheck.agent
 import java.io.ByteArrayOutputStream
 import java.net.InetSocketAddress
 import java.net.Socket
-import java.net.SocketTimeoutException
-import java.util.concurrent.ExecutionException
-import java.util.concurrent.FutureTask
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.TimeoutException
 
 // The service returns one IP literal; allow ordinary HTTP headers and small chunk framing.
 internal const val MAX_GLOBAL_IP_HEADER_BYTES = 8192
 internal const val MAX_GLOBAL_IP_BODY_BYTES = 4096
-
-internal fun globalIpTimeoutMs(deadlineNanos: Long): Int {
-    val remaining = deadlineNanos - System.nanoTime()
-    if (remaining <= 0) throw SocketTimeoutException("global IP deadline exceeded")
-    return TimeUnit.NANOSECONDS.toMillis(remaining).coerceIn(1, Int.MAX_VALUE.toLong()).toInt()
-}
 
 internal fun readGlobalIpResponse(
     socket: Socket,
@@ -25,56 +14,22 @@ internal fun readGlobalIpResponse(
     request: ByteArray,
     deadlineNanos: Long,
 ): String {
-    val task = FutureTask {
-        socket.connect(remote, globalIpTimeoutMs(deadlineNanos))
-        socket.soTimeout = globalIpTimeoutMs(deadlineNanos)
+    return withProbeDeadline(deadlineNanos, socket::close) {
+        socket.connect(remote, probeTimeoutMs(deadlineNanos))
+        socket.soTimeout = probeTimeoutMs(deadlineNanos)
         socket.getOutputStream().write(request)
         socket.getOutputStream().flush()
         val output = ByteArrayOutputStream()
         val buffer = ByteArray(1024)
         val limit = MAX_GLOBAL_IP_HEADER_BYTES + MAX_GLOBAL_IP_BODY_BYTES
         while (true) {
-            socket.soTimeout = globalIpTimeoutMs(deadlineNanos)
+            socket.soTimeout = probeTimeoutMs(deadlineNanos)
             val count = socket.getInputStream().read(buffer)
             if (count < 0) break
             check(count <= limit - output.size()) { "global IP response exceeded $limit bytes" }
             output.write(buffer, 0, count)
         }
         output.toString(Charsets.UTF_8.name())
-    }
-    val worker = Thread(task, "global-ip-response").apply { isDaemon = true }
-    try {
-        globalIpTimeoutMs(deadlineNanos)
-        worker.start()
-        return task.get((deadlineNanos - System.nanoTime()).coerceAtLeast(0), TimeUnit.NANOSECONDS)
-    } catch (e: TimeoutException) {
-        throw SocketTimeoutException("global IP deadline exceeded")
-    } catch (e: ExecutionException) {
-        throw requireNotNull(e.cause)
-    } catch (e: InterruptedException) {
-        Thread.currentThread().interrupt()
-        throw e
-    } finally {
-        try {
-            socket.close()
-        } finally {
-            task.cancel(true)
-            var interrupted = Thread.interrupted()
-            try {
-                val cleanupDeadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(500)
-                while (worker.isAlive) {
-                    val remainingMs = TimeUnit.NANOSECONDS.toMillis(cleanupDeadline - System.nanoTime())
-                    check(remainingMs > 0) { "global IP response worker did not terminate" }
-                    try {
-                        worker.join(remainingMs)
-                    } catch (e: InterruptedException) {
-                        interrupted = true
-                    }
-                }
-            } finally {
-                if (interrupted) Thread.currentThread().interrupt()
-            }
-        }
     }
 }
 

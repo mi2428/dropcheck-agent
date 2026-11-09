@@ -31,6 +31,7 @@ import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.SocketTimeoutException
 import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.time.Duration
@@ -39,10 +40,10 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 
-internal fun awaitDnsAnswer(latch: CountDownLatch, timeoutMs: Int, cancel: () -> Unit): Boolean {
+internal fun awaitDnsAnswer(latch: CountDownLatch, deadlineNanos: Long, cancel: () -> Unit): Boolean {
     var completed = false
     try {
-        completed = latch.await(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+        completed = latch.await((deadlineNanos - System.nanoTime()).coerceAtLeast(0), TimeUnit.NANOSECONDS)
         return completed
     } catch (e: InterruptedException) {
         Thread.currentThread().interrupt()
@@ -52,8 +53,8 @@ internal fun awaitDnsAnswer(latch: CountDownLatch, timeoutMs: Int, cancel: () ->
     }
 }
 
-internal fun <T> withHttpConnection(connection: HttpURLConnection, block: (HttpURLConnection) -> T): T =
-    try { block(connection) } finally { connection.disconnect() }
+internal fun <T> withHttpConnection(connection: HttpURLConnection, deadlineNanos: Long, block: (HttpURLConnection) -> T): T =
+    withProbeDeadline(deadlineNanos, connection::disconnect) { block(connection) }
 
 /**
  * Executes local network probes on a selected Android [android.net.Network].
@@ -103,6 +104,8 @@ class NetworkCheckExecutor(
     fun ping(command: Ping): CommandResult {
         val count = NetworkCheckPolicy.pingCount(command.count)
         val timeoutMs = NetworkCheckPolicy.pingTimeoutMs(command.timeoutMs, count)
+        val started = System.nanoTime()
+        val deadline = started + TimeUnit.MILLISECONDS.toNanos(timeoutMs.toLong())
         logger.debug("ping parameters host=${command.host} count=$count size_bytes=${command.sizeBytes} timeout_ms=$timeoutMs selector_ssid=${command.selector.ssid.ifBlank { "*" }}")
         logger.debugEvent("network.probe.request", listOf(
             "probe" to "ping",
@@ -111,8 +114,8 @@ class NetworkCheckExecutor(
         ) + command.logFields())
         val network = networks.waitForNetwork(command.selector, 0)
             ?: return failed("wifi network not available for ping")
-        val target = resolveProbeTarget(network, command.host, command.family, networks.ipStatus(network).addressesList, timeoutMs)
-        val ip = waitForProbeSourceIpStatus(network, target.family, timeoutMs, "ping")
+        val target = resolveProbeTarget(network, command.host, command.family, networks.ipStatus(network).addressesList, deadline)
+        val ip = waitForProbeSourceIpStatus(network, target.family, deadline, "ping")
         val iface = ip.interfaceName
         val bindTarget = NetworkCheckPolicy.pingBindTarget(iface, ip.addressesList, target.family)
         logger.debug("ping network selected network=${ip.networkId} transports=${ip.transportsList.joinToString(",")} iface=$iface family=${target.family.name} destination=${target.destination} bind_target=${bindTarget.ifBlank { "default" }} addresses=${ip.addressesList.joinToString(",")}")
@@ -149,9 +152,8 @@ class NetworkCheckExecutor(
             "timeout_ms" to timeoutMs,
         ))
 
-        val started = System.nanoTime()
         val run = networks.withBoundNetwork(network) {
-            runProcess(args, timeoutMs)
+            runProcess(args, probeTimeoutMs(deadline))
         }
         val elapsedMs = Duration.ofNanos(System.nanoTime() - started).toMillis()
         val ok = NetworkCheckPolicy.processSucceeded(run.finished, run.exitCode)
@@ -210,6 +212,8 @@ class NetworkCheckExecutor(
             NetworkCheckPolicy.DEFAULT_TRACEROUTE_TIMEOUT_MS,
         )
         val maxHops = NetworkCheckPolicy.tracerouteMaxHops(command.maxHops)
+        val started = System.nanoTime()
+        val deadline = started + TimeUnit.MILLISECONDS.toNanos(timeoutMs.toLong())
         logger.debug("traceroute parameters host=${command.host} max_hops=$maxHops size_bytes=${command.sizeBytes} timeout_ms=$timeoutMs selector_ssid=${command.selector.ssid.ifBlank { "*" }}")
         logger.debugEvent("network.probe.request", listOf(
             "probe" to "traceroute",
@@ -218,8 +222,8 @@ class NetworkCheckExecutor(
         ) + command.logFields())
         val network = networks.waitForNetwork(command.selector, 0)
             ?: return failed("wifi network not available for traceroute")
-        val target = resolveProbeTarget(network, command.host, command.family, networks.ipStatus(network).addressesList, timeoutMs)
-        val ip = waitForProbeSourceIpStatus(network, target.family, timeoutMs, "traceroute")
+        val target = resolveProbeTarget(network, command.host, command.family, networks.ipStatus(network).addressesList, deadline)
+        val ip = waitForProbeSourceIpStatus(network, target.family, deadline, "traceroute")
         val iface = ip.interfaceName
         val pingBindTarget = NetworkCheckPolicy.pingBindTarget(iface, ip.addressesList, target.family)
         logger.debugEvent("network.selected", listOf(
@@ -235,7 +239,7 @@ class NetworkCheckExecutor(
             "validated" to ip.validated,
             "internet" to ip.internet,
         ))
-        val commandArgs = tracerouteArgs(target.destination, maxHops, command.sizeBytes, iface)
+        val commandArgs = tracerouteArgs(target.destination, maxHops, command.sizeBytes, iface, deadline)
         if (commandArgs == null) {
             logger.warn("traceroute binary not available host=${command.host} iface=${iface.ifBlank { "default" }}; running ping TTL fallback")
             logger.warnEvent("network.probe.fallback", listOf(
@@ -247,7 +251,7 @@ class NetworkCheckExecutor(
                 "max_hops" to maxHops,
                 "timeout_ms" to timeoutMs,
             ))
-            return tracerouteWithPing(command, target, maxHops, timeoutMs, iface, pingBindTarget, network)
+            return tracerouteWithPing(command, target, maxHops, timeoutMs, started, iface, pingBindTarget, network)
         }
         logger.execEvent("probe.exec", listOf(
             "probe" to "traceroute",
@@ -264,9 +268,8 @@ class NetworkCheckExecutor(
             "iface" to iface.ifBlank { "default" },
             "timeout_ms" to timeoutMs,
         ))
-        val started = System.nanoTime()
         val run = networks.withBoundNetwork(network) {
-            runProcess(commandArgs, timeoutMs)
+            runProcess(commandArgs, probeTimeoutMs(deadline))
         }
         val elapsedMs = Duration.ofNanos(System.nanoTime() - started).toMillis()
         val ok = NetworkCheckPolicy.processSucceeded(run.finished, run.exitCode)
@@ -324,11 +327,14 @@ class NetworkCheckExecutor(
             command.timeoutMs,
             NetworkCheckPolicy.DEFAULT_PATH_MTU_TIMEOUT_MS,
         )
+        val started = System.nanoTime()
+        val deadline = started + TimeUnit.MILLISECONDS.toNanos(timeoutMs.toLong())
         logger.debug("path mtu parameters host=${command.host} min_mtu=${command.minMtuBytes} max_mtu=${command.maxMtuBytes} timeout_ms=$timeoutMs selector_ssid=${command.selector.ssid.ifBlank { "*" }}")
         val network = networks.waitForNetwork(command.selector, 0)
             ?: return failed("wifi network not available for path mtu")
-        val target = resolveProbeTarget(network, command.host, command.family, networks.ipStatus(network).addressesList, timeoutMs)
+        val target = resolveProbeTarget(network, command.host, command.family, networks.ipStatus(network).addressesList, deadline)
         val overheadBytes = NetworkCheckPolicy.pathMtuOverheadBytes(target.family)
+        val minMtu = NetworkCheckPolicy.pathMtuMinBytes(command.minMtuBytes, target.family == IpFamily.IP_FAMILY_IPV6)
         logger.debugEvent("network.probe.request", listOf(
             "probe" to "path_mtu",
             "effective_timeout_ms" to timeoutMs,
@@ -336,10 +342,9 @@ class NetworkCheckExecutor(
             "destination" to target.destination,
             "ip_overhead_bytes" to overheadBytes,
         ) + command.logFields())
-        val ip = waitForProbeSourceIpStatus(network, target.family, timeoutMs, "path_mtu")
+        val ip = waitForProbeSourceIpStatus(network, target.family, deadline, "path_mtu")
         val iface = ip.interfaceName
         val bindTarget = NetworkCheckPolicy.pingBindTarget(iface, ip.addressesList, target.family)
-        val minMtu = NetworkCheckPolicy.pathMtuMinBytes(command.minMtuBytes, target.family == IpFamily.IP_FAMILY_IPV6)
         val maxMtu = NetworkCheckPolicy.pathMtuMaxBytes(command.maxMtuBytes, ip.mtu, minMtu)
         val binary = NetworkCheckPolicy.pingBinary(target.family)
         logger.debugEvent("network.selected", listOf(
@@ -359,7 +364,6 @@ class NetworkCheckExecutor(
             "max_mtu" to maxMtu,
         ))
 
-        val started = System.nanoTime()
         val probes = mutableListOf<PathMtuProbe>()
         val search = NetworkCheckPolicy.searchPathMtu(minMtu, maxMtu) { mtu ->
             throwIfInterrupted()
@@ -420,6 +424,8 @@ class NetworkCheckExecutor(
             command.timeoutMs,
             NetworkCheckPolicy.DEFAULT_GLOBAL_IP_TIMEOUT_MS,
         )
+        val started = System.nanoTime()
+        val deadline = started + TimeUnit.MILLISECONDS.toNanos(timeoutMs.toLong())
         val requestedFamily = if (command.family == IpFamily.IP_FAMILY_UNSPECIFIED) {
             IpFamily.IP_FAMILY_ALL
         } else {
@@ -455,16 +461,14 @@ class NetworkCheckExecutor(
             "iface" to ip.interfaceName.ifBlank { "default" },
         ))
 
-        val started = System.nanoTime()
         val result = GlobalIpResult.newBuilder()
             .setService(GLOBAL_IP_SERVICE_HOST)
             .setRequestedFamily(requestedFamily)
             .setInterfaceName(ip.interfaceName)
-        val deadline = started + TimeUnit.MILLISECONDS.toNanos(timeoutMs.toLong())
         val resolved = try {
             families.flatMap { family ->
                 val qtype = if (family == IpFamily.IP_FAMILY_IPV6) DnsRecordType.DNS_RECORD_TYPE_AAAA else DnsRecordType.DNS_RECORD_TYPE_A
-                val lookup = resolveDnsQtype(network, GLOBAL_IP_SERVICE_HOST, qtype, globalIpTimeoutMs(deadline))
+                val lookup = resolveDnsQtype(network, GLOBAL_IP_SERVICE_HOST, qtype, deadline)
                 if (lookup.error.isNotBlank()) logger.warn("global ip DNS failed qtype=$qtype error=${lookup.error}")
                 lookup.addresses
             }
@@ -508,8 +512,7 @@ class NetworkCheckExecutor(
             .build()
     }
 
-    private fun tracerouteWithPing(command: Traceroute, target: ProbeTarget, maxHops: Int, timeoutMs: Int, iface: String, bindTarget: String, network: Network): CommandResult {
-        val started = System.nanoTime()
+    private fun tracerouteWithPing(command: Traceroute, target: ProbeTarget, maxHops: Int, timeoutMs: Int, started: Long, iface: String, bindTarget: String, network: Network): CommandResult {
         val binary = NetworkCheckPolicy.pingBinary(target.family)
         val output = StringBuilder()
         output.append("traceroute to ")
@@ -655,6 +658,8 @@ class NetworkCheckExecutor(
             command.timeoutMs,
             NetworkCheckPolicy.DEFAULT_DOWNLOAD_TIMEOUT_MS,
         )
+        val started = System.nanoTime()
+        val deadline = started + TimeUnit.MILLISECONDS.toNanos(timeoutMs.toLong())
         logger.debugEvent("network.probe.request", listOf(
             "probe" to "download",
             "effective_timeout_ms" to timeoutMs,
@@ -679,14 +684,13 @@ class NetworkCheckExecutor(
             "validated" to ip.validated,
             "internet" to ip.internet,
         ))
-        val started = System.nanoTime()
         val result = WgetResult.newBuilder()
             .setUrl(command.url)
             .setInterfaceName(iface)
         try {
-            withHttpConnection(network.openConnection(URL(command.url)) as HttpURLConnection) { conn ->
-                conn.connectTimeout = timeoutMs
-                conn.readTimeout = timeoutMs
+            withHttpConnection(network.openConnection(URL(command.url)) as HttpURLConnection, deadline) { conn ->
+                conn.connectTimeout = probeTimeoutMs(deadline)
+                conn.readTimeout = probeTimeoutMs(deadline)
                 conn.instanceFollowRedirects = true
                 conn.requestMethod = "GET"
                 logger.debugEvent("network.http.request", listOf(
@@ -714,10 +718,6 @@ class NetworkCheckExecutor(
                 input.use { stream ->
                     while (true) {
                         throwIfInterrupted()
-                        if (timeoutMs > 0 && Duration.ofNanos(System.nanoTime() - started).toMillis() > timeoutMs) {
-                            result.error = "download_timeout=${timeoutMs}ms"
-                            break
-                        }
                         val read = stream.read(buffer)
                         if (read < 0) break
                         bytes += read.toLong()
@@ -757,6 +757,9 @@ class NetworkCheckExecutor(
 
     /** Resolves DNS via the selected Android Network so per-network DNS settings are honored. */
     fun dns(command: ResolveDns): CommandResult {
+        val timeoutMs = NetworkCheckPolicy.effectiveTimeoutMs(command.timeoutMs, NetworkCheckPolicy.DEFAULT_DNS_TIMEOUT_MS)
+        val started = System.nanoTime()
+        val deadline = started + TimeUnit.MILLISECONDS.toNanos(timeoutMs.toLong())
         logger.debugEvent("network.probe.request", listOf(
             "probe" to "dns",
         ) + command.logFields())
@@ -764,10 +767,6 @@ class NetworkCheckExecutor(
             ?: return failed("wifi network not available for DNS resolution")
         val ip = networks.ipStatus(network)
         val qtypes = NetworkCheckPolicy.dnsRecordTypes(command.qtypesList)
-        val timeoutMs = NetworkCheckPolicy.effectiveTimeoutMs(
-            command.timeoutMs,
-            NetworkCheckPolicy.DEFAULT_DNS_TIMEOUT_MS,
-        )
         logger.debug("dns network selected network=${ip.networkId} transports=${ip.transportsList.joinToString(",")} iface=${ip.interfaceName} dns=${ip.dnsServersList.joinToString(",")}")
         logger.debug("dns parameters name=${command.name} qtypes=${qtypes.joinToString(",")} timeout_ms=$timeoutMs selector_ssid=${command.selector.ssid.ifBlank { "*" }}")
         logger.debugEvent("network.selected", listOf(
@@ -781,7 +780,6 @@ class NetworkCheckExecutor(
             "internet" to ip.internet,
         ))
 
-        val started = System.nanoTime()
         val result = ResolveDnsResult.newBuilder()
             .setName(command.name)
         try {
@@ -800,7 +798,7 @@ class NetworkCheckExecutor(
                 "dns_servers" to ip.dnsServersList,
             ))
             val lookups = qtypes.map { qtype ->
-                resolveDnsQtype(network, command.name, qtype, timeoutMs)
+                resolveDnsQtype(network, command.name, qtype, deadline)
             }
             val lookupErrors = lookups.mapNotNull { lookup ->
                 lookup.error.takeIf { it.isNotBlank() }?.let { "${lookup.qtype.name}=$it" }
@@ -858,12 +856,18 @@ class NetworkCheckExecutor(
         network: Network,
         name: String,
         qtype: DnsRecordType,
-        timeoutMs: Int,
+        deadlineNanos: Long,
     ): DnsLookup {
         val resolverType = when (qtype) {
             DnsRecordType.DNS_RECORD_TYPE_A -> DnsResolver.TYPE_A
             DnsRecordType.DNS_RECORD_TYPE_AAAA -> DnsResolver.TYPE_AAAA
             else -> return DnsLookup(qtype, error = "unsupported_qtype")
+        }
+        throwIfInterrupted()
+        val timeoutMs = try {
+            probeTimeoutMs(deadlineNanos)
+        } catch (e: SocketTimeoutException) {
+            return DnsLookup(qtype, error = "dns_deadline_exceeded")
         }
         val latch = CountDownLatch(1)
         val cancellation = CancellationSignal()
@@ -892,7 +896,7 @@ class NetworkCheckExecutor(
                 }
             },
         )
-        val completed = awaitDnsAnswer(latch, timeoutMs) { cancellation.cancel() }
+        val completed = awaitDnsAnswer(latch, deadlineNanos) { cancellation.cancel() }
         if (!completed) {
             return DnsLookup(qtype, error = "dns_timeout=${timeoutMs}ms")
         }
@@ -910,6 +914,9 @@ class NetworkCheckExecutor(
      * visible to the controller.
      */
     fun http(command: HttpCheck): CommandResult {
+        val timeoutMs = NetworkCheckPolicy.effectiveTimeoutMs(command.timeoutMs, NetworkCheckPolicy.DEFAULT_HTTP_TIMEOUT_MS)
+        val started = System.nanoTime()
+        val deadline = started + TimeUnit.MILLISECONDS.toNanos(timeoutMs.toLong())
         logger.debugEvent("network.probe.request", listOf(
             "probe" to "http",
         ) + command.logFields())
@@ -928,13 +935,8 @@ class NetworkCheckExecutor(
             "internet" to ip.internet,
         ))
         val expected = NetworkCheckPolicy.httpExpectedStatus(command.expectedStatus)
-        val timeoutMs = NetworkCheckPolicy.effectiveTimeoutMs(
-            command.timeoutMs,
-            NetworkCheckPolicy.DEFAULT_HTTP_TIMEOUT_MS,
-        )
         val parsedUrl = runCatching { URL(command.url) }.getOrNull()
         logger.debug("http parameters scheme=${parsedUrl?.protocol.orEmpty()} host=${parsedUrl?.host.orEmpty()} port=${parsedUrl?.port ?: -1} path=${parsedUrl?.path.orEmpty()} expected=$expected timeout_ms=$timeoutMs selector_ssid=${command.selector.ssid.ifBlank { "*" }}")
-        val started = System.nanoTime()
         val result = HttpCheckResult.newBuilder()
             .setUrl(command.url)
             .setExpectedStatus(expected)
@@ -946,9 +948,9 @@ class NetworkCheckExecutor(
                 "expected_status" to expected,
                 "timeout_ms" to timeoutMs,
             ))
-            withHttpConnection(network.openConnection(URL(command.url)) as HttpURLConnection) { conn ->
-                conn.connectTimeout = timeoutMs
-                conn.readTimeout = timeoutMs
+            withHttpConnection(network.openConnection(URL(command.url)) as HttpURLConnection, deadline) { conn ->
+                conn.connectTimeout = probeTimeoutMs(deadline)
+                conn.readTimeout = probeTimeoutMs(deadline)
                 conn.instanceFollowRedirects = false
                 logger.debug("http connection prepared method=${conn.requestMethod} follow_redirects=${conn.instanceFollowRedirects} connect_timeout=${conn.connectTimeout} read_timeout=${conn.readTimeout}")
                 logger.debugEvent("network.http.request", listOf(
@@ -997,16 +999,18 @@ class NetworkCheckExecutor(
     }
 
     /** Builds traceroute argv for the first installed implementation that supports the applet. */
-    private fun tracerouteArgs(host: String, maxHops: Int, sizeBytes: Int, iface: String): List<String>? {
+    private fun tracerouteArgs(host: String, maxHops: Int, sizeBytes: Int, iface: String, deadlineNanos: Long): List<String>? {
         // Unlike ping -I, traceroute has no source-address binding on these binaries.
         if (iface.isBlank()) return null
         val candidates = listOf(
-            listOf("/system/bin/traceroute") to true,
-            listOf("/system/xbin/traceroute") to true,
-            listOf("/system/bin/toybox", "traceroute") to supportsApplet("/system/bin/toybox", "traceroute"),
-            listOf("/system/bin/busybox", "traceroute") to supportsApplet("/system/bin/busybox", "traceroute"),
+            listOf("/system/bin/traceroute"),
+            listOf("/system/xbin/traceroute"),
+            listOf("/system/bin/toybox", "traceroute"),
+            listOf("/system/bin/busybox", "traceroute"),
         )
-        val prefix = candidates.firstOrNull { (args, supported) -> supported && File(args.first()).exists() }?.first ?: return null
+        val prefix = candidates.firstOrNull { args ->
+            File(args.first()).exists() && (args.size == 1 || supportsApplet(args.first(), args[1], deadlineNanos))
+        } ?: return null
         return buildList {
             addAll(prefix)
             if (iface.isNotBlank()) {
@@ -1024,12 +1028,17 @@ class NetworkCheckExecutor(
         }
     }
 
-    private fun supportsApplet(binary: String, applet: String): Boolean {
-        if (!File(binary).exists()) return false
-        return runCatching {
-            val run = runProcess(listOf(binary, "--list"), 1000)
+    private fun supportsApplet(binary: String, applet: String, deadlineNanos: Long): Boolean {
+        return try {
+            val run = runProcess(listOf(binary, "--list"), probeTimeoutMs(deadlineNanos).coerceAtMost(1000))
             run.output.lineSequence().any { it.trim() == applet }
-        }.getOrDefault(false)
+        } catch (e: InterruptedException) {
+            throw e
+        } catch (e: SocketTimeoutException) {
+            throw e
+        } catch (e: java.io.IOException) {
+            false
+        }
     }
 
     private fun resolveProbeTarget(
@@ -1037,21 +1046,23 @@ class NetworkCheckExecutor(
         host: String,
         requestedFamily: IpFamily,
         sourceAddresses: List<String>,
-        timeoutMs: Int,
+        deadlineNanos: Long,
     ): ProbeTarget {
         val requested = requestedProbeFamily(requestedFamily)
         val literal = NetworkCheckPolicy.parseIpLiteral(host)
         val resolved = if (literal != null) {
             listOf(literal)
         } else {
-            val resolveTimeoutMs = timeoutMs
-                .coerceAtMost(PROBE_RESOLVE_TIMEOUT_MS)
-                .coerceAtLeast(1)
-            val aLookup = resolveDnsQtype(network, host, DnsRecordType.DNS_RECORD_TYPE_A, resolveTimeoutMs)
-            val aaaaLookup = resolveDnsQtype(network, host, DnsRecordType.DNS_RECORD_TYPE_AAAA, resolveTimeoutMs)
-            val resolvedAddresses = aLookup.addresses + aaaaLookup.addresses
+            val resolveDeadline = minOf(deadlineNanos, System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(PROBE_RESOLVE_TIMEOUT_MS.toLong()))
+            val qtypes = when (requested) {
+                IpFamily.IP_FAMILY_IPV4 -> listOf(DnsRecordType.DNS_RECORD_TYPE_A)
+                IpFamily.IP_FAMILY_IPV6 -> listOf(DnsRecordType.DNS_RECORD_TYPE_AAAA)
+                else -> NetworkCheckPolicy.dnsRecordTypes(emptyList())
+            }
+            val lookups = qtypes.map { resolveDnsQtype(network, host, it, resolveDeadline) }
+            val resolvedAddresses = lookups.flatMap { it.addresses }
             if (resolvedAddresses.isEmpty()) {
-                val errors = listOf(aLookup.error, aaaaLookup.error).filter { it.isNotBlank() }
+                val errors = lookups.map { it.error }.filter { it.isNotBlank() }
                 if (errors.isNotEmpty()) {
                     logger.warn("probe target resolve failed host=$host errors=${errors.joinToString(";")}")
                 }
@@ -1084,25 +1095,22 @@ class NetworkCheckExecutor(
     private fun waitForProbeSourceIpStatus(
         network: Network,
         family: IpFamily,
-        timeoutMs: Int,
+        deadlineNanos: Long,
         probe: String,
     ): IpStatus {
         var ip = networks.ipStatus(network)
         if (NetworkCheckPolicy.sourceAddressForFamily(ip.addressesList, family) != null) {
             return ip
         }
-        val waitMs = timeoutMs.coerceAtMost(PROBE_SOURCE_ADDRESS_WAIT_MS)
-        if (waitMs <= 0) {
-            error("$probe source address unavailable on selected Network for ${family.name}")
-        }
         val started = System.nanoTime()
+        val waitDeadline = minOf(deadlineNanos, started + TimeUnit.MILLISECONDS.toNanos(PROBE_SOURCE_ADDRESS_WAIT_MS.toLong()))
+        val waitMs = probeTimeoutMs(waitDeadline)
         var attempts = 0
         logger.debug("waiting for $probe source address family=${family.name} iface=${ip.interfaceName.ifBlank { "default" }} addresses=${ip.addressesList.joinToString(",")} wait_ms=$waitMs")
-        while (remainingTimeoutMs(waitMs, started) > 0) {
+        while (System.nanoTime() < waitDeadline) {
             throwIfInterrupted()
-            val sleepMs = remainingTimeoutMs(waitMs, started)
+            val sleepMs = probeTimeoutMs(waitDeadline)
                 .coerceAtMost(PROBE_SOURCE_ADDRESS_POLL_MS)
-                .coerceAtLeast(1)
             Thread.sleep(sleepMs.toLong())
             attempts += 1
             ip = networks.ipStatus(network)
@@ -1122,6 +1130,7 @@ class NetworkCheckExecutor(
      * On timeout, the process is forcibly killed and reported as exit -1.
      */
     private fun runProcess(args: List<String>, timeoutMs: Int): ProcessRun {
+        throwIfInterrupted()
         val process = ProcessBuilder(args)
             .redirectErrorStream(true)
             .start()

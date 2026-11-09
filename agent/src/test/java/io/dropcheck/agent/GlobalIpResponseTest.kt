@@ -32,7 +32,7 @@ class GlobalIpResponseTest {
     )
 
     private fun assertNoWorkerLeak() {
-        assertFalse(Thread.getAllStackTraces().keys.any { it.isAlive && it.name == "global-ip-response" })
+        assertFalse(Thread.getAllStackTraces().keys.any { it.isAlive && it.name == "network-probe" })
     }
 
     @Test
