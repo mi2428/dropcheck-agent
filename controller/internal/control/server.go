@@ -51,13 +51,6 @@ type CommandResponse struct {
 	Error *controlpb.CommandError
 }
 
-// TransportStatus is host-local stream evidence, independent of a Wi-Fi verdict.
-type TransportStatus struct {
-	AgentID                string
-	LastSeen, LastAccepted time.Time
-	Pending                int
-}
-
 // Server tracks authenticated agents and dispatches commands over gRPC.
 //
 // Server is safe for concurrent use by Shell, tui, the basic Go client, and
@@ -74,34 +67,15 @@ type Server struct {
 	conns   map[string]*agentConn
 	infos   map[string]AgentInfo
 	waiters map[string]commandWaiter
-	ready   chan AgentInfo
+	ready   chan struct{}
 }
 
 type agentConn struct {
-	id                     string
-	sessionID              string
-	sendCh                 chan *controlpb.ControllerFrame
-	done                   chan struct{}
-	closeOnce              sync.Once
-	lastSeen, lastAccepted time.Time // Protected by Server.mu.
-}
-
-// TransportStatuses reads existing authenticated streams; it never contacts an agent.
-func (s *Server) TransportStatuses() []TransportStatus {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	statuses := make([]TransportStatus, 0, len(s.conns))
-	for id, conn := range s.conns {
-		status := TransportStatus{AgentID: id, LastSeen: conn.lastSeen, LastAccepted: conn.lastAccepted}
-		for _, waiter := range s.waiters {
-			if waiter.conn == conn {
-				status.Pending++
-			}
-		}
-		statuses = append(statuses, status)
-	}
-	sort.Slice(statuses, func(i, j int) bool { return statuses[i].AgentID < statuses[j].AgentID })
-	return statuses
+	id        string
+	sessionID string
+	sendCh    chan *controlpb.ControllerFrame
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 type commandWaiter struct {
@@ -126,35 +100,13 @@ func NewServer(token string, onLog func(LogEvent)) *Server {
 		conns:   make(map[string]*agentConn),
 		infos:   make(map[string]AgentInfo),
 		waiters: make(map[string]commandWaiter),
-		ready:   make(chan AgentInfo, 32),
+		ready:   make(chan struct{}, 32),
 	}
 }
 
 // Register registers s with a grpc.Server.
 func (s *Server) Register(server *grpc.Server) {
 	controlpb.RegisterDropcheckControlServer(server, s)
-}
-
-// WaitAgent waits for at least one agent and returns the first sorted agent.
-//
-// If an agent is already connected, WaitAgent returns immediately. Otherwise it
-// blocks until an agent connects or ctx is canceled.
-func (s *Server) WaitAgent(ctx context.Context) (AgentInfo, error) {
-	s.mu.Lock()
-	agents := s.agentListLocked()
-	if len(agents) > 0 {
-		info := agents[0]
-		s.mu.Unlock()
-		return info, nil
-	}
-	s.mu.Unlock()
-
-	select {
-	case info := <-s.ready:
-		return cloneAgentInfo(info), nil
-	case <-ctx.Done():
-		return AgentInfo{}, ctx.Err()
-	}
 }
 
 // WaitAgents waits until count agents are connected.

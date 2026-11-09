@@ -642,12 +642,12 @@ func connectedShellStateWithStream(t *testing.T) (*shellState, *testControlSessi
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	info, err := server.WaitAgent(ctx)
+	agents, err := server.WaitAgents(ctx, 1)
 	if err != nil {
-		t.Fatalf("WaitAgent() error = %v", err)
+		t.Fatalf("WaitAgents() error = %v", err)
 	}
 	state := &shellState{server: server}
-	state.setSelectedAgent(info)
+	state.setSelectedAgent(agents[0])
 
 	cleanup := func() {
 		stream.close()

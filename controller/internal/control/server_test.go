@@ -121,30 +121,6 @@ func TestLogCallbacksCanOverlapAndRemainInline(t *testing.T) {
 	}
 }
 
-func TestTransportStatusesUseOnlyCurrentHostLocalFrames(t *testing.T) {
-	server := NewServer("token", nil)
-	old := addTestConn(server, "agent-a", "old")
-	server.mu.Lock()
-	server.waiters["request"] = commandWaiter{conn: old, ch: make(chan CommandResponse, 1)}
-	server.mu.Unlock()
-	server.handleAgentFrame(old, &controlpb.AgentFrame{Body: &controlpb.AgentFrame_Heartbeat{Heartbeat: &controlpb.AgentHeartbeat{}}})
-	server.handleAgentFrame(old, &controlpb.AgentFrame{Body: &controlpb.AgentFrame_Accepted{Accepted: &controlpb.CommandAccepted{}}})
-	status := server.TransportStatuses()
-	if len(status) != 1 || status[0].Pending != 1 || status[0].LastSeen.IsZero() || status[0].LastAccepted.IsZero() {
-		t.Fatalf("host status lost heartbeat/accepted/pending: %+v", status)
-	}
-	newConn := addTestConn(server, "agent-a", "new")
-	server.handleAgentFrame(old, &controlpb.AgentFrame{Body: &controlpb.AgentFrame_Heartbeat{Heartbeat: &controlpb.AgentHeartbeat{}}})
-	status = server.TransportStatuses()
-	if len(status) != 1 || status[0].Pending != 0 || !status[0].LastSeen.IsZero() {
-		t.Fatalf("old session contaminated replacement: %+v", status)
-	}
-	server.handleAgentFrame(newConn, &controlpb.AgentFrame{Body: &controlpb.AgentFrame_Heartbeat{Heartbeat: &controlpb.AgentHeartbeat{}}})
-	if server.TransportStatuses()[0].LastSeen.IsZero() {
-		t.Fatal("replacement heartbeat not observed")
-	}
-}
-
 func TestWaitAgentsReturnsExistingAndContextPartial(t *testing.T) {
 	server := NewServer("token", nil)
 	addTestAgent(server, AgentInfo{
@@ -190,7 +166,7 @@ func TestRunSendsCommandAndReceivesResult(t *testing.T) {
 		err    error
 	}, 1)
 	go func() {
-		result, err := server.Run(context.Background(), "agent-a", "cmd-1", cmd)
+		result, err := server.RunPinned(context.Background(), server.Agents()[0], "cmd-1", cmd)
 		done <- struct {
 			result *controlpb.CommandResult
 			err    error
@@ -237,7 +213,7 @@ func TestRunSendsCancelWhenContextEnds(t *testing.T) {
 		err    error
 	}, 1)
 	go func() {
-		result, err := server.Run(ctx, "agent-a", "cmd-1", cmd)
+		result, err := server.RunPinned(ctx, server.Agents()[0], "cmd-1", cmd)
 		done <- struct {
 			result *controlpb.CommandResult
 			err    error
@@ -266,7 +242,7 @@ func TestPreCanceledRunNeverEnqueuesCommand(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	for range 20 {
-		if _, err := server.Run(ctx, "agent-a", "cmd-canceled", &controlpb.RunCommand{}); !errors.Is(err, context.Canceled) {
+		if _, err := server.RunPinned(ctx, server.Agents()[0], "cmd-canceled", &controlpb.RunCommand{}); !errors.Is(err, context.Canceled) {
 			t.Fatalf("pre-canceled Run = %v", err)
 		}
 	}
@@ -282,7 +258,7 @@ func TestRunCancellationWithFullQueueReturnsWithinBound(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		_, err := server.Run(ctx, "agent-a", "cmd-full", &controlpb.RunCommand{})
+		_, err := server.RunPinned(ctx, server.Agents()[0], "cmd-full", &controlpb.RunCommand{})
 		done <- err
 	}()
 	_ = receiveControllerFrame(t, conn.sendCh)
@@ -317,7 +293,7 @@ func TestRunCancellationWithFullQueueDisconnects(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		_, err := server.Run(ctx, "agent-a", "cmd-disconnect", &controlpb.RunCommand{})
+		_, err := server.RunPinned(ctx, server.Agents()[0], "cmd-disconnect", &controlpb.RunCommand{})
 		done <- err
 	}()
 	_ = receiveControllerFrame(t, conn.sendCh)
@@ -402,10 +378,11 @@ func TestSessionAuthenticatesRegistersAndCleansUpWaiters(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	info, err := server.WaitAgent(ctx)
+	agents, err := server.WaitAgents(ctx, 1)
 	if err != nil {
-		t.Fatalf("WaitAgent() error = %v", err)
+		t.Fatalf("WaitAgents() error = %v", err)
 	}
+	info := agents[0]
 	if info.ID != "agent-a" || info.SessionID != "session-a" || info.Hello.GetAdbSerial() != "serial-a" {
 		t.Fatalf("registered agent = %#v", info)
 	}
@@ -520,7 +497,7 @@ func TestOldSessionCleanupPreservesReplacementCommand(t *testing.T) {
 	ctx := t.Context()
 	done := make(chan error, 1)
 	go func() {
-		_, err := server.Run(ctx, "agent-a", "cmd-new", &controlpb.RunCommand{})
+		_, err := server.RunPinned(ctx, server.Agents()[0], "cmd-new", &controlpb.RunCommand{})
 		done <- err
 	}()
 	frame := receiveControllerFrame(t, newStream.sendCh)
@@ -549,7 +526,7 @@ func TestRunRejectsDuplicateCommandID(t *testing.T) {
 	conn := addTestConn(server, "agent-a", "session-a")
 	responses := make(chan CommandResponse, 1)
 	server.waiters["duplicate"] = commandWaiter{conn: conn, ch: responses}
-	if _, err := server.Run(context.Background(), conn.id, "duplicate", &controlpb.RunCommand{}); err == nil {
+	if _, err := server.RunPinned(context.Background(), server.Agents()[0], "duplicate", &controlpb.RunCommand{}); err == nil {
 		t.Fatal("duplicate command ID accepted")
 	}
 	if server.waiters["duplicate"].ch != responses {
