@@ -151,7 +151,7 @@ func TestScanAPDetailsKeepParentAndChildLevels(t *testing.T) {
 		indent int
 	}{{"Wi-Fi Security Details", "", 2}, {"rsn:", "version=1", 4}, {"Fields", "", 2}, {"ap_link_id:", "2", 4}} {
 		found := false
-		for _, line := range strings.Split(out, "\n") {
+		for line := range strings.SplitSeq(out, "\n") {
 			if strings.Contains(line, want.label) && strings.Contains(line, want.value) && len(line)-len(strings.TrimLeft(line, " ")) == want.indent {
 				found = true
 				break
@@ -162,7 +162,7 @@ func TestScanAPDetailsKeepParentAndChildLevels(t *testing.T) {
 		}
 	}
 	indentOf := func(label, value string) int {
-		for _, line := range strings.Split(out, "\n") {
+		for line := range strings.SplitSeq(out, "\n") {
 			if strings.Contains(line, label) && strings.Contains(line, value) {
 				return len(line) - len(strings.TrimLeft(line, " "))
 			}
@@ -220,13 +220,12 @@ func TestDiagnosticsScanTableStaysInsideScanSummary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	summary := strings.Index(out, "Scan summary")
-	if summary < 0 {
+	if !strings.Contains(out, "Scan summary") {
 		t.Fatalf("missing Scan summary:\n%s", out)
 	}
 	checked := map[string]bool{"SSID": false, "Lab": false}
 	inSummary := false
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if strings.TrimSpace(line) == "Scan summary" {
 			inSummary = true
 			continue
@@ -261,7 +260,7 @@ func TestMonitorEventFieldsStayWithinTheirEventEvidence(t *testing.T) {
 		indent int
 	}{{"Event 1 evidence", 0}, {"Fields", 2}, {"network_id:", 4}} {
 		found := false
-		for _, line := range strings.Split(out, "\n") {
+		for line := range strings.SplitSeq(out, "\n") {
 			if strings.Contains(line, want.value) && len(line)-len(strings.TrimLeft(line, " ")) == want.indent {
 				found = true
 				break
