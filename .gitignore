@@ -192,3 +192,9 @@ gradle-app.setting
 !.env.example
 .claude/settings.local.json
 CLAUDE.local.md
+
+# Local development documentation and QA records.
+/.dev-docs/
+
+# Python bytecode caches.
+__pycache__/
