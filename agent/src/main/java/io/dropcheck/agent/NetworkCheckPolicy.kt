@@ -2,6 +2,7 @@ package io.dropcheck.agent
 
 import io.dropcheck.agent.grpc.DnsRecordType
 import io.dropcheck.agent.grpc.IpFamily
+import io.dropcheck.agent.grpc.PathMtuProbe
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -247,7 +248,29 @@ internal object NetworkCheckPolicy {
         return mtuBytes - overheadBytes
     }
 
-    /** Android ping accepts "-M do" to set DF/no-fragmentation; a failed probe means the MTU is too large. */
+    data class PathMtuSearch(val mtuBytes: Int, val error: String = "")
+
+    /** Only explicit packet-size errors bound MTU; loss and execution failures leave it unknown. */
+    fun searchPathMtu(minMtu: Int, maxMtu: Int, probe: (Int) -> PathMtuProbe): PathMtuSearch {
+        require(minMtu > 0 && maxMtu >= minMtu) { "invalid MTU bounds" }
+        if (!probe(minMtu).passed) return PathMtuSearch(0, "minimum_mtu_failed")
+        var low = minMtu
+        var high = maxMtu
+        while (low < high) {
+            val mid = low + (high - low + 1) / 2
+            val result = probe(mid)
+            when {
+                result.passed -> low = mid
+                result.exitCode > 0 && pathMtuSizeError.containsMatchIn(result.output) -> high = mid - 1
+                else -> return PathMtuSearch(0, "mtu_probe_inconclusive=$mid exit_code=${result.exitCode}")
+            }
+        }
+        return PathMtuSearch(low)
+    }
+
+    private val pathMtuSizeError = Regex("message too long|frag(?:mentation)? needed|packet too big|packet needs to be fragmented", RegexOption.IGNORE_CASE)
+
+    /** Android ping accepts "-M do" to set DF/no-fragmentation. */
     fun pathMtuPingArgs(
         binary: String,
         bindTarget: String,

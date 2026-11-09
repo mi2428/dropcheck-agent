@@ -361,48 +361,30 @@ class NetworkCheckExecutor(
 
         val started = System.nanoTime()
         val probes = mutableListOf<PathMtuProbe>()
-        var low = minMtu
-        var high = maxMtu
-        var discovered = false
-        var error = ""
-
-        // Validate the lower bound first; binary search is meaningful only if the floor can pass.
-        val firstProbe = runPathMtuProbe(network, target.destination, minMtu, overheadBytes, binary, iface, bindTarget, timeoutMs, started)
-        probes += firstProbe
-        if (!firstProbe.passed) {
-            error = "minimum_mtu_failed"
-            low = 0
-        } else {
-            discovered = true
-            while (low < high) {
-                throwIfInterrupted()
-                val remainingMs = remainingTimeoutMs(timeoutMs, started)
-                if (remainingMs <= 0) {
-                    error = "process_timeout=${timeoutMs}ms"
-                    break
-                }
-                // Bias upward so adjacent low/high values converge and low remains the best passing MTU.
-                val mid = low + (high - low + 1) / 2
-                val probe = runPathMtuProbe(network, target.destination, mid, overheadBytes, binary, iface, bindTarget, remainingMs, started)
-                probes += probe
-                if (probe.passed) {
-                    low = mid
-                } else {
-                    high = mid - 1
-                }
+        val search = NetworkCheckPolicy.searchPathMtu(minMtu, maxMtu) { mtu ->
+            throwIfInterrupted()
+            val remainingMs = remainingTimeoutMs(timeoutMs, started)
+            val probe = if (remainingMs <= 0) {
+                PathMtuProbe.newBuilder().setMtuBytes(mtu).setExitCode(-1)
+                    .setOutput("process_timeout=${timeoutMs}ms").build()
+            } else {
+                runPathMtuProbe(network, target.destination, mtu, overheadBytes, binary, iface, bindTarget, remainingMs, started)
             }
+            probes += probe
+            probe
         }
 
         val elapsedMs = Duration.ofNanos(System.nanoTime() - started).toMillis()
-        val pathMtuBytes = if (discovered) low else 0
-        val payloadSizeBytes = if (discovered) {
+        val error = search.error
+        val pathMtuBytes = search.mtuBytes
+        val payloadSizeBytes = if (pathMtuBytes > 0) {
             NetworkCheckPolicy.pathMtuPayloadBytes(pathMtuBytes, overheadBytes)
         } else {
             0
         }
         val result = PathMtuResult.newBuilder()
             .setHost(command.host)
-            .setDiscovered(discovered && error.isBlank())
+            .setDiscovered(pathMtuBytes > 0 && error.isBlank())
             .setPathMtuBytes(pathMtuBytes)
             .setPayloadSizeBytes(payloadSizeBytes)
             .setMinMtuBytes(minMtu)

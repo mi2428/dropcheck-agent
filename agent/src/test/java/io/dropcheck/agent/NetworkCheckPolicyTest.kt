@@ -2,6 +2,7 @@ package io.dropcheck.agent
 
 import io.dropcheck.agent.grpc.DnsRecordType
 import io.dropcheck.agent.grpc.IpFamily
+import io.dropcheck.agent.grpc.PathMtuProbe
 import java.net.InetAddress
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -183,6 +184,30 @@ class NetworkCheckPolicyTest {
                 host = "example.com",
             ),
         )
+    }
+
+    @Test
+    fun pathMtuSearchNeverTurnsLossOrExecutionFailureIntoASmallerMtu() {
+        fun probe(passed: Boolean, exit: Int = if (passed) 0 else 1, output: String = "") =
+            PathMtuProbe.newBuilder().setPassed(passed).setExitCode(exit).setOutput(output).build()
+
+        assertEquals(1500, NetworkCheckPolicy.searchPathMtu(1280, 1500) { probe(true) }.mtuBytes)
+        val bounded = NetworkCheckPolicy.searchPathMtu(1280, 1500) { mtu ->
+            probe(mtu <= 1400, output = if (mtu > 1400) "From 192.0.2.1: Frag needed and DF set (mtu = 1400)" else "")
+        }
+        assertEquals(NetworkCheckPolicy.PathMtuSearch(1400), bounded)
+        for ((exit, output) in listOf(1 to "100% packet loss", -1 to "process_timeout=500ms", 2 to "permission denied", -1 to "Message too long")) {
+            val attempts = mutableListOf<Int>()
+            val lost = NetworkCheckPolicy.searchPathMtu(1280, 1500) { mtu ->
+                attempts += mtu
+                if (mtu == 1390) probe(false, exit, output) else probe(true)
+            }
+            assertEquals(listOf(1280, 1390), attempts)
+            assertEquals(0, lost.mtuBytes)
+            assertTrue(lost.error.contains("inconclusive"))
+        }
+        assertEquals(0, NetworkCheckPolicy.searchPathMtu(1280, 1500) { probe(false) }.mtuBytes)
+        assertEquals(NetworkCheckPolicy.PathMtuSearch(1280), NetworkCheckPolicy.searchPathMtu(1280, 1280) { probe(true) })
     }
 
     @Test
