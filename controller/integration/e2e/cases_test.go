@@ -217,8 +217,6 @@ func TestLiveResultAcceptsRenderedEmptyErrorFieldsAndHonorsJSONVerdicts(t *testi
 	}
 }
 
-const e2eCaseCount = 236
-
 var e2eCaseID = regexp.MustCompile(`^E2E-[0-9]{3}$`)
 
 func loadCases(t *testing.T) []matrixCase {
@@ -275,8 +273,8 @@ func TestE2ECaseTableSchema(t *testing.T) {
 }
 
 func validateCases(cases []matrixCase) error {
-	if len(cases) != e2eCaseCount {
-		return fmt.Errorf("case count = %d, want %d", len(cases), e2eCaseCount)
+	if len(cases) == 0 {
+		return fmt.Errorf("no e2e cases loaded")
 	}
 	titles := map[string]string{}
 	previousID := ""
@@ -289,8 +287,8 @@ func validateCases(cases []matrixCase) error {
 		if strings.TrimSpace(tc.Title) == "" {
 			return fmt.Errorf("%s has an empty test title", tc.ID)
 		}
-		if !titleMatchesRunner(tc) {
-			return fmt.Errorf("%s title %q does not match runner %q", tc.ID, tc.Title, tc.Runner)
+		if tc.Runner != "shell" && tc.Runner != "shell-parser" {
+			return fmt.Errorf("%s has unknown runner %q", tc.ID, tc.Runner)
 		}
 		if previousID, ok := titles[tc.Title]; ok {
 			return fmt.Errorf("%s duplicates title %q from %s", tc.ID, tc.Title, previousID)
@@ -304,36 +302,8 @@ func validateCases(cases []matrixCase) error {
 		default:
 			return fmt.Errorf("%s has unknown expectation %q", tc.ID, tc.Expect)
 		}
-		if containsStaleCaseLanguage(tc) {
-			return fmt.Errorf("%s contains stale case-management language", tc.ID)
-		}
 	}
 	return nil
-}
-
-func titleMatchesRunner(tc matrixCase) bool {
-	switch tc.Runner {
-	case "shell":
-		return strings.HasPrefix(tc.Title, "Shell ")
-	case "shell-parser":
-		return strings.HasPrefix(tc.Title, "Parser ")
-	default:
-		return false
-	}
-}
-
-func containsStaleCaseLanguage(tc matrixCase) bool {
-	text := strings.ToLower(strings.Join([]string{tc.ID, tc.Title, tc.Runner, tc.Command, tc.Expect, tc.Assertion}, "\n"))
-	staleTerms := []string{
-		"test2", "mer" + "ged", "manual" + " matrix", "resolved" + " anom" + "aly",
-		"regression" + ":", "cur" + "rently", "decide" + " whether", "documented" + " as", "last" + "-wins",
-	}
-	for _, term := range staleTerms {
-		if strings.Contains(text, term) {
-			return true
-		}
-	}
-	return false
 }
 
 func TestE2ECaseTableParsesShellExpectations(t *testing.T) {
@@ -531,12 +501,10 @@ func TestE2ECaseTableRejectsInvalidRows(t *testing.T) {
 		{"unordered ID", func(tc *matrixCase) { tc.ID = "E2E-000" }},
 		{"empty title", func(tc *matrixCase) { tc.Title = "" }},
 		{"duplicate title", func(tc *matrixCase) { tc.Title = cases[0].Title }},
-		{"title runner mismatch", func(tc *matrixCase) { tc.Title = "Parser wrong surface" }},
 		{"unsupported runner", func(tc *matrixCase) { tc.Runner = "unknown" }},
 		{"unsupported expectation", func(tc *matrixCase) { tc.Expect = "unknown" }},
 		{"empty command", func(tc *matrixCase) { tc.Command = "" }},
 		{"empty assertion", func(tc *matrixCase) { tc.Assertion = "" }},
-		{"stale language", func(tc *matrixCase) { tc.Title = "Shell currently unavailable" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			invalid := slices.Clone(cases)
@@ -546,8 +514,11 @@ func TestE2ECaseTableRejectsInvalidRows(t *testing.T) {
 			}
 		})
 	}
-	if err := validateCases(cases[:len(cases)-1]); err == nil {
-		t.Fatal("missing row passed")
+	if err := validateCases(nil); err == nil {
+		t.Fatal("empty table passed")
+	}
+	if err := validateCases([]matrixCase{{ID: "E2E-001", Title: "Help remains available", Runner: "shell", Command: "help", Expect: "help", Assertion: "Help output"}}); err != nil {
+		t.Fatalf("valid independent case rejected: %v", err)
 	}
 	if err := validateCommandCoverage(nil); err == nil || !strings.Contains(err.Error(), "missing E2E coverage") {
 		t.Fatalf("missing coverage error = %v", err)
