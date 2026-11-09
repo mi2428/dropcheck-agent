@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/netip"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -90,7 +91,7 @@ func CollectIPv6RA(ctx context.Context, client adb.Client, iface string) IPv6RAS
 	}
 	if err == nil || strings.TrimSpace(result.Stdout) != "" {
 		lines := strings.Split(strings.TrimSpace(result.Stdout), "\n")
-		present, gateways := summarizeIPv6DefaultRoutes(lines)
+		present, gateways := summarizeIPv6DefaultRoutes(lines, iface)
 		if present {
 			summary.DefaultRoute = "present"
 		} else {
@@ -193,27 +194,27 @@ func collectIPv6RASysctls(ctx context.Context, client adb.Client, iface string) 
 	return values, err
 }
 
-func summarizeIPv6DefaultRoutes(routes []string) (bool, []string) {
+func summarizeIPv6DefaultRoutes(routes []string, iface string) (bool, []string) {
 	present := false
 	gatewaySet := map[string]struct{}{}
 	for _, raw := range routes {
-		route := strings.TrimSpace(raw)
-		if route == "" {
+		fields := strings.Fields(raw)
+		if len(fields) == 0 || fields[0] != "default" && fields[0] != "::/0" {
+			continue
+		}
+		device := slices.Index(fields, "dev")
+		if device < 0 || device+1 >= len(fields) || fields[device+1] != iface {
 			continue
 		}
 		gateway := ""
-		switch {
-		case strings.Contains(route, "->"):
-			next := strings.TrimSpace(strings.SplitN(route, "->", 2)[1])
-			gateway = strings.TrimSpace(strings.SplitN(next, " ", 2)[0])
-		case strings.Contains(route, "via "):
-			next := strings.TrimSpace(strings.SplitN(route, "via ", 2)[1])
-			gateway = strings.TrimSpace(strings.SplitN(next, " ", 2)[0])
-		}
-		isIPv6Default := strings.HasPrefix(route, "::/0") ||
-			(strings.HasPrefix(route, "default") && (gateway == "::" || strings.Contains(gateway, ":")))
-		if !isIPv6Default {
-			continue
+		if via := slices.Index(fields, "via"); via >= 0 {
+			if via+1 >= len(fields) {
+				continue
+			}
+			gateway = fields[via+1]
+			if address, err := netip.ParseAddr(gateway); err != nil || !address.Is6() {
+				continue
+			}
 		}
 		present = true
 		if gateway != "" && gateway != "::" {

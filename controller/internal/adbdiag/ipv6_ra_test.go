@@ -1,20 +1,47 @@
 package adbdiag
 
 import (
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/mi2428/dropcheck-agent/controller/internal/adb"
 	"github.com/mi2428/dropcheck-agent/controller/internal/render"
 )
 
 const sampleIPv6RARawHex = "33330000000100090f09641a86dd6000000000583afffe800000000000000000000021320003ff02000000000000000000000000000186004042400800000000000000000000010100090f09641a030440c000001c2000000e1000000000200103e8000e21320000000000000000030440c000001c2000000e1000000000200103e8000e21320000000000000000"
 
+func TestCollectIPv6RADefaultRoutesBelongToSelectedInterface(t *testing.T) {
+	for _, tc := range []struct {
+		name, routes, want string
+		gateways           []string
+	}{
+		{"mixed interfaces", "default via fe80::2 dev rmnet_data0 table 100\ndefault via fe80::1 dev wlan0 table 101\ndefault via fe80::3 dev wlan1 table 102\n", "present", []string{"fe80::1"}},
+		{"only another interface", "default via fe80::2 dev rmnet_data0\n", "missing", nil},
+		{"direct route", "default dev wlan0 table 101\n", "present", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "adb")
+			script := "#!/bin/sh\ncase \"$*\" in\n'shell ip -6 route show table all') printf '%s' " + shellQuote(tc.routes) + ";;\nesac\n"
+			if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			summary := CollectIPv6RA(t.Context(), adb.Client{Path: path}, "wlan0")
+			if summary.Interface != "wlan0" || summary.DefaultRoute != tc.want || !slices.Equal(summary.DefaultGateways, tc.gateways) || len(summary.Errors) != 0 {
+				t.Fatalf("selected interface has incorrect route evidence: %+v", summary)
+			}
+		})
+	}
+}
+
 func TestSummarizeIPv6DefaultRoutes(t *testing.T) {
 	present, gateways := summarizeIPv6DefaultRoutes([]string{
-		"0.0.0.0/0 -> 10.20.0.1 wlan0",
-		"::/0 -> fe80::1 wlan0",
+		"0.0.0.0/0 via 192.0.2.1 dev wlan0",
+		"::/0 via fe80::1 dev wlan0",
 		"default via fe80::2 dev wlan0 proto ra",
-	})
+	}, "wlan0")
 	if !present {
 		t.Fatalf("present = false, want true")
 	}
