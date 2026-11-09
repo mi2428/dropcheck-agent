@@ -24,14 +24,18 @@ func TestTUIPreflightRejectsBeforeADB(t *testing.T) {
 		"observed active probe": "targets:\n- ssid: Lab\n  observe: true\nchecks:\n- type: ping\n  host: example.test\n",
 		"invalid policy":        "targets:\n- ssid: Lab\n  passphrase: synthetic-passphrase\nchecks:\n- type: wifi_status\n  policy:\n    delay: -1ms\n",
 		"invalid connection":    "targets:\n- ssid: Lab\n  passphrase: synthetic-passphrase\n  security: invalid-security\n",
+		"conflicting matchers":  "targets: [{ssid: Lab, observe: true}]\nchecks: [{type: ip_status, expect: {addresses: {contains: ['192.0.2.1/24'], exact: ['192.0.2.99/24']}}}]\n",
+		"null operand":          "targets: [{ssid: Lab, observe: true}]\nchecks: [{type: ip_status, expect: {error: {exact: null}}}]\n",
+		"null AP selector":      "targets: [{ssid: Lab, passphrase: synthetic-passphrase}]\nchecks: [{type: wifi_scan, expect: {ap: {ssid: null}}}]\n",
+		"conflicting AP counts": "targets: [{ssid: Lab, passphrase: synthetic-passphrase}]\nchecks: [{type: wifi_scan, expect: {ap: {count: 0, min_count: 1}}}]\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			plan, err := tuiconfig.Parse([]byte(config))
-			if err != nil {
-				t.Fatalf("fixture must reach runtime validation: %v", err)
+			if err == nil {
+				err = tuirun.Validate(plan)
 			}
-			if err := tuirun.Validate(plan); err == nil {
-				t.Fatal("invalid fixture passed pure validation")
+			if err == nil {
+				t.Fatal("invalid fixture passed preflight validation")
 			}
 			dir := t.TempDir()
 			marker := filepath.Join(dir, "adb-called")
@@ -45,7 +49,7 @@ func TestTUIPreflightRejectsBeforeADB(t *testing.T) {
 				t.Fatal(err)
 			}
 			err = runTUI(context.Background(), session.Options{ADBPath: fakeADB}, []string{"-c", path, "--no-tui"})
-			if err == nil || !strings.Contains(err.Error(), "validate tui config") {
+			if err == nil || !strings.Contains(err.Error(), "tui config") {
 				t.Fatalf("startup hid validation: %v", err)
 			}
 			if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {

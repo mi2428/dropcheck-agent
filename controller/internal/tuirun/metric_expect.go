@@ -179,12 +179,18 @@ func compileMatcher(metric string, raw any) (Matcher, error) {
 }
 
 func compileMapMatcher(metric string, raw map[string]any) (Matcher, error) {
+	operators := 0
 	for key := range raw {
 		switch key {
-		case "mode", "cidr", "cidrs", "contains", "exact":
+		case "mode":
+		case "cidr", "cidrs", "contains", "exact":
+			operators++
 		default:
 			return Matcher{}, fmt.Errorf("unknown expectation option %q", key)
 		}
+	}
+	if operators != 1 {
+		return Matcher{}, fmt.Errorf("%s requires exactly one of cidr, cidrs, contains, or exact", metric)
 	}
 	mode, err := matcherMode(raw["mode"])
 	if err != nil {
@@ -245,21 +251,29 @@ func stringListValueFromRaw(raw any) ([]string, error) {
 	case string:
 		return cleanStringValues([]string{value}), nil
 	default:
-		return cleanStringValues([]string{fmt.Sprint(raw)}), nil
+		return stringValues([]any{raw})
+	}
+}
+
+func expectationScalarText(value any) (string, error) {
+	switch value := value.(type) {
+	case string:
+		return value, nil
+	case int, int64, uint64, float64, bool:
+		return fmt.Sprint(value), nil
+	default:
+		return "", fmt.Errorf("unsupported expectation value %T", value)
 	}
 }
 
 func stringValues(values []any) ([]string, error) {
 	out := make([]string, 0, len(values))
 	for _, value := range values {
-		switch typed := value.(type) {
-		case string:
-			out = append(out, typed)
-		case int, int64, uint64, float64, bool:
-			out = append(out, fmt.Sprint(typed))
-		default:
-			return nil, fmt.Errorf("unsupported list value %T", value)
+		text, err := expectationScalarText(value)
+		if err != nil {
+			return nil, err
 		}
+		out = append(out, text)
 	}
 	return cleanStringValues(out), nil
 }

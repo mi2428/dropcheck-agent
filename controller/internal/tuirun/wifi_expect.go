@@ -25,9 +25,17 @@ func compileAP(raw any) (Expectation, error) {
 	if !ok {
 		return nil, fmt.Errorf("ap expectation must be a mapping")
 	}
+	_, count := fields["count"]
+	_, minimum := fields["min_count"]
+	if count && minimum {
+		return nil, fmt.Errorf("AP expectation cannot combine count and min_count")
+	}
 	e := apExpectation{count: 1}
 	for field, value := range fields {
-		text := fmt.Sprint(value)
+		text, err := expectationScalarText(value)
+		if err != nil {
+			return nil, fmt.Errorf("AP %s: %w", field, err)
+		}
 		switch field {
 		case "ssid":
 			e.ssid = text
@@ -58,22 +66,10 @@ func compileAP(raw any) (Expectation, error) {
 			if err != nil || n < 0 {
 				return nil, fmt.Errorf("AP %s must be a nonnegative integer", field)
 			}
+			e.count, e.exact, e.countMode = n, field == "count", true
 		default:
 			return nil, fmt.Errorf("unknown AP selector %q", field)
 		}
-	}
-	if value, ok := fields["count"]; ok {
-		n, err := strconv.Atoi(fmt.Sprint(value))
-		if err != nil {
-			return nil, err
-		}
-		e.count, e.exact, e.countMode = n, true, true
-	} else if value, ok := fields["min_count"]; ok {
-		n, err := strconv.Atoi(fmt.Sprint(value))
-		if err != nil {
-			return nil, err
-		}
-		e.count, e.countMode = n, true
 	}
 	for _, address := range []string{e.bssid, e.mld} {
 		if address == "" {
