@@ -59,6 +59,15 @@ internal fun <T> withMonitorCleanup(registered: Boolean, cleanup: () -> Unit, bl
     }
 }
 
+internal fun pollWifiStatus(deadline: Long, intervalMs: Int, read: () -> WifiStatus, onStatus: (WifiStatus) -> Unit) {
+    while (System.currentTimeMillis() < deadline) {
+        onStatus(read())
+        val remaining = deadline - System.currentTimeMillis()
+        if (remaining <= 0) break
+        Thread.sleep(minOf(intervalMs.toLong(), remaining))
+    }
+}
+
 internal inline fun registerFreshScanReceiver(register: () -> Unit, onFailure: (Exception) -> Nothing) {
     try {
         register()
@@ -524,27 +533,21 @@ class NetworkRepository(
             addEvent("monitor_start", "wifi monitor started")
             var lastSignature = ""
             logger.info("wifi monitor begin duration_ms=$boundedDuration interval_ms=$boundedInterval registered=$registered")
-            while (System.currentTimeMillis() < deadline) {
-                val status = runCatching { wifiStatus() }.getOrNull()
-                if (status != null) {
-                    val signature = statusSignature(status)
-                    if (signature != lastSignature) {
-                        lastSignature = signature
-                        val event = WifiEvent.newBuilder()
-                            .setUnixTimeMs(System.currentTimeMillis())
-                            .setType("status_changed")
-                            .setMessage(signature)
-                            .setStatus(status)
-                            .addFields(diagnosticField("signature", signature))
-                            .addFields(diagnosticField("elapsed_ms", System.currentTimeMillis() - startedAt))
-                            .build()
-                        events += event
-                        logger.debug("wifi monitor status_changed signature=$signature")
-                    }
+            pollWifiStatus(deadline, boundedInterval, { wifiStatus() }) { status ->
+                val signature = statusSignature(status)
+                if (signature != lastSignature) {
+                    lastSignature = signature
+                    val event = WifiEvent.newBuilder()
+                        .setUnixTimeMs(System.currentTimeMillis())
+                        .setType("status_changed")
+                        .setMessage(signature)
+                        .setStatus(status)
+                        .addFields(diagnosticField("signature", signature))
+                        .addFields(diagnosticField("elapsed_ms", System.currentTimeMillis() - startedAt))
+                        .build()
+                    events += event
+                    logger.debug("wifi monitor status_changed signature=$signature")
                 }
-                val remaining = deadline - System.currentTimeMillis()
-                if (remaining <= 0) break
-                Thread.sleep(minOf(boundedInterval.toLong(), remaining))
             }
             addEvent("monitor_end", "wifi monitor ended")
         }
