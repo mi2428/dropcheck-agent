@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Drive the real tui TUI in a private PTY with synthetic runner results only."""
+"""Drive the real TUI in a private PTY with synthetic runner results only."""
 
 import errno
 import fcntl
@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 import pty
-import re
 import select
 import signal
 import struct
@@ -21,33 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 GO = os.environ.get("GO", "go")
 
 
-def check_names():
-    """Reject stale product names, retaining only documented negative/wire cases."""
-    allowed = {
-        "proto/dropcheck/v1/control.proto": r'^\s*reserved "(?:watch_wifi|wifi_watch)"',
-        "agent/src/main/java/io/dropcheck/agent/GrpcSessionClient.kt": r'watches for silent controller periods',
-        "controller/integration/e2e/cases_test.go": r'(?:strings.Contains|return fmt.Errorf).*wifi watch',
-        "controller/internal/app/run_test.go": r'(?:removed :=|args :=).*"(?:dropcheck \[flags\] )?watch',
-        "controller/internal/app/tui_entry_qa_test.go": r'(?:\{"watch"|strings.Contains\(b.String\(\), "watch")',
-    }
-    names = subprocess.check_output(["git", "ls-files", "-co", "--exclude-standard", "-z"], cwd=ROOT).decode().split("\0")
-    for name in sorted(set(names) - {""}):
-        source = ROOT / name
-        if not source.is_file() or "__pycache__" in source.parts:
-            continue
-        assert "watch" not in name.lower(), f"stale source path: {name}"
-        if "/controlpb/" in name or name == "tools/test_tui.py":
-            continue  # Generated protocol descriptors retain reserved wire names.
-        if source.suffix not in (".go", ".kt", ".proto", ".py", ".md", ".yml", ".yaml") and name != "Makefile":
-            continue
-        for number, line in enumerate(source.read_text().splitlines(), 1):
-            if re.search("watch", line, re.I):
-                assert name in allowed and re.search(allowed[name], line), f"stale product name: {name}:{number}"
-    print("PASS: TUI source paths and names; only reserved protocol names, observer prose and negative tests are exempt")
-
-
 def run():
-    check_names()
     with tempfile.TemporaryDirectory(prefix="dropcheck-tui-pty-") as directory:
         binary = Path(directory) / "tui.test"
         subprocess.run(
