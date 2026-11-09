@@ -28,7 +28,7 @@ func Normalize(value string) string {
 }
 
 // Text normalizes free text and redacts credential fields and URL credentials.
-// Logical newlines are preserved. Invalid URL parameters fail closed.
+// Logical newlines are preserved. Invalid URL parameter names fail closed.
 func Text(value string) string {
 	lines := strings.Split(value, "\n")
 	for i := range lines {

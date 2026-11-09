@@ -149,7 +149,7 @@ func ResampleSparklineCounts(counts []int, width int) []int {
 	return out
 }
 
-// MaxInt returns the largest integer in values.
+// MaxInt returns the largest nonnegative count, or zero if none is positive.
 func MaxInt(values []int) int {
 	maxValue := 0
 	for _, value := range values {

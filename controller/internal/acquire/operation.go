@@ -136,9 +136,9 @@ func Execute(ctx context.Context, r Runner, agent control.AgentInfo, op command.
 	return result, nil
 }
 
-// PayloadMatches checks typed acquisition evidence, including selected-Network
-// identity and fresh-scan metadata for successful results. Failed results need
-// the matching payload type, not successful observations. It does not evaluate tui expectations.
+// PayloadMatches checks payload types and, for successful results, NetworkSnapshot
+// identity, Wi-Fi diagnostic structure and fresh-scan metadata. Failed results
+// need only the matching payload type. It does not evaluate tui expectations.
 func PayloadMatches(op command.Operation, raw *controlpb.CommandResult) bool {
 	if op.Command == nil || raw == nil || raw.Payload == nil {
 		return false

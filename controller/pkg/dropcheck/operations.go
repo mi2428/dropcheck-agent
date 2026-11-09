@@ -24,9 +24,9 @@ func (op Operation) String() string { return op.Name() }
 // GoString returns only the operation name, never credentials.
 func (op Operation) GoString() string { return op.Name() }
 
-// NetworkSelector constrains IP inspection or a probe at selection time; it
-// does not prove uninterrupted association. Zero selects the agent's default
-// network. SSID is literal (including spaces, Unicode and numeric names).
+// NetworkSelector constrains physical Wi-Fi selection for IP inspection and
+// probes; it does not prove uninterrupted association. A zero value leaves the
+// Wi-Fi network unspecified. SSID is literal, including spaces and Unicode.
 type NetworkSelector struct {
 	// SSID optionally requires an exact SSID.
 	SSID string
@@ -186,7 +186,7 @@ func WiFiCapabilities() Operation { return Operation{command.WifiCapabilitiesOpe
 // WiFiDisconnect explicitly disconnects Wi-Fi.
 func WiFiDisconnect() Operation { return Operation{command.WifiDisconnectOperation()} }
 
-// IPStatus inspects the default network. Use WithNetwork for a typed selector.
+// IPStatus inspects a physical Wi-Fi network. Use WithNetwork to constrain selection.
 func IPStatus() Operation { return Operation{command.IPStatusOperation()} }
 
 // Networks inspects all Android networks.

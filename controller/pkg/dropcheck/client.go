@@ -1,5 +1,5 @@
-// Package dropcheck provides typed Android agent operations without a CLI or
-// scenario DSL. Clients own their transports; operations and agent snapshots do
+// Package dropcheck provides typed Android agent operations.
+// Clients own their transports; operations and agent snapshots do
 // not expose authentication material. Raw results are unsanitized acquisition
 // data: protect them before logging or exporting.
 package dropcheck
