@@ -58,31 +58,6 @@ class LogHistoryQaInstrumentation : Instrumentation() {
             }
             await { dialog!!.window!!.decorView.hasWindowFocus() }
             fun stage(name: String) { phase = name; sendStatus(0, Bundle().apply { putString("phase", name) }) }
-            stage("legacy-single-textview-reference")
-            val line = terminalDisplayText("INFO reference ${"x".repeat(96)}\n")
-            fun styled() = android.text.SpannableString(line).apply {
-                setSpan(android.text.style.ForegroundColorSpan(Color.WHITE), 0, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            }
-            val legacy = onMain {
-                val text = TextView(main).apply {
-                    typeface = android.graphics.Typeface.MONOSPACE
-                    textSize = 8f
-                    setText(android.text.SpannableStringBuilder().apply { repeat(3_000) { append(styled()) } }, TextView.BufferType.SPANNABLE)
-                }
-                holder.addView(android.widget.ScrollView(main).apply { addView(text) })
-                text
-            }
-            await { legacy.layout != null && !legacy.isLayoutRequested }
-            val legacyStart = System.nanoTime()
-            onMain {
-                repeat(500) {
-                    legacy.append(styled())
-                    (legacy.text as android.text.SpannableStringBuilder).delete(0, line.length)
-                }
-            }
-            metrics += "reconstructedLegacy500AppendTrimMs=${(System.nanoTime() - legacyStart) / 1_000_000}"
-            onMain { holder.removeAllViews() }
-            cases++
             fun fixture(name: String): Context {
                 val folder = File(storage, name).apply { check(mkdir()) }
                 return object : ContextWrapper(targetContext) {
