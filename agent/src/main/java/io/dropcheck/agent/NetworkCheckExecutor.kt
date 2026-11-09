@@ -986,14 +986,15 @@ class NetworkCheckExecutor(
         }
         result.elapsedMs = Duration.ofNanos(System.nanoTime() - started).toMillis()
         val built = result.build()
+        val ok = NetworkCheckPolicy.httpSucceeded(built.matched, built.error)
         logger.debug("http finished url=${AgentSafePresentation.text(command.url)} status=${built.status} expected=${built.expectedStatus} matched=${built.matched} error=${built.error.ifBlank { "none" }} elapsed_ms=${built.elapsedMs}")
         logger.debugEvent("network.probe.result", listOf(
             "probe" to "http",
-            "ok" to NetworkCheckPolicy.httpSucceeded(built.matched, built.error),
+            "ok" to ok,
         ) + built.logFields())
         return CommandResult.newBuilder()
-            .setStatus(if (NetworkCheckPolicy.httpSucceeded(built.matched, built.error)) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
-            .setMessage(if (built.matched) "http check passed" else "http check failed")
+            .setStatus(if (ok) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
+            .setMessage(if (ok) "http check passed" else "http check failed")
             .setHttpCheck(built)
             .build()
     }
