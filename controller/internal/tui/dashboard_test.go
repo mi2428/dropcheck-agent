@@ -603,7 +603,7 @@ func TestCheckStatusFooterShowsLiveConnectStateByAgent(t *testing.T) {
 		Time:    time.Date(2026, 5, 18, 11, 0, 0, 0, time.UTC),
 		Kind:    tuirun.EventLog,
 		Agent:   agents[2],
-		Message: "wifi connect state: supplicant=ASSOCIATED bssid=22:0b:8b:b6:2c:e2",
+		Message: "wifi connect state: supplicant=ASSOCIATED bssid=02:00:00:00:00:14",
 	})
 
 	view := stripANSI(m.checkStatusView(140, 5))

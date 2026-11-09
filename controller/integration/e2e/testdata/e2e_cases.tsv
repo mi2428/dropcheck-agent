@@ -185,8 +185,8 @@ E2E-224	Parser ping timeout boundary	shell-parser	request ping 1.1.1.1 timeout 0
 E2E-225	Parser duplicate ping count	shell-parser	request ping 1.1.1.1 count 1 count 2	error	Duplicate ping count values are rejected.
 E2E-226	Shell traceroute defaults	shell	request traceroute 1.1.1.1	ok_or_clear	Default traceroute succeeds or returns clear network failure.
 E2E-227	Shell traceroute size	shell	request traceroute 1.1.1.1 size 56 max-hops 8 timeout 30000	ok_or_clear	Traceroute accepts size.
-E2E-228	Shell single via	shell	request traceroute 1.1.1.1 via 192.168.23.254 max-hops 8 timeout 30000	ok_or_clear	Required hop is checked in renderer; pass if hop appears, otherwise clear required-hop failure.
-E2E-229	Shell repeatable via	shell	request traceroute 1.1.1.1 via 192.168.23.254 via 1.1.1.1 max-hops 8 timeout 30000	ok_or_clear	Multiple required hops are checked.
+E2E-228	Shell single via	shell	request traceroute 1.1.1.1 via 192.0.2.254 max-hops 8 timeout 30000	ok_or_clear	A missing required hop is reported as a typed finding.
+E2E-229	Shell repeatable via	shell	request traceroute 1.1.1.1 via 192.0.2.254 via 1.1.1.1 max-hops 8 timeout 30000	ok_or_clear	Multiple required hops are checked.
 E2E-230	Parser missing via	shell-parser	request traceroute 1.1.1.1 via	error	`via requires a value`.
 E2E-231	Parser traceroute size failure	shell-parser	request traceroute 1.1.1.1 size nope	error	Size parse error.
 E2E-232	Parser traceroute timeout boundary	shell-parser	request traceroute 1.1.1.1 timeout 0	error	Timeout must be positive.

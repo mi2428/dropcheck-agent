@@ -45,14 +45,14 @@ class StructuredLogTest {
     fun rendersLogfmtStyleFieldsWithEscaping() {
         val line = StructuredLog.format(
             "grpc.rx",
-            "url" to "https://www.wide.ad.jp/",
+            "url" to "https://www.example.test/",
             "message" to "hello world",
             "empty" to "",
             "count" to 3,
         )
 
         assertTrue(line.contains("event=grpc.rx"))
-        assertTrue(line.contains("url=https://www.wide.ad.jp/"))
+        assertTrue(line.contains("url=https://www.example.test/"))
         assertTrue(line.contains("message=\"hello world\""))
         assertTrue(line.contains("empty=\"\""))
         assertTrue(line.contains("count=3"))
@@ -61,15 +61,15 @@ class StructuredLogTest {
     @Test
     fun commandFieldsIncludeConcreteHttpDnsTraceroutePathMtuAndGlobalIpTargets() {
         val http = RunCommand.newBuilder()
-            .setLabel("test http https://www.wide.ad.jp/ expected-status 301")
+            .setLabel("test http https://www.example.test/ expected-status 301")
             .setHttpCheck(HttpCheck.newBuilder()
-                .setUrl("https://www.wide.ad.jp/")
+                .setUrl("https://www.example.test/")
                 .setExpectedStatus(301)
                 .setTimeoutMs(2000))
             .build()
         val dns = RunCommand.newBuilder()
             .setResolveDns(ResolveDns.newBuilder()
-                .setName("wide.ad.jp")
+                .setName("example.test")
                 .addQtypes(DnsRecordType.DNS_RECORD_TYPE_A)
                 .setTimeoutMs(1000))
             .build()
@@ -100,10 +100,10 @@ class StructuredLogTest {
         val pathMtuLine = StructuredLog.format("command.received", pathMtu.logFields())
         val globalIpLine = StructuredLog.format("command.received", globalIp.logFields())
 
-        assertTrue(httpLine.contains("url=https://www.wide.ad.jp/"))
-        assertTrue(httpLine.contains("url_host=www.wide.ad.jp"))
+        assertTrue(httpLine.contains("url=https://www.example.test/"))
+        assertTrue(httpLine.contains("url_host=www.example.test"))
         assertTrue(httpLine.contains("expected_status=301"))
-        assertTrue(dnsLine.contains("name=wide.ad.jp"))
+        assertTrue(dnsLine.contains("name=example.test"))
         assertTrue(dnsLine.contains("qtypes=DNS_RECORD_TYPE_A"))
         assertTrue(tracerouteLine.contains("host=1.1.1.1"))
         assertTrue(tracerouteLine.contains("max_hops=2"))
@@ -146,15 +146,15 @@ class StructuredLogTest {
         val dnsResult = CommandResult.newBuilder()
             .setStatus(CommandResult.Status.STATUS_OK)
             .setResolveDns(ResolveDnsResult.newBuilder()
-                .setName("wide.ad.jp")
+                .setName("example.test")
                 .addAnswers(DnsAnswer.newBuilder()
                     .setType(DnsRecordType.DNS_RECORD_TYPE_A)
-                    .setAddress("203.178.136.63")))
+                    .setAddress("203.0.113.63")))
             .build()
         val httpResult = CommandResult.newBuilder()
             .setStatus(CommandResult.Status.STATUS_FAILED)
             .setHttpCheck(HttpCheckResult.newBuilder()
-                .setUrl("https://www.wide.ad.jp/")
+                .setUrl("https://www.example.test/")
                 .setStatus(301)
                 .setExpectedStatus(200)
                 .setMatched(false))
@@ -193,8 +193,8 @@ class StructuredLogTest {
         val pathMtuLine = StructuredLog.format("command.result", pathMtuResult.logFields())
         val globalIpLine = StructuredLog.format("command.result", globalIpResult.logFields())
 
-        assertTrue(dnsLine.contains("answers=DNS_RECORD_TYPE_A:203.178.136.63"))
-        assertTrue(httpLine.contains("url_host=www.wide.ad.jp"))
+        assertTrue(dnsLine.contains("answers=DNS_RECORD_TYPE_A:203.0.113.63"))
+        assertTrue(httpLine.contains("url_host=www.example.test"))
         assertTrue(httpLine.contains("http_status=301"))
         assertTrue(tracerouteLine.contains("executable=\"ping TTL fallback\""))
         assertTrue(tracerouteLine.contains("output_preview="))

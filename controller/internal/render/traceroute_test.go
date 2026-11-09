@@ -14,15 +14,15 @@ func TestTracerouteUsesTypedHopsNotNativeText(t *testing.T) {
 		Host: "8.8.8.8", ReachedTarget: new(false),
 		Output: "1 raw-only (203.0.113.254) 1.234 ms\n2 dns.google (8.8.8.8) 18.100 ms\n",
 		Hops: []*controlpb.TracerouteHop{
-			{Index: 1, Hostnames: []string{"router.local"}, Addresses: []string{"192.168.23.254"}, RttMs: []float64{1.234, 1.456}},
+			{Index: 1, Hostnames: []string{"router.local"}, Addresses: []string{"192.0.2.254"}, RttMs: []float64{1.234, 1.456}},
 			{Index: 2, TimedOut: true},
 		},
 	}}}
-	text, err := CommandResult("target", result, command.Options{TracerouteRequiredHops: []string{"192.168.23.254", "203.0.113.254"}})
+	text, err := CommandResult("target", result, command.Options{TracerouteRequiredHops: []string{"192.0.2.254", "203.0.113.254"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for label, want := range map[string]string{"Matched hops": "192.168.23.254", "Missing hops": "203.0.113.254", "Reached target": "false"} {
+	for label, want := range map[string]string{"Matched hops": "192.0.2.254", "Missing hops": "203.0.113.254", "Reached target": "false"} {
 		if !slices.Equal(metadataQAValues(text, label), []string{want}) {
 			t.Errorf("typed %s not preserved in %s", label, text)
 		}

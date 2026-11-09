@@ -1457,14 +1457,14 @@ func TestRenderWifiScanBriefMLOKeepsAPAndAffiliatedIdentityOrder(t *testing.T) {
 			WifiScan: &controlpb.WifiScan{
 				Fields: []*controlpb.DiagnosticField{{Key: "requested_band", Value: "all"}},
 				Results: []*controlpb.WifiScanResult{{
-					Ssid:            "hp2",
-					Bssid:           "98:8f:00:f0:74:f0",
+					Ssid:            "Fixture-A",
+					Bssid:           "02:00:00:00:01:10",
 					RssiDbm:         -62,
 					Band:            "5ghz",
 					FrequencyMhz:    5520,
 					WifiStandard:    "802.11be",
 					SecurityTypes:   []string{"sae"},
-					ApMldMacAddress: "98:8f:00:f0:75:10",
+					ApMldMacAddress: "02:00:00:00:01:20",
 					ApMloLinkId:     1,
 					SecurityDetails: &controlpb.WifiSecurityDetails{
 						RsnxeCapabilities: []string{"sae_h2e"},
@@ -1474,17 +1474,17 @@ func TestRenderWifiScanBriefMLOKeepsAPAndAffiliatedIdentityOrder(t *testing.T) {
 						LinkId:            0,
 						State:             "unassociated",
 						Band:              "6ghz",
-						ApMacAddress:      "98:8f:00:f0:75:10",
+						ApMacAddress:      "02:00:00:00:01:20",
 					}},
 				}, {
-					Ssid:            "hp2",
-					Bssid:           "98:8f:00:f0:75:10",
+					Ssid:            "Fixture-A",
+					Bssid:           "02:00:00:00:01:20",
 					RssiDbm:         -65,
 					Band:            "6ghz",
 					FrequencyMhz:    6175,
 					WifiStandard:    "802.11be",
 					SecurityTypes:   []string{"sae"},
-					ApMldMacAddress: "98:8f:00:f0:75:10",
+					ApMldMacAddress: "02:00:00:00:01:20",
 					ApMloLinkId:     0,
 					SecurityDetails: &controlpb.WifiSecurityDetails{
 						RsnxeCapabilities: []string{"sae_h2e"},
@@ -1494,24 +1494,24 @@ func TestRenderWifiScanBriefMLOKeepsAPAndAffiliatedIdentityOrder(t *testing.T) {
 						LinkId:            1,
 						State:             "unassociated",
 						Band:              "5ghz",
-						ApMacAddress:      "98:8f:00:f0:74:f0",
+						ApMacAddress:      "02:00:00:00:01:10",
 					}},
 				}, {
-					Ssid:            "cs5",
-					Bssid:           "f0:d8:05:77:3b:07",
+					Ssid:            "Fixture-B",
+					Bssid:           "02:00:00:00:02:10",
 					RssiDbm:         -70,
 					Band:            "5ghz",
 					FrequencyMhz:    5580,
 					WifiStandard:    "802.11be",
 					SecurityTypes:   []string{"sae"},
-					ApMldMacAddress: "f2:d8:05:77:3b:18",
+					ApMldMacAddress: "02:00:00:00:02:30",
 					ApMloLinkId:     1,
 					AffiliatedMloLinks: []*controlpb.MloLinkInfo{{
 						ObservationFields: testObservationFields("identity"),
 						LinkId:            2,
 						State:             "unassociated",
 						Band:              "6ghz",
-						ApMacAddress:      "f0:d8:05:77:3b:0f",
+						ApMacAddress:      "02:00:00:00:02:20",
 					}},
 				}},
 			},
@@ -1526,21 +1526,21 @@ func TestRenderWifiScanBriefMLOKeepsAPAndAffiliatedIdentityOrder(t *testing.T) {
 	if len(rows) < 6 {
 		t.Fatalf("scan rows = %#v, want at least 6 rows\n%s", rows, out)
 	}
-	for _, mac := range []string{"98:8f:00:f0:75:10", "98:8f:00:f0:74:f0", "f0:d8:05:77:3b:07", "f0:d8:05:77:3b:0f"} {
+	for _, mac := range []string{"02:00:00:00:01:20", "02:00:00:00:01:10", "02:00:00:00:02:10", "02:00:00:00:02:20"} {
 		if indexOfRowContaining(rows, mac) < 0 {
 			t.Fatalf("missing full AP/link MAC %s: %s", mac, out)
 		}
 	}
 	compact := strings.Join(strings.Fields(out), " ")
-	if len(metadataQAValues(out, "SSID")) != 3 || strings.Count(compact, "SSID: hp2") != 2 || strings.Count(compact, "SSID: cs5") != 1 {
+	if len(metadataQAValues(out, "SSID")) != 3 || strings.Count(compact, "SSID: Fixture-A") != 2 || strings.Count(compact, "SSID: Fixture-B") != 1 {
 		t.Fatalf("case-sensitive SSID no longer belongs to each AP record: %s", out)
 	}
-	for i, want := range []string{"BSSID: 98:8f:00:f0:74:f0", "AP_MAC: 98:8f:00:f0:75:10", "BSSID: 98:8f:00:f0:75:10", "AP_MAC: 98:8f:00:f0:74:f0", "BSSID: f0:d8:05:77:3b:07", "AP_MAC: f0:d8:05:77:3b:0f"} {
+	for i, want := range []string{"BSSID: 02:00:00:00:01:10", "AP_MAC: 02:00:00:00:01:20", "BSSID: 02:00:00:00:01:20", "AP_MAC: 02:00:00:00:01:10", "BSSID: 02:00:00:00:02:10", "AP_MAC: 02:00:00:00:02:20"} {
 		if strings.Join(strings.Fields(rows[i]), " ") != want {
 			t.Fatalf("AP/link identity order changed: %v", rows)
 		}
 	}
-	if strings.Index(compact, "BSSID: 98:8f:00:f0:74:f0") > strings.Index(compact, "BSSID: 98:8f:00:f0:75:10") {
+	if strings.Index(compact, "BSSID: 02:00:00:00:01:10") > strings.Index(compact, "BSSID: 02:00:00:00:01:20") {
 		t.Fatalf("APs not RSSI-descending within SSID: %s", out)
 	}
 	if strings.Contains(out, "---") {
@@ -1555,14 +1555,14 @@ func TestRenderWifiScanBriefMLOIncludesUnknownStandardWithMetadata(t *testing.T)
 			WifiScan: &controlpb.WifiScan{
 				Fields: []*controlpb.DiagnosticField{{Key: "requested_band", Value: "all"}},
 				Results: []*controlpb.WifiScanResult{{
-					Ssid:            "Meraki",
-					Bssid:           "6e:ef:9d:c4:8e:70",
+					Ssid:            "Fixture-C",
+					Bssid:           "02:00:00:00:03:10",
 					RssiDbm:         -68,
 					Band:            "6ghz",
 					FrequencyMhz:    6295,
 					WifiStandard:    "unknown",
 					SecurityTypes:   []string{"sae"},
-					ApMldMacAddress: "6e:ef:bd:c4:8e:71",
+					ApMldMacAddress: "02:00:00:00:03:30",
 					ApMloLinkId:     2,
 					AffiliatedMloLinks: []*controlpb.MloLinkInfo{{
 						ObservationFields: testObservationFields("identity", "rates"),
@@ -1571,7 +1571,7 @@ func TestRenderWifiScanBriefMLOIncludesUnknownStandardWithMetadata(t *testing.T)
 						Band:              "5ghz",
 						Channel:           149,
 						RssiDbm:           -70,
-						ApMacAddress:      "6e:ef:9d:c4:8e:60",
+						ApMacAddress:      "02:00:00:00:03:20",
 					}},
 					InformationElements: []*controlpb.WifiInformationElement{
 						ehtMultiLinkTestIE(),
@@ -1594,7 +1594,7 @@ func TestRenderWifiScanBriefMLOIncludesUnknownStandardWithMetadata(t *testing.T)
 	if err != nil {
 		t.Fatalf("CommandResult() error = %v", err)
 	}
-	for _, want := range []string{"Meraki", "MLD", "6e:ef:9d:c4:8e:70", "6e:ef:9d:c4:8e:60", "APs: shown=2 total=2", "LegacyMLO"} {
+	for _, want := range []string{"Fixture-C", "MLD", "02:00:00:00:03:10", "02:00:00:00:03:20", "APs: shown=2 total=2", "LegacyMLO"} {
 		if !strings.Contains(strings.Join(strings.Fields(out), " "), want) {
 			t.Fatalf("rendered output = %q, missing %q", out, want)
 		}
