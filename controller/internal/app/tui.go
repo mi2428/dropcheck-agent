@@ -435,6 +435,9 @@ func parseTUIOptions(args []string) (tuiOptions, error) {
 				value = args[i]
 			}
 			opts.configPath = value
+			if value == "" {
+				return opts, fmt.Errorf("%s requires a nonempty value", name)
+			}
 		case "--target":
 			if !hasValue {
 				if i+1 >= len(args) {
@@ -444,6 +447,9 @@ func parseTUIOptions(args []string) (tuiOptions, error) {
 				value = args[i]
 			}
 			opts.target = value
+			if value == "" {
+				return opts, fmt.Errorf("--target requires a nonempty value")
+			}
 		case "--jsonl":
 			if !hasValue {
 				if i+1 >= len(args) {
@@ -453,9 +459,18 @@ func parseTUIOptions(args []string) (tuiOptions, error) {
 				value = args[i]
 			}
 			opts.jsonlPath = value
+			if value == "" {
+				return opts, fmt.Errorf("--jsonl requires a nonempty value")
+			}
 		case "--no-tui":
+			if hasValue {
+				return opts, fmt.Errorf("--no-tui does not accept a value")
+			}
 			opts.noTUI = true
 		case "-h", "--help", "help":
+			if hasValue {
+				return opts, fmt.Errorf("%s does not accept a value", name)
+			}
 			return opts, errTUIHelpRequested
 		default:
 			return opts, fmt.Errorf("unknown tui option %q", args[i])
@@ -478,6 +493,6 @@ func writeTUIHelp(w io.Writer) {
 		{"-c, --config PATH", "YAML plan for continuous monitoring"},
 		{"--target TARGET", "agent ID, prefix, adb serial, model, display number, or all; default is all agents in the session"},
 		{"--jsonl PATH", "append tui events to JSONL"},
-		{"--no-tui", "print findings without starting the tui dashboard"},
+		{"--no-tui", "print findings without starting the TUI dashboard"},
 	})
 }
