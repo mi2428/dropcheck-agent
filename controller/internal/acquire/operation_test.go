@@ -48,6 +48,39 @@ func TestOneShotAcquisitionReportsWrongPayload(t *testing.T) {
 	}
 }
 
+func TestFailedPayloadsNeedTheRightTypeButNotSuccessfulObservations(t *testing.T) {
+	for _, tc := range []struct {
+		wire *controlpb.RunCommand
+		raw  *controlpb.CommandResult
+	}{
+		{&controlpb.RunCommand{Command: &controlpb.RunCommand_ConnectWifi{ConnectWifi: &controlpb.ConnectWifi{}}}, &controlpb.CommandResult{Payload: &controlpb.CommandResult_ConnectWifi{ConnectWifi: &controlpb.ConnectWifiResult{}}}},
+		{&controlpb.RunCommand{Command: &controlpb.RunCommand_DisconnectWifi{DisconnectWifi: &controlpb.DisconnectWifi{}}}, &controlpb.CommandResult{Payload: &controlpb.CommandResult_WifiOperation{WifiOperation: &controlpb.WifiOperationResult{}}}},
+		{&controlpb.RunCommand{Command: &controlpb.RunCommand_WaitWifiConnected{WaitWifiConnected: &controlpb.WaitWifiConnected{}}}, &controlpb.CommandResult{Payload: &controlpb.CommandResult_WifiAssert{WifiAssert: &controlpb.WifiAssertResult{}}}},
+		{&controlpb.RunCommand{Command: &controlpb.RunCommand_GetFreshWifiScan{GetFreshWifiScan: &controlpb.GetFreshWifiScan{}}}, &controlpb.CommandResult{Payload: &controlpb.CommandResult_WifiScan{WifiScan: &controlpb.WifiScan{}}}},
+		{&controlpb.RunCommand{Command: &controlpb.RunCommand_GetWifiDiagnostics{GetWifiDiagnostics: &controlpb.GetWifiDiagnostics{}}}, &controlpb.CommandResult{Payload: &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{}}}},
+		{&controlpb.RunCommand{Command: &controlpb.RunCommand_GetNetworks{GetNetworks: &controlpb.GetNetworks{}}}, &controlpb.CommandResult{Payload: &controlpb.CommandResult_NetworkSnapshot{NetworkSnapshot: &controlpb.NetworkSnapshot{}}}},
+	} {
+		op := command.NewOperation("test", tc.wire, command.Options{})
+		tc.raw.Status = controlpb.CommandResult_STATUS_FAILED
+		if !PayloadMatches(op, tc.raw) {
+			t.Fatalf("failed typed evidence treated as missing: %T", tc.wire.Command)
+		}
+		tc.raw.Status = controlpb.CommandResult_STATUS_OK
+		if PayloadMatches(op, tc.raw) {
+			t.Fatalf("contradictory success accepted: %T", tc.wire.Command)
+		}
+		tc.raw.Status = controlpb.CommandResult_STATUS_FAILED
+		tc.raw.Payload = &controlpb.CommandResult_IpStatus{IpStatus: &controlpb.IpStatus{}}
+		if PayloadMatches(op, tc.raw) {
+			t.Fatal("wrong failure payload accepted")
+		}
+		tc.raw.Payload = nil
+		if PayloadMatches(op, tc.raw) {
+			t.Fatal("missing failure payload accepted")
+		}
+	}
+}
+
 func TestDiagnosticsPayloadRejectsInconsistentNetworkEvidence(t *testing.T) {
 	op := command.WifiDiagnosticsOperation()
 	valid := diagnosticsFixture()

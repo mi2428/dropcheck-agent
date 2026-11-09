@@ -137,24 +137,29 @@ func Execute(ctx context.Context, r Runner, agent control.AgentInfo, op command.
 }
 
 // PayloadMatches checks typed acquisition evidence, including selected-Network
-// identity and fresh-scan metadata. It does not evaluate tui expectations.
+// identity and fresh-scan metadata for successful results. Failed results need
+// the matching payload type, not successful observations. It does not evaluate tui expectations.
 func PayloadMatches(op command.Operation, raw *controlpb.CommandResult) bool {
 	if op.Command == nil || raw == nil || raw.Payload == nil {
 		return false
 	}
+	failed := raw.Status != controlpb.CommandResult_STATUS_OK
 	switch op.Command.Command.(type) {
 	case *controlpb.RunCommand_GetNetworks, *controlpb.RunCommand_GetNetwork:
-		return validNetworkSnapshot(op.Command.GetGetNetwork(), raw.GetNetworkSnapshot())
+		return raw.GetNetworkSnapshot() != nil && (failed || validNetworkSnapshot(op.Command.GetGetNetwork(), raw.GetNetworkSnapshot()))
 	case *controlpb.RunCommand_GetPermissions:
 		return raw.GetPermissionSnapshot() != nil
 	case *controlpb.RunCommand_GetWifiStatus:
 		return raw.GetWifiStatus() != nil
 	case *controlpb.RunCommand_GetWifiDiagnostics:
-		return validWifiDiagnostics(raw.GetWifiDiagnostics())
+		return raw.GetWifiDiagnostics() != nil && (failed || validWifiDiagnostics(raw.GetWifiDiagnostics()))
 	case *controlpb.RunCommand_GetWifiScan:
-		return raw.GetWifiScan() != nil && len(raw.GetWifiScan().GetErrors()) == 0
+		return raw.GetWifiScan() != nil && (failed || len(raw.GetWifiScan().GetErrors()) == 0)
 	case *controlpb.RunCommand_GetFreshWifiScan:
 		scan := raw.GetWifiScan()
+		if failed {
+			return scan != nil
+		}
 		if scan == nil || len(scan.GetErrors()) != 0 {
 			return false
 		}
@@ -176,12 +181,15 @@ func PayloadMatches(op command.Operation, raw *controlpb.CommandResult) bool {
 	case *controlpb.RunCommand_GetWifiScanDetail:
 		return raw.GetWifiScanDetail() != nil
 	case *controlpb.RunCommand_GetWifiCapabilities:
-		return raw.GetWifiCapabilities() != nil && len(raw.GetWifiCapabilities().GetErrors()) == 0
+		return raw.GetWifiCapabilities() != nil && (failed || len(raw.GetWifiCapabilities().GetErrors()) == 0)
 	case *controlpb.RunCommand_ConnectWifi:
-		return raw.GetConnectWifi() != nil && raw.GetConnectWifi().GetConnected()
+		return raw.GetConnectWifi() != nil && (failed || raw.GetConnectWifi().GetConnected())
 	case *controlpb.RunCommand_DisconnectWifi, *controlpb.RunCommand_ForgetWifi, *controlpb.RunCommand_ReconnectWifi:
-		return raw.GetWifiOperation() != nil && raw.GetWifiOperation().GetOk() && len(raw.GetWifiOperation().GetErrors()) == 0
+		return raw.GetWifiOperation() != nil && (failed || raw.GetWifiOperation().GetOk() && len(raw.GetWifiOperation().GetErrors()) == 0)
 	case *controlpb.RunCommand_WaitWifiConnected, *controlpb.RunCommand_AssertWifi:
+		if failed {
+			return raw.GetWifiAssert() != nil
+		}
 		if raw.GetWifiAssert() == nil || !raw.GetWifiAssert().GetPassed() || len(raw.GetWifiAssert().GetErrors()) != 0 {
 			return false
 		}

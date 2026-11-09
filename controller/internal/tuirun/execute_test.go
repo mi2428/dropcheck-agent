@@ -481,6 +481,24 @@ func TestRuntimeTypedZeroAndContradictoryRawAreNotFallbacks(t *testing.T) {
 	}
 }
 
+func TestFailedTypedPayloadKeepsTheAgentFailureReason(t *testing.T) {
+	op := command.NewOperation("wifi.connect", &controlpb.RunCommand{Command: &controlpb.RunCommand_ConnectWifi{ConnectWifi: &controlpb.ConnectWifi{Ssid: "Lab"}}}, command.Options{})
+	raw := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_FAILED, Message: "association rejected status=37", Payload: &controlpb.CommandResult_ConnectWifi{ConnectWifi: &controlpb.ConnectWifiResult{Connected: false}}}
+	s := compiledStep{step: step{name: "connect", operation: op}}
+	findings, outcome, reason := evaluateAttempt(Network{}, s, OperationResult{Raw: raw}, nil, nil)
+	if outcome != FailOutcome || reason != raw.Message || len(findings) != 1 || findings[0].Missing {
+		t.Fatalf("failure misclassified: %s %q %+v", outcome, reason, findings)
+	}
+	raw.Status = controlpb.CommandResult_STATUS_OK
+	if _, outcome, _ := evaluateAttempt(Network{}, s, OperationResult{Raw: raw}, nil, nil); outcome != MissingOutcome {
+		t.Fatal("contradictory success accepted")
+	}
+	raw.Status, raw.Payload = controlpb.CommandResult_STATUS_FAILED, nil
+	if findings, _, _ := evaluateAttempt(Network{}, s, OperationResult{Raw: raw}, nil, nil); len(findings) != 2 || !findings[1].Missing {
+		t.Fatal("genuinely missing failure payload hidden")
+	}
+}
+
 func TestRuntimeMACRotationCaseAndFailureGates(t *testing.T) {
 	for _, phase := range []string{"before", "after", "case"} {
 		t.Run(phase, func(t *testing.T) {
