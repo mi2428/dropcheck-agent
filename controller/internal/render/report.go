@@ -7,12 +7,12 @@ import (
 
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 )
 
 // operationResult consumes the shared acquisition contract; Parts never contain commands.
 // Required acquisition failures are supplied by core, not reconstructed by the UI.
-func operationResult(agent string, result watchrun.OperationResult, view Presentation, partAgent func(string) string) (string, error) {
+func operationResult(agent string, result tuirun.OperationResult, view Presentation, partAgent func(string) string) (string, error) {
 	out := Fields([][2]string{{"Acquisition", "? (aggregate typed payload unavailable)"}}, view)
 	if result.Raw != nil {
 		var err error
@@ -49,7 +49,7 @@ func operationResult(agent string, result watchrun.OperationResult, view Present
 
 // Report consumes the complete safe core report without execution or re-evaluation.
 // Run/check/command identifiers appear only in detail; target ordinals identify scope.
-func Report(report watchrun.Report, view Presentation) (string, error) {
+func Report(report tuirun.Report, view Presentation) (string, error) {
 	var b strings.Builder
 	labels := reportLabels(report)
 	fmt.Fprintf(&b, "Check  %s  %s\n", strings.ToUpper(string(report.Outcome)), acquisitionElapsed(report.Started, report.Ended))
@@ -101,7 +101,7 @@ func Report(report watchrun.Report, view Presentation) (string, error) {
 			writeRecord(&b, "Reason", safePresentationText(step.Reason))
 		}
 		if len(step.Attempts) == 0 {
-			if step.Outcome == watchrun.SkipOutcome {
+			if step.Outcome == tuirun.SkipOutcome {
 				writeRecord(&b, "Time", "n/a (skipped)")
 			} else {
 				writeRecord(&b, "Time", "? (no attempt timeline recorded)")
@@ -141,7 +141,7 @@ func Report(report watchrun.Report, view Presentation) (string, error) {
 	return wrapPresentation(b.String(), view.Width), nil
 }
 
-func acquisitionRecordStatus(record watchrun.OperationRecord) string {
+func acquisitionRecordStatus(record tuirun.OperationRecord) string {
 	if record.Raw != nil && record.Raw.GetStatus() != controlpb.CommandResult_STATUS_OK {
 		return strings.ToUpper(resultStatus(record.Raw.GetStatus()))
 	}
@@ -154,12 +154,12 @@ func acquisitionRecordStatus(record watchrun.OperationRecord) string {
 	return strings.ToUpper(resultStatus(record.Raw.GetStatus()))
 }
 
-func reportCounts(counts watchrun.Counts) string {
+func reportCounts(counts tuirun.Counts) string {
 	return fmt.Sprintf("pass=%d fail=%d missing=%d skip=%d canceled=%d", counts.Passed, counts.Failed, counts.Missing, counts.Skipped, counts.Canceled)
 }
 
 // ReportAgentLabel resolves the acquired agent, not the check/SSID scope, for result headers.
-func ReportAgentLabel(report watchrun.Report, agentID string) string {
+func ReportAgentLabel(report tuirun.Report, agentID string) string {
 	for _, progress := range report.Agents {
 		if progress.Agent.ID == agentID {
 			return empty(progress.Agent.DisplayName(), agentID)
@@ -168,7 +168,7 @@ func ReportAgentLabel(report watchrun.Report, agentID string) string {
 	return empty(agentID, "? (agent metadata unavailable)")
 }
 
-func reportLabels(report watchrun.Report) map[string]string {
+func reportLabels(report tuirun.Report) map[string]string {
 	labels := make(map[string]string)
 	for _, progress := range report.Agents {
 		labels["agent:"+progress.Agent.ID] = empty(progress.Agent.DisplayName(), progress.Agent.ID)
@@ -185,7 +185,7 @@ func reportLabels(report watchrun.Report) map[string]string {
 	return labels
 }
 
-func reportScope(scope watchrun.Scope, labels map[string]string, detail bool) string {
+func reportScope(scope tuirun.Scope, labels map[string]string, detail bool) string {
 	agentName := empty(labels["agent:"+scope.AgentID], scope.AgentID)
 	target := empty(labels["target:"+scope.TargetID], scope.TargetID)
 	parts := []string{scope.Kind}
@@ -201,7 +201,7 @@ func reportScope(scope watchrun.Scope, labels map[string]string, detail bool) st
 	return strings.Join(parts, " ")
 }
 
-func writeFindings(b *strings.Builder, findings []watchrun.Finding, includePassed bool) {
+func writeFindings(b *strings.Builder, findings []tuirun.Finding, includePassed bool) {
 	for _, finding := range findings {
 		if finding.Passed && !includePassed {
 			continue

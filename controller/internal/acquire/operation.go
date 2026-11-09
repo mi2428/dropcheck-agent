@@ -137,7 +137,7 @@ func Execute(ctx context.Context, r Runner, agent control.AgentInfo, op command.
 }
 
 // PayloadMatches checks typed acquisition evidence, including selected-Network
-// identity and fresh-scan metadata. It does not evaluate watch expectations.
+// identity and fresh-scan metadata. It does not evaluate tui expectations.
 func PayloadMatches(op command.Operation, raw *controlpb.CommandResult) bool {
 	if op.Command == nil || raw == nil || raw.Payload == nil {
 		return false

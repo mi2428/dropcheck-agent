@@ -3,39 +3,39 @@ package tui
 import (
 	"strings"
 
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchstate"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuistate"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
-func failedCheckKey(finding watchrun.Finding) string { return watchstate.FailedCheckKey(finding) }
-func failedCheckSummaryKey(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, finding watchrun.Finding) string {
-	return watchstate.FailedCheckSummaryKey(agent, target, finding)
+func failedCheckKey(finding tuirun.Finding) string { return tuistate.FailedCheckKey(finding) }
+func failedCheckSummaryKey(agent tuirun.AgentSnapshot, target tuirun.TargetSnapshot, finding tuirun.Finding) string {
+	return tuistate.FailedCheckSummaryKey(agent, target, finding)
 }
 func failedCheckSummaryIdentity(item failedCheckSummary) string {
-	return watchstate.FailedCheckSummaryIdentity(item)
+	return tuistate.FailedCheckSummaryIdentity(item)
 }
 func failedCheckSummaryIndexByIdentity(rows []failedCheckSummary, key string) int {
-	return watchstate.FailedCheckSummaryIndexByIdentity(rows, key)
+	return tuistate.FailedCheckSummaryIndexByIdentity(rows, key)
 }
 func failureHotspotSummaryIdentity(item failureHotspotSummary) string {
-	return watchstate.FailureHotspotSummaryIdentity(item)
+	return tuistate.FailureHotspotSummaryIdentity(item)
 }
 func failureCauseSummaryIdentity(item failureCauseSummary) string {
-	return watchstate.FailureCauseSummaryIdentity(item)
+	return tuistate.FailureCauseSummaryIdentity(item)
 }
-func failureCauseIdentity(agent watchrun.AgentSnapshot, finding watchrun.Finding) string {
-	return watchstate.FailureCauseIdentity(agent, watchstate.FailureHotspotCause(finding))
+func failureCauseIdentity(agent tuirun.AgentSnapshot, finding tuirun.Finding) string {
+	return tuistate.FailureCauseIdentity(agent, tuistate.FailureHotspotCause(finding))
 }
-func failureHotspotIdentity(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, findingTargets ...string) string {
-	return watchstate.FailureHotspotIdentity(agent, target, findingTargets...)
+func failureHotspotIdentity(agent tuirun.AgentSnapshot, target tuirun.TargetSnapshot, findingTargets ...string) string {
+	return tuistate.FailureHotspotIdentity(agent, target, findingTargets...)
 }
-func agentKey(agent watchrun.AgentSnapshot) string   { return watchstate.AgentKey(agent) }
-func agentLabel(agent watchrun.AgentSnapshot) string { return watchstate.AgentLabel(agent) }
-func sameAgent(a watchrun.AgentSnapshot, b watchrun.AgentSnapshot) bool {
-	return watchstate.SameAgent(a, b)
+func agentKey(agent tuirun.AgentSnapshot) string   { return tuistate.AgentKey(agent) }
+func agentLabel(agent tuirun.AgentSnapshot) string { return tuistate.AgentLabel(agent) }
+func sameAgent(a tuirun.AgentSnapshot, b tuirun.AgentSnapshot) bool {
+	return tuistate.SameAgent(a, b)
 }
 
 func (m model) targetLabel(target targetState) string {
@@ -51,12 +51,12 @@ func (m model) runQueueTargetLabel(target targetState, includeAgentLabel bool) s
 }
 
 func passingCheckSummaryIdentity(item passingCheckSummary) string {
-	return watchstate.PassingCheckSummaryIdentity(item)
+	return tuistate.PassingCheckSummaryIdentity(item)
 }
 func passingCheckSummaryIndexByIdentity(rows []passingCheckSummary, key string) int {
-	return watchstate.PassingCheckSummaryIndexByIdentity(rows, key)
+	return tuistate.PassingCheckSummaryIndexByIdentity(rows, key)
 }
-func durationLabel(duration int64) string { return watchstate.DurationLabel(duration) }
+func durationLabel(duration int64) string { return tuistate.DurationLabel(duration) }
 
 func knownDurationLabel(duration int64, known bool) string {
 	if known && duration == 0 {
@@ -65,9 +65,9 @@ func knownDurationLabel(duration int64, known bool) string {
 	return durationLabel(duration)
 }
 
-func displayCheckName(name string) string { return watchstate.DisplayCheckName(name) }
+func displayCheckName(name string) string { return tuistate.DisplayCheckName(name) }
 
-func agentDeviceLabel(agent watchrun.AgentSnapshot) string {
+func agentDeviceLabel(agent tuirun.AgentSnapshot) string {
 	if agent.DeviceModel != "" {
 		return agent.DeviceModel
 	}
@@ -128,10 +128,10 @@ func runQueueRowStyle(status string) lipgloss.Style {
 	}
 }
 
-func firstNonEmpty(values ...string) string { return watchstate.FirstNonEmpty(values...) }
-func intMax(a, b int) int                   { return watchstate.Max(a, b) }
-func intMin(a, b int) int                   { return watchstate.Min(a, b) }
-func clamp(value, low, high int) int        { return watchstate.Clamp(value, low, high) }
+func firstNonEmpty(values ...string) string { return tuistate.FirstNonEmpty(values...) }
+func intMax(a, b int) int                   { return tuistate.Max(a, b) }
+func intMin(a, b int) int                   { return tuistate.Min(a, b) }
+func clamp(value, low, high int) int        { return tuistate.Clamp(value, low, high) }
 func correctedOffset(selected int, visibleRows int, totalRows int) int {
 	if totalRows <= 0 {
 		return 0

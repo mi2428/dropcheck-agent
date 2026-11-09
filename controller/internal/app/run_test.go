@@ -16,14 +16,14 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-func TestTopLevelHelpOnlyAdvertisesShellAndWatch(t *testing.T) {
+func TestTopLevelHelpOnlyAdvertisesShellAndTUI(t *testing.T) {
 	help := renderTopLevelHelp()
-	for _, want := range []string{"Usage:", "Global flags:", "--adb PATH", "--listen ADDR", "dropcheck [flags] shell", "dropcheck [flags] watch", "dropcheck --version"} {
+	for _, want := range []string{"Usage:", "Global flags:", "--adb PATH", "--listen ADDR", "dropcheck [flags] shell", "dropcheck [flags] tui", "dropcheck --version"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("missing %q: %s", want, help)
 		}
 	}
-	for _, removed := range []string{"dropcheck [flags] tui", "one-shot", "--format", "Common commands:", "show devices", "ping <host>", "\t"} {
+	for _, removed := range []string{"dropcheck [flags] watch", "one-shot", "--format", "Common commands:", "show devices", "ping <host>", "\t"} {
 		if strings.Contains(help, removed) {
 			t.Fatalf("help advertises retired surface %q", removed)
 		}
@@ -36,7 +36,7 @@ func TestRemovedEntrypointsNeverStartADB(t *testing.T) {
 	if err := os.WriteFile(path, []byte("#!/bin/sh\ntouch '"+marker+"'\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for _, args := range [][]string{{"tui"}, {"tui", "missing.yml"}, {"show", "devices"}, {"ping", "example.test"}, {"--format", "json", "show", "wifi", "status"}, {"wifi", "connect", "Lab", "passphrase", "synthetic-private"}} {
+	for _, args := range [][]string{{"watch"}, {"watch", "missing.yml"}, {"show", "devices"}, {"ping", "example.test"}, {"--format", "json", "show", "wifi", "status"}, {"wifi", "connect", "Lab", "passphrase", "synthetic-private"}} {
 		full := append([]string{"--adb", path}, args...)
 		if err := runWithContext(context.Background(), full); err == nil || strings.Contains(err.Error(), "synthetic-private") {
 			t.Fatalf("retired entrypoint accepted or disclosed a credential: %v", err)

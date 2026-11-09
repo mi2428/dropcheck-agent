@@ -18,7 +18,7 @@ type Runner interface {
 	Run(context.Context, control.AgentInfo, command.Operation) (runner.Result, error)
 }
 
-// Result is owned acquisition data, without watch scope or retry/policy state.
+// Result is owned acquisition data, without tui scope or retry/policy state.
 type Result struct {
 	// Raw is the final or compound payload; nil means no terminal result.
 	Raw *controlpb.CommandResult

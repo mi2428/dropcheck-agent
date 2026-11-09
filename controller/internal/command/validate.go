@@ -14,7 +14,7 @@ import (
 )
 
 // ValidateOperation validates already-built commands as well as frontend input.
-// It is intentionally independent of transport so a whole watch plan can be
+// It is intentionally independent of transport so a whole tui plan can be
 // rejected before its first operation.
 func ValidateOperation(op Operation) error {
 	cmd, _, err := BuildRunCommand(op)

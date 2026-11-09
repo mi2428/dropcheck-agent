@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 )
 
 func TestRunQueueTreeExpandsOnlyRunningTargets(t *testing.T) {
-	events := make(chan watchrun.Event)
-	m := newModel([]watchrun.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	m.Targets = []targetState{
 		{
 			Target: targetSnapshot("done-target"),
@@ -47,7 +47,7 @@ func TestRunQueueTreeExpandsOnlyRunningTargets(t *testing.T) {
 		},
 	}
 
-	lines := m.runQueueTreeLinesForAgent(80, watchrun.AgentSnapshot{}, m.MultiAgent)
+	lines := m.runQueueTreeLinesForAgent(80, tuirun.AgentSnapshot{}, m.MultiAgent)
 	text := stripANSI(strings.Join(runQueueTexts(lines), "\n"))
 	for _, want := range []string{
 		"OK   done-target",
@@ -71,8 +71,8 @@ func TestRunQueueTreeExpandsOnlyRunningTargets(t *testing.T) {
 }
 
 func TestRunQueueTreePrioritizesActiveStepsWhenClipped(t *testing.T) {
-	events := make(chan watchrun.Event)
-	m := newModel([]watchrun.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	for i := range 6 {
 		m.Targets = append(m.Targets, targetState{
 			Target: targetSnapshot(fmt.Sprintf("done-%02d", i)),
@@ -127,8 +127,8 @@ func TestRunQueueTreePrioritizesActiveStepsWhenClipped(t *testing.T) {
 }
 
 func TestRunQueueCursorStaysOnChildBetweenStepFinishAndNextStart(t *testing.T) {
-	events := make(chan watchrun.Event)
-	m := newModel([]watchrun.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	m.Targets = []targetState{{
 		Target:      targetSnapshot("running-target"),
 		Status:      "running",
@@ -153,7 +153,7 @@ func TestRunQueueCursorStaysOnChildBetweenStepFinishAndNextStart(t *testing.T) {
 	if before != 2 || m.runQueueCursor != 2 {
 		t.Fatalf("cursor should stay on the just-finished child row, before=%d after=%d", before, m.runQueueCursor)
 	}
-	lines := m.runQueueTreeLinesForAgent(80, watchrun.AgentSnapshot{}, m.MultiAgent)
+	lines := m.runQueueTreeLinesForAgent(80, tuirun.AgentSnapshot{}, m.MultiAgent)
 	if lines[0].Current {
 		t.Fatalf("parent row should not become current between step finish and next start: %#v", lines)
 	}
@@ -163,26 +163,26 @@ func TestRunQueueCursorStaysOnChildBetweenStepFinishAndNextStart(t *testing.T) {
 }
 
 func TestRunQueueTreeOmitsTargetOutcomeStrip(t *testing.T) {
-	events := make(chan watchrun.Event)
-	m := newModel([]watchrun.Target{{Name: "u7-5ghz", SSID: "Example Net"}}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{{Name: "u7-5ghz", SSID: "Example Net"}}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	m.apply(watchrun.Event{
+	m.apply(tuirun.Event{
 		Time:     at,
-		Kind:     watchrun.EventStepFinished,
+		Kind:     tuirun.EventStepFinished,
 		Round:    1,
-		Target:   watchrun.TargetSnapshot{Name: "u7-5ghz", SSID: "Example Net"},
-		Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Target:   tuirun.TargetSnapshot{Name: "u7-5ghz", SSID: "Example Net"},
+		Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 42,
 	})
-	m.apply(watchrun.Event{
+	m.apply(tuirun.Event{
 		Time:   at.Add(time.Second),
-		Kind:   watchrun.EventFinding,
+		Kind:   tuirun.EventFinding,
 		Round:  1,
-		Target: watchrun.TargetSnapshot{Name: "u7-5ghz", SSID: "Example Net"},
-		Step:   watchrun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
+		Target: tuirun.TargetSnapshot{Name: "u7-5ghz", SSID: "Example Net"},
+		Step:   tuirun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
 		Status: "failed",
-		Finding: &watchrun.Finding{
+		Finding: &tuirun.Finding{
 			Target:   "u7-5ghz",
 			Check:    "ping cloudflare",
 			Metric:   "received",
@@ -204,12 +204,12 @@ func TestRunQueueTreeOmitsTargetOutcomeStrip(t *testing.T) {
 }
 
 func TestRunQueuePanelsSplitByAgent(t *testing.T) {
-	events := make(chan watchrun.Event)
-	agents := []watchrun.AgentSnapshot{
+	events := make(chan tuirun.Event)
+	agents := []tuirun.AgentSnapshot{
 		{ID: "agent-a", Name: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b"},
 	}
-	m := newModelWithChecks("shownet-watch", []watchrun.Target{{Name: "u7-5ghz", SSID: "Example Net", Connect: &watchrun.CheckInfo{Name: "connect", Type: "connect"}, DisconnectAfter: new(true)}}, []watchrun.CheckInfo{{Name: "wifi link", Type: "wifi_status"}}, events, agents)
+	m := newModelWithChecks("shownet-tui", []tuirun.Target{{Name: "u7-5ghz", SSID: "Example Net", Connect: &tuirun.CheckInfo{Name: "connect", Type: "connect"}, DisconnectAfter: new(true)}}, []tuirun.CheckInfo{{Name: "wifi link", Type: "wifi_status"}}, events, agents)
 	m.width = 120
 	m.height = 30
 	m.Targets[0].Status = "running"
@@ -247,8 +247,8 @@ func TestRunQueuePanelsSplitByAgent(t *testing.T) {
 }
 
 func TestRunQueueTreeKeepsScrollAnchorWhenNoTargetIsActive(t *testing.T) {
-	events := make(chan watchrun.Event)
-	m := newModel([]watchrun.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	m.height = 9
 	for i := range 16 {
 		status := "pending"
@@ -279,8 +279,8 @@ func TestRunQueueTreeKeepsScrollAnchorWhenNoTargetIsActive(t *testing.T) {
 }
 
 func TestRunQueueTreeUsesStableOffsetInsteadOfRecentering(t *testing.T) {
-	events := make(chan watchrun.Event)
-	m := newModel([]watchrun.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	m.height = 9
 	for i := range 12 {
 		m.Targets = append(m.Targets, targetState{

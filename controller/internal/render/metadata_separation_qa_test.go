@@ -10,7 +10,7 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -203,15 +203,15 @@ func TestMetadataSeparationInteractiveJSONAndFilter(t *testing.T) {
 func TestMetadataSeparationOperationAndHistoricalReport(t *testing.T) {
 	raw := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_CANCELED, Message: "partial capture", Payload: &controlpb.CommandResult_IpStatus{IpStatus: &controlpb.IpStatus{}}}
 	t.Run("operation", func(t *testing.T) {
-		out, err := operationResult("pinned-PC-target", watchrun.OperationResult{Raw: raw}, Presentation{}, func(string) string { return "pinned-PC-target" })
+		out, err := operationResult("pinned-PC-target", tuirun.OperationResult{Raw: raw}, Presentation{}, func(string) string { return "pinned-PC-target" })
 		if err != nil {
 			t.Fatal(err)
 		}
 		metadataQAHeader(t, out, "pinned-PC-target")
 	})
 	t.Run("historical_report", func(t *testing.T) {
-		scope := watchrun.Scope{Kind: "check", AgentID: "agent-1", TargetID: "target-1"}
-		report := watchrun.Report{Outcome: watchrun.CanceledOutcome, Started: time.Unix(1, 0), Ended: time.Unix(2, 0), Agents: []watchrun.AgentProgress{{Agent: watchrun.AgentSnapshot{ID: "agent-1", Name: "pinned-PC-target"}}}, Steps: []watchrun.StepReport{{Scope: scope, Outcome: watchrun.CanceledOutcome, Attempts: []watchrun.Attempt{{Scope: scope, Outcome: watchrun.CanceledOutcome, Result: watchrun.OperationResult{Raw: raw}}}}}}
+		scope := tuirun.Scope{Kind: "check", AgentID: "agent-1", TargetID: "target-1"}
+		report := tuirun.Report{Outcome: tuirun.CanceledOutcome, Started: time.Unix(1, 0), Ended: time.Unix(2, 0), Agents: []tuirun.AgentProgress{{Agent: tuirun.AgentSnapshot{ID: "agent-1", Name: "pinned-PC-target"}}}, Steps: []tuirun.StepReport{{Scope: scope, Outcome: tuirun.CanceledOutcome, Attempts: []tuirun.Attempt{{Scope: scope, Outcome: tuirun.CanceledOutcome, Result: tuirun.OperationResult{Raw: raw}}}}}}
 		out, err := Report(report, Presentation{Detail: true})
 		if err != nil {
 			t.Fatal(err)
@@ -271,12 +271,12 @@ func TestMetadataSeparationHistoricalAcquisitionsUseTheirOwnAgentScope(t *testin
 		{"missing_agent", "", "? (agent metadata unavailable)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			scope := watchrun.Scope{Kind: watchrun.ScopeCheck, AgentID: "agent-a", TargetID: "ssid-target"}
-			report := watchrun.Report{
-				Outcome: watchrun.CanceledOutcome,
-				Agents:  []watchrun.AgentProgress{{Agent: watchrun.AgentSnapshot{ID: "agent-a", Name: "acquired-A"}}, {Agent: watchrun.AgentSnapshot{ID: "agent-b", Name: "acquired-B"}}},
-				Steps: []watchrun.StepReport{{Scope: scope, Attempts: []watchrun.Attempt{{Scope: scope, Result: watchrun.OperationResult{
-					Raw: raw, Parts: []watchrun.OperationRecord{{Scope: watchrun.Scope{Kind: watchrun.ScopeAgent, AgentID: tc.partAgent}, Name: "snapshot", Raw: raw}},
+			scope := tuirun.Scope{Kind: tuirun.ScopeCheck, AgentID: "agent-a", TargetID: "ssid-target"}
+			report := tuirun.Report{
+				Outcome: tuirun.CanceledOutcome,
+				Agents:  []tuirun.AgentProgress{{Agent: tuirun.AgentSnapshot{ID: "agent-a", Name: "acquired-A"}}, {Agent: tuirun.AgentSnapshot{ID: "agent-b", Name: "acquired-B"}}},
+				Steps: []tuirun.StepReport{{Scope: scope, Attempts: []tuirun.Attempt{{Scope: scope, Result: tuirun.OperationResult{
+					Raw: raw, Parts: []tuirun.OperationRecord{{Scope: tuirun.Scope{Kind: tuirun.ScopeAgent, AgentID: tc.partAgent}, Name: "snapshot", Raw: raw}},
 				}}}}},
 			}
 			out, err := Report(report, Presentation{Detail: true})

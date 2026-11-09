@@ -12,7 +12,7 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
 	"github.com/mi2428/dropcheck-agent/controller/internal/shell"
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -212,7 +212,7 @@ func TestLayoutContractCommandTables(t *testing.T) {
 
 func TestLayoutContractReportAndPermissionFields(t *testing.T) {
 	t.Run("report", func(t *testing.T) {
-		out, err := Report(watchrun.Report{}, Presentation{Width: 120})
+		out, err := Report(tuirun.Report{}, Presentation{Width: 120})
 		if err != nil {
 			t.Fatal(err)
 		}

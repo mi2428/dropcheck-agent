@@ -1,6 +1,6 @@
 # Go API
 
-`github.com/mi2428/dropcheck-agent/controller/pkg/dropcheck` exposes basic Android agent operations without a CLI, scenario DSL, public watch plan or public transport. Internal Shell and watch use the same session factory and the single `internal/acquire` atomic/compound acquisition implementation. The public package and Shell call acquisition directly; watch adds only retry/expectation/report policy through a private adapter. Acquisition does not depend on watch, UI, rendering, session startup or this public facade. The canonical module path identifies the controller submodule; this change does not publish a remote version.
+`github.com/mi2428/dropcheck-agent/controller/pkg/dropcheck` exposes basic Android agent operations without a CLI, scenario DSL, public tui plan or public transport. Internal Shell and tui use the same session factory and the single `internal/acquire` atomic/compound acquisition implementation. The public package and Shell call acquisition directly; tui adds only retry/expectation/report policy through a private adapter. Acquisition does not depend on tui, UI, rendering, session startup or this public facade. The canonical module path identifies the controller submodule; this change does not publish a remote version.
 
 ## Local consumer setup
 
@@ -88,7 +88,7 @@ The local recipe uses `v0.0.0` as a placeholder resolved by the replacement. Onc
 
 This unsuffixed module path supports v0/v1 module versions. A future v2+ Go API requires Go's major-version path suffix (such as `/v2`); the product's operator-surface version does not automatically choose the Go module version.
 
-`tools/test_go_distribution.py` separately builds a synthetic `v0.0.0` archive in an isolated local file proxy and checks a consumer with no replacement or network access. It verifies the versioned module layout, typed API and absence of watch/UI dependencies, not remote availability.
+`tools/test_go_distribution.py` separately builds a synthetic `v0.0.0` archive in an isolated local file proxy and checks a consumer with no replacement or network access. It verifies the versioned module layout, typed API and absence of tui/UI dependencies, not remote availability.
 
 ## Ownership and lifetime
 
@@ -111,7 +111,7 @@ Operations are opaque immutable values, copied safely for concurrent reuse. The 
 
 ## Results
 
-`Result`, `Part` and `Finding` are public owned types with no watch scope, plan, display options or transport members. `CommandResult`, status/family/DNS enums, primary success-payload types, supporting observation types and `*Payload` wrappers are intentionally nameable from this package. Protocol commands, stream frames and transport services are not re-exported; detailed protocol extensions are not automatically made public.
+`Result`, `Part` and `Finding` are public owned types with no tui scope, plan, display options or transport members. `CommandResult`, status/family/DNS enums, primary success-payload types, supporting observation types and `*Payload` wrappers are intentionally nameable from this package. Protocol commands, stream frames and transport services are not re-exported; detailed protocol extensions are not automatically made public.
 
 Go errors indicate validation/transport failures. Agent failures remain in `Raw.Status`. A reported `StatusOK` can still have a missing/inconsistent-payload Finding. Inspect both. `Finding.Missing` means unavailable evidence, not an observed zero or false. Optional protobuf pointers preserve known zero/false versus nil; getters alone do not. Non-optional scalars require the accompanying observation metadata to establish availability.
 

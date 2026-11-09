@@ -8,11 +8,11 @@ import (
 
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 )
 
 func TestReportPresentationRedactsBeforeShellJSONWithoutMutatingTypedReport(t *testing.T) {
-	report := watchrun.Report{Problems: []watchrun.Problem{{Message: "https://example.test/path?token=unshared-credential"}}, Steps: []watchrun.StepReport{{Attempts: []watchrun.Attempt{{Result: watchrun.OperationResult{Raw: &controlpb.CommandResult{
+	report := tuirun.Report{Problems: []tuirun.Problem{{Message: "https://example.test/path?token=unshared-credential"}}, Steps: []tuirun.StepReport{{Attempts: []tuirun.Attempt{{Result: tuirun.OperationResult{Raw: &controlpb.CommandResult{
 		Message: "authorization: Bearer unshared-credential", Payload: &controlpb.CommandResult_IpStatus{IpStatus: &controlpb.IpStatus{Wifi: &controlpb.WifiConnection{Ssid: "Lab token=public-literal", Bssid: "aa:bb:cc:dd:ee:ff", ObservationFields: testObservationFields("identity")}, ObservationFields: []*controlpb.DiagnosticField{{Key: "token", Value: "unshared-credential"}}}},
 	}}}}}}}
 	before, _ := json.Marshal(report)

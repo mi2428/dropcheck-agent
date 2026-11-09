@@ -4,15 +4,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchstate"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuistate"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
 func recentEventHistogram(times []time.Time, width int, window time.Duration, now time.Time) occurrenceHistogram {
-	return watchstate.RecentEventHistogram(times, width, window, now)
+	return tuistate.RecentEventHistogram(times, width, window, now)
 }
 
 func renderSparkline(counts []int, maxCount int, width int, height int, style lipgloss.Style) []string {
@@ -55,12 +55,12 @@ func renderSparkline(counts []int, maxCount int, width int, height int, style li
 }
 
 func sparklineEventsPerRow(maxCount int, height int) int {
-	return watchstate.SparklineEventsPerRow(maxCount, height)
+	return tuistate.SparklineEventsPerRow(maxCount, height)
 }
 func resampleSparklineCounts(counts []int, width int) []int {
-	return watchstate.ResampleSparklineCounts(counts, width)
+	return tuistate.ResampleSparklineCounts(counts, width)
 }
-func maxInt(values []int) int { return watchstate.MaxInt(values) }
+func maxInt(values []int) int { return tuistate.MaxInt(values) }
 
 func summarySparklineAxis(width int, window time.Duration) string {
 	if width <= 0 {
@@ -75,11 +75,11 @@ func summarySparklineAxis(width int, window time.Duration) string {
 	return dimStyle.Render(left + mid + right)
 }
 
-func (m model) passingCheckOccurrences(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, step watchrun.StepSnapshot) []time.Time {
+func (m model) passingCheckOccurrences(agent tuirun.AgentSnapshot, target tuirun.TargetSnapshot, step tuirun.StepSnapshot) []time.Time {
 	return m.PassingCheckOccurrences(agent, target, step)
 }
 
-func (m model) failedCheckOccurrences(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, finding watchrun.Finding) []time.Time {
+func (m model) failedCheckOccurrences(agent tuirun.AgentSnapshot, target tuirun.TargetSnapshot, finding tuirun.Finding) []time.Time {
 	return m.FailedCheckOccurrences(agent, target, finding)
 }
 
@@ -92,7 +92,7 @@ func (m model) failureCauseOccurrences(item failureCauseSummary) []time.Time {
 }
 
 func formatBucketDuration(duration time.Duration) string {
-	return watchstate.FormatBucketDuration(duration)
+	return tuistate.FormatBucketDuration(duration)
 }
 func padVisible(value string, width int) string {
 	if width <= 0 {

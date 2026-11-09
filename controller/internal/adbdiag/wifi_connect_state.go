@@ -21,7 +21,7 @@ var (
 
 const wifiConnectEventShell = `dumpsys wifi | grep -E 'supplicantStateChangeEvents|WifiInfo:|Supplicant state:' | tail -n 40`
 
-// WifiConnectState is the compact Wi-Fi association phase shown by the watch TUI.
+// WifiConnectState is the compact Wi-Fi association phase shown by the tui TUI.
 type WifiConnectState struct {
 	Supplicant string
 	SSID       string
@@ -82,7 +82,7 @@ func normalizeWifiConnectState(state WifiConnectState) WifiConnectState {
 	return state
 }
 
-// LogMessage renders state as stable key=value text for watch events.
+// LogMessage renders state as stable key=value text for tui events.
 func (state WifiConnectState) LogMessage() string {
 	if state.Supplicant == "" {
 		return ""

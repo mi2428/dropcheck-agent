@@ -8,22 +8,22 @@ import (
 
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 	"github.com/mi2428/dropcheck-agent/controller/internal/control"
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 )
 
-func newModel(targets []watchrun.Target, events <-chan watchrun.Event, agentSets ...[]watchrun.AgentSnapshot) model {
-	return newModelWithChecks("shownet-watch", targets, nil, events, agentSets...)
+func newModel(targets []tuirun.Target, events <-chan tuirun.Event, agentSets ...[]tuirun.AgentSnapshot) model {
+	return newModelWithChecks("shownet-tui", targets, nil, events, agentSets...)
 }
 
 func TestFailedCheckRemovesSameRoundPassingCheck(t *testing.T) {
-	events := make(chan watchrun.Event)
+	events := make(chan tuirun.Event)
 	m := newModel(nil, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	target := watchrun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"}
-	step := watchrun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "ok"}
-	m.apply(watchrun.Event{
+	target := tuirun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"}
+	step := tuirun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "ok"}
+	m.apply(tuirun.Event{
 		Time:     at,
-		Kind:     watchrun.EventStepFinished,
+		Kind:     tuirun.EventStepFinished,
 		Round:    3,
 		Target:   target,
 		Step:     step,
@@ -31,14 +31,14 @@ func TestFailedCheckRemovesSameRoundPassingCheck(t *testing.T) {
 		Duration: 42,
 	})
 	step.Status = "failed"
-	m.apply(watchrun.Event{
+	m.apply(tuirun.Event{
 		Time:   at.Add(time.Second),
-		Kind:   watchrun.EventFinding,
+		Kind:   tuirun.EventFinding,
 		Round:  3,
 		Target: target,
 		Step:   step,
 		Status: "failed",
-		Finding: &watchrun.Finding{
+		Finding: &tuirun.Finding{
 			Target:   "Example Net",
 			Check:    "ping cloudflare",
 			Metric:   "received",
@@ -58,35 +58,35 @@ func TestFailedCheckRemovesSameRoundPassingCheck(t *testing.T) {
 }
 
 func TestMultiAgentResultsStaySeparated(t *testing.T) {
-	events := make(chan watchrun.Event)
-	agents := []watchrun.AgentSnapshot{
+	events := make(chan tuirun.Event)
+	agents := []tuirun.AgentSnapshot{
 		{ID: "agent-a", Name: "pixel-a", ADBSerial: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b", ADBSerial: "pixel-b"},
 	}
-	m := newModel([]watchrun.Target{{Name: "Example Net", SSID: "Example Net"}}, events, agents)
+	m := newModel([]tuirun.Target{{Name: "Example Net", SSID: "Example Net"}}, events, agents)
 	m.width = 180
 	m.height = 36
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	target := watchrun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"}
-	m.apply(watchrun.Event{
+	target := tuirun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"}
+	m.apply(tuirun.Event{
 		Time:     at,
-		Kind:     watchrun.EventStepFinished,
+		Kind:     tuirun.EventStepFinished,
 		Agent:    agents[0],
 		Round:    1,
 		Target:   target,
-		Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 42,
 	})
-	m.apply(watchrun.Event{
+	m.apply(tuirun.Event{
 		Time:   at.Add(time.Second),
-		Kind:   watchrun.EventFinding,
+		Kind:   tuirun.EventFinding,
 		Agent:  agents[1],
 		Round:  1,
 		Target: target,
-		Step:   watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
+		Step:   tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
 		Status: "failed",
-		Finding: &watchrun.Finding{
+		Finding: &tuirun.Finding{
 			Target:   "Example Net",
 			Check:    "connect",
 			Metric:   "status",
@@ -121,21 +121,21 @@ func TestMultiAgentResultsStaySeparated(t *testing.T) {
 }
 
 func TestPassingCheckPanelShowsDeviceColumn(t *testing.T) {
-	events := make(chan watchrun.Event)
-	agents := []watchrun.AgentSnapshot{
+	events := make(chan tuirun.Event)
+	agents := []tuirun.AgentSnapshot{
 		{ID: "agent-a", Name: "35251JEHN00258", ADBSerial: "35251JEHN00258", DeviceModel: "Pixel 7a"},
 		{ID: "agent-b", Name: "45240DLAQ007HG", ADBSerial: "45240DLAQ007HG", DeviceModel: "Pixel 9"},
 	}
-	m := newModel([]watchrun.Target{{Name: "Example Net", SSID: "Example Net"}}, events, agents)
+	m := newModel([]tuirun.Target{{Name: "Example Net", SSID: "Example Net"}}, events, agents)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	for i, agent := range agents {
-		m.apply(watchrun.Event{
+		m.apply(tuirun.Event{
 			Time:     at.Add(time.Duration(i) * time.Second),
-			Kind:     watchrun.EventStepFinished,
+			Kind:     tuirun.EventStepFinished,
 			Agent:    agent,
 			Round:    1,
-			Target:   watchrun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"},
-			Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+			Target:   tuirun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"},
+			Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 			Status:   "ok",
 			Duration: 42,
 		})
@@ -157,23 +157,23 @@ func TestPassingCheckPanelShowsDeviceColumn(t *testing.T) {
 }
 
 func TestFailedCheckPanelShowsDeviceColumn(t *testing.T) {
-	events := make(chan watchrun.Event)
-	agents := []watchrun.AgentSnapshot{
+	events := make(chan tuirun.Event)
+	agents := []tuirun.AgentSnapshot{
 		{ID: "agent-a", Name: "35251JEHN00258", ADBSerial: "35251JEHN00258", DeviceModel: "Pixel 7a"},
 		{ID: "agent-b", Name: "45240DLAQ007HG", ADBSerial: "45240DLAQ007HG", DeviceModel: "Pixel 9"},
 	}
-	m := newModel([]watchrun.Target{{Name: "Example Net", SSID: "Example Net"}}, events, agents)
+	m := newModel([]tuirun.Target{{Name: "Example Net", SSID: "Example Net"}}, events, agents)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	for i, agent := range agents {
-		m.apply(watchrun.Event{
+		m.apply(tuirun.Event{
 			Time:   at.Add(time.Duration(i) * time.Second),
-			Kind:   watchrun.EventFinding,
+			Kind:   tuirun.EventFinding,
 			Agent:  agent,
 			Round:  1,
-			Target: watchrun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"},
-			Step:   watchrun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
+			Target: tuirun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"},
+			Step:   tuirun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
 			Status: "failed",
-			Finding: &watchrun.Finding{
+			Finding: &tuirun.Finding{
 				Target:   "Example Net",
 				Check:    "ping cloudflare",
 				Metric:   "status",
@@ -200,15 +200,15 @@ func TestFailedCheckPanelShowsDeviceColumn(t *testing.T) {
 }
 
 func TestCheckStatusShowsCurrentRoundPendingBeforeHistory(t *testing.T) {
-	events := make(chan watchrun.Event)
-	m := newModel([]watchrun.Target{{Name: "Example Net", SSID: "Example Net"}}, events)
-	target := watchrun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"}
-	m.apply(watchrun.Event{
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{{Name: "Example Net", SSID: "Example Net"}}, events)
+	target := tuirun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"}
+	m.apply(tuirun.Event{
 		Time:     time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC),
-		Kind:     watchrun.EventStepFinished,
+		Kind:     tuirun.EventStepFinished,
 		Round:    1,
 		Target:   target,
-		Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 42,
 	})
@@ -216,44 +216,44 @@ func TestCheckStatusShowsCurrentRoundPendingBeforeHistory(t *testing.T) {
 		t.Fatalf("previous round setup should record a passing check First:\n%s", checkStatus)
 	}
 
-	m.apply(watchrun.Event{Kind: watchrun.EventRoundStarted, Round: 2, Status: "running"})
+	m.apply(tuirun.Event{Kind: tuirun.EventRoundStarted, Round: 2, Status: "running"})
 	checkStatus := stripANSI(m.checkStatusView(72, 4))
 	if !strings.Contains(checkStatus, "PASS") || strings.Contains(checkStatus, "WAIT") {
 		t.Fatalf("new round should keep the stale passing result until the next connect update arrives:\n%s", checkStatus)
 	}
-	cell := m.checkStatusTargetCell("connect", target, []watchrun.AgentSnapshot{{}})
+	cell := m.checkStatusTargetCell("connect", target, []tuirun.AgentSnapshot{{}})
 	if cell.Status != "ok" || !cell.Stale {
 		t.Fatalf("new round checkStatus cell = %#v, want stale passing result", cell)
 	}
 }
 
 func TestCheckStatusFutureTargetsKeepHistoricalPassDuringRound(t *testing.T) {
-	events := make(chan watchrun.Event)
-	targets := []watchrun.Target{
+	events := make(chan tuirun.Event)
+	targets := []tuirun.Target{
 		{Name: "cs21(5G)", ShortName: "C21_5", SSID: "Lab"},
 		{Name: "ub1(5G)", ShortName: "U1_5", SSID: "Lab"},
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watchrun.CheckInfo{{Name: "connect", Type: "connect"}}, events)
-	future := watchrun.TargetSnapshot{Name: "ub1(5G)", ShortName: "U1_5", SSID: "Lab"}
-	m.apply(watchrun.Event{
+	m := newModelWithChecks("shownet-tui", targets, []tuirun.CheckInfo{{Name: "connect", Type: "connect"}}, events)
+	future := tuirun.TargetSnapshot{Name: "ub1(5G)", ShortName: "U1_5", SSID: "Lab"}
+	m.apply(tuirun.Event{
 		Time:     time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC),
-		Kind:     watchrun.EventStepFinished,
+		Kind:     tuirun.EventStepFinished,
 		Round:    1,
 		Target:   future,
-		Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 42,
 	})
-	m.apply(watchrun.Event{Kind: watchrun.EventRoundStarted, Round: 2, Status: "running"})
-	m.apply(watchrun.Event{
-		Kind:   watchrun.EventStepStarted,
+	m.apply(tuirun.Event{Kind: tuirun.EventRoundStarted, Round: 2, Status: "running"})
+	m.apply(tuirun.Event{
+		Kind:   tuirun.EventStepStarted,
 		Round:  2,
-		Target: watchrun.TargetSnapshot{Name: "cs21(5G)", ShortName: "C21_5", SSID: "Lab"},
-		Step:   watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
+		Target: tuirun.TargetSnapshot{Name: "cs21(5G)", ShortName: "C21_5", SSID: "Lab"},
+		Step:   tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
 		Status: "running",
 	})
 
-	cell := m.checkStatusTargetCell("connect", future, []watchrun.AgentSnapshot{{}})
+	cell := m.checkStatusTargetCell("connect", future, []tuirun.AgentSnapshot{{}})
 	if cell.Status != "ok" || !cell.Stale {
 		t.Fatalf("future current-round target should keep showing stale pass until a fresh result arrives: %#v", cell)
 	}
@@ -264,23 +264,23 @@ func TestCheckStatusFutureTargetsKeepHistoricalPassDuringRound(t *testing.T) {
 }
 
 func TestCheckStatusOmitsFullFailedCheckPercent(t *testing.T) {
-	events := make(chan watchrun.Event)
-	agents := []watchrun.AgentSnapshot{
+	events := make(chan tuirun.Event)
+	agents := []tuirun.AgentSnapshot{
 		{ID: "agent-a", Name: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b"},
 	}
-	m := newModel([]watchrun.Target{{Name: "Example Net", SSID: "Example Net"}}, events, agents)
+	m := newModel([]tuirun.Target{{Name: "Example Net", SSID: "Example Net"}}, events, agents)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	for i, agent := range agents {
-		m.apply(watchrun.Event{
+		m.apply(tuirun.Event{
 			Time:   at.Add(time.Duration(i) * time.Second),
-			Kind:   watchrun.EventFinding,
+			Kind:   tuirun.EventFinding,
 			Agent:  agent,
 			Round:  1,
-			Target: watchrun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"},
-			Step:   watchrun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
+			Target: tuirun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"},
+			Step:   tuirun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
 			Status: "failed",
-			Finding: &watchrun.Finding{
+			Finding: &tuirun.Finding{
 				Target:   "Example Net",
 				Check:    "ping cloudflare",
 				Metric:   "received",
@@ -298,19 +298,19 @@ func TestCheckStatusOmitsFullFailedCheckPercent(t *testing.T) {
 }
 
 func TestCheckStatusRendersPartialNonFailedStatusPercent(t *testing.T) {
-	events := make(chan watchrun.Event)
-	agents := []watchrun.AgentSnapshot{
+	events := make(chan tuirun.Event)
+	agents := []tuirun.AgentSnapshot{
 		{ID: "agent-a", Name: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b"},
 	}
-	target := watchrun.TargetSnapshot{Name: "u7-5ghz", SSID: "Example Net"}
-	m := newModel([]watchrun.Target{{Name: "u7-5ghz", SSID: "Example Net"}}, events, agents)
-	m.apply(watchrun.Event{
-		Kind:   watchrun.EventStepFinished,
+	target := tuirun.TargetSnapshot{Name: "u7-5ghz", SSID: "Example Net"}
+	m := newModel([]tuirun.Target{{Name: "u7-5ghz", SSID: "Example Net"}}, events, agents)
+	m.apply(tuirun.Event{
+		Kind:   tuirun.EventStepFinished,
 		Agent:  agents[0],
 		Round:  1,
 		Target: target,
-		Step:   watchrun.StepSnapshot{Name: "wifi link", Type: "wifi_status", Status: "skipped", Skipped: true},
+		Step:   tuirun.StepSnapshot{Name: "wifi link", Type: "wifi_status", Status: "skipped", Skipped: true},
 		Status: "skipped",
 	})
 
@@ -319,12 +319,12 @@ func TestCheckStatusRendersPartialNonFailedStatusPercent(t *testing.T) {
 		t.Fatalf("partial skipped check should render percentage:\n%s", checkStatus)
 	}
 
-	m.apply(watchrun.Event{
-		Kind:     watchrun.EventStepFinished,
+	m.apply(tuirun.Event{
+		Kind:     tuirun.EventStepFinished,
 		Agent:    agents[1],
 		Round:    1,
 		Target:   target,
-		Step:     watchrun.StepSnapshot{Name: "wifi link", Type: "wifi_status", Status: "ok"},
+		Step:     tuirun.StepSnapshot{Name: "wifi link", Type: "wifi_status", Status: "ok"},
 		Status:   "ok",
 		Duration: 10,
 	})
@@ -335,31 +335,31 @@ func TestCheckStatusRendersPartialNonFailedStatusPercent(t *testing.T) {
 }
 
 func TestOperatorSkippedStepRendersPendingInCheckStatus(t *testing.T) {
-	events := make(chan watchrun.Event)
-	target := watchrun.TargetSnapshot{Name: "u7-5ghz", SSID: "Example Net"}
-	m := newModelWithChecks("shownet-watch", []watchrun.Target{{Name: "u7-5ghz", SSID: "Example Net"}}, []watchrun.CheckInfo{{Name: "ping cloudflare", Type: "ping"}}, events)
-	m.apply(watchrun.Event{
-		Kind:   watchrun.EventTargetStarted,
+	events := make(chan tuirun.Event)
+	target := tuirun.TargetSnapshot{Name: "u7-5ghz", SSID: "Example Net"}
+	m := newModelWithChecks("shownet-tui", []tuirun.Target{{Name: "u7-5ghz", SSID: "Example Net"}}, []tuirun.CheckInfo{{Name: "ping cloudflare", Type: "ping"}}, events)
+	m.apply(tuirun.Event{
+		Kind:   tuirun.EventTargetStarted,
 		Round:  1,
 		Target: target,
 		Status: "running",
 	})
-	m.apply(watchrun.Event{
-		Kind:   watchrun.EventStepStarted,
+	m.apply(tuirun.Event{
+		Kind:   tuirun.EventStepStarted,
 		Round:  1,
 		Target: target,
-		Step:   watchrun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "running"},
+		Step:   tuirun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "running"},
 		Status: "running",
 	})
-	m.apply(watchrun.Event{
-		Kind:   watchrun.EventStepFinished,
+	m.apply(tuirun.Event{
+		Kind:   tuirun.EventStepFinished,
 		Round:  1,
 		Target: target,
-		Step:   watchrun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "pending", Skipped: true, Message: "skipped by operator"},
+		Step:   tuirun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "pending", Skipped: true, Message: "skipped by operator"},
 		Status: "skipped",
 	})
-	m.apply(watchrun.Event{
-		Kind:   watchrun.EventTargetFinished,
+	m.apply(tuirun.Event{
+		Kind:   tuirun.EventTargetFinished,
 		Round:  1,
 		Target: target,
 		Status: "skipped",
@@ -375,12 +375,12 @@ func TestOperatorSkippedStepRendersPendingInCheckStatus(t *testing.T) {
 }
 
 func TestCheckStatusShortNameModeCompactsHeadersAndTokens(t *testing.T) {
-	events := make(chan watchrun.Event)
-	agents := []watchrun.AgentSnapshot{
+	events := make(chan tuirun.Event)
+	agents := []tuirun.AgentSnapshot{
 		{ID: "agent-a", Name: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b"},
 	}
-	targets := []watchrun.Target{
+	targets := []tuirun.Target{
 		{Name: "cs1(5G)", ShortName: "C1_5", SSID: "Example Net"},
 		{Name: "cs2(5G)", ShortName: "C2_5", SSID: "Example Net"},
 		{Name: "cs3(5G)", ShortName: "C3_5", SSID: "Example Net"},
@@ -388,35 +388,35 @@ func TestCheckStatusShortNameModeCompactsHeadersAndTokens(t *testing.T) {
 		{Name: "cs5(5G)", ShortName: "C5_5", SSID: "Example Net"},
 		{Name: "cs6(5G)", ShortName: "C6_5", SSID: "Example Net"},
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watchrun.CheckInfo{{Name: "connect", Type: "connect"}}, events, agents)
-	m.apply(watchrun.Event{
-		Kind:     watchrun.EventStepFinished,
+	m := newModelWithChecks("shownet-tui", targets, []tuirun.CheckInfo{{Name: "connect", Type: "connect"}}, events, agents)
+	m.apply(tuirun.Event{
+		Kind:     tuirun.EventStepFinished,
 		Agent:    agents[0],
 		Round:    1,
-		Target:   watchrun.TargetSnapshot{Name: "cs1(5G)", ShortName: "C1_5", SSID: "Example Net"},
-		Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Target:   tuirun.TargetSnapshot{Name: "cs1(5G)", ShortName: "C1_5", SSID: "Example Net"},
+		Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 10,
 	})
-	m.apply(watchrun.Event{
-		Kind:   watchrun.EventFinding,
+	m.apply(tuirun.Event{
+		Kind:   tuirun.EventFinding,
 		Agent:  agents[0],
 		Round:  1,
-		Target: watchrun.TargetSnapshot{Name: "cs2(5G)", ShortName: "C2_5", SSID: "Example Net"},
-		Step:   watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
+		Target: tuirun.TargetSnapshot{Name: "cs2(5G)", ShortName: "C2_5", SSID: "Example Net"},
+		Step:   tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
 		Status: "failed",
-		Finding: &watchrun.Finding{
+		Finding: &tuirun.Finding{
 			Target: "cs2(5G)",
 			Check:  "connect",
 			Metric: "status",
 		},
 	})
-	m.apply(watchrun.Event{
-		Kind:   watchrun.EventStepStarted,
+	m.apply(tuirun.Event{
+		Kind:   tuirun.EventStepStarted,
 		Agent:  agents[0],
 		Round:  1,
-		Target: watchrun.TargetSnapshot{Name: "cs3(5G)", ShortName: "C3_5", SSID: "Example Net"},
-		Step:   watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
+		Target: tuirun.TargetSnapshot{Name: "cs3(5G)", ShortName: "C3_5", SSID: "Example Net"},
+		Step:   tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
 		Status: "running",
 	})
 
@@ -457,10 +457,10 @@ func TestCheckStatusCompactTokenUsesPlannedAgentProgress(t *testing.T) {
 }
 
 func TestCheckStatusUsesContiguousInitialWindow(t *testing.T) {
-	events := make(chan watchrun.Event)
-	agents := []watchrun.AgentSnapshot{{ID: "agent-a", Name: "pixel-a"}}
+	events := make(chan tuirun.Event)
+	agents := []tuirun.AgentSnapshot{{ID: "agent-a", Name: "pixel-a"}}
 	disconnectAfter := false
-	targets := []watchrun.Target{
+	targets := []tuirun.Target{
 		{Name: "ap1(5G)", ShortName: "A1", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 		{Name: "ap2(5G)", ShortName: "A2", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 		{Name: "ap3(5G)", ShortName: "A3", SSID: "Lab", DisconnectAfter: &disconnectAfter},
@@ -470,16 +470,16 @@ func TestCheckStatusUsesContiguousInitialWindow(t *testing.T) {
 		{Name: "ap7(5G)", ShortName: "A7", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 		{Name: "ap8(5G)", ShortName: "A8", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watchrun.CheckInfo{}, events, agents)
+	m := newModelWithChecks("shownet-tui", targets, []tuirun.CheckInfo{}, events, agents)
 	for i := range 6 {
-		target := watchrun.TargetSnapshot{Name: targets[i].Name, ShortName: targets[i].ShortName, SSID: targets[i].SSID}
+		target := tuirun.TargetSnapshot{Name: targets[i].Name, ShortName: targets[i].ShortName, SSID: targets[i].SSID}
 		for _, step := range []string{"connect", "wait_connected"} {
-			m.apply(watchrun.Event{
-				Kind:     watchrun.EventStepFinished,
+			m.apply(tuirun.Event{
+				Kind:     tuirun.EventStepFinished,
 				Agent:    agents[0],
 				Round:    1,
 				Target:   target,
-				Step:     watchrun.StepSnapshot{Name: step, Type: step, Status: "ok"},
+				Step:     tuirun.StepSnapshot{Name: step, Type: step, Status: "ok"},
 				Status:   "ok",
 				Duration: 10,
 			})
@@ -498,10 +498,10 @@ func TestCheckStatusUsesContiguousInitialWindow(t *testing.T) {
 }
 
 func TestCheckStatusAutoWindowTracksRunningTargetContiguously(t *testing.T) {
-	events := make(chan watchrun.Event)
-	agents := []watchrun.AgentSnapshot{{ID: "agent-a", Name: "pixel-a"}}
+	events := make(chan tuirun.Event)
+	agents := []tuirun.AgentSnapshot{{ID: "agent-a", Name: "pixel-a"}}
 	disconnectAfter := false
-	targets := []watchrun.Target{
+	targets := []tuirun.Target{
 		{Name: "ap1(5G)", ShortName: "A1", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 		{Name: "ap2(5G)", ShortName: "A2", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 		{Name: "ap3(5G)", ShortName: "A3", SSID: "Lab", DisconnectAfter: &disconnectAfter},
@@ -509,27 +509,27 @@ func TestCheckStatusAutoWindowTracksRunningTargetContiguously(t *testing.T) {
 		{Name: "ap5(5G)", ShortName: "A5", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 		{Name: "ap6(5G)", ShortName: "A6", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watchrun.CheckInfo{}, events, agents)
+	m := newModelWithChecks("shownet-tui", targets, []tuirun.CheckInfo{}, events, agents)
 	for i := range 4 {
-		target := watchrun.TargetSnapshot{Name: targets[i].Name, ShortName: targets[i].ShortName, SSID: targets[i].SSID}
+		target := tuirun.TargetSnapshot{Name: targets[i].Name, ShortName: targets[i].ShortName, SSID: targets[i].SSID}
 		for _, step := range []string{"connect", "wait_connected"} {
-			m.apply(watchrun.Event{
-				Kind:     watchrun.EventStepFinished,
+			m.apply(tuirun.Event{
+				Kind:     tuirun.EventStepFinished,
 				Agent:    agents[0],
 				Round:    1,
 				Target:   target,
-				Step:     watchrun.StepSnapshot{Name: step, Type: step, Status: "ok"},
+				Step:     tuirun.StepSnapshot{Name: step, Type: step, Status: "ok"},
 				Status:   "ok",
 				Duration: 10,
 			})
 		}
 	}
-	m.apply(watchrun.Event{
-		Kind:   watchrun.EventStepStarted,
+	m.apply(tuirun.Event{
+		Kind:   tuirun.EventStepStarted,
 		Agent:  agents[0],
 		Round:  1,
-		Target: watchrun.TargetSnapshot{Name: targets[4].Name, ShortName: targets[4].ShortName, SSID: targets[4].SSID},
-		Step:   watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
+		Target: tuirun.TargetSnapshot{Name: targets[4].Name, ShortName: targets[4].ShortName, SSID: targets[4].SSID},
+		Step:   tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
 		Status: "running",
 	})
 	m.width = 28
@@ -551,10 +551,10 @@ func TestCheckStatusAutoWindowTracksRunningTargetContiguously(t *testing.T) {
 }
 
 func TestCheckStatusAutoWindowTracksFailedTargetContiguously(t *testing.T) {
-	events := make(chan watchrun.Event)
-	agents := []watchrun.AgentSnapshot{{ID: "agent-a", Name: "pixel-a"}}
+	events := make(chan tuirun.Event)
+	agents := []tuirun.AgentSnapshot{{ID: "agent-a", Name: "pixel-a"}}
 	disconnectAfter := false
-	targets := []watchrun.Target{
+	targets := []tuirun.Target{
 		{Name: "ap1(5G)", ShortName: "A1", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 		{Name: "ap2(5G)", ShortName: "A2", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 		{Name: "ap3(5G)", ShortName: "A3", SSID: "Lab", DisconnectAfter: &disconnectAfter},
@@ -562,29 +562,29 @@ func TestCheckStatusAutoWindowTracksFailedTargetContiguously(t *testing.T) {
 		{Name: "ap5(5G)", ShortName: "A5", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 		{Name: "ap6(5G)", ShortName: "A6", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watchrun.CheckInfo{}, events, agents)
+	m := newModelWithChecks("shownet-tui", targets, []tuirun.CheckInfo{}, events, agents)
 	for i := range 4 {
-		target := watchrun.TargetSnapshot{Name: targets[i].Name, ShortName: targets[i].ShortName, SSID: targets[i].SSID}
+		target := tuirun.TargetSnapshot{Name: targets[i].Name, ShortName: targets[i].ShortName, SSID: targets[i].SSID}
 		for _, step := range []string{"connect", "wait_connected"} {
-			m.apply(watchrun.Event{
-				Kind:     watchrun.EventStepFinished,
+			m.apply(tuirun.Event{
+				Kind:     tuirun.EventStepFinished,
 				Agent:    agents[0],
 				Round:    1,
 				Target:   target,
-				Step:     watchrun.StepSnapshot{Name: step, Type: step, Status: "ok"},
+				Step:     tuirun.StepSnapshot{Name: step, Type: step, Status: "ok"},
 				Status:   "ok",
 				Duration: 10,
 			})
 		}
 	}
-	m.apply(watchrun.Event{
-		Kind:   watchrun.EventFinding,
+	m.apply(tuirun.Event{
+		Kind:   tuirun.EventFinding,
 		Agent:  agents[0],
 		Round:  1,
-		Target: watchrun.TargetSnapshot{Name: targets[4].Name, ShortName: targets[4].ShortName, SSID: targets[4].SSID},
-		Step:   watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
+		Target: tuirun.TargetSnapshot{Name: targets[4].Name, ShortName: targets[4].ShortName, SSID: targets[4].SSID},
+		Step:   tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
 		Status: "failed",
-		Finding: &watchrun.Finding{
+		Finding: &tuirun.Finding{
 			Target: targets[4].Name,
 			Check:  "connect",
 			Metric: "status",
@@ -608,13 +608,13 @@ func TestCheckStatusAutoWindowTracksFailedTargetContiguously(t *testing.T) {
 	}
 }
 
-func checkStatusScrollPreview(t *testing.T) watchrun.Preview {
+func checkStatusScrollPreview(t *testing.T) tuirun.Preview {
 	t.Helper()
-	plan := watchrun.Plan{Checks: []watchrun.Check{watchrun.NewCheck("status", "status", command.WifiStatusOperation(), watchrun.Policy{}, false)}}
+	plan := tuirun.Plan{Checks: []tuirun.Check{tuirun.NewCheck("status", "status", command.WifiStatusOperation(), tuirun.Policy{}, false)}}
 	for i := 1; i <= 6; i++ {
-		plan.Networks = append(plan.Networks, watchrun.Network{Name: fmt.Sprintf("ap%d(5G)", i), ShortName: fmt.Sprintf("A%d", i), SSID: "Lab", PSK: watchrun.SecretValue("synthetic-passphrase"), WaitConnected: true})
+		plan.Networks = append(plan.Networks, tuirun.Network{Name: fmt.Sprintf("ap%d(5G)", i), ShortName: fmt.Sprintf("A%d", i), SSID: "Lab", PSK: tuirun.SecretValue("synthetic-passphrase"), WaitConnected: true})
 	}
-	compiled, err := watchrun.Compile(plan, []control.AgentInfo{{ID: "agent-a"}})
+	compiled, err := tuirun.Compile(plan, []control.AgentInfo{{ID: "agent-a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -622,9 +622,9 @@ func checkStatusScrollPreview(t *testing.T) watchrun.Preview {
 }
 
 func TestCheckStatusHorizontalScrollPinsVisibleWindow(t *testing.T) {
-	events := make(chan watchrun.Event)
+	events := make(chan tuirun.Event)
 	preview := checkStatusScrollPreview(t)
-	m := newModelWithChecks("shownet-watch", preview.Targets, preview.Checks, events, preview.Agents)
+	m := newModelWithChecks("shownet-tui", preview.Targets, preview.Checks, events, preview.Agents)
 	m.width = 28
 	m.moveCheckStatusHorizontal(2)
 
@@ -640,12 +640,12 @@ func TestCheckStatusHorizontalScrollPinsVisibleWindow(t *testing.T) {
 		}
 	}
 
-	m.apply(watchrun.Event{
-		Kind:     watchrun.EventStepFinished,
+	m.apply(tuirun.Event{
+		Kind:     tuirun.EventStepFinished,
 		Agent:    preview.Agents[0],
 		Round:    1,
-		Target:   watchrun.TargetSnapshot{ID: preview.Targets[0].ID, Name: "ap1(5G)", ShortName: "A1", SSID: "Lab"},
-		Step:     watchrun.StepSnapshot{ID: preview.Targets[0].Connect.ID, Name: "connect", Type: "connect", Status: "ok"},
+		Target:   tuirun.TargetSnapshot{ID: preview.Targets[0].ID, Name: "ap1(5G)", ShortName: "A1", SSID: "Lab"},
+		Step:     tuirun.StepSnapshot{ID: preview.Targets[0].Connect.ID, Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 10,
 	})
@@ -677,10 +677,10 @@ func TestCheckStatusHorizontalScrollPinsVisibleWindow(t *testing.T) {
 }
 
 func TestCheckStatusLeftScrollFromAutoWindowPinsPreviousWindow(t *testing.T) {
-	events := make(chan watchrun.Event)
-	agents := []watchrun.AgentSnapshot{{ID: "agent-a", Name: "pixel-a"}}
+	events := make(chan tuirun.Event)
+	agents := []tuirun.AgentSnapshot{{ID: "agent-a", Name: "pixel-a"}}
 	disconnectAfter := false
-	targets := []watchrun.Target{
+	targets := []tuirun.Target{
 		{Name: "ap1(5G)", ShortName: "A1", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 		{Name: "ap2(5G)", ShortName: "A2", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 		{Name: "ap3(5G)", ShortName: "A3", SSID: "Lab", DisconnectAfter: &disconnectAfter},
@@ -688,28 +688,28 @@ func TestCheckStatusLeftScrollFromAutoWindowPinsPreviousWindow(t *testing.T) {
 		{Name: "ap5(5G)", ShortName: "A5", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 		{Name: "ap6(5G)", ShortName: "A6", SSID: "Lab", DisconnectAfter: &disconnectAfter},
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watchrun.CheckInfo{}, events, agents)
+	m := newModelWithChecks("shownet-tui", targets, []tuirun.CheckInfo{}, events, agents)
 	for i := range 4 {
-		target := watchrun.TargetSnapshot{Name: targets[i].Name, ShortName: targets[i].ShortName, SSID: targets[i].SSID}
+		target := tuirun.TargetSnapshot{Name: targets[i].Name, ShortName: targets[i].ShortName, SSID: targets[i].SSID}
 		for _, step := range []string{"connect", "wait_connected"} {
-			m.apply(watchrun.Event{
-				Kind:     watchrun.EventStepFinished,
+			m.apply(tuirun.Event{
+				Kind:     tuirun.EventStepFinished,
 				Agent:    agents[0],
 				Round:    1,
 				Target:   target,
-				Step:     watchrun.StepSnapshot{Name: step, Type: step, Status: "ok"},
+				Step:     tuirun.StepSnapshot{Name: step, Type: step, Status: "ok"},
 				Status:   "ok",
 				Duration: 10,
 			})
 		}
 	}
 	m.width = 28
-	m.apply(watchrun.Event{
-		Kind:   watchrun.EventStepStarted,
+	m.apply(tuirun.Event{
+		Kind:   tuirun.EventStepStarted,
 		Agent:  agents[0],
 		Round:  1,
-		Target: watchrun.TargetSnapshot{Name: targets[4].Name, ShortName: targets[4].ShortName, SSID: targets[4].SSID},
-		Step:   watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
+		Target: tuirun.TargetSnapshot{Name: targets[4].Name, ShortName: targets[4].ShortName, SSID: targets[4].SSID},
+		Step:   tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
 		Status: "running",
 	})
 
@@ -737,9 +737,9 @@ func TestCheckStatusLeftScrollFromAutoWindowPinsPreviousWindow(t *testing.T) {
 }
 
 func TestCheckStatusAutoWindowStaysStableBetweenStepTransitions(t *testing.T) {
-	events := make(chan watchrun.Event)
-	agents := []watchrun.AgentSnapshot{{ID: "agent-a", Name: "pixel-a"}}
-	targets := []watchrun.Target{
+	events := make(chan tuirun.Event)
+	agents := []tuirun.AgentSnapshot{{ID: "agent-a", Name: "pixel-a"}}
+	targets := []tuirun.Target{
 		{Name: "ap1(5G)", ShortName: "A1", SSID: "Lab"},
 		{Name: "ap2(5G)", ShortName: "A2", SSID: "Lab"},
 		{Name: "ap3(5G)", ShortName: "A3", SSID: "Lab"},
@@ -747,34 +747,34 @@ func TestCheckStatusAutoWindowStaysStableBetweenStepTransitions(t *testing.T) {
 		{Name: "ap5(5G)", ShortName: "A5", SSID: "Lab"},
 		{Name: "ap6(5G)", ShortName: "A6", SSID: "Lab"},
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watchrun.CheckInfo{}, events, agents)
+	m := newModelWithChecks("shownet-tui", targets, []tuirun.CheckInfo{}, events, agents)
 	m.width = 28
-	target := watchrun.TargetSnapshot{Name: targets[4].Name, ShortName: targets[4].ShortName, SSID: targets[4].SSID}
-	m.apply(watchrun.Event{
-		Kind:   watchrun.EventStepStarted,
+	target := tuirun.TargetSnapshot{Name: targets[4].Name, ShortName: targets[4].ShortName, SSID: targets[4].SSID}
+	m.apply(tuirun.Event{
+		Kind:   tuirun.EventStepStarted,
 		Agent:  agents[0],
 		Round:  1,
 		Target: target,
-		Step:   watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
+		Step:   tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
 		Status: "running",
 	})
 	before := stripANSI(m.checkStatusView(panelContentWidth(m.width), 3))
-	m.apply(watchrun.Event{
-		Kind:     watchrun.EventStepFinished,
+	m.apply(tuirun.Event{
+		Kind:     tuirun.EventStepFinished,
 		Agent:    agents[0],
 		Round:    1,
 		Target:   target,
-		Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 10,
 	})
 	between := stripANSI(m.checkStatusView(panelContentWidth(m.width), 3))
-	m.apply(watchrun.Event{
-		Kind:   watchrun.EventStepStarted,
+	m.apply(tuirun.Event{
+		Kind:   tuirun.EventStepStarted,
 		Agent:  agents[0],
 		Round:  1,
 		Target: target,
-		Step:   watchrun.StepSnapshot{Name: "wait_connected", Type: "wait_connected", Status: "running"},
+		Step:   tuirun.StepSnapshot{Name: "wait_connected", Type: "wait_connected", Status: "running"},
 		Status: "running",
 	})
 	after := stripANSI(m.checkStatusView(panelContentWidth(m.width), 3))
@@ -797,38 +797,38 @@ func TestCheckStatusAutoWindowStaysStableBetweenStepTransitions(t *testing.T) {
 }
 
 func TestCheckStatusAutoWindowRepositionsAfterResize(t *testing.T) {
-	events := make(chan watchrun.Event)
-	agents := []watchrun.AgentSnapshot{
+	events := make(chan tuirun.Event)
+	agents := []tuirun.AgentSnapshot{
 		{ID: "agent-a", Name: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b"},
 	}
-	targets := make([]watchrun.Target, 20)
+	targets := make([]tuirun.Target, 20)
 	for i := range targets {
-		targets[i] = watchrun.Target{
+		targets[i] = tuirun.Target{
 			Name:      fmt.Sprintf("ap%02d(5G)", i+1),
 			ShortName: fmt.Sprintf("T%02d", i+1),
 			SSID:      "Lab",
 		}
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watchrun.CheckInfo{{Name: "connect", Type: "connect"}}, events, agents)
+	m := newModelWithChecks("shownet-tui", targets, []tuirun.CheckInfo{{Name: "connect", Type: "connect"}}, events, agents)
 	for _, run := range []struct {
-		agent watchrun.AgentSnapshot
+		agent tuirun.AgentSnapshot
 		index int
 	}{
 		{agent: agents[0], index: 3},
 		{agent: agents[1], index: 17},
 	} {
-		target := watchrun.TargetSnapshot{
+		target := tuirun.TargetSnapshot{
 			Name:      targets[run.index].Name,
 			ShortName: targets[run.index].ShortName,
 			SSID:      targets[run.index].SSID,
 		}
-		m.apply(watchrun.Event{
-			Kind:   watchrun.EventStepStarted,
+		m.apply(tuirun.Event{
+			Kind:   tuirun.EventStepStarted,
 			Agent:  run.agent,
 			Round:  1,
 			Target: target,
-			Step:   watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
+			Step:   tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
 			Status: "running",
 		})
 	}
@@ -859,9 +859,9 @@ func TestCheckStatusAutoWindowRepositionsAfterResize(t *testing.T) {
 }
 
 func TestCheckStatusManualScrollUnpinsWhenFocusLeaves(t *testing.T) {
-	events := make(chan watchrun.Event)
+	events := make(chan tuirun.Event)
 	preview := checkStatusScrollPreview(t)
-	m := newModelWithChecks("shownet-watch", preview.Targets, preview.Checks, events, preview.Agents)
+	m := newModelWithChecks("shownet-tui", preview.Targets, preview.Checks, events, preview.Agents)
 	m.width = 28
 	m.focus = focusCheckStatus
 	m.moveCheckStatusHorizontal(1)
@@ -876,33 +876,33 @@ func TestCheckStatusManualScrollUnpinsWhenFocusLeaves(t *testing.T) {
 }
 
 func TestAssignedTargetsUseAssignedAgentAsCheckStatusDenominator(t *testing.T) {
-	events := make(chan watchrun.Event)
-	agents := []watchrun.AgentSnapshot{
+	events := make(chan tuirun.Event)
+	agents := []tuirun.AgentSnapshot{
 		{ID: "agent-a", Name: "35251JEHN00258", ADBSerial: "35251JEHN00258", DeviceModel: "Pixel 7a"},
 		{ID: "agent-b", Name: "45240DLAQ007HG", ADBSerial: "45240DLAQ007HG", DeviceModel: "Pixel 9"},
 	}
-	targets := []watchrun.Target{
+	targets := []tuirun.Target{
 		{Name: "ap-5g", ShortName: "A5", Agent: "35251JEHN00258", SSID: "Lab"},
 		{Name: "ap-6g", ShortName: "A6", Agent: "45240DLAQ007HG", SSID: "Lab"},
 	}
-	m := newModelWithChecks("shownet-watch", targets, []watchrun.CheckInfo{{Name: "connect", Type: "connect"}}, events, agents)
-	m.apply(watchrun.Event{
-		Kind:     watchrun.EventStepFinished,
+	m := newModelWithChecks("shownet-tui", targets, []tuirun.CheckInfo{{Name: "connect", Type: "connect"}}, events, agents)
+	m.apply(tuirun.Event{
+		Kind:     tuirun.EventStepFinished,
 		Agent:    agents[0],
 		Round:    1,
-		Target:   watchrun.TargetSnapshot{Name: "ap-5g", ShortName: "A5", Agent: "35251JEHN00258", SSID: "Lab"},
-		Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Target:   tuirun.TargetSnapshot{Name: "ap-5g", ShortName: "A5", Agent: "35251JEHN00258", SSID: "Lab"},
+		Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 10,
 	})
-	m.apply(watchrun.Event{
-		Kind:   watchrun.EventFinding,
+	m.apply(tuirun.Event{
+		Kind:   tuirun.EventFinding,
 		Agent:  agents[1],
 		Round:  1,
-		Target: watchrun.TargetSnapshot{Name: "ap-6g", ShortName: "A6", Agent: "45240DLAQ007HG", SSID: "Lab"},
-		Step:   watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
+		Target: tuirun.TargetSnapshot{Name: "ap-6g", ShortName: "A6", Agent: "45240DLAQ007HG", SSID: "Lab"},
+		Step:   tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
 		Status: "failed",
-		Finding: &watchrun.Finding{
+		Finding: &tuirun.Finding{
 			Target: "ap-6g",
 			Check:  "connect",
 			Metric: "status",
@@ -919,28 +919,28 @@ func TestAssignedTargetsUseAssignedAgentAsCheckStatusDenominator(t *testing.T) {
 		t.Fatalf("assigned run queue should keep both assigned targets:\n%s", runQueue)
 	}
 
-	buckets, _, _ := m.targetRoundHistory(watchrun.TargetSnapshot{Name: "ap-5g", ShortName: "A5", Agent: "35251JEHN00258", SSID: "Lab"}, 1)
+	buckets, _, _ := m.targetRoundHistory(tuirun.TargetSnapshot{Name: "ap-5g", ShortName: "A5", Agent: "35251JEHN00258", SSID: "Lab"}, 1)
 	if buckets[0].ConnectFailed {
 		t.Fatalf("passing assigned target should not render connect failure: %#v", buckets[0])
 	}
-	buckets, _, _ = m.targetRoundHistory(watchrun.TargetSnapshot{Name: "ap-6g", ShortName: "A6", Agent: "45240DLAQ007HG", SSID: "Lab"}, 1)
+	buckets, _, _ = m.targetRoundHistory(tuirun.TargetSnapshot{Name: "ap-6g", ShortName: "A6", Agent: "45240DLAQ007HG", SSID: "Lab"}, 1)
 	if !buckets[0].ConnectFailed {
 		t.Fatalf("failed assigned target should render connect failure with one assigned agent: %#v", buckets[0])
 	}
 }
 
 func TestCheckStatusShowsPendingInsteadOfPreviousFailureOnNextRound(t *testing.T) {
-	events := make(chan watchrun.Event)
-	m := newModel([]watchrun.Target{{Name: "Example Net", SSID: "Example Net"}}, events)
-	target := watchrun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"}
-	m.apply(watchrun.Event{
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{{Name: "Example Net", SSID: "Example Net"}}, events)
+	target := tuirun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"}
+	m.apply(tuirun.Event{
 		Time:   time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC),
-		Kind:   watchrun.EventFinding,
+		Kind:   tuirun.EventFinding,
 		Round:  1,
 		Target: target,
-		Step:   watchrun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
+		Step:   tuirun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
 		Status: "failed",
-		Finding: &watchrun.Finding{
+		Finding: &tuirun.Finding{
 			Target:   "Example Net",
 			Check:    "ping cloudflare",
 			Metric:   "received",
@@ -950,12 +950,12 @@ func TestCheckStatusShowsPendingInsteadOfPreviousFailureOnNextRound(t *testing.T
 		},
 	})
 
-	m.apply(watchrun.Event{Kind: watchrun.EventRoundStarted, Round: 2, Status: "running"})
+	m.apply(tuirun.Event{Kind: tuirun.EventRoundStarted, Round: 2, Status: "running"})
 	checkStatus := stripANSI(m.checkStatusView(72, 4))
 	if !strings.Contains(checkStatus, "FAIL") || strings.Contains(checkStatus, "WAIT") {
 		t.Fatalf("new round should keep the stale failed result until the next ping update arrives:\n%s", checkStatus)
 	}
-	cell := m.checkStatusTargetCell("ping cloudflare", target, []watchrun.AgentSnapshot{{}})
+	cell := m.checkStatusTargetCell("ping cloudflare", target, []tuirun.AgentSnapshot{{}})
 	if cell.Status != "failed" || !cell.Stale {
 		t.Fatalf("new round checkStatus cell = %#v, want stale failed result", cell)
 	}

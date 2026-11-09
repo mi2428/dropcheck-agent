@@ -55,7 +55,7 @@ func TestPublicModule(t *testing.T) {
         subprocess.run([GO, "test", "-mod=mod", "-count=1", "./..."], cwd=consumer, env=env, check=True, timeout=120)
         subprocess.run([GO, "build", "-mod=mod", "-o", str(work / "dropcheck"), MODULE + "/cmd/dropcheck"], cwd=consumer, env=env, check=True, timeout=120)
         dependencies = set(subprocess.check_output([GO, "list", "-deps", MODULE + "/pkg/dropcheck"], cwd=consumer, env=env, text=True, timeout=30).splitlines())
-        for private_surface in ["watchrun", "watch", "watchstate", "tui", "render"]:
+        for private_surface in ["tuirun", "tuiconfig", "tuistate", "tui", "render"]:
             assert MODULE + "/internal/" + private_surface not in dependencies, private_surface
         assert "replace" not in (consumer / "go.mod").read_text()
     print("Versioned public module consumption: PASS (local proxy; no replacement or network)")

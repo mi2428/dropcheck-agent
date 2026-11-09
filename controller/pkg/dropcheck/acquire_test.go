@@ -20,7 +20,7 @@ func (r projectionRunner) Run(context.Context, control.AgentInfo, command.Operat
 	return runner.Result{CommandID: "acquired-command", Result: r.raw}, nil
 }
 
-func TestPublicResultProjectsNeutralAcquisitionWithoutWatchTypes(t *testing.T) {
+func TestPublicResultProjectsNeutralAcquisitionWithoutTUITypes(t *testing.T) {
 	op, err := Traceroute(TracerouteOptions{Host: "example.test", Via: []string{"router.example.test"}})
 	if err != nil {
 		t.Fatal(err)

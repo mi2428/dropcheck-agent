@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchstate"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuistate"
 
 	"charm.land/lipgloss/v2"
 )
@@ -111,7 +111,7 @@ func statusToken(status string) string {
 }
 
 func normalizeStatus(status string) string {
-	return watchstate.NormalizeStatus(status)
+	return tuistate.NormalizeStatus(status)
 }
 
 func checkStatusStyle(status string) lipgloss.Style {

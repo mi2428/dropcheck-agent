@@ -60,7 +60,7 @@ type TransportStatus struct {
 
 // Server tracks authenticated agents and dispatches commands over gRPC.
 //
-// Server is safe for concurrent use by Shell, watch, the basic Go client, and
+// Server is safe for concurrent use by Shell, tui, the basic Go client, and
 // gRPC stream handlers.
 type Server struct {
 	controlpb.UnimplementedDropcheckControlServer

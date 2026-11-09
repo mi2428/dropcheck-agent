@@ -10,7 +10,7 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 )
 
 func styleField(t *testing.T, text, label, value string, indent int) int {
@@ -157,7 +157,7 @@ func TestStyleConsistencyCommandErrorRecords(t *testing.T) {
 }
 
 func TestStyleConsistencyMissingAcquisitionRecord(t *testing.T) {
-	text, err := operationResult("self", watchrun.OperationResult{}, Presentation{}, func(string) string { return "self" })
+	text, err := operationResult("self", tuirun.OperationResult{}, Presentation{}, func(string) string { return "self" })
 	if err != nil {
 		t.Fatal(err)
 	}

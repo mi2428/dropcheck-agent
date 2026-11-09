@@ -6,20 +6,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchstate"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuistate"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 )
 
-// RunWithControls renders watch events and lets keyboard input control the
-// watch runner through pause and skip controllers.
-func RunWithControls(ctx context.Context, title string, targets []watchrun.Target, checks []watchrun.CheckInfo, agents []watchrun.AgentSnapshot, events <-chan watchrun.Event, controls *watchrun.Controls) error {
+// RunWithControls renders tui events and lets keyboard input control the
+// tui runner through pause and skip controllers.
+func RunWithControls(ctx context.Context, title string, targets []tuirun.Target, checks []tuirun.CheckInfo, agents []tuirun.AgentSnapshot, events <-chan tuirun.Event, controls *tuirun.Controls) error {
 	m := newModelWithChecks(title, targets, checks, events, agents)
 	m.controls = controls
 	if controls != nil {
-		m.paused = controls.Paused(watchrun.Scope{Kind: watchrun.ScopeRun})
+		m.paused = controls.Paused(tuirun.Scope{Kind: tuirun.ScopeRun})
 	}
 	return runModel(ctx, m)
 }
@@ -35,11 +35,11 @@ func runModel(ctx context.Context, m model) error {
 	return err
 }
 
-func newModelWithChecks(title string, targets []watchrun.Target, checks []watchrun.CheckInfo, events <-chan watchrun.Event, agentSets ...[]watchrun.AgentSnapshot) model {
+func newModelWithChecks(title string, targets []tuirun.Target, checks []tuirun.CheckInfo, events <-chan tuirun.Event, agentSets ...[]tuirun.AgentSnapshot) model {
 	if strings.TrimSpace(title) == "" {
-		title = "dropcheck watch"
+		title = "dropcheck tui"
 	}
-	agents := []watchrun.AgentSnapshot(nil)
+	agents := []tuirun.AgentSnapshot(nil)
 	if len(agentSets) > 0 {
 		agents = agentSets[0]
 	}
@@ -47,7 +47,7 @@ func newModelWithChecks(title string, targets []watchrun.Target, checks []watchr
 		Title:       title,
 		events:      events,
 		keys:        keyMap{quit: key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl-c", "quit"))},
-		State:       watchstate.New(targets, checks, agents, time.Now()),
+		State:       tuistate.New(targets, checks, agents, time.Now()),
 		focus:       focusCheckStatus,
 		detailPanel: focusFailedChecks,
 	}
@@ -59,7 +59,7 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(waitEvent(m.events), tickEverySecond())
 }
 
-func waitEvent(events <-chan watchrun.Event) tea.Cmd {
+func waitEvent(events <-chan tuirun.Event) tea.Cmd {
 	return func() tea.Msg {
 		event, ok := <-events
 		if !ok {
@@ -75,7 +75,7 @@ func tickEverySecond() tea.Cmd {
 	})
 }
 
-// Update applies keyboard input, terminal resize messages, watch events, and
+// Update applies keyboard input, terminal resize messages, tui events, and
 // clock ticks to the TUI model.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -179,14 +179,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.normalizeCursors()
 		return m, tea.ClearScreen
 	case eventMsg:
-		m.apply(watchrun.Event(msg))
+		m.apply(tuirun.Event(msg))
 		return m, waitEvent(m.events)
 	case tickMsg:
 		m.Now = time.Time(msg)
 		return m, tickEverySecond()
 	case closedMsg:
 		m.closed = true
-		m.pushLog("watch event stream closed")
+		m.pushLog("tui event stream closed")
 		return m, tea.Quit
 	}
 	return m, nil

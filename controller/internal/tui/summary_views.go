@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 
 	"charm.land/lipgloss/v2"
 )
@@ -184,7 +184,7 @@ func (m model) failureHotspotPanelsSplit() bool {
 	return lowerHeight >= 6 && lowerHeight >= len(agents)*3
 }
 
-func (m model) failureHotspotsViewForAgent(agent watchrun.AgentSnapshot, width int, height int) string {
+func (m model) failureHotspotsViewForAgent(agent tuirun.AgentSnapshot, width int, height int) string {
 	if m.failureHotspotMode == failureHotspotModeCauses {
 		return m.failureCausesViewForAgent(agent, width, height)
 	}
@@ -218,7 +218,7 @@ func (m model) failureHotspotsViewForAgent(agent watchrun.AgentSnapshot, width i
 	return renderTableLines(lines, width, height, selectedLine)
 }
 
-func (m model) failureCausesViewForAgent(agent watchrun.AgentSnapshot, width int, height int) string {
+func (m model) failureCausesViewForAgent(agent tuirun.AgentSnapshot, width int, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
@@ -249,14 +249,14 @@ func (m model) failureCausesViewForAgent(agent watchrun.AgentSnapshot, width int
 	return renderTableLines(lines, width, height, selectedLine)
 }
 
-func (m model) failureHotspotPanelHasFocus(agent watchrun.AgentSnapshot) bool {
+func (m model) failureHotspotPanelHasFocus(agent tuirun.AgentSnapshot) bool {
 	if m.focus != focusFailureHotspots || !m.failureHotspotPanelsSplit() {
 		return false
 	}
 	return roundAgentKey(agent) == m.currentHotspotAgentKey()
 }
 
-func (m model) failureHotspotAgents() []watchrun.AgentSnapshot {
+func (m model) failureHotspotAgents() []tuirun.AgentSnapshot {
 	return m.outcomeAgents(m.outcomeEvents())
 }
 

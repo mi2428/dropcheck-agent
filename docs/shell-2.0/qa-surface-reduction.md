@@ -1,18 +1,18 @@
 # 2.0 surface reduction
 
-Date: 2026-11-05. Baseline: `02a9e8c`. Keep PC/Android Shell, Android widgets and `dropcheck watch`; remove standalone one-shot CLI, the separate `dropcheck tui` workflow and the Go test-authoring DSL. Ordinary regression tests remain part of development.
+Date: 2026-11-05. Baseline: `02a9e8c`. Keep PC/Android Shell, Android widgets and `dropcheck tui`; remove standalone one-shot CLI, the separate `dropcheck tui` workflow and the Go test-authoring DSL. Ordinary regression tests remain part of development.
 
 ## Implementation boundary
 
 - Removed the CLI router/parser/aliases and separate Plan selection/Preview/Once/N/Review UI, including unused selection/rerun runtime and dedicated fixtures. Retired roots fail before ADB startup, without compatibility aliases.
-- Removed the `testing.T` adapter, Go scenario builders and fluent metric/selector subpackages. The required watch execution, flat YAML expectations, controls, timing, typed acquisitions and cleanup remain private in `internal/watchrun`; this is not a renamed public harness.
-- Preserved watch YAML, monitoring dashboard, headless mode and JSONL, along with Shell typed failures, source/target retention, credentials, full input/draft recall, filters and full-safe-value access. Surviving E2E rows retain their original IDs/content/order; only retired CLI rows were removed.
-- A single [public Go package](../go-api.md) reuses existing connection, operation and acquisition code. It exposes device inventory and basic operations, not scenario/watch authoring. An external-module test imports no internal package. Public typed SSID/configuration-ID forgetting remains unambiguous.
+- Removed the `testing.T` adapter, Go scenario builders and fluent metric/selector subpackages. The required tui execution, flat YAML expectations, controls, timing, typed acquisitions and cleanup remain private in `internal/tuirun`; this is not a renamed public harness.
+- Preserved tui YAML, monitoring dashboard, headless mode and JSONL, along with Shell typed failures, source/target retention, credentials, full input/draft recall, filters and full-safe-value access. Surviving E2E rows retain their original IDs/content/order; only retired CLI rows were removed.
+- A single [public Go package](../go-api.md) reuses existing connection, operation and acquisition code. It exposes device inventory and basic operations, not scenario/tui authoring. An external-module test imports no internal package. Public typed SSID/configuration-ID forgetting remains unambiguous.
 - Android source, protocol, shared Shell grammar and dependency versions are unchanged. No device installation, live scan/probe or network configuration operation was performed.
 
 ## Review findings
 
-The first reduction retained runtime safety regressions while replacing their DSL setup with plain data. The supervisor independently ran watch/core/Shell/dashboard tests. Later review removed leftover test-only one-shot modes from the app layer instead of keeping obsolete branches merely for old tests.
+The first reduction retained runtime safety regressions while replacing their DSL setup with plain data. The supervisor independently ran tui/core/Shell/dashboard tests. Later review removed leftover test-only one-shot modes from the app layer instead of keeping obsolete branches merely for old tests.
 
 A new E2E restore path initially used Go string quoting for Shell input. A runnable Unicode fixture showed that the Shell lexer treated an escaped ZWJ as literal `u200d`, changing the SSID. This was returned for correction at the shared quoting/input boundary, with literal-value and typed-envelope checks retained.
 

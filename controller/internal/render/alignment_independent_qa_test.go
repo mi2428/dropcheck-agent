@@ -13,7 +13,7 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
 	"github.com/mi2428/dropcheck-agent/controller/internal/shell"
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -27,7 +27,7 @@ func independentCompact(value string) string {
 }
 
 func TestIndependentAlignmentCanceledPartDoesNotLeakReason(t *testing.T) {
-	result := watchrun.OperationResult{Parts: []watchrun.OperationRecord{{
+	result := tuirun.OperationResult{Parts: []tuirun.OperationRecord{{
 		Name: "passive partial acquisition",
 		Raw:  &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_CANCELED, Message: "password=independent-secret-marker"},
 	}}}
@@ -132,7 +132,7 @@ func TestIndependentAlignmentHelpLocalErrorAndReportBoundaries(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		report, err := Report(watchrun.Report{Outcome: watchrun.FailOutcome, Problems: []watchrun.Problem{{Message: marker}}, Cleanup: []watchrun.OperationRecord{{Error: "password=independent-secret-marker"}}}, Presentation{Width: width})
+		report, err := Report(tuirun.Report{Outcome: tuirun.FailOutcome, Problems: []tuirun.Problem{{Message: marker}}, Cleanup: []tuirun.OperationRecord{{Error: "password=independent-secret-marker"}}}, Presentation{Width: width})
 		if err != nil {
 			t.Fatal(err)
 		}

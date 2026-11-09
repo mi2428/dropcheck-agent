@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchstate"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuistate"
 
 	"charm.land/lipgloss/v2"
 )
@@ -82,7 +82,7 @@ type checkStatusLayout struct {
 	ShortMode      bool
 }
 
-func checkStatusTableLayout(width int, checks []string, targets []watchrun.TargetSnapshot, agents []watchrun.AgentSnapshot) checkStatusLayout {
+func checkStatusTableLayout(width int, checks []string, targets []tuirun.TargetSnapshot, agents []tuirun.AgentSnapshot) checkStatusLayout {
 	labelWidth := clamp(maxCheckStatusLabelWidth(checks), 5, intMin(27, intMax(5, width*3/8)))
 	available := intMax(1, width-labelWidth-1)
 	fullMinCellWidth := 9
@@ -114,7 +114,7 @@ func checkStatusVisibleTargetCount(available int, targetCount int, minCellWidth 
 	return intMin(targetCount, intMax(1, (available+1)/(minCellWidth+1)))
 }
 
-func maxCheckStatusShortCellWidth(targets []watchrun.TargetSnapshot, agents []watchrun.AgentSnapshot) int {
+func maxCheckStatusShortCellWidth(targets []tuirun.TargetSnapshot, agents []tuirun.AgentSnapshot) int {
 	width := compactCheckStatusTokenWidth(intMax(1, len(agents)))
 	for _, target := range targets {
 		width = intMax(width, lipgloss.Width(checkStatusTargetShortLabel(target)))
@@ -122,7 +122,7 @@ func maxCheckStatusShortCellWidth(targets []watchrun.TargetSnapshot, agents []wa
 	return intMax(1, width)
 }
 
-func allCheckStatusTargetsHaveShortName(targets []watchrun.TargetSnapshot) bool {
+func allCheckStatusTargetsHaveShortName(targets []tuirun.TargetSnapshot) bool {
 	if len(targets) == 0 {
 		return false
 	}
@@ -134,7 +134,7 @@ func allCheckStatusTargetsHaveShortName(targets []watchrun.TargetSnapshot) bool 
 	return true
 }
 
-func checkStatusTargetLabelsNeedCompaction(targets []watchrun.TargetSnapshot, width int) bool {
+func checkStatusTargetLabelsNeedCompaction(targets []tuirun.TargetSnapshot, width int) bool {
 	if width <= 0 {
 		return false
 	}
@@ -146,7 +146,7 @@ func checkStatusTargetLabelsNeedCompaction(targets []watchrun.TargetSnapshot, wi
 	return false
 }
 
-func (m model) checkStatusVisibleTargets(targets []watchrun.TargetSnapshot, layout checkStatusLayout) []watchrun.TargetSnapshot {
+func (m model) checkStatusVisibleTargets(targets []tuirun.TargetSnapshot, layout checkStatusLayout) []tuirun.TargetSnapshot {
 	visible := intMin(layout.VisibleTargets, len(targets))
 	if visible >= len(targets) {
 		return targets
@@ -205,7 +205,7 @@ func (m model) checkStatusMaxOffset(width int) int {
 	return maxOffset
 }
 
-func (m model) checkStatusWindowMetrics(width int) ([]watchrun.TargetSnapshot, checkStatusLayout, int) {
+func (m model) checkStatusWindowMetrics(width int) ([]tuirun.TargetSnapshot, checkStatusLayout, int) {
 	targets := m.checkStatusTargets()
 	if len(targets) == 0 {
 		return nil, checkStatusLayout{}, 0
@@ -223,8 +223,8 @@ func (m model) checkStatusWindowMetrics(width int) ([]watchrun.TargetSnapshot, c
 	return targets, layout, intMax(0, len(targets)-layout.VisibleTargets)
 }
 
-func (m model) filteredCheckStatusAxes(checks []string, targets []watchrun.TargetSnapshot) ([]string, []watchrun.TargetSnapshot) {
-	query := watchstate.NormalizedSearchQuery(m.panelFilterQuery(focusCheckStatus))
+func (m model) filteredCheckStatusAxes(checks []string, targets []tuirun.TargetSnapshot) ([]string, []tuirun.TargetSnapshot) {
+	query := tuistate.NormalizedSearchQuery(m.panelFilterQuery(focusCheckStatus))
 	if query == "" {
 		return checks, targets
 	}
@@ -234,7 +234,7 @@ func (m model) filteredCheckStatusAxes(checks []string, targets []watchrun.Targe
 			matchedChecks = append(matchedChecks, check)
 		}
 	}
-	matchedTargets := make([]watchrun.TargetSnapshot, 0, len(targets))
+	matchedTargets := make([]tuirun.TargetSnapshot, 0, len(targets))
 	for _, target := range targets {
 		if checkStatusTargetMatches(target, query) {
 			matchedTargets = append(matchedTargets, target)
@@ -253,14 +253,14 @@ func (m model) filteredCheckStatusAxes(checks []string, targets []watchrun.Targe
 }
 
 func checkStatusCheckMatches(check string, query string) bool {
-	return watchstate.FieldsContainQuery([]string{
+	return tuistate.FieldsContainQuery([]string{
 		check,
 		displayCheckName(check),
 	}, query)
 }
 
-func checkStatusTargetMatches(target watchrun.TargetSnapshot, query string) bool {
-	return watchstate.FieldsContainQuery([]string{
+func checkStatusTargetMatches(target tuirun.TargetSnapshot, query string) bool {
+	return tuistate.FieldsContainQuery([]string{
 		target.Name,
 		target.ShortName,
 		target.Agent,
@@ -272,7 +272,7 @@ func checkStatusTargetMatches(target watchrun.TargetSnapshot, query string) bool
 	}, query)
 }
 
-func (m model) checkStatusActiveTargetIndex(targets []watchrun.TargetSnapshot) int {
+func (m model) checkStatusActiveTargetIndex(targets []tuirun.TargetSnapshot) int {
 	for i := range slices.Backward(targets) {
 		if m.checkStatusTargetRunning(targets[i]) {
 			return i
@@ -286,7 +286,7 @@ func (m model) checkStatusActiveTargetIndex(targets []watchrun.TargetSnapshot) i
 	return -1
 }
 
-func (m model) checkStatusTargetRunning(target watchrun.TargetSnapshot) bool {
+func (m model) checkStatusTargetRunning(target tuirun.TargetSnapshot) bool {
 	targetKey := checkStatusTargetKey(target)
 	if targetKey == "" {
 		return false
@@ -307,7 +307,7 @@ func (m model) checkStatusTargetRunning(target watchrun.TargetSnapshot) bool {
 	return false
 }
 
-func (m model) checkStatusTargetFailed(target watchrun.TargetSnapshot) bool {
+func (m model) checkStatusTargetFailed(target tuirun.TargetSnapshot) bool {
 	targetKey := checkStatusTargetKey(target)
 	if targetKey == "" {
 		return false
@@ -328,7 +328,7 @@ func (m model) checkStatusTargetFailed(target watchrun.TargetSnapshot) bool {
 	return false
 }
 
-func checkStatusHeaderLabel(target watchrun.TargetSnapshot, layout checkStatusLayout) string {
+func checkStatusHeaderLabel(target tuirun.TargetSnapshot, layout checkStatusLayout) string {
 	if layout.ShortMode {
 		return fitANSI(checkStatusTargetShortLabel(target), layout.CellWidth)
 	}
@@ -339,11 +339,11 @@ func (m model) outcomeEvents() []outcomeEvent {
 	return m.OutcomeEvents()
 }
 
-func (m model) outcomeAgents(events []outcomeEvent) []watchrun.AgentSnapshot {
+func (m model) outcomeAgents(events []outcomeEvent) []tuirun.AgentSnapshot {
 	return m.OutcomeAgents(events)
 }
 
-func (m model) checkStatusTargets() []watchrun.TargetSnapshot {
+func (m model) checkStatusTargets() []tuirun.TargetSnapshot {
 	return m.CheckStatusTargets()
 }
 
@@ -351,10 +351,10 @@ func (m model) checkStatusChecks() []string {
 	return m.CheckStatusChecks()
 }
 
-func (m model) checkStatusAgentsForTarget(target watchrun.TargetSnapshot, fallback []watchrun.AgentSnapshot) []watchrun.AgentSnapshot {
+func (m model) checkStatusAgentsForTarget(target tuirun.TargetSnapshot, fallback []tuirun.AgentSnapshot) []tuirun.AgentSnapshot {
 	key := checkStatusTargetKey(target)
 	seen := make(map[string]bool)
-	var agents []watchrun.AgentSnapshot
+	var agents []tuirun.AgentSnapshot
 	for _, state := range m.Targets {
 		if checkStatusTargetKey(state.Target) != key {
 			continue
@@ -409,7 +409,7 @@ func (m model) connectStatusFooterItems() []connectState {
 	return items
 }
 
-func (m model) connectStatusForAgent(agent watchrun.AgentSnapshot) (connectState, bool) {
+func (m model) connectStatusForAgent(agent tuirun.AgentSnapshot) (connectState, bool) {
 	for _, state := range m.ConnectStates {
 		if sameAgent(state.Agent, agent) {
 			return state, true
@@ -418,7 +418,7 @@ func (m model) connectStatusForAgent(agent watchrun.AgentSnapshot) (connectState
 	return connectState{}, false
 }
 
-func connectStatusContainsAgent(items []connectState, agent watchrun.AgentSnapshot) bool {
+func connectStatusContainsAgent(items []connectState, agent tuirun.AgentSnapshot) bool {
 	for _, item := range items {
 		if sameAgent(item.Agent, agent) {
 			return true
@@ -465,7 +465,7 @@ func (m model) checkLabels(checks []string) []string {
 }
 
 func outcomeCounts(events []outcomeEvent) (ok int, failed int) {
-	return watchstate.OutcomeCounts(events)
+	return tuistate.OutcomeCounts(events)
 }
 
 func renderCheckStatusAggregateCell(cell checkStatusAggregate, width int, multiAgent bool, compact bool) string {
@@ -538,19 +538,19 @@ func compactCheckStatusTokenWidth(total int) int {
 	return width
 }
 
-func checkStatusTargetKey(target watchrun.TargetSnapshot) string {
-	return watchstate.CheckStatusTargetKey(target)
+func checkStatusTargetKey(target tuirun.TargetSnapshot) string {
+	return tuistate.CheckStatusTargetKey(target)
 }
 
-func checkStatusTargetLabel(target watchrun.TargetSnapshot) string {
-	return watchstate.CheckStatusTargetLabel(target)
+func checkStatusTargetLabel(target tuirun.TargetSnapshot) string {
+	return tuistate.CheckStatusTargetLabel(target)
 }
 
-func checkStatusTargetShortLabel(target watchrun.TargetSnapshot) string {
-	return watchstate.CheckStatusTargetShortLabel(target)
+func checkStatusTargetShortLabel(target tuirun.TargetSnapshot) string {
+	return tuistate.CheckStatusTargetShortLabel(target)
 }
 
-func (m model) checkStatusTargetCell(check string, target watchrun.TargetSnapshot, agents []watchrun.AgentSnapshot) checkStatusAggregate {
+func (m model) checkStatusTargetCell(check string, target tuirun.TargetSnapshot, agents []tuirun.AgentSnapshot) checkStatusAggregate {
 	return m.CheckStatusTargetCell(check, target, agents)
 }
 

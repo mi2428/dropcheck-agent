@@ -7,19 +7,19 @@ ADB-controlled Android probes for automated Wi-Fi and access-network end-to-end 
 Android handsets act as field probes for event NOCs.
 Instead of checking connectivity from the infrastructure side, each check measures from the same user-facing access network that attendees and staff devices use.
 
-The 2.0 operator surfaces are PC Controller Shell, Android Agent Shell, Android widgets, and `dropcheck watch`.
+The 2.0 operator surfaces are PC Controller Shell, Android Agent Shell, Android widgets, and `dropcheck tui`.
 The agent is the on-device probe. A small [Go API](docs/go-api.md) exposes basic typed operations, not a scenario or test DSL.
 
 ```mermaid
 sequenceDiagram
   autonumber
   actor NOC as NOC
-  participant Controller as Controller Shell/watch
+  participant Controller as Controller Shell/tui
   participant App as Android App
   participant WiFi as Wi-Fi under test
 
   par NOC live control through controller surfaces
-    NOC->>Controller: Shell command or watch YAML
+    NOC->>Controller: Shell command or tui YAML
     Controller->>App: ADB-started gRPC operation
     App->>WiFi: connect, inspect, or probe
     WiFi-->>App: link and probe result
@@ -155,13 +155,13 @@ candidates; their IP status must not inherit the underlying network's WifiInfo.
 
 ## Features
 
-The controller/agent toolchain shares typed agent operations across Shell, widgets and watch.
-Use Controller Shell for field work, Agent Shell for direct handset inspection, and `dropcheck watch` for continuous YAML-driven monitoring with a dashboard, plain findings or JSONL events. The former one-shot CLI, separate `tui` workflow and Go test DSL have been removed; no compatibility aliases are provided.
+The controller/agent toolchain shares typed agent operations across Shell, widgets and tui.
+Use Controller Shell for field work, Agent Shell for direct handset inspection, and `dropcheck tui` for continuous YAML-driven monitoring with a dashboard, plain findings or JSONL events. The former one-shot CLI, separate `tui` workflow and Go test DSL have been removed; no compatibility aliases are provided.
 
 ### Controller Shell
 
 The controller starts an ADB-backed authenticated gRPC session to selected Android agents.
-Place transport flags (`--adb`, `--serial`, `--package`, `--listen`) before `shell` or `watch`. Shell supports a startup `--target`; targets remain pinned to their resolved identities. `show devices` inside Shell lists connected agents, not an independent ADB inventory command.
+Place transport flags (`--adb`, `--serial`, `--package`, `--listen`) before `shell` or `tui`. Shell supports a startup `--target`; targets remain pinned to their resolved identities. `show devices` inside Shell lists connected agents, not an independent ADB inventory command.
 Shell provides prompts, completion, context help and safe output filters. Use `show` for inspection, `debug` for explicit raw evidence, `request` for scans/probes/mutations, `test` for finite evaluations, and `monitor` for finite sampling. See [the current Shell hierarchy](docs/shell-2.0/commands.md).
 For PC `request wifi connect`, `passphrase-env LAB_WIFI_PSK` reads an already-set environment variable instead of entering the credential itself. It must be nonempty and valid; conflicting or invalid explicit sources fail without fallback. Session defaults are memory-only and do not survive Shell exit.
 
@@ -267,13 +267,13 @@ Internet traffic and do not turn an unmanaged public endpoint into a lab profile
 
 The Android clock/network and log widgets display on-device observations and local diagnostics. Widget observer start/stop uses the app's own UID; it does not bypass the service caller or Wi-Fi permission boundaries described above.
 
-### Continuous watch dashboard
+### Continuous TUI dashboard
 
-`dropcheck watch -c PLAN.yml` is the immediate continuous-run entry. The dashboard consumes private `internal/watchrun` events; there is no separate plan-selection/review/rerun application or public scenario API. Dashboard metadata and bounded histories remain available, along with pause/skip controls and cancellation-safe owned-connection cleanup. JSONL records ordered events independently of the dashboard. `--no-tui` prints findings without opening a terminal UI.
+`dropcheck tui -c PLAN.yml` is the immediate continuous-run entry. The dashboard consumes private `internal/tuirun` events; there is no separate plan-selection/review/rerun application or public scenario API. Dashboard metadata and bounded histories remain available, along with pause/skip controls and cancellation-safe owned-connection cleanup. JSONL records ordered events independently of the dashboard. `--no-tui` prints findings without opening a terminal UI.
 It is meant for field operation: connection failures and failed `required: true` checks skip the remaining checks for that target, other check failures are recorded as findings, and the next target and round continue.
 Use `--jsonl` when you also want an append-only event log.
 When multiple agents are connected, unassigned targets run on every selected agent.
-Omitting `--target` selects all connected agents; unlike Shell, watch does not
+Omitting `--target` selects all connected agents; unlike Shell, tui does not
 require an explicit broadcast choice. A target that needs profile removal or MAC
 rotation requires every bound agent to advertise `wifi.forget.typed`, checked
 before any Wi-Fi operation. Cleanup and rotation always use the literal SSID,
@@ -291,13 +291,13 @@ still cannot be changed. Unlike configured `lab`, generic active YAML does not
 implicitly add the two Network identity snapshots.
 
 ```console
-$ controller/dist/dropcheck --serial R5CT12345 watch -c examples/watch.yml --jsonl watch.jsonl
-$ controller/dist/dropcheck --serial R5CT12345 watch -c examples/watch.yml --no-tui --jsonl watch.jsonl
+$ controller/dist/dropcheck --serial R5CT12345 tui -c examples/tui.yml --jsonl tui.jsonl
+$ controller/dist/dropcheck --serial R5CT12345 tui -c examples/tui.yml --no-tui --jsonl tui.jsonl
 ```
 
 ```yaml
 version: 1
-name: shownet-watch
+name: shownet-tui
 round_interval: 0s
 
 defaults:
@@ -367,7 +367,7 @@ Leave `family` unset when the agent should auto-select based on DNS answers and 
 
 Historical standalone archive ingestion/replay and the external MinIO,
 Pushgateway, Prometheus, Grafana, and Compose stack are no longer supported.
-Use Shell or watch for live measurements; local
+Use Shell or tui for live measurements; local
 diagnostic logs, JSONL output, and in-memory TUI history remain available.
 
 Update the controller and Android APK together; mixed-version compatibility and
@@ -382,11 +382,11 @@ Other old preferences are left intact; do not include PSKs in migration reports 
 
 ### Basic Go API
 
-Use `github.com/mi2428/dropcheck-agent/controller/pkg/dropcheck` for an ADB-backed client and individual typed operations. The public surface owns session startup/close, agent enumeration and `Client.Run`; internal command/control/session/runner/protocol packages are not public imports. See [the Go API guide](docs/go-api.md). Scenario Plans, test adapters, fluent assertions and the private watch runtime are not a supported Go API.
+Use `github.com/mi2428/dropcheck-agent/controller/pkg/dropcheck` for an ADB-backed client and individual typed operations. The public surface owns session startup/close, agent enumeration and `Client.Run`; internal command/control/session/runner/protocol packages are not public imports. See [the Go API guide](docs/go-api.md). Scenario Plans, test adapters, fluent assertions and the private tui runtime are not a supported Go API.
 
 For a local checkout, use `replace github.com/mi2428/dropcheck-agent/controller => /absolute/path/to/dropcheck-agent/controller` in the consumer module. Versioned consumption without a replacement is possible once a corresponding `controller/vX.Y.Z` release tag has actually been published; select an available version then. This change does not publish a tag or module version. The offline distribution check validates replacement-free consumption with a synthetic version in a local file proxy, not a remote release.
 
-Watch YAML keeps retry/repeat/eventually/stability policies and flat metric/AP/MLO/CIDR expectations. Attempts includes the first measurement; repeats are independent, and stability permits retry recovery within each sample rather than proving uninterrupted connectivity. Unknown options and invalid plans fail before device dispatch. Reports/events retain attempts, recovery, missing/skip/cancel reasons, and independent primary/cleanup/delivery failures. Owned target cleanup remains bounded disconnect-then-forget, including cancellation. Existing external YAML defaults are not implicit authorization for a lab profile.
+TUI YAML keeps retry/repeat/eventually/stability policies and flat metric/AP/MLO/CIDR expectations. Attempts includes the first measurement; repeats are independent, and stability permits retry recovery within each sample rather than proving uninterrupted connectivity. Unknown options and invalid plans fail before device dispatch. Reports/events retain attempts, recovery, missing/skip/cancel reasons, and independent primary/cleanup/delivery failures. Owned target cleanup remains bounded disconnect-then-forget, including cancellation. Existing external YAML defaults are not implicit authorization for a lab profile.
 
 ## Controller unit tests
 
@@ -491,7 +491,7 @@ numbers and retained wire identities, regenerate Go, and validate both
 consumers with `make test TARGET=controller` and
 `make build test TARGET=agent`. The Android tasks regenerate through Gradle;
 do not use the host Go generator versions to override Android's toolchain.
-Go-only watch/runtime maintenance does not require an Android schema change.
+Go-only tui/runtime maintenance does not require an Android schema change.
 
 ## Continuous integration
 

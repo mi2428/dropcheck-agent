@@ -8,7 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -248,13 +248,13 @@ func detailCauseSummaryFields(item failureCauseSummary, multiAgent bool, width i
 	return fields
 }
 
-func detailAppendAgentField(fields *[]detailField, agent watchrun.AgentSnapshot, multiAgent bool) {
+func detailAppendAgentField(fields *[]detailField, agent tuirun.AgentSnapshot, multiAgent bool) {
 	if multiAgent && agentKey(agent) != "" {
 		*fields = append(*fields, detailField{Key: "device", Value: agentLabel(agent)})
 	}
 }
 
-func detailAppendTargetFields(fields *[]detailField, target watchrun.TargetSnapshot) {
+func detailAppendTargetFields(fields *[]detailField, target tuirun.TargetSnapshot) {
 	for _, field := range []detailField{
 		{Key: "ssid", Value: target.SSID},
 		{Key: "bssid", Value: target.BSSID},
@@ -266,7 +266,7 @@ func detailAppendTargetFields(fields *[]detailField, target watchrun.TargetSnaps
 	}
 }
 
-func detailAppendOperationFields(fields *[]detailField, step watchrun.StepSnapshot) {
+func detailAppendOperationFields(fields *[]detailField, step tuirun.StepSnapshot) {
 	display := normalizedScopeToken(displayCheckName(firstNonEmpty(step.Name, step.Type)))
 	for _, field := range []detailField{
 		{Key: "op", Value: step.Operation},
@@ -1012,12 +1012,12 @@ func (m model) passingCheckRelatedLogLines(item passingCheckSummary, limit int) 
 			return false
 		}
 		if targetSummaryStep(item.Step) {
-			return event.Kind == watchrun.EventTargetStarted || event.Kind == watchrun.EventTargetFinished
+			return event.Kind == tuirun.EventTargetStarted || event.Kind == tuirun.EventTargetFinished
 		}
 		if !eventMatchesStep(event, item.Step) {
 			return false
 		}
-		return event.Kind == watchrun.EventStepStarted || event.Kind == watchrun.EventStepFinished || event.Kind == watchrun.EventLog
+		return event.Kind == tuirun.EventStepStarted || event.Kind == tuirun.EventStepFinished || event.Kind == tuirun.EventLog
 	})
 }
 
@@ -1033,7 +1033,7 @@ func (m model) failedCheckRelatedLogLines(item failedCheckSummary, limit int) []
 		if !eventMatchesFinding(event, item.Finding) {
 			return false
 		}
-		return event.Kind == watchrun.EventStepStarted || event.Kind == watchrun.EventStepFinished || event.Kind == watchrun.EventLog
+		return event.Kind == tuirun.EventStepStarted || event.Kind == tuirun.EventStepFinished || event.Kind == tuirun.EventLog
 	})
 }
 
@@ -1044,13 +1044,13 @@ func (m model) failureHotspotRelatedLogLines(item failureHotspotSummary, limit i
 			return false
 		}
 		switch event.Kind {
-		case watchrun.EventFinding:
+		case tuirun.EventFinding:
 			return true
-		case watchrun.EventStepFinished:
+		case tuirun.EventStepFinished:
 			return eventFailureLike(event)
-		case watchrun.EventStepStarted:
+		case tuirun.EventStepStarted:
 			return eventMatchesFinding(event, item.LatestFinding)
-		case watchrun.EventLog:
+		case tuirun.EventLog:
 			return eventFailureLike(event)
 		default:
 			return false
@@ -1067,7 +1067,7 @@ func (m model) failureCauseRelatedLogLines(item failureCauseSummary, limit int) 
 		if event.Finding != nil {
 			return failureCauseIdentity(event.Agent, *event.Finding) == failureCauseSummaryIdentity(item)
 		}
-		if event.Kind != watchrun.EventStepFinished && event.Kind != watchrun.EventLog {
+		if event.Kind != tuirun.EventStepFinished && event.Kind != tuirun.EventLog {
 			return false
 		}
 		for _, target := range item.Targets {
@@ -1093,11 +1093,11 @@ func (m model) scopedLogLines(limit int, match func(eventLogEntry) bool) []strin
 	return rows
 }
 
-func scopedEventAgentMatches(eventAgent watchrun.AgentSnapshot, selected watchrun.AgentSnapshot) bool {
+func scopedEventAgentMatches(eventAgent tuirun.AgentSnapshot, selected tuirun.AgentSnapshot) bool {
 	return sameAgent(eventAgent, selected)
 }
 
-func scopedEventTargetMatches(event watchrun.Event, target watchrun.TargetSnapshot, aliases ...string) bool {
+func scopedEventTargetMatches(event tuirun.Event, target tuirun.TargetSnapshot, aliases ...string) bool {
 	ids := []string{event.Scope.TargetID, event.Target.ID}
 	if event.Finding != nil {
 		ids = append(ids, event.Finding.TargetID)
@@ -1110,7 +1110,7 @@ func scopedEventTargetMatches(event watchrun.Event, target watchrun.TargetSnapsh
 	return expected != "" && actual != "" && expected == actual
 }
 
-func scopedEventTargetKey(event watchrun.Event) string {
+func scopedEventTargetKey(event tuirun.Event) string {
 	findingTarget := ""
 	if event.Finding != nil {
 		findingTarget = event.Finding.Target
@@ -1118,18 +1118,18 @@ func scopedEventTargetKey(event watchrun.Event) string {
 	return scopedTargetKey(event.Target, findingTarget)
 }
 
-func scopedTargetKey(target watchrun.TargetSnapshot, aliases ...string) string {
+func scopedTargetKey(target tuirun.TargetSnapshot, aliases ...string) string {
 	values := []string{target.Name}
 	values = append(values, aliases...)
 	values = append(values, target.SSID, target.BSSID)
 	return normalizedScopeToken(firstNonEmpty(values...))
 }
 
-func eventMatchesFinding(event watchrun.Event, finding watchrun.Finding) bool {
-	return eventMatchesStep(event, watchrun.StepSnapshot{ID: finding.CheckID, Name: finding.Check, Type: finding.Check})
+func eventMatchesFinding(event tuirun.Event, finding tuirun.Finding) bool {
+	return eventMatchesStep(event, tuirun.StepSnapshot{ID: finding.CheckID, Name: finding.Check, Type: finding.Check})
 }
 
-func eventMatchesStep(event watchrun.Event, step watchrun.StepSnapshot) bool {
+func eventMatchesStep(event tuirun.Event, step tuirun.StepSnapshot) bool {
 	ids := []string{event.Scope.CheckID, event.Step.ID}
 	if event.Finding != nil {
 		ids = append(ids, event.Finding.CheckID)
@@ -1199,11 +1199,11 @@ func normalizedScopeToken(value string) string {
 	return strings.ToLower(strings.TrimSpace(sanitizeLogText(value)))
 }
 
-func targetSummaryStep(step watchrun.StepSnapshot) bool {
+func targetSummaryStep(step tuirun.StepSnapshot) bool {
 	return normalizedScopeToken(firstNonEmpty(step.Name, step.Type)) == "target"
 }
 
-func eventFailureLike(event watchrun.Event) bool {
+func eventFailureLike(event tuirun.Event) bool {
 	status := normalizedScopeToken(firstNonEmpty(event.Status, event.Step.Status))
 	if status == "failed" || status == "fail" || status == "warn" || status == "warning" || status == "error" {
 		return true

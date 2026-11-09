@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 
 	"charm.land/lipgloss/v2"
 )
@@ -71,8 +71,8 @@ func TestFailedCheckLayoutMovesSpareWidthOutOfTargetColumn(t *testing.T) {
 		Count:       1,
 		FailPercent: 50,
 		FailStreak:  1,
-		Target:      watchrun.TargetSnapshot{Name: "ub2(6G)"},
-		Finding: watchrun.Finding{
+		Target:      tuirun.TargetSnapshot{Name: "ub2(6G)"},
+		Finding: tuirun.Finding{
 			Target: "ub2(6G)",
 			Check:  "wait_connected",
 			Metric: "status",
@@ -114,8 +114,8 @@ func TestEmptyFailedCheckHeaderDistributesColumns(t *testing.T) {
 }
 
 func TestCheckStatusHeaderFillsPanelWidth(t *testing.T) {
-	events := make(chan watchrun.Event)
-	m := newModel([]watchrun.Target{{Name: "ub1(5G)", SSID: "Example Net"}}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{{Name: "ub1(5G)", SSID: "Example Net"}}, events)
 	m.Targets[0].Steps = []stepState{{Name: "connect", Status: "ok"}}
 
 	view := m.checkStatusView(64, 3)
@@ -130,7 +130,7 @@ func TestCheckStatusHeaderFillsPanelWidth(t *testing.T) {
 
 func TestCheckStatusCheckColumnCanGrowByHalf(t *testing.T) {
 	checks := []string{"Debug HTTP Wrong Status"}
-	targets := []watchrun.TargetSnapshot{{Name: "debug-a1", ShortName: "DA1"}}
+	targets := []tuirun.TargetSnapshot{{Name: "debug-a1", ShortName: "DA1"}}
 
 	layout := checkStatusTableLayout(64, checks, targets, nil)
 	if got, want := layout.LabelWidth, lipgloss.Width("Debug HTTP Wrong Status"); got != want {
@@ -145,7 +145,7 @@ func TestCheckStatusCheckColumnCanGrowByHalf(t *testing.T) {
 
 func TestCheckStatusPrefersShortNamesWhenFullLabelsWouldCompact(t *testing.T) {
 	checks := []string{"Connect"}
-	targets := []watchrun.TargetSnapshot{
+	targets := []tuirun.TargetSnapshot{
 		{Name: "cs10-legacy", ShortName: "C10L"},
 		{Name: "cs11-legacy", ShortName: "C11L"},
 		{Name: "cs12-legacy", ShortName: "C12L"},
@@ -170,24 +170,24 @@ func TestCheckStatusPrefersShortNamesWhenFullLabelsWouldCompact(t *testing.T) {
 }
 
 func TestInitialRenderWithoutMeasurementsIsStable(t *testing.T) {
-	events := make(chan watchrun.Event)
-	agents := []watchrun.AgentSnapshot{
+	events := make(chan tuirun.Event)
+	agents := []tuirun.AgentSnapshot{
 		{ID: "agent-a", Name: "pixel-a", ADBSerial: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b", ADBSerial: "pixel-b"},
 	}
-	m := newModel([]watchrun.Target{
+	m := newModel([]tuirun.Target{
 		{Name: "radio-u6-5ghz", SSID: "Example Net", Band: "5ghz"},
 		{Name: "radio-any-2ghz", SSID: "Example Net", Band: "2.4ghz"},
 	}, events, agents)
 	m.width = 180
 	m.height = 34
-	m.apply(watchrun.Event{Kind: watchrun.EventWatchStarted, Message: "watch started"})
-	m.apply(watchrun.Event{Kind: watchrun.EventRoundStarted, Round: 1, Status: "running"})
-	m.apply(watchrun.Event{
-		Kind:   watchrun.EventTargetStarted,
+	m.apply(tuirun.Event{Kind: tuirun.EventTUIStarted, Message: "tui started"})
+	m.apply(tuirun.Event{Kind: tuirun.EventRoundStarted, Round: 1, Status: "running"})
+	m.apply(tuirun.Event{
+		Kind:   tuirun.EventTargetStarted,
 		Round:  1,
 		Agent:  agents[0],
-		Target: watchrun.TargetSnapshot{Name: "radio-u6-5ghz", SSID: "Example Net", Band: "5ghz"},
+		Target: tuirun.TargetSnapshot{Name: "radio-u6-5ghz", SSID: "Example Net", Band: "5ghz"},
 		Status: "running",
 	})
 

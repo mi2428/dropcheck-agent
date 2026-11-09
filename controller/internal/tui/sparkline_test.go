@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 )
 
 func TestRoundTimelineHeaderShowsProgress(t *testing.T) {
-	events := make(chan watchrun.Event)
-	m := newModel([]watchrun.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	m.Round = 7
 	m.Targets = []targetState{
 		{Target: targetSnapshot("ok"), Status: "ok"},
@@ -32,17 +32,17 @@ func TestRoundTimelineHeaderShowsProgress(t *testing.T) {
 }
 
 func TestSummarySparklineIsPinnedToBottom(t *testing.T) {
-	events := make(chan watchrun.Event)
-	m := newModel([]watchrun.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(4 * time.Second)
 	for i := range 4 {
-		m.apply(watchrun.Event{
+		m.apply(tuirun.Event{
 			Time:     at.Add(time.Duration(i) * time.Second),
-			Kind:     watchrun.EventStepFinished,
+			Kind:     tuirun.EventStepFinished,
 			Round:    1,
-			Target:   watchrun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"},
-			Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+			Target:   tuirun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"},
+			Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 			Status:   "ok",
 			Duration: 12,
 		})
@@ -166,16 +166,16 @@ func TestSummarySparklineScalesThirtyMinuteWindowToPanelWidth(t *testing.T) {
 }
 
 func TestPassingSparklineRetainsThirtyMinuteWindowBeyondFourHundredEvents(t *testing.T) {
-	events := make(chan watchrun.Event)
-	m := newModel([]watchrun.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	now := time.Date(2026, 5, 16, 9, 35, 0, 0, time.UTC)
 	m.Now = now
 	for i := range 401 {
 		offset := time.Duration(i) * 29 * time.Minute / 400
 		m.RecordPassingCheck(passingCheckState{
 			When:     now.Add(-29 * time.Minute).Add(offset),
-			Target:   watchrun.TargetSnapshot{Name: "lab"},
-			Step:     watchrun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+			Target:   tuirun.TargetSnapshot{Name: "lab"},
+			Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 			Duration: 10,
 		})
 	}
@@ -242,15 +242,15 @@ func TestSummarySparklineUsesNiceAbsoluteScale(t *testing.T) {
 }
 
 func TestSummarySparklineHeaderShowsScaleWhenCompressed(t *testing.T) {
-	events := make(chan watchrun.Event)
-	m := newModel([]watchrun.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(10 * time.Second)
 	for range 14 {
 		m.PassingChecks = append(m.PassingChecks, passingCheckState{
 			When:   at.Add(5 * time.Second),
-			Target: watchrun.TargetSnapshot{Name: "lab"},
-			Step:   watchrun.StepSnapshot{Name: "connect"},
+			Target: tuirun.TargetSnapshot{Name: "lab"},
+			Step:   tuirun.StepSnapshot{Name: "connect"},
 		})
 	}
 	view := stripANSI(m.summarySparklineView("passing checks", m.passingCheckEventTimes(), 120, 6, okGraphStyle))

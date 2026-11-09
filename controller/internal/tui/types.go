@@ -3,26 +3,26 @@ package tui
 import (
 	"time"
 
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchstate"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuistate"
 
 	"charm.land/bubbles/v2/key"
 )
 
-type targetState = watchstate.TargetState
-type stepState = watchstate.StepState
-type failedCheckState = watchstate.FailedCheck
-type failedCheckSummary = watchstate.FailedCheckSummary
-type passingCheckState = watchstate.PassingCheck
-type passingCheckSummary = watchstate.PassingCheckSummary
-type failureHotspotSummary = watchstate.FailureHotspotSummary
-type failureCauseSummary = watchstate.FailureCauseSummary
-type eventLogEntry = watchstate.EventLogEntry
-type connectState = watchstate.ConnectState
-type occurrenceHistogram = watchstate.OccurrenceHistogram
+type targetState = tuistate.TargetState
+type stepState = tuistate.StepState
+type failedCheckState = tuistate.FailedCheck
+type failedCheckSummary = tuistate.FailedCheckSummary
+type passingCheckState = tuistate.PassingCheck
+type passingCheckSummary = tuistate.PassingCheckSummary
+type failureHotspotSummary = tuistate.FailureHotspotSummary
+type failureCauseSummary = tuistate.FailureCauseSummary
+type eventLogEntry = tuistate.EventLogEntry
+type connectState = tuistate.ConnectState
+type occurrenceHistogram = tuistate.OccurrenceHistogram
 
-type outcomeEvent = watchstate.OutcomeEvent
-type checkStatusAggregate = watchstate.CheckStatusAggregate
+type outcomeEvent = tuistate.OutcomeEvent
+type checkStatusAggregate = tuistate.CheckStatusAggregate
 
 type targetRoundBucket struct {
 	Seen          bool
@@ -81,7 +81,7 @@ const (
 	recencyWarmWindow             = 30 * time.Second
 )
 
-type eventMsg watchrun.Event
+type eventMsg tuirun.Event
 type closedMsg struct{}
 type tickMsg time.Time
 
@@ -91,11 +91,11 @@ type keyMap struct {
 
 type model struct {
 	Title  string
-	events <-chan watchrun.Event
+	events <-chan tuirun.Event
 	keys   keyMap
 	width  int
 	height int
-	watchstate.State
+	tuistate.State
 	closed                    bool
 	focus                     focusPanel
 	focusHotspotAgentKey      string
@@ -122,7 +122,7 @@ type model struct {
 	checkStatusSearchQuery    string
 	failureHotspotSearchQuery string
 	paused                    bool
-	controls                  *watchrun.Controls
+	controls                  *tuirun.Controls
 	detailOpen                bool
 	detailPanel               focusPanel
 	detailHotspotMode         failureHotspotMode

@@ -23,7 +23,7 @@ type Result struct {
 	Findings []Finding
 }
 
-// Part records one attempted acquisition, not a scenario/watch step.
+// Part records one attempted acquisition, not a scenario/tui step.
 type Part struct {
 	// AgentID and SessionID identify the pinned connection for this acquisition.
 	AgentID, SessionID string

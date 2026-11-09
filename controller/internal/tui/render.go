@@ -249,7 +249,7 @@ func (m model) statusBar(width int) string {
 	current := m.currentTargetName()
 	leftFields := [][2]string{
 		{"status", firstNonEmpty(m.RoundStatus, "starting")},
-		{"plan", firstNonEmpty(m.Title, "watch")},
+		{"plan", firstNonEmpty(m.Title, "tui")},
 		{"round", fmt.Sprint(m.Round)},
 		{"focus", m.focusName()},
 		{"current", current},

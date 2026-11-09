@@ -10,7 +10,7 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/control"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 	"github.com/mi2428/dropcheck-agent/controller/internal/runner"
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 )
 
 type identityBoundaryRunner struct{}
@@ -24,9 +24,9 @@ func (identityBoundaryRunner) Run(_ context.Context, agent control.AgentInfo, op
 	return runner.Result{Result: raw}, nil
 }
 
-type identityBoundarySink func(context.Context, watchrun.Event) error
+type identityBoundarySink func(context.Context, tuirun.Event) error
 
-func (f identityBoundarySink) Emit(ctx context.Context, event watchrun.Event) error {
+func (f identityBoundarySink) Emit(ctx context.Context, event tuirun.Event) error {
 	return f(ctx, event)
 }
 
@@ -39,19 +39,19 @@ func TestProducerIdentitySurvivesQueueSummariesAndModalLogMatching(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := watchrun.Compile(watchrun.Plan{Networks: []watchrun.Network{{Name: "same", SSID: "Lab", ReadOnly: true, ActiveProbes: true}, {Name: "same", SSID: "Lab", ReadOnly: true, ActiveProbes: true}}, Checks: []watchrun.Check{
-		watchrun.NewCheck("same", "check/a", first, watchrun.Policy{}, false),
-		watchrun.NewCheck("same", "check/b", second, watchrun.Policy{}, false),
+	compiled, err := tuirun.Compile(tuirun.Plan{Networks: []tuirun.Network{{Name: "same", SSID: "Lab", ReadOnly: true, ActiveProbes: true}, {Name: "same", SSID: "Lab", ReadOnly: true, ActiveProbes: true}}, Checks: []tuirun.Check{
+		tuirun.NewCheck("same", "check/a", first, tuirun.Policy{}, false),
+		tuirun.NewCheck("same", "check/b", second, tuirun.Policy{}, false),
 	}}, []control.AgentInfo{{ID: "agent/a", Hello: &controlpb.AgentHello{AdbSerial: "same"}}, {ID: "agent/b", Hello: &controlpb.AgentHello{AdbSerial: "same"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	preview := compiled.Preview()
 	m := newModelWithChecks(preview.Name, preview.Targets, preview.Checks, nil, preview.Agents)
-	var started watchrun.Event
-	_, err = watchrun.Execute(context.Background(), compiled, identityBoundaryRunner{}, watchrun.ExecuteOptions{Rounds: 2, Sinks: []watchrun.Sink{identityBoundarySink(func(_ context.Context, event watchrun.Event) error {
+	var started tuirun.Event
+	_, err = tuirun.Execute(context.Background(), compiled, identityBoundaryRunner{}, tuirun.ExecuteOptions{Rounds: 2, Sinks: []tuirun.Sink{identityBoundarySink(func(_ context.Context, event tuirun.Event) error {
 		m.Apply(event)
-		if event.Kind == watchrun.EventStepStarted && event.Scope.CheckID == "check/b" {
+		if event.Kind == tuirun.EventStepStarted && event.Scope.CheckID == "check/b" {
 			started = event
 		}
 		return nil
@@ -108,7 +108,7 @@ func TestProducerIdentitySurvivesQueueSummariesAndModalLogMatching(t *testing.T)
 	if current, ok := currentStepState(*target); !ok || current.ID != "check/b" {
 		t.Fatalf("header selected a different same-name check: %+v", current)
 	}
-	started.Kind, started.Step.Status = watchrun.EventStepFinished, "ok"
+	started.Kind, started.Step.Status = tuirun.EventStepFinished, "ok"
 	m.Apply(started)
 	if current := runQueueCurrentStep(*target); current.ID != "check/b" {
 		t.Fatalf("queue lost the last terminal row identity: %+v", current)
@@ -116,8 +116,8 @@ func TestProducerIdentitySurvivesQueueSummariesAndModalLogMatching(t *testing.T)
 }
 
 func TestStableIDsNeverFallBackToLegacyNameOrType(t *testing.T) {
-	event := watchrun.Event{Agent: watchrun.AgentSnapshot{ID: "a", Name: "same"}, Target: watchrun.TargetSnapshot{ID: "target/a", Name: "same"}, Step: watchrun.StepSnapshot{ID: "check/a", Name: "same", Type: "ping"}}
-	if eventMatchesStep(event, watchrun.StepSnapshot{ID: "check/b", Name: "same", Type: "ping"}) || eventMatchesStep(event, watchrun.StepSnapshot{Name: "same", Type: "ping"}) || scopedEventTargetMatches(event, watchrun.TargetSnapshot{ID: "target/b", Name: "same"}) || scopedEventTargetMatches(event, watchrun.TargetSnapshot{Name: "same"}) || scopedEventAgentMatches(event.Agent, watchrun.AgentSnapshot{ID: "b", Name: "same"}) || scopedEventAgentMatches(event.Agent, watchrun.AgentSnapshot{Name: "same"}) {
+	event := tuirun.Event{Agent: tuirun.AgentSnapshot{ID: "a", Name: "same"}, Target: tuirun.TargetSnapshot{ID: "target/a", Name: "same"}, Step: tuirun.StepSnapshot{ID: "check/a", Name: "same", Type: "ping"}}
+	if eventMatchesStep(event, tuirun.StepSnapshot{ID: "check/b", Name: "same", Type: "ping"}) || eventMatchesStep(event, tuirun.StepSnapshot{Name: "same", Type: "ping"}) || scopedEventTargetMatches(event, tuirun.TargetSnapshot{ID: "target/b", Name: "same"}) || scopedEventTargetMatches(event, tuirun.TargetSnapshot{Name: "same"}) || scopedEventAgentMatches(event.Agent, tuirun.AgentSnapshot{ID: "b", Name: "same"}) || scopedEventAgentMatches(event.Agent, tuirun.AgentSnapshot{Name: "same"}) {
 		t.Fatal("stable identity was overridden by legacy labels")
 	}
 	event.Scope.CheckID = "check/b"

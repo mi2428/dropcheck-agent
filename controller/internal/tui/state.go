@@ -1,16 +1,16 @@
 package tui
 
-import "github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
+import "github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 
-func (m *model) apply(event watchrun.Event) {
+func (m *model) apply(event tuirun.Event) {
 	m.Apply(event)
-	if event.Kind == watchrun.EventControlApplied {
+	if event.Kind == tuirun.EventControlApplied {
 		m.paused = m.State.Phase == "paused"
 	}
-	if event.Kind == watchrun.EventRoundStarted && !m.checkStatusPinned {
+	if event.Kind == tuirun.EventRoundStarted && !m.checkStatusPinned {
 		m.checkStatusOffset = 0
 	}
-	if event.Kind == watchrun.EventFinding && event.Finding != nil && !m.failedCheckPinned {
+	if event.Kind == tuirun.EventFinding && event.Finding != nil && !m.failedCheckPinned {
 		m.failedCheckCursor = m.failedCheckSummaryIndex(event.Agent, event.Target, *event.Finding)
 	}
 	m.updateRunQueueCursor()

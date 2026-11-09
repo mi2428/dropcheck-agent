@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -217,9 +217,9 @@ func (m model) currentRunQueueAgentKey() string {
 	return roundAgentKey(agents[0])
 }
 
-func (m model) currentRunQueueAgent() watchrun.AgentSnapshot {
+func (m model) currentRunQueueAgent() tuirun.AgentSnapshot {
 	if !m.runQueuePanelsSplit() {
-		return watchrun.AgentSnapshot{}
+		return tuirun.AgentSnapshot{}
 	}
 	key := m.currentRunQueueAgentKey()
 	for _, agent := range m.runQueueAgents() {
@@ -227,7 +227,7 @@ func (m model) currentRunQueueAgent() watchrun.AgentSnapshot {
 			return agent
 		}
 	}
-	return watchrun.AgentSnapshot{}
+	return tuirun.AgentSnapshot{}
 }
 
 func (m *model) normalizeFocusRunQueueAgent() {

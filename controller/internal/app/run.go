@@ -14,8 +14,8 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/control"
 	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 	"github.com/mi2428/dropcheck-agent/controller/internal/session"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 	"github.com/mi2428/dropcheck-agent/controller/internal/version"
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
 )
 
 var errHelpRequested = errors.New("help requested")
@@ -28,7 +28,7 @@ type helpRow struct {
 // Run executes the dropcheck controller application for args.
 //
 // args must not include argv[0]. Run handles top-level flags, chooses
-// Controller Shell or watch mode, starts the required
+// Controller Shell or tui mode, starts the required
 // control session, and returns any user-facing error to the executable wrapper.
 func Run(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -59,14 +59,14 @@ func runWithContext(ctx context.Context, args []string) error {
 	if len(rest) > 0 && rest[0] == "shell" {
 		return runShell(ctx, opts, rest[1:])
 	}
-	if len(rest) > 0 && rest[0] == "watch" {
-		return runWatch(ctx, opts, rest[1:])
+	if len(rest) > 0 && rest[0] == "tui" {
+		return runTUI(ctx, opts, rest[1:])
 	}
 	if len(rest) == 0 {
 		writeTopLevelHelp(os.Stdout)
 		return nil
 	}
-	return fmt.Errorf("supported entry points are shell and watch; run 'dropcheck --help' for usage")
+	return fmt.Errorf("supported entry points are shell and tui; run 'dropcheck --help' for usage")
 }
 
 func writeTopLevelHelp(w io.Writer) {
@@ -74,13 +74,13 @@ func writeTopLevelHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "Usage:")
 	_, _ = fmt.Fprintln(w, "  dropcheck [flags] shell [--target TARGET]")
-	_, _ = fmt.Fprintln(w, "  dropcheck [flags] watch -c CONFIG.yml [--target TARGET|all] [--jsonl PATH] [--no-tui]")
+	_, _ = fmt.Fprintln(w, "  dropcheck [flags] tui -c CONFIG.yml [--target TARGET|all] [--jsonl PATH] [--no-tui]")
 	_, _ = fmt.Fprintln(w, "  dropcheck --version")
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "Commands:")
 	writeHelpRows(w, []helpRow{
 		{"shell", "start the Controller Shell"},
-		{"watch -c CONFIG.yml", "monitor continuous E2E Wi-Fi checks with the watch dashboard"},
+		{"tui -c CONFIG.yml", "monitor continuous E2E Wi-Fi checks with the tui dashboard"},
 	})
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "Global flags:")
@@ -99,7 +99,7 @@ func writeTopLevelHelp(w io.Writer) {
 Examples:
   dropcheck shell
   dropcheck --serial R5CT12345 shell
-  dropcheck watch -c examples/watch.yml`)
+  dropcheck tui -c examples/tui.yml`)
 }
 
 func writeHelpRows(w io.Writer, rows []helpRow) {
@@ -260,7 +260,7 @@ type shellState struct {
 	selected              string
 	selectedLabel         string
 	targetAll             bool
-	lastReport            *watchrun.Report
+	lastReport            *tuirun.Report
 	lastProfile, lastSSID string
 	lastWifiTest          *controlpb.CommandResult
 	lastWifiTestAgent     string

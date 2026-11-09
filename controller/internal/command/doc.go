@@ -4,6 +4,6 @@
 // values using the existing builders and validates inputs before dispatch;
 // PC host flags and Shell pipelines are handled outside this package.
 //
-// Operation is also shared by watch YAML and the basic Go API. Callers that
+// Operation is also shared by tui YAML and the basic Go API. Callers that
 // already know the command shape use its typed constructors directly.
 package command

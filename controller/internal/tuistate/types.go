@@ -1,0 +1,266 @@
+package tuistate
+
+import (
+	"slices"
+	"time"
+
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
+)
+
+// TargetState is the latest tui state for one agent/target pair.
+type TargetState struct {
+	Agent         tuirun.AgentSnapshot
+	Target        tuirun.TargetSnapshot
+	Status        string
+	CurrentStep   string
+	CurrentStepID string
+	Steps         []StepState
+	PlannedSteps  []StepState
+}
+
+// StepState is the compact per-step state kept for run queue rendering.
+type StepState struct {
+	ID      string
+	Name    string
+	Type    string
+	Status  string
+	Message string
+}
+
+// PlannedStepsForTarget expands configured checks into the run queue shape shown before live events arrive.
+func PlannedStepsForTarget(target tuirun.Target, checks []tuirun.CheckInfo) []StepState {
+	if target.Checks != nil {
+		checks = target.Checks
+	}
+	var steps []StepState
+	for _, check := range []*tuirun.CheckInfo{target.Connect, target.Wait} {
+		if check != nil {
+			steps = append(steps, StepState{ID: check.ID, Name: check.Name, Type: check.Type})
+		}
+	}
+	steps = append(steps, PlannedStepsForChecks(checks)...)
+	if target.DisconnectAfter != nil && *target.DisconnectAfter {
+		steps = append(steps, StepState{ID: "cleanup/wifi.disconnect", Name: "disconnect", Type: "cleanup"})
+	}
+	if target.ForgetAfter != nil && *target.ForgetAfter {
+		steps = append(steps, StepState{ID: "cleanup/wifi.forget", Name: "forget", Type: "cleanup"})
+	}
+	return steps
+}
+
+// PlannedStepsForChecks preserves the configured check order and identity.
+func PlannedStepsForChecks(checks []tuirun.CheckInfo) []StepState {
+	if checks == nil {
+		return nil
+	}
+	steps := make([]StepState, 0, len(checks))
+	for _, check := range checks {
+		steps = append(steps, StepState{ID: check.ID, Name: check.DisplayName(), Type: check.Type})
+	}
+	return steps
+}
+
+// FailedCheck records one failed expectation or required connectivity step.
+type FailedCheck struct {
+	Round   uint64
+	When    time.Time
+	Agent   tuirun.AgentSnapshot
+	Target  tuirun.TargetSnapshot
+	Finding tuirun.Finding
+}
+
+// FailedCheckSummary aggregates failures sharing one target/finding identity.
+type FailedCheckSummary struct {
+	Last        time.Time
+	Count       int
+	FailPercent int
+	FailStreak  int
+	Agent       tuirun.AgentSnapshot
+	Target      tuirun.TargetSnapshot
+	Finding     tuirun.Finding
+}
+
+// PassingCheck records one successful check or target completion.
+type PassingCheck struct {
+	Round         uint64
+	When          time.Time
+	Agent         tuirun.AgentSnapshot
+	Target        tuirun.TargetSnapshot
+	Step          tuirun.StepSnapshot
+	Duration      int64
+	DurationKnown bool
+}
+
+// PassingCheckSummary aggregates successful checks by agent, target, and step.
+type PassingCheckSummary struct {
+	Last          time.Time
+	Count         int
+	Agent         tuirun.AgentSnapshot
+	Target        tuirun.TargetSnapshot
+	Step          tuirun.StepSnapshot
+	Duration      int64
+	DurationKnown bool
+	DurationTotal int64
+	DurationCount int
+	MaxDuration   int64
+}
+
+// AvgDuration returns the rounded average duration in milliseconds.
+func (item PassingCheckSummary) AvgDuration() int64 {
+	if item.DurationCount <= 0 {
+		return 0
+	}
+	return (item.DurationTotal + int64(item.DurationCount/2)) / int64(item.DurationCount)
+}
+
+// FailureHotspotSummary ranks targets that are failing repeatedly inside the
+// retained investigation history.
+type FailureHotspotSummary struct {
+	Agent         tuirun.AgentSnapshot
+	Target        tuirun.TargetSnapshot
+	Last          time.Time
+	FailCount     int
+	FailRunCount  int
+	RunCount      int
+	FailStreak    int
+	LatestCause   string
+	LatestFinding tuirun.Finding
+}
+
+// FailureCauseTargetSummary is the per-target breakdown inside one
+// cross-target failure cause.
+type FailureCauseTargetSummary struct {
+	Target        tuirun.TargetSnapshot
+	Last          time.Time
+	FailCount     int
+	FailRunCount  int
+	RunCount      int
+	LatestFinding tuirun.Finding
+}
+
+// FailureCauseSummary ranks causes that affect multiple targets inside the
+// retained investigation history.
+type FailureCauseSummary struct {
+	Agent              tuirun.AgentSnapshot
+	Cause              string
+	Last               time.Time
+	FailCount          int
+	FailRunCount       int
+	RunCount           int
+	TargetCount        int
+	TopTarget          tuirun.TargetSnapshot
+	TopTargetFailCount int
+	LatestFinding      tuirun.Finding
+	Targets            []FailureCauseTargetSummary
+}
+
+// EventLogEntry keeps the structured tui event beside the rendered log line for detail scoping.
+type EventLogEntry struct {
+	When  time.Time
+	Event tuirun.Event
+	Line  string
+}
+
+// ConnectState is the latest live association phase reported for one agent.
+type ConnectState struct {
+	Last       time.Time
+	Agent      tuirun.AgentSnapshot
+	Target     tuirun.TargetSnapshot
+	Supplicant string
+	SSID       string
+	BSSID      string
+	IP         string
+}
+
+type failureHotspotRun struct {
+	Last   time.Time
+	failed bool
+}
+
+type failedCheckAttempt struct {
+	When       time.Time
+	FailedKeys map[string]bool
+}
+
+// OccurrenceHistogram is a fixed-width time histogram for recent event graphs.
+type OccurrenceHistogram struct {
+	First       time.Time
+	Last        time.Time
+	BucketWidth time.Duration
+	Counts      []int
+	Max         int
+	Count       int
+}
+
+const (
+	// SummarySparklineWindow limits the summary sparkline time horizon.
+	SummarySparklineWindow = 30 * time.Minute
+	// InvestigationHistoryWindow limits retained history for investigation views.
+	InvestigationHistoryWindow = 24 * time.Hour
+	// FailureHotspotWindow limits retained history for hotspot summaries.
+	FailureHotspotWindow = InvestigationHistoryWindow
+	// CheckHistoryRetentionWindow limits retained passing and failing check history.
+	CheckHistoryRetentionWindow = InvestigationHistoryWindow
+	// EventLogRetentionWindow limits retained event log history.
+	EventLogRetentionWindow = InvestigationHistoryWindow
+	// MaxPassingCheckHistory caps retained passing-check entries.
+	MaxPassingCheckHistory = 200000
+	// MaxFailedCheckHistory caps retained failed-check entries.
+	MaxFailedCheckHistory = 100000
+	// MaxEventLogHistory caps retained event log entries.
+	MaxEventLogHistory = 100000
+	// VisibleEventLogLimit caps rendered log rows in TUI summaries.
+	VisibleEventLogLimit = 400
+)
+
+// State tracks tui progress and derived histories without depending on terminal UI packages.
+type State struct {
+	AgentProgress   []tuirun.AgentProgress
+	Now             time.Time
+	Round           uint64
+	RoundStatus     string
+	Phase           string
+	Targets         []TargetState
+	TargetIndex     map[string]int
+	Agents          []tuirun.AgentSnapshot
+	Checks          []tuirun.CheckInfo
+	MultiAgent      bool
+	FailedChecks    []FailedCheck
+	PassingChecks   []PassingCheck
+	Logs            []string
+	EventLogEntries []EventLogEntry
+	ConnectStates   []ConnectState
+	EventLogTarget  string
+	EventLogStep    string
+	EventLogLast    string
+}
+
+// New constructs the initial state for one tui plan and the selected agents.
+func New(targets []tuirun.Target, checks []tuirun.CheckInfo, agents []tuirun.AgentSnapshot, now time.Time) State {
+	states := make([]TargetState, 0, Max(1, len(agents))*len(targets))
+	index := make(map[string]int, Max(1, len(agents))*len(targets))
+	addTarget := func(agent tuirun.AgentSnapshot, target tuirun.Target) {
+		snapshot := tuirun.TargetSnapshot{ID: target.ID, Name: target.DisplayName(), ShortName: target.ShortName, Agent: target.Agent, SSID: target.SSID, BSSID: target.BSSID, NetworkID: target.NetworkID, Band: target.Band}
+		key := TargetStateKey(agent, snapshot)
+		index[key] = len(states)
+		states = append(states, TargetState{Agent: agent, Target: snapshot, Status: "pending", PlannedSteps: PlannedStepsForTarget(target, checks)})
+	}
+	if len(agents) == 0 {
+		for _, target := range targets {
+			addTarget(tuirun.AgentSnapshot{}, target)
+		}
+	} else {
+		for _, target := range targets {
+			for _, agent := range agents {
+				if len(target.BoundAgentIDs) > 0 && !slices.Contains(target.BoundAgentIDs, AgentKey(agent)) {
+					continue
+				}
+				if target.Agent != "" && !tuirun.AgentSnapshotMatches(agent, target.Agent) {
+					continue
+				}
+				addTarget(agent, target)
+			}
+		}
+	}
+	return State{Targets: states, TargetIndex: index, Agents: append([]tuirun.AgentSnapshot(nil), agents...), Checks: append([]tuirun.CheckInfo(nil), checks...), MultiAgent: len(agents) > 1, Now: now, RoundStatus: "starting", Phase: "starting"}
+}

@@ -1,8 +1,8 @@
 package tui
 
 import (
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchrun"
-	"github.com/mi2428/dropcheck-agent/controller/internal/watchstate"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuistate"
 )
 
 func (m model) currentTargetName() string {
@@ -25,7 +25,7 @@ func currentStepState(target targetState) (stepState, bool) {
 	return stepState{}, false
 }
 
-func (m model) targetFailedCheckCount(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot) int {
+func (m model) targetFailedCheckCount(agent tuirun.AgentSnapshot, target tuirun.TargetSnapshot) int {
 	return m.TargetFailedCheckCount(agent, target)
 }
 
@@ -66,7 +66,7 @@ func (m model) filteredFailureCauseRows() []failureCauseSummary {
 	return m.filteredFailureCauses()
 }
 
-func (m model) filteredFailureHotspotRowsForAgent(agent watchrun.AgentSnapshot) []failureHotspotSummaryRow {
+func (m model) filteredFailureHotspotRowsForAgent(agent tuirun.AgentSnapshot) []failureHotspotSummaryRow {
 	rows := m.filteredFailureHotspotRows()
 	filtered := make([]failureHotspotSummaryRow, 0, len(rows))
 	for index, row := range rows {
@@ -77,7 +77,7 @@ func (m model) filteredFailureHotspotRowsForAgent(agent watchrun.AgentSnapshot) 
 	return filtered
 }
 
-func (m model) filteredFailureCauseRowsForAgent(agent watchrun.AgentSnapshot) []failureCauseSummaryRow {
+func (m model) filteredFailureCauseRowsForAgent(agent tuirun.AgentSnapshot) []failureCauseSummaryRow {
 	rows := m.filteredFailureCauseRows()
 	filtered := make([]failureCauseSummaryRow, 0, len(rows))
 	for index, row := range rows {
@@ -105,7 +105,7 @@ func (m model) focusedFailureAnalysisRowsForMode(mode failureHotspotMode) []fail
 	return m.indexedFailureAnalysisRows(mode)
 }
 
-func (m model) failureAnalysisRowsForAgent(mode failureHotspotMode, agent watchrun.AgentSnapshot) []failureAnalysisRow {
+func (m model) failureAnalysisRowsForAgent(mode failureHotspotMode, agent tuirun.AgentSnapshot) []failureAnalysisRow {
 	if mode == failureHotspotModeTargets {
 		rows := m.filteredFailureHotspotRowsForAgent(agent)
 		indexed := make([]failureAnalysisRow, 0, len(rows))
@@ -162,7 +162,7 @@ func failureAnalysisRowIdentity(row failureAnalysisRow) string {
 	return "cause:" + failureCauseSummaryIdentity(row.Cause)
 }
 
-func failureAnalysisRowAgent(row failureAnalysisRow) watchrun.AgentSnapshot {
+func failureAnalysisRowAgent(row failureAnalysisRow) tuirun.AgentSnapshot {
 	if row.Mode == failureHotspotModeTargets {
 		return row.Hotspot.Agent
 	}
@@ -178,14 +178,14 @@ func (m model) failureAnalysisRowByIdentity(mode failureHotspotMode, key string)
 	return failureAnalysisRow{}, false
 }
 
-func failureHotspotCause(finding watchrun.Finding) string {
-	return watchstate.FailureHotspotCause(finding)
+func failureHotspotCause(finding tuirun.Finding) string {
+	return tuistate.FailureHotspotCause(finding)
 }
 
 func (m model) filteredFailedCheckSummaries() []failedCheckSummary {
 	return m.FilteredFailedCheckSummaries(m.panelFilterQuery(focusFailedChecks))
 }
 
-func (m model) failedCheckSummaryIndex(agent watchrun.AgentSnapshot, target watchrun.TargetSnapshot, finding watchrun.Finding) int {
+func (m model) failedCheckSummaryIndex(agent tuirun.AgentSnapshot, target tuirun.TargetSnapshot, finding tuirun.Finding) int {
 	return m.FailedCheckSummaryIndex(agent, target, finding)
 }
