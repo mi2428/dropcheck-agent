@@ -1,6 +1,6 @@
 # 2.0 surface reduction
 
-Date: 2026-11-05. Baseline: `02a9e8c`. Keep PC/Android Shell, Android widgets and `dropcheck tui`; remove standalone one-shot CLI, the separate `dropcheck tui` workflow and the Go test-authoring DSL. Ordinary regression tests remain part of development.
+Date: 2026-11-05. Baseline: `02a9e8c`. Names are normalized to the current CLI. Keep PC/Android Shell, Android widgets and `dropcheck tui`; remove standalone one-shot CLI, the separate plan-selection/review workflow and the Go test-authoring DSL. Ordinary regression tests remain part of development.
 
 ## Implementation boundary
 

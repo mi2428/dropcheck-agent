@@ -1,6 +1,6 @@
 # Interactive Shell commands and maintenance
 
-The PC and Android interactive Shells use the Junos-inspired hierarchy below, with no compatibility alias layer. The 2.0 operator surfaces are Shell, Android widgets and `dropcheck tui`; the independent one-shot CLI, separate `tui` workflow and Go test DSL have been removed. TUI retains its dashboard/YAML/no-TUI/JSONL paths, not plan-selection or review/rerun entry points. See [the design and migration map](junos-redesign.md), [field audit and QA evidence](qa-junos.md), and the historical [acceptance checklist](tasks.md).
+The PC and Android interactive Shells use the Junos-inspired hierarchy below, with no compatibility alias layer. The 2.0 operator surfaces are Shell, Android widgets and `dropcheck tui`; the independent one-shot CLI, separate plan-selection/review workflow and Go test DSL have been removed. TUI retains its dashboard/YAML/no-TUI/JSONL paths, not plan-selection or review/rerun entry points. See [the design and migration map](junos-redesign.md), [field audit and QA evidence](qa-junos.md), and the historical [acceptance checklist](tasks.md).
 
 **Validation scope (2026-11-03):** local unit/integration/PTY/race tests and builds only. Earlier Pixel 9 results in [acceptance.md](acceptance.md) predate this cutover and are not acceptance evidence for it. Device installation, live scans/probes/mutations, commits and push were not performed.
 

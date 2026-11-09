@@ -156,7 +156,7 @@ candidates; their IP status must not inherit the underlying network's WifiInfo.
 ## Features
 
 The controller/agent toolchain shares typed agent operations across Shell, widgets and tui.
-Use Controller Shell for field work, Agent Shell for direct handset inspection, and `dropcheck tui` for continuous YAML-driven monitoring with a dashboard, plain findings or JSONL events. The former one-shot CLI, separate `tui` workflow and Go test DSL have been removed; no compatibility aliases are provided.
+Use Controller Shell for field work, Agent Shell for direct handset inspection, and `dropcheck tui` for continuous YAML-driven monitoring with a dashboard, plain findings or JSONL events. The former one-shot CLI, separate plan-selection/review workflow and Go test DSL have been removed; no compatibility aliases are provided.
 
 ### Controller Shell
 
@@ -269,7 +269,15 @@ The Android clock/network and log widgets display on-device observations and loc
 
 ### Continuous TUI dashboard
 
-`dropcheck tui -c PLAN.yml` is the immediate continuous-run entry. The dashboard consumes private `internal/tuirun` events; there is no separate plan-selection/review/rerun application or public scenario API. Dashboard metadata and bounded histories remain available, along with pause/skip controls and cancellation-safe owned-connection cleanup. JSONL records ordered events independently of the dashboard. `--no-tui` prints findings without opening a terminal UI.
+`dropcheck tui -c PLAN.yml` is the immediate continuous-run entry (`cd controller && go run ./cmd/dropcheck tui -c ../examples/tui.yml`). YAML compilation lives in `internal/tuiconfig`, execution in `internal/tuirun`, UI-neutral aggregation in `internal/tuistate`, and Bubble Tea presentation in `internal/tui`. There is no separate plan-selection/review/rerun application or public scenario API. JSONL records ordered events independently of the dashboard. `--no-tui` prints findings without opening a terminal UI.
+
+- `Tab` / `Shift-Tab` visits all panels, including per-agent Run Queues. `/` filters the focused summary, including pasted text.
+- `a` selects an explicit run/agent/target/check scope by stable IDs, then offers Pause/Resume, Skip this round, or Cancel for this run. Skip/Cancel require `y`; Enter does not confirm. Cancel cannot be undone in that run. A parent pause must be resumed at that parent scope.
+- `Ctrl-Z` explicitly pauses/resumes the whole run. `Ctrl-N` opens scope selection and Skip confirmation. `Esc` only dismisses UI or clears a selection/filter; it never resumes execution. Pause still consumes existing policy deadlines.
+- `Enter` opens a frozen detail snapshot. `j/k`, arrows and Page Up/Down scroll; `r` refreshes explicitly; `f` toggles full screen. New events never move the snapshot or its reading position. Wide terminals show a right-side inspector; narrower terminals use full screen.
+- Detail history displays the newest 500 retained entries and at most 120 related logs, without reducing the retained histories. Use `--jsonl` when full-stream export is required. Control dialogs require at least 40x14; shrinking below that closes an unconfirmed dialog safely.
+
+See [migration, adversarial QA and performance evidence](docs/tui-migration-qa.md).
 It is meant for field operation: connection failures and failed `required: true` checks skip the remaining checks for that target, other check failures are recorded as findings, and the next target and round continue.
 Use `--jsonl` when you also want an append-only event log.
 When multiple agents are connected, unassigned targets run on every selected agent.
