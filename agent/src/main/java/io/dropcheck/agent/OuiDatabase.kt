@@ -61,13 +61,13 @@ internal class OuiDatabase(private val file: File?) {
         return data
     }
 
-    @Synchronized fun update(fetch: (String) -> ByteArray = { download(it) }): Info {
+    @Synchronized fun update(fetch: (String, Long) -> ByteArray = ::download): Info {
         val destination = file ?: throw IOException("OUI update storage is not configured")
         val entries = sortedMapOf<String, String>()
         val deadline = System.nanoTime() + 60_000_000_000L
         for ((path, digits) in sources) {
             checkDeadline(deadline)
-            for ((prefix, name) in parseIEEE(fetch(path), digits)) {
+            for ((prefix, name) in parseIEEE(fetch(path, deadline), digits)) {
                 val previous = entries.put(prefix, name)
                 if (previous != null && previous != name) throw IOException("conflicting IEEE prefix $prefix")
             }
@@ -171,13 +171,19 @@ internal class OuiDatabase(private val file: File?) {
             return out.toByteArray()
         }
 
-        private fun download(path: String): ByteArray {
-            val connection = URL("https://standards-oui.ieee.org/$path.txt").openConnection() as HttpURLConnection
-            connection.apply { connectTimeout = 10000; readTimeout = 15000; instanceFollowRedirects = false; setRequestProperty("User-Agent", "dropcheck-agent/1.0") }
-            try {
+        private fun download(path: String, deadline: Long): ByteArray =
+            download(URL("https://standards-oui.ieee.org/$path.txt").openConnection() as HttpURLConnection, deadline)
+
+        internal fun download(connection: HttpURLConnection, deadline: Long): ByteArray =
+            withProbeDeadline(deadline, connection::disconnect) {
+                connection.apply {
+                    connectTimeout = minOf(10000, probeTimeoutMs(deadline))
+                    readTimeout = minOf(15000, probeTimeoutMs(deadline))
+                    instanceFollowRedirects = false
+                    setRequestProperty("User-Agent", "dropcheck-agent/1.0")
+                }
                 if (connection.responseCode != 200) throw IOException("IEEE registry HTTP ${connection.responseCode}")
-                return connection.inputStream.use { readBounded(it, System.nanoTime() + 20_000_000_000L) }
-            } finally { connection.disconnect() }
-        }
+                connection.inputStream.use { readBounded(it, deadline) }
+            }
     }
 }
