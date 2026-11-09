@@ -2,6 +2,7 @@ package io.dropcheck.agent
 
 import java.io.File
 import javax.xml.parsers.DocumentBuilderFactory
+import org.w3c.dom.Element
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -10,49 +11,45 @@ import org.junit.Test
 class AgentManifestTest {
     @Test
     fun exportedServiceRequiresPlatformDumpPermissionForCrossUidCallers() {
-        val services = parseManifest().getElementsByTagName("service")
-        val service = (0 until services.length).map { services.item(it) }.single {
-            it.attributes.getNamedItemNS(ANDROID_NS, "name")?.nodeValue == ".AgentService"
-        }
-        assertEquals("true", service.attributes.getNamedItemNS(ANDROID_NS, "exported")?.nodeValue)
-        assertEquals("android.permission.DUMP", service.attributes.getNamedItemNS(ANDROID_NS, "permission")?.nodeValue)
+        val service = component("service", ".AgentService")
+        assertEquals("true", service.getAttributeNS(ANDROID_NS, "exported"))
+        assertEquals("android.permission.DUMP", service.getAttributeNS(ANDROID_NS, "permission"))
         // The agent itself needs no DUMP grant; Android permits calls by the owning UID.
-        assertFalse(manifestFile().readText().contains("<uses-permission android:name=\"android.permission.DUMP\""))
+        assertFalse("android.permission.DUMP" in permissions())
     }
 
     @Test
     fun agentServiceUsesConnectedDeviceAndLocationForegroundTypes() {
-        val manifest = parseManifest()
-        val services = manifest.getElementsByTagName("service")
-        var serviceType: String? = null
-        for (index in 0 until services.length) {
-            val node = services.item(index)
-            val attrs = node.attributes
-            if (attrs.getNamedItemNS(ANDROID_NS, "name")?.nodeValue == ".AgentService") {
-                serviceType = attrs.getNamedItemNS(ANDROID_NS, "foregroundServiceType")?.nodeValue
-                break
-            }
-        }
-
-        assertEquals("connectedDevice|location", serviceType)
+        val types = component("service", ".AgentService").getAttributeNS(ANDROID_NS, "foregroundServiceType").split('|').toSet()
+        assertEquals(setOf("connectedDevice", "location"), types)
     }
 
     @Test
     fun manifestDeclaresBackgroundLocationAndLocationForegroundServicePermissions() {
-        val manifestText = manifestFile().readText()
-
-        assertTrue(manifestText.contains("android.permission.ACCESS_BACKGROUND_LOCATION"))
-        assertTrue(manifestText.contains("android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"))
-        assertTrue(manifestText.contains("android.permission.FOREGROUND_SERVICE_LOCATION"))
-        assertFalse(manifestText.contains("android.permission.FOREGROUND_SERVICE_DATA_SYNC"))
-        assertFalse(manifestText.contains("neverForLocation"))
+        val permissions = permissions()
+        assertTrue("android.permission.ACCESS_BACKGROUND_LOCATION" in permissions)
+        assertTrue("android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" in permissions)
+        assertTrue("android.permission.FOREGROUND_SERVICE_LOCATION" in permissions)
+        assertFalse("android.permission.FOREGROUND_SERVICE_DATA_SYNC" in permissions)
+        val nearby = component("uses-permission", "android.permission.NEARBY_WIFI_DEVICES")
+        assertFalse("neverForLocation" in nearby.getAttributeNS(ANDROID_NS, "usesPermissionFlags").split('|'))
     }
 
     @Test
     fun clockWidgetDeclaresNetworkCallbackAction() {
-        val manifestText = manifestFile().readText()
+        val receiver = component("receiver", ".AgentClockWidgetProvider")
+        val actions = receiver.getElementsByTagName("action")
+        assertTrue((0 until actions.length).any {
+            (actions.item(it) as Element).getAttributeNS(ANDROID_NS, "name") == "io.dropcheck.agent.action.CLOCK_WIDGET_NETWORK_CALLBACK_UPDATE"
+        })
+    }
 
-        assertTrue(manifestText.contains("io.dropcheck.agent.action.CLOCK_WIDGET_NETWORK_CALLBACK_UPDATE"))
+    private fun permissions() = elements("uses-permission").map { it.getAttributeNS(ANDROID_NS, "name") }.toSet()
+
+    private fun component(tag: String, name: String) = elements(tag).single { it.getAttributeNS(ANDROID_NS, "name") == name }
+
+    private fun elements(tag: String) = parseManifest().getElementsByTagName(tag).let { nodes ->
+        (0 until nodes.length).map { nodes.item(it) as Element }
     }
 
     private fun parseManifest() = DocumentBuilderFactory.newInstance().apply {
