@@ -46,8 +46,8 @@ func RecentEventHistogram(times []time.Time, width int, window time.Duration, no
 	}
 }
 
-// RecentEventBucketCount caps bucket count to the requested graph width and
-// avoids sub-second buckets for tui timelines.
+// RecentEventBucketCount caps bucket count to the graph width and the window's
+// rounded-up number of seconds.
 func RecentEventBucketCount(window time.Duration, width int) int {
 	if window <= 0 || width <= 0 {
 		return 0

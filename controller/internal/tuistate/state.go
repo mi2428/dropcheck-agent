@@ -140,7 +140,8 @@ func (s *State) Apply(event tuirun.Event) {
 
 // EnsureTarget returns the mutable target state for agent and snapshot,
 // creating it when a live event references a target that was not in the initial
-// plan. Partial snapshots are merged by the stable check-status target key.
+// plan. Unidentified snapshots merge only through the check-status-key fallback;
+// an exact key match returns the existing state without changing its metadata.
 func (s *State) EnsureTarget(agent tuirun.AgentSnapshot, snapshot tuirun.TargetSnapshot) *TargetState {
 	name := snapshot.Name
 	if name == "" {

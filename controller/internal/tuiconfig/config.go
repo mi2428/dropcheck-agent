@@ -66,7 +66,7 @@ type Target struct {
 	Checks           []Check           `yaml:"checks"`
 }
 
-// Check describes one probe to run after a target is connected and ready.
+// Check configures one target observation or probe and its expectations and policy.
 type Check struct {
 	Name       string         `yaml:"name"`
 	Type       string         `yaml:"type"`

@@ -142,7 +142,7 @@ func DetailValue(value string) string {
 	return value
 }
 
-// SanitizeLogText escapes control characters while preserving printable text.
+// SanitizeLogText escapes ASCII control characters and preserves other runes.
 func SanitizeLogText(value string) string {
 	if value == "" {
 		return ""

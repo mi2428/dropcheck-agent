@@ -145,7 +145,7 @@ func Lines(text string) []string {
 	return strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 }
 
-// JSON is the portable, redacted presentation envelope, not protobuf serialization.
+// JSON encodes already-sanitized presentation text in the portable result envelope.
 func JSON(text string, ok bool) (string, error) {
 	data, err := json.Marshal(struct {
 		OK    bool     `json:"ok"`

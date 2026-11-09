@@ -560,8 +560,7 @@ func WithinWindow(at time.Time, start time.Time) bool {
 	return !at.Before(start)
 }
 
-// FailureHotspotRunKey returns a stable run key, falling back to timestamp when
-// older events do not carry a round number.
+// FailureHotspotRunKey uses a positive round number, or the timestamp for round zero.
 func FailureHotspotRunKey(round uint64, at time.Time) string {
 	if round > 0 {
 		return fmt.Sprint(round)

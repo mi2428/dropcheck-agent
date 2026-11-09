@@ -106,7 +106,8 @@ func (c *Controls) HasScope(scope Scope) bool {
 }
 
 // Canceled reports whether a cancelled scope or one of its parent scopes still
-// covers scope for the remainder of this run. Unknown scopes fail closed.
+// covers scope for the remainder of this run. Unknown scopes return false;
+// use HasScope to check whether requests are accepted.
 func (c *Controls) Canceled(scope Scope) bool {
 	if c == nil {
 		return false

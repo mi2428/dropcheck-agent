@@ -11,8 +11,10 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/runner"
 )
 
-// Policy is shared by every probe and prerequisite. Attempts includes the first
-// attempt; Repeat creates independent samples. Timeout bounds the entire check.
+// Policy configures probe and prerequisite retries and sampling.
+// Attempts includes the first attempt; Repeat creates independent samples.
+// Timeout sets the context deadline for attempts and waits.
+// Event delivery and cleanup have separate budgets.
 type Policy struct {
 	Attempts, Repeat                                uint32
 	Delay, Eventually, StableFor, Interval, Timeout time.Duration

@@ -202,8 +202,8 @@ func (s State) CheckStatusTargetCell(check string, target tuirun.TargetSnapshot,
 	}
 }
 
-// CheckStatusAgentResult returns the current round state for configured targets
-// and falls back to stale history until the current round emits this check.
+// CheckStatusAgentResult returns the current round state, including pending checks
+// on identified targets. History is used only when current state is unavailable.
 func (s State) CheckStatusAgentResult(agent tuirun.AgentSnapshot, target tuirun.TargetSnapshot, check string) CheckStatusAgentResult {
 	if status, ok := s.CurrentCheckStatus(agent, target, check); ok {
 		return CheckStatusAgentResult{Status: status}
@@ -251,9 +251,8 @@ func (s State) HistoricalCheckStatus(agent tuirun.AgentSnapshot, target tuirun.T
 
 // CurrentCheckStatus returns status from the current round target/step state.
 //
-// Returning "not found" when the target exists but has not emitted this step in
-// the current round lets the dashboard retain the most recent completed result
-// until fresh data for that check arrives.
+// An identified target with no matching step is pending. A missing target or an
+// unidentified target with no matching step permits a historical lookup.
 func (s State) CurrentCheckStatus(agent tuirun.AgentSnapshot, target tuirun.TargetSnapshot, check string) (string, bool) {
 	for _, state := range s.Targets {
 		if !SameAgent(state.Agent, agent) || CheckStatusTargetKey(state.Target) != CheckStatusTargetKey(target) {
