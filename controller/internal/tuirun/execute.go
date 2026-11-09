@@ -22,18 +22,18 @@ const deliveryTimeout = time.Second
 const failureCauseTimeout = 2 * time.Second
 
 type execution struct {
-	plan        *CompiledPlan
-	runner      acquire.Runner
-	opts        ExecuteOptions
-	controls    *Controls
-	ctx         context.Context
-	stop        context.CancelCauseFunc
-	mu, eventMu sync.Mutex
-	report      Report
-	errors      []executionError
-	seq         uint64
-	now         func() time.Time
-	sleep       func(context.Context, time.Duration) error
+	plan     *CompiledPlan
+	runner   acquire.Runner
+	opts     ExecuteOptions
+	controls *Controls
+	ctx      context.Context
+	stop     context.CancelCauseFunc
+	mu       sync.Mutex
+	report   Report
+	errors   []executionError
+	seq      uint64
+	now      func() time.Time
+	sleep    func(context.Context, time.Duration) error
 }
 
 type executionError struct {
@@ -86,7 +86,7 @@ func execute(ctx context.Context, plan *CompiledPlan, r acquire.Runner, opts Exe
 	for _, agent := range plan.agents {
 		e.report.Agents = append(e.report.Agents, AgentProgress{Agent: AgentSnapshotFromInfo(agent), State: "pending", Outcome: OutcomePass})
 	}
-	if err := c.bind(plan, stop, e.emit); err != nil {
+	if err := c.bind(plan, stop, e.emitLocked); err != nil {
 		return Report{}, err
 	}
 	defer c.finish()
@@ -169,8 +169,11 @@ func execute(ctx context.Context, plan *CompiledPlan, r acquire.Runner, opts Exe
 }
 
 func (e *execution) emit(event Event) error {
-	e.eventMu.Lock()
-	defer e.eventMu.Unlock()
+	return e.controls.publish(event)
+}
+
+// emitLocked runs under Controls.eventMu, including for control request state changes.
+func (e *execution) emitLocked(event Event) error {
 	e.seq++
 	event.Seq, event.RunID, event.Plan = e.seq, e.report.RunID, e.plan.redact(e.plan.name)
 	if event.Time.IsZero() {

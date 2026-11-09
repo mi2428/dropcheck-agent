@@ -23,7 +23,7 @@ var errOperatorCancel = errors.New("canceled by operator")
 // Controls owns requests for one Execute invocation. Scope is explicit; cursor
 // focus and empty selectors never imply global execution control.
 type Controls struct {
-	mu                        sync.Mutex
+	mu, eventMu               sync.Mutex
 	valid                     map[string]Scope
 	paused, skipped, canceled map[string]bool
 	active                    map[uint64]controlledContext
@@ -128,6 +128,10 @@ func (c *Controls) request(action string, scope Scope) error {
 	if c == nil {
 		return fmt.Errorf("controls are nil")
 	}
+	// Serialize the state change and its request event with all execution events.
+	// Observers may read control state, so release mu before publishing.
+	c.eventMu.Lock()
+	defer c.eventMu.Unlock()
 	c.mu.Lock()
 	if !c.bound {
 		c.mu.Unlock()
@@ -166,6 +170,12 @@ func (c *Controls) request(action string, scope Scope) error {
 	emit := c.emit
 	c.mu.Unlock()
 	return emit(Event{Kind: EventControlRequested, Scope: scope, Status: action, Message: action + " requested"})
+}
+
+func (c *Controls) publish(event Event) error {
+	c.eventMu.Lock()
+	defer c.eventMu.Unlock()
+	return c.emit(event)
 }
 
 func (c *Controls) Paused(scope Scope) bool {
@@ -220,12 +230,12 @@ func (c *Controls) wait(ctx context.Context, scope Scope, round uint64) error {
 		c.mu.Unlock()
 		if !paused {
 			if ack {
-				return c.emit(Event{Kind: EventControlApplied, Scope: scope, Round: round, Status: "running", Message: "resumed"})
+				return c.publish(Event{Kind: EventControlApplied, Scope: scope, Round: round, Status: "running", Message: "resumed"})
 			}
 			return nil
 		}
 		if !ack {
-			if err := c.emit(Event{Kind: EventControlApplied, Scope: scope, Round: round, Status: "paused", Message: "paused at operation boundary"}); err != nil {
+			if err := c.publish(Event{Kind: EventControlApplied, Scope: scope, Round: round, Status: "paused", Message: "paused at operation boundary"}); err != nil {
 				return err
 			}
 			ack = true

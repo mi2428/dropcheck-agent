@@ -2,10 +2,71 @@ package tuirun
 
 import (
 	"context"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 )
+
+func TestControlRequestIsPublishedBeforeItsEffects(t *testing.T) {
+	controls := NewControls()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	_, stop := context.WithCancelCause(ctx)
+	defer stop(nil)
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	defer unblock()
+	events := make(chan Event, 2)
+	if err := controls.bind(controlsTestPlan(t), stop, func(event Event) error {
+		if event.Kind == EventControlRequested {
+			close(entered)
+			<-release
+		}
+		// Observers may query control state; publication must not hold controls.mu.
+		controls.HasScope(Scope{Kind: ScopeRun})
+		events <- event
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	requested := make(chan error, 1)
+	go func() { requested <- controls.Pause(Scope{Kind: ScopeRun}) }()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("request did not reach publication")
+	}
+	waited := make(chan error, 1)
+	go func() {
+		waited <- controls.wait(ctx, Scope{Kind: ScopeCheck, AgentID: "agent-a", TargetID: "target/0", CheckID: "check/0"}, 1)
+	}()
+	select {
+	case event := <-events:
+		t.Fatalf("effect overtook the blocked request: %s", event.Kind)
+	case <-time.After(50 * time.Millisecond):
+	}
+	unblock()
+	for _, want := range []EventKind{EventControlRequested, EventControlApplied} {
+		select {
+		case event := <-events:
+			if event.Kind != want {
+				t.Fatalf("event=%s want=%s", event.Kind, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("missing %s", want)
+		}
+	}
+	cancel()
+	if err := <-requested; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-waited; err != context.Canceled {
+		t.Fatalf("pause waiter did not stop: %v", err)
+	}
+}
 
 func controlsTestPlan(t *testing.T) *CompiledPlan {
 	t.Helper()
