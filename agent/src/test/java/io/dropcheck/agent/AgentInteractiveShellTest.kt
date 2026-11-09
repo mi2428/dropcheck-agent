@@ -5,8 +5,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AgentInteractiveShellTest {
-    // The legacy E2E argv corpus belongs to the independent PC one-shot interface.
-    // These shared interactive fixtures verify the replacement's actual wire intent.
+    // Shared command fixtures verify Android/PC wire parity.
     private val wireCases = mapOf(
         "show network" to RunCommand.CommandCase.GET_NETWORKS,
         "show network default" to RunCommand.CommandCase.GET_NETWORK,

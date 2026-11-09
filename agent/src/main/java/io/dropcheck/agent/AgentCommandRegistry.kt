@@ -2,13 +2,7 @@ package io.dropcheck.agent
 
 import io.dropcheck.agent.grpc.RunCommand
 
-/**
- * Single source of truth for controller-visible agent commands.
- *
- * The Android process should stay a transport/device proxy: it advertises only
- * the gRPC commands it can dispatch locally, while higher-level orchestration
- * remains with the controller.
- */
+/** RPC command inventory used for controller capability advertisement. */
 internal object AgentCommandRegistry {
     /**
      * Pairing between a protobuf oneof case and the capability string reported

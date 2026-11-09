@@ -91,12 +91,7 @@ internal fun terminalDisplayText(line: String): String {
     return display.toString()
 }
 
-/**
- * Minimal on-device terminal view for lab/debug sessions.
- *
- * It keeps the main screen as a local log tail and exposes a small swipe-in
- * shell for interactive Wi-Fi inspection, direct connect tests, and probes.
- */
+/** On-device Shell and terminal log viewer for Wi-Fi diagnostics. */
 class MainActivity : Activity() {
     private lateinit var logViewer: TerminalLogViewer
     private lateinit var root: FrameLayout
@@ -775,7 +770,7 @@ class MainActivity : Activity() {
         val input = checkNotNull(shellInput) as ShellInputEditText
         val keyWidth = (48 * 0.8f * resources.displayMetrics.density).roundToInt()
         val keyHeight = (48 * 0.78f * resources.displayMetrics.density).roundToInt()
-        // Measured from the connected Gboard dark theme; Android exposes no cross-IME theme API.
+        // Fixed dark palette; Android exposes no cross-IME theme API.
         val keyColor = Color.rgb(49, 43, 42)
         val surfaceColor = Color.rgb(28, 25, 24)
         val textColor = Color.rgb(238, 227, 226)
