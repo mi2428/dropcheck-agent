@@ -10,8 +10,8 @@ import (
 
 // RunPinned sends cmd on the snapshot's original connection and waits for its
 // terminal result. Snapshot validation and connection selection share one lock.
-// commandID must be unique among in-flight commands. Cancellation sends a
-// best-effort cancel frame, bounded to 100ms, before returning the context error.
+// commandID must be unique among in-flight commands. Cancel delivery while
+// awaiting a result is best-effort and has a 100ms budget.
 func (s *Server) RunPinned(ctx context.Context, agent AgentInfo, commandID string, cmd *controlpb.RunCommand) (*controlpb.CommandResult, error) {
 	if agent.ID == "" || agent.SessionID == "" {
 		return nil, fmt.Errorf("bound agent identity is incomplete")
