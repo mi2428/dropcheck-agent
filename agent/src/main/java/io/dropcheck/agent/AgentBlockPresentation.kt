@@ -292,7 +292,6 @@ internal class AgentBlockHistory(
     private val maxChars: Int = 262_144,
 ) {
     init { require(maxBlocks > 0 && maxChars > 0) { "Invalid history budget" } }
-    // ponytail: bounded 32-block linear budget check; no duplicate full-text archive/cache.
     val blocks = ArrayDeque<AgentPresentationBlock>()
     var evictedBlocks = 0
         private set
@@ -324,8 +323,6 @@ internal object AgentNativeBlockLayout {
 
     fun render(block: AgentPresentationBlock, contentWidthPx: Int, paint: Paint): AgentBlockLayout? {
         if (contentWidthPx <= 0) return null
-        // Structure first. Records preserve all values, so shrinking is unnecessary here.
-        // The permitted floor is exposed for table-oriented blocks, not applied to other blocks/input.
         val out = SpannableStringBuilder()
         var visibleRecords = 0
         var totalRecords = 0
@@ -466,8 +463,6 @@ internal object AgentNativeBlockLayout {
         // Native tab stops keep values aligned across fallback fonts, like table cells.
         out.setSpan(TabStopSpan.Standard(kotlin.math.ceil(valueStart).toInt()), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
-
-    fun shrinkFloor(baseSizeSp: Float, minimumSizeSp: Float): Float = maxOf(baseSizeSp * 0.9f, 10f, minimumSizeSp)
 
     private fun appendTable(out: SpannableStringBuilder, columns: List<AgentBlockPart.Column>, rows: List<List<String>>, width: Int, paint: Paint, indent: Int = 0): Boolean {
         if (columns.isEmpty()) return false

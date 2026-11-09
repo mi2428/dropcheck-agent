@@ -90,13 +90,6 @@ class AgentBlockPresentationTest {
         }
     }
 
-    @Test fun floorNeverShrinksMoreThanTenPercentOrBelowUserMinimum() {
-        assertEquals(10f, AgentNativeBlockLayout.shrinkFloor(10f, 10f), 0f)
-        assertEquals(10.8f, AgentNativeBlockLayout.shrinkFloor(12f, 10f), 0.0001f)
-        assertEquals(13f, AgentNativeBlockLayout.shrinkFloor(14f, 13f), 0f)
-        assertEquals(18f, AgentNativeBlockLayout.shrinkFloor(20f, 10f), 0f)
-    }
-
     @Test fun observationPresenceDistinguishesUnknownEmptyFalseAndZero() {
         val fields = listOf(DiagnosticField.newBuilder().setKey("field.state").setValue("available").build())
         for (value in listOf("", "0", "false")) assertTrue(AgentObservationPresentation.value(emptyList(), "field", value).startsWith("?"))

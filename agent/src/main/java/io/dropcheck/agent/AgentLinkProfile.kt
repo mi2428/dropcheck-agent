@@ -51,7 +51,7 @@ internal data class LinkReport(
     }
 }
 
-/** One fixed portable definition matching the PC link read order; no generic scenario runner. */
+/** Runs the link snapshot check and explicitly configured lab probes. */
 internal object AgentLinkProfile {
     private val linkStages = listOf("ip_before", "ip_after")
 

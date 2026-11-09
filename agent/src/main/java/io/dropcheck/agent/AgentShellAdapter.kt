@@ -40,7 +40,7 @@ internal data class AgentShellResult(
     val block: AgentPresentationBlock? = null,
 )
 
-/** A thin local-command adapter. All device operations still enter CommandExecutor.execute. */
+/** Dispatches local Shell commands and routes device RPC requests through [executeCommand]. */
 internal class AgentShellAdapter(private val session: AgentShellSession = AgentShellSession(), private val executeCommand: (RunCommand) -> CommandResult) {
 
     fun execute(command: AgentShellCommand): AgentShellResult = when (command) {

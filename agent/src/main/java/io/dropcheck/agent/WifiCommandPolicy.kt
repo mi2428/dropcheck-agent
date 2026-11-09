@@ -44,10 +44,7 @@ internal object WifiCommandPolicy {
     /** Applies proto3-style zero-as-unspecified timeout defaults. */
     fun effectiveTimeoutMs(value: Int, fallback: Int): Int = if (value > 0) value else fallback
 
-    /**
-     * Fresh scan may still return cached results; only registration/start/broadcast failures
-     * mark the command failed at this layer.
-     */
+    /** Checks collection errors; freshScanEvidence also requires positive update evidence. */
     fun freshScanCompleted(errors: List<String>): Boolean = errors.isEmpty()
 
     fun freshScanEvidence(value: io.dropcheck.agent.grpc.WifiScan): Boolean = freshScanCompleted(value.errorsList) &&

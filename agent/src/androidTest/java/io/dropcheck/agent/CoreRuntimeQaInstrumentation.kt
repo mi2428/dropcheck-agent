@@ -13,8 +13,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Verifies that the shared Wi-Fi capture entry moves main-thread snapshots to
- * the logger executor. Observation is passive: no scan, connect, or permission
- * change, and synthetic lines go to an isolated cache store.
+ * the logger executor using passive device Wi-Fi observations. File output uses
+ * a separate cache store; Logcat output remains enabled.
  */
 class CoreRuntimeQaInstrumentation : Instrumentation() {
     override fun onCreate(arguments: Bundle?) {
@@ -29,9 +29,7 @@ class CoreRuntimeQaInstrumentation : Instrumentation() {
         var listener: ((TerminalLogEntry) -> Unit)? = null
         try {
             val storage = File(targetContext.cacheDir, "core-runtime-qa-${System.nanoTime()}").apply { check(mkdir()) }
-            // The isolated store is intentionally left behind: callbacks still
-            // running on ConnectivityThread may append after stop() returns, so
-            // the supervisor removes core-runtime-qa-* after this process exits.
+            // In-flight callbacks can append after stop(); retain their cache directory.
             val isolated = object : ContextWrapper(targetContext) {
                 override fun getApplicationContext(): Context = this
                 override fun getExternalFilesDir(type: String?): File = storage
