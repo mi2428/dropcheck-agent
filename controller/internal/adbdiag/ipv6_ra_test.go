@@ -11,7 +11,7 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/render"
 )
 
-const sampleIPv6RARawHex = "33330000000100090f09641a86dd6000000000583afffe800000000000000000000021320003ff02000000000000000000000000000186004042400800000000000000000000010100090f09641a030440c000001c2000000e1000000000200103e8000e21320000000000000000030440c000001c2000000e1000000000200103e8000e21320000000000000000"
+const sampleIPv6RARawHex = "33330000000102000000000186dd6000000000583afffe800000000000000000000000000001ff020000000000000000000000000001860001804008000000000000000000000101020000000001030440c000001c2000000e100000000020010db8000100000000000000000000030440c000001c2000000e100000000020010db8000100000000000000000000"
 
 func TestCollectIPv6RADefaultRoutesBelongToSelectedInterface(t *testing.T) {
 	for _, tc := range []struct {
@@ -55,8 +55,8 @@ func TestParseIPv6RARawHex(t *testing.T) {
 	if !ok {
 		t.Fatal("parseIPv6RARawHex() returned ok=false")
 	}
-	if ad.Source != "fe80::2132:3" {
-		t.Fatalf("source = %q, want fe80::2132:3", ad.Source)
+	if ad.Source != "fe80::1" {
+		t.Fatalf("source = %q, want fe80::1", ad.Source)
 	}
 	if ad.Destination != "ff02::1" {
 		t.Fatalf("destination = %q, want ff02::1", ad.Destination)
@@ -73,8 +73,8 @@ func TestParseIPv6RARawHex(t *testing.T) {
 	if len(ad.Prefixes) != 1 {
 		t.Fatalf("prefix count = %d, want 1", len(ad.Prefixes))
 	}
-	if got := ad.Prefixes[0]; got.Prefix != "2001:3e8:e:2132::/64" || got.ValidLifetime != "7200s" || got.PreferredLifetime != "3600s" {
-		t.Fatalf("prefix = %#v, want 2001:3e8:e:2132::/64 valid=7200s preferred=3600s", got)
+	if got := ad.Prefixes[0]; got.Prefix != "2001:db8:1::/64" || got.ValidLifetime != "7200s" || got.PreferredLifetime != "3600s" {
+		t.Fatalf("prefix = %#v, want 2001:db8:1::/64 valid=7200s preferred=3600s", got)
 	}
 }
 
@@ -85,7 +85,7 @@ IpClient.wlan0
   IpClient.wlan0 APF dump:
     RA filters:
       Filtered:
-      RA fe80::2132:3 -> ff02::1 0s 2001:3e8:e:2132::/64 7200s/3600s 2001:3e8:e:2132::/64 7200s/3600s
+      RA fe80::1 -> ff02::1 0s 2001:db8:1::/64 7200s/3600s 2001:db8:1::/64 7200s/3600s
         Last seen 474s ago
         Last match:
           ` + sampleIPv6RARawHex + `
@@ -114,14 +114,14 @@ func TestIPv6RASummaryText(t *testing.T) {
 		AcceptRAMinHopLft: "1",
 		AcceptRAFromLocal: "0",
 		Advertisements: []IPv6RAAdvertisement{{
-			Source:         "fe80::2132:3",
+			Source:         "fe80::1",
 			Destination:    "ff02::1",
 			LastSeen:       "474s",
 			RouterLifetime: "0s",
 			HopLimit:       64,
 			FlagsHex:       "0x08",
 			Prefixes: []IPv6RAPrefix{{
-				Prefix:            "2001:3e8:e:2132::/64",
+				Prefix:            "2001:db8:1::/64",
 				ValidLifetime:     "7200s",
 				PreferredLifetime: "3600s",
 			}},
@@ -150,7 +150,7 @@ func TestIPv6RASummaryText(t *testing.T) {
 		}
 	}
 	for _, unwanted := range []string{
-		"src=fe80::2132:3",
+		"src=fe80::1",
 		"router_lifetime=0s",
 		"prefixes=",
 	} {
@@ -158,15 +158,15 @@ func TestIPv6RASummaryText(t *testing.T) {
 			t.Fatalf("rendered output = %q, unexpectedly contains %q", out, unwanted)
 		}
 	}
-	srcLine := findLineContaining(out, "fe80::2132:3")
-	prefixLine := findLineContaining(out, "2001:3e8:e:2132::/64")
+	srcLine := findLineContaining(out, "fe80::1")
+	prefixLine := findLineContaining(out, "2001:db8:1::/64")
 	validLine := findLineContaining(out, "7200s")
 	if srcLine == "" || prefixLine == "" || validLine == "" {
 		t.Fatalf("rendered output = %q, missing alignment lines", out)
 	}
-	srcValueColumn := strings.Index(srcLine, "fe80::2132:3")
+	srcValueColumn := strings.Index(srcLine, "fe80::1")
 	routerValueColumn := strings.Index(findLineContaining(out, "0s"), "0s")
-	prefixValueColumn := strings.Index(prefixLine, "2001:3e8:e:2132::/64")
+	prefixValueColumn := strings.Index(prefixLine, "2001:db8:1::/64")
 	validValueColumn := strings.Index(validLine, "7200s")
 	if srcValueColumn != routerValueColumn || prefixValueColumn != validValueColumn {
 		t.Fatalf("peer value columns differ: src=%d router=%d prefix=%d valid=%d in output %q", srcValueColumn, routerValueColumn, prefixValueColumn, validValueColumn, out)
