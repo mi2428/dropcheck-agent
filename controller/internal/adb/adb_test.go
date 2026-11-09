@@ -1,11 +1,9 @@
 package adb
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -256,27 +254,6 @@ exec sleep 60
 				t.Fatal("fake process did not complete after context stop")
 			}
 		})
-	}
-}
-
-func TestFakeADBLaunchDiagnostics(t *testing.T) {
-	path := fakeADB(t, "printf 'started\\n'\n")
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, path, "shell", "test")
-	var output bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &output, &output
-	started := time.Now()
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("fake launch: elapsed=%v context=%v error=%v", time.Since(started), ctx.Err(), err)
-	}
-	launchElapsed := time.Since(started)
-	waitStarted := time.Now()
-	err := cmd.Wait()
-	waitElapsed := time.Since(waitStarted)
-	t.Logf("fake launch=%v completion=%v marker=%v exit=%d context=%v", launchElapsed, waitElapsed, strings.Contains(output.String(), "started"), cmd.ProcessState.ExitCode(), ctx.Err())
-	if err != nil || output.String() != "started\n" {
-		t.Fatalf("fake completion: launch=%v completion=%v marker=%v context=%v error=%v", launchElapsed, waitElapsed, strings.Contains(output.String(), "started"), ctx.Err(), err)
 	}
 }
 

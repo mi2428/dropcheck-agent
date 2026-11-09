@@ -74,15 +74,13 @@ timestamp_ms=1,wifi_link_count=1,Link Stats from link_id=2,state=2,radio_id=0,fr
 
 	summary := ParseMLOSummary(text)
 	if summary.TIDToLinkSupported != "false" ||
-		summary.APMLDAddress != "02:00:00:00:00:01" ||
-		summary.APMLOLinkID != "2" ||
 		summary.MLOMode != "1" ||
 		summary.WifiLinkCount != "1" ||
 		len(summary.LinkStats) != 1 {
 		t.Fatalf("summary = %#v", summary)
 	}
 	link := summary.LinkStats[0]
-	if link.LinkID != "2" || link.FrequencyMHz != "5975" || link.RSSI != "-48" || link.RSSIMgmt != "-47" || link.ChannelWidth != "3" {
+	if link.LinkID != "2" || link.RadioID != "0" || link.RSSIMgmt != "-47" || link.BeaconRx != "42" {
 		t.Fatalf("link = %#v", link)
 	}
 }
@@ -90,19 +88,13 @@ timestamp_ms=1,wifi_link_count=1,Link Stats from link_id=2,state=2,radio_id=0,fr
 func TestMLOSummaryText(t *testing.T) {
 	out := render.LayoutText(MLOSummaryText(MLOSummary{
 		TIDToLinkSupported: "false",
-		APMLDAddress:       "<none>",
-		APMLOLinkID:        "<none>",
 		MLOMode:            "0",
 		WifiLinkCount:      "1",
 		LinkStats: []MLOLinkStat{{
-			LinkID:       "0",
-			State:        "2",
-			RadioID:      "0",
-			FrequencyMHz: "5220",
-			RSSI:         "-58",
-			RSSIMgmt:     "-58",
-			ChannelWidth: "0",
-			BeaconRx:     "472263",
+			LinkID:   "0",
+			RadioID:  "0",
+			RSSIMgmt: "-58",
+			BeaconRx: "472263",
 		}},
 	}, render.Presentation{}), render.Presentation{})
 	for _, want := range []string{
@@ -123,7 +115,7 @@ func TestMLOSummaryText(t *testing.T) {
 			t.Fatalf("MLOSummaryText() = %q, missing %q", out, want)
 		}
 	}
-	for _, unwanted := range []string{"source", "ap_mld", "ap_link_id", "MLO Links", "5220"} {
+	for _, unwanted := range []string{"source", "ap_mld", "ap_link_id", "MLO Links"} {
 		if strings.Contains(out, unwanted) {
 			t.Fatalf("MLOSummaryText() = %q, included %q", out, unwanted)
 		}

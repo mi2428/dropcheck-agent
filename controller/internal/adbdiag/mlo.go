@@ -16,29 +16,23 @@ const (
 	dumpsysWifiMLOGrep = `dumpsys wifi | grep -Ei 'MLO|MLD|TID-To-Link|wifi_link_count|mlo_mode|Link Stats from link_id|Dump of BSSID to Affiliated BSSID mapping' | tail -n 20`
 )
 
+var tidToLinkPattern = regexp.MustCompile(`(?is)Is TID-To-Link negotiation supported by the AP\s*:\s*(.*?)(?:,\s*(?:AP MLD Address|AP MLO Link Id|AP MLO Affiliated links|Vendor Data)\s*:|\n|$)`)
+
 // MLOSummary is the controller-side, best-effort MLO view extracted from adb.
 type MLOSummary struct {
-	Errors               []string
-	TIDToLinkSupported   string
-	APMLDAddress         string
-	APMLOLinkID          string
-	APMLOAffiliatedLinks string
-	VendorData           string
-	MLOMode              string
-	WifiLinkCount        string
-	LinkStats            []MLOLinkStat
+	Errors             []string
+	TIDToLinkSupported string
+	MLOMode            string
+	WifiLinkCount      string
+	LinkStats          []MLOLinkStat
 }
 
 // MLOLinkStat is one adb-reported Wi-Fi link stats row.
 type MLOLinkStat struct {
-	LinkID       string
-	State        string
-	RadioID      string
-	FrequencyMHz string
-	RSSI         string
-	RSSIMgmt     string
-	ChannelWidth string
-	BeaconRx     string
+	LinkID   string
+	RadioID  string
+	RSSIMgmt string
+	BeaconRx string
 }
 
 type kvRow struct {
@@ -113,11 +107,9 @@ func CollectMLO(ctx context.Context, client adb.Client) MLOSummary {
 // ParseMLOSummary extracts known MLO fields from cmd wifi status or dumpsys wifi text.
 func ParseMLOSummary(text string) MLOSummary {
 	summary := MLOSummary{}
-	summary.TIDToLinkSupported = extractMLOLabel(text, "Is TID-To-Link negotiation supported by the AP")
-	summary.APMLDAddress = extractMLOLabel(text, "AP MLD Address")
-	summary.APMLOLinkID = extractMLOLabel(text, "AP MLO Link Id")
-	summary.APMLOAffiliatedLinks = extractMLOLabel(text, "AP MLO Affiliated links")
-	summary.VendorData = extractMLOLabel(text, "Vendor Data")
+	if match := tidToLinkPattern.FindStringSubmatch(text); len(match) == 2 {
+		summary.TIDToLinkSupported = strings.TrimSpace(match[1])
+	}
 	summary.MLOMode = extractKeyValue(text, "mlo_mode")
 	summary.WifiLinkCount = extractKeyValue(text, "wifi_link_count")
 	summary.LinkStats = parseMLOLinkStats(text)
@@ -165,10 +157,6 @@ func MLOSummaryText(summary MLOSummary, view render.Presentation) string {
 // Empty reports whether the summary has any user-visible MLO data.
 func (s MLOSummary) Empty() bool {
 	return s.TIDToLinkSupported == "" &&
-		s.APMLDAddress == "" &&
-		s.APMLOLinkID == "" &&
-		s.APMLOAffiliatedLinks == "" &&
-		s.VendorData == "" &&
 		s.MLOMode == "" &&
 		s.WifiLinkCount == "" &&
 		len(s.LinkStats) == 0
@@ -177,18 +165,6 @@ func (s MLOSummary) Empty() bool {
 func (s *MLOSummary) merge(other MLOSummary) {
 	if s.TIDToLinkSupported == "" {
 		s.TIDToLinkSupported = other.TIDToLinkSupported
-	}
-	if s.APMLDAddress == "" {
-		s.APMLDAddress = other.APMLDAddress
-	}
-	if s.APMLOLinkID == "" {
-		s.APMLOLinkID = other.APMLOLinkID
-	}
-	if s.APMLOAffiliatedLinks == "" {
-		s.APMLOAffiliatedLinks = other.APMLOAffiliatedLinks
-	}
-	if s.VendorData == "" {
-		s.VendorData = other.VendorData
 	}
 	if s.MLOMode == "" {
 		s.MLOMode = other.MLOMode
@@ -199,28 +175,6 @@ func (s *MLOSummary) merge(other MLOSummary) {
 	for _, link := range other.LinkStats {
 		upsertMLOLinkStat(&s.LinkStats, link)
 	}
-}
-
-func extractMLOLabel(text string, label string) string {
-	labels := []string{
-		"Is TID-To-Link negotiation supported by the AP",
-		"AP MLD Address",
-		"AP MLO Link Id",
-		"AP MLO Affiliated links",
-		"Vendor Data",
-	}
-	next := make([]string, 0, len(labels)-1)
-	for _, candidate := range labels {
-		if !strings.EqualFold(candidate, label) {
-			next = append(next, regexp.QuoteMeta(candidate))
-		}
-	}
-	pattern := `(?is)` + regexp.QuoteMeta(label) + `\s*:\s*(.*?)(?:,\s*(?:` + strings.Join(next, "|") + `)\s*:|\n|$)`
-	match := regexp.MustCompile(pattern).FindStringSubmatch(text)
-	if len(match) < 2 {
-		return ""
-	}
-	return strings.TrimSpace(match[1])
 }
 
 func extractKeyValue(text string, key string) string {
@@ -242,14 +196,10 @@ func parseMLOLinkStats(text string) []MLOLinkStat {
 		}
 		values := parseCommaKeyValues(segment)
 		link := MLOLinkStat{
-			LinkID:       values["link_id"],
-			State:        values["state"],
-			RadioID:      values["radio_id"],
-			FrequencyMHz: values["frequency_mhz"],
-			RSSI:         values["rssi"],
-			RSSIMgmt:     values["rssi_mgmt"],
-			ChannelWidth: values["channel_width"],
-			BeaconRx:     values["beacon_rx"],
+			LinkID:   values["link_id"],
+			RadioID:  values["radio_id"],
+			RSSIMgmt: values["rssi_mgmt"],
+			BeaconRx: values["beacon_rx"],
 		}
 		if link.LinkID != "" {
 			upsertMLOLinkStat(&stats, link)
