@@ -33,7 +33,6 @@ package e2e
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -268,79 +267,9 @@ func (cfg *e2eConfig) runExternal(timeout time.Duration, args []string, stdin st
 
 func assertProcessResult(t *testing.T, tc matrixCase, expect string, res commandResult) {
 	t.Helper()
-	failOnPanic(t, res.Output)
-	switch expect {
-	case "help":
-		if !strings.Contains(res.Output, "commands:") && !strings.Contains(res.Output, "<cr>") {
-			t.Fatalf("%s expected help output, rc=%d err=%v output=%s", tc.ID, res.Code, res.Err, res.Output)
-		}
-	case "ok":
-		if res.Err != nil || res.Code != 0 {
-			t.Fatalf("%s expected success, rc=%d err=%v output=%s", tc.ID, res.Code, res.Err, res.Output)
-		}
-	case "error":
-		if !isShellErrorOutput(res.Output) {
-			t.Fatalf("%s expected shell error output, rc=%d err=%v output=%s", tc.ID, res.Code, res.Err, res.Output)
-		}
-	case "ok_or_clear":
-		if res.Err == nil && res.Code == 0 && !isFailureStatusOutput(res.Output) {
-			return
-		}
-		if !isClearRuntimeFailure(res.Output) {
-			t.Fatalf("%s expected success or clear runtime failure, rc=%d err=%v output=%s", tc.ID, res.Code, res.Err, res.Output)
-		}
-	case "advisory":
-	default:
-		t.Fatalf("%s has unknown expectation %q", tc.ID, expect)
+	if err := processResultError(expect, res); err != nil {
+		t.Fatalf("%s: %v; rc=%d err=%v output=%s", tc.ID, err, res.Code, res.Err, res.Output)
 	}
-}
-
-func failOnPanic(t *testing.T, output string) {
-	t.Helper()
-	lower := strings.ToLower(output)
-	if strings.Contains(lower, "panic:") || strings.Contains(lower, "fatal error:") {
-		t.Fatalf("process produced panic/fatal output:\n%s", output)
-	}
-}
-
-func isShellErrorOutput(output string) bool {
-	lower := strings.ToLower(output)
-	return strings.Contains(output, "Error:") ||
-		strings.Contains(lower, "usage:") ||
-		strings.Contains(lower, "unknown ") ||
-		strings.Contains(lower, "requires ") ||
-		strings.Contains(lower, "is required") ||
-		strings.Contains(lower, "must ") ||
-		strings.Contains(lower, "specified twice") ||
-		strings.Contains(lower, "cannot ") ||
-		strings.Contains(lower, "error parsing regexp") ||
-		strings.Contains(lower, "unsupported ") ||
-		strings.Contains(lower, "unexpected ") ||
-		strings.Contains(lower, "status: failed")
-}
-
-func isClearRuntimeFailure(output string) bool {
-	lower := strings.ToLower(output)
-	return strings.Contains(lower, "wait for android agents") ||
-		strings.Contains(lower, "agent disconnected") ||
-		strings.Contains(lower, "network not available") ||
-		strings.Contains(lower, "did not match requested") ||
-		strings.Contains(lower, "timeout") ||
-		strings.Contains(lower, "timed out") ||
-		strings.Contains(lower, "no matching") ||
-		strings.Contains(lower, "no_dns_address_for_family") ||
-		strings.Contains(lower, "dns resolution failed") ||
-		strings.Contains(lower, "one_or_more_families_failed") ||
-		strings.Contains(lower, "not a device owner, profile owner, system app, or privileged app") ||
-		strings.Contains(lower, "unsupported") ||
-		strings.Contains(lower, "connectivity completed with failed checks")
-}
-
-func isFailureStatusOutput(output string) bool {
-	lower := strings.ToLower(output)
-	return strings.Contains(output, "STATUS_FAILED") ||
-		strings.Contains(lower, "status=failed") ||
-		strings.Contains(lower, "status: failed")
 }
 
 func (cfg *e2eConfig) expand(commandLine string) (string, string, error) {
@@ -574,20 +503,8 @@ func shellCommandPassed(res commandResult) bool {
 	if res.Err != nil || res.Code != 0 {
 		return false
 	}
-	count := 0
-	for line := range strings.SplitSeq(res.Output, "\n") {
-		if !strings.HasPrefix(strings.TrimSpace(line), "{") {
-			continue
-		}
-		var envelope struct {
-			OK *bool `json:"ok"`
-		}
-		if err := json.Unmarshal([]byte(line), &envelope); err != nil || envelope.OK == nil || !*envelope.OK {
-			return false
-		}
-		count++
-	}
-	return count == 1
+	ok, _, err := shellEnvelopeOutput(res.Output)
+	return err == nil && ok
 }
 
 func (cfg *e2eConfig) resetLiveState() {

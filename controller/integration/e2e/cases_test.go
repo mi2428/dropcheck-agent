@@ -5,6 +5,7 @@ package e2e
 import (
 	"bytes"
 	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
+	"github.com/mi2428/dropcheck-agent/controller/internal/render"
 	"github.com/mi2428/dropcheck-agent/controller/internal/shell"
 )
 
@@ -30,6 +35,186 @@ type commandResult struct {
 	Output string
 	Code   int
 	Err    error
+}
+
+// Keep live-result validation in the device-free suite so ordinary CI exercises it.
+func processResultError(expect string, res commandResult) error {
+	jsonOK := true
+	if slices.ContainsFunc(strings.Split(res.Output, "\n"), func(line string) bool { return strings.HasPrefix(strings.TrimSpace(line), "{") }) {
+		var err error
+		jsonOK, res.Output, err = shellEnvelopeOutput(res.Output)
+		if err != nil {
+			return err
+		}
+	}
+	lower := strings.ToLower(res.Output)
+	if strings.Contains(lower, "panic:") || strings.Contains(lower, "fatal error:") {
+		return fmt.Errorf("process produced panic/fatal output")
+	}
+	success := jsonOK && res.Err == nil && res.Code == 0 && !isFailureStatusOutput(res.Output) && !strings.Contains(lower, "error parsing regexp")
+	clearErrors := true
+	for line := range strings.SplitSeq(res.Output, "\n") {
+		line = strings.TrimSpace(line)
+		if message, ok := strings.CutPrefix(line, "Error:"); ok && strings.TrimSpace(message) != "" {
+			success = false
+			clearErrors = clearErrors && isClearRuntimeFailure(message)
+		}
+	}
+	switch expect {
+	case "help":
+		if !success || !strings.Contains(res.Output, "commands:") && !strings.Contains(res.Output, "<cr>") {
+			return fmt.Errorf("expected help output")
+		}
+	case "ok":
+		if !success {
+			return fmt.Errorf("expected success")
+		}
+	case "error":
+		if !isShellErrorOutput(res.Output) {
+			return fmt.Errorf("expected shell error output")
+		}
+	case "ok_or_clear":
+		if !clearErrors {
+			return fmt.Errorf("unexpected shell error")
+		}
+		if !success && !isClearRuntimeFailure(res.Output) {
+			return fmt.Errorf("expected success or clear runtime failure")
+		}
+	case "advisory":
+	default:
+		return fmt.Errorf("unknown expectation %q", expect)
+	}
+	return nil
+}
+
+func isShellErrorOutput(output string) bool {
+	if isFailureStatusOutput(output) || strings.Contains(strings.ToLower(output), "error parsing regexp") {
+		return true
+	}
+	for line := range strings.SplitSeq(output, "\n") {
+		if message, ok := strings.CutPrefix(strings.TrimSpace(line), "Error:"); ok && strings.TrimSpace(message) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func isClearRuntimeFailure(output string) bool {
+	lower := strings.ToLower(output)
+	return strings.Contains(lower, "wait for android agents") ||
+		strings.Contains(lower, "agent disconnected") ||
+		strings.Contains(lower, "network not available") ||
+		strings.Contains(lower, "did not match requested") ||
+		strings.Contains(lower, "process_timeout=") ||
+		strings.Contains(lower, "dns_timeout=") ||
+		strings.Contains(lower, "scan_broadcast_timeout=") ||
+		strings.Contains(lower, "wifi condition timeout") ||
+		strings.Contains(lower, "probe deadline exceeded") ||
+		strings.Contains(lower, "context deadline exceeded") ||
+		strings.Contains(lower, "timeoutexception") ||
+		strings.Contains(lower, "i/o timeout") ||
+		strings.Contains(lower, "timed out") ||
+		strings.Contains(lower, "no_dns_address_for_family") ||
+		strings.Contains(lower, "dns resolution failed") ||
+		strings.Contains(lower, "one_or_more_families_failed") ||
+		strings.Contains(lower, "not a device owner, profile owner, system app, or privileged app") ||
+		strings.Contains(lower, "profile unsupported") ||
+		strings.Contains(lower, "pinning is unsupported") ||
+		strings.Contains(lower, "connectivity completed with failed checks")
+}
+
+func isFailureStatusOutput(output string) bool {
+	return failureStatus.MatchString(output)
+}
+
+var failureStatus = regexp.MustCompile(`(?i)\bstatus(?:_(?:failed|canceled)\b|[:=]\s*(?:failed|canceled)\b)`)
+
+func shellEnvelopeOutput(output string) (bool, string, error) {
+	count := 0
+	ok := false
+	var lines []string
+	for line := range strings.SplitSeq(output, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "{") {
+			lines = append(lines, line)
+			continue
+		}
+		var envelope struct {
+			OK    *bool    `json:"ok"`
+			Lines []string `json:"lines"`
+		}
+		if err := json.Unmarshal([]byte(line), &envelope); err != nil || envelope.OK == nil {
+			return false, "", fmt.Errorf("invalid Shell JSON envelope")
+		}
+		ok = *envelope.OK
+		lines = append(lines, envelope.Lines...)
+		count++
+	}
+	if count != 1 {
+		return false, "", fmt.Errorf("expected exactly one Shell JSON envelope")
+	}
+	return ok, strings.Join(lines, "\n"), nil
+}
+
+func TestLiveResultRejectsUnexpectedShellErrorsWithoutADevice(t *testing.T) {
+	for _, expect := range []string{"ok", "ok_or_clear"} {
+		for _, output := range []string{"Error: deliberately invalid request", "Error: unsupported command", "Error: timeout is required\ntimeout_ms=5000", "Error: no matching command", "Error: invalid request\nError: network not available", "Status: failed  Message: wifi ssid is required", "Status: canceled", "match regex: error parsing regexp: missing closing ]"} {
+			if err := processResultError(expect, commandResult{Output: output}); err == nil {
+				t.Fatalf("%s accepted %q", expect, output)
+			}
+		}
+		if err := processResultError(expect, commandResult{Output: "Status: ok\ncapability: unknown (unsupported feature)"}); err != nil {
+			t.Fatalf("ordinary capability data mistaken for an error: %v", err)
+		}
+	}
+	for _, output := range []string{"Error: network not available", "Status: failed  Message: dns resolution failed", "Error: agent disconnected", "Status: failed  Message: timed out"} {
+		if err := processResultError("ok_or_clear", commandResult{Output: output, Code: 1}); err != nil {
+			t.Fatalf("clear runtime failure rejected: %s: %v", output, err)
+		}
+	}
+	if processResultError("ok_or_clear", commandResult{Code: 1}) == nil || processResultError("advisory", commandResult{Output: "panic: timeout"}) == nil {
+		t.Fatal("unknown process failure or panic accepted")
+	}
+}
+
+func TestLiveResultAcceptsRenderedEmptyErrorFieldsAndHonorsJSONVerdicts(t *testing.T) {
+	text, err := render.CommandResult("qa", &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK,
+		Payload: &controlpb.CommandResult_HttpCheck{HttpCheck: &controlpb.HttpCheckResult{Url: "https://example.test", Status: 200, ExpectedStatus: 200, Matched: true}}}, command.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := pipeline.JSON(text, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, output := range []string{text, encoded, "capability: unknown (unsupported feature)"} {
+		if processResultError("error", commandResult{Output: output}) == nil {
+			t.Fatalf("valid output mistaken for expected error: %s", output)
+		}
+	}
+	for _, expect := range []string{"ok", "ok_or_clear"} {
+		for _, output := range []string{text, encoded} {
+			if err := processResultError(expect, commandResult{Output: output}); err != nil {
+				t.Fatalf("valid rendered result rejected: %v\n%s", err, output)
+			}
+		}
+		for _, output := range []string{`{"ok":false,"lines":[]}`, `{"ok":false,"lines":["Error: deliberately invalid request"]}`, `{"ok":false,"lines":["Error: invalid request","Error: network not available"]}`} {
+			if processResultError(expect, commandResult{Output: output}) == nil {
+				t.Fatalf("negative JSON verdict accepted: %s", output)
+			}
+		}
+		for _, status := range []controlpb.CommandResult_Status{controlpb.CommandResult_STATUS_FAILED, controlpb.CommandResult_STATUS_CANCELED} {
+			output, err := render.CommandResult("qa", &controlpb.CommandResult{Status: status, Payload: &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{ExitCode: 1}}}, command.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if processResultError(expect, commandResult{Output: output}) == nil {
+				t.Fatalf("rendered failure accepted: %s", output)
+			}
+		}
+	}
+	if processResultError("ok_or_clear", commandResult{Output: `{"ok":false,"lines":["Error: network not available"]}`}) != nil {
+		t.Fatal("clear JSON runtime failure rejected")
+	}
 }
 
 const e2eCaseCount = 236
