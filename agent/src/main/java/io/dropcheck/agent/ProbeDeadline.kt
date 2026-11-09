@@ -6,6 +6,12 @@ import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
+internal fun throwIfInterrupted() {
+    if (Thread.currentThread().isInterrupted) {
+        throw InterruptedException("command interrupted")
+    }
+}
+
 internal fun probeTimeoutMs(deadlineNanos: Long): Int {
     val remaining = deadlineNanos - System.nanoTime()
     if (remaining <= 0) throw SocketTimeoutException("probe deadline exceeded")

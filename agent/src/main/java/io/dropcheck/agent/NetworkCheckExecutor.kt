@@ -1,8 +1,6 @@
 package io.dropcheck.agent
 
 import android.net.Network
-import android.net.DnsResolver
-import android.os.CancellationSignal
 import io.dropcheck.agent.grpc.CommandResult
 import io.dropcheck.agent.grpc.DnsAnswer
 import io.dropcheck.agent.grpc.DnsRecordType
@@ -36,22 +34,7 @@ import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.util.Locale
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
-
-internal fun awaitDnsAnswer(latch: CountDownLatch, deadlineNanos: Long, cancel: () -> Unit): Boolean {
-    var completed = false
-    try {
-        completed = latch.await((deadlineNanos - System.nanoTime()).coerceAtLeast(0), TimeUnit.NANOSECONDS)
-        return completed
-    } catch (e: InterruptedException) {
-        Thread.currentThread().interrupt()
-        throw e
-    } finally {
-        if (!completed) cancel()
-    }
-}
 
 internal fun <T> withHttpConnection(connection: HttpURLConnection, deadlineNanos: Long, block: (HttpURLConnection) -> T): T =
     withProbeDeadline(deadlineNanos, connection::disconnect) { block(connection) }
@@ -66,12 +49,6 @@ class NetworkCheckExecutor(
     private val networks: NetworkRepository,
     private val logger: CommandLogger,
 ) {
-    private data class DnsLookup(
-        val qtype: DnsRecordType,
-        val addresses: List<InetAddress> = emptyList(),
-        val error: String = "",
-    )
-
     /** Returns IP/link state for the selected Wi-Fi network without running a probe. */
     fun getIpStatus(selector: NetworkSelector): CommandResult {
         logger.info("ip status requested selector_ssid=${selector.ssid.ifBlank { "*" }}")
@@ -468,7 +445,7 @@ class NetworkCheckExecutor(
         val resolved = try {
             families.flatMap { family ->
                 val qtype = if (family == IpFamily.IP_FAMILY_IPV6) DnsRecordType.DNS_RECORD_TYPE_AAAA else DnsRecordType.DNS_RECORD_TYPE_A
-                val lookup = resolveDnsQtype(network, GLOBAL_IP_SERVICE_HOST, qtype, deadline)
+                val lookup = resolveDnsQtype(network, GLOBAL_IP_SERVICE_HOST, qtype, deadline, logger)
                 if (lookup.error.isNotBlank()) logger.warn("global ip DNS failed qtype=$qtype error=${lookup.error}")
                 lookup.addresses
             }
@@ -798,7 +775,7 @@ class NetworkCheckExecutor(
                 "dns_servers" to ip.dnsServersList,
             ))
             val lookups = qtypes.map { qtype ->
-                resolveDnsQtype(network, command.name, qtype, deadline)
+                resolveDnsQtype(network, command.name, qtype, deadline, logger)
             }
             val lookupErrors = lookups.mapNotNull { lookup ->
                 lookup.error.takeIf { it.isNotBlank() }?.let { "${lookup.qtype.name}=$it" }
@@ -851,61 +828,6 @@ class NetworkCheckExecutor(
             .setResolveDns(built)
             .build()
     }
-
-    private fun resolveDnsQtype(
-        network: Network,
-        name: String,
-        qtype: DnsRecordType,
-        deadlineNanos: Long,
-    ): DnsLookup {
-        val resolverType = when (qtype) {
-            DnsRecordType.DNS_RECORD_TYPE_A -> DnsResolver.TYPE_A
-            DnsRecordType.DNS_RECORD_TYPE_AAAA -> DnsResolver.TYPE_AAAA
-            else -> return DnsLookup(qtype, error = "unsupported_qtype")
-        }
-        throwIfInterrupted()
-        val timeoutMs = try {
-            probeTimeoutMs(deadlineNanos)
-        } catch (e: SocketTimeoutException) {
-            return DnsLookup(qtype, error = "dns_deadline_exceeded")
-        }
-        val latch = CountDownLatch(1)
-        val cancellation = CancellationSignal()
-        val executor = Executor { command -> command.run() }
-        var addresses = emptyList<InetAddress>()
-        var error = ""
-        platformDnsResolver().query(
-            network,
-            name,
-            resolverType,
-            DnsResolver.FLAG_EMPTY,
-            executor,
-            cancellation,
-            object : DnsResolver.Callback<List<InetAddress>> {
-                override fun onAnswer(answer: List<InetAddress>, rcode: Int) {
-                    addresses = answer
-                    if (rcode != 0) {
-                        error = "dns_rcode=$rcode"
-                    }
-                    latch.countDown()
-                }
-
-                override fun onError(e: DnsResolver.DnsException) {
-                    error = "dns_error=${e.code}:${e.message.orEmpty()}"
-                    latch.countDown()
-                }
-            },
-        )
-        val completed = awaitDnsAnswer(latch, deadlineNanos) { cancellation.cancel() }
-        if (!completed) {
-            return DnsLookup(qtype, error = "dns_timeout=${timeoutMs}ms")
-        }
-        logger.debug("dns qtype result name=$name qtype=${qtype.name} count=${addresses.size} values=${addresses.joinToString(",") { it.hostAddress.orEmpty() }} error=${error.ifBlank { "none" }}")
-        return DnsLookup(qtype, addresses, error)
-    }
-
-    @Suppress("DEPRECATION")
-    private fun platformDnsResolver(): DnsResolver = DnsResolver.getInstance()
 
     /**
      * Performs a simple status-code check through the selected Android Network.
@@ -1060,7 +982,7 @@ class NetworkCheckExecutor(
                 IpFamily.IP_FAMILY_IPV6 -> listOf(DnsRecordType.DNS_RECORD_TYPE_AAAA)
                 else -> NetworkCheckPolicy.dnsRecordTypes(emptyList())
             }
-            val lookups = qtypes.map { resolveDnsQtype(network, host, it, resolveDeadline) }
+            val lookups = qtypes.map { resolveDnsQtype(network, host, it, resolveDeadline, logger) }
             val resolvedAddresses = lookups.flatMap { it.addresses }
             if (resolvedAddresses.isEmpty()) {
                 val errors = lookups.map { it.error }.filter { it.isNotBlank() }
@@ -1356,12 +1278,6 @@ class NetworkCheckExecutor(
             .setStatus(CommandResult.Status.STATUS_FAILED)
             .setMessage(message)
             .build()
-    }
-
-    private fun throwIfInterrupted() {
-        if (Thread.currentThread().isInterrupted) {
-            throw InterruptedException("command interrupted")
-        }
     }
 
     private data class PingTraceProbe(
