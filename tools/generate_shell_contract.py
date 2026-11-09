@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def outputs():
-    contract = json.loads((ROOT / "shell/commands.json").read_text())
+    contract = json.loads((ROOT / "shell-commands.json").read_text())
     rows = contract["commands"]
     paths = [row["path"] for row in rows]
     assert len(paths) == len(set(paths)), "duplicate command path"

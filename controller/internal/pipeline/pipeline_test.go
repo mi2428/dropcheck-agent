@@ -8,7 +8,7 @@ import (
 )
 
 func TestPortablePipelineContract(t *testing.T) {
-	data, err := os.ReadFile("../../../shell/pipeline_cases.tsv")
+	data, err := os.ReadFile("../../../testdata/pipeline_cases.tsv")
 	if err != nil {
 		t.Fatal(err)
 	}

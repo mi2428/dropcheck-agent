@@ -10,7 +10,7 @@ import (
 )
 
 func TestPortableCommandContract(t *testing.T) {
-	data, err := os.ReadFile("../../../shell/command_cases.tsv")
+	data, err := os.ReadFile("../../../testdata/command_cases.tsv")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestPortableCommandContract(t *testing.T) {
 			t.Errorf("missing contract case: %s", spec.Path)
 		}
 	}
-	invalid, err := os.ReadFile("../../../shell/invalid_cases.tsv")
+	invalid, err := os.ReadFile("../../../testdata/invalid_cases.tsv")
 	if err != nil {
 		t.Fatal(err)
 	}

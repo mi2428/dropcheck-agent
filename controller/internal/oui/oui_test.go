@@ -33,7 +33,7 @@ func TestOfflineLookupParityAndBundledSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := &Store{data: data}
-	cases, err := os.ReadFile("../../../shell/oui_lookup_cases.tsv")
+	cases, err := os.ReadFile("../../../testdata/oui_lookup_cases.tsv")
 	if err != nil {
 		t.Fatal(err)
 	}

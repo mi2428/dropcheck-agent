@@ -12,7 +12,7 @@ import (
 )
 
 func TestSharedScanAPMarkCases(t *testing.T) {
-	data, err := os.ReadFile("../../../shell/scan_mark_cases.tsv")
+	data, err := os.ReadFile("../../../testdata/scan_mark_cases.tsv")
 	if err != nil {
 		t.Fatal(err)
 	}
