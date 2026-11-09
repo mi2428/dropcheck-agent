@@ -1,7 +1,6 @@
 name: CI
 
 'on':
-  # Self-hosted runners can reach the homelab LAN; do not execute fork PR code.
   push:
   workflow_dispatch:
 
