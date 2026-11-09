@@ -31,8 +31,12 @@ const (
 	EventAttemptFinished  EventKind = "attempt_finished"
 	EventControlRequested EventKind = "control_requested"
 	EventControlApplied   EventKind = "control_applied"
-	EventRunEnding        EventKind = "run_ending"
-	EventRunFinished      EventKind = "run_finished"
+	// EventAgentProgress reports one agent's current-round state. Status is the
+	// AgentProgress.State ("running", "completed", "paused") and Message is the
+	// phase label. Completion is emitted before the round barrier finishes.
+	EventAgentProgress EventKind = "agent_progress"
+	EventRunEnding     EventKind = "run_ending"
+	EventRunFinished   EventKind = "run_finished"
 )
 
 // Event is one structured state transition, finding, or log item emitted by a tui run.

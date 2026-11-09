@@ -290,6 +290,7 @@ func (e *execution) runAgentRound(agent control.AgentInfo, round uint64) {
 		}
 	}
 	e.progress(agent, round, "completed", "idle", OutcomePass)
+	_ = e.emit(Event{Kind: EventAgentProgress, Scope: Scope{Kind: ScopeAgent, AgentID: agentKey(agent)}, Round: round, Status: "completed", Message: "idle"})
 }
 
 func (e *execution) runTarget(agent control.AgentInfo, target compiledTarget, round uint64) {
@@ -357,7 +358,7 @@ func (e *execution) checkAttempted(agent control.AgentInfo, target compiledTarge
 		for sample := uint32(1); ; sample++ {
 			last := MissingOutcome
 			for number := uint32(1); number <= s.policy.Attempts; number++ {
-				if err := e.controls.wait(policyCtx, scope); err != nil {
+				if err := e.controls.wait(policyCtx, scope, round); err != nil {
 					last, report.Reason = contextOutcome(err), err.Error()
 					break
 				}
@@ -593,7 +594,7 @@ func (e *execution) skipTarget(agent control.AgentInfo, target compiledTarget, r
 			e.skippedStep(agent, target, s, round, reason, message)
 		}
 	}
-	_ = e.emit(Event{Kind: EventTargetFinished, Round: round, Agent: AgentSnapshotFromInfo(agent), Target: snapshotTarget(target.preview), Status: "skipped", Message: message})
+	_ = e.emit(Event{Kind: EventTargetFinished, Scope: Scope{Kind: ScopeTarget, AgentID: agentKey(agent), TargetID: target.preview.ID}, Round: round, Agent: AgentSnapshotFromInfo(agent), Target: snapshotTarget(target.preview), Status: "skipped", Message: message})
 }
 
 func (e *execution) cleanup(agent control.AgentInfo, target compiledTarget, round uint64) Outcome {

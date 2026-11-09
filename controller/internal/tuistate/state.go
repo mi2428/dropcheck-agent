@@ -130,6 +130,9 @@ func (s *State) Apply(event tuirun.Event) {
 	case tuirun.EventControlApplied:
 		s.setAgentProgress(event.Agent, event.Round, event.Status, event.Status)
 		s.aggregateAgents()
+	case tuirun.EventAgentProgress:
+		s.setAgentProgress(event.Agent, event.Round, event.Status, event.Message)
+		s.aggregateAgents()
 	case tuirun.EventRunFinished:
 		s.Phase = event.Status
 	}
@@ -231,6 +234,11 @@ func (s *State) setAgentProgress(agent tuirun.AgentSnapshot, round uint64, state
 }
 
 func (s *State) aggregateAgents() {
+	// No selected agents means this state was not built for an aggregate run;
+	// a control applied at a check scope must not become a global "idle".
+	if len(s.Agents) == 0 {
+		return
+	}
 	completed, paused := 0, 0
 	failed := false
 	for _, agent := range s.Agents {
@@ -258,8 +266,11 @@ func (s *State) aggregateAgents() {
 		}
 	case paused+completed == len(s.Agents):
 		s.Phase = "paused"
-	default:
+	case s.MultiAgent:
 		s.Phase = "multi-agent running"
+		s.RoundStatus = "running"
+	default:
+		s.Phase = "running"
 		s.RoundStatus = "running"
 	}
 }
@@ -407,7 +418,7 @@ func (s *State) RemovePassingCheckForFailedCheck(event tuirun.Event) {
 }
 
 // PushLog appends a controller-generated log line that does not have a
-// structured tui.Event.
+// structured tuirun.Event.
 func (s *State) PushLog(message string) {
 	message = strings.TrimSpace(SanitizeLogText(message))
 	if message == "" {

@@ -91,14 +91,37 @@ func (c *Controls) Skip(scope Scope) error   { return c.request("skip", scope) }
 func (c *Controls) Cancel(scope Scope) error { return c.request("cancel", scope) }
 
 // HasScope reports whether the compiled run accepts a control for this exact scope.
+// A finished run fails closed: stale UI scopes must not accept requests.
 func (c *Controls) HasScope(scope Scope) bool {
 	if c == nil {
 		return false
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if !c.bound {
+		return false
+	}
 	_, ok := c.valid[scope.key()]
 	return ok
+}
+
+// Canceled reports whether a cancelled scope or one of its parent scopes still
+// covers scope for the remainder of this run. Unknown scopes fail closed.
+func (c *Controls) Canceled(scope Scope) bool {
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.valid[scope.key()]; !ok {
+		return false
+	}
+	for key := range c.canceled {
+		if c.valid[key].contains(scope) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Controls) request(action string, scope Scope) error {
@@ -179,7 +202,7 @@ func (c *Controls) context(parent context.Context, scope Scope) (context.Context
 	return ctx, func() { c.mu.Lock(); delete(c.active, id); c.mu.Unlock(); cancel(nil) }
 }
 
-func (c *Controls) wait(ctx context.Context, scope Scope) error {
+func (c *Controls) wait(ctx context.Context, scope Scope, round uint64) error {
 	ack := false
 	for {
 		if ctx.Err() != nil {
@@ -197,12 +220,12 @@ func (c *Controls) wait(ctx context.Context, scope Scope) error {
 		c.mu.Unlock()
 		if !paused {
 			if ack {
-				return c.emit(Event{Kind: EventControlApplied, Scope: scope, Status: "running", Message: "resumed"})
+				return c.emit(Event{Kind: EventControlApplied, Scope: scope, Round: round, Status: "running", Message: "resumed"})
 			}
 			return nil
 		}
 		if !ack {
-			if err := c.emit(Event{Kind: EventControlApplied, Scope: scope, Status: "paused", Message: "paused at operation boundary"}); err != nil {
+			if err := c.emit(Event{Kind: EventControlApplied, Scope: scope, Round: round, Status: "paused", Message: "paused at operation boundary"}); err != nil {
 				return err
 			}
 			ack = true
