@@ -30,6 +30,31 @@ class AgentShellAdapterTest {
         assertTrue(block.fullText.contains("Event 1\n  Event unix ms: 1234"))
     }
 
+    @Test fun statusCommandsKeepTheirDistinctRelatedIpScope() {
+        val status = WifiStatus.newBuilder().setConnection(WifiConnection.newBuilder().setSsid("Lab").setIpv4Address("192.0.2.4"))
+            .setIpStatus(IpStatus.newBuilder().setNetworkId("7")).build()
+        val adapter = AgentShellAdapter { request ->
+            CommandResult.newBuilder().setStatus(CommandResult.Status.STATUS_OK).apply {
+                when (request.commandCase) {
+                    RunCommand.CommandCase.GET_WIFI_STATUS -> setWifiStatus(status)
+                    RunCommand.CommandCase.GET_WIFI_DIAGNOSTICS -> setWifiDiagnostics(WifiDiagnostics.newBuilder().setStatus(status))
+                    RunCommand.CommandCase.MONITOR_WIFI -> setWifiMonitor(WifiMonitorResult.newBuilder().addEvents(WifiEvent.newBuilder().setStatus(status)))
+                    else -> error("Unexpected acquisition")
+                }
+            }.build()
+        }
+        fun fields(result: AgentShellResult) = result.block!!.parts.filterIsInstance<AgentBlockPart.Field>()
+        val connection = fields(run(adapter, "show wifi status connection"))
+        assertEquals(listOf("192.0.2.4"), connection.filter { it.label == "Related IP snapshot" }.map { it.value })
+        assertFalse(connection.any { it.label == "Network" })
+        val diagnostics = fields(run(adapter, "show wifi status full"))
+        assertFalse(diagnostics.any { it.label == "Related IP snapshot" })
+        assertEquals(listOf("7"), diagnostics.filter { it.label == "Network" }.map { it.value })
+        val monitor = fields(adapter.execute(AgentShellCommand.Execute(RunCommand.newBuilder().setMonitorWifi(MonitorWifi.getDefaultInstance()).build())))
+        assertEquals(listOf("7"), monitor.filter { it.label == "Network" }.map { it.value })
+        assertTrue(monitor.any { it.label == "Related IP snapshot" && it.value == "independently acquired Android Network observation" })
+    }
+
     private fun ip(network: String = "7"): CommandResult = CommandResult.newBuilder().setStatus(CommandResult.Status.STATUS_OK)
         .setIpStatus(IpStatus.newBuilder().setNetworkId(network).setInterfaceName("wlan0").addTransports("wifi")
             .setWifi(WifiConnection.newBuilder().setSsid(target).addAllObservationFields(observationAvailability("identity", true)))

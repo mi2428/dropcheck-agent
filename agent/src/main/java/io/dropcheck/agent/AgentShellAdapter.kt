@@ -145,7 +145,7 @@ internal class AgentShellAdapter(private val session: AgentShellSession = AgentS
                     add(AgentBlockPart.Text("Network ${index + 1}", section = true))
                     addAll(nestedPresentation(buildList {
                         add(AgentBlockPart.Field("Active/default at collection", network.active.toString()))
-                        addAll(AgentWifiStatusRenderer.ipPresentation(network.ipStatus, true, true))
+                        addAll(AgentWifiStatusRenderer.ipPresentation(network.ipStatus))
                     }))
                 }
                 if (result.networkSnapshot.errorsCount > 0) add(AgentBlockPart.Text("Errors", section = true))
@@ -157,9 +157,9 @@ internal class AgentShellAdapter(private val session: AgentShellSession = AgentS
                 add(AgentBlockPart.Field("Device Owner", result.permissionSnapshot.deviceOwner.toString(), indent = 2))
                 result.permissionSnapshot.permissionsList.forEach { add(AgentBlockPart.Field(it.key, it.value, indent = 2)) }
             }
-            RunCommand.CommandCase.GET_WIFI_STATUS -> if (command.summary) AgentWifiStatusRenderer.summary(result.wifiStatus) else AgentWifiStatusRenderer.presentation(result.wifiStatus, true, true, true)
-            RunCommand.CommandCase.GET_WIFI_DIAGNOSTICS -> AgentWifiDiagnosticsRenderer.presentation(result.wifiDiagnostics, true, true, true)
-            RunCommand.CommandCase.GET_WIFI_CAPABILITIES -> AgentWifiCapabilitiesRenderer.presentation(result.wifiCapabilities, true, true)
+            RunCommand.CommandCase.GET_WIFI_STATUS -> if (command.summary) AgentWifiStatusRenderer.summary(result.wifiStatus) else AgentWifiStatusRenderer.presentation(result.wifiStatus, ipAvailable = true)
+            RunCommand.CommandCase.GET_WIFI_DIAGNOSTICS -> AgentWifiDiagnosticsRenderer.presentation(result.wifiDiagnostics)
+            RunCommand.CommandCase.GET_WIFI_CAPABILITIES -> AgentWifiCapabilitiesRenderer.presentation(result.wifiCapabilities)
             RunCommand.CommandCase.GET_WIFI_SCAN, RunCommand.CommandCase.GET_FRESH_WIFI_SCAN -> {
                 val selected = AgentWifiMloRenderer.MloFilter(command.scanSsid, command.scanBssid).scanResults(result.wifiScan.resultsList)
                 val scan = result.wifiScan.toBuilder().clearResults().addAllResults(selected).build()
@@ -171,7 +171,7 @@ internal class AgentShellAdapter(private val session: AgentShellSession = AgentS
                 addAll(AgentWifiScanRenderer.presentation(io.dropcheck.agent.grpc.WifiScan.newBuilder().addAllResults(result.wifiScanDetail.resultsList)
                     .addAllErrors(result.wifiScanDetail.errorsList).setConnections(result.wifiScanDetail.connections).build(), AgentWifiScanContext(detail = true)))
             }
-            RunCommand.CommandCase.GET_IP_STATUS -> AgentWifiStatusRenderer.ipPresentation(result.ipStatus, true, true)
+            RunCommand.CommandCase.GET_IP_STATUS -> AgentWifiStatusRenderer.ipPresentation(result.ipStatus)
             else -> textRows(request, evaluated, source, command.via)
         }
         return block(evaluated, parts, if (source != null) "Wi-Fi connect" else request.commandCase.name.replace('_', ' ').lowercase(), secrets)
@@ -199,14 +199,14 @@ internal class AgentShellAdapter(private val session: AgentShellSession = AgentS
                 result.wifiOperation.fieldsList.forEach { row(it.key, it.value) }
                 result.wifiOperation.errorsList.forEach { row("Error", it) }
                 row("Already absent", result.wifiOperation.alreadyAbsent)
-                if (result.wifiOperation.hasStatus()) addAll(AgentWifiStatusRenderer.presentation(result.wifiOperation.status, detail = true))
+                if (result.wifiOperation.hasStatus()) addAll(AgentWifiStatusRenderer.presentation(result.wifiOperation.status))
             }
             RunCommand.CommandCase.WAIT_WIFI_CONNECTED, RunCommand.CommandCase.ASSERT_WIFI -> {
                 row("Passed", result.wifiAssert.passed)
                 addAll(AgentWifiStatusRenderer.assertionChecks(result.wifiAssert.checksList))
                 result.wifiAssert.errorsList.forEach { row("Error", it) }
                 row("Evaluation elapsed ms", result.wifiAssert.elapsedMs)
-                if (result.wifiAssert.hasStatus()) addAll(AgentWifiStatusRenderer.presentation(result.wifiAssert.status, detail = true))
+                if (result.wifiAssert.hasStatus()) addAll(AgentWifiStatusRenderer.presentation(result.wifiAssert.status))
                 else row("Observation", "? (snapshot unavailable)")
             }
             RunCommand.CommandCase.MONITOR_WIFI -> {
@@ -216,7 +216,7 @@ internal class AgentShellAdapter(private val session: AgentShellSession = AgentS
                         add(AgentBlockPart.Field("Event unix ms", event.unixTimeMs.toString()))
                         add(AgentBlockPart.Field(event.type, event.message))
                         event.fieldsList.forEach { field -> add(AgentBlockPart.Field(field.key, field.value)) }
-                        if (event.hasStatus()) addAll(AgentWifiStatusRenderer.presentation(event.status, detail = true))
+                        if (event.hasStatus()) addAll(AgentWifiStatusRenderer.presentation(event.status))
                     }))
                 }
                 if (result.wifiMonitor.errorsCount > 0) add(AgentBlockPart.Text("Errors", section = true))

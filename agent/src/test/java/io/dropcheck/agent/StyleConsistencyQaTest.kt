@@ -17,23 +17,24 @@ class StyleConsistencyQaTest {
 
     @Test fun fullStatusDetailKeepsScalarFieldRoles() {
         val status = WifiStatus.newBuilder().setConnection(WifiConnection.newBuilder().setSsid(identity).setDetailedState("CONNECTED")).build()
-        val parts = AgentWifiStatusRenderer.presentation(status, detail = true)
+        val parts = AgentWifiStatusRenderer.presentation(status)
         assertEquals("0", requireField(parts, "configuration_id").value)
         assertEquals("false", requireField(parts, "hidden").value)
     }
 
     @Test fun networkWifiDetailKeepsScalarFieldRoles() {
         val ip = IpStatus.newBuilder().setWifi(WifiConnection.newBuilder().setSsid(identity)).build()
-        val parts = AgentWifiStatusRenderer.ipPresentation(ip, detail = true)
+        val parts = AgentWifiStatusRenderer.ipPresentation(ip)
         requireField(parts, "ssid")
         requireField(parts, "frequency")
     }
 
     @Test fun capabilitiesMetadataUsesMeasuredFields() {
-        val parts = AgentWifiCapabilitiesRenderer.presentation(WifiCapabilities.newBuilder().addErrors("partial: key=0").build(), detailAvailable = true)
+        val parts = AgentWifiCapabilitiesRenderer.presentation(WifiCapabilities.newBuilder().addErrors("partial: key=0")
+            .addFields(DiagnosticField.newBuilder().setKey("cap.field").setValue("yes")).build())
         assertEquals("device", requireField(parts, "Scope").value)
         requireField(parts, "Error")
-        requireField(parts, "More")
+        assertEquals("yes", requireField(parts, "cap.field").value)
     }
 
     @Test fun diagnosticsMetadataUsesMeasuredFields() {

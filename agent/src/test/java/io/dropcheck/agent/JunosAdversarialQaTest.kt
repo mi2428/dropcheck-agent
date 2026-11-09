@@ -68,7 +68,7 @@ class JunosAdversarialQaTest {
         val diagnostics = WifiDiagnostics.newBuilder().setStatus(WifiStatus.newBuilder().setConnection(connection)).setCapabilities(WifiCapabilities.getDefaultInstance())
             .addNetworks(NetworkDiagnostics.newBuilder().setNetworkId("42").setIpStatus(IpStatus.newBuilder().setNetworkId("42").setWifi(WifiConnection.newBuilder().setNetworkId(8765).setSubscriptionId(7890).setRaw("network-marker"))))
             .setScan(WifiScan.newBuilder().addResults(WifiScanResult.newBuilder().setVenueName("venue-marker").setOperatorFriendlyName("operator-marker").setRaw("scan-marker token=qa-new-secret"))).build()
-        val out = AgentPresentationBlock.create(AgentWifiDiagnosticsRenderer.presentation(diagnostics, true, true, true), 0).fullText
+        val out = AgentPresentationBlock.create(AgentWifiDiagnosticsRenderer.presentation(diagnostics), 0).fullText
         for (value in listOf("4321", "5678", "8765", "7890", "a1b2c3", "venue-marker", "operator-marker", "password=Guest", "EHT/MLO interpretation")) assertTrue(value, value in out)
         for (value in listOf("network-marker", "wifi-marker", "scan-marker")) assertFalse(value, value in out)
         assertFalse("qa-new-secret" in out)
@@ -106,7 +106,7 @@ class JunosAdversarialQaTest {
             assertEquals(full, command.request.hasGetWifiDiagnostics())
             assertEquals(!full, command.request.hasGetWifiStatus())
             assertEquals(!full, command.summary)
-            val parts = if (command.summary) AgentWifiStatusRenderer.summary(diagnostics.status) else AgentWifiDiagnosticsRenderer.presentation(diagnostics, true, true, true)
+            val parts = if (command.summary) AgentWifiStatusRenderer.summary(diagnostics.status) else AgentWifiDiagnosticsRenderer.presentation(diagnostics)
             val block = AgentPresentationBlock.create(parts, 0)
             val json = AgentShellPipeline.parse(listOf("display json")).apply(AgentShellResult(false, block = block)).block!!.fullText
             for (out in listOf(block.fullText, json)) {

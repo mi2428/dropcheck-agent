@@ -89,7 +89,7 @@ class AgentIndentationTest {
                 .addInformationElements(WifiInformationElement.newBuilder().setId(48).setByteCount(2).setBytesHex("0102"))
                 .addObservationFields(DiagnosticField.newBuilder().setKey("link_id.state").setValue("available"))
                 .build(),
-        ).build(), detail = true)
+        ).build())
         val securityTitle = parts.indexOf(AgentBlockPart.Text("  Wi-Fi Security Details", section = true))
         val ieTitle = parts.indexOf(AgentBlockPart.Text("Information Elements", section = true))
         assertTrue(securityTitle >= 0 && ieTitle > securityTitle)
@@ -139,7 +139,7 @@ class AgentIndentationTest {
     @Test fun connectionDetailsAndMloLinkChildrenKeepExplicitDepth() {
         val status = WifiStatus.newBuilder().setConnection(WifiConnection.newBuilder()
             .addAssociatedMloLinks(io.dropcheck.agent.grpc.MloLinkInfo.newBuilder().setLinkId(1))).build()
-        val parts = AgentWifiStatusRenderer.presentation(status, detail = true)
+        val parts = AgentWifiStatusRenderer.presentation(status)
         val connectionDetails = parts.indexOf(AgentBlockPart.Text("Connection detail", section = true))
         assertTrue(connectionDetails >= 0)
         assertEquals(2, (parts[connectionDetails + 1] as AgentBlockPart.Field).indent)
@@ -154,7 +154,7 @@ class AgentIndentationTest {
             .addCapabilities("INTERNET").addObservationFields(DiagnosticField.newBuilder().setKey("ip.field").setValue("yes"))
             .setWifi(WifiConnection.newBuilder().setNetworkId(4).setSsid("Lab").addObservationFields(DiagnosticField.newBuilder().setKey("link.field").setValue("yes")))
             .build()
-        val ipParts = AgentWifiStatusRenderer.ipPresentation(ip, detail = true)
+        val ipParts = AgentWifiStatusRenderer.ipPresentation(ip)
         assertSectionFields(ipParts, "Other addresses", listOf("Other address"))
         assertSectionFields(ipParts, "Routing and DNS", listOf("Routes", "DNS", "DHCP server", "Private DNS", "NAT64"))
         assertSectionFields(ipParts, "Network capabilities", listOf("Capabilities", "Bandwidth", "Signal strength", "Specifier", "Owner uid", "Enterprise IDs", "Subscription IDs"))
@@ -167,7 +167,7 @@ class AgentIndentationTest {
             .setSsid("Lab").addObservationFields(DiagnosticField.newBuilder().setKey("conn.field").setValue("yes")))
             .addPermissions("permission=granted")
             .addObservationFields(DiagnosticField.newBuilder().setKey("status.field").setValue("yes"))
-            .setIpStatus(ip).build(), detail = true)
+            .setIpStatus(ip).build())
         assertSectionFields(statusParts, "Connection fields", listOf("conn.field"))
         assertSectionFields(statusParts, "Permissions", listOf("Permission"))
         assertSectionFields(statusParts, "Fields", listOf("status.field"))
@@ -175,7 +175,7 @@ class AgentIndentationTest {
         assertTrue(statusParts.any { it is AgentBlockPart.Field && it.label == "Network" && it.indent == 2 })
 
         val capabilities = AgentWifiCapabilitiesRenderer.presentation(WifiCapabilities.newBuilder()
-            .addFields(DiagnosticField.newBuilder().setKey("cap.field").setValue("yes")).addErrors("failed").build(), detail = true)
+            .addFields(DiagnosticField.newBuilder().setKey("cap.field").setValue("yes")).addErrors("failed").build())
         assertSectionFields(capabilities, "Fields", listOf("cap.field"))
         assertSectionFields(capabilities, "Errors", listOf("Error"))
 

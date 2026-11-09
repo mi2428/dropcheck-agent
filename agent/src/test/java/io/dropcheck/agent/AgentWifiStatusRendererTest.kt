@@ -109,7 +109,7 @@ class AgentWifiStatusRendererTest {
                 .build())
             .build()
 
-        val out = AgentPresentationBlock.create(AgentWifiStatusRenderer.presentation(status, detail = true), 0).fullText
+        val out = AgentPresentationBlock.create(AgentWifiStatusRenderer.presentation(status), 0).fullText
 
         listOf(
             "Radio: on",
@@ -208,7 +208,7 @@ class AgentWifiStatusRendererTest {
                 .build())
             .build()
 
-        val out = AgentPresentationBlock.create(AgentWifiStatusRenderer.presentation(status, detail = true), 0).fullText
+        val out = AgentPresentationBlock.create(AgentWifiStatusRenderer.presentation(status), 0).fullText
 
         listOf(
             "configuration_id",
@@ -233,7 +233,7 @@ class AgentWifiStatusRendererTest {
                 .build())
             .build()
 
-        val out = AgentPresentationBlock.create(AgentWifiStatusRenderer.presentation(status, detail = true), 0).fullText
+        val out = AgentPresentationBlock.create(AgentWifiStatusRenderer.presentation(status), 0).fullText
 
         assertFalse("rendered output included inactive connection:\n$out", out.contains("Connection"))
         assertFalse("rendered output included stale standard:\n$out", out.contains("802.11ax"))

@@ -10,8 +10,8 @@ class AgentOuiPresentationTest {
             val conn = WifiConnection.newBuilder().setSsid("Lab").setBssid("e8:0a:b9:00:00:01")
                 .addAllObservationFields(observationAvailability("identity", available)).build()
             val status = WifiStatus.newBuilder().setConnection(conn).build()
-            for (parts in listOf(AgentWifiStatusRenderer.summary(status), AgentWifiStatusRenderer.presentation(status, detail = true),
-                AgentWifiStatusRenderer.ipPresentation(IpStatus.newBuilder().setWifi(conn).build(), detail = true),
+            for (parts in listOf(AgentWifiStatusRenderer.summary(status), AgentWifiStatusRenderer.presentation(status),
+                AgentWifiStatusRenderer.ipPresentation(IpStatus.newBuilder().setWifi(conn).build()),
                 AgentWifiMloRenderer.presentation(status, WifiScan.getDefaultInstance(), AgentWifiMloContext(sdkInt = 37)))) {
                 val block = AgentPresentationBlock.create(parts, 0)
                 assertEquals(available, block.fullText.contains("Cisco"))
