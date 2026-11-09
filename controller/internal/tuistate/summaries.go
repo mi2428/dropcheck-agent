@@ -51,8 +51,8 @@ func (s State) TargetCount(status string) int {
 // PassingCheckSummaries groups passing history by target and step, newest
 // summary first.
 func (s State) PassingCheckSummaries() []PassingCheckSummary {
-	rows := make([]PassingCheckSummary, 0, len(s.PassingChecks))
-	index := make(map[string]int, len(s.PassingChecks))
+	rows := make([]PassingCheckSummary, 0)
+	index := make(map[string]int)
 	for _, item := range s.PassingChecks {
 		key := PassingCheckSummaryKey(item.Agent, item.Target, item.Step)
 		if pos, ok := index[key]; ok {
@@ -112,8 +112,8 @@ func (s State) FilteredPassingCheckSummaries(queryValue string) []PassingCheckSu
 // FailedCheckSummaries groups failure history by agent, target, and finding
 // identity, newest summary first.
 func (s State) FailedCheckSummaries() []FailedCheckSummary {
-	rows := make([]FailedCheckSummary, 0, len(s.FailedChecks))
-	index := make(map[string]int, len(s.FailedChecks))
+	rows := make([]FailedCheckSummary, 0)
+	index := make(map[string]int)
 	for _, item := range s.FailedChecks {
 		finding := item.Finding
 		key := FailedCheckSummaryKey(item.Agent, item.Target, finding)
@@ -159,17 +159,25 @@ func (s State) DecorateFailedCheckSummaries(rows []FailedCheckSummary) {
 }
 
 func (s State) failedCheckAttemptsByGroup() map[string][]failedCheckAttempt {
+	type attemptKey struct {
+		group     string
+		round     uint64
+		timestamp string
+	}
 	type attemptIndex struct {
 		group string
 		index int
 	}
 	groups := map[string][]failedCheckAttempt{}
-	indexes := map[string]attemptIndex{}
-	upsert := func(group string, attemptKey string, at time.Time, failed bool, failedKey string) {
-		if group == "" || attemptKey == "" {
+	indexes := map[attemptKey]attemptIndex{}
+	upsert := func(group string, round uint64, at time.Time, failed bool, failedKey string) {
+		if group == "" || round == 0 && at.IsZero() {
 			return
 		}
-		indexKey := group + "\x00" + attemptKey
+		indexKey := attemptKey{group: group, round: round}
+		if round == 0 {
+			indexKey.timestamp = at.Format(time.RFC3339Nano)
+		}
 		index, ok := indexes[indexKey]
 		if !ok {
 			index = attemptIndex{group: group, index: len(groups[group])}
@@ -193,11 +201,11 @@ func (s State) failedCheckAttemptsByGroup() map[string][]failedCheckAttempt {
 	for _, item := range s.PassingChecks {
 		check := FirstNonEmpty(item.Step.ID, item.Step.Name, item.Step.Type)
 		group := FailedCheckAttemptGroupKey(item.Agent, item.Target, "", check)
-		upsert(group, CheckAttemptKey(item.Agent, item.Round, item.When), item.When, false, "")
+		upsert(group, item.Round, item.When, false, "")
 	}
 	for _, item := range s.FailedChecks {
 		group := FailedCheckAttemptGroupKey(item.Agent, item.Target, item.Finding.Target, FirstNonEmpty(item.Finding.CheckID, item.Finding.Check))
-		upsert(group, CheckAttemptKey(item.Agent, item.Round, item.When), item.When, true, FailedCheckSummaryKey(item.Agent, item.Target, item.Finding))
+		upsert(group, item.Round, item.When, true, FailedCheckSummaryKey(item.Agent, item.Target, item.Finding))
 	}
 	for group := range groups {
 		sort.SliceStable(groups[group], func(i, j int) bool {
