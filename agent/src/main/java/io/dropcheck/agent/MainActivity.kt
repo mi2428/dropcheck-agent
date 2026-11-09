@@ -1254,6 +1254,13 @@ private class ShellInputEditText(context: Context) : EditText(context) {
                 if ((value?.toString() == "?" || value?.toString() == "？") && requestHelp()) return true
                 return super.commitText(value, newCursorPosition)
             }
+
+            // The attributed IME overload bypasses the two-argument override.
+            override fun commitText(value: CharSequence, newCursorPosition: Int, textAttribute: android.view.inputmethod.TextAttribute?): Boolean {
+                if ((value.toString() == "?" || value.toString() == "？") && requestHelp()) return true
+                return super.commitText(value, newCursorPosition, textAttribute)
+            }
+
             override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
                 if (beforeLength == 1 && afterLength == 0) return deleteBackwards()
                 return super.deleteSurroundingText(beforeLength, afterLength)

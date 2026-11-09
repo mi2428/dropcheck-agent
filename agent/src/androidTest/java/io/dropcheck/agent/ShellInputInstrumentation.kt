@@ -3,6 +3,7 @@ package io.dropcheck.agent
 import android.app.Activity
 import android.app.Instrumentation
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.Gravity
@@ -36,7 +37,7 @@ class ShellInputInstrumentation : Instrumentation() {
             }
             check(main.hasWindowFocus()) { "Shell test window is obscured" }
             val inputField = MainActivity::class.java.getDeclaredField("shellInput").apply { isAccessible = true }
-            runOnMainSync {
+            onMain {
                 val input = checkNotNull(inputField.get(main) as EditText?)
                 input.requestFocus()
                 input.setText("show "); input.setSelection(5)
@@ -44,8 +45,34 @@ class ShellInputInstrumentation : Instrumentation() {
                 val connection = checkNotNull(input.onCreateInputConnection(editorInfo))
                 check(editorInfo.imeOptions and EditorInfo.IME_FLAG_FORCE_ASCII != 0) { "Shell did not request an ASCII keyboard" }
                 check(editorInfo.hintLocales?.get(0)?.language == "en") { "Shell did not request English input" }
-                check(connection.commitText("?", 1))
-                check(input.text.toString() == "show " && input.selectionStart == 5) { "help changed input" }
+                fun checkHelp(line: String, cursor: Int, action: () -> Boolean) {
+                    input.setText(line); input.setSelection(cursor)
+                    val before = field<AgentBlockHistory>(main, "shellTranscript").blocks.size
+                    check(action())
+                    check(input.text.toString() == line && input.selectionStart == cursor && input.selectionEnd == cursor) { "help changed input" }
+                    val added = field<AgentBlockHistory>(main, "shellTranscript").blocks.drop(before)
+                    val expected = AgentShellParser.contextHelp(line.take(cursor)).joinToString("\n") { AgentSafePresentation.text(it) }
+                    check(added.map { it.fullText } == listOf(expected)) { "help did not appear immediately and exactly once" }
+                }
+                for (symbol in listOf("?", "？")) {
+                    checkHelp("show ", 5) { connection.commitText(symbol, 1) }
+                    if (Build.VERSION.SDK_INT >= 33) {
+                        checkHelp("", 0) { connection.commitText(symbol, 1, null) }
+                        checkHelp("show  status", 5) { connection.commitText(symbol, 1, null) }
+                    }
+                }
+                checkHelp("show ", 5) {
+                    input.dispatchKeyEvent(KeyEvent(0L, 0L, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_SLASH, 0, KeyEvent.META_SHIFT_ON))
+                }
+
+                if (Build.VERSION.SDK_INT >= 33) {
+                    for (line in listOf("request wifi connect 'Lab", "show wifi status\\")) {
+                        input.setText(line); input.setSelection(line.length)
+                        val before = field<AgentBlockHistory>(main, "shellTranscript").blocks.size
+                        check(connection.commitText("?", 1, null))
+                        check(input.text.toString() == "$line?" && field<AgentBlockHistory>(main, "shellTranscript").blocks.size == before) { "literal question mark became help" }
+                    }
+                }
 
                 input.setText("request wifi connect 'Lab"); input.setSelection(input.text.length)
                 connection.commitText("?", 1)
@@ -59,6 +86,14 @@ class ShellInputInstrumentation : Instrumentation() {
                 connection.finishComposingText()
                 check(!input.onKeyPreIme(KeyEvent.KEYCODE_ENTER, KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER)))
                 check(field<AgentBlockHistory>(main, "shellTranscript").blocks.size == beforeConfirm && input.text.toString() == "show ?") { "composition confirmation submitted a command" }
+                if (Build.VERSION.SDK_INT >= 33) {
+                    input.setText("show "); input.setSelection(5)
+                    connection.setComposingText("?", 1)
+                    val before = field<AgentBlockHistory>(main, "shellTranscript").blocks.size
+                    check(connection.commitText("?", 1, null))
+                    check(input.text.toString() == "show ?" && BaseInputConnection.getComposingSpanStart(input.text) == -1) { "composition commit was intercepted" }
+                    check(field<AgentBlockHistory>(main, "shellTranscript").blocks.size == before) { "composition commit unexpectedly opened help" }
+                }
 
                 input.setText("show  status"); input.setSelection(5)
                 connection.commitText("?", 1)
@@ -136,9 +171,7 @@ class ShellInputInstrumentation : Instrumentation() {
                 check(input.text.toString() == secret) { "touch history did not recall the last command" }
                 key(main, "↓").performClick()
                 check(input.text.toString() == "show") { "touch history did not restore the draft" }
-                input.setText("show "); input.setSelection(5)
-                key(main, "?").performClick()
-                check(input.text.toString() == "show " && input.selectionStart == 5) { "touch help modified input" }
+                checkHelp("show ", 5) { key(main, "?").performClick() }
 
                 input.setText("A\uD83D\uDE00B"); input.setSelection(3)
                 input.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_LEFT))
@@ -223,7 +256,7 @@ class ShellInputInstrumentation : Instrumentation() {
                 MainActivity::class.java.getDeclaredMethod("showShell").apply { isAccessible = true }.invoke(main)
                 check(field<View>(main, "shellKeyBar").isShown) { "extra keys were not restored with the Shell" }
             }
-            report.putString("result", "PASS: IME editing/composition, hardware and docked completion/history, Unicode cursor movement, selected symbol insertion, accessible extra keys, Esc, idle Ctrl-C and synthetic in-flight cancellation with draft retention; zero device commands")
+            report.putString("result", "PASS: immediate ASCII/full-width help through both IME commit APIs, hardware and docked keys; IME editing/composition, completion/history, Unicode cursor movement, selected symbol insertion, accessible extra keys, Esc, idle Ctrl-C and synthetic in-flight cancellation with draft retention; zero device commands")
             finish(Activity.RESULT_OK, report)
         } catch (error: Throwable) {
             report.putString("error", error.javaClass.simpleName + ": " + error.message)
@@ -237,6 +270,12 @@ class ShellInputInstrumentation : Instrumentation() {
     private fun key(activity: MainActivity, label: String): Button {
         val row = field<ViewGroup>(activity, "shellKeyBar").getChildAt(0) as ViewGroup
         return (0 until row.childCount).map { row.getChildAt(it) as Button }.single { it.text.toString() == label }
+    }
+
+    private fun onMain(action: () -> Unit) {
+        var result: Result<Unit>? = null
+        runOnMainSync { result = runCatching(action) }
+        checkNotNull(result).getOrThrow()
     }
 
     @Suppress("UNCHECKED_CAST")
