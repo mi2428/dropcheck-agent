@@ -234,7 +234,6 @@ internal object WifiConnectorPolicy {
     fun bssidPinCleanupNetworkIds(
         ssid: String,
         bssid: String,
-        current: CurrentConnectionRef?,
         configs: List<ConfiguredNetworkRef>,
     ): List<Int> {
         if (ssid.isEmpty() || bssid.isBlank()) return emptyList()

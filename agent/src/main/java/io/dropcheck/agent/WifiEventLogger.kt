@@ -273,7 +273,7 @@ internal class WifiEventLogger(
     }
 
     private fun captureNow(reason: String, triggerFields: List<Pair<String, Any?>>) {
-        if (!started.get() && reason != "stop") return
+        if (!started.get()) return
         runCatching {
             val snapshot = snapshot()
             val previous = synchronized(lock) {

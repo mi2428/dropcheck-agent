@@ -102,7 +102,7 @@ class WifiConnector(
             }
         }
         val macRandomization = configureMacRandomization(config, command.macRandomization)
-        cleanupConflictingBssidProfiles(ssid, resolvedBssid, current)?.let { error ->
+        cleanupConflictingBssidProfiles(ssid, resolvedBssid)?.let { error ->
             return Setup(error = error)
         }
         logger.debug("wifi configuration prepared ssid=$ssid bssid=${config.BSSID.orEmpty().ifBlank { "*" }} security=${command.security} resolved_security=$resolvedSecurity band=${command.band} previous_network_id=${previousNetworkId ?: "none"} hidden=${config.hiddenSSID} mac_randomization_requested=${command.macRandomization} mac_randomization_applied=$macRandomization")
@@ -163,7 +163,6 @@ class WifiConnector(
     private fun cleanupConflictingBssidProfiles(
         ssid: String,
         bssid: String,
-        current: WifiConnectorPolicy.CurrentConnectionRef?,
     ): String? {
         if (bssid.isBlank()) return null
         val configs = runCatching { wifi.configuredNetworks.orEmpty() }.getOrElse {
@@ -180,7 +179,6 @@ class WifiConnector(
         val networkIds = WifiConnectorPolicy.bssidPinCleanupNetworkIds(
             ssid = ssid,
             bssid = bssid,
-            current = current,
             configs = refs,
         )
         if (networkIds.isEmpty()) {

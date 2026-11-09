@@ -409,7 +409,7 @@ class WifiConnectorPolicyTest {
         )
         for ((ssid, id) in listOf("Lab" to 7, " Lab " to 8, "\"Lab\"" to 9, " " to 10)) {
             assertEquals(listOf(id), WifiConnectorPolicy.forgetNetworkIds(ssid, configs))
-            assertEquals(listOf(id), WifiConnectorPolicy.bssidPinCleanupNetworkIds(ssid, "aa:bb:cc:dd:ee:ff", null, configs))
+            assertEquals(listOf(id), WifiConnectorPolicy.bssidPinCleanupNetworkIds(ssid, "aa:bb:cc:dd:ee:ff", configs))
         }
         assertFalse(WifiConnectorPolicy.disconnectSettled(7, "\" \"", "aa:bb:cc:dd:ee:ff", "COMPLETED"))
         val current = WifiConnectorPolicy.CurrentConnectionRef(10, " ", "aa:bb:cc:dd:ee:ff", 2412, "sae")
@@ -429,18 +429,11 @@ class WifiConnectorPolicyTest {
         assertTrue(WifiConnectorPolicy.currentConnectionMatchesForgetTarget("7", unknown))
         val configs = listOf(WifiConnectorPolicy.ConfiguredNetworkRef(7, "<unknown ssid>"))
         assertTrue(WifiConnectorPolicy.forgetNetworkIds("<unknown ssid>", configs).isEmpty())
-        assertTrue(WifiConnectorPolicy.bssidPinCleanupNetworkIds("<unknown ssid>", "aa:bb:cc:dd:ee:ff", null, configs).isEmpty())
+        assertTrue(WifiConnectorPolicy.bssidPinCleanupNetworkIds("<unknown ssid>", "aa:bb:cc:dd:ee:ff", configs).isEmpty())
     }
 
     @Test
     fun selectsConflictingProfilesBeforeBssidPinnedConnect() {
-        val current = WifiConnectorPolicy.CurrentConnectionRef(
-            networkId = 10,
-            ssid = "Lab",
-            bssid = "02:00:00:00:00:21",
-            frequencyMhz = 5200,
-            securityType = "sae",
-        )
         val configs = listOf(
             WifiConnectorPolicy.ConfiguredNetworkRef(networkId = 7, ssid = "\"Lab\""),
             WifiConnectorPolicy.ConfiguredNetworkRef(networkId = 8, ssid = "\"Lab\"", bssid = "02:00:00:00:00:11"),
@@ -452,21 +445,13 @@ class WifiConnectorPolicyTest {
             WifiConnectorPolicy.bssidPinCleanupNetworkIds(
                 ssid = "Lab",
                 bssid = "02:00:00:00:00:11",
-                current = current,
                 configs = configs,
             ),
         )
     }
 
     @Test
-    fun keepsProfilesWhenBssidPinnedConnectAlreadyMatches() {
-        val current = WifiConnectorPolicy.CurrentConnectionRef(
-            networkId = 10,
-            ssid = "Lab",
-            bssid = "02:00:00:00:00:11",
-            frequencyMhz = 5220,
-            securityType = "sae",
-        )
+    fun keepsProfilesWithMatchingBssid() {
         val configs = listOf(
             WifiConnectorPolicy.ConfiguredNetworkRef(networkId = 8, ssid = "\"Lab\"", bssid = "02:00:00:00:00:11"),
         )
@@ -476,7 +461,6 @@ class WifiConnectorPolicyTest {
             WifiConnectorPolicy.bssidPinCleanupNetworkIds(
                 ssid = "Lab",
                 bssid = "02:00:00:00:00:11",
-                current = current,
                 configs = configs,
             ),
         )
