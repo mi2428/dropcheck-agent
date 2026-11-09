@@ -14,7 +14,6 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/shell"
 )
 
-// Correctness assertions retained from the independent Shell 2.0 QA.
 func TestAdversarialQARawADBSecretBoundary(t *testing.T) {
 	raw, err := adbdiag.Render(adbdiag.Bundle{Commands: []adbdiag.CommandResult{{Stdout: "password=qa-synthetic-secret\n"}}})
 	if err != nil {

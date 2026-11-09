@@ -98,8 +98,8 @@ type OperationRecord struct {
 	Error          string                   `json:"error,omitempty"`
 }
 
-// OperationResult preserves compound acquisitions without retaining a command
-// or its credentials. Raw is the typed view used by the existing matchers.
+// OperationResult preserves compound acquisitions without retaining the dispatched
+// command. Raw is the typed view used by expectation matchers.
 type OperationResult struct {
 	Raw      *controlpb.CommandResult
 	Parts    []OperationRecord

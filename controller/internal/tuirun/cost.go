@@ -14,7 +14,7 @@ type Cost struct {
 	UnboundedDownload  bool
 }
 
-// Cost computes the same attempt limit used at Start, including compound
+// Cost computes the attempt limit checked before execution, including compound
 // acquisitions, prerequisite checks, rotation and owned cleanup operations.
 func (p *CompiledPlan) Cost(rounds uint64, loop bool) (Cost, error) {
 	if p == nil || len(p.targets) == 0 || len(p.agents) == 0 || loop && rounds != 0 || !loop && rounds == 0 {

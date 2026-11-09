@@ -19,7 +19,7 @@ func NewCheck(name, sourceID string, op command.Operation, policy Policy, requir
 	return Check{Name: name, SourceID: sourceID, Operation: op, Policy: policy, Required: required, Expectations: append([]Expectation(nil), expect...)}
 }
 
-// Compile is pure: it resolves secrets, validates every operation/expectation,
+// Compile resolves secrets, validates every operation/expectation,
 // assigns ordinal identities, and binds agents without performing an operation.
 func Compile(plan Plan, agents []control.AgentInfo) (*CompiledPlan, error) {
 	return compilePlan(plan, agents, true)

@@ -13,8 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// RunWithControls renders tui events and lets keyboard input control the
-// tui runner through pause and skip controllers.
+// RunWithControls renders tui events with keyboard-operated execution controls.
 func RunWithControls(ctx context.Context, title string, targets []tuirun.Target, checks []tuirun.CheckInfo, agents []tuirun.AgentSnapshot, events <-chan tuirun.Event, controls *tuirun.Controls) error {
 	m := newModelWithChecks(title, targets, checks, events, agents)
 	m.controls = controls

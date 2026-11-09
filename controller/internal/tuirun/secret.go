@@ -16,7 +16,7 @@ func SecretValue(value string) Secret {
 	return Secret{value: value}
 }
 
-// SecretEnv returns a Secret loaded from an environment variable at run time.
+// SecretEnv references an environment variable resolved during plan validation or compilation.
 func SecretEnv(name string) Secret {
 	return Secret{env: name}
 }

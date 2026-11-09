@@ -22,7 +22,7 @@ type Operation struct {
 	Options Options
 }
 
-// NewOperation creates an immutable Operation boundary by cloning cmd.
+// NewOperation creates an Operation with a clone of cmd.
 //
 // Callers may safely reuse or mutate the original RunCommand after this call;
 // BuildRunCommand also returns a clone before execution.

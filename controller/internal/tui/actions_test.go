@@ -12,8 +12,7 @@ import (
 )
 
 // actionHarness starts the synthetic TUI runtime and drains its one-slot event
-// channel so a control command never blocks on event delivery. It is not a new
-// engine: it only wraps syntheticTUIProgram with bounded lifecycle helpers.
+// channel so a control command never blocks on event delivery.
 type actionHarness struct {
 	t           *testing.T
 	m           model

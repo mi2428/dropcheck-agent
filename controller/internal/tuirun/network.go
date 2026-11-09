@@ -8,8 +8,8 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 )
 
-// Network is tui target data, not a Go scenario builder. Connection ownership
-// and cleanup are explicit; read-only Shell profiles must not mutate Wi-Fi.
+// Network describes a Wi-Fi target and its connection and cleanup policies.
+// Read-only targets do not acquire or clean up Wi-Fi configuration.
 type Network struct {
 	Name, SSID, BSSID, NetworkID                string
 	PSK                                         Secret

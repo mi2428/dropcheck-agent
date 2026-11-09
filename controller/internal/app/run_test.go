@@ -36,7 +36,7 @@ func TestRemovedEntrypointsNeverStartADB(t *testing.T) {
 	if err := os.WriteFile(path, []byte("#!/bin/sh\ntouch '"+marker+"'\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	// The former monitoring command is deliberately not an alias for tui.
+	// Unsupported entry points must fail before starting ADB.
 	for _, args := range [][]string{{"watch"}, {"watch", "-c", "missing.yml"}, {"tui", "missing.yml"}, {"show", "devices"}, {"ping", "example.test"}, {"--format", "json", "show", "wifi", "status"}, {"wifi", "connect", "Lab", "passphrase", "synthetic-private"}} {
 		full := append([]string{"--adb", path}, args...)
 		if err := runWithContext(context.Background(), full); err == nil || strings.Contains(err.Error(), "synthetic-private") {
