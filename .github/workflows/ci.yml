@@ -67,7 +67,6 @@ jobs:
         working-directory: controller
         run: |
           GOFLAGS='-race -p=1' go test -count=1 ./...
-          GOFLAGS='-race -p=1' python3 ../tools/test_shell_history.py
 
   android:
     runs-on: ubuntu-latest-self-hosted

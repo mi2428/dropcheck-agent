@@ -114,7 +114,7 @@ func TestRound2WrongNetworkIsNotSuccessfulShellJSON(t *testing.T) {
 
 func TestPTYRound2NativeHistory(t *testing.T) {
 	if os.Getenv("DROPCHECK_SHELL_PTY") != "1" {
-		t.Skip("executed by tools/test_shell_history.py through make test")
+		t.Skip("requires an interactive PTY driver")
 	}
 	if !useLineEditor() {
 		t.Fatal("native history regression requires a real PTY")

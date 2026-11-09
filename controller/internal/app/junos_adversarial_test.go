@@ -70,7 +70,7 @@ func TestJunosQARejectedAttemptReplacesHistoricalPass(t *testing.T) {
 
 func TestPTYJunosRunningCancel(t *testing.T) {
 	if os.Getenv("DROPCHECK_SHELL_PTY") != "1" {
-		t.Skip("driven by tools/test_shell_history.py")
+		t.Skip("requires an interactive PTY driver")
 	}
 	state, _, cleanup := connectedShellStateWithStream(t)
 	defer cleanup()

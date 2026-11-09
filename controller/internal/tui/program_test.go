@@ -212,7 +212,7 @@ func TestTUIProgramConsumesEventsWhileControlling(t *testing.T) {
 	probe(func(s programCheckpoint) bool { return !s.Busy && !s.RunPaused && s.Applied })
 }
 
-// Run by tools/test_tui.py only; every runner result is synthetic.
+// Interactive PTY test entry; every runner result is synthetic.
 func TestTUIPTYChild(t *testing.T) {
 	if os.Getenv("DROPCHECK_TUI_PTY_CHILD") != "1" {
 		t.Skip("PTY child only")
