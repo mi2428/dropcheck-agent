@@ -257,7 +257,7 @@ func (m model) failureHotspotPanelHasFocus(agent tuirun.AgentSnapshot) bool {
 }
 
 func (m model) failureHotspotAgents() []tuirun.AgentSnapshot {
-	return m.outcomeAgents(m.outcomeEvents())
+	return m.outcomeAgents(nil)
 }
 
 func (m model) emptyPanelText(panel focusPanel, noun string) string {

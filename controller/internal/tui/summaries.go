@@ -30,15 +30,36 @@ func (m model) targetFailedCheckCount(agent tuirun.AgentSnapshot, target tuirun.
 }
 
 func (m model) filteredPassingCheckSummaries() []passingCheckSummary {
-	return m.FilteredPassingCheckSummaries(m.panelFilterQuery(focusPassingChecks))
+	query := m.panelFilterQuery(focusPassingChecks)
+	if m.frame == nil {
+		return m.FilteredPassingCheckSummaries(query)
+	}
+	if !m.frame.passingReady {
+		m.frame.passing, m.frame.passingReady = m.PassingCheckSummaries(), true
+	}
+	return filterSummaryRows(m.frame.passing, query, tuistate.PassingCheckSummaryMatches)
 }
 
 func (m model) filteredFailureHotspots() []failureHotspotSummary {
-	return m.FilteredFailureHotspots(m.panelFilterQuery(focusFailureHotspots))
+	query := m.panelFilterQuery(focusFailureHotspots)
+	if m.frame == nil {
+		return m.FilteredFailureHotspots(query)
+	}
+	if !m.frame.hotspotsReady {
+		m.frame.hotspots, m.frame.hotspotsReady = m.FailureHotspots(), true
+	}
+	return filterSummaryRows(m.frame.hotspots, query, tuistate.FailureHotspotSummaryMatches)
 }
 
 func (m model) filteredFailureCauses() []failureCauseSummary {
-	return m.FilteredFailureCauses(m.panelFilterQuery(focusFailureHotspots))
+	query := m.panelFilterQuery(focusFailureHotspots)
+	if m.frame == nil {
+		return m.FilteredFailureCauses(query)
+	}
+	if !m.frame.causesReady {
+		m.frame.causes, m.frame.causesReady = m.FailureCauses(), true
+	}
+	return filterSummaryRows(m.frame.causes, query, tuistate.FailureCauseSummaryMatches)
 }
 
 type failureHotspotSummaryRow struct {
@@ -183,7 +204,14 @@ func failureHotspotCause(finding tuirun.Finding) string {
 }
 
 func (m model) filteredFailedCheckSummaries() []failedCheckSummary {
-	return m.FilteredFailedCheckSummaries(m.panelFilterQuery(focusFailedChecks))
+	query := m.panelFilterQuery(focusFailedChecks)
+	if m.frame == nil {
+		return m.FilteredFailedCheckSummaries(query)
+	}
+	if !m.frame.failedReady {
+		m.frame.failed, m.frame.failedReady = m.FailedCheckSummaries(), true
+	}
+	return filterSummaryRows(m.frame.failed, query, tuistate.FailedCheckSummaryMatches)
 }
 
 func (m model) failedCheckSummaryIndex(agent tuirun.AgentSnapshot, target tuirun.TargetSnapshot, finding tuirun.Finding) int {

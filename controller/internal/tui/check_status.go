@@ -27,7 +27,7 @@ func (m model) checkStatusView(width int, height int) string {
 	if len(checks) == 0 || len(targets) == 0 {
 		return dimStyle.Render("no checks or targets match")
 	}
-	agents := m.outcomeAgents(m.outcomeEvents())
+	agents := m.outcomeAgents(nil)
 	layout := checkStatusTableLayout(width, m.checkLabels(checks), targets, agents)
 	targets = m.checkStatusVisibleTargets(targets, layout)
 	var lines []string
@@ -218,7 +218,7 @@ func (m model) checkStatusWindowMetrics(width int) ([]tuirun.TargetSnapshot, che
 	if len(checks) == 0 || len(targets) == 0 {
 		return nil, checkStatusLayout{}, 0
 	}
-	agents := m.outcomeAgents(m.outcomeEvents())
+	agents := m.outcomeAgents(nil)
 	layout := checkStatusTableLayout(width, m.checkLabels(checks), targets, agents)
 	return targets, layout, intMax(0, len(targets)-layout.VisibleTargets)
 }
@@ -336,19 +336,43 @@ func checkStatusHeaderLabel(target tuirun.TargetSnapshot, layout checkStatusLayo
 }
 
 func (m model) outcomeEvents() []outcomeEvent {
-	return m.OutcomeEvents()
+	if m.frame == nil {
+		return m.OutcomeEvents()
+	}
+	if !m.frame.outcomesReady {
+		m.frame.outcomes, m.frame.outcomesReady = m.OutcomeEvents(), true
+	}
+	return m.frame.outcomes
 }
 
 func (m model) outcomeAgents(events []outcomeEvent) []tuirun.AgentSnapshot {
-	return m.OutcomeAgents(events)
+	if m.frame == nil {
+		return m.OutcomeAgents(events)
+	}
+	if !m.frame.agentsReady {
+		m.frame.agents, m.frame.agentsReady = m.OutcomeAgents(events), true
+	}
+	return m.frame.agents
 }
 
 func (m model) checkStatusTargets() []tuirun.TargetSnapshot {
-	return m.CheckStatusTargets()
+	if m.frame == nil {
+		return m.CheckStatusTargets()
+	}
+	if !m.frame.targetsReady {
+		m.frame.targets, m.frame.targetsReady = m.CheckStatusTargets(), true
+	}
+	return m.frame.targets
 }
 
 func (m model) checkStatusChecks() []string {
-	return m.CheckStatusChecks()
+	if m.frame == nil {
+		return m.CheckStatusChecks()
+	}
+	if !m.frame.checksReady {
+		m.frame.checks, m.frame.checksReady = m.CheckStatusChecks(), true
+	}
+	return m.frame.checks
 }
 
 func (m model) checkStatusAgentsForTarget(target tuirun.TargetSnapshot, fallback []tuirun.AgentSnapshot) []tuirun.AgentSnapshot {
@@ -390,7 +414,7 @@ func (m model) connectStatusFooterItems() []connectState {
 	}
 	agents := m.Agents
 	if len(agents) == 0 {
-		agents = m.outcomeAgents(m.outcomeEvents())
+		agents = m.outcomeAgents(nil)
 	}
 	items := make([]connectState, 0, len(m.ConnectStates))
 	if len(agents) > 0 {
@@ -462,10 +486,6 @@ func (m model) checkLabels(checks []string) []string {
 		labels[i] = m.State.CheckLabel(check)
 	}
 	return labels
-}
-
-func outcomeCounts(events []outcomeEvent) (ok int, failed int) {
-	return tuistate.OutcomeCounts(events)
 }
 
 func renderCheckStatusAggregateCell(cell checkStatusAggregate, width int, multiAgent bool, compact bool) string {

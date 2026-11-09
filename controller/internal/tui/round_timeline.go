@@ -14,7 +14,7 @@ func (m model) roundTimelineView(width int, height int) string {
 	}
 	events := m.outcomeEvents()
 	startRound, endRound := m.roundTimelineRoundSpan(width)
-	ok, failed := outcomeCounts(roundTimelineEventsInSpan(events, startRound, endRound))
+	ok, failed := roundTimelineOutcomeCounts(events, startRound, endRound)
 	lines := []string{m.roundTimelineHeaderView(width, startRound, endRound, ok, failed)}
 	if height == 1 {
 		return lines[0]
@@ -329,18 +329,22 @@ func (m model) targetRoundHistory(target tuirun.TargetSnapshot, width int) ([]ta
 	return buckets, total, peak
 }
 
-func roundTimelineEventsInSpan(events []outcomeEvent, startRound uint64, endRound uint64) []outcomeEvent {
+func roundTimelineOutcomeCounts(events []outcomeEvent, startRound uint64, endRound uint64) (ok, failed int) {
 	if startRound == 0 || endRound == 0 {
-		return nil
+		return 0, 0
 	}
-	filtered := make([]outcomeEvent, 0, len(events))
 	for _, event := range events {
 		if event.Round < startRound || event.Round > endRound {
 			continue
 		}
-		filtered = append(filtered, event)
+		switch event.Status {
+		case "ok":
+			ok++
+		case "failed":
+			failed++
+		}
 	}
-	return filtered
+	return ok, failed
 }
 
 func (m model) expectedRoundAgentCount(target tuirun.TargetSnapshot) int {

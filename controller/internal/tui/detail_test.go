@@ -18,7 +18,7 @@ func renderSelectedDetail(t *testing.T, selectContent func(int) (detailContent, 
 	if !ok {
 		t.Fatal("expected a selected detail row")
 	}
-	return content.render(width, height)
+	return content.inspectorText(width)
 }
 
 func TestEnterShowsFailedCheckDetail(t *testing.T) {
@@ -52,16 +52,16 @@ func TestEnterShowsFailedCheckDetail(t *testing.T) {
 	frame := stripANSI(m.render())
 	for _, want := range []string{
 		"Failed Check Detail",
-		"Event Log",
-		"Run Queue",
-		"Target       Check            Metric    Failures",
-		"Example Net  ping cloudflare  received  1",
-		"Fail Rate  Streak",
-		"100%       1",
-		"Last      Observed  Expected",
-		"09:30:00  0         \"== 5\"",
-		"Message",
-		"constraint failed",
+		"Target: Example Net",
+		"Check: ping cloudflare",
+		"Metric: received",
+		"Failures: 1",
+		"Fail Rate: 100%",
+		"Streak: 1",
+		"Last: 09:30:00",
+		"Observed: 0",
+		"Expected: \"== 5\"",
+		"Message: constraint failed",
 		"Failure History",
 		"Logs",
 	} {
@@ -105,8 +105,8 @@ func TestFailedRequiredStepDetailShowsWifiAssertFailurePoint(t *testing.T) {
 
 	view := stripANSI(renderSelectedDetail(t, m.failedCheckDetailContent, 180, 18))
 	for _, want := range []string{
-		"Target   Check           Metric  Failures  Fail Rate  Streak  Last      Observed  Expected",
-		"ub2(6G)  Wait Connected  status  1         100%       1       10:27:26  failed    \"== ok\"",
+		"Target: ub2(6G)", "Check: Wait Connected", "Metric: status", "Failures: 1",
+		"Fail Rate: 100%", "Streak: 1", "Last: 10:27:26", "Observed: failed", "Expected: \"== ok\"",
 		"last_pass=band",
 		"failed=ip(actual=absent expected=present),validated(actual=false expected=true)",
 		"wifi failure cause: disconnected reason=6 locally_generated=false",
@@ -143,12 +143,8 @@ func TestEnterShowsPassingCheckDetail(t *testing.T) {
 	frame := stripANSI(m.render())
 	for _, want := range []string{
 		"Passing Check Detail",
-		"Event Log",
-		"Run Queue",
-		"Target       Check    SSID         Band  Op            Last",
-		"Example Net  Connect  Example Net  5ghz  wifi.connect  09:30:40",
-		"Duration  Avg    Max    Samples",
-		"120ms     120ms  120ms  3",
+		"Target: Example Net", "Check: Connect", "SSID: Example Net", "Band: 5ghz",
+		"Op: wifi.connect", "Last: 09:30:40", "Duration: 120ms", "Avg: 120ms", "Max: 120ms", "Samples: 3",
 		"window=last=90m count=",
 		"peak=2",
 		"scale=",
@@ -162,7 +158,7 @@ func TestEnterShowsPassingCheckDetail(t *testing.T) {
 	}
 }
 
-func TestTabKeepsModalOpenAndMovesPanelFocus(t *testing.T) {
+func TestInspectorKeepsFocusUntilExplicitlyClosed(t *testing.T) {
 	events := make(chan tuirun.Event)
 	m := newModel([]tuirun.Target{}, events)
 	m.apply(tuirun.Event{
@@ -181,12 +177,16 @@ func TestTabKeepsModalOpenAndMovesPanelFocus(t *testing.T) {
 	}
 
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
-	if m.detailOpen || m.focus != focusCheckStatus {
-		t.Fatalf("shift-tab to a non-detail panel should close modal and focus check status: open=%v focus=%v detail=%v", m.detailOpen, m.focus, m.detailPanel)
+	if !m.detailOpen || m.focus != focusPassingChecks {
+		t.Fatalf("inspector must retain its scope and focus: open=%v focus=%v", m.detailOpen, m.focus)
+	}
+	m = updateKey(t, m, tea.Key{Code: tea.KeyEscape})
+	if m.detailOpen {
+		t.Fatal("Esc did not close inspector")
 	}
 }
 
-func TestDetailModalCursorFollowsOpenedItemAcrossUpdates(t *testing.T) {
+func TestInspectorCursorFollowsOpenedItemAcrossUpdates(t *testing.T) {
 	events := make(chan tuirun.Event)
 	m := newModel([]tuirun.Target{}, events)
 	m.focus = focusPassingChecks
@@ -263,7 +263,7 @@ func TestFailedCheckDetailOverlaysExistingTUI(t *testing.T) {
 		},
 	})
 	background := stripANSI(m.render())
-	m.detailOpen = true
+	m.openDetailForPanel(focusFailedChecks)
 	overlaid := stripANSI(m.render())
 
 	for _, want := range []string{"Event Log", "Failed Check Detail"} {
@@ -279,123 +279,6 @@ func TestFailedCheckDetailOverlaysExistingTUI(t *testing.T) {
 	}
 	if len(strings.Split(background, "\n")) != len(strings.Split(overlaid, "\n")) {
 		t.Fatalf("overlay changed frame line count")
-	}
-}
-
-func TestFailedCheckDetailModalKeepsInvestigationRowsWhenCompact(t *testing.T) {
-	events := make(chan tuirun.Event)
-	m := newModel([]tuirun.Target{
-		{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
-	}, events)
-	m.width = 160
-	m.height = 50
-	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	m.Now = at.Add(60 * time.Second)
-	for _, second := range []int{0, 0, 15, 30, 30, 30, 60} {
-		m.apply(tuirun.Event{
-			Time:   at.Add(time.Duration(second) * time.Second),
-			Kind:   tuirun.EventFinding,
-			Round:  1,
-			Target: tuirun.TargetSnapshot{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
-			Step:   tuirun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
-			Status: "failed",
-			Finding: &tuirun.Finding{
-				Target:   "Example Net",
-				Check:    "ping cloudflare",
-				Metric:   "received",
-				Observed: "0",
-				Expected: "== 5",
-				Message:  "constraint failed",
-			},
-		})
-	}
-	m.detailOpen = true
-
-	frame := stripANSI(m.render())
-	for _, want := range []string{
-		"Failures  Fail Rate  Streak",
-		"7         100%       1",
-		"Last      Observed  Expected",
-		"09:31:00  0         \"== 5\"",
-		"Failure History",
-		"Logs",
-	} {
-		if !strings.Contains(frame, want) {
-			t.Fatalf("compact detail view missing %q:\n%s", want, frame)
-		}
-	}
-	if strings.Contains(frame, "回数") || strings.Contains(frame, "時刻") || strings.Contains(frame, "·") {
-		t.Fatalf("detail histogram should not render Japanese labels or dotted zero buckets:\n%s", frame)
-	}
-}
-
-func TestFailedCheckDetailUsesDenseInvestigationLayout(t *testing.T) {
-	events := make(chan tuirun.Event)
-	m := newModel([]tuirun.Target{}, events)
-	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	m.Now = at.Add(40 * time.Second)
-	for _, second := range []int{0, 20, 40} {
-		m.apply(tuirun.Event{
-			Time:   at.Add(time.Duration(second) * time.Second),
-			Kind:   tuirun.EventFinding,
-			Target: tuirun.TargetSnapshot{Name: "Example Net"},
-			Step:   tuirun.StepSnapshot{Name: "ping cloudflare"},
-			Finding: &tuirun.Finding{
-				Target:   "Example Net",
-				Check:    "ping cloudflare",
-				Metric:   "received",
-				Observed: "0",
-				Expected: "== 5",
-				Message:  "constraint failed",
-			},
-		})
-	}
-
-	view := stripANSI(renderSelectedDetail(t, m.failedCheckDetailContent, 80, 19))
-	lines := strings.Split(view, "\n")
-	if got, want := len(lines), 19; got != want {
-		t.Fatalf("detail line count = %d, want %d:\n%s", got, want, view)
-	}
-	for _, want := range []string{
-		"Target       Check            Metric    Failures  Fail Rate  Streak",
-		"Example Net  ping cloudflare  received  3         100%       3",
-		"Last      Observed  Expected",
-		"09:30:40  0         \"== 5\"",
-		"window=last=90m count=",
-		"peak=2",
-		"scale=",
-		"Message",
-		"constraint failed",
-		"90m ago",
-		"now",
-		"Failure History",
-		"Time      Round  Check",
-		"09:30:40",
-		"Logs",
-		"kind=finding",
-	} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("dense detail view missing %q:\n%s", want, view)
-		}
-	}
-	axis := lineIndex(view, "90m ago")
-	section := lineIndex(view, "Failure History")
-	if axis <= 0 || section <= axis {
-		t.Fatalf("detail view missing expected graph/section order:\n%s", view)
-	}
-	timeline := lineIndex(view, "window=last=90m")
-	if timeline <= 0 || lines[timeline-1] != "" {
-		t.Fatalf("detail graph should have one blank line above it, got line before timeline = %q:\n%s", lines[intMax(0, timeline-1)], view)
-	}
-	if timeline+1 >= len(lines) || lines[timeline+1] != "" {
-		t.Fatalf("detail graph should have one blank line below its timeline header, got line after timeline = %q:\n%s", lines[intMin(len(lines)-1, timeline+1)], view)
-	}
-	if lines[section-1] != "" {
-		t.Fatalf("detail graph should have one blank line below it, got line before section = %q:\n%s", lines[section-1], view)
-	}
-	logs := lineIndex(view, "Logs")
-	if logs <= section || lines[logs-1] != "" {
-		t.Fatalf("detail sections should be separated by one blank line before Logs, got line before Logs = %q:\n%s", lines[intMax(0, logs-1)], view)
 	}
 }
 
@@ -438,7 +321,7 @@ func TestFailureHotspotDetailSectionsUseTitledSpacing(t *testing.T) {
 		}
 	}
 	lines := strings.Split(view, "\n")
-	for _, marker := range []string{"Latest Cause", "Fail Rate", "Causes", "Failure History", "Logs"} {
+	for _, marker := range []string{"Causes", "Failure History", "Logs"} {
 		index := lineIndex(view, marker)
 		if index <= 0 || lines[index-1] != "" {
 			t.Fatalf("%s should have one blank line above it, got %q:\n%s", marker, lines[intMax(0, index-1)], view)
@@ -571,45 +454,6 @@ func TestDetailLogRowsWrapToViewWidth(t *testing.T) {
 	}
 }
 
-func TestDetailSummaryFieldsRenderAdaptiveTable(t *testing.T) {
-	fields := []detailField{
-		{Key: "device", Value: "Pixel 7a (35251JEHN00258)"},
-		{Key: "target", Value: "hp1(5G)"},
-		{Key: "check", Value: "Wi-Fi Link"},
-		{Key: "ssid", Value: "Example Net"},
-		{Key: "bssid", Value: "02:00:00:00:00:11"},
-		{Key: "band", Value: "5ghz"},
-		{Key: "op", Value: "wifi.status"},
-		{Key: "type", Value: "wifi_status"},
-		{Key: "last", Value: "00:31:23"},
-		{Key: "duration", Value: "466ms"},
-	}
-
-	wideLines := strings.Split(stripANSI(strings.Join(detailSummaryTableLines(fields, 160), "\n")), "\n")
-	if len(wideLines) < 2 {
-		t.Fatalf("summary table should render header/value rows: %#v", wideLines)
-	}
-	if !strings.Contains(wideLines[0], "Device") || !strings.Contains(wideLines[0], "Target") || !strings.Contains(wideLines[0], "Check") {
-		t.Fatalf("summary header row missing expected columns:\n%s", strings.Join(wideLines, "\n"))
-	}
-	if !strings.Contains(wideLines[1], "Pixel 7a") || !strings.Contains(wideLines[1], "hp1(5G)") || !strings.Contains(wideLines[1], "Wi-Fi Link") {
-		t.Fatalf("summary value row missing expected values:\n%s", strings.Join(wideLines, "\n"))
-	}
-	if strings.Contains(strings.Join(wideLines, "\n"), "device=") || strings.Contains(strings.Join(wideLines, "\n"), "target=") {
-		t.Fatalf("summary should render table columns, not inline key=value pairs:\n%s", strings.Join(wideLines, "\n"))
-	}
-
-	narrow := stripANSI(strings.Join(detailSummaryTableLines(fields, 44), "\n"))
-	for i, line := range strings.Split(narrow, "\n") {
-		if got := lipgloss.Width(line); got > 44 {
-			t.Fatalf("narrow summary line %d width = %d, want <= 44:\n%s", i, got, narrow)
-		}
-	}
-	if got, wide := len(strings.Split(narrow, "\n")), len(wideLines); got <= wide {
-		t.Fatalf("narrow summary should split into more rows: narrow=%d wide=%d\n%s", got, wide, narrow)
-	}
-}
-
 func TestDetailHistogramUsesSummarySparklineImplementation(t *testing.T) {
 	now := time.Date(2026, 5, 16, 9, 35, 0, 0, time.UTC)
 	histogram := recentEventHistogram([]time.Time{
@@ -637,34 +481,6 @@ func TestDetailHistogramUsesSummarySparklineImplementation(t *testing.T) {
 	}
 	if strings.Contains(joined, "09:") || strings.Contains(joined, "┬") || strings.Contains(joined, "回数") || strings.Contains(joined, "時刻") || strings.Contains(joined, "·") {
 		t.Fatalf("detail chart should use the summary sparkline axis/rendering:\n%s", joined)
-	}
-}
-
-func TestDenseDetailTimelineSeparatesHeaderAndGraph(t *testing.T) {
-	now := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	histogram := recentEventHistogram([]time.Time{now.Add(-time.Minute)}, 80, detailTimelineWindow, now)
-	view := stripANSI(denseDetailView([]string{"Device  Pixel 9"}, histogram, failGraphStyle, nil, 80, 8))
-	lines := strings.Split(view, "\n")
-	header := -1
-	for i, line := range lines {
-		if strings.Contains(line, "window=last=90m") {
-			header = i
-			break
-		}
-	}
-	if header < 0 {
-		t.Fatalf("detail timeline header missing:\n%s", view)
-	}
-	if header+1 >= len(lines) || strings.TrimSpace(lines[header+1]) != "" {
-		t.Fatalf("detail timeline header should have a spacer row below it:\n%s", view)
-	}
-	axis := lineIndex(view, "90m ago")
-	if axis <= header+2 {
-		t.Fatalf("detail timeline graph should start after the spacer row:\n%s", view)
-	}
-	graph := strings.Join(lines[header+2:axis], "\n")
-	if !strings.Contains(graph, "█") {
-		t.Fatalf("detail timeline graph should render after the spacer row:\n%s", view)
 	}
 }
 
@@ -758,104 +574,5 @@ func assertDetailTableColumnAligned(t *testing.T, headerLine string, rowLine str
 		if got != want {
 			t.Fatalf("column %q not aligned: header index=%d row index=%d\nheader=%q\nrow=%q", pair[0], want, got, header, row)
 		}
-	}
-}
-
-func TestDetailSectionAllocationsPrioritizeHistoryAndUseLogFloor(t *testing.T) {
-	sections := []detailSection{
-		{Title: "causes", Rows: []string{"  Count  Last      Cause", "      2  14:29:36  constraint failed", "      2  14:29:35  ping failed"}},
-		{Title: "failure history", Rows: detailTestRows(17, "  14:29:36  2  Debug HTTP Wrong Status  status  failed  \"== ok\"")},
-		{Title: "logs", Rows: detailTestRows(80, "  14:30:37  kind=step_started round=3 status=running target=debug-a2(5G)"), WrapLogs: true},
-	}
-
-	allocations := detailSectionAllocations(sections, 40, 160)
-
-	if got, want := allocations[0], detailSectionNaturalAllocation(sections[0], 160); got != want {
-		t.Fatalf("causes allocation = %d, want full %d", got, want)
-	}
-	if got, want := allocations[1], detailSectionNaturalAllocation(sections[1], 160); got != want {
-		t.Fatalf("failure history allocation = %d, want full %d", got, want)
-	}
-	if got, floor := allocations[2], detailLogMinimumAllocation(40); got < floor {
-		t.Fatalf("logs allocation = %d, want at least %d", got, floor)
-	}
-	if got := allocations[0] + allocations[1] + allocations[2]; got != 40 {
-		t.Fatalf("allocations should use all section height, got %d: %#v", got, allocations)
-	}
-}
-
-func TestDetailSectionAllocationsKeepLogsAtFloorWhenHistoryOverflows(t *testing.T) {
-	sections := []detailSection{
-		{Title: "failure history", Rows: detailTestRows(80, "  14:29:36  2  Debug HTTP Wrong Status  status  failed  \"== ok\"")},
-		{Title: "logs", Rows: detailTestRows(80, "  14:30:37  kind=step_started round=3 status=running target=debug-a2(5G)"), WrapLogs: true},
-	}
-
-	allocations := detailSectionAllocations(sections, 40, 160)
-	logFloor := detailLogMinimumAllocation(40)
-
-	if got := allocations[1]; got != logFloor {
-		t.Fatalf("logs should stay at floor while history is overflowing: got=%d floor=%d allocations=%#v", got, logFloor, allocations)
-	}
-	if got := allocations[0]; got <= allocations[1] {
-		t.Fatalf("failure history should receive the remaining height before extra logs: allocations=%#v", allocations)
-	}
-	if got := allocations[0] + allocations[1]; got != 40 {
-		t.Fatalf("allocations should use all section height, got %d: %#v", got, allocations)
-	}
-}
-
-func detailTestRows(count int, value string) []string {
-	rows := make([]string, count)
-	for i := range rows {
-		rows[i] = value
-	}
-	return rows
-}
-
-func TestFailedCheckDetailModalUsesFixedAppRatio(t *testing.T) {
-	events := make(chan tuirun.Event)
-	m := newModel([]tuirun.Target{}, events)
-	modal := m.failedCheckDetailModal(150, 32)
-
-	if got, want := lipgloss.Width(modal), 81; got != want {
-		t.Fatalf("modal width = %d, want %d", got, want)
-	}
-	if got, want := lipgloss.Height(modal), 10; got != want {
-		t.Fatalf("modal height = %d, want %d", got, want)
-	}
-}
-
-func TestDetailModalShowsExpandedLogRows(t *testing.T) {
-	events := make(chan tuirun.Event)
-	m := newModel([]tuirun.Target{}, events)
-	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	target := tuirun.TargetSnapshot{Name: "radio-a", SSID: "Lab", Band: "5ghz"}
-	for i := range 30 {
-		m.apply(tuirun.Event{
-			Time:     at.Add(time.Duration(i) * time.Second),
-			Kind:     tuirun.EventStepFinished,
-			Round:    uint64(i + 1),
-			Target:   target,
-			Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Operation: "wifi.connect", Status: "ok"},
-			Status:   "ok",
-			Duration: 100,
-		})
-	}
-	m.focus = focusPassingChecks
-	m.openDetailForPanel(focusPassingChecks)
-
-	modalFrame := m.passingCheckDetailModal(150, 60)
-	if got, base := lipgloss.Height(modalFrame), detailModalHeight(60); got <= base {
-		t.Fatalf("modal should grow beyond base height when logs overflow: got=%d base=%d\n%s", got, base, stripANSI(modalFrame))
-	}
-	if got, want := lipgloss.Height(modalFrame), detailModalMaxHeight(60); got != want {
-		t.Fatalf("overflowing modal height = %d, want cap %d", got, want)
-	}
-	modal := stripANSI(modalFrame)
-	if got := strings.Count(modal, "kind=step_finished"); got < 4 {
-		t.Fatalf("expanded modal should show multiple related log rows, got %d:\n%s", got, modal)
-	}
-	if !strings.Contains(modal, "          band=5ghz") && !strings.Contains(modal, "            band=5ghz") {
-		t.Fatalf("expanded modal should wrap log bodies under the body column:\n%s", modal)
 	}
 }

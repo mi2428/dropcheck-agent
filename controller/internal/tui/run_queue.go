@@ -100,7 +100,7 @@ func (m model) runQueuePanelHasFocus(agent tuirun.AgentSnapshot) bool {
 }
 
 func (m model) runQueueAgents() []tuirun.AgentSnapshot {
-	return m.outcomeAgents(m.outcomeEvents())
+	return m.outcomeAgents(nil)
 }
 
 func splitHeights(total int, count int) []int {

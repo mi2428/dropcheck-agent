@@ -7,6 +7,7 @@ import (
 	"github.com/mi2428/dropcheck-agent/controller/internal/tuistate"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/viewport"
 )
 
 type targetState = tuistate.TargetState
@@ -73,10 +74,8 @@ const (
 	maxFailedCheckHistory         = 100000
 	maxEventLogHistory            = 100000
 	visibleEventLogLimit          = 400
-	detailModalWidthPercent       = 54
-	detailModalHeightPercent      = 33
-	detailModalMaxHeightPercent   = 80
-	detailModalLogLimit           = 120
+	detailLogLimit                = 120
+	detailHistoryLimit            = 500
 	recencyFreshWindow            = 15 * time.Second
 	recencyWarmWindow             = 30 * time.Second
 )
@@ -95,6 +94,7 @@ type model struct {
 	keys   keyMap
 	width  int
 	height int
+	frame  *frameData
 	tuistate.State
 	closed                    bool
 	focus                     focusPanel
@@ -123,6 +123,18 @@ type model struct {
 	failureHotspotSearchQuery string
 	paused                    bool
 	controls                  *tuirun.Controls
+	menu                      *actionMenu
+	controlBusy               bool
+	controlApplied            bool
+	controlAction             string
+	controlLabel              string
+	controlScope              tuirun.Scope
+	controlStatus             string
+	inspector                 viewport.Model
+	inspectorScope            tuirun.Scope
+	inspectorTitle            string
+	inspectorAt               time.Time
+	inspectorFull             bool
 	detailOpen                bool
 	detailPanel               focusPanel
 	detailHotspotMode         failureHotspotMode

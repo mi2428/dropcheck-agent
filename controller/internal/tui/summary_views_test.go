@@ -276,6 +276,7 @@ func TestFailureHotspotDetailSurvivesSummaryWindow(t *testing.T) {
 	m.width = 180
 	m.height = 50
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
+	m.Now = at.Add(31 * time.Minute)
 	target := tuirun.TargetSnapshot{Name: "radio-a", SSID: "Example Net", Band: "5ghz"}
 	m.apply(tuirun.Event{
 		Time:   at,
@@ -385,8 +386,8 @@ func TestFailureHotspotsPanelSplitsByAgent(t *testing.T) {
 		t.Fatalf("second tab should focus second hotspot agent panel: focus=%v hotspot=%q", m.focus, m.focusHotspotAgentKey)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
-	if m.focus != focusCheckStatus {
-		t.Fatalf("third tab should focus check status, got %v", m.focus)
+	if m.focus != focusRunQueue {
+		t.Fatalf("third tab should focus run queue, got %v", m.focus)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
 	if m.focus != focusFailureHotspots || m.focusHotspotAgentKey != roundAgentKey(agents[1]) {
@@ -453,7 +454,7 @@ func TestFailureHotspotNavigationStaysWithinFocusedAgent(t *testing.T) {
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyEnter})
 	frame := stripANSI(m.render())
-	for _, want := range []string{"Failure Hotspot Detail", "Device   Target", "agent-b  radio-b1"} {
+	for _, want := range []string{"Failure Hotspot Detail", "Device: agent-b", "Target: radio-b1"} {
 		if !strings.Contains(frame, want) {
 			t.Fatalf("agent-b hotspot detail missing %q:\n%s", want, frame)
 		}
@@ -485,8 +486,8 @@ func TestTabCyclesThroughFailureHotspotsWhenVisible(t *testing.T) {
 		t.Fatalf("tab from failed checks should focus failure hotspots, got %v", m.focus)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
-	if m.focus != focusCheckStatus {
-		t.Fatalf("tab from failure hotspots should focus check status, got %v", m.focus)
+	if m.focus != focusRunQueue {
+		t.Fatalf("tab from failure hotspots should focus run queue, got %v", m.focus)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
 	if m.focus != focusFailureHotspots {
@@ -530,12 +531,9 @@ func TestEnterShowsFailureHotspotDetail(t *testing.T) {
 	frame := stripANSI(m.render())
 	for _, want := range []string{
 		"Failure Hotspot Detail",
-		"Target   SSID         Band",
-		"radio-a  Example Net  2.4ghz",
-		"Latest Cause",
-		"REQUEST_DECLINED",
-		"Fail Rate  Failed Runs  Failures  Streak  Last      Latest Check  Metric  Observed  Expected",
-		"100%       2/2          2         2       09:31:00  Connect       status  failed    \"== ok\"",
+		"Target: radio-a", "SSID: Example Net", "Band: 2.4ghz",
+		"Latest Cause: REQUEST_DECLINED", "Fail Rate: 100%", "Failed Runs: 2/2", "Failures: 2",
+		"Streak: 2", "Last: 09:31:00", "Latest Check: Connect", "Metric: status", "Observed: failed", "Expected: \"== ok\"",
 		"Causes",
 		"Count  Last      Cause",
 		"2  09:31:00  REQUEST_DECLINED",

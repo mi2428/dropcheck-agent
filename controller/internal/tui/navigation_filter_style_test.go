@@ -55,8 +55,16 @@ func TestTabFocusAndPanelLocalNavigation(t *testing.T) {
 		t.Fatalf("j should move failed checks cursor only: focus=%v passing=%d failed=%d", m.focus, m.passingCheckCursor, m.failedCheckCursor)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
+	if m.focus != focusRunQueue {
+		t.Fatalf("run queue must be keyboard reachable, got %v", m.focus)
+	}
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
 	if m.focus != focusCheckStatus {
 		t.Fatalf("tab should move counter-clockwise to check status, got %v", m.focus)
+	}
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
+	if m.focus != focusRunQueue {
+		t.Fatalf("reverse navigation must include run queue, got %v", m.focus)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
 	if m.focus != focusFailedChecks {
@@ -82,6 +90,10 @@ func TestTabFocusAndPanelLocalNavigation(t *testing.T) {
 	m = updateKey(t, m, tea.Key{Code: 'l', Text: "l"})
 	if m.focus != focusCheckStatus {
 		t.Fatalf("l should keep check status focused, got %v", m.focus)
+	}
+	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
+	if m.focus != focusRunQueue {
+		t.Fatalf("reverse focus should visit run queue, got %v", m.focus)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
 	if m.focus != focusFailedChecks {
@@ -236,13 +248,13 @@ func TestPauseResumeAndRightAlignedStatusItems(t *testing.T) {
 		t.Fatalf("paused/filter status should be right aligned at end:\n%q", status)
 	}
 	help := stripANSI(m.helpBar(120))
-	if !strings.Contains(help, "Esc=Resume") || strings.Contains(help, "Esc=Clear") {
-		t.Fatalf("paused help should prioritize resume:\n%s", help)
+	if strings.Contains(help, "Esc=Resume") || !strings.Contains(help, "Ctrl-Z=Pause") {
+		t.Fatalf("inactive run must not advertise Esc as resume:\n%s", help)
 	}
 
 	m = updateKey(t, m, tea.Key{Code: tea.KeyEscape})
-	if m.paused || control.Paused(tuirun.Scope{Kind: tuirun.ScopeRun}) {
-		t.Fatalf("esc should resume model and controller: model=%v", m.paused)
+	if !m.paused || control.Paused(tuirun.Scope{Kind: tuirun.ScopeRun}) {
+		t.Fatalf("Esc must not change execution state: model=%v", m.paused)
 	}
 }
 
