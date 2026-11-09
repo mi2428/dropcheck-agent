@@ -18,9 +18,10 @@ if [ "$1" = "-s" ]; then
 fi
 printf '%s\n' 'List of devices attached
 emulator-5554 device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64 device:emu64a transport_id:1
-R5CT12345 offline usb:336592896X
+R5CT12345 offline usb:1-2
 malformed
 '
+printf 'stderr-only device product:diagnostic\n' >&2
 `)
 
 	devices, err := Client{Path: path, Serial: "ignored", Timeout: 5 * time.Second}.ListDevices(context.Background())
@@ -40,8 +41,20 @@ malformed
 	if first.Raw != "emulator-5554 device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64 device:emu64a transport_id:1" {
 		t.Fatalf("first raw = %q", first.Raw)
 	}
-	if devices[1].Serial != "R5CT12345" || devices[1].State != "offline" || devices[1].Details["usb"] != "336592896X" {
+	if devices[1].Serial != "R5CT12345" || devices[1].State != "offline" || devices[1].Details["usb"] != "1-2" {
 		t.Fatalf("second device = %#v", devices[1])
+	}
+}
+
+func TestListDevicesPreservesProcessFailures(t *testing.T) {
+	client := Client{Path: fakeADB(t, "printf 'inventory unavailable\\n' >&2\nexit 7\n")}
+	if devices, err := client.ListDevices(t.Context()); err == nil || len(devices) != 0 || !strings.Contains(err.Error(), "adb devices -l: inventory unavailable") {
+		t.Fatalf("devices=%v error=%v", devices, err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := client.ListDevices(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled listing lost context cause: %v", err)
 	}
 }
 

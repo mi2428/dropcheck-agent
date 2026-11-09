@@ -97,12 +97,13 @@ func (c Client) StartAgentSession(ctx context.Context, packageName string, port 
 // The command is intentionally run without the client's Serial selector because
 // device listing is a host-wide operation.
 func (c Client) ListDevices(ctx context.Context) ([]Device, error) {
-	out, err := Client{Path: c.Path, Timeout: c.Timeout}.Output(ctx, "devices", "-l")
+	result, err := Client{Path: c.Path, Timeout: c.Timeout}.Run(ctx, "devices", "-l")
 	if err != nil {
+		_, err = outputResult(result, err)
 		return nil, err
 	}
 	var devices []Device
-	for raw := range strings.SplitSeq(out, "\n") {
+	for raw := range strings.SplitSeq(result.Stdout, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" || strings.HasPrefix(line, "List of devices") {
 			continue
@@ -137,6 +138,10 @@ func (c Client) ListDevices(ctx context.Context) ([]Device, error) {
 // errors through Unwrap.
 func (c Client) Output(ctx context.Context, args ...string) (string, error) {
 	result, err := c.Run(ctx, args...)
+	return outputResult(result, err)
+}
+
+func outputResult(result Result, err error) (string, error) {
 	out := result.Stdout + result.Stderr
 	if err != nil {
 		var replacements []string
