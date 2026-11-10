@@ -1,0 +1,82 @@
+name: Controller
+
+'on':
+  push:
+    paths:
+      # Shared and unknown paths stay covered; exclude Android-only inputs.
+      - '**'
+      - '!agent/**'
+      - '!gradle/**'
+      - '!gradlew'
+      - '!gradlew.bat'
+      - '!*.gradle.kts'
+      - '!gradle.properties'
+      # check-shell compares both committed language inventories.
+      - 'agent/src/main/java/io/dropcheck/agent/AgentShellContract.kt'
+      - '!.github/workflows/android.yml'
+      - '!**/*.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  controller:
+    name: Controller (Go ${{ matrix.go-version }})
+    runs-on: ubuntu-latest-self-hosted
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ['1.26.0', '1.26.8']
+    env:
+      GOFLAGS: -p=1
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16  # v6
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache-dependency-path: controller/go.sum
+      - name: Provision pinned protobuf generators
+        run: |
+          archive="$RUNNER_TEMP/protoc-35.0-linux-x86_64.zip"
+          curl --fail --location --retry 3 --output "$archive" \
+            https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-linux-x86_64.zip
+          printf '%s  %s\n' 'a45cda0989c17dd950db55f6fbe1e5814c50fda08e87aa422980ac1f89dddbbc' "$archive" | sha256sum --check --strict
+          unzip -q "$archive" -d "$RUNNER_TEMP/protoc-35.0"
+          GOBIN="$RUNNER_TEMP/protoc-35.0/bin" go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.1
+          GOBIN="$RUNNER_TEMP/protoc-35.0/bin" go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.3.0
+      - name: Verify Go binding generation
+        run: |
+          make generate-go \
+            PROTOC="$RUNNER_TEMP/protoc-35.0/bin/protoc" \
+            PROTOC_GEN_GO="$RUNNER_TEMP/protoc-35.0/bin/protoc-gen-go" \
+            PROTOC_GEN_GO_GRPC="$RUNNER_TEMP/protoc-35.0/bin/protoc-gen-go-grpc"
+          git diff --exit-code -- controller/internal/controlpb
+      - name: Install staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
+      - name: Check formatting
+        run: make fmt-check
+      - name: Check Go modernizers
+        run: make modernize-check
+      - name: Build
+        run: make build TARGET=controller
+      - name: Test
+        run: make test TARGET=controller
+      - name: Vet and staticcheck
+        run: make lint TARGET=controller
+      - name: Race check
+        working-directory: controller
+        run: |
+          GOFLAGS='-race -p=1' go test -count=1 ./...
