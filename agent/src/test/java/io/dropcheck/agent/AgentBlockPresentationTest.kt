@@ -10,6 +10,40 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentBlockPresentationTest {
+    @Test fun commandEchoRetainsVerbatimInputThroughPresentation() {
+        for (line in listOf(
+            "self>   sh wifi status  | count  ",
+            "self> set cli default-passphrase 'test-only password=value'",
+            "self> invalid password=visible https://user:visible@example.test/?token=visible",
+            "self> request wifi connect 'quoted\\ value' passphrase 'unfinished",
+        )) {
+            val block = AgentPresentationBlock.commandLine(line, 0, "self> ".length)
+            assertEquals(line, block.fullText)
+            assertEquals(line, block.safeValues().single().second)
+            assertEquals(line, block.withStyle(16f, 10f).fullText)
+            assertEquals("self> ".length, block.withStyle(16f, 10f).promptLength)
+            assertEquals(line, block.mapLogicalLines { it }.fullText)
+        }
+    }
+
+    @Test fun indentedFieldsAlignWithoutChangingPrivacyOrCopyValues() {
+        val label = "    SSID".padEnd(32)
+        val block = AgentPresentationBlock.create(listOf(
+            AgentBlockPart.Text("Connection"), AgentBlockPart.Text("  Identity"),
+            AgentBlockPart.Field(label, "password=Guest 東京\nSource: forged"),
+            AgentBlockPart.Field("    Servers".padEnd(32), "192.0.2.53\n2001:db8::53"),
+            AgentBlockPart.Field("    Password".padEnd(32), "alignment-test-secret"),
+        ), 0)
+        assertTrue(block.fullText.contains("password=Guest 東京 Source: forged"))
+        assertFalse(block.fullText.contains("alignment-test-secret"))
+        assertTrue(block.fullText.contains("\n" + " ".repeat(13) + "2001:db8::53"))
+        block.parts.filterIsInstance<AgentBlockPart.Field>().forEach { part ->
+            assertEquals(part.label.trimEnd(), part.label)
+            assertTrue(block.fullText.lines().any { it.startsWith(part.label + ": ") })
+        }
+        assertEquals("password=Guest 東京 Source: forged", block.safeValues().first { it.first == label.trimEnd() }.second)
+    }
+
     @Test fun fullSafeCopyHasNoDisplayArtifactsOrSecrets() {
         val source = "東京Ｇ e\u0301 👩\u200d🔬 Lab Case\u200B\u001B[31m\u0000\nhttps://user:credential@example.test/Case?token=credential&ordinary=Keep\npassword=credential"
         val block = AgentPresentationBlock.create(listOf(AgentBlockPart.Text(source)), 0)
@@ -54,13 +88,6 @@ class AgentBlockPresentationTest {
         } catch (_: IllegalArgumentException) {
             assertTrue(history.blocks.last().fullText.contains("Error: reason 11"))
         }
-    }
-
-    @Test fun floorNeverShrinksMoreThanTenPercentOrBelowUserMinimum() {
-        assertEquals(10f, AgentNativeBlockLayout.shrinkFloor(10f, 10f), 0f)
-        assertEquals(10.8f, AgentNativeBlockLayout.shrinkFloor(12f, 10f), 0.0001f)
-        assertEquals(13f, AgentNativeBlockLayout.shrinkFloor(14f, 13f), 0f)
-        assertEquals(18f, AgentNativeBlockLayout.shrinkFloor(20f, 10f), 0f)
     }
 
     @Test fun observationPresenceDistinguishesUnknownEmptyFalseAndZero() {

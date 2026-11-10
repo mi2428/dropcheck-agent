@@ -13,9 +13,9 @@ class DnsWaitTest {
     @Test
     fun completedAnswerDoesNotCancelAndTimeoutCancelsOnce() {
         val canceled = AtomicInteger()
-        assertTrue(awaitDnsAnswer(CountDownLatch(0), 10) { canceled.incrementAndGet() })
+        assertTrue(awaitDnsAnswer(CountDownLatch(0), System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(10)) { canceled.incrementAndGet() })
         assertEquals(0, canceled.get())
-        assertFalse(awaitDnsAnswer(CountDownLatch(1), 1) { canceled.incrementAndGet() })
+        assertFalse(awaitDnsAnswer(CountDownLatch(1), System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(1)) { canceled.incrementAndGet() })
         assertEquals(1, canceled.get())
     }
 
@@ -29,7 +29,7 @@ class DnsWaitTest {
         val command = Thread {
             started.countDown()
             try {
-                awaitDnsAnswer(CountDownLatch(1), 60_000) { canceled.incrementAndGet() }
+                awaitDnsAnswer(CountDownLatch(1), System.nanoTime() + TimeUnit.SECONDS.toNanos(60)) { canceled.incrementAndGet() }
                 continued.set(true)
             } catch (e: Throwable) {
                 failure.set(e)
@@ -50,5 +50,14 @@ class DnsWaitTest {
             command.interrupt()
             command.join(2_000)
         }
+    }
+
+    @Test(timeout = 2_000)
+    fun sequentialRecordTypesShareOneDeadlineAndExpiredQueriesNeverWaitAgain() {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(50)
+        val canceled = AtomicInteger()
+        assertFalse(awaitDnsAnswer(CountDownLatch(1), deadline) { canceled.incrementAndGet() })
+        assertFalse(awaitDnsAnswer(CountDownLatch(1), deadline) { canceled.incrementAndGet() })
+        assertEquals(2, canceled.get())
     }
 }

@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/controlpb"
-	"dropcheck/controller/internal/pipeline"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -23,7 +23,7 @@ func TestPresentationWidthMatrixPreservesSafeIdentity(t *testing.T) {
 	before := proto.Clone(result)
 	for _, width := range []int{24, 32, 40, 48, 60, 80, 96, 120} {
 		t.Run(fmt.Sprint(width), func(t *testing.T) {
-			out, err := CommandResult("self", result, command.Options{WifiScanBrief: true}, pipeline.FormatText, Presentation{Width: width})
+			out, err := CommandResult("self", result, command.Options{WifiScanBrief: true}, Presentation{Width: width})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -32,9 +32,9 @@ func TestPresentationWidthMatrixPreservesSafeIdentity(t *testing.T) {
 					t.Fatalf("width %d overflow: %q", width, line)
 				}
 			}
-			joined := strings.ReplaceAll(out, "\n", "")
+			joined := alignmentCompact(out)
 			for _, value := range append(macs, "psk+sae+future_Mode", "fresh scan timed out", "👩\u200d🔬", "e\u0301") {
-				if !strings.Contains(joined, value) {
+				if !strings.Contains(joined, alignmentCompact(value)) {
 					t.Fatalf("missing %q at %d: %s", value, width, out)
 				}
 			}
@@ -46,12 +46,89 @@ func TestPresentationWidthMatrixPreservesSafeIdentity(t *testing.T) {
 	if !proto.Equal(before, result) {
 		t.Fatal("presentation changed typed result")
 	}
-	json, err := CommandResult("self", result, command.Options{}, pipeline.FormatJSON, Presentation{Width: 24})
+	logical, err := CommandResult("self", result, command.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	json, err := pipeline.JSON(logical, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(json, ssid) || !strings.Contains(json, macs[1]) {
 		t.Fatalf("JSON clipped values: %s", json)
+	}
+}
+
+func TestInteractiveScanBriefKeepsAgesInTheTable(t *testing.T) {
+	zero, old := uint64(0), uint64(51845845)
+	scan := &controlpb.WifiScan{Errors: []string{"reference cache; refresh failed"}}
+	for i := range 26 {
+		ap := &controlpb.WifiScanResult{Ssid: "password=Guest", Bssid: fmt.Sprintf("02:00:00:11:22:%02x", i), RssiDbm: int32(-40 - i), Band: "5ghz", FrequencyMhz: 5180, ChannelWidth: "80MHz", WifiStandard: "802.11ax", SecurityTypes: []string{"wpa2_psk"}}
+		if i == 0 {
+			ap.ObservationAgeMs = &zero
+			ap.ApMldMacAddress = "02:00:00:44:55:66"
+			ap.AffiliatedMloLinks = []*controlpb.MloLinkInfo{{ApMacAddress: "02:00:00:44:55:77", ObservationFields: testObservationFields("identity")}}
+		} else if i == 1 {
+			ap.ObservationAgeMs = &old
+		}
+		if i == 25 {
+			ap.Ssid = ""
+		}
+		scan.Results = append(scan.Results, ap)
+	}
+	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_FAILED, Message: "refresh failed", Payload: &controlpb.CommandResult_WifiScan{WifiScan: scan}}
+	before := proto.Clone(result)
+	for _, width := range []int{24, 80, 120} {
+		out, err := CommandResult("self", result, command.Options{WifiScanBrief: true}, Presentation{Width: width})
+		if err != nil {
+			t.Fatal(err)
+		}
+		joined := alignmentCompact(out)
+		if strings.Contains(out, "VENDOR") || strings.Contains(out, "BSSID vendor") {
+			t.Fatalf("brief changed its original table columns:\n%s", out)
+		}
+		for _, value := range []string{"AGE(s)", "51845.845", "password=Guest", "FAILED", "refresh failed", "timestamp unavailable", "show wifi scan"} {
+			if !strings.Contains(joined, alignmentCompact(value)) {
+				t.Fatalf("width=%d lost %q", width, value)
+			}
+		}
+		for line := range strings.SplitSeq(out, "\n") {
+			if displayWidth(line) > width {
+				t.Fatalf("width=%d overflow: %q", width, line)
+			}
+		}
+		if width >= 80 && (strings.Contains(out, "\nAP 1\n") || strings.Contains(out, "\n[ ] AP 1\n") || strings.Contains(out, "Observation age at collection:")) {
+			t.Fatalf("brief appended per-AP records after its table:\n%s", out)
+		}
+		if width == 120 {
+			if strings.Count(out, "\n") > 48 {
+				t.Fatalf("brief appended per-AP records after its table:\n%s", out)
+			}
+			for i, ap := range scan.Results {
+				row := strings.Fields(renderedLineContaining(out, ap.Bssid))
+				want := "?"
+				if i == 0 {
+					want = "0"
+				} else if i == 1 {
+					want = "51845.845"
+				}
+				if len(row) == 0 || row[len(row)-1] != want || strings.Count(out, ap.Bssid) != 1 {
+					t.Fatalf("age lost its AP row: %q", row)
+				}
+			}
+		}
+	}
+	for _, brief := range []bool{false, true} {
+		out, err := CommandResult("self", result, command.Options{WifiScanBrief: brief, WifiScanMLO: true}, Presentation{Width: 120})
+		if err != nil || !strings.Contains(out, "02:00:00:44:55:77") || !strings.Contains(out, "02:00:00:44:55:66") {
+			t.Fatalf("brief=%t lost requested MLO evidence: %v\n%s", brief, err, out)
+		}
+		if !brief && !strings.Contains(strings.Join(strings.Fields(out), " "), "Observation age at collection: 0ms") {
+			t.Fatal("full scan lost precise per-AP age")
+		}
+	}
+	if !proto.Equal(result, before) {
+		t.Fatal("brief changed acquisition data")
 	}
 }
 
@@ -64,7 +141,7 @@ func TestPresentationIPAndURLWidthMatrix(t *testing.T) {
 	}
 	for _, width := range []int{24, 32, 40, 48, 60, 80, 96, 120} {
 		for i, result := range results {
-			out, err := CommandResult("self", result, command.Options{}, pipeline.FormatText, Presentation{Width: width})
+			out, err := CommandResult("self", result, command.Options{}, Presentation{Width: width})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -73,15 +150,15 @@ func TestPresentationIPAndURLWidthMatrix(t *testing.T) {
 					t.Fatalf("overflow at %d: %q", width, line)
 				}
 			}
-			full := strings.ReplaceAll(out, "\n", "")
+			full := alignmentCompact(out)
 			value := ip
 			if i == 1 {
 				value = url
 			}
-			if !strings.Contains(full, value) {
+			if !strings.Contains(full, alignmentCompact(value)) {
 				t.Fatalf("identity lost at %d: %s", width, out)
 			}
-			if i == 1 && !strings.Contains(full, "0.00049 expected<=0.00048") {
+			if i == 1 && !strings.Contains(full, "0.00049expected<=0.00048") {
 				t.Fatalf("failure precision lost: %s", out)
 			}
 		}
@@ -95,7 +172,7 @@ func TestScanDetailKeepsFullIdentityAndUnknownLinkAvailability(t *testing.T) {
 			AffiliatedMloLinks: []*controlpb.MloLinkInfo{{ApMacAddress: "06:00:00:11:22:33", ObservationFields: testObservationFields("identity")}}}},
 	}}}
 	for _, width := range []int{24, 120} {
-		out, err := CommandResult("self", result, command.Options{}, pipeline.FormatText, Presentation{Width: width})
+		out, err := CommandResult("self", result, command.Options{}, Presentation{Width: width})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -104,9 +181,9 @@ func TestScanDetailKeepsFullIdentityAndUnknownLinkAvailability(t *testing.T) {
 				t.Fatalf("overflow at %d: %q", width, line)
 			}
 		}
-		full := strings.ReplaceAll(out, "\n", "")
+		full := alignmentCompact(out)
 		for _, value := range []string{mac, "06:00:00:11:22:33", "東京 e\u0301 👩\u200d🔬", "link ID presence unavailable"} {
-			if !strings.Contains(full, value) {
+			if !strings.Contains(full, alignmentCompact(value)) {
 				t.Fatalf("detail missing %q at %d: %s", value, width, out)
 			}
 		}
@@ -116,11 +193,15 @@ func TestScanDetailKeepsFullIdentityAndUnknownLinkAvailability(t *testing.T) {
 func TestSafePresentationSanitizesBeforeLayoutAndJSON(t *testing.T) {
 	url := "https://user:credential@example.test/Case?token=credential&ordinary=Keep"
 	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_FAILED, Message: "password=credential\x1b[31m\x00oops", Payload: &controlpb.CommandResult_HttpCheck{HttpCheck: &controlpb.HttpCheckResult{Url: url}}}
-	for _, format := range []pipeline.Format{pipeline.FormatText, pipeline.FormatJSON} {
-		out, err := CommandResult("self", result, command.Options{}, format)
-		if err != nil {
-			t.Fatal(err)
-		}
+	text, err := CommandResult("self", result, command.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := pipeline.JSON(text, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, out := range []string{text, encoded} {
 		for _, unsafe := range []string{"credential", "\x1b", "\x00", "\u200b"} {
 			if strings.Contains(out, unsafe) {
 				t.Fatalf("unsafe output: %q", out)
@@ -139,11 +220,15 @@ func TestSafePresentationDoesNotRedactNonSecretSSIDText(t *testing.T) {
 	ssid := "password=Guest Case"
 	fields := []*controlpb.DiagnosticField{{Key: "identity.state", Value: "available"}}
 	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_WifiStatus{WifiStatus: &controlpb.WifiStatus{Connection: &controlpb.WifiConnection{Ssid: ssid, ObservationFields: fields}}}}
-	for _, format := range []pipeline.Format{pipeline.FormatText, pipeline.FormatJSON} {
-		out, err := CommandResult("self", result, command.Options{}, format)
-		if err != nil {
-			t.Fatal(err)
-		}
+	text, err := CommandResult("self", result, command.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := pipeline.JSON(text, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, out := range []string{text, encoded} {
 		if !strings.Contains(out, ssid) {
 			t.Fatalf("non-secret SSID redacted: %s", out)
 		}
@@ -155,7 +240,7 @@ func TestCapabilityListsArePresenceAuthority(t *testing.T) {
 	var b strings.Builder
 	renderDeviceCapabilities(&b, capabilities, Presentation{})
 	for _, value := range []string{"6G: yes", "60G: no", "5G: ?", "mlo: ?", "future_feature: yes"} {
-		if !strings.Contains(b.String(), value) {
+		if !strings.Contains(strings.Join(strings.Fields(wrapPresentation(b.String(), 0)), " "), value) {
 			t.Fatalf("missing %q: %s", value, b.String())
 		}
 	}
@@ -163,7 +248,7 @@ func TestCapabilityListsArePresenceAuthority(t *testing.T) {
 
 func TestCapabilityLabelIsNotMistakenForCredential(t *testing.T) {
 	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_WifiCapabilities{WifiCapabilities: &controlpb.WifiCapabilities{SupportedSecurityModes: []string{"wpa2_psk"}}}}
-	out, err := CommandResult("self", result, command.Options{}, pipeline.FormatText)
+	out, err := CommandResult("self", result, command.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

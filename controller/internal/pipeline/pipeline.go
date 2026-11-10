@@ -1,110 +1,87 @@
 package pipeline
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
-	"dropcheck/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 )
 
-// Format selects a renderer output format.
-type Format string
-
-const (
-	// FormatText renders human-readable tabular or paragraph output.
-	FormatText Format = "text"
-	// FormatJSON renders machine-readable JSON output.
-	FormatJSON Format = "json"
-	// FormatSet renders copy-pasteable configuration set commands.
-	FormatSet Format = "set"
-)
-
-// Pipeline is a compiled list of output transformations.
-//
-// A zero-value Pipeline leaves output unchanged and uses the caller's default
-// output format.
 type Pipeline struct {
-	displayFormat Format
-	stages        []stage
+	displayJSON bool
+	stages      []stage
 }
 
 type stage struct {
-	op      string
-	pattern string
-	re      *regexp.Regexp
+	op string
+	re *regexp.Regexp
+	n  int
 }
 
-// Split separates a shell line into command and pipeline stage strings.
-//
-// Pipe characters inside single or double quotes are preserved. Returned parts
-// are trimmed, and empty stages are rejected.
 func Split(line string) ([]string, error) {
+	lexed, err := command.Lex(line, false)
+	if err != nil {
+		return nil, err
+	}
 	var parts []string
-	var b strings.Builder
-	var quote rune
-	escaped := false
-
-	flush := func() {
-		parts = append(parts, strings.TrimSpace(b.String()))
-		b.Reset()
-	}
-
-	for _, r := range line {
-		if escaped {
-			b.WriteRune(r)
-			escaped = false
-			continue
-		}
-		if r == '\\' {
-			// Keep the backslash in the segment. command.SplitArgs will consume
-			// it later, but Split still needs to know that the next rune cannot
-			// terminate a quoted or piped segment.
-			b.WriteRune(r)
-			escaped = true
-			continue
-		}
-		if quote != 0 {
-			b.WriteRune(r)
-			if r == quote {
-				quote = 0
-			}
-			continue
-		}
-		switch r {
-		case '\'', '"':
-			quote = r
-			b.WriteRune(r)
-		case '|':
-			// A pipe is only structural outside quotes. Quoted pipes remain part
-			// of the command text passed to command.SplitArgs.
-			flush()
-		default:
-			b.WriteRune(r)
+	start := 0
+	for _, token := range lexed.Tokens {
+		if token.Pipe {
+			parts = append(parts, strings.TrimSpace(line[start:token.Start]))
+			start = token.End
 		}
 	}
-	if escaped {
-		return nil, fmt.Errorf("trailing escape")
+	parts = append(parts, strings.TrimSpace(line[start:]))
+	if len(parts) == 1 && parts[0] == "" {
+		return parts, nil
 	}
-	if quote != 0 {
-		return nil, fmt.Errorf("unterminated quote")
-	}
-	flush()
 	if slices.Contains(parts, "") {
 		return nil, fmt.Errorf("empty pipeline stage")
 	}
 	return parts, nil
 }
 
-// Parse compiles pipeline stage strings returned by Split.
-//
-// Supported stages are "display json", "display set", "match <regex>",
-// "except <regex>", "count", and "no-more". "display ..." must be placed
-// before "count".
+// PortablePattern deliberately excludes engine-specific flags, Unicode classes,
+// backreferences and zero-width extensions. Both engines execute in linear time.
+func PortablePattern(pattern string) bool {
+	extensions := pattern
+	for _, flag := range []string{"(?i)", "(?m)", "(?s)", "(?-i)", "(?-m)", "(?-s)"} {
+		extensions = strings.ReplaceAll(extensions, flag, "")
+	}
+	if len(pattern) == 0 || len(pattern) > 512 || strings.Contains(extensions, "(?") {
+		return false
+	}
+	escaped := false
+	for _, r := range pattern {
+		if escaped {
+			if !strings.ContainsRune(`\\.^$[]()|*+?{}-dDsSwWnrtf`, r) {
+				return false
+			}
+			escaped = false
+		} else if r == '\\' {
+			escaped = true
+		}
+	}
+	return !escaped
+}
+
+func parseFilterCount(op string, value string) (int, error) {
+	n, err := strconv.ParseUint(value, 10, 32)
+	if err != nil || n == 0 || n > 2147483647 {
+		return 0, fmt.Errorf("%s requires a positive integer in 1..2147483647", op)
+	}
+	return int(n), nil
+}
+
 func Parse(parts []string) (Pipeline, error) {
-	var pipeline Pipeline
-	countSeen := false
+	var p Pipeline
+	if len(parts) > 16 {
+		return p, fmt.Errorf("pipeline exceeds 16 stages")
+	}
 	for _, part := range parts {
 		args, err := command.SplitArgs(part)
 		if err != nil {
@@ -115,105 +92,101 @@ func Parse(parts []string) (Pipeline, error) {
 		}
 		switch args[0] {
 		case "display":
-			if len(args) != 2 || (args[1] != "json" && args[1] != "set") {
-				return Pipeline{}, fmt.Errorf("usage: | display <json|set>")
+			if len(args) != 2 || args[1] != "json" {
+				return Pipeline{}, fmt.Errorf("usage: | display json")
 			}
-			if countSeen {
-				return Pipeline{}, fmt.Errorf("display %s must appear before count", args[1])
-			}
-			if pipeline.displayFormat != "" {
+			if p.displayJSON {
 				return Pipeline{}, fmt.Errorf("display format specified twice")
 			}
-			pipeline.displayFormat = Format(args[1])
-		case "match", "except":
-			if len(args) < 2 {
-				return Pipeline{}, fmt.Errorf("usage: | %s <regex>", args[0])
+			p.displayJSON = true
+		case "find", "match", "except":
+			if len(args) != 2 {
+				return Pipeline{}, fmt.Errorf("usage: | %s <quoted-pattern>", args[0])
 			}
-			pattern := strings.Join(args[1:], " ")
-			re, err := regexp.Compile(pattern)
+			if !PortablePattern(args[1]) {
+				return Pipeline{}, fmt.Errorf("%s regex: unsupported portable pattern (1..512 UTF-8 bytes)", args[0])
+			}
+			re, err := regexp.Compile(args[1])
 			if err != nil {
-				return Pipeline{}, fmt.Errorf("%s regex: %w", args[0], err)
+				return Pipeline{}, fmt.Errorf("%s regex: invalid pattern", args[0])
 			}
-			pipeline.stages = append(pipeline.stages, stage{op: args[0], pattern: pattern, re: re})
+			p.stages = append(p.stages, stage{op: args[0], re: re})
+		case "last", "trim":
+			if len(args) != 2 {
+				return Pipeline{}, fmt.Errorf("usage: | %s <positive-integer>", args[0])
+			}
+			n, err := parseFilterCount(args[0], args[1])
+			if err != nil {
+				return Pipeline{}, err
+			}
+			p.stages = append(p.stages, stage{op: args[0], n: n})
 		case "count":
 			if len(args) != 1 {
 				return Pipeline{}, fmt.Errorf("usage: | count")
 			}
-			pipeline.stages = append(pipeline.stages, stage{op: "count"})
-			countSeen = true
-		case "no-more":
-			if len(args) != 1 {
-				return Pipeline{}, fmt.Errorf("usage: | no-more")
-			}
+			p.stages = append(p.stages, stage{op: "count"})
 		default:
-			return Pipeline{}, fmt.Errorf("unknown pipe %q", args[0])
+			return Pipeline{}, fmt.Errorf("unsupported pipe")
 		}
 	}
-	return pipeline, nil
-}
-
-// Format returns the effective output format after applying the pipeline.
-func (p Pipeline) Format(defaultFormat Format) Format {
-	if p.displayFormat != "" {
-		return p.displayFormat
+	if p.DisplayJSON() && len(p.stages) > 0 {
+		return Pipeline{}, fmt.Errorf("display json cannot be combined with line filters")
 	}
-	return defaultFormat
+	return p, nil
 }
 
-// Apply applies text-filtering pipeline stages to rendered output.
-//
-// The "display ..." and "no-more" stages do not change the text here; they are
-// consumed by callers when selecting format or pager behavior.
+func (p Pipeline) DisplayJSON() bool { return p.displayJSON }
+func (p Pipeline) StageCount() int   { return len(p.stages) }
+
+func Lines(text string) []string {
+	if text == "" {
+		return []string{}
+	}
+	return strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+}
+
+// JSON encodes already-sanitized presentation text in the portable result envelope.
+func JSON(text string, ok bool) (string, error) {
+	data, err := json.Marshal(struct {
+		OK    bool     `json:"ok"`
+		Lines []string `json:"lines"`
+	}{ok, Lines(text)})
+	return string(data) + "\n", err
+}
+
 func (p Pipeline) Apply(text string) (string, error) {
-	out := text
-	for _, stage := range p.stages {
-		switch stage.op {
-		case "match":
-			out = filterLines(out, func(line string) bool { return stage.re.MatchString(line) })
-		case "except":
-			out = filterLines(out, func(line string) bool { return !stage.re.MatchString(line) })
+	lines := Lines(text)
+	for _, s := range p.stages {
+		switch s.op {
 		case "count":
-			out = fmt.Sprintf("Count: %d lines\n", countNonEmptyLines(out))
-		default:
-			return "", fmt.Errorf("unsupported pipe %q", stage.op)
+			lines = []string{fmt.Sprintf("Count: %d lines", len(lines))}
+		case "find":
+			if first := slices.IndexFunc(lines, s.re.MatchString); first >= 0 {
+				lines = lines[first:]
+			} else {
+				lines = nil
+			}
+		case "match", "except":
+			kept := make([]string, 0, len(lines))
+			for _, line := range lines {
+				if s.re.MatchString(line) == (s.op == "match") {
+					kept = append(kept, line)
+				}
+			}
+			lines = kept
+		case "last":
+			if len(lines) > s.n {
+				lines = lines[len(lines)-s.n:]
+			}
+		case "trim":
+			for i, line := range lines {
+				runes := []rune(line)
+				lines[i] = string(runes[min(s.n-1, len(runes)):])
+			}
 		}
 	}
-	return out, nil
-}
-
-// DisplayJSON reports whether the pipeline requested JSON output.
-func (p Pipeline) DisplayJSON() bool {
-	return p.displayFormat == FormatJSON
-}
-
-// DisplaySet reports whether the pipeline requested set-command output.
-func (p Pipeline) DisplaySet() bool {
-	return p.displayFormat == FormatSet
-}
-
-// StageCount returns the number of text-transforming stages in the pipeline.
-func (p Pipeline) StageCount() int {
-	return len(p.stages)
-}
-
-func filterLines(text string, keep func(string) bool) string {
-	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
-	var out []string
-	for _, line := range lines {
-		if keep(line) {
-			out = append(out, line)
-		}
+	if len(lines) == 0 {
+		return "", nil
 	}
-	if len(out) == 0 {
-		return ""
-	}
-	return strings.Join(out, "\n") + "\n"
-}
-
-func countNonEmptyLines(text string) int {
-	trimmed := strings.TrimRight(text, "\n")
-	if trimmed == "" {
-		return 0
-	}
-	return len(strings.Split(trimmed, "\n"))
+	return strings.Join(lines, "\n") + "\n", nil
 }

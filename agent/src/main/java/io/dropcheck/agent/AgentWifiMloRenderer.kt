@@ -33,46 +33,42 @@ internal data class AgentWifiMloContext(
 
 /** EHT-focused renderer for Agent Shell. */
 internal object AgentWifiMloRenderer {
-    fun presentation(status: WifiStatus, scan: WifiScan, context: AgentWifiMloContext, detail: Boolean = false, detailAvailable: Boolean = false): List<AgentBlockPart> = buildList {
-        fun text(label: String, value: String) { add(AgentBlockPart.Field(label, value)) }
+    /** Keep literal identities typed; free-form analysis is not their value authority. */
+    fun presentation(status: WifiStatus, scan: WifiScan, context: AgentWifiMloContext): List<AgentBlockPart> = buildList {
         val filter = MloFilter(context.ssidFilter, context.bssidFilter)
-        val conn = filter.connection(status.connection.takeIf { status.hasConnection() })
-        if (conn == null) text("Current", AgentObservationPresentation.value(status.observationFieldsList, "connection", "")) else {
-            text("SSID", AgentObservationPresentation.value(conn.observationFieldsList, "identity", conn.ssid))
-            text("BSSID", AgentObservationPresentation.value(conn.observationFieldsList, "identity", conn.bssid))
-            text("MLD", AgentObservationPresentation.value(conn.observationFieldsList, "ap_mld_mac_address", conn.apMldMacAddress))
-            text("PHY", conn.wifiStandard.ifEmpty { "?" })
-            for ((label, field, links) in listOf(Triple("Associated", "associated_mlo_links", conn.associatedMloLinksList), Triple("Affiliated", "affiliated_mlo_links", conn.affiliatedMloLinksList))) {
-                text(label, AgentObservationPresentation.value(conn.observationFieldsList, field, links.size.toString()))
-                add(AgentBlockPart.Table(listOf(
-                    AgentBlockPart.Column("L", true), AgentBlockPart.Column("State"), AgentBlockPart.Column("Band"), AgentBlockPart.Column("CH", true), AgentBlockPart.Column("dBm", true),
-                    AgentBlockPart.Column("Tx/Rx Mbps"), AgentBlockPart.Column("AP MAC"),
-                ), links.map { link -> listOf(
-                    AgentObservationPresentation.value(link.observationFieldsList, "identity", link.linkId.toString()),
-                    AgentObservationPresentation.value(link.observationFieldsList, "identity", link.state),
-                    AgentObservationPresentation.value(link.observationFieldsList, "identity", link.band),
-                    AgentObservationPresentation.value(link.observationFieldsList, "identity", link.channel.toString()),
-                    AgentObservationPresentation.value(link.observationFieldsList, "rates", link.rssiDbm.toString()),
-                    AgentObservationPresentation.value(link.observationFieldsList, "rates", "${link.txLinkSpeedMbps}/${link.rxLinkSpeedMbps}"),
-                    AgentObservationPresentation.value(link.observationFieldsList, "identity", link.apMacAddress),
-                ) }))
-            }
+        filter.connection(activeWifiConnection(status))?.let { current ->
+            add(AgentBlockPart.Text("Connected identity", section = true))
+            add(AgentBlockPart.Field("SSID", AgentObservationPresentation.value(current.observationFieldsList, "identity", current.ssid), current.ssid, indent = 2))
+            add(AgentBlockPart.Field("BSSID", AgentObservationPresentation.value(current.observationFieldsList, "identity", current.bssid), current.bssid, indent = 2))
+            add(AgentBlockPart.Field("BSSID vendor", AgentObservationPresentation.value(current.observationFieldsList, "identity", OuiDatabase.current.vendor(current.bssid)), indent = 2))
         }
-        val fields = scan.fieldsList.associate { it.key to it.value }
-        text("Scan source", fields["scan_source"] ?: "? (source metadata unavailable)")
-        text("Updated", fields["fresh_scan_results_updated"] ?: "?")
-        val ages = scan.resultsList.filter { it.hasObservationAgeMs() }.map { it.observationAgeMs }.sortedWith { left, right -> java.lang.Long.compareUnsigned(left, right) }
-        val ageSummary = if (ages.isEmpty()) "? (observation timestamps unavailable)" else "${java.lang.Long.toUnsignedString(ages.first())}-${java.lang.Long.toUnsignedString(ages.last())}ms at collection; known=${ages.size}/${scan.resultsCount}"
-        add(AgentBlockPart.Field("Scan age", ageSummary, scan.resultsList.joinToString("; ") { "${it.bssid}=${AgentWifiScanRenderer.observationAge(it)}" }))
-        val comparison = scanComparison(conn, scan, filter.scanResults(scan.resultsList).filter(::isMloCapableCandidate))
-        text("Coverage", if (comparison == "updated_scan_age_le_10s") "point-in-time scan comparison only (not roam proof)" else "? ($comparison)")
-        scan.errorsList.forEach { text("Error", it) }
-        if (detail || !detailAvailable) addAll(render(status, scan, context).map { AgentBlockPart.Text(it) })
-        if (detailAvailable && !detail) text("More", "show wifi eht detail")
+        val candidates = filter.scanResults(scan.resultsList).filter(::isMloCapableCandidate)
+        if (candidates.isNotEmpty()) {
+            add(AgentBlockPart.Text("AP identity index (same observations used by the analysis)", section = true))
+            add(AgentBlockPart.Table(listOf(AgentBlockPart.Column("AP", true), AgentBlockPart.Column("SSID"), AgentBlockPart.Column("BSSID"), AgentBlockPart.Column("VENDOR")),
+                candidates.mapIndexed { index, ap -> listOf((index + 1).toString(), ap.ssid, ap.bssid, OuiDatabase.current.vendor(ap.bssid)) }))
+        }
+        add(AgentBlockPart.Text("EHT/MLO analysis (references the identities above)", section = true))
+        addAll(renderParts(status, scan, context))
     }
 
-    fun render(status: WifiStatus, scan: WifiScan, context: AgentWifiMloContext = AgentWifiMloContext()): List<String> {
-        val out = mutableListOf<String>()
+    fun interpretation(status: WifiStatus, scan: WifiScan, context: AgentWifiMloContext): List<AgentBlockPart> {
+        val out = mutableListOf<AgentBlockPart>()
+        val current = activeWifiConnection(status)
+        val candidates = scan.resultsList.filter(::isMloCapableCandidate)
+        renderCurrentRelation(out, current, scan, candidates)
+        renderConnectedEhtMultiLink(out, current)
+        renderScanEhtMultiLink(out, candidates)
+        renderWifi7DeviceReadiness(out, context)
+        renderDiagnostics(out, status, scan, current, candidates, context)
+        return out
+    }
+
+    fun render(status: WifiStatus, scan: WifiScan, context: AgentWifiMloContext = AgentWifiMloContext()): List<String> =
+        AgentPresentationBlock.create(renderParts(status, scan, context), 0).fullText.lines()
+
+    private fun renderParts(status: WifiStatus, scan: WifiScan, context: AgentWifiMloContext): List<AgentBlockPart> {
+        val out = mutableListOf<AgentBlockPart>()
         val filter = MloFilter(context.ssidFilter, context.bssidFilter)
         val scanResults = filter.scanResults(scan.resultsList)
         val candidates = scanResults.filter { isMloCapableCandidate(it) }
@@ -102,7 +98,7 @@ internal object AgentWifiMloRenderer {
     }
 
     private fun renderBrief(
-        out: MutableList<String>,
+        out: MutableList<AgentBlockPart>,
         scan: WifiScan,
         candidates: List<WifiScanResult>,
         groups: List<MloGroup>,
@@ -114,10 +110,10 @@ internal object AgentWifiMloRenderer {
         renderNearbyMloBrief(out, groups, current)
     }
 
-    private fun renderConnectedMlo(out: MutableList<String>, conn: WifiConnection?) {
+    private fun renderConnectedMlo(out: MutableList<AgentBlockPart>, conn: WifiConnection?) {
         section(out, "Connected MLO")
         if (conn == null) {
-            out += "  no active Wi-Fi connection"
+            kv(out, "Observation" to "no active Wi-Fi connection")
             return
         }
         val present = connectionHasMlo(conn)
@@ -135,22 +131,22 @@ internal object AgentWifiMloRenderer {
         renderMloLinks(out, "Affiliated MLO Links", conn.affiliatedMloLinksList)
     }
 
-    private fun renderConnectedEhtMultiLink(out: MutableList<String>, conn: WifiConnection?) {
+    private fun renderConnectedEhtMultiLink(out: MutableList<AgentBlockPart>, conn: WifiConnection?) {
         if (conn == null) return
         val lines = formatEhtMultiLinkElements("connection", parseEhtMultiLinkElements(conn.informationElementsList))
         if (lines.isEmpty()) return
         section(out, "Connected EHT Multi-Link Elements")
-        out += lines.map { "  $it" }
+        kv(out, "Elements" to lines.joinToString("\n"))
     }
 
-    private fun renderConnectedEhtDetails(out: MutableList<String>, conn: WifiConnection?) {
+    private fun renderConnectedEhtDetails(out: MutableList<AgentBlockPart>, conn: WifiConnection?) {
         if (conn == null || !conn.hasEhtDetails()) return
         section(out, "Connected EHT Details")
         renderEhtDetails(out, "connection", conn.ehtCapabilities.takeIf { conn.hasEhtCapabilities() }, conn.ehtOperation.takeIf { conn.hasEhtOperation() })
     }
 
     private fun renderScanSummary(
-        out: MutableList<String>,
+        out: MutableList<AgentBlockPart>,
         scan: WifiScan,
         candidates: List<WifiScanResult>,
         filteredResults: Int,
@@ -187,10 +183,10 @@ internal object AgentWifiMloRenderer {
         kv(out, rows)
     }
 
-    private fun renderNearbyMlo(out: MutableList<String>, groups: List<MloGroup>, current: WifiConnection?) {
+    private fun renderNearbyMlo(out: MutableList<AgentBlockPart>, groups: List<MloGroup>, current: WifiConnection?) {
         section(out, "Nearby EHT APs")
         if (groups.isEmpty()) {
-            out += "  no EHT-capable scan results"
+            kv(out, "Observation" to "no EHT-capable scan results")
             return
         }
         renderNearbyMloTable(out, groups)
@@ -207,10 +203,10 @@ internal object AgentWifiMloRenderer {
         renderScanEhtDetails(out, groups.flatMap { it.results })
     }
 
-    private fun renderNearbyMloBrief(out: MutableList<String>, groups: List<MloGroup>, current: WifiConnection?) {
+    private fun renderNearbyMloBrief(out: MutableList<AgentBlockPart>, groups: List<MloGroup>, current: WifiConnection?) {
         section(out, "Nearby EHT MLDs")
         if (groups.isEmpty()) {
-            out += "  no EHT-capable scan results"
+            kv(out, "Observation" to "no EHT-capable scan results")
             return
         }
         groups.forEachIndexed { index, group ->
@@ -219,18 +215,9 @@ internal object AgentWifiMloRenderer {
         }
     }
 
-    private fun renderNearbyMloTable(out: MutableList<String>, groups: List<MloGroup>) {
-        tableWithColumns(out,
-            listOf(
-                TableColumn("SSID"),
-                TableColumn("BANDS"),
-                TableColumn("RSSI"),
-                TableColumn("SEC"),
-                TableColumn("STANDARD"),
-                TableColumn("COLOR"),
-                TableColumn("EHT_W"),
-                TableColumn("PUNCT"),
-            ),
+    private fun renderNearbyMloTable(out: MutableList<AgentBlockPart>, groups: List<MloGroup>) {
+        table(out,
+            listOf("SSID", "BANDS", "RSSI", "SEC", "STANDARD", "COLOR", "EHT_W", "PUNCT"),
             groups.map { group ->
                 listOf(
                     joined(group.results.map { empty(it.ssid, "<hidden>") }),
@@ -246,13 +233,13 @@ internal object AgentWifiMloRenderer {
         )
     }
 
-    private fun renderConnectedSecurityDetails(out: MutableList<String>, conn: WifiConnection?) {
+    private fun renderConnectedSecurityDetails(out: MutableList<AgentBlockPart>, conn: WifiConnection?) {
         if (conn == null || !conn.hasSecurityDetails()) return
         section(out, "Connected Wi-Fi Security")
         renderSecurityDetails(out, "connection", conn.securityDetails)
     }
 
-    private fun renderScanSecurityDetails(out: MutableList<String>, results: List<WifiScanResult>) {
+    private fun renderScanSecurityDetails(out: MutableList<AgentBlockPart>, results: List<WifiScanResult>) {
         val securityResults = results.filter { it.hasSecurityDetails() }
         if (securityResults.isEmpty()) return
         section(out, "Scan Wi-Fi 7 Security")
@@ -263,12 +250,12 @@ internal object AgentWifiMloRenderer {
         }
     }
 
-    private fun renderSecurityDetails(out: MutableList<String>, label: String, value: WifiSecurityDetails) {
-        out += "  $label"
-        wifiMloSecuritySummaryLines(value).forEach { line -> out += "    $line" }
+    private fun renderSecurityDetails(out: MutableList<AgentBlockPart>, label: String, value: WifiSecurityDetails) {
+        out += AgentBlockPart.Text("  $label", section = true)
+        detail(out, listOf("Security" to wifiMloSecuritySummaryLines(value).joinToString("\n")))
     }
 
-    private fun renderConnectedRoamingDetails(out: MutableList<String>, conn: WifiConnection?) {
+    private fun renderConnectedRoamingDetails(out: MutableList<AgentBlockPart>, conn: WifiConnection?) {
         if (conn == null) return
         val lines = wifiMloRoamingSummaryLines(
             conn.informationElementsList,
@@ -276,11 +263,11 @@ internal object AgentWifiMloRenderer {
         )
         if (lines.isEmpty()) return
         section(out, "Connected Roaming / Transition")
-        out += "  connection"
-        lines.forEach { line -> out += "    $line" }
+        out += AgentBlockPart.Text("  connection", section = true)
+        detail(out, listOf("Roaming" to lines.joinToString("\n")))
     }
 
-    private fun renderScanRoamingDetails(out: MutableList<String>, results: List<WifiScanResult>) {
+    private fun renderScanRoamingDetails(out: MutableList<AgentBlockPart>, results: List<WifiScanResult>) {
         val entries = results.mapNotNull { result ->
             val lines = wifiMloRoamingSummaryLines(
                 result.informationElementsList,
@@ -296,12 +283,12 @@ internal object AgentWifiMloRenderer {
         section(out, "Scan Roaming / Transition")
         entries.forEachIndexed { index, (label, lines) ->
             if (index > 0) out += ""
-            out += "  $label"
-            lines.forEach { line -> out += "    $line" }
+            out += AgentBlockPart.Text("  $label", section = true)
+            detail(out, listOf("Roaming" to lines.joinToString("\n")))
         }
     }
 
-    private fun renderConnectedBssColoring(out: MutableList<String>, conn: WifiConnection?) {
+    private fun renderConnectedBssColoring(out: MutableList<AgentBlockPart>, conn: WifiConnection?) {
         if (conn == null || !conn.hasBssColoringContext()) return
         section(out, "Connected BSS Coloring")
         renderBssColoring(
@@ -312,7 +299,7 @@ internal object AgentWifiMloRenderer {
         )
     }
 
-    private fun renderScanBssColoring(out: MutableList<String>, results: List<WifiScanResult>) {
+    private fun renderScanBssColoring(out: MutableList<AgentBlockPart>, results: List<WifiScanResult>) {
         val colorResults = results.filter { it.hasBssColoringContext() }
         if (colorResults.isEmpty()) return
         section(out, "Scan BSS Coloring")
@@ -329,16 +316,16 @@ internal object AgentWifiMloRenderer {
     }
 
     private fun renderBssColoring(
-        out: MutableList<String>,
+        out: MutableList<AgentBlockPart>,
         label: String,
         operation: WifiHeOperation?,
         spatialReuse: WifiHeSpatialReuseParameterSet?,
     ) {
-        out += "  $label"
-        bssColoringSummaryLines(operation, spatialReuse).forEach { out += "    $it" }
+        out += AgentBlockPart.Text("  $label", section = true)
+        detail(out, bssColoringSummaryLines(operation, spatialReuse))
     }
 
-    private fun renderScanRnrDetails(out: MutableList<String>, results: List<WifiScanResult>) {
+    private fun renderScanRnrDetails(out: MutableList<AgentBlockPart>, results: List<WifiScanResult>) {
         val lines = results.flatMap { result ->
             formatWifiMloRnrDetails(
                 "ap ssid=${empty(result.ssid, "<hidden>")} bssid=${empty(result.bssid, "<unknown>")}",
@@ -347,10 +334,10 @@ internal object AgentWifiMloRenderer {
         }
         if (lines.isEmpty()) return
         section(out, "Scan RNR Details")
-        out += lines.map { "  $it" }
+        kv(out, "RNR" to lines.joinToString("\n"))
     }
 
-    private fun renderScanMultipleBssidDetails(out: MutableList<String>, results: List<WifiScanResult>) {
+    private fun renderScanMultipleBssidDetails(out: MutableList<AgentBlockPart>, results: List<WifiScanResult>) {
         val lines = results.flatMap { result ->
             formatWifiMloMultipleBssidDetails(
                 "ap ssid=${empty(result.ssid, "<hidden>")} bssid=${empty(result.bssid, "<unknown>")}",
@@ -359,10 +346,10 @@ internal object AgentWifiMloRenderer {
         }
         if (lines.isEmpty()) return
         section(out, "Scan Multiple BSSID Details")
-        out += lines.map { "  $it" }
+        kv(out, "Multiple BSSID" to lines.joinToString("\n"))
     }
 
-    private fun renderWifi7DeviceReadiness(out: MutableList<String>, context: AgentWifiMloContext) {
+    private fun renderWifi7DeviceReadiness(out: MutableList<AgentBlockPart>, context: AgentWifiMloContext) {
         val rows = wifi7DeviceReadinessRows(context.wifiCapabilities, context.wifi7Supported)
             .filter { it.second.isNotBlank() }
         if (rows.isEmpty()) return
@@ -370,7 +357,7 @@ internal object AgentWifiMloRenderer {
         kv(out, rows)
     }
 
-    private fun renderWifiMloCapabilities(out: MutableList<String>, context: AgentWifiMloContext) {
+    private fun renderWifiMloCapabilities(out: MutableList<AgentBlockPart>, context: AgentWifiMloContext) {
         val capabilities = context.wifiCapabilities ?: return
         val rows = mutableListOf<Pair<String, String>>()
         if (capabilities.supportedStandardsCount > 0) {
@@ -396,11 +383,11 @@ internal object AgentWifiMloRenderer {
         }
         if (capabilities.errorsCount > 0) {
             section(out, "MLO Capability Errors")
-            capabilities.errorsList.forEach { out += "  $it" }
+            capabilities.errorsList.forEach { kv(out, "Error" to it) }
         }
     }
 
-    private fun renderConnectedHeDetails(out: MutableList<String>, conn: WifiConnection?) {
+    private fun renderConnectedHeDetails(out: MutableList<AgentBlockPart>, conn: WifiConnection?) {
         if (conn == null || !conn.hasHeDetails()) return
         section(out, "Connected HE Details")
         renderHeDetails(
@@ -413,7 +400,7 @@ internal object AgentWifiMloRenderer {
         )
     }
 
-    private fun renderScanHeDetails(out: MutableList<String>, results: List<WifiScanResult>) {
+    private fun renderScanHeDetails(out: MutableList<AgentBlockPart>, results: List<WifiScanResult>) {
         val heResults = results.filter { it.hasHeDetails() }
         if (heResults.isEmpty()) return
         section(out, "Scan HE Details")
@@ -432,41 +419,41 @@ internal object AgentWifiMloRenderer {
     }
 
     private fun renderHeDetails(
-        out: MutableList<String>,
+        out: MutableList<AgentBlockPart>,
         label: String,
         capabilities: WifiHeCapabilities?,
         operation: WifiHeOperation?,
         uora: WifiHeUoraParameterSet?,
         muEdca: WifiHeMuEdcaParameterSet?,
     ) {
-        out += "  $label"
+        out += AgentBlockPart.Text("  $label", section = true)
         capabilities?.let { cap ->
-            if (cap.hasMac()) out += heMacSummaryLines(cap).map { "    $it" }
-            if (cap.hasPhy()) out += hePhySummaryLines(cap).map { "    $it" }
-            if (cap.featuresCount > 0) out += wrappedListLines("he features", cap.featuresList, "<none>").map { "    $it" }
-            if (cap.mcsNssCount > 0) out += mcsNssLines("he_mcs_nss", cap.mcsNssList).map { "    $it" }
+            if (cap.hasMac()) detail(out, heMacSummaryLines(cap))
+            if (cap.hasPhy()) detail(out, hePhySummaryLines(cap))
+            if (cap.featuresCount > 0) detail(out, wrappedListLines("he features", cap.featuresList, "<none>"))
+            if (cap.mcsNssCount > 0) detail(out, mcsNssLines("he_mcs_nss", cap.mcsNssList))
             if (cap.ppeThresholdsPresent) {
-                out += "    he_ppe nss=${cap.ppeNssCount} ru=${joined(cap.ppeRuIndicesList)} hex=0x${cap.ppeThresholdsHex}"
+                detail(out, listOf("he_ppe" to "nss=${cap.ppeNssCount} ru=${joined(cap.ppeRuIndicesList)} hex=0x${cap.ppeThresholdsHex}"))
             }
-            if (cap.warningsCount > 0) out += "    he_cap_warnings ${cap.warningsList.joinToString(",")}"
+            if (cap.warningsCount > 0) detail(out, listOf("he_cap_warnings" to cap.warningsList.joinToString(",")))
         }
         operation?.let { oper ->
-            out += heOperationSummaryLines(oper).map { "    $it" }
+            detail(out, heOperationSummaryLines(oper))
         }
         uora?.let { value ->
-            out += "    he_uora eocw_min=${value.eocwMin} eocw_max=${value.eocwMax}"
-            if (value.warningsCount > 0) out += "    he_uora_warnings ${value.warningsList.joinToString(",")}"
+            detail(out, listOf("he_uora" to "eocw_min=${value.eocwMin} eocw_max=${value.eocwMax}"))
+            if (value.warningsCount > 0) detail(out, listOf("he_uora_warnings" to value.warningsList.joinToString(",")))
         }
         muEdca?.let { value ->
-            out += "    he_mu_edca qos_info=0x${value.qosInfo.toString(16)}"
+            detail(out, listOf("he_mu_edca" to "qos_info=0x${value.qosInfo.toString(16)}"))
             value.acList.forEach { ac ->
-                out += "    he_mu_edca_ac ${ac.ac} aci=${ac.aci} aifsn=${ac.aifsn} acm=${ac.acm} ecw=${ac.ecwMin}/${ac.ecwMax} timer=${ac.timer}"
+                detail(out, listOf("he_mu_edca_ac ${ac.ac}" to "aci=${ac.aci} aifsn=${ac.aifsn} acm=${ac.acm} ecw=${ac.ecwMin}/${ac.ecwMax} timer=${ac.timer}"))
             }
-            if (value.warningsCount > 0) out += "    he_mu_edca_warnings ${value.warningsList.joinToString(",")}"
+            if (value.warningsCount > 0) detail(out, listOf("he_mu_edca_warnings" to value.warningsList.joinToString(",")))
         }
     }
 
-    private fun heMacSummaryLines(value: WifiHeCapabilities): List<String> {
+    private fun heMacSummaryLines(value: WifiHeCapabilities): List<Pair<String, String>> {
         val mac = value.mac
         val flags = listOfNotNull(
             "twt_requester".takeIf { mac.twtRequester },
@@ -479,46 +466,48 @@ internal object AgentWifiMloRenderer {
             "ht_vht_trigger_rx".takeIf { mac.htVhtTriggerFrameRx },
         )
         return listOf(
-            "he_mac link_adapt=${empty(mac.linkAdaptation, "<unknown>")} max_ampdu_ext=${mac.maxAmpduLengthExponentExtension} multi_tid_rx_qos=${mac.multiTidAggregationRxQos} multi_tid_tx_qos=${mac.multiTidAggregationTxQos}",
+            "he_mac" to "link_adapt=${empty(mac.linkAdaptation, "<unknown>")} max_ampdu_ext=${mac.maxAmpduLengthExponentExtension} multi_tid_rx_qos=${mac.multiTidAggregationRxQos} multi_tid_tx_qos=${mac.multiTidAggregationTxQos}",
         ) + wrappedListLines("he_mac flags", flags, "<none>")
     }
 
-    private fun hePhySummaryLines(value: WifiHeCapabilities): List<String> {
+    private fun hePhySummaryLines(value: WifiHeCapabilities): List<Pair<String, String>> {
         val phy = value.phy
         return listOf(
-            "he_phy widths=${joined(phy.channelWidthSetList)} puncture_rx=${joined(phy.preamblePuncturingRxList)} dcm_tx=${empty(phy.dcmMaxConstellationTx, "<unknown>")}/nss${phy.dcmMaxNssTx} dcm_rx=${empty(phy.dcmMaxConstellationRx, "<unknown>")}/nss${phy.dcmMaxNssRx}",
-            "he_phy bf su_bfer=${phy.suBeamformer} su_bfee=${phy.suBeamformee} mu_bfer=${phy.muBeamformer} bfee_sts<=80=${phy.beamformeeStsUnder80Mhz} bfee_sts>80=${phy.beamformeeStsAbove80Mhz}",
-            "he_phy spatial_reuse=${phy.srpBasedSpatialReuse} partial_bw_dl_mu_mimo=${phy.partialBwDlMuMimo} max_nc=${phy.maxNc} padding=${empty(phy.nominalPacketPadding, "<unknown>")}",
+            "he_phy" to "widths=${joined(phy.channelWidthSetList)} puncture_rx=${joined(phy.preamblePuncturingRxList)} dcm_tx=${empty(phy.dcmMaxConstellationTx, "<unknown>")}/nss${phy.dcmMaxNssTx} dcm_rx=${empty(phy.dcmMaxConstellationRx, "<unknown>")}/nss${phy.dcmMaxNssRx}",
+            "he_phy bf" to "su_bfer=${phy.suBeamformer} su_bfee=${phy.suBeamformee} mu_bfer=${phy.muBeamformer} bfee_sts<=80=${phy.beamformeeStsUnder80Mhz} bfee_sts>80=${phy.beamformeeStsAbove80Mhz}",
+            "he_phy spatial_reuse" to "spatial_reuse=${phy.srpBasedSpatialReuse} partial_bw_dl_mu_mimo=${phy.partialBwDlMuMimo} max_nc=${phy.maxNc} padding=${empty(phy.nominalPacketPadding, "<unknown>")}",
         )
     }
 
-    private fun heOperationSummaryLines(value: WifiHeOperation): List<String> = buildList {
-        add("he_oper params=0x${value.parameters.toString(16)} basic_mcs_nss=0x${value.basicMcsNssSetHex} bss_color=${value.bssColor} disabled=${value.bssColorDisabled}")
+    private fun heOperationSummaryLines(value: WifiHeOperation): List<Pair<String, String>> = buildList {
+        add("he_oper" to "params=0x${value.parameters.toString(16)} basic_mcs_nss=0x${value.basicMcsNssSetHex} bss_color=${value.bssColor} disabled=${value.bssColorDisabled}")
         addAll(wrappedListLines("he_oper flags", value.flagsList, "<none>"))
         if (value.channelWidth.isNotBlank() || value.primaryChannel != 0 || value.centerFreqSegment0 != 0 || value.centerFreqSegment1 != 0) {
-            add("he_oper_6ghz width=${empty(value.channelWidth, "<unknown>")} primary=${value.primaryChannel} ccfs0=${value.centerFreqSegment0} ccfs1=${value.centerFreqSegment1}")
+            add("he_oper_6ghz" to "width=${empty(value.channelWidth, "<unknown>")} primary=${value.primaryChannel} ccfs0=${value.centerFreqSegment0} ccfs1=${value.centerFreqSegment1}")
         }
-        if (value.truncated) add("he_oper_truncated=true")
-        if (value.warningsCount > 0) add("he_oper_warnings ${value.warningsList.joinToString(",")}")
+        if (value.truncated) add("he_oper_truncated" to "true")
+        if (value.warningsCount > 0) add("he_oper_warnings" to value.warningsList.joinToString(","))
     }
 
-    private fun renderConnectedHe6GhzDetails(out: MutableList<String>, conn: WifiConnection?) {
+    private fun renderConnectedHe6GhzDetails(out: MutableList<AgentBlockPart>, conn: WifiConnection?) {
         if (conn == null || !conn.hasHe6GhzCapabilities()) return
         section(out, "Connected HE 6GHz Details")
-        out += "  connection ${he6GhzSummary(conn.he6GhzCapabilities)}"
+        out += AgentBlockPart.Text("  connection", section = true)
+        detail(out, listOf("he_6ghz" to he6GhzSummary(conn.he6GhzCapabilities)))
     }
 
-    private fun renderScanHe6GhzDetails(out: MutableList<String>, results: List<WifiScanResult>) {
+    private fun renderScanHe6GhzDetails(out: MutableList<AgentBlockPart>, results: List<WifiScanResult>) {
         val he6Results = results.filter { it.hasHe6GhzCapabilities() }
         if (he6Results.isEmpty()) return
         section(out, "Scan HE 6GHz Details")
         he6Results.forEach { result ->
             val label = "ap ssid=${empty(result.ssid, "<hidden>")} bssid=${empty(result.bssid, "<unknown>")}"
-            out += "  $label ${he6GhzSummary(result.he6GhzCapabilities)}"
+            out += AgentBlockPart.Text("  $label", section = true)
+            detail(out, listOf("he_6ghz" to he6GhzSummary(result.he6GhzCapabilities)))
         }
     }
 
-    private fun renderScanEhtMultiLink(out: MutableList<String>, results: List<WifiScanResult>) {
+    private fun renderScanEhtMultiLink(out: MutableList<AgentBlockPart>, results: List<WifiScanResult>) {
         val lines = results.flatMap { result ->
             formatEhtMultiLinkElements(
                 "ap ssid=${empty(result.ssid, "<hidden>")} bssid=${empty(result.bssid, "<unknown>")}",
@@ -527,10 +516,10 @@ internal object AgentWifiMloRenderer {
         }
         if (lines.isEmpty()) return
         section(out, "Scan EHT Multi-Link Elements")
-        out += lines.map { "  $it" }
+        kv(out, "Elements" to lines.joinToString("\n"))
     }
 
-    private fun renderConnectedEhtPuncturing(out: MutableList<String>, conn: WifiConnection?) {
+    private fun renderConnectedEhtPuncturing(out: MutableList<AgentBlockPart>, conn: WifiConnection?) {
         if (conn == null || !conn.hasEhtPuncturingContext()) return
         section(out, "Connected EHT Puncturing")
         renderEhtPuncturing(
@@ -541,7 +530,7 @@ internal object AgentWifiMloRenderer {
         )
     }
 
-    private fun renderScanEhtPuncturing(out: MutableList<String>, results: List<WifiScanResult>) {
+    private fun renderScanEhtPuncturing(out: MutableList<AgentBlockPart>, results: List<WifiScanResult>) {
         val puncturingResults = results.filter { it.hasEhtPuncturingContext() }
         if (puncturingResults.isEmpty()) return
         section(out, "Scan EHT Puncturing")
@@ -558,16 +547,16 @@ internal object AgentWifiMloRenderer {
     }
 
     private fun renderEhtPuncturing(
-        out: MutableList<String>,
+        out: MutableList<AgentBlockPart>,
         label: String,
         he: WifiHeCapabilities?,
         operation: WifiEhtOperation?,
     ) {
-        out += "  $label"
-        ehtPuncturingSummaryLines(he, operation).forEach { out += "    $it" }
+        out += AgentBlockPart.Text("  $label", section = true)
+        detail(out, ehtPuncturingSummaryLines(he, operation))
     }
 
-    private fun renderScanEhtDetails(out: MutableList<String>, results: List<WifiScanResult>) {
+    private fun renderScanEhtDetails(out: MutableList<AgentBlockPart>, results: List<WifiScanResult>) {
         val ehtResults = results.filter { it.hasEhtDetails() }
         if (ehtResults.isEmpty()) return
         section(out, "Scan EHT Details")
@@ -579,30 +568,30 @@ internal object AgentWifiMloRenderer {
     }
 
     private fun renderEhtDetails(
-        out: MutableList<String>,
+        out: MutableList<AgentBlockPart>,
         label: String,
         capabilities: WifiEhtCapabilities?,
         operation: WifiEhtOperation?,
     ) {
-        out += "  $label"
+        out += AgentBlockPart.Text("  $label", section = true)
         capabilities?.let { cap ->
-            if (cap.hasMac()) out += ehtMacSummaryLines(cap).map { "    $it" }
-            if (cap.hasPhy()) out += ehtPhySummaryLines(cap).map { "    $it" }
-            if (cap.featuresCount > 0) out += wrappedListLines("eht features", cap.featuresList, "<none>").map { "    $it" }
-            if (cap.mcsNssCount > 0) out += mcsNssLines("mcs_nss", cap.mcsNssList).map { "    $it" }
+            if (cap.hasMac()) detail(out, ehtMacSummaryLines(cap))
+            if (cap.hasPhy()) detail(out, ehtPhySummaryLines(cap))
+            if (cap.featuresCount > 0) detail(out, wrappedListLines("eht features", cap.featuresList, "<none>"))
+            if (cap.mcsNssCount > 0) detail(out, mcsNssLines("mcs_nss", cap.mcsNssList))
             if (cap.ppeThresholdsPresent) {
-                out += "    ppe nss=${cap.ppeNssCount} ru=${joined(cap.ppeRuIndicesList)} hex=0x${cap.ppeThresholdsHex}"
+                detail(out, listOf("ppe" to "nss=${cap.ppeNssCount} ru=${joined(cap.ppeRuIndicesList)} hex=0x${cap.ppeThresholdsHex}"))
             }
-            if (cap.warningsCount > 0) out += "    cap_warnings ${cap.warningsList.joinToString(",")}"
+            if (cap.warningsCount > 0) detail(out, listOf("cap_warnings" to cap.warningsList.joinToString(",")))
         }
         operation?.let { oper ->
-            out += ehtOperationSummaryLines(oper).map { "    $it" }
-            if (oper.basicMcsNssCount > 0) out += mcsNssLines("basic_mcs_nss", oper.basicMcsNssList).map { "    $it" }
-            if (oper.warningsCount > 0) out += "    oper_warnings ${oper.warningsList.joinToString(",")}"
+            detail(out, ehtOperationSummaryLines(oper))
+            if (oper.basicMcsNssCount > 0) detail(out, mcsNssLines("basic_mcs_nss", oper.basicMcsNssList))
+            if (oper.warningsCount > 0) detail(out, listOf("oper_warnings" to oper.warningsList.joinToString(",")))
         }
     }
 
-    private fun ehtMacSummaryLines(value: WifiEhtCapabilities): List<String> {
+    private fun ehtMacSummaryLines(value: WifiEhtCapabilities): List<Pair<String, String>> {
         val mac = value.mac
         val flags = listOfNotNull(
             "epcs".takeIf { mac.epcsPriorityAccess },
@@ -616,7 +605,7 @@ internal object AgentWifiMloRenderer {
             "two_bqrs".takeIf { mac.twoBqrs },
             "unsol_epcs".takeIf { mac.unsolicitedEpcsPriorityAccess },
         )
-        return listOf("mac max_mpdu=${mac.maxMpduLengthBytes} max_ampdu_ext=${mac.maxAmpduLengthExponentExtension} link_adapt=${empty(mac.linkAdaptation, "<unknown>")}") +
+        return listOf("mac" to "max_mpdu=${mac.maxMpduLengthBytes} max_ampdu_ext=${mac.maxAmpduLengthExponentExtension} link_adapt=${empty(mac.linkAdaptation, "<unknown>")}") +
             wrappedListLines("mac flags", flags, "<none>")
     }
 
@@ -630,7 +619,7 @@ internal object AgentWifiMloRenderer {
         return "max_mpdu=${value.maxMpduLengthBytes} max_ampdu_exp=${value.maxAmpduLengthExponent} max_ampdu=${value.maxAmpduLengthBytes} min_mpdu_start=${empty(value.minimumMpduStartSpacing, "<unknown>")} smps=${empty(value.smPowerSave, "<unknown>")} flags=${joined(flags)}${warningSuffix}"
     }
 
-    private fun ehtPhySummaryLines(value: WifiEhtCapabilities): List<String> {
+    private fun ehtPhySummaryLines(value: WifiEhtCapabilities): List<Pair<String, String>> {
         val phy = value.phy
         val muMimo = listOfNotNull(
             "80".takeIf { phy.nonOfdmaUlMuMimo80Mhz },
@@ -652,28 +641,28 @@ internal object AgentWifiMloRenderer {
             "4096qam_wider_dl_ofdma".takeIf { phy.rx4096QamWiderBwDlOfdma },
         )
         return listOf(
-            "phy caps 320mhz=${phy.supports320MhzIn6Ghz} ru_gt20=${phy.supports242ToneRuGt20Mhz} ltf=max${phy.maxSupportedEhtLtf}/extra=${phy.extraEhtLtfSupported} padding=${empty(phy.commonNominalPacketPadding, "<unknown>")}",
-            "phy beamformee_ss 80=${phy.beamformeeSs80Mhz} 160=${phy.beamformeeSs160Mhz} 320=${phy.beamformeeSs320Mhz}",
-            "phy sounding 80=${phy.soundingDimensions80Mhz} 160=${phy.soundingDimensions160Mhz} 320=${phy.soundingDimensions320Mhz}",
-            "phy mu_mimo=${joined(muMimo)} mu_bf=${joined(muBeamformer)}",
-            "phy mcs15=${joined(mcs15)} qam=${joined(qam)}",
+            "phy caps" to "320mhz=${phy.supports320MhzIn6Ghz} ru_gt20=${phy.supports242ToneRuGt20Mhz} ltf=max${phy.maxSupportedEhtLtf}/extra=${phy.extraEhtLtfSupported} padding=${empty(phy.commonNominalPacketPadding, "<unknown>")}",
+            "phy beamformee_ss" to "80=${phy.beamformeeSs80Mhz} 160=${phy.beamformeeSs160Mhz} 320=${phy.beamformeeSs320Mhz}",
+            "phy sounding" to "80=${phy.soundingDimensions80Mhz} 160=${phy.soundingDimensions160Mhz} 320=${phy.soundingDimensions320Mhz}",
+            "phy multi-user" to "mu_mimo=${joined(muMimo)} mu_bf=${joined(muBeamformer)}",
+            "phy modulation" to "mcs15=${joined(mcs15)} qam=${joined(qam)}",
         )
     }
 
-    private fun ehtOperationSummaryLines(value: WifiEhtOperation): List<String> = buildList {
-        add("oper op_info=${value.operationInformationPresent} width=${empty(value.channelWidth, "<unknown>")} width_mhz=${value.channelWidthMhz} code=${value.channelWidthCode}")
-        add("oper ccfs0=${value.centerFreqSegment0} ccfs1=${value.centerFreqSegment1} mcs15_disabled=${value.mcs15Disabled} group_bu_exp=${value.groupAddressedBuIndicationExponent}")
+    private fun ehtOperationSummaryLines(value: WifiEhtOperation): List<Pair<String, String>> = buildList {
+        add("oper" to "op_info=${value.operationInformationPresent} width=${empty(value.channelWidth, "<unknown>")} width_mhz=${value.channelWidthMhz} code=${value.channelWidthCode}")
+        add("oper channels" to "ccfs0=${value.centerFreqSegment0} ccfs1=${value.centerFreqSegment1} mcs15_disabled=${value.mcs15Disabled} group_bu_exp=${value.groupAddressedBuIndicationExponent}")
         addAll(wrappedListLines("oper flags", value.flagsList, "<none>"))
         if (value.disabledSubchannelBitmapPresent || value.disabledSubchannelBitmap != 0) {
-            add("oper disabled=0x${empty(value.disabledSubchannelBitmapHex, value.disabledSubchannelBitmap.toString(16))} punctured=${joined(value.disabledSubchannelIndicesList.map { it.toString() })}")
+            add("oper disabled" to "disabled=0x${empty(value.disabledSubchannelBitmapHex, value.disabledSubchannelBitmap.toString(16))} punctured=${joined(value.disabledSubchannelIndicesList.map { it.toString() })}")
         }
     }
 
-    private fun ehtPuncturingSummaryLines(he: WifiHeCapabilities?, operation: WifiEhtOperation?): List<String> {
+    private fun ehtPuncturingSummaryLines(he: WifiHeCapabilities?, operation: WifiEhtOperation?): List<Pair<String, String>> {
         return listOf(
-            "he_preamble_puncturing_rx=${hePreamblePuncturingRx(he)}",
-            "he_punctured_sounding=${hePuncturedSounding(he)}",
-            "eht_disabled_subchannel_bitmap=${ehtDisabledSubchannelBitmap(operation)}",
+            "he_preamble_puncturing_rx" to hePreamblePuncturingRx(he),
+            "he_punctured_sounding" to hePuncturedSounding(he),
+            "eht_disabled_subchannel_bitmap" to ehtDisabledSubchannelBitmap(operation),
         )
     }
 
@@ -696,7 +685,7 @@ internal object AgentWifiMloRenderer {
         return "0x$bitmap punctured=${joined(operation.disabledSubchannelIndicesList.map { it.toString() })}"
     }
 
-    private fun mcsNssLines(label: String, values: List<WifiMcsNssSupport>): List<String> {
+    private fun mcsNssLines(label: String, values: List<WifiMcsNssSupport>): List<Pair<String, String>> {
         return values
             .groupBy { Triple(it.bandwidth, it.mcsRange, it.standard) }
             .map { (key, rows) ->
@@ -704,13 +693,14 @@ internal object AgentWifiMloRenderer {
                 val tx = rows.firstOrNull { it.direction == "tx" }
                 val rxValue = rx?.maxNss?.takeIf { it > 0 } ?: rx?.nss ?: 0
                 val txValue = tx?.maxNss?.takeIf { it > 0 } ?: tx?.nss ?: 0
-                "$label ${key.third}/${key.first}/${key.second} rx=nss$rxValue tx=nss$txValue"
+                "$label ${key.third}/${key.first}/${key.second}" to "rx=nss$rxValue tx=nss$txValue"
             }
     }
 
-    private fun renderScanLinks(out: MutableList<String>, groups: List<MloGroup>, current: WifiConnection?) {
+    private fun renderScanLinks(out: MutableList<AgentBlockPart>, groups: List<MloGroup>, current: WifiConnection?) {
         if (groups.isEmpty()) return
         section(out, "EHT Scan Links")
+        kv(out, "Marks" to "*=connected BSSID ~=same MLD -=other observed MLO link; +=EHT only in scan AP headings")
         groups.forEach { group ->
             group.results.forEach { result ->
                 renderScanLinkBlock(out, group, result, current)
@@ -720,71 +710,56 @@ internal object AgentWifiMloRenderer {
     }
 
     private fun renderScanLinkBlock(
-        out: MutableList<String>,
+        out: MutableList<AgentBlockPart>,
         group: MloGroup,
         result: WifiScanResult,
         current: WifiConnection?,
     ) {
-        blockGap(out)
         blockTitle(out, resultMark(group, result, current), empty(result.ssid, "<hidden>"))
-        out += "  type=ap ap_mld=${group.displayMld} link=${scanLinkID(result)} bssid=${empty(result.bssid, "<unknown>")}"
-        out += "  band=${empty(result.band, wifiBandFromFrequency(result.frequencyMhz))} ch=${wifiChannelFromFrequency(result.frequencyMhz)} freq=${result.frequencyMhz}MHz width=${empty(formatWifiChannelWidth(result.channelWidth), "<unknown>")}${scanEhtOperationSuffix(result)} rssi=${result.rssiDbm}dBm"
-        out += "  ${wifiMloInformationElementChecklist(result)}"
-        out += "  ${wifiMloScanSdkFlags(result)}"
+        kv(out, "Identity" to "type=ap ap_mld=${group.displayMld} link=${scanLinkID(result)} bssid=${empty(result.bssid, "<unknown>")}",
+            "Radio" to "band=${empty(result.band, wifiBandFromFrequency(result.frequencyMhz))} ch=${wifiChannelFromFrequency(result.frequencyMhz)} freq=${result.frequencyMhz}MHz width=${empty(formatWifiChannelWidth(result.channelWidth), "<unknown>")}${scanEhtOperationSuffix(result)} rssi=${result.rssiDbm}dBm",
+            "Information elements" to wifiMloInformationElementChecklist(result), "SDK flags" to wifiMloScanSdkFlags(result))
     }
 
     private fun renderAffiliatedLinkBlocks(
-        out: MutableList<String>,
+        out: MutableList<AgentBlockPart>,
         group: MloGroup,
         result: WifiScanResult,
         current: WifiConnection?,
     ) {
         if (result.affiliatedMloLinksCount == 0) return
-        out += "  affiliated_links"
+        out += AgentBlockPart.Text("  affiliated_links", section = true)
         result.affiliatedMloLinksList.forEach { link ->
             renderAffiliatedLinkBlock(out, group, result, link, current)
         }
     }
 
     private fun renderAffiliatedLinkBlock(
-        out: MutableList<String>,
+        out: MutableList<AgentBlockPart>,
         group: MloGroup,
         result: WifiScanResult,
         link: MloLinkInfo,
         current: WifiConnection?,
     ) {
-        out += "    [${blockMarker(linkMark(group, link, current))}] type=aff link=${link.linkId} ap_mac=${empty(link.apMacAddress, "<unknown>")}"
-        out += "      band=${empty(link.band, "<unknown>")} ch=${link.channel} state=${empty(link.state, "<unknown>")} rssi=${link.rssiDbm}dBm tx=${link.txLinkSpeedMbps} rx=${link.rxLinkSpeedMbps} max_tx=${link.maxSupportedTxLinkSpeedMbps} max_rx=${link.maxSupportedRxLinkSpeedMbps} parent_bssid=${empty(result.bssid, "<unknown>")}"
+        out += AgentBlockPart.Text("    [${blockMarker(linkMark(group, link, current))}] affiliated link", section = true)
+        out += AgentBlockPart.Field("      Identity", "type=aff link=${link.linkId} ap_mac=${empty(link.apMacAddress, "<unknown>")}")
+        out += AgentBlockPart.Field("      Radio", "band=${empty(link.band, "<unknown>")} ch=${link.channel} state=${empty(link.state, "<unknown>")} rssi=${link.rssiDbm}dBm tx=${link.txLinkSpeedMbps} rx=${link.rxLinkSpeedMbps} max_tx=${link.maxSupportedTxLinkSpeedMbps} max_rx=${link.maxSupportedRxLinkSpeedMbps} parent_bssid=${empty(result.bssid, "<unknown>")}")
     }
 
-    private fun blockTitle(out: MutableList<String>, mark: String, label: String) {
-        out += "[${blockMarker(mark)}] $label"
+    private fun blockTitle(out: MutableList<AgentBlockPart>, mark: String, label: String) {
+        out += AgentBlockPart.Text("[${blockMarker(mark)}] $label", section = true)
     }
 
     private fun blockMarker(mark: String): String {
         return mark.ifBlank { " " }
     }
 
-    private fun blockGap(out: MutableList<String>) {
-        if (out.isNotEmpty() && out.last().isNotBlank() && out.last() != "EHT Scan Links") {
-            out += ""
-        }
-    }
 
     private fun briefCell(value: String): String {
         return when (value.trim()) {
             "", "<unknown>", "<none>" -> "?"
             else -> value
         }
-    }
-
-    private fun briefMarker(mark: String): String {
-        return "[${blockMarker(mark)}]"
-    }
-
-    private fun briefNodeLabel(index: Int, total: Int, mark: String, linkId: String): String {
-        val branch = if (index == total - 1) "`--" else "|--"
-        return "$branch ${briefMarker(mark)} ${if (linkId.isBlank()) "?" else linkId}"
     }
 
     private fun briefLinkID(link: MloLinkInfo): String {
@@ -841,21 +816,10 @@ internal object AgentWifiMloRenderer {
         return "$width/$puncturing"
     }
 
-    private fun renderBriefNearbyMloGroupTable(out: MutableList<String>, group: MloGroup, current: WifiConnection?) {
-        out += "  ${joined(group.results.map { empty(it.ssid, "<hidden>") })}"
-        out += "    mld  ${briefCell(group.displayMld)}"
-        tableWithColumns(out,
-            listOf(
-                TableColumn("M"),
-                TableColumn("L"),
-                TableColumn("RSSI"),
-                TableColumn("B"),
-                TableColumn("FL"),
-                TableColumn("ST"),
-                TableColumn("SEC"),
-                TableColumn("EHT"),
-                TableColumn("MAC"),
-            ),
+    private fun renderBriefNearbyMloGroupTable(out: MutableList<AgentBlockPart>, group: MloGroup, current: WifiConnection?) {
+        kv(out, "SSID" to joined(group.results.map { empty(it.ssid, "<hidden>") }), "MLD" to briefCell(group.displayMld))
+        table(out,
+            listOf("M", "L", "RSSI", "B", "FL", "ST", "SEC", "EHT", "MAC"),
             briefLinkRows(group, current).map { link ->
                 listOf(
                     link.mark.ifBlank { " " },
@@ -967,10 +931,10 @@ internal object AgentWifiMloRenderer {
         )
     }
 
-    private fun renderCurrentRelation(out: MutableList<String>, current: WifiConnection?, scan: WifiScan, candidates: List<WifiScanResult>) {
+    private fun renderCurrentRelation(out: MutableList<AgentBlockPart>, current: WifiConnection?, scan: WifiScan, candidates: List<WifiScanResult>) {
         section(out, "Current AP Relation")
         if (current == null) {
-            out += "  no active Wi-Fi connection"
+            kv(out, "Observation" to "no active Wi-Fi connection")
             return
         }
         val sameMldResults = candidates.filter { sameMld(current, it) }
@@ -992,7 +956,7 @@ internal object AgentWifiMloRenderer {
     }
 
     private fun renderDiagnostics(
-        out: MutableList<String>,
+        out: MutableList<AgentBlockPart>,
         status: WifiStatus,
         scan: WifiScan,
         current: WifiConnection?,
@@ -1054,9 +1018,9 @@ internal object AgentWifiMloRenderer {
 
         section(out, "Diagnostics / Warnings")
         if (warnings.isEmpty()) {
-            out += "  none"
+            kv(out, "Warnings" to "none")
         } else {
-            warnings.distinct().forEach { out += "  $it" }
+            warnings.distinct().forEach { kv(out, "Warning" to it) }
         }
     }
 
@@ -1076,7 +1040,7 @@ internal object AgentWifiMloRenderer {
         }
     }
 
-    private fun renderMloLinks(out: MutableList<String>, title: String, links: List<MloLinkInfo>) {
+    private fun renderMloLinks(out: MutableList<AgentBlockPart>, title: String, links: List<MloLinkInfo>) {
         if (links.isEmpty()) return
         section(out, title)
         table(out,
@@ -1157,7 +1121,7 @@ internal object AgentWifiMloRenderer {
         if (current == null) return if (result.hasMloScanMetadata()) "-" else ""
         return when {
             AgentObservationPresentation.available(current.observationFieldsList, "identity") && bssidEquals(result.bssid, current.bssid) -> "*"
-            group.results.any { sameMld(current, it) } -> "+"
+            group.results.any { sameMld(current, it) } -> "~"
             result.hasMloScanMetadata() -> "-"
             else -> ""
         }
@@ -1167,7 +1131,7 @@ internal object AgentWifiMloRenderer {
         if (current == null) return "-"
         return when {
             AgentObservationPresentation.available(current.observationFieldsList, "identity") && bssidEquals(link.apMacAddress, current.bssid) -> "*"
-            group.results.any { sameMld(current, it) } -> "+"
+            group.results.any { sameMld(current, it) } -> "~"
             else -> "-"
         }
     }
@@ -1303,49 +1267,50 @@ internal object AgentWifiMloRenderer {
     private fun bssColoringSummaryLines(
         operation: WifiHeOperation?,
         spatialReuse: WifiHeSpatialReuseParameterSet?,
-    ): List<String> = buildList {
+    ): List<Pair<String, String>> = buildList {
         operation?.let { oper ->
-            add("he_operation bss_color=${oper.bssColor} disabled=${oper.bssColorDisabled} partial=${oper.flagsList.contains("partial_bss_color")}")
-            if (oper.warningsCount > 0) add("he_operation_warnings ${oper.warningsList.joinToString(",")}")
+            add("he_operation" to "bss_color=${oper.bssColor} disabled=${oper.bssColorDisabled} partial=${oper.flagsList.contains("partial_bss_color")}")
+            if (oper.warningsCount > 0) add("he_operation_warnings" to oper.warningsList.joinToString(","))
         }
         spatialReuse?.let { sr ->
-            add("spatial_reuse control=0x${sr.srControl.toString(16)} flags=${joined(sr.flagsList)}")
-            if (sr.nonSrgObssPdMaxOffset != 0) add("non_srg_obss_pd_max_offset=${sr.nonSrgObssPdMaxOffset}")
+            add("spatial_reuse" to "control=0x${sr.srControl.toString(16)} flags=${joined(sr.flagsList)}")
+            if (sr.nonSrgObssPdMaxOffset != 0) add("non_srg_obss_pd_max_offset" to sr.nonSrgObssPdMaxOffset.toString())
             if (sr.srgObssPdMinOffset != 0 || sr.srgObssPdMaxOffset != 0) {
-                add("srg_obss_pd=${sr.srgObssPdMinOffset}/${sr.srgObssPdMaxOffset}")
+                add("srg_obss_pd" to "${sr.srgObssPdMinOffset}/${sr.srgObssPdMaxOffset}")
             }
-            if (sr.srgBssColorBitmapHex.isNotBlank()) add("srg_bss_color_bitmap=0x${sr.srgBssColorBitmapHex}")
-            if (sr.srgPartialBssidBitmapHex.isNotBlank()) add("srg_partial_bssid_bitmap=0x${sr.srgPartialBssidBitmapHex}")
-            if (sr.truncated) add("spatial_reuse_truncated=true")
-            if (sr.warningsCount > 0) add("spatial_reuse_warnings ${sr.warningsList.joinToString(",")}")
+            if (sr.srgBssColorBitmapHex.isNotBlank()) add("srg_bss_color_bitmap" to "0x${sr.srgBssColorBitmapHex}")
+            if (sr.srgPartialBssidBitmapHex.isNotBlank()) add("srg_partial_bssid_bitmap" to "0x${sr.srgPartialBssidBitmapHex}")
+            if (sr.truncated) add("spatial_reuse_truncated" to "true")
+            if (sr.warningsCount > 0) add("spatial_reuse_warnings" to sr.warningsList.joinToString(","))
         }
     }
 
-    private fun section(out: MutableList<String>, title: String) {
-        if (out.isNotEmpty() && out.last().isNotBlank()) out += ""
-        out += title
+    private fun section(out: MutableList<AgentBlockPart>, title: String) {
+        out += AgentBlockPart.Text(title, section = true)
     }
 
-    private fun kv(out: MutableList<String>, vararg rows: Pair<String, String>) {
+    private fun kv(out: MutableList<AgentBlockPart>, vararg rows: Pair<String, String>) {
         kv(out, rows.toList())
     }
 
-    private fun kv(out: MutableList<String>, rows: List<Pair<String, String>>) {
-        val filtered = rows.filter { it.first.isNotBlank() && it.second.isNotBlank() }
-        val width = filtered.maxOfOrNull { it.first.length } ?: 0
-        filtered.forEach { (key, value) ->
-            out += "  ${key.padEnd(width)}  $value"
-        }
+    private fun kv(out: MutableList<AgentBlockPart>, rows: List<Pair<String, String>>) {
+        rows.filter { it.first.isNotBlank() && it.second.isNotBlank() }.forEach { (key, value) -> out += AgentBlockPart.Field(key, value, indent = 2) }
     }
 
-    private fun table(out: MutableList<String>, headers: List<String>, rows: List<List<String>>) {
-        tableWithColumns(out, headers.map { TableColumn(it) }, rows)
+    private fun detail(out: MutableList<AgentBlockPart>, rows: List<Pair<String, String>>) {
+        rows.forEach { (key, value) -> out += AgentBlockPart.Field("    $key", value) }
     }
 
-    private fun tableWithColumns(out: MutableList<String>, columns: List<TableColumn>, rows: List<List<String>>) {
-        rows.forEach { row ->
-            columns.forEachIndexed { index, column -> out += "${column.header}: ${AgentSafePresentation.cell(row.getOrElse(index) { "?" })}" }
-        }
+    private fun table(out: MutableList<AgentBlockPart>, headers: List<String>, rows: List<List<String>>) {
+        if (rows.isNotEmpty()) out += AgentBlockPart.Table(headers.map { AgentBlockPart.Column(it) }, rows)
+    }
+
+    private operator fun MutableList<AgentBlockPart>.plusAssign(text: String) {
+        add(AgentBlockPart.Text(text))
+    }
+
+    private operator fun MutableList<AgentBlockPart>.plusAssign(lines: List<String>) {
+        lines.forEach { add(AgentBlockPart.Text(it)) }
     }
 
     private fun joined(values: Iterable<String>, emptyValue: String = "<none>"): String {
@@ -1362,23 +1327,8 @@ internal object AgentWifiMloRenderer {
             .any { lower.contains(it) }
     }
 
-    private fun wrappedListLines(label: String, values: Iterable<String>, emptyValue: String): List<String> {
-        val unique = values.filter { it.isNotBlank() }.distinct()
-        if (unique.isEmpty()) return listOf("$label $emptyValue")
-        val lines = mutableListOf<String>()
-        var current = ""
-        unique.forEach { value ->
-            val next = if (current.isEmpty()) value else "$current,$value"
-            if (next.length > 56 && current.isNotEmpty()) {
-                lines += "$label $current"
-                current = value
-            } else {
-                current = next
-            }
-        }
-        if (current.isNotEmpty()) lines += "$label $current"
-        return lines
-    }
+    private fun wrappedListLines(label: String, values: Iterable<String>, emptyValue: String): List<Pair<String, String>> =
+        listOf(label to joined(values, emptyValue))
 
     private fun empty(value: String, fallback: String): String = value.ifBlank { fallback }
 
@@ -1440,11 +1390,11 @@ internal object AgentWifiMloRenderer {
         val hasScan: Boolean = false,
     )
 
-    private data class MloFilter(val ssid: String = "", val bssid: String = "") {
-        val active: Boolean = ssid.isNotBlank() || bssid.isNotBlank()
+    internal data class MloFilter(val ssid: String = "", val bssid: String = "") {
+        val active: Boolean = ssid.isNotEmpty() || bssid.isNotEmpty()
         val label: String = when {
-            ssid.isNotBlank() -> "ssid=$ssid"
-            bssid.isNotBlank() -> "bssid=$bssid"
+            ssid.isNotEmpty() -> "ssid=$ssid"
+            bssid.isNotEmpty() -> "bssid=$bssid"
             else -> ""
         }
 
@@ -1459,8 +1409,8 @@ internal object AgentWifiMloRenderer {
         }
 
         private fun matches(result: WifiScanResult): Boolean {
-            if (ssid.isNotBlank()) return result.ssid == ssid
-            if (bssid.isNotBlank()) {
+            if (ssid.isNotEmpty()) return result.ssid == ssid
+            if (bssid.isNotEmpty()) {
                 return result.bssid.equals(bssid, ignoreCase = true) ||
                     result.affiliatedMloLinksList.any { it.apMacAddress.equals(bssid, ignoreCase = true) }
             }
@@ -1468,8 +1418,8 @@ internal object AgentWifiMloRenderer {
         }
 
         private fun matches(conn: WifiConnection): Boolean {
-            if (ssid.isNotBlank()) return conn.ssid == ssid
-            if (bssid.isNotBlank()) {
+            if (ssid.isNotEmpty()) return conn.ssid == ssid
+            if (bssid.isNotEmpty()) {
                 return conn.bssid.equals(bssid, ignoreCase = true) ||
                     conn.associatedMloLinksList.any { it.apMacAddress.equals(bssid, ignoreCase = true) } ||
                     conn.affiliatedMloLinksList.any { it.apMacAddress.equals(bssid, ignoreCase = true) }
@@ -1477,6 +1427,4 @@ internal object AgentWifiMloRenderer {
             return true
         }
     }
-
-    private data class TableColumn(val header: String)
 }

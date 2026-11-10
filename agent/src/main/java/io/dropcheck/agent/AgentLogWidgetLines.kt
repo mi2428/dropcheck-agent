@@ -1,40 +1,33 @@
 package io.dropcheck.agent
 
 import android.content.Context
+import java.io.IOException
+import java.io.InterruptedIOException
 
-/** Loads enough terminal log rows for the fixed-size log widget to clip to its bounds. */
+/** Bound the complete RemoteViews text payload, not the retained history on disk. */
 internal object AgentLogWidgetLines {
-    private const val MAX_WIDGET_TAIL_LINES = 240
-    private const val MAX_WIDGET_DISPLAY_CHARS = 80_000
+    const val MAX_LINES = 80
+    const val MAX_DISPLAY_CHARS = 32_768
 
-    fun load(context: Context): List<WidgetLogLine> {
-        return fromTail(TerminalLog.tail(context, MAX_WIDGET_TAIL_LINES))
+    fun load(context: Context): List<String> {
+        val lines = try { TerminalLog.page(context, maxLines = MAX_LINES).entries.map { it.text } }
+        catch (error: InterruptedIOException) { throw error }
+        catch (error: IOException) { return listOf("WARN ${context.getString(R.string.log_history_unavailable, error.javaClass.simpleName)}") }
+        catch (error: SecurityException) { return listOf("WARN ${context.getString(R.string.log_history_unavailable, error.javaClass.simpleName)}") }
+        return fromLines(lines + listOfNotNull(TerminalLog.persistenceWarning?.let { "WARN $it" }))
     }
 
-    fun fromTail(tail: String): List<WidgetLogLine> {
-        val displayLines = ArrayDeque<WidgetLogLine>()
-        var displayChars = 0
-
-        tail.lineSequence()
-            .forEach { rawLine ->
-                val line = TerminalDisplayPolicy.boundedLine(rawLine, appendNewline = false)
-                val lineChars = TerminalDisplayPolicy.displayLength(line) + 1
-                displayLines.addLast(WidgetLogLine(id = line.hashCode().toLong(), text = line))
-                displayChars += lineChars
-
-                while (
-                    displayLines.isNotEmpty() &&
-                    (displayLines.size > MAX_WIDGET_TAIL_LINES || displayChars > MAX_WIDGET_DISPLAY_CHARS)
-                ) {
-                    displayChars -= TerminalDisplayPolicy.displayLength(displayLines.removeFirst().text) + 1
-                }
+    fun fromLines(lines: Iterable<String>): List<String> {
+        val result = ArrayDeque<String>()
+        var chars = 0
+        for (raw in lines) {
+            val line = TerminalDisplayPolicy.boundedLine(raw, appendNewline = false)
+            result.addLast(line)
+            chars += TerminalDisplayPolicy.displayLength(line) + 1
+            while (result.size > MAX_LINES || chars > MAX_DISPLAY_CHARS) {
+                chars -= TerminalDisplayPolicy.displayLength(result.removeFirst()) + 1
             }
-        return displayLines.toList()
+        }
+        return result.toList()
     }
 }
-
-/** Stable row model rendered into the fixed log widget text. */
-internal data class WidgetLogLine(
-    val id: Long,
-    val text: String,
-)

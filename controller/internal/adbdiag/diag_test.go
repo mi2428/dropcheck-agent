@@ -4,7 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"dropcheck/controller/internal/pipeline"
+	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
+	"github.com/mi2428/dropcheck-agent/controller/internal/render"
 )
 
 func TestSpecsFullIncludesRawWifiAndConnectivityCommands(t *testing.T) {
@@ -36,7 +37,7 @@ func TestRenderTextIncludesCommandOutput(t *testing.T) {
 			ExitCode:  0,
 			ElapsedMs: 12,
 		}},
-	}, pipeline.FormatText)
+	})
 	if err != nil {
 		t.Fatalf("Render(text) error = %v", err)
 	}
@@ -47,43 +48,55 @@ func TestRenderTextIncludesCommandOutput(t *testing.T) {
 	}
 }
 
+func TestBundleOutcomeAndPresentationBoundary(t *testing.T) {
+	for _, commands := range [][]CommandResult{nil, {{ExitCode: 7}}, {{TimedOut: true}}, {{Error: "denied"}}, {{}, {ExitCode: 7}}} {
+		if (Bundle{Commands: commands}).OK() {
+			t.Fatalf("failed acquisition reported success: %+v", commands)
+		}
+	}
+	bundle := Bundle{Commands: []CommandResult{{Stdout: "password=synthetic-private-value\n"}}}
+	if !bundle.OK() {
+		t.Fatal("successful acquisition rejected")
+	}
+	text, err := Render(bundle)
+	if err != nil || strings.Contains(text, "synthetic-private-value") || !strings.Contains(text, "<redacted>") {
+		t.Fatal(text, err)
+	}
+	encoded, err := pipeline.JSON(text, bundle.OK())
+	if err != nil || strings.Contains(encoded, "synthetic-private-value") || bundle.Commands[0].Stdout != "password=synthetic-private-value\n" {
+		t.Fatal("safe Shell JSON leaked credentials or modified acquisition data", err)
+	}
+}
+
 func TestParseMLOSummaryExtractsCmdWifiAndDumpsysFields(t *testing.T) {
 	text := `WifiInfo: SSID: "Lab" MLO Information: , Is TID-To-Link negotiation supported by the AP: false, AP MLD Address: 02:00:00:00:00:01, AP MLO Link Id: 2, AP MLO Affiliated links: [link_id=2], Vendor Data: <none>
 timestamp_ms=1,wifi_link_count=1,Link Stats from link_id=2,state=2,radio_id=0,frequency_mhz=5975,beacon_rx=42,rssi_mgmt=-47,rssi=-48,channel_width=3,mlo_mode=1`
 
 	summary := ParseMLOSummary(text)
 	if summary.TIDToLinkSupported != "false" ||
-		summary.APMLDAddress != "02:00:00:00:00:01" ||
-		summary.APMLOLinkID != "2" ||
 		summary.MLOMode != "1" ||
 		summary.WifiLinkCount != "1" ||
 		len(summary.LinkStats) != 1 {
 		t.Fatalf("summary = %#v", summary)
 	}
 	link := summary.LinkStats[0]
-	if link.LinkID != "2" || link.FrequencyMHz != "5975" || link.RSSI != "-48" || link.RSSIMgmt != "-47" || link.ChannelWidth != "3" {
+	if link.LinkID != "2" || link.RadioID != "0" || link.RSSIMgmt != "-47" || link.BeaconRx != "42" {
 		t.Fatalf("link = %#v", link)
 	}
 }
 
-func TestRenderMLOSummary(t *testing.T) {
-	out := RenderMLOSummary(MLOSummary{
+func TestMLOSummaryText(t *testing.T) {
+	out := render.LayoutText(MLOSummaryText(MLOSummary{
 		TIDToLinkSupported: "false",
-		APMLDAddress:       "<none>",
-		APMLOLinkID:        "<none>",
 		MLOMode:            "0",
 		WifiLinkCount:      "1",
 		LinkStats: []MLOLinkStat{{
-			LinkID:       "0",
-			State:        "2",
-			RadioID:      "0",
-			FrequencyMHz: "5220",
-			RSSI:         "-58",
-			RSSIMgmt:     "-58",
-			ChannelWidth: "0",
-			BeaconRx:     "472263",
+			LinkID:   "0",
+			RadioID:  "0",
+			RSSIMgmt: "-58",
+			BeaconRx: "472263",
 		}},
-	})
+	}, render.Presentation{}), render.Presentation{})
 	for _, want := range []string{
 		"ADB MLO Snapshot",
 		"tid_to_link",
@@ -99,12 +112,12 @@ func TestRenderMLOSummary(t *testing.T) {
 		"472263",
 	} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("RenderMLOSummary() = %q, missing %q", out, want)
+			t.Fatalf("MLOSummaryText() = %q, missing %q", out, want)
 		}
 	}
-	for _, unwanted := range []string{"source", "ap_mld", "ap_link_id", "MLO Links", "5220"} {
+	for _, unwanted := range []string{"source", "ap_mld", "ap_link_id", "MLO Links"} {
 		if strings.Contains(out, unwanted) {
-			t.Fatalf("RenderMLOSummary() = %q, included %q", out, unwanted)
+			t.Fatalf("MLOSummaryText() = %q, included %q", out, unwanted)
 		}
 	}
 }

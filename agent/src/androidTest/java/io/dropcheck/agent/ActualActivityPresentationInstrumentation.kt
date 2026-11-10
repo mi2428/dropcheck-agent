@@ -57,13 +57,15 @@ class ActualActivityPresentationInstrumentation : Instrumentation() {
             val initialParams = scroll.layoutParams
             val block = AgentPresentationBlock.create(listOf(
                 AgentBlockPart.Text("Wi-Fi scan FAILED 9000ms"),
-                AgentBlockPart.Text("Source: android  Target: self\nReason: fresh scan timed out"),
+                AgentBlockPart.Field("Source", "android"),
+                AgentBlockPart.Field("Target", "self"),
+                AgentBlockPart.Field("Reason", "fresh scan timed out"),
                 AgentBlockPart.Scan(listOf(
                     listOf("東京Ｇ e\u0301 👩\u200d🔬 Lab Case", "02:00:00:11:22:33", "-48", "6G", "37", "320", "be", "psk+sae+future_Mode"),
                     listOf("東京Ｇ e\u0301 👩\u200d🔬 Lab Case", "06:00:00:11:22:33", "-55", "5G", "36", "80", "ax", "psk+sae"),
                 )),
                 AgentBlockPart.Field("IPv6", "ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255%long-interface-name/128"),
-            ), 0)
+            ), AgentLogStyle.TEXT_COLOR)
             check(block.fullText.contains("FAILED") && block.fullText.contains("psk+sae+future_Mode"))
             check(block.fullText.contains("02:00:00:11:22:33") && block.fullText.contains("06:00:00:11:22:33"))
             check(block.fullText.none { it == '\u001b' || it == '\u200b' || it == '\t' })
@@ -102,7 +104,7 @@ class ActualActivityPresentationInstrumentation : Instrumentation() {
                         for (line in 0 until layout.lineCount) check(layout.getLineWidth(line) <= actualContent + 0.5f) { "Activity native line overflow base=$base columns=$columns line=$line" }
                         check(current.text.contains("FAILED") && current.text.contains("Reason:"))
                         val container = content.getChildAt(content.childCount - 2) as LinearLayout
-                        check(container.childCount == 2 && (container.getChildAt(1) as TextView).text == "Copy full result")
+                        check(container.childCount == 1 && current.isTextSelectable) { "result has a permanent control row or lost native text selection" }
                         val window = uiAutomation.rootInActiveWindow
                         if (window != null) {
                             val nodes = mutableListOf<String>()
@@ -112,7 +114,9 @@ class ActualActivityPresentationInstrumentation : Instrumentation() {
                                 for (child in 0 until node.childCount) node.getChild(child)?.let(::collect)
                             }
                             collect(window)
-                            check(nodes.indexOfFirst { it.contains("Wi-Fi scan FAILED") } in 0 until nodes.indexOfLast { it == "Copy full safe result" }) { "AccessibilityNode order" }
+                            val accessible = checkNotNull(nodes.lastOrNull { it.contains("Wi-Fi scan FAILED") && it.contains("Reason:") }) { "result missing from accessibility text" }
+                            check(accessible.indexOf("Wi-Fi scan FAILED") < accessible.indexOf("Reason:")) { "AccessibilityNode order" }
+                            check(nodes.none { it == "Copy full safe result" }) { "permanent copy control remains" }
                             nodeCases++
                         }
                         cases++
@@ -120,20 +124,21 @@ class ActualActivityPresentationInstrumentation : Instrumentation() {
                     }
                 }
                 // Reflow while the reader is above the newest result: retain an older block as the scroll anchor.
+                runOnMainSync { scroll.layoutParams = initialParams }
+                settle(scroll)
+                val selected = (content.getChildAt(content.childCount - 3) as LinearLayout).getChildAt(0) as TextView
                 runOnMainSync {
-                    scroll.layoutParams = initialParams
-                    scroll.scrollTo(0, content.getChildAt(content.childCount - 3).top)
-                    val old = content.getChildAt(content.childCount - 3) as LinearLayout
-                    val value = (old.getChildAt(0) as TextView).text as Spannable
+                    scroll.scrollTo(0, (content.height - scroll.height).coerceAtLeast(0) / 2)
+                    check(scroll.canScrollVertically(1)) { "history check must start away from the tail" }
+                    val value = selected.text as Spannable
                     Selection.setSelection(value, 1, 5)
                 }
-                waitForIdleSync()
-                val anchor = content.getChildAt(content.childCount - 3)
+                settle(scroll)
+                val anchor = (0 until content.childCount).map { content.getChildAt(it) }.first { it.bottom > scroll.scrollY }
                 val offset = scroll.scrollY - anchor.top
                 runOnMainSync { main.method("renderShell").invoke(main) }
-                waitForIdleSync()
-                val selected = (anchor as LinearLayout).getChildAt(0) as TextView
-                check(abs(scroll.scrollY - anchor.top - offset) <= 2) { "scroll anchor lost" }
+                settle(scroll)
+                check(abs(scroll.scrollY - anchor.top - offset) <= 2) { "scroll anchor lost: offset=$offset actual=${scroll.scrollY - anchor.top}" }
                 check(selected.selectionStart == 1 && selected.selectionEnd == 5) { "output selection lost" }
                 imeVisible = main.window.decorView.rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true
                 check(imeVisible == showIme) { "IME requested=$showIme visible=$imeVisible" }
@@ -141,7 +146,7 @@ class ActualActivityPresentationInstrumentation : Instrumentation() {
                 runOnMainSync { main.window.insetsController?.hide(WindowInsets.Type.ime()); scroll.layoutParams = initialParams }
             }
             check(cases > 0) { "No Activity width fits the device" }
-            result.putString("stream", "PASS: attached MainActivity native layout cases=$cases widths=$widths; AccessibilityNode cases=$nodeCases (remaining NOT MEASURED); fontScale=${main.resources.configuration.fontScale}; orientation=${main.resources.configuration.orientation}; IME requested=$showIme visible=$imeVisible; anchor/selection/input/copy source checked; clipboard=$clipboard; probe invocations=0 (synthetic, no command dispatch). TalkBack service and human readability NOT measured.\n")
+            result.putString("stream", "PASS: attached MainActivity native layout cases=$cases widths=$widths; AccessibilityNode cases=$nodeCases (remaining NOT MEASURED); fontScale=${main.resources.configuration.fontScale}; orientation=${main.resources.configuration.orientation}; IME requested=$showIme visible=$imeVisible; anchor/selection/input/native text selection checked; no permanent result controls; clipboard=$clipboard; probe invocations=0 (synthetic, no command dispatch). TalkBack service and human readability NOT measured.\n")
             finish(Activity.RESULT_OK, result)
         } catch (failure: Throwable) {
             result.putString("stream", "FAIL: ${failure.javaClass.simpleName}: ${failure.message}; completed=$cases; clipboard=$clipboard\n")
@@ -149,6 +154,25 @@ class ActualActivityPresentationInstrumentation : Instrumentation() {
         } finally {
             activity?.let { runOnMainSync { it.setShowWhenLocked(false); it.finish() } }
         }
+    }
+
+    private fun settle(scroll: ScrollView) {
+        var previous: List<Int>? = null
+        var stable = 0
+        repeat(80) {
+            var sample = emptyList<Int>()
+            var laidOut = false
+            runOnMainSync {
+                val content = scroll.getChildAt(0)
+                sample = listOf(scroll.width, scroll.height, content.height, scroll.scrollY)
+                laidOut = scroll.width > 0 && !scroll.isLayoutRequested && !content.isLayoutRequested
+            }
+            stable = if (laidOut && sample == previous) stable + 1 else 0
+            if (stable >= 3) return
+            previous = sample
+            Thread.sleep(50)
+        }
+        error("Activity output layout did not settle")
     }
 
     @Suppress("UNCHECKED_CAST")

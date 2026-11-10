@@ -5,7 +5,7 @@ import (
 	"io"
 	"time"
 
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
 // Session implements the bidirectional gRPC stream used by Android agents.
@@ -48,7 +48,6 @@ func (s *Server) Session(stream controlpb.DropcheckControl_SessionServer) error 
 		done:      make(chan struct{}),
 	}
 	info := AgentInfo{ID: agentID, SessionID: sessionID, Hello: hello, Connected: time.Now()}
-	conn.lastSeen = info.Connected
 
 	s.mu.Lock()
 	if previous := s.conns[agentID]; previous != nil {
@@ -62,7 +61,7 @@ func (s *Server) Session(stream controlpb.DropcheckControl_SessionServer) error 
 	s.mu.Unlock()
 
 	select {
-	case s.ready <- info:
+	case s.ready <- struct{}{}:
 	default:
 		// Readiness is advisory. If the buffer is full, WaitAgents will still
 		// observe the agent through the protected infos map on its next loop.
@@ -109,7 +108,7 @@ func (s *Server) Session(stream controlpb.DropcheckControl_SessionServer) error 
 			delete(s.infos, conn.id)
 		}
 		// Every in-flight command for this stream must be completed exactly once.
-		// Without this, callers waiting in Run could block until their context
+		// Without this, callers waiting in RunPinned could block until their context
 		// deadline even though the transport has already ended.
 		for id, waiter := range s.waiters {
 			if waiter.conn != conn {
@@ -150,14 +149,6 @@ func (s *Server) Session(stream controlpb.DropcheckControl_SessionServer) error 
 }
 
 func (s *Server) handleAgentFrame(conn *agentConn, frame *controlpb.AgentFrame) {
-	s.mu.Lock()
-	if s.conns[conn.id] == conn {
-		conn.lastSeen = time.Now()
-		if frame.GetAccepted() != nil {
-			conn.lastAccepted = conn.lastSeen
-		}
-	}
-	s.mu.Unlock()
 	switch body := frame.Body.(type) {
 	case *controlpb.AgentFrame_Log:
 		if s.onLog != nil {

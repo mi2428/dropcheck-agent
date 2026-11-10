@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package dropcheck.v1;
 
-option go_package = "dropcheck/controller/internal/controlpb;controlpb";
+option go_package = "github.com/mi2428/dropcheck-agent/controller/internal/controlpb;controlpb";
 option java_multiple_files = true;
 option java_package = "io.dropcheck.agent.grpc";
 
@@ -121,6 +121,9 @@ message RunCommand {
     Wget wget = 30;
     PathMtu path_mtu = 31;
     GlobalIp global_ip = 32;
+    GetNetworks get_networks = 44;
+    GetNetwork get_network = 45;
+    GetPermissions get_permissions = 46;
   }
 }
 
@@ -167,7 +170,12 @@ message ConnectWifi {
 message DisconnectWifi {}
 
 message ForgetWifi {
+  // Legacy one-shot/RPC target. Never combine with an explicit selector.
   string target = 1;
+  oneof selector {
+    string ssid = 2;
+    int32 config_id = 3;
+  }
 }
 
 message WaitWifiConnected {
@@ -339,6 +347,8 @@ message CommandResult {
     WgetResult wget = 26;
     PathMtuResult path_mtu = 27;
     GlobalIpResult global_ip = 28;
+    NetworkSnapshot network_snapshot = 36;
+    PermissionSnapshot permission_snapshot = 37;
   }
 }
 
@@ -461,6 +471,16 @@ message WifiScan {
   repeated DiagnosticField fields = 1;
   repeated WifiScanResult results = 2;
   repeated string errors = 3;
+  WifiScanConnections connections = 4;
+}
+
+// Physical Wi-Fi associations observed after reading scan results. Not an atomic snapshot.
+message WifiScanConnections {
+  int64 observed_at_unix_ms = 1;
+  repeated string bssids = 2;
+  // True with no BSSIDs means observed disconnected; false means incomplete evidence.
+  bool complete = 3;
+  repeated string errors = 4;
 }
 
 message WifiScanResult {
@@ -907,6 +927,7 @@ message WifiScanDetail {
   repeated DiagnosticField fields = 2;
   repeated WifiScanResult results = 3;
   repeated string errors = 4;
+  WifiScanConnections connections = 5;
 }
 
 message WifiCycleStep {
@@ -1047,4 +1068,26 @@ message HttpCheckResult {
   bool matched = 4;
   int64 elapsed_ms = 5;
   string error = 6;
+}
+
+message GetNetworks {}
+
+// Exactly one of default_network=true or a canonical positive network_id is required.
+message GetNetwork {
+  string network_id = 1;
+  bool default_network = 2;
+}
+
+message GetPermissions {}
+
+message NetworkSnapshot {
+  repeated NetworkDiagnostics networks = 1;
+  int64 observed_at_unix_ms = 2;
+  repeated string errors = 3;
+}
+
+message PermissionSnapshot {
+  repeated DiagnosticField permissions = 1;
+  bool device_owner = 2;
+  int64 observed_at_unix_ms = 3;
 }

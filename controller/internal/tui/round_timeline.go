@@ -2,11 +2,10 @@ package tui
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	watch "dropcheck/controller/internal/harness"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 )
 
 func (m model) roundTimelineView(width int, height int) string {
@@ -15,7 +14,7 @@ func (m model) roundTimelineView(width int, height int) string {
 	}
 	events := m.outcomeEvents()
 	startRound, endRound := m.roundTimelineRoundSpan(width)
-	ok, failed := outcomeCounts(roundTimelineEventsInSpan(events, startRound, endRound))
+	ok, failed := roundTimelineOutcomeCounts(events, startRound, endRound)
 	lines := []string{m.roundTimelineHeaderView(width, startRound, endRound, ok, failed)}
 	if height == 1 {
 		return lines[0]
@@ -135,7 +134,7 @@ func roundTimelineGrid(width int, targetCount int) roundTimelineGridLayout {
 	return roundTimelineGridLayout{Columns: intMax(1, columns), Rows: rows}
 }
 
-func (m model) roundTimelineTargetRow(targets []watch.TargetSnapshot, width int, grid roundTimelineGridLayout, row int) string {
+func (m model) roundTimelineTargetRow(targets []tuirun.TargetSnapshot, width int, grid roundTimelineGridLayout, row int) string {
 	if width <= 0 {
 		return ""
 	}
@@ -195,7 +194,7 @@ func roundTimelineTileWidths(width int, columns int) []int {
 	return widths
 }
 
-func roundTimelineColumnLabelWidths(targets []watch.TargetSnapshot, tileWidths []int, rows int) []int {
+func roundTimelineColumnLabelWidths(targets []tuirun.TargetSnapshot, tileWidths []int, rows int) []int {
 	widths := make([]int, len(tileWidths))
 	rows = intMax(1, rows)
 	for column, tileWidth := range tileWidths {
@@ -213,7 +212,7 @@ func roundTimelineColumnLabelWidths(targets []watch.TargetSnapshot, tileWidths [
 	return widths
 }
 
-func (m model) roundTimelineTargetTile(target watch.TargetSnapshot, width int, labelWidth int) string {
+func (m model) roundTimelineTargetTile(target tuirun.TargetSnapshot, width int, labelWidth int) string {
 	if width <= 0 {
 		return ""
 	}
@@ -263,11 +262,11 @@ func roundTimelineMinTileWidth() int {
 	return roundTimelineTargetLabelRunes + 1 + roundTimelineMinVisibleRounds
 }
 
-func roundTimelineTargetLabel(target watch.TargetSnapshot, width int) string {
+func roundTimelineTargetLabel(target tuirun.TargetSnapshot, width int) string {
 	return fitANSI(checkStatusTargetLabel(target), width)
 }
 
-func (m model) targetRoundHistory(target watch.TargetSnapshot, width int) ([]targetRoundBucket, int, int) {
+func (m model) targetRoundHistory(target tuirun.TargetSnapshot, width int) ([]targetRoundBucket, int, int) {
 	width = intMax(1, width)
 	buckets := make([]targetRoundBucket, width)
 	connectFailedAgents := make([]map[string]bool, width)
@@ -285,7 +284,7 @@ func (m model) targetRoundHistory(target watch.TargetSnapshot, width int) ([]tar
 	peak := 0
 	targetKey := checkStatusTargetKey(target)
 	expectedAgents := m.expectedRoundAgentCount(target)
-	markConnectFailed := func(index int, agent watch.AgentSnapshot) {
+	markConnectFailed := func(index int, agent tuirun.AgentSnapshot) {
 		if connectFailedAgents[index] == nil {
 			connectFailedAgents[index] = map[string]bool{}
 		}
@@ -330,21 +329,25 @@ func (m model) targetRoundHistory(target watch.TargetSnapshot, width int) ([]tar
 	return buckets, total, peak
 }
 
-func roundTimelineEventsInSpan(events []outcomeEvent, startRound uint64, endRound uint64) []outcomeEvent {
+func roundTimelineOutcomeCounts(events []outcomeEvent, startRound uint64, endRound uint64) (ok, failed int) {
 	if startRound == 0 || endRound == 0 {
-		return nil
+		return 0, 0
 	}
-	filtered := make([]outcomeEvent, 0, len(events))
 	for _, event := range events {
 		if event.Round < startRound || event.Round > endRound {
 			continue
 		}
-		filtered = append(filtered, event)
+		switch event.Status {
+		case "ok":
+			ok++
+		case "failed":
+			failed++
+		}
 	}
-	return filtered
+	return ok, failed
 }
 
-func (m model) expectedRoundAgentCount(target watch.TargetSnapshot) int {
+func (m model) expectedRoundAgentCount(target tuirun.TargetSnapshot) int {
 	targetKey := checkStatusTargetKey(target)
 	seenForTarget := map[string]bool{}
 	for _, state := range m.Targets {
@@ -371,7 +374,7 @@ func (m model) expectedRoundAgentCount(target watch.TargetSnapshot) int {
 	return intMax(1, len(seen))
 }
 
-func roundAgentKey(agent watch.AgentSnapshot) string {
+func roundAgentKey(agent tuirun.AgentSnapshot) string {
 	if key := agentKey(agent); key != "" {
 		return key
 	}
@@ -436,29 +439,6 @@ type roundProgressCounts struct {
 	Total   int
 }
 
-func (m model) roundProgressView(width int) string {
-	counts := m.roundProgressCounts()
-	done := counts.OK + counts.Failed + counts.Skipped
-	percent := 0
-	if counts.Total > 0 {
-		percent = done * 100 / counts.Total
-	}
-	prefixPlain := fmt.Sprintf("round=%d progress=", m.Round)
-	suffixPlain := fmt.Sprintf(" %3d%% (%d/%d) run=%d fail=%d", percent, done, counts.Total, counts.Running, counts.Failed)
-	lineWidth := width - runeLen(prefixPlain) - runeLen(suffixPlain)
-	if lineWidth < 4 {
-		line := prefixPlain + strings.TrimSpace(suffixPlain)
-		return valueStyle.Render(fit(line, width))
-	}
-	lineWidth = clamp(lineWidth, 4, 48)
-	line := keyStyle.Render("round=") +
-		valueStyle.Render(fmt.Sprint(m.Round)) +
-		keyStyle.Render(" progress=") +
-		renderRoundProgressLine(counts, lineWidth) +
-		valueStyle.Render(suffixPlain)
-	return fitANSI(line, width)
-}
-
 func (m model) roundProgressCounts() roundProgressCounts {
 	counts := roundProgressCounts{Total: len(m.Targets)}
 	for _, target := range m.Targets {
@@ -476,50 +456,4 @@ func (m model) roundProgressCounts() roundProgressCounts {
 		}
 	}
 	return counts
-}
-
-func renderRoundProgressLine(counts roundProgressCounts, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	if counts.Total <= 0 {
-		return dimStyle.Render(strings.Repeat("-", width))
-	}
-	widths := proportionalWidths([]int{counts.OK, counts.Failed, counts.Skipped, counts.Running, counts.Pending}, counts.Total, width)
-	var b strings.Builder
-	b.WriteString(okGraphStyle.Render(strings.Repeat("-", widths[0])))
-	b.WriteString(failGraphStyle.Render(strings.Repeat("-", widths[1])))
-	b.WriteString(dimStyle.Render(strings.Repeat("-", widths[2])))
-	b.WriteString(warnStyle.Render(strings.Repeat("-", widths[3])))
-	b.WriteString(dimStyle.Render(strings.Repeat("-", widths[4])))
-	return b.String()
-}
-
-func proportionalWidths(counts []int, total int, width int) []int {
-	widths := make([]int, len(counts))
-	if total <= 0 || width <= 0 {
-		return widths
-	}
-	type remainder struct {
-		Index int
-		Value int
-	}
-	remainders := make([]remainder, 0, len(counts))
-	used := 0
-	for i, count := range counts {
-		if count <= 0 {
-			continue
-		}
-		scaled := count * width
-		widths[i] = scaled / total
-		used += widths[i]
-		remainders = append(remainders, remainder{Index: i, Value: scaled % total})
-	}
-	sort.SliceStable(remainders, func(i, j int) bool {
-		return remainders[i].Value > remainders[j].Value
-	})
-	for remaining, i := width-used, 0; remaining > 0 && len(remainders) > 0; remaining, i = remaining-1, i+1 {
-		widths[remainders[i%len(remainders)].Index]++
-	}
-	return widths
 }

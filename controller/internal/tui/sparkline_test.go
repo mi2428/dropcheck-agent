@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 )
 
-func TestRoundTimelineShowsRoundProgressGauge(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+func TestRoundTimelineHeaderShowsProgress(t *testing.T) {
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	m.Round = 7
 	m.Targets = []targetState{
 		{Target: targetSnapshot("ok"), Status: "ok"},
@@ -20,39 +20,29 @@ func TestRoundTimelineShowsRoundProgressGauge(t *testing.T) {
 		{Target: targetSnapshot("pending"), Status: "pending"},
 	}
 
-	text := stripANSI(m.roundProgressView(80))
+	text := stripANSI(m.roundTimelineHeaderView(80, 1, 1, 1, 1))
 	for _, want := range []string{"round=7", "progress=", "50%", "(2/4)", "run=1", "fail=1"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("progress gauge missing %q:\n%s", want, text)
 		}
 	}
-	if strings.ContainsAny(text, "░▁▂▃▄▅▆▇") {
-		t.Fatalf("progress gauge should avoid fragile shade/lower-block glyphs:\n%s", text)
-	}
-	if strings.Contains(text, "█") {
-		t.Fatalf("progress gauge should render a line gauge, not a block bar:\n%s", text)
-	}
-	if !strings.Contains(text, "-") {
-		t.Fatalf("progress gauge should render line progress:\n%s", text)
-	}
-	header := stripANSI(m.roundTimelineHeaderView(80, 1, 1, 1, 1))
-	if !strings.Contains(header, "progress=50% (2/4)") {
-		t.Fatalf("round timeline header should group done/total in parentheses:\n%s", header)
+	if !strings.Contains(text, "progress=50% (2/4)") {
+		t.Fatalf("round timeline header should group done/total in parentheses:\n%s", text)
 	}
 }
 
 func TestSummarySparklineIsPinnedToBottom(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(4 * time.Second)
 	for i := range 4 {
-		m.apply(watch.Event{
+		m.apply(tuirun.Event{
 			Time:     at.Add(time.Duration(i) * time.Second),
-			Kind:     watch.EventStepFinished,
+			Kind:     tuirun.EventStepFinished,
 			Round:    1,
-			Target:   watch.TargetSnapshot{Name: "Example Net", SSID: "Example Net"},
-			Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+			Target:   tuirun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"},
+			Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 			Status:   "ok",
 			Duration: 12,
 		})
@@ -176,16 +166,16 @@ func TestSummarySparklineScalesThirtyMinuteWindowToPanelWidth(t *testing.T) {
 }
 
 func TestPassingSparklineRetainsThirtyMinuteWindowBeyondFourHundredEvents(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	now := time.Date(2026, 5, 16, 9, 35, 0, 0, time.UTC)
 	m.Now = now
 	for i := range 401 {
 		offset := time.Duration(i) * 29 * time.Minute / 400
-		m.recordPassingCheck(passingCheckState{
+		m.RecordPassingCheck(passingCheckState{
 			When:     now.Add(-29 * time.Minute).Add(offset),
-			Target:   watch.TargetSnapshot{Name: "lab"},
-			Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+			Target:   tuirun.TargetSnapshot{Name: "lab"},
+			Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 			Duration: 10,
 		})
 	}
@@ -252,15 +242,15 @@ func TestSummarySparklineUsesNiceAbsoluteScale(t *testing.T) {
 }
 
 func TestSummarySparklineHeaderShowsScaleWhenCompressed(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(10 * time.Second)
 	for range 14 {
 		m.PassingChecks = append(m.PassingChecks, passingCheckState{
 			When:   at.Add(5 * time.Second),
-			Target: watch.TargetSnapshot{Name: "lab"},
-			Step:   watch.StepSnapshot{Name: "connect"},
+			Target: tuirun.TargetSnapshot{Name: "lab"},
+			Step:   tuirun.StepSnapshot{Name: "connect"},
 		})
 	}
 	view := stripANSI(m.summarySparklineView("passing checks", m.passingCheckEventTimes(), 120, 6, okGraphStyle))

@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	watch "dropcheck/controller/internal/harness"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -119,6 +119,13 @@ func (m model) focusSlots() []focusSlot {
 		{Panel: focusPassingChecks},
 		{Panel: focusCheckStatus},
 	}
+	if !m.runQueuePanelsSplit() {
+		slots = append(slots, focusSlot{Panel: focusRunQueue})
+	} else {
+		for _, agent := range m.runQueueAgents() {
+			slots = append(slots, focusSlot{Panel: focusRunQueue, RunQueueAgentKey: roundAgentKey(agent)})
+		}
+	}
 	if m.failureHotspotsVisible() {
 		if !m.failureHotspotPanelsSplit() {
 			slots = append(slots, focusSlot{Panel: focusFailureHotspots})
@@ -217,9 +224,9 @@ func (m model) currentRunQueueAgentKey() string {
 	return roundAgentKey(agents[0])
 }
 
-func (m model) currentRunQueueAgent() watch.AgentSnapshot {
+func (m model) currentRunQueueAgent() tuirun.AgentSnapshot {
 	if !m.runQueuePanelsSplit() {
-		return watch.AgentSnapshot{}
+		return tuirun.AgentSnapshot{}
 	}
 	key := m.currentRunQueueAgentKey()
 	for _, agent := range m.runQueueAgents() {
@@ -227,7 +234,7 @@ func (m model) currentRunQueueAgent() watch.AgentSnapshot {
 			return agent
 		}
 	}
-	return watch.AgentSnapshot{}
+	return tuirun.AgentSnapshot{}
 }
 
 func (m *model) normalizeFocusRunQueueAgent() {
@@ -374,6 +381,9 @@ func (m *model) clearSearch() {
 }
 
 func (m *model) normalizeCursors() {
+	if m.frame == nil {
+		m.frame = &frameData{}
+	}
 	m.followPinnedSummaryCursors()
 	m.passingCheckCursor = clamp(m.passingCheckCursor, 0, intMax(0, len(m.filteredPassingCheckSummaries())-1))
 	m.failedCheckCursor = clamp(m.failedCheckCursor, 0, intMax(0, len(m.filteredFailedCheckSummaries())-1))
@@ -535,10 +545,11 @@ func (m *model) openDetailForPanel(panel focusPanel) {
 	m.detailOpen = true
 	m.detailPanel = panel
 	m.lockDetailToCursor(panel)
+	m.refreshInspector()
 }
 
 // lockDetailToCursor stores the selected summary identity instead of only the
-// row index. New events can reorder summary tables, so the modal follows the
+// row index. New events can reorder summary tables, so the inspector follows the
 // same logical item rather than whichever row happens to reuse the old index.
 func (m *model) lockDetailToCursor(panel focusPanel) {
 	switch panel {

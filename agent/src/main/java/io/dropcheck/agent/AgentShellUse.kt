@@ -50,7 +50,7 @@ internal object AgentShellUsePolicy {
         if (ssid.isEmpty()) return AgentShellUseDecision(error = "wifi ssid is required")
         if (explicitPassphrase != null) {
             if (explicitPassphrase.isEmpty()) {
-                return AgentShellUseDecision(error = "use passphrase cannot be empty")
+                return AgentShellUseDecision(error = "connect passphrase cannot be empty")
             }
             if (!validPassphrase(explicitPassphrase)) return AgentShellUseDecision(error = "invalid passphrase length or encoding")
             return AgentShellUseDecision(
@@ -62,7 +62,7 @@ internal object AgentShellUsePolicy {
             )
         }
         if (defaults.defaultPassphrase.isEmpty()) {
-            return AgentShellUseDecision(error = "use requires a passphrase; set default passphrase or pass one explicitly")
+            return AgentShellUseDecision(error = "connect requires a passphrase; set cli default-passphrase or pass one explicitly")
         }
         if (!validPassphrase(defaults.defaultPassphrase)) return AgentShellUseDecision(error = "invalid default passphrase length or encoding")
         return AgentShellUseDecision(
@@ -74,37 +74,18 @@ internal object AgentShellUsePolicy {
         )
     }
 
-    fun connectCommand(request: AgentShellUseRequest): RunCommand {
+    fun connectCommand(options: ConnectWifi, request: AgentShellUseRequest): RunCommand {
         return RunCommand.newBuilder()
-            .setLabel("use ${request.ssid}")
-            .setConnectWifi(ConnectWifi.newBuilder()
-                .setSsid(request.ssid)
-                .setPassphrase(request.passphrase)
-                .setTimeoutMs(WifiCommandPolicy.DEFAULT_CONNECT_TIMEOUT_MS))
+            .setLabel("request wifi connect")
+            .setConnectWifi(options.toBuilder().setPassphrase(request.passphrase))
             .build()
     }
 
 }
 
-internal class AgentShellUseDefaultsStore(context: Context) {
-    private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-
-    fun load(): AgentShellUseDefaults {
-        return AgentShellUseDefaults(defaultPassphrase = prefs.getString(KEY_DEFAULT_PASSPHRASE, "").orEmpty())
-    }
-
-    fun setDefaultPassphrase(passphrase: String) {
-        prefs.edit().apply {
-            if (passphrase.isEmpty()) {
-                remove(KEY_DEFAULT_PASSPHRASE)
-            } else {
-                putString(KEY_DEFAULT_PASSPHRASE, passphrase)
-            }
-        }.apply()
-    }
-
-    private companion object {
-        const val PREFS_NAME = "agent-shell-use-defaults"
-        const val KEY_DEFAULT_PASSPHRASE = "default_passphrase"
+internal fun removePersistedShellCredential(context: Context) {
+    val prefs = context.applicationContext.getSharedPreferences("agent-shell-use-defaults", Context.MODE_PRIVATE)
+    if (prefs.contains("default_passphrase")) {
+        check(prefs.edit().remove("default_passphrase").commit()) { "could not remove obsolete persisted Shell credential" }
     }
 }

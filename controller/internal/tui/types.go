@@ -3,26 +3,27 @@ package tui
 import (
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
-	"dropcheck/controller/internal/watchstate"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuistate"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/viewport"
 )
 
-type targetState = watchstate.TargetState
-type stepState = watchstate.StepState
-type failedCheckState = watchstate.FailedCheck
-type failedCheckSummary = watchstate.FailedCheckSummary
-type passingCheckState = watchstate.PassingCheck
-type passingCheckSummary = watchstate.PassingCheckSummary
-type failureHotspotSummary = watchstate.FailureHotspotSummary
-type failureCauseSummary = watchstate.FailureCauseSummary
-type eventLogEntry = watchstate.EventLogEntry
-type connectState = watchstate.ConnectState
-type occurrenceHistogram = watchstate.OccurrenceHistogram
+type targetState = tuistate.TargetState
+type stepState = tuistate.StepState
+type failedCheckState = tuistate.FailedCheck
+type failedCheckSummary = tuistate.FailedCheckSummary
+type passingCheckState = tuistate.PassingCheck
+type passingCheckSummary = tuistate.PassingCheckSummary
+type failureHotspotSummary = tuistate.FailureHotspotSummary
+type failureCauseSummary = tuistate.FailureCauseSummary
+type eventLogEntry = tuistate.EventLogEntry
+type connectState = tuistate.ConnectState
+type occurrenceHistogram = tuistate.OccurrenceHistogram
 
-type outcomeEvent = watchstate.OutcomeEvent
-type checkStatusAggregate = watchstate.CheckStatusAggregate
+type outcomeEvent = tuistate.OutcomeEvent
+type checkStatusAggregate = tuistate.CheckStatusAggregate
 
 type targetRoundBucket struct {
 	Seen          bool
@@ -73,15 +74,13 @@ const (
 	maxFailedCheckHistory         = 100000
 	maxEventLogHistory            = 100000
 	visibleEventLogLimit          = 400
-	detailModalWidthPercent       = 54
-	detailModalHeightPercent      = 33
-	detailModalMaxHeightPercent   = 80
-	detailModalLogLimit           = 120
+	detailLogLimit                = 120
+	detailHistoryLimit            = 500
 	recencyFreshWindow            = 15 * time.Second
 	recencyWarmWindow             = 30 * time.Second
 )
 
-type eventMsg watch.Event
+type eventMsg tuirun.Event
 type closedMsg struct{}
 type tickMsg time.Time
 
@@ -91,11 +90,12 @@ type keyMap struct {
 
 type model struct {
 	Title  string
-	events <-chan watch.Event
+	events <-chan tuirun.Event
 	keys   keyMap
 	width  int
 	height int
-	watchstate.State
+	frame  *frameData
+	tuistate.State
 	closed                    bool
 	focus                     focusPanel
 	focusHotspotAgentKey      string
@@ -122,7 +122,19 @@ type model struct {
 	checkStatusSearchQuery    string
 	failureHotspotSearchQuery string
 	paused                    bool
-	controls                  *watch.Controls
+	controls                  *tuirun.Controls
+	menu                      *actionMenu
+	controlBusy               bool
+	controlApplied            bool
+	controlAction             string
+	controlLabel              string
+	controlScope              tuirun.Scope
+	controlStatus             string
+	inspector                 viewport.Model
+	inspectorScope            tuirun.Scope
+	inspectorTitle            string
+	inspectorAt               time.Time
+	inspectorFull             bool
 	detailOpen                bool
 	detailPanel               focusPanel
 	detailHotspotMode         failureHotspotMode

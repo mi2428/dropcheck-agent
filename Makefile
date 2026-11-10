@@ -5,6 +5,8 @@ SHELL                   := /bin/bash
 TARGET                  ?= all
 GO                      ?= go
 PROTOC                  ?= protoc
+PROTOC_GEN_GO           ?= protoc-gen-go
+PROTOC_GEN_GO_GRPC      ?= protoc-gen-go-grpc
 GRADLE                  ?= ./gradlew
 ADB                     ?= adb
 SERIAL                  ?= $(ADB_SERIAL)
@@ -16,7 +18,7 @@ E2E_TIMEOUT             ?= 3h
 E2E_AGENT_PACKAGE       ?= io.dropcheck.agent
 GIT_DESCRIBE            := $(shell git describe --tags --dirty --always 2>/dev/null)
 VERSION                 ?= $(or $(GIT_DESCRIBE),0.0.0-dev)
-GO_LDFLAGS              ?= -X dropcheck/controller/internal/version.Version=$(VERSION)
+GO_LDFLAGS              ?= -X github.com/mi2428/dropcheck-agent/controller/internal/version.Version=$(VERSION)
 
 SSID                    ?= $(DROPCHECK_E2E_WIFI_SSID)
 PSK                     ?= $(DROPCHECK_E2E_WIFI_PSK)
@@ -33,15 +35,28 @@ HELP_EXAMPLE_WIDTH := 41
 
 ##@ Development
 
+.PHONY: generate-shell check-shell
+generate-shell: ## Generate portable Shell command bindings
+	python3 tools/generate_shell_contract.py
+
+check-shell: ## Check portable Shell command bindings for drift
+	python3 tools/generate_shell_contract.py --check
+
 .PHONY: generate-go
-generate-go: ## Regenerate Go protobuf bindings with pinned tools (requires protoc 35.0)
-	@version=$$("$(PROTOC)" --version); [[ "$$version" == "libprotoc 35.0" ]] || { printf 'make generate-go: protoc 35.0 is required; set PROTOC to its executable\n' >&2; exit 1; }; \
-	tools="$$(mktemp -d)"; trap 'rm -rf "$$tools"' EXIT; \
-	GOBIN="$$tools" "$(GO)" install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.1; \
-	GOBIN="$$tools" "$(GO)" install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.3.0; \
-	"$(PROTOC)" --proto_path=proto/dropcheck/v1 \
-		--plugin=protoc-gen-go="$$tools/protoc-gen-go" \
-		--plugin=protoc-gen-go-grpc="$$tools/protoc-gen-go-grpc" \
+generate-go: ## Regenerate Go bindings with preinstalled pinned tools; never install or fetch
+	@resolve(){ local path; path=$$(command -v -- "$$2") && [[ -f "$$path" && -x "$$path" ]] || { printf 'make generate-go: %s executable not found: %s\n' "$$1" "$$2" >&2; return 1; }; \
+		(cd -P -- "$$(dirname -- "$$path")" && printf '%s/%s\n' "$$PWD" "$$(basename -- "$$path")"); }; \
+	check(){ local version; version=$$("$$2" --version) || { printf 'make generate-go: %s version check failed\n' "$$1" >&2; return 1; }; \
+		[[ "$$version" == "$$3" ]] || { printf 'make generate-go: %s requires %s; got %s\n' "$$1" "$$3" "$$version" >&2; return 1; }; }; \
+	protoc=$$(resolve PROTOC "$(PROTOC)") || exit 1; \
+	go_plugin=$$(resolve PROTOC_GEN_GO "$(PROTOC_GEN_GO)") || exit 1; \
+	grpc_plugin=$$(resolve PROTOC_GEN_GO_GRPC "$(PROTOC_GEN_GO_GRPC)") || exit 1; \
+	check PROTOC "$$protoc" 'libprotoc 35.0' || exit 1; \
+	check PROTOC_GEN_GO "$$go_plugin" 'protoc-gen-go v1.36.1' || exit 1; \
+	check PROTOC_GEN_GO_GRPC "$$grpc_plugin" 'protoc-gen-go-grpc 1.3.0' || exit 1; \
+	"$$protoc" --proto_path=proto/dropcheck/v1 \
+		--plugin=protoc-gen-go="$$go_plugin" \
+		--plugin=protoc-gen-go-grpc="$$grpc_plugin" \
 		--go_out=controller/internal/controlpb --go_opt=paths=source_relative \
 		--go-grpc_out=controller/internal/controlpb --go-grpc_opt=paths=source_relative \
 		proto/dropcheck/v1/control.proto
@@ -61,8 +76,8 @@ build: ## Build targets; use TARGET=agent,controller or TARGET=all
 	done
 
 .PHONY: test
-test: ## Test targets; use TARGET=agent,controller or TAGS=... for Go tags
-	@die(){ printf 'make test: %s\n' "$$*" >&2; exit 1; }; \
+test: check-shell ## Test targets; use TARGET=agent,controller or TAGS=... for Go tags
+	@set -e; die(){ printf 'make test: %s\n' "$$*" >&2; exit 1; }; \
 	run(){ printf '+'; printf ' %q' "$$@"; printf '\n'; "$$@"; }; \
 	targets="$(TARGET)"; targets="$${targets//,/ }"; [[ -n "$$targets" ]] || die "TARGET is empty"; \
 	[[ " $$targets " == *" all "* ]] && targets="agent controller"; \
@@ -90,8 +105,12 @@ fmt: ## Format targets where a formatter is configured
 
 .PHONY: fmt-check
 fmt-check: ## Check controller Go formatting without rewriting generated code or sources
-	@unformatted="$$(git ls-files -z -- 'controller/*.go' ':!:controller/internal/controlpb/*' | while IFS= read -r -d '' file; do [[ ! -f "$$file" ]] || printf '%s\0' "$$file"; done | xargs -0 gofmt -l)"; \
+	@unformatted="$$(find controller -path controller/internal/controlpb -prune -o -name '*.go' -exec gofmt -l {} +)"; \
 	[[ -z "$$unformatted" ]] || { printf 'Run make fmt TARGET=controller for:\n%s\n' "$$unformatted" >&2; exit 1; }
+
+.PHONY: modernize-check
+modernize-check: ## Check Go modernizers without changing source files (Go 1.26+)
+	cd controller && "$(GO)" fix -diff ./...
 
 .PHONY: lint
 lint: ## Lint targets; controller runs go vet and staticcheck
@@ -122,7 +141,7 @@ install: ## Build and install the debug APK; use SERIAL=<adb serial> when needed
 	done
 
 .PHONY: e2e
-e2e: ## Run real-device shell/CLI e2e matrix; use SERIAL=... SSID=... PSK=...
+e2e: ## Run real-device Shell e2e matrix; use SERIAL=... SSID=... PSK=...
 	@die(){ printf 'make e2e: %s\n' "$$*" >&2; exit 1; }; \
 	run(){ printf '+'; printf ' %q' "$$@"; printf '\n'; "$$@"; }; \
 	serial="$(SERIAL)"; ssid="$(SSID)"; psk="$(PSK)"; psk_env="$(PSK_ENV)"; \
@@ -178,6 +197,8 @@ help: ## Show this help message
 	@printf "\n\033[1mVariables:\033[0m\n"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "TARGET" "agent, controller, or all; comma and space lists are accepted"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "PROTOC" "protoc 35.0 executable for make generate-go"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "PROTOC_GEN_GO" "Preinstalled protoc-gen-go v1.36.1 executable; generation never installs tools"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "PROTOC_GEN_GO_GRPC" "Preinstalled protoc-gen-go-grpc 1.3.0 executable; generation never installs tools"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "VERSION" "Version from git describe; override with VERSION=x.y.z"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "TAGS" "Go build/test tags for controller targets"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "SSID" "Test Wi-Fi SSID for make e2e"
@@ -191,5 +212,5 @@ help: ## Show this help message
 	@printf "\n\033[1mExamples:\033[0m\n"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make build TARGET=agent,controller" "# Build both Android agent and Go controller"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make test TARGET=controller" "# Run controller tests"
-	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make e2e SERIAL=DEVICE SSID=Lab PSK=..." "# Run real-device shell/CLI e2e matrix"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make e2e SERIAL=DEVICE SSID=Lab PSK=..." "# Run real-device Shell e2e matrix"
 	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make install SERIAL=DEVICE" "# Build and adb install the debug APK"

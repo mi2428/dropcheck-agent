@@ -9,74 +9,47 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
-func TestTopLevelHelpIncludesFlagsCommandsAndExamples(t *testing.T) {
+func TestTopLevelHelpOnlyAdvertisesShellAndTUI(t *testing.T) {
 	help := renderTopLevelHelp()
-	for _, want := range []string{
-		"Usage:",
-		"Global flags:",
-		"--adb PATH",
-		"--listen ADDR",
-		"CLI output and target flags:",
-		"--format text|json",
-		"Common commands:",
-		"show devices",
-		"show wifi scan [fresh] [brief] [mlo]",
-		"ping 1.1.1.1 count 5",
-	} {
+	for _, want := range []string{"Usage:", "Global flags:", "--adb PATH", "--listen ADDR", "dropcheck [flags] shell", "dropcheck [flags] tui", "dropcheck --version"} {
 		if !strings.Contains(help, want) {
-			t.Fatalf("topLevelHelp() missing %q:\n%s", want, help)
+			t.Fatalf("missing %q: %s", want, help)
 		}
 	}
-	if strings.Contains(help, "request wifi scan") {
-		t.Fatalf("topLevelHelp() contains stale request wifi scan help:\n%s", help)
-	}
-	for _, removed := range []string{"standalone", "show config", "configure <set|delete>"} {
+	for _, removed := range []string{"dropcheck [flags] watch", "one-shot", "--format", "Common commands:", "show devices", "ping <host>", "\t"} {
 		if strings.Contains(help, removed) {
-			t.Fatalf("topLevelHelp() advertises removed control %q:\n%s", removed, help)
-		}
-	}
-	if strings.Contains(help, "\t") {
-		t.Fatalf("topLevelHelp() contains tab indentation:\n%s", help)
-	}
-	for _, want := range []string{
-		"  shell                                 start the Controller Shell",
-		"  --format text|json                    output format for one-shot commands",
-		"  ping <host> [count <value>]",
-	} {
-		if !strings.Contains(help, want) {
-			t.Fatalf("topLevelHelp() missing aligned row %q:\n%s", want, help)
+			t.Fatalf("help advertises retired surface %q", removed)
 		}
 	}
 }
 
-func TestCanceledEntryContextDoesNotStartAgent(t *testing.T) {
+func TestRemovedEntrypointsNeverStartADB(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "adb")
 	marker := filepath.Join(t.TempDir(), "called")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\ntouch '"+marker+"'\n"), 0700); err != nil {
+	if err := os.WriteFile(path, []byte("#!/bin/sh\ntouch '"+marker+"'\n"), 0o700); err != nil {
 		t.Fatal(err)
+	}
+	// Unsupported entry points must fail before starting ADB.
+	for _, args := range [][]string{{"watch"}, {"watch", "-c", "missing.yml"}, {"tui", "missing.yml"}, {"show", "devices"}, {"ping", "example.test"}, {"--format", "json", "show", "wifi", "status"}, {"wifi", "connect", "Lab", "passphrase", "synthetic-private"}} {
+		full := append([]string{"--adb", path}, args...)
+		if err := runWithContext(context.Background(), full); err == nil || strings.Contains(err.Error(), "synthetic-private") {
+			t.Fatalf("retired entrypoint accepted or disclosed a credential: %v", err)
+		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := runWithContext(ctx, []string{"--adb", path, "--serial", "serial-test", "ping", "example.test"}); err == nil {
-		t.Fatal("canceled entry started a one-shot operation")
+	if err := runWithContext(ctx, []string{"--adb", path, "shell"}); err == nil {
+		t.Fatal("canceled Shell entry started")
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Fatalf("canceled entry ran adb: %v", err)
-	}
-}
-
-func TestHelpTopicUsesLiveGrammarTable(t *testing.T) {
-	var out bytes.Buffer
-	writeCommandHelp(&out, "wifi")
-	if !strings.Contains(out.String(), "wifi cycle <ssid> passphrase <value>") || !strings.Contains(out.String(), "wifi monitor") || strings.Contains(out.String(), "request") {
-		t.Fatalf("wifi topic drift: %s", out.String())
-	}
-	out.Reset()
-	writeCommandHelp(&out, "check")
-	if !strings.Contains(out.String(), "unsupported") {
-		t.Fatalf("unavailable profile advertised: %s", out.String())
+		t.Fatalf("invalid entry ran adb: %v", err)
 	}
 }
 
@@ -96,14 +69,66 @@ func TestParseTopLevelArgsRecognizesFlagPackageHelpForms(t *testing.T) {
 }
 
 func TestParseTopLevelArgsAcceptsSingleDashListen(t *testing.T) {
-	global, rest, err := parseTopLevelArgs([]string{"-listen", "127.0.0.1:37588", "show", "devices"})
-	if err != nil {
-		t.Fatalf("parseTopLevelArgs() error = %v", err)
+	global, rest, err := parseTopLevelArgs([]string{"-listen", "127.0.0.1:37588", "shell"})
+	if err != nil || global.ListenAddr != "127.0.0.1:37588" || !slices.Equal(rest, []string{"shell"}) {
+		t.Fatalf("global=%+v rest=%v err=%v", global, rest, err)
 	}
-	if global.ListenAddr != "127.0.0.1:37588" {
-		t.Fatalf("listen = %q", global.ListenAddr)
+}
+
+func TestShellReturnsStartupSelectionAndCleanupErrors(t *testing.T) {
+	launch := filepath.Join(t.TempDir(), "launch")
+	t.Setenv("DROPCHECK_SHELL_TEST_LAUNCH", launch)
+	path := fakeADB(t, `
+if [ "$1" = -s ]; then shift 2; fi
+if [ "$1" = reverse ]; then
+  if [ "$2" = --remove ]; then echo 'synthetic shell cleanup failure' >&2; exit 9; fi
+  exit 0
+fi
+port=""; token=""; previous=""
+for arg in "$@"; do
+  if [ "$previous" = grpc_port ]; then port="$arg"; fi
+  if [ "$previous" = grpc_token ]; then token="$arg"; fi
+  previous="$arg"
+done
+printf '%s %s\n' "$port" "$token" > "$DROPCHECK_SHELL_TEST_LAUNCH"
+`)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		ticker := time.NewTicker(5 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			raw, err := os.ReadFile(launch)
+			fields := strings.Fields(string(raw))
+			if err == nil && len(fields) == 2 {
+				conn, err := grpc.NewClient("127.0.0.1:"+fields[0], grpc.WithTransportCredentials(insecure.NewCredentials()))
+				if err != nil {
+					done <- err
+					return
+				}
+				defer conn.Close()
+				stream, err := controlpb.NewDropcheckControlClient(conn).Session(ctx)
+				if err == nil {
+					err = stream.Send(&controlpb.AgentFrame{SessionId: "shell-test", Body: &controlpb.AgentFrame_Hello{Hello: &controlpb.AgentHello{Token: fields[1], ControllerAgentId: "fake-device"}}})
+				}
+				done <- err
+				<-ctx.Done()
+				return
+			}
+			select {
+			case <-ctx.Done():
+				done <- ctx.Err()
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	err := runShell(ctx, shellOptions{Serial: "fake-device", ADBPath: path}, []string{"--target", "missing"})
+	if err == nil || !strings.Contains(err.Error(), "not connected") || !strings.Contains(err.Error(), "synthetic shell cleanup failure") {
+		t.Fatalf("Shell lost selection/cleanup failure: %v", err)
 	}
-	if !slices.Equal(rest, []string{"show", "devices"}) {
-		t.Fatalf("rest = %#v", rest)
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }

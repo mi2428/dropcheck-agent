@@ -6,9 +6,13 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 )
 
 func (m model) render() string {
+	if m.frame == nil {
+		m.frame = &frameData{}
+	}
 	width := m.width
 	if width <= 0 {
 		width = 120
@@ -17,9 +21,15 @@ func (m model) render() string {
 	if height <= 0 {
 		height = 32
 	}
+	if width < 24 || height < 10 {
+		return appStyle.Width(width).Height(height).MaxWidth(width).MaxHeight(height).Render("tui: enlarge terminal")
+	}
 	help := m.helpBar(width)
 	status := m.statusBar(width)
 	bodyHeight := intMax(4, height-2)
+	if m.controlStatus != "" {
+		bodyHeight--
+	}
 	runQueueWidth := dashboardRunQueueWidth(width)
 	leftWidth := dashboardMainWidth(width)
 	roundTimelineHeight, checkStatusHeight, summaryHeight, eventLogHeight := m.dashboardPanelHeights(bodyHeight, panelContentWidth(width))
@@ -80,10 +90,17 @@ func (m model) render() string {
 	if checkStatus != "" {
 		body = lipgloss.JoinVertical(lipgloss.Left, checkStatus, body)
 	}
-	content := lipgloss.JoinVertical(lipgloss.Left, help, body, status)
+	content := lipgloss.JoinVertical(lipgloss.Left, help, body)
+	if m.controlStatus != "" {
+		content = lipgloss.JoinVertical(lipgloss.Left, content, valueStyle.Render(fitText(m.controlStatus, width)))
+	}
+	content = lipgloss.JoinVertical(lipgloss.Left, content, status)
 	frame := appStyle.Width(width).Height(height).Render(content)
 	if m.detailOpen {
-		frame = overlayModal(frame, width, height, m.detailModal(width, height))
+		frame = m.inspectorView(frame, width, height)
+	}
+	if m.menu != nil {
+		frame = m.actionMenuView(frame, width, height)
 	}
 	return frame
 }
@@ -202,7 +219,7 @@ func summaryAndEventLogHeights(bodyHeight int) (summaryHeight int, eventLogHeigh
 func (m model) helpBar(width int) string {
 	now := m.currentTime().Format("15:04:05")
 	label := " Keys:"
-	parts := []string{"Tab=Focus", "h/j/k/l=Scroll"}
+	parts := []string{"Tab=Focus", "h/j/k/l=Scroll", "a=Actions"}
 	if m.focus == focusPassingChecks && len(m.filteredPassingCheckSummaries()) > 0 ||
 		m.focus == focusFailedChecks && len(m.filteredFailedCheckSummaries()) > 0 ||
 		m.focus == focusFailureHotspots && len(m.focusedFailureHotspotRows()) > 0 {
@@ -212,9 +229,9 @@ func (m model) helpBar(width int) string {
 		parts = append(parts, "m=Mode")
 	}
 	parts = append(parts, "/=Filter")
-	parts = append(parts, "Ctrl-N=Skip")
-	if m.paused {
-		parts = append(parts, "Esc=Resume")
+	parts = append(parts, "Ctrl-N=Skip scope")
+	if m.controls != nil && m.controls.Paused(tuirun.Scope{Kind: tuirun.ScopeRun}) {
+		parts = append(parts, "Ctrl-Z=Resume")
 	} else {
 		parts = append(parts, "Ctrl-Z=Pause")
 		if m.focusedScrollPinned() {
@@ -249,7 +266,7 @@ func (m model) statusBar(width int) string {
 	current := m.currentTargetName()
 	leftFields := [][2]string{
 		{"status", firstNonEmpty(m.RoundStatus, "starting")},
-		{"plan", firstNonEmpty(m.Title, "watch")},
+		{"plan", firstNonEmpty(m.Title, "tui")},
 		{"round", fmt.Sprint(m.Round)},
 		{"focus", m.focusName()},
 		{"current", current},

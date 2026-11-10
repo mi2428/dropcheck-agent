@@ -2,11 +2,13 @@ package io.dropcheck.agent
 
 import io.dropcheck.agent.grpc.DnsRecordType
 import io.dropcheck.agent.grpc.IpFamily
+import io.dropcheck.agent.grpc.PathMtuProbe
 import java.net.InetAddress
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class NetworkCheckPolicyTest {
@@ -48,8 +50,8 @@ class NetworkCheckPolicyTest {
     fun selectsProbeFamilyAndSourceAddress() {
         val addresses = listOf(
             "fe80::1234%wlan0/64",
-            "192.168.22.91/22",
-            "240d:1a:beef::123/64",
+            "192.0.2.91/22",
+            "2001:db8:1::123/64",
         )
         val dualStackResolved = listOf(
             InetAddress.getByName("1.1.1.1"),
@@ -57,7 +59,7 @@ class NetworkCheckPolicyTest {
         )
         val ipv6OnlyAddresses = listOf(
             "fe80::1234%wlan0/64",
-            "240d:1a:beef::123/64",
+            "2001:db8:1::123/64",
         )
 
         assertEquals(
@@ -66,7 +68,7 @@ class NetworkCheckPolicyTest {
         )
         assertEquals(
             IpFamily.IP_FAMILY_IPV4,
-            NetworkCheckPolicy.probeFamily("one.one.one.one", listOf("192.168.22.91/22"), dualStackResolved),
+            NetworkCheckPolicy.probeFamily("one.one.one.one", listOf("192.0.2.91/22"), dualStackResolved),
         )
         assertEquals(
             IpFamily.IP_FAMILY_IPV6,
@@ -76,9 +78,9 @@ class NetworkCheckPolicyTest {
             IpFamily.IP_FAMILY_IPV6,
             NetworkCheckPolicy.probeFamily("2001:db8::1", addresses, emptyList()),
         )
-        assertEquals("192.168.22.91", NetworkCheckPolicy.sourceAddressForFamily(addresses, IpFamily.IP_FAMILY_IPV4))
-        assertEquals("240d:1a:beef::123", NetworkCheckPolicy.sourceAddressForFamily(addresses, IpFamily.IP_FAMILY_IPV6))
-        assertEquals("192.168.22.91", NetworkCheckPolicy.pingBindTarget("wlan0", addresses, IpFamily.IP_FAMILY_IPV4))
+        assertEquals("192.0.2.91", NetworkCheckPolicy.sourceAddressForFamily(addresses, IpFamily.IP_FAMILY_IPV4))
+        assertEquals("2001:db8:1::123", NetworkCheckPolicy.sourceAddressForFamily(addresses, IpFamily.IP_FAMILY_IPV6))
+        assertEquals("192.0.2.91", NetworkCheckPolicy.pingBindTarget("wlan0", addresses, IpFamily.IP_FAMILY_IPV4))
         assertEquals("wlan0", NetworkCheckPolicy.pingBindTarget("wlan0", listOf("fe80::1234%wlan0/64"), IpFamily.IP_FAMILY_IPV4))
     }
 
@@ -164,7 +166,11 @@ class NetworkCheckPolicyTest {
         assertEquals(1200, NetworkCheckPolicy.pathMtuMinBytes(1200, ipv6 = false))
         assertEquals(1400, NetworkCheckPolicy.pathMtuMaxBytes(0, interfaceMtu = 1400, minMtu = 576))
         assertEquals(1500, NetworkCheckPolicy.pathMtuMaxBytes(0, interfaceMtu = 0, minMtu = 576))
-        assertEquals(1280, NetworkCheckPolicy.pathMtuMaxBytes(1200, interfaceMtu = 0, minMtu = 1280))
+        assertThrows(IllegalArgumentException::class.java) { NetworkCheckPolicy.pathMtuMaxBytes(1200, interfaceMtu = 0, minMtu = 1280) }
+        assertThrows(IllegalArgumentException::class.java) { NetworkCheckPolicy.pathMtuMinBytes(1, ipv6 = false) }
+        assertThrows(IllegalArgumentException::class.java) { NetworkCheckPolicy.pathMtuMinBytes(28, ipv6 = true) }
+        assertThrows(IllegalArgumentException::class.java) { NetworkCheckPolicy.pathMtuPayloadBytes(1, 28) }
+        assertEquals(0, NetworkCheckPolicy.pathMtuPayloadBytes(28, 28))
         assertEquals(NetworkCheckPolicy.IPV4_PING_OVERHEAD_BYTES, NetworkCheckPolicy.pathMtuOverheadBytes(IpFamily.IP_FAMILY_IPV4))
         assertEquals(NetworkCheckPolicy.IPV6_PING_OVERHEAD_BYTES, NetworkCheckPolicy.pathMtuOverheadBytes(IpFamily.IP_FAMILY_IPV6))
         assertEquals(1472, NetworkCheckPolicy.pathMtuPayloadBytes(1500, NetworkCheckPolicy.IPV4_PING_OVERHEAD_BYTES))
@@ -178,6 +184,30 @@ class NetworkCheckPolicyTest {
                 host = "example.com",
             ),
         )
+    }
+
+    @Test
+    fun pathMtuSearchNeverTurnsLossOrExecutionFailureIntoASmallerMtu() {
+        fun probe(passed: Boolean, exit: Int = if (passed) 0 else 1, output: String = "") =
+            PathMtuProbe.newBuilder().setPassed(passed).setExitCode(exit).setOutput(output).build()
+
+        assertEquals(1500, NetworkCheckPolicy.searchPathMtu(1280, 1500) { probe(true) }.mtuBytes)
+        val bounded = NetworkCheckPolicy.searchPathMtu(1280, 1500) { mtu ->
+            probe(mtu <= 1400, output = if (mtu > 1400) "From 192.0.2.1: Frag needed and DF set (mtu = 1400)" else "")
+        }
+        assertEquals(NetworkCheckPolicy.PathMtuSearch(1400), bounded)
+        for ((exit, output) in listOf(1 to "100% packet loss", -1 to "process_timeout=500ms", 2 to "permission denied", -1 to "Message too long")) {
+            val attempts = mutableListOf<Int>()
+            val lost = NetworkCheckPolicy.searchPathMtu(1280, 1500) { mtu ->
+                attempts += mtu
+                if (mtu == 1390) probe(false, exit, output) else probe(true)
+            }
+            assertEquals(listOf(1280, 1390), attempts)
+            assertEquals(0, lost.mtuBytes)
+            assertTrue(lost.error.contains("inconclusive"))
+        }
+        assertEquals(0, NetworkCheckPolicy.searchPathMtu(1280, 1500) { probe(false) }.mtuBytes)
+        assertEquals(NetworkCheckPolicy.PathMtuSearch(1280), NetworkCheckPolicy.searchPathMtu(1280, 1280) { probe(true) })
     }
 
     @Test

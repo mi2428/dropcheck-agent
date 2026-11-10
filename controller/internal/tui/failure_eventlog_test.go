@@ -5,31 +5,31 @@ import (
 	"testing"
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 
 	"charm.land/lipgloss/v2"
 )
 
 func TestConnectFailedCheckAppearsInFailedChecks(t *testing.T) {
-	events := make(chan watch.Event)
-	agent := watch.AgentSnapshot{ID: "agent-b", Name: "pixel-b", ADBSerial: "pixel-b"}
-	m := newModel([]watch.Target{{Name: "Example Net", SSID: "Example Net"}}, events, []watch.AgentSnapshot{agent})
+	events := make(chan tuirun.Event)
+	agent := tuirun.AgentSnapshot{ID: "agent-b", Name: "pixel-b", ADBSerial: "pixel-b"}
+	m := newModel([]tuirun.Target{{Name: "Example Net", SSID: "Example Net"}}, events, []tuirun.AgentSnapshot{agent})
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	m.apply(watch.Event{
+	m.apply(tuirun.Event{
 		Time:   at,
-		Kind:   watch.EventStepFinished,
+		Kind:   tuirun.EventStepFinished,
 		Agent:  agent,
 		Round:  1,
-		Target: watch.TargetSnapshot{Name: "Example Net", SSID: "Example Net"},
-		Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "failed", Message: "wifi connect failed"},
+		Target: tuirun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"},
+		Step:   tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "failed", Message: "wifi connect failed"},
 		Status: "failed",
 	})
-	m.apply(watch.Event{Time: at, Kind: watch.EventFinding, Agent: agent, Round: 1,
-		Target:  watch.TargetSnapshot{Name: "Example Net", SSID: "Example Net"},
-		Step:    watch.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
-		Finding: &watch.Finding{Target: "Example Net", Check: "connect", Metric: "status", Observed: "failed", Expected: "== ok", Message: "wifi connect failed"}})
+	m.apply(tuirun.Event{Time: at, Kind: tuirun.EventFinding, Agent: agent, Round: 1,
+		Target:  tuirun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"},
+		Step:    tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
+		Finding: &tuirun.Finding{Target: "Example Net", Check: "connect", Metric: "status", Observed: "failed", Expected: "== ok", Message: "wifi connect failed"}})
 
-	rows := m.failedCheckSummaries()
+	rows := m.FailedCheckSummaries()
 	if len(rows) != 1 {
 		t.Fatalf("failed check summary count = %d, want 1", len(rows))
 	}
@@ -53,20 +53,20 @@ func TestSummaryAndEventLogHeightsReduceEventLogAndKeepSummaryArea(t *testing.T)
 }
 
 func TestRenderShowsFailedCheckRowsInMainTable(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{
 		{Name: "shownet-6g-ap1", SSID: "ShowNet", Band: "6ghz"},
 	}, events)
 	m.width = 140
 	m.height = 30
-	m.apply(watch.Event{Kind: watch.EventRoundStarted, Round: 3})
-	m.apply(watch.Event{
+	m.apply(tuirun.Event{Kind: tuirun.EventRoundStarted, Round: 3})
+	m.apply(tuirun.Event{
 		Time:   time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC),
-		Kind:   watch.EventFinding,
+		Kind:   tuirun.EventFinding,
 		Round:  3,
-		Target: watch.TargetSnapshot{Name: "shownet-6g-ap1", SSID: "ShowNet", Band: "6ghz"},
-		Step:   watch.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
-		Finding: &watch.Finding{
+		Target: tuirun.TargetSnapshot{Name: "shownet-6g-ap1", SSID: "ShowNet", Band: "6ghz"},
+		Step:   tuirun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
+		Finding: &tuirun.Finding{
 			Target:   "shownet-6g-ap1",
 			Check:    "ping cloudflare",
 			Metric:   "avg_latency_ms",
@@ -85,14 +85,14 @@ func TestRenderShowsFailedCheckRowsInMainTable(t *testing.T) {
 }
 
 func TestFailedChecksCursorRowFillsPanelWidth(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
-	m.apply(watch.Event{
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
+	m.apply(tuirun.Event{
 		Time:   time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC),
-		Kind:   watch.EventFinding,
-		Target: watch.TargetSnapshot{Name: "Example Net"},
-		Step:   watch.StepSnapshot{Name: "ping cloudflare"},
-		Finding: &watch.Finding{
+		Kind:   tuirun.EventFinding,
+		Target: tuirun.TargetSnapshot{Name: "Example Net"},
+		Step:   tuirun.StepSnapshot{Name: "ping cloudflare"},
+		Finding: &tuirun.Finding{
 			Target:   "Example Net",
 			Check:    "ping cloudflare",
 			Metric:   "received",
@@ -122,34 +122,34 @@ func TestFailedChecksCursorRowFillsPanelWidth(t *testing.T) {
 }
 
 func TestPassingAndFailedChecksDoNotGroupBySSID(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	m.apply(watch.Event{
+	m.apply(tuirun.Event{
 		Time:     at,
-		Kind:     watch.EventStepFinished,
+		Kind:     tuirun.EventStepFinished,
 		Round:    1,
-		Target:   watch.TargetSnapshot{Name: "ap-1", SSID: "ShowNet"},
-		Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Target:   tuirun.TargetSnapshot{Name: "ap-1", SSID: "ShowNet"},
+		Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 12,
 	})
-	m.apply(watch.Event{
+	m.apply(tuirun.Event{
 		Time:     at.Add(time.Second),
-		Kind:     watch.EventStepFinished,
+		Kind:     tuirun.EventStepFinished,
 		Round:    1,
-		Target:   watch.TargetSnapshot{Name: "lab-1", SSID: "LabNet"},
-		Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Target:   tuirun.TargetSnapshot{Name: "lab-1", SSID: "LabNet"},
+		Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 15,
 	})
-	m.apply(watch.Event{
+	m.apply(tuirun.Event{
 		Time:   at.Add(2 * time.Second),
-		Kind:   watch.EventFinding,
+		Kind:   tuirun.EventFinding,
 		Round:  1,
-		Target: watch.TargetSnapshot{Name: "ap-2", SSID: "ShowNet"},
-		Step:   watch.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
-		Finding: &watch.Finding{
+		Target: tuirun.TargetSnapshot{Name: "ap-2", SSID: "ShowNet"},
+		Step:   tuirun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
+		Finding: &tuirun.Finding{
 			Target:   "ap-2",
 			Check:    "ping cloudflare",
 			Metric:   "received",
@@ -158,13 +158,13 @@ func TestPassingAndFailedChecksDoNotGroupBySSID(t *testing.T) {
 			Message:  "constraint failed",
 		},
 	})
-	m.apply(watch.Event{
+	m.apply(tuirun.Event{
 		Time:   at.Add(3 * time.Second),
-		Kind:   watch.EventFinding,
+		Kind:   tuirun.EventFinding,
 		Round:  1,
-		Target: watch.TargetSnapshot{Name: "lab-2", SSID: "LabNet"},
-		Step:   watch.StepSnapshot{Name: "dns wide", Type: "dns", Status: "failed"},
-		Finding: &watch.Finding{
+		Target: tuirun.TargetSnapshot{Name: "lab-2", SSID: "LabNet"},
+		Step:   tuirun.StepSnapshot{Name: "dns wide", Type: "dns", Status: "failed"},
+		Finding: &tuirun.Finding{
 			Target:   "lab-2",
 			Check:    "dns wide",
 			Metric:   "answers",
@@ -194,30 +194,30 @@ func TestPassingAndFailedChecksDoNotGroupBySSID(t *testing.T) {
 	}
 }
 
-func TestEventLogPanelShowsRawWatchEvents(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{
+func TestEventLogPanelShowsRawTUIEvents(t *testing.T) {
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{
 		{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
 	}, events)
 	m.width = 260
 	m.height = 50
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	target := watch.TargetSnapshot{Name: "Example Net", SSID: "Example Net", Band: "5ghz"}
-	step := watch.StepSnapshot{Name: "ping cloudflare", Type: "ping", Operation: "request_ping", Status: "running"}
-	m.apply(watch.Event{Time: at, Kind: watch.EventRoundStarted, Round: 9, Status: "running"})
-	m.apply(watch.Event{Time: at, Kind: watch.EventTargetStarted, Round: 9, Target: target, Status: "running"})
-	m.apply(watch.Event{Time: at, Kind: watch.EventStepStarted, Round: 9, Target: target, Step: step, Status: "running"})
+	target := tuirun.TargetSnapshot{Name: "Example Net", SSID: "Example Net", Band: "5ghz"}
+	step := tuirun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Operation: "request_ping", Status: "running"}
+	m.apply(tuirun.Event{Time: at, Kind: tuirun.EventRoundStarted, Round: 9, Status: "running"})
+	m.apply(tuirun.Event{Time: at, Kind: tuirun.EventTargetStarted, Round: 9, Target: target, Status: "running"})
+	m.apply(tuirun.Event{Time: at, Kind: tuirun.EventStepStarted, Round: 9, Target: target, Step: step, Status: "running"})
 	step.Status = "failed"
 	step.Message = "constraint failed"
-	m.apply(watch.Event{Time: at, Kind: watch.EventStepFinished, Round: 9, Target: target, Step: step, Status: "failed", Duration: 1234})
-	m.apply(watch.Event{
+	m.apply(tuirun.Event{Time: at, Kind: tuirun.EventStepFinished, Round: 9, Target: target, Step: step, Status: "failed", Duration: 1234})
+	m.apply(tuirun.Event{
 		Time:   at,
-		Kind:   watch.EventFinding,
+		Kind:   tuirun.EventFinding,
 		Round:  9,
 		Target: target,
 		Step:   step,
 		Status: "failed",
-		Finding: &watch.Finding{
+		Finding: &tuirun.Finding{
 			Target:   "Example Net",
 			Check:    "ping cloudflare",
 			Metric:   "received",
@@ -247,13 +247,13 @@ func TestEventLogPanelShowsRawWatchEvents(t *testing.T) {
 }
 
 func TestEventLogPanelSanitizesControlCharacters(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	m.width = 180
 	m.height = 18
-	m.apply(watch.Event{
+	m.apply(tuirun.Event{
 		Time:    time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC),
-		Kind:    watch.EventLog,
+		Kind:    tuirun.EventLog,
 		Message: "[warn agent=agent-a]\rtraceroute binary not available\nhost=1.1.1.1 \x1b]0;bad\a",
 	})
 

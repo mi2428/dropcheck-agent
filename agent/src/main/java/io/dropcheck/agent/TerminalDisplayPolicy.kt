@@ -2,9 +2,6 @@ package io.dropcheck.agent
 
 /** Shared bounds for terminal rendering. */
 internal object TerminalDisplayPolicy {
-    const val STARTUP_TAIL_LINES = 1_800
-    const val MAX_DISPLAY_LINES = 3_000
-    const val MAX_DISPLAY_CHARS = 900_000
     const val MAX_LINE_CHARS = 8_000
     const val AUTO_SCROLL_SLOP_DP = 2
 
@@ -17,7 +14,9 @@ internal object TerminalDisplayPolicy {
         if (displayLine.length <= MAX_LINE_CHARS) return displayLine
 
         val suffix = if (appendNewline) " ... [truncated]\n" else " ... [truncated]"
-        return displayLine.take(MAX_LINE_CHARS - suffix.length).trimEnd('\r', '\n') + suffix
+        var end = MAX_LINE_CHARS - suffix.length
+        if (displayLine[end - 1].isHighSurrogate()) end--
+        return displayLine.substring(0, end).trimEnd('\r', '\n') + suffix
     }
 
     fun displayLength(line: String): Int {

@@ -1,0 +1,434 @@
+package tuirun
+
+import (
+	"fmt"
+	"net/netip"
+	"sort"
+	"strconv"
+	"strings"
+)
+
+// Matcher is one compiled expectation for a probe metric.
+type Matcher struct {
+	Metric string
+	Op     string
+	Want   string
+	Values []string
+	Mode   string
+}
+
+// CompileExpectations validates flat tui YAML expectations.
+// It does not execute probes or parse native stdout.
+func CompileExpectations(values map[string]any) ([]Expectation, error) {
+	ordinary := make(map[string]any, len(values))
+	var special []Expectation
+	for _, key := range []string{"ap", "mlo_connected", "mlo_coverage", "mlo_metadata_complete"} {
+		raw, ok := values[key]
+		if !ok {
+			continue
+		}
+		if key == "ap" {
+			expect, err := compileAP(raw)
+			if err != nil {
+				return nil, err
+			}
+			special = append(special, expect)
+		} else {
+			if raw != true {
+				return nil, fmt.Errorf("%s requires true", key)
+			}
+			special = append(special, mloExpectation(key))
+		}
+	}
+	for key, value := range values {
+		switch key {
+		case "ap", "mlo_connected", "mlo_coverage", "mlo_metadata_complete":
+		default:
+			ordinary[key] = value
+		}
+	}
+	matchers, err := compileMatchers(ordinary)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]Expectation, 0, len(matchers))
+	for _, matcher := range matchers {
+		e := metricExpectation{matcher: matcher}
+		if err := e.Validate(); err != nil {
+			return nil, err
+		}
+		result = append(result, e)
+	}
+	return append(result, special...), nil
+}
+
+type metricExpectation struct{ matcher Matcher }
+
+func (e metricExpectation) Description() string {
+	return e.matcher.Metric + ": " + e.matcher.Op + " " + e.matcher.Want + " " + strings.Join(e.matcher.Values, ",")
+}
+
+func (e metricExpectation) Validate() error {
+	if !knownMetric(e.matcher.Metric) {
+		return fmt.Errorf("unknown metric %q", e.matcher.Metric)
+	}
+	if e.matcher.Op == "cidr" {
+		if len(e.matcher.Values) == 0 {
+			return fmt.Errorf("CIDR set is empty")
+		}
+		for _, value := range e.matcher.Values {
+			if _, err := netip.ParsePrefix(value); err != nil {
+				return fmt.Errorf("invalid CIDR")
+			}
+		}
+	}
+	if e.matcher.Op == ">" || e.matcher.Op == ">=" || e.matcher.Op == "<" || e.matcher.Op == "<=" {
+		if _, err := strconv.ParseFloat(e.matcher.Want, 64); err != nil {
+			return fmt.Errorf("invalid numeric expectation")
+		}
+	}
+	return nil
+}
+
+func (e metricExpectation) Evaluate(result Result) []Finding {
+	m := e.matcher
+	if m.Op == "dontcare" {
+		return []Finding{Pass(m.Metric, "ignored", "dontcare")}
+	}
+	observed, ok := metricsForResult(result.Run.Raw)[m.Metric]
+	expected := m.Op + " " + m.Want
+	if len(m.Values) > 0 {
+		expected = m.Op + " " + strings.Join(m.Values, ",") + " " + m.Mode
+	}
+	if !ok {
+		return []Finding{MissingFinding(m.Metric, "<missing>", expected, "metric is unavailable")}
+	}
+	f := Pass(m.Metric, observed.String(), expected)
+	f.ObservedValue, f.ExpectedValue = observed.value, m.Want
+	if m.Op == "present" {
+		if observed.String() == "" {
+			return []Finding{MissingFinding(m.Metric, "<missing>", expected, "metric is not present")}
+		}
+	} else if !m.matches(observed) {
+		f.Passed = false
+		f.Message = "constraint failed"
+	}
+	return []Finding{f}
+}
+
+func knownMetric(metric string) bool {
+	metric = strings.ReplaceAll(metric, "_", "-")
+	for known := range strings.FieldsSeq("status elapsed-ms enabled validated ssid bssid rssi frequency-mhz band standard security link-speed-mbps tx-link-speed-mbps rx-link-speed-mbps associated-mlo-link-count affiliated-mlo-link-count channel-width internet interface mtu address-count addresses ip-addresses ipv4-addresses ipv6-addresses dns-server-count dns-servers ipv4-dns-servers ipv6-dns-servers route-count default-route ipv4-default-route ipv6-default-route host count transmitted received loss-percent min-latency-ms avg-latency-ms max-latency-ms name answer-count answers a-answers aaaa-answers a-count aaaa-count error url status-code expected-status matched global-ips ipv4-global-ips ipv6-global-ips global-count error-count ipv4-count ipv6-count max-hops size-bytes exit-code executable hop-count hop-ips ipv4-hop-ips ipv6-hop-ips reached discovered path-mtu-bytes payload-size-bytes min-mtu-bytes max-mtu-bytes ip-overhead-bytes probe-count passed-probe-count content-type content-length bytes-read throughput-bps visible result-count security-types mlo security-details-present psk sae owe transition security-akm-suites security-pairwise-ciphers security-rsnxe-capabilities security-extended-capabilities security-warnings group-data-cipher group-management-cipher rsn-present rsnxe-present pmf-capable pmf-required gcmp-256 ft-sae sae-gdh ft-sae-gdh wifi7-personal-ready sae-h2e h2e sae-public-key sae-public-key-exclusive ssid-protection beacon-protection bss-transition supported-bands unsupported-bands supported-standards unsupported-standards supported-security-modes unsupported-security-modes supported-features unsupported-features dhcp-server nat64-prefix private-dns-active private-dns-server-name") {
+		if metric == known {
+			return true
+		}
+	}
+	return false
+}
+
+func compileMatchers(values map[string]any) ([]Matcher, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	matchers := make([]Matcher, 0, len(values))
+	keys := make([]string, 0, len(values))
+	for metric := range values {
+		keys = append(keys, metric)
+	}
+	sort.Strings(keys)
+	for _, metric := range keys {
+		raw := values[metric]
+		matcher, err := compileMatcher(metric, raw)
+		if err != nil {
+			return nil, err
+		}
+		matchers = append(matchers, matcher)
+	}
+	return matchers, nil
+}
+
+func compileMatcher(metric string, raw any) (Matcher, error) {
+	metric = strings.TrimSpace(metric)
+	if metric == "" {
+		return Matcher{}, fmt.Errorf("metric name is empty")
+	}
+	switch value := raw.(type) {
+	case bool:
+		return Matcher{Metric: metric, Op: "==", Want: strconv.FormatBool(value)}, nil
+	case int:
+		return Matcher{Metric: metric, Op: "==", Want: strconv.Itoa(value)}, nil
+	case int64:
+		return Matcher{Metric: metric, Op: "==", Want: strconv.FormatInt(value, 10)}, nil
+	case uint64:
+		return Matcher{Metric: metric, Op: "==", Want: strconv.FormatUint(value, 10)}, nil
+	case float64:
+		return Matcher{Metric: metric, Op: "==", Want: strconv.FormatFloat(value, 'f', -1, 64)}, nil
+	case string:
+		return compileStringMatcher(metric, value)
+	case []any:
+		values, err := stringValues(value)
+		if err != nil {
+			return Matcher{}, fmt.Errorf("%s: %w", metric, err)
+		}
+		return Matcher{Metric: metric, Op: "exact_values", Values: values}, nil
+	case map[string]any:
+		return compileMapMatcher(metric, value)
+	default:
+		return Matcher{}, fmt.Errorf("%s uses unsupported expectation value %T", metric, raw)
+	}
+}
+
+func compileMapMatcher(metric string, raw map[string]any) (Matcher, error) {
+	operators := 0
+	for key := range raw {
+		switch key {
+		case "mode":
+		case "cidr", "cidrs", "contains", "exact":
+			operators++
+		default:
+			return Matcher{}, fmt.Errorf("unknown expectation option %q", key)
+		}
+	}
+	if operators != 1 {
+		return Matcher{}, fmt.Errorf("%s requires exactly one of cidr, cidrs, contains, or exact", metric)
+	}
+	mode, err := matcherMode(raw["mode"])
+	if err != nil {
+		return Matcher{}, fmt.Errorf("%s mode: %w", metric, err)
+	}
+	if value, ok := raw["cidr"]; ok {
+		values, err := stringListValueFromRaw(value)
+		if err != nil {
+			return Matcher{}, fmt.Errorf("%s cidr: %w", metric, err)
+		}
+		return Matcher{Metric: metric, Op: "cidr", Values: values, Mode: mode}, nil
+	}
+	if value, ok := raw["cidrs"]; ok {
+		values, err := stringListValueFromRaw(value)
+		if err != nil {
+			return Matcher{}, fmt.Errorf("%s cidrs: %w", metric, err)
+		}
+		return Matcher{Metric: metric, Op: "cidr", Values: values, Mode: mode}, nil
+	}
+	if value, ok := raw["contains"]; ok {
+		values, err := stringListValueFromRaw(value)
+		if err != nil {
+			return Matcher{}, fmt.Errorf("%s contains: %w", metric, err)
+		}
+		return Matcher{Metric: metric, Op: "contains_values", Values: values, Mode: mode}, nil
+	}
+	if value, ok := raw["exact"]; ok {
+		values, err := stringListValueFromRaw(value)
+		if err != nil {
+			return Matcher{}, fmt.Errorf("%s exact: %w", metric, err)
+		}
+		return Matcher{Metric: metric, Op: "exact_values", Values: values}, nil
+	}
+	return Matcher{}, fmt.Errorf("%s uses unsupported map expectation; use cidr, cidrs, contains, or exact", metric)
+}
+
+func matcherMode(raw any) (string, error) {
+	mode := "at_least"
+	if raw != nil {
+		mode = strings.ToLower(strings.TrimSpace(fmt.Sprint(raw)))
+	}
+	switch mode {
+	case "", "any", "at_least", "at-least":
+		return "at_least", nil
+	case "all", "exact":
+		return "exact", nil
+	default:
+		return "", fmt.Errorf("unsupported mode %q; use at_least or exact", mode)
+	}
+}
+
+func stringListValueFromRaw(raw any) ([]string, error) {
+	switch value := raw.(type) {
+	case []any:
+		return stringValues(value)
+	case []string:
+		return cleanStringValues(value), nil
+	case string:
+		return cleanStringValues([]string{value}), nil
+	default:
+		return stringValues([]any{raw})
+	}
+}
+
+func expectationScalarText(value any) (string, error) {
+	switch value := value.(type) {
+	case string:
+		return value, nil
+	case int, int64, uint64, float64, bool:
+		return fmt.Sprint(value), nil
+	default:
+		return "", fmt.Errorf("unsupported expectation value %T", value)
+	}
+}
+
+func stringValues(values []any) ([]string, error) {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		text, err := expectationScalarText(value)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, text)
+	}
+	return cleanStringValues(out), nil
+}
+
+func cleanStringValues(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func compileStringMatcher(metric string, value string) (Matcher, error) {
+	literal := value
+	value = strings.TrimSpace(value)
+	switch strings.ToLower(value) {
+	case "dontcare", "don'tcare", "any", "either":
+		return Matcher{Metric: metric, Op: "dontcare"}, nil
+	}
+	for _, op := range []string{">=", "<=", "!=", "==", ">", "<"} {
+		if after, ok := strings.CutPrefix(value, op); ok {
+			return Matcher{Metric: metric, Op: op, Want: strings.TrimSpace(after)}, nil
+		}
+	}
+	if rest, ok := strings.CutPrefix(value, "contains "); ok {
+		return Matcher{Metric: metric, Op: "contains", Want: strings.TrimSpace(rest)}, nil
+	}
+	if value == "present" {
+		return Matcher{Metric: metric, Op: "present"}, nil
+	}
+	return Matcher{Metric: metric, Op: "==", Want: literal}, nil
+}
+
+func (m Matcher) matches(observed Value) bool {
+	switch m.Op {
+	case "dontcare":
+		return true
+	case "contains":
+		return strings.Contains(observed.String(), m.Want)
+	case "contains_values":
+		return containsObservedValues(observed.Strings(), m.Values, m.Mode)
+	case "exact_values":
+		return exactObservedValues(observed.Strings(), m.Values)
+	case "cidr":
+		return cidrMatch(observed.Strings(), m.Values, m.Mode)
+	case "==", "!=":
+		eq := valuesEqual(observed, m.Want)
+		if m.Op == "!=" {
+			return !eq
+		}
+		return eq
+	case ">", ">=", "<", "<=":
+		got, gotOK := observed.Float()
+		want, err := strconv.ParseFloat(m.Want, 64)
+		if !gotOK || err != nil {
+			return false
+		}
+		switch m.Op {
+		case ">":
+			return got > want
+		case ">=":
+			return got >= want
+		case "<":
+			return got < want
+		case "<=":
+			return got <= want
+		}
+	}
+	return false
+}
+
+func valuesEqual(observed Value, want string) bool {
+	if got, ok := observed.Bool(); ok {
+		wantBool, err := strconv.ParseBool(strings.ToLower(want))
+		return err == nil && got == wantBool
+	}
+	if got, ok := observed.Float(); ok {
+		wantFloat, err := strconv.ParseFloat(want, 64)
+		return err == nil && got == wantFloat
+	}
+	return observed.String() == want
+}
+
+func containsObservedValues(observed []string, wants []string, mode string) bool {
+	if len(wants) == 0 {
+		return false
+	}
+	observedSet := make(map[string]struct{}, len(observed))
+	for _, value := range observed {
+		observedSet[strings.TrimSpace(value)] = struct{}{}
+	}
+	matched := 0
+	for _, want := range wants {
+		if _, ok := observedSet[want]; ok {
+			matched++
+		}
+	}
+	if mode == "exact" {
+		return matched == len(wants)
+	}
+	return matched > 0
+}
+
+func exactObservedValues(observed []string, wants []string) bool {
+	observed = cleanStringValues(observed)
+	wants = cleanStringValues(wants)
+	if len(observed) != len(wants) {
+		return false
+	}
+	observedCounts := make(map[string]int, len(observed))
+	for _, value := range observed {
+		observedCounts[value]++
+	}
+	for _, want := range wants {
+		count := observedCounts[want]
+		if count == 0 {
+			return false
+		}
+		observedCounts[want] = count - 1
+	}
+	return true
+}
+
+func cidrMatch(observed []string, cidrs []string, mode string) bool {
+	prefixes := make([]netip.Prefix, 0, len(cidrs))
+	for _, cidr := range cidrs {
+		prefix, err := netip.ParsePrefix(strings.TrimSpace(cidr))
+		if err != nil {
+			return false
+		}
+		prefixes = append(prefixes, prefix)
+	}
+	if len(prefixes) == 0 {
+		return false
+	}
+	matched := 0
+	parsed := 0
+	for _, value := range observed {
+		addr, ok := parseIPLiteral(value)
+		if !ok {
+			continue
+		}
+		parsed++
+		for _, prefix := range prefixes {
+			if prefix.Contains(addr) {
+				matched++
+				break
+			}
+		}
+	}
+	if mode == "exact" {
+		return parsed > 0 && parsed == matched
+	}
+	return matched > 0
+}

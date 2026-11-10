@@ -2,91 +2,79 @@ package render
 
 import (
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"regexp"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 	"time"
 
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/control"
-	"dropcheck/controller/internal/controlpb"
-	"dropcheck/controller/internal/pipeline"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/control"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/oui"
 )
 
-func renderProtoMessage(message proto.Message) (string, error) {
-	data, err := protojson.MarshalOptions{
-		Multiline:     true,
-		Indent:        "  ",
-		UseProtoNames: true,
-	}.Marshal(message)
-	if err != nil {
-		return "", err
-	}
-	return string(data) + "\n", nil
-}
-
-// CommandResult renders one agent command result.
-//
-// Text output is tailored per payload type and includes command latency. JSON
-// output is the protojson representation of result without an outer agent
-// envelope.
-func CommandResult(agent string, result *controlpb.CommandResult, options command.Options, format pipeline.Format, presentation ...Presentation) (string, error) {
+// CommandResult renders safe text for one agent command result, including latency.
+func CommandResult(agent string, result *controlpb.CommandResult, options command.Options, presentation ...Presentation) (string, error) {
 	if result == nil {
 		return "", fmt.Errorf("missing command result")
 	}
-	result = safePresentationProto(result).(*controlpb.CommandResult)
-	if format == pipeline.FormatJSON {
-		return renderProtoMessage(result)
+	if options.RawView != "" {
+		return rawDebugResult(agent, result, options, presentation...)
 	}
+	result = presentationResult(result, options)
 	var b strings.Builder
 	view := Presentation{}
 	if len(presentation) > 0 {
 		view = presentation[0]
 	}
-	fmt.Fprintf(&b, "%s  %s  %dms\n", resultTitle(result, options), strings.ToUpper(resultStatus(result.GetStatus())), commandResultLatencyMs(result))
+	fmt.Fprintf(&b, "%s  %s\n", resultTitle(result, options), strings.ToUpper(resultStatus(result.GetStatus())))
 	if result.GetStatus() != controlpb.CommandResult_STATUS_OK {
-		fmt.Fprintf(&b, "Status: %s", resultStatus(result.GetStatus()))
+		writeRecord(&b, "  Status", resultStatus(result.GetStatus()))
 		if result.GetMessage() != "" {
-			fmt.Fprintf(&b, "  Message: %s", result.GetMessage())
+			writeRecord(&b, "  Message", result.GetMessage())
 		}
-		b.WriteByte('\n')
 	}
-	fmt.Fprintf(&b, "Latency: %dms\n", commandResultLatencyMs(result))
-	fmt.Fprintf(&b, "Source: android  Target: %s\n", cleanDisplayCell(agent))
+	writeRecord(&b, "  Latency", fmt.Sprintf("%dms", commandResultLatencyMs(result)))
+	writeRecord(&b, "  Source", "android")
+	writeRecord(&b, "  Target", cleanDisplayCell(agent))
+	if renderRequest(&b, result, options, view) {
+		return wrapPresentation(b.String(), view.Width), nil
+	}
 	switch payload := result.Payload.(type) {
+	case *controlpb.CommandResult_NetworkSnapshot:
+		writeRecord(&b, "Observed at unix ms", payload.NetworkSnapshot.GetObservedAtUnixMs())
+		for i, network := range payload.NetworkSnapshot.GetNetworks() {
+			writeSection(&b, fmt.Sprintf("Network %d", i+1))
+			var body strings.Builder
+			writeRecord(&body, "Active/default at collection", network.GetActive())
+			renderIPView(&body, network.GetIpStatus(), view.nested())
+			writeNested(&b, body.String())
+		}
+		renderErrors(&b, payload.NetworkSnapshot.GetErrors())
+	case *controlpb.CommandResult_PermissionSnapshot:
+		writeRecord(&b, "Observed at unix ms", payload.PermissionSnapshot.GetObservedAtUnixMs())
+		writeRecord(&b, "Device Owner", payload.PermissionSnapshot.GetDeviceOwner())
+		for _, field := range payload.PermissionSnapshot.GetPermissions() {
+			writeRecord(&b, field.GetKey(), field.GetValue())
+		}
 	case *controlpb.CommandResult_WifiStatus:
-		renderL2(&b, payload.WifiStatus, view)
+		if options.WifiRenderMode == command.WifiRenderModeStatus {
+			renderWifiSummary(&b, payload.WifiStatus, view)
+		} else {
+			renderL2(&b, payload.WifiStatus, view)
+		}
 	case *controlpb.CommandResult_ConnectWifi:
 		renderConnectWifi(&b, payload.ConnectWifi)
 	case *controlpb.CommandResult_IpStatus:
 		renderIPView(&b, payload.IpStatus, view)
-	case *controlpb.CommandResult_Ping:
-		renderPing(&b, payload.Ping, result.GetStatus())
-	case *controlpb.CommandResult_Traceroute:
-		renderTraceroute(&b, payload.Traceroute, options, result.GetStatus())
-	case *controlpb.CommandResult_PathMtu:
-		renderPathMtu(&b, payload.PathMtu)
-	case *controlpb.CommandResult_GlobalIp:
-		renderGlobalIP(&b, payload.GlobalIp)
-	case *controlpb.CommandResult_ResolveDns:
-		renderResolveDNS(&b, payload.ResolveDns)
-	case *controlpb.CommandResult_HttpCheck:
-		renderHTTPCheck(&b, payload.HttpCheck)
-	case *controlpb.CommandResult_Wget:
-		renderWget(&b, payload.Wget)
 	case *controlpb.CommandResult_WifiDiagnostics:
 		if options.WifiRenderMode == command.WifiRenderModeEHT {
 			if view.DetailAvailable && !view.Detail {
 				renderCurrentMLO(&b, payload.WifiDiagnostics, options, view)
 			} else {
-				renderWifiMLO(&b, payload.WifiDiagnostics, options)
+				renderWifiMLO(&b, payload.WifiDiagnostics, options, view)
 			}
 		} else {
 			renderDiagnosticBundle(&b, payload.WifiDiagnostics, options, view)
@@ -97,14 +85,24 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 		renderDeviceCapabilities(&b, payload.WifiCapabilities, view)
 	case *controlpb.CommandResult_WifiOperation:
 		renderWifiOperation(&b, payload.WifiOperation)
+		writeRecord(&b, "Already absent", payload.WifiOperation.GetAlreadyAbsent())
+		renderWifiSnapshot(&b, payload.WifiOperation.GetStatus(), view)
 	case *controlpb.CommandResult_WifiAssert:
-		renderWifiAssert(&b, payload.WifiAssert)
+		renderWifiAssert(&b, payload.WifiAssert, view)
+		renderWifiSnapshot(&b, payload.WifiAssert.GetStatus(), view)
 	case *controlpb.CommandResult_WifiMonitor:
-		renderWifiMonitor(&b, payload.WifiMonitor)
+		renderWifiMonitor(&b, payload.WifiMonitor, view)
+		for i, event := range payload.WifiMonitor.GetEvents() {
+			writeSection(&b, fmt.Sprintf("Event %d evidence", i+1))
+			var body strings.Builder
+			renderDiagnosticFields(&body, event.GetFields())
+			renderWifiSnapshot(&body, event.GetStatus(), view.nested())
+			writeNested(&b, body.String())
+		}
 	case *controlpb.CommandResult_WifiScanDetail:
-		renderWifiScanDetail(&b, payload.WifiScanDetail, options)
+		renderWifiScanDetail(&b, payload.WifiScanDetail, options, view)
 	case *controlpb.CommandResult_WifiCycle:
-		renderWifiCycle(&b, payload.WifiCycle)
+		renderWifiCycle(&b, payload.WifiCycle, view)
 	default:
 		if result.GetMessage() != "" {
 			fmt.Fprintf(&b, "%s\n", result.GetMessage())
@@ -114,6 +112,11 @@ func CommandResult(agent string, result *controlpb.CommandResult, options comman
 		}
 	}
 	return wrapPresentation(b.String(), view.Width), nil
+}
+
+// SanitizedResult returns a detached safe snapshot for session-local history.
+func SanitizedResult(result *controlpb.CommandResult) *controlpb.CommandResult {
+	return safePresentationProto(result).(*controlpb.CommandResult)
 }
 
 func commandResultLatencyMs(result *controlpb.CommandResult) int64 {
@@ -139,63 +142,17 @@ func commandResultLatencyMs(result *controlpb.CommandResult) int64 {
 	}
 }
 
-// CommandResultEnvelope renders a JSON object that includes agent and
-// command_id metadata around a command result.
-func CommandResultEnvelope(agent string, commandID string, result *controlpb.CommandResult) (string, error) {
-	if result == nil {
-		return "", fmt.Errorf("missing command result")
-	}
-	result = safePresentationProto(result).(*controlpb.CommandResult)
-	data, err := protojson.MarshalOptions{
-		Multiline:     true,
-		Indent:        "  ",
-		UseProtoNames: true,
-	}.Marshal(result)
-	if err != nil {
-		return "", err
-	}
-	envelope := struct {
-		Agent     string          `json:"agent"`
-		CommandID string          `json:"command_id"`
-		Result    json.RawMessage `json:"result"`
-	}{
-		Agent:     cleanDisplayCell(agent),
-		CommandID: cleanDisplayCell(commandID),
-		Result:    json.RawMessage(data),
-	}
-	wrapped, err := json.MarshalIndent(envelope, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	return string(wrapped) + "\n", nil
-}
-
 // CommandError renders a command dispatch or execution error.
 //
-// includeAgent controls whether text and JSON output include the agent label;
+// includeAgent controls whether output includes the agent label;
 // callers use this when a single command is broadcast to multiple agents.
-func CommandError(agent string, commandID string, err error, format pipeline.Format, includeAgent bool) (string, error) {
+func CommandError(agent string, err error, includeAgent bool) (string, error) {
 	agent = cleanDisplayCell(agent)
-	commandID = cleanDisplayCell(commandID)
 	message := cleanDisplayCell(safePresentationText(err.Error()))
-	if format == pipeline.FormatJSON {
-		value := map[string]any{
-			"command_id": commandID,
-			"error":      message,
-		}
-		if includeAgent {
-			value["agent"] = agent
-		}
-		data, marshalErr := json.MarshalIndent(value, "", "  ")
-		if marshalErr != nil {
-			return "", marshalErr
-		}
-		return string(data) + "\n", nil
-	}
 	if includeAgent {
-		return fmt.Sprintf("Agent: %s\nError: %s\n", agent, message), nil
+		return Fields([][2]string{{"Agent", agent}, {"Error", message}}, Presentation{}), nil
 	}
-	return fmt.Sprintf("Error: %s\n", message), nil
+	return Fields([][2]string{{"Error", message}}, Presentation{}), nil
 }
 
 // AgentListView is the renderer input for the connected-agent list.
@@ -247,64 +204,28 @@ func writeBlankLine(b *strings.Builder) {
 
 func writeKVSection(b *strings.Builder, title string, rows ...kvRow) {
 	writeSection(b, title)
-	writeKVRows(b, rows...)
+	var fields strings.Builder
+	writeKVRows(&fields, rows...)
+	writeNested(b, fields.String())
 }
 
 func writeKVRows(b *strings.Builder, rows ...kvRow) {
-	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
 	for _, row := range rows {
 		if row.label == "" || row.value == "" {
 			continue
 		}
-		if strings.Contains(row.value, "\n") {
-			_, _ = fmt.Fprintf(tw, "  %s\n", row.label)
-			for line := range strings.SplitSeq(row.value, "\n") {
-				if line == "" {
-					continue
-				}
-				_, _ = fmt.Fprintf(tw, "    %s\n", line)
-			}
-			continue
-		}
-		_, _ = fmt.Fprintf(tw, "  %s\t%s\n", row.label, row.value)
+		writeRecord(b, row.label, row.value)
 	}
-	_ = tw.Flush()
 }
 
 // Agents renders the connected-agent list.
-func Agents(view AgentListView, format pipeline.Format) (string, error) {
-	if format == pipeline.FormatJSON {
-		agents := view.Agents
-		rows := make([]map[string]any, 0, len(agents))
-		for i, info := range agents {
-			hello := info.Hello
-			device := hello.GetDevice()
-			rows = append(rows, map[string]any{
-				"number":       i + 1,
-				"selected":     info.ID == view.Selected && !view.TargetAll,
-				"id":           info.ID,
-				"adb_serial":   hello.GetAdbSerial(),
-				"session":      info.SessionID,
-				"app":          hello.GetAppVersion(),
-				"manufacturer": device.GetManufacturer(),
-				"model":        device.GetModel(),
-				"sdk":          device.GetSdk(),
-				"connected":    info.Connected.Format(time.RFC3339),
-			})
-		}
-		data, err := json.MarshalIndent(rows, "", "  ")
-		if err != nil {
-			return "", err
-		}
-		return string(data) + "\n", nil
-	}
+func Agents(view AgentListView) (string, error) {
 	agents := view.Agents
 	if len(agents) == 0 {
 		return "No agents connected\n", nil
 	}
 	var b strings.Builder
-	tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "SEL\t#\tAGENT\tADB SERIAL\tDEVICE\tSDK\tAPP\tCONNECTED")
+	var rows [][]string
 	for i, info := range agents {
 		marker := ""
 		if view.TargetAll {
@@ -315,18 +236,18 @@ func Agents(view AgentListView, format pipeline.Format) (string, error) {
 		hello := info.Hello
 		device := hello.GetDevice()
 		deviceName := strings.TrimSpace(device.GetManufacturer() + " " + device.GetModel())
-		_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%d\t%s\t%s\n",
+		rows = append(rows, []string{
 			marker,
-			i+1,
+			fmt.Sprint(i + 1),
 			shortID(info.ID),
 			empty(hello.GetAdbSerial(), "unknown"),
 			empty(deviceName, "unknown"),
-			device.GetSdk(),
+			fmt.Sprint(device.GetSdk()),
 			empty(hello.GetAppVersion(), "unknown"),
 			info.Connected.Format(time.RFC3339),
-		)
+		})
 	}
-	_ = tw.Flush()
+	writeDisplayTable(&b, []displayTableColumn{{header: "SEL"}, {header: "#"}, {header: "AGENT"}, {header: "ADB SERIAL"}, {header: "DEVICE"}, {header: "SDK"}, {header: "APP"}, {header: "CONNECTED"}}, rows)
 	return b.String(), nil
 }
 
@@ -334,6 +255,7 @@ func renderWifiConnection(b *strings.Builder, conn *controlpb.WifiConnection) {
 	writeKVSection(b, "Connection",
 		kv("ssid", observedValue(conn.GetObservationFields(), "identity", conn.GetSsid())),
 		kv("bssid", observedValue(conn.GetObservationFields(), "identity", conn.GetBssid())),
+		kv("BSSID vendor", observedValue(conn.GetObservationFields(), "identity", oui.Vendor(conn.GetBssid()))),
 		kv("security", empty(conn.GetSecurityType(), "unknown")),
 		kv("standard", empty(conn.GetWifiStandard(), "unknown")),
 		kv("rssi", observedValue(conn.GetObservationFields(), "rssi", fmt.Sprintf("%ddBm", conn.GetRssiDbm()))),
@@ -585,20 +507,29 @@ func wifiConnectionHasMLO(conn *controlpb.WifiConnection) bool {
 		wifiMLOHasElement(conn.GetInformationElements())
 }
 
-func renderMLOLinks(b *strings.Builder, title string, links []*controlpb.MloLinkInfo) {
+func renderMLOLinks(b *strings.Builder, title string, links []*controlpb.MloLinkInfo, full ...bool) {
 	if len(links) == 0 {
 		return
 	}
 	writeSection(b, title)
-	for _, link := range links {
-		writeRecord(b, "L", observedValue(link.GetObservationFields(), "identity", fmt.Sprint(link.GetLinkId())))
-		writeRecord(b, "State", observedValue(link.GetObservationFields(), "identity", link.GetState()))
-		writeRecord(b, "Band/CH", observedValue(link.GetObservationFields(), "identity", fmt.Sprintf("%s/%d", link.GetBand(), link.GetChannel())))
-		writeRecord(b, "RSSI", observedValue(link.GetObservationFields(), "rates", fmt.Sprintf("%ddBm", link.GetRssiDbm())))
-		writeRecord(b, "Tx/Rx", observedValue(link.GetObservationFields(), "rates", fmt.Sprintf("%d/%dMbps", link.GetTxLinkSpeedMbps(), link.GetRxLinkSpeedMbps())))
-		writeRecord(b, "Max Tx/Rx", "? (maximum-rate availability metadata not supplied)")
-		writeRecord(b, "AP_MAC", observedValue(link.GetObservationFields(), "identity", link.GetApMacAddress()))
-		writeRecord(b, "STA_MAC", observedValue(link.GetObservationFields(), "identity", link.GetStaMacAddress()))
+	for i, link := range links {
+		if i > 0 {
+			writeBlankLine(b)
+		}
+		var fields strings.Builder
+		writeRecord(&fields, "L", observedValue(link.GetObservationFields(), "identity", fmt.Sprint(link.GetLinkId())))
+		writeRecord(&fields, "State", observedValue(link.GetObservationFields(), "identity", link.GetState()))
+		writeRecord(&fields, "Band/CH", observedValue(link.GetObservationFields(), "identity", fmt.Sprintf("%s/%d", link.GetBand(), link.GetChannel())))
+		writeRecord(&fields, "RSSI", observedValue(link.GetObservationFields(), "rates", fmt.Sprintf("%ddBm", link.GetRssiDbm())))
+		writeRecord(&fields, "Tx/Rx", observedValue(link.GetObservationFields(), "rates", fmt.Sprintf("%d/%dMbps", link.GetTxLinkSpeedMbps(), link.GetRxLinkSpeedMbps())))
+		writeRecord(&fields, "Max Tx/Rx", "? (maximum-rate availability metadata not supplied)")
+		writeRecord(&fields, "AP_MAC", observedValue(link.GetObservationFields(), "identity", link.GetApMacAddress()))
+		writeRecord(&fields, "STA_MAC", observedValue(link.GetObservationFields(), "identity", link.GetStaMacAddress()))
+		if len(full) != 0 && full[0] {
+			writeRecord(&fields, "Reported max Tx/Rx (availability uncollected)", fmt.Sprintf("%d/%dMbps", link.GetMaxSupportedTxLinkSpeedMbps(), link.GetMaxSupportedRxLinkSpeedMbps()))
+			renderDiagnosticFields(&fields, link.GetObservationFields())
+		}
+		writeNested(b, fields.String())
 	}
 }
 
@@ -607,113 +538,6 @@ func renderConnectWifi(b *strings.Builder, result *controlpb.ConnectWifiResult) 
 		return
 	}
 	fmt.Fprintf(b, "Connect: ssid=%s connected=%t message=%s\n", result.GetSsid(), result.GetConnected(), empty(result.GetMessage(), "-"))
-}
-
-type ipRenderOptions struct {
-	connection *controlpb.WifiConnection
-}
-
-func renderIPStatus(b *strings.Builder, status *controlpb.IpStatus) {
-	renderIPStatusWithOptions(b, status, ipRenderOptions{})
-}
-
-func renderIPStatusWithOptions(b *strings.Builder, status *controlpb.IpStatus, options ipRenderOptions) {
-	if status == nil {
-		return
-	}
-	writeKVSection(b, "Network", networkRows(status, options)...)
-	writeRecord(b, "Default network", "? (default-Network metadata unavailable)")
-	writeRecord(b, "Availability", "? (DHCP/private DNS/NAT64 empty-value presence unavailable)")
-}
-
-func wifiConnectionNetworkRows(conn *controlpb.WifiConnection) []kvRow {
-	if conn == nil {
-		return nil
-	}
-	rows := []kvRow{
-		kv("id", connectionNetworkID(conn)),
-		kv("ipv4", conn.GetIpv4Address()),
-	}
-	return nonEmptyKVRows(rows)
-}
-
-func networkRows(status *controlpb.IpStatus, options ipRenderOptions) []kvRow {
-	ipv4, ipv6, addresses := splitIPAddresses(status.GetAddresses())
-	if ip := options.connection.GetIpv4Address(); ip != "" && !addressListContainsIP(ipv4, ip) {
-		ipv4 = append(ipv4, ip)
-	}
-	capabilities := networkCapabilitiesForDetail(status.GetCapabilities())
-	signalStrength, showSignalStrength := networkSignalStrengthForDetail(status, options.connection)
-	rows := []kvRow{
-		kv("id", empty(firstNonBlank(status.GetNetworkId(), connectionNetworkID(options.connection)), "unknown")),
-		kv("transports", multiLineValue(status.GetTransports())),
-		kv("interface", empty(status.GetInterfaceName(), "none")),
-		kv("mtu", status.GetMtu()),
-		kv("validated", status.GetValidated()),
-		kv("internet", status.GetInternet()),
-	}
-	if len(capabilities) > 0 {
-		rows = append(rows, kv("capabilities", multiLineValue(capabilities)))
-	}
-	if bandwidth := networkBandwidth(status); bandwidth != "" {
-		rows = append(rows, kv("bandwidth", bandwidth))
-	}
-	if showSignalStrength {
-		rows = append(rows, kv("signal_strength", signalStrength))
-	}
-	if status.GetNetworkSpecifier() != "" {
-		rows = append(rows, kv("network_specifier", status.GetNetworkSpecifier()))
-	}
-	if status.GetOwnerUid() > 0 {
-		rows = append(rows, kv("owner_uid", status.GetOwnerUid()))
-	}
-	if len(status.GetEnterpriseIds()) > 0 {
-		rows = append(rows, kv("enterprise_ids", multiLineValue(status.GetEnterpriseIds())))
-	}
-	if len(status.GetSubscriptionIds()) > 0 {
-		values := make([]string, 0, len(status.GetSubscriptionIds()))
-		for _, id := range status.GetSubscriptionIds() {
-			values = append(values, strconv.Itoa(int(id)))
-		}
-		rows = append(rows, kv("subscription_ids", multiLineValue(values)))
-	}
-	if status.GetDhcpServer() != "" {
-		rows = append(rows, kv("dhcp_server", status.GetDhcpServer()))
-	}
-	if status.GetPrivateDnsActive() || status.GetPrivateDnsServerName() != "" {
-		rows = append(rows, kv("private_dns", fmt.Sprintf("active=%t server=%s", status.GetPrivateDnsActive(), empty(status.GetPrivateDnsServerName(), "none"))))
-	}
-	if len(ipv4) > 0 {
-		rows = append(rows, kv("ipv4", multiLineValue(ipv4)))
-	}
-	if len(ipv6) > 0 {
-		rows = append(rows, kv("ipv6", multiLineValue(ipv6)))
-	}
-	if len(addresses) > 0 {
-		rows = append(rows, kv("addresses", multiLineValue(addresses)))
-	}
-	if len(status.GetRoutes()) > 0 {
-		rows = append(rows, kv("routes", multiLineValue(status.GetRoutes())))
-	}
-	if values := diagnosticFieldsForDetail(status.GetIpv6Ra()); len(values) > 0 {
-		rows = append(rows, kv("ipv6_ra", multiLineValue(values)))
-	}
-	if len(status.GetDnsServers()) > 0 {
-		rows = append(rows, kv("dns", multiLineValue(status.GetDnsServers())))
-	}
-	if status.GetDomains() != "" {
-		rows = append(rows, kv("domains", status.GetDomains()))
-	}
-	if status.GetHttpProxy() != "" {
-		rows = append(rows, kv("http_proxy", status.GetHttpProxy()))
-	}
-	if status.GetNat64Prefix() != "" {
-		rows = append(rows, kv("nat64_prefix", status.GetNat64Prefix()))
-	}
-	if status.GetWakeOnLanSupported() {
-		rows = append(rows, kv("wake_on_lan", true))
-	}
-	return rows
 }
 
 func diagnosticFieldsForDetail(values []*controlpb.DiagnosticField) []string {
@@ -746,24 +570,6 @@ func multiLineValue(values []string) string {
 	return strings.Join(nonEmpty, "\n")
 }
 
-func connectionNetworkID(conn *controlpb.WifiConnection) string {
-	if conn == nil || conn.GetNetworkId() == 0 {
-		return ""
-	}
-	return strconv.Itoa(int(conn.GetNetworkId()))
-}
-
-func addressListContainsIP(values []string, ip string) bool {
-	for _, value := range values {
-		address := strings.TrimSpace(strings.SplitN(value, "/", 2)[0])
-		address = strings.SplitN(address, "%", 2)[0]
-		if address == ip {
-			return true
-		}
-	}
-	return false
-}
-
 func splitIPAddresses(values []string) (ipv4 []string, ipv6 []string, other []string) {
 	for _, value := range values {
 		switch {
@@ -789,212 +595,7 @@ func networkBandwidth(status *controlpb.IpStatus) string {
 	return strings.Join(parts, " ")
 }
 
-func networkSignalStrengthForDetail(status *controlpb.IpStatus, connection *controlpb.WifiConnection) (int32, bool) {
-	const androidSignalStrengthUnspecified = int32(-1 << 31)
-	signalStrength := status.GetSignalStrength()
-	if signalStrength == 0 || signalStrength == androidSignalStrengthUnspecified {
-		return 0, false
-	}
-	if connection != nil && connection.GetRssiDbm() == signalStrength {
-		return 0, false
-	}
-	return signalStrength, true
-}
-
-func networkCapabilitiesForDetail(values []string) []string {
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		switch strings.ToLower(value) {
-		case "", "internet", "validated":
-			continue
-		default:
-			out = append(out, value)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-func renderPing(b *strings.Builder, result *controlpb.PingResult, status controlpb.CommandResult_Status) {
-	observed := func(present bool, value any) string {
-		if !present {
-			return "?"
-		}
-		return fmt.Sprint(value)
-	}
-	fmt.Fprintf(b, "Ping: host=%s status=%s transmitted=%s received=%s loss=%s%% min/avg/max=%s/%s/%sms interface=%s elapsed=%dms\n",
-		result.GetHost(),
-		resultStatus(status),
-		observed(result.Transmitted != nil, result.GetTransmitted()),
-		observed(result.Received != nil, result.GetReceived()),
-		observed(result.PacketLossPercent != nil, result.GetPacketLossPercent()),
-		observed(result.MinMs != nil, result.GetMinMs()),
-		observed(result.AvgMs != nil, result.GetAvgMs()),
-		observed(result.MaxMs != nil, result.GetMaxMs()),
-		empty(result.GetInterfaceName(), "default"),
-		result.GetElapsedMs(),
-	)
-	if result.GetOutput() != "" {
-		fmt.Fprintf(b, "\nNative output (reference; not a separate verdict)\n%s\n", strings.TrimRight(result.GetOutput(), "\n"))
-	}
-}
-
-func renderTraceroute(b *strings.Builder, result *controlpb.TracerouteResult, options command.Options, status controlpb.CommandResult_Status) {
-	analysis := analyzeTraceroute(result, options.TracerouteRequiredHops, status)
-	fmt.Fprintf(b, "Traceroute: host=%s status=%s hops=%d reached=%t interface=%s elapsed=%dms executable=%s\n",
-		analysis.Host,
-		analysis.Status,
-		len(analysis.Hops),
-		analysis.ReachedTarget,
-		empty(analysis.InterfaceName, "default"),
-		analysis.ElapsedMs,
-		empty(analysis.Executable, "unknown"),
-	)
-	if len(analysis.RequiredHops) > 0 {
-		fmt.Fprintf(b, "Required hops: passed=%t matched=%s missing=%s\n",
-			analysis.RequiredHopsPassed,
-			strings.Join(analysis.MatchedRequiredHops, ","),
-			strings.Join(analysis.MissingRequiredHops, ","),
-		)
-	}
-	if len(analysis.Hops) > 0 {
-		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(tw, "HOP\tHOST\tADDRESS\tRTT\tTIMEOUT\tTARGET")
-		for _, hop := range analysis.Hops {
-			_, _ = fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%t\t%t\n",
-				hop.Index,
-				empty(hop.Host, "-"),
-				empty(hop.Address, "-"),
-				formatMillis(hop.RttMs),
-				hop.TimedOut,
-				hop.ReachedTarget,
-			)
-		}
-		_ = tw.Flush()
-	}
-	if analysis.Error != "" {
-		fmt.Fprintf(b, "Error: %s\n", analysis.Error)
-	}
-}
-
-func renderPathMtu(b *strings.Builder, result *controlpb.PathMtuResult) {
-	if result == nil {
-		return
-	}
-	fmt.Fprintf(b, "Path MTU: host=%s discovered=%t mtu=%d payload=%d range=%d-%d overhead=%d interface=%s probes=%d elapsed=%dms\n",
-		result.GetHost(),
-		result.GetDiscovered(),
-		result.GetPathMtuBytes(),
-		result.GetPayloadSizeBytes(),
-		result.GetMinMtuBytes(),
-		result.GetMaxMtuBytes(),
-		result.GetIpOverheadBytes(),
-		empty(result.GetInterfaceName(), "default"),
-		len(result.GetProbes()),
-		result.GetElapsedMs(),
-	)
-	if len(result.GetProbes()) > 0 {
-		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(tw, "MTU\tPAYLOAD\tPASS\tEXIT\tELAPSED")
-		for _, probe := range result.GetProbes() {
-			_, _ = fmt.Fprintf(tw, "%d\t%d\t%t\t%d\t%dms\n",
-				probe.GetMtuBytes(),
-				probe.GetPayloadSizeBytes(),
-				probe.GetPassed(),
-				probe.GetExitCode(),
-				probe.GetElapsedMs(),
-			)
-		}
-		_ = tw.Flush()
-	}
-	if result.GetError() != "" {
-		fmt.Fprintf(b, "Error: %s\n", result.GetError())
-	}
-}
-
-func renderGlobalIP(b *strings.Builder, result *controlpb.GlobalIpResult) {
-	if result == nil {
-		return
-	}
-	fmt.Fprintf(b, "Global IP: service=%s requested=%s interface=%s checks=%d elapsed=%dms\n",
-		empty(result.GetService(), "ifconfig.me"),
-		ipFamilyName(result.GetRequestedFamily()),
-		empty(result.GetInterfaceName(), "default"),
-		len(result.GetAddresses()),
-		result.GetElapsedMs(),
-	)
-	if len(result.GetAddresses()) > 0 {
-		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(tw, "FAMILY\tIP\tGLOBAL\tSTATUS\tELAPSED\tERROR")
-		for _, address := range result.GetAddresses() {
-			_, _ = fmt.Fprintf(tw, "%s\t%s\t%t\t%d\t%dms\t%s\n",
-				ipFamilyName(address.GetFamily()),
-				empty(address.GetIp(), "-"),
-				address.GetGlobal(),
-				address.GetStatus(),
-				address.GetElapsedMs(),
-				empty(address.GetError(), "-"),
-			)
-		}
-		_ = tw.Flush()
-	}
-	if result.GetError() != "" {
-		fmt.Fprintf(b, "Error: %s\n", result.GetError())
-	}
-}
-
-func renderResolveDNS(b *strings.Builder, result *controlpb.ResolveDnsResult) {
-	if result == nil {
-		return
-	}
-	if result.GetError() != "" {
-		fmt.Fprintf(b, "DNS: name=%s error=%s elapsed=%dms\n", result.GetName(), result.GetError(), result.GetElapsedMs())
-		return
-	}
-	fmt.Fprintf(b, "DNS: name=%s elapsed=%dms answers=%d\n", result.GetName(), result.GetElapsedMs(), len(result.GetAnswers()))
-	for _, answer := range result.GetAnswers() {
-		fmt.Fprintf(b, "  %s %s\n", dnsTypeName(answer.GetType()), answer.GetAddress())
-	}
-}
-
-func renderHTTPCheck(b *strings.Builder, result *controlpb.HttpCheckResult) {
-	if result == nil {
-		return
-	}
-	if result.GetError() != "" {
-		fmt.Fprintf(b, "HTTP: url=%s error=%s elapsed=%dms\n", result.GetUrl(), result.GetError(), result.GetElapsedMs())
-		return
-	}
-	fmt.Fprintf(b, "HTTP: url=%s status=%d expected=%d matched=%t elapsed=%dms\n",
-		result.GetUrl(),
-		result.GetStatus(),
-		result.GetExpectedStatus(),
-		result.GetMatched(),
-		result.GetElapsedMs(),
-	)
-}
-
-func renderWget(b *strings.Builder, result *controlpb.WgetResult) {
-	if result == nil {
-		return
-	}
-	if result.GetError() != "" {
-		fmt.Fprintf(b, "Download: url=%s error=%s elapsed=%dms\n", result.GetUrl(), result.GetError(), result.GetElapsedMs())
-		return
-	}
-	fmt.Fprintf(b, "Download: url=%s status=%d bytes=%d content_length=%d type=%s throughput=%.0fbps interface=%s elapsed=%dms\n",
-		result.GetUrl(),
-		result.GetStatus(),
-		result.GetBytesRead(),
-		result.GetContentLength(),
-		empty(result.GetContentType(), "unknown"),
-		result.GetThroughputBps(),
-		empty(result.GetInterfaceName(), "default"),
-		result.GetElapsedMs(),
-	)
-}
-
-func renderWifiScanDetail(b *strings.Builder, detail *controlpb.WifiScanDetail, options command.Options) {
+func renderWifiScanDetail(b *strings.Builder, detail *controlpb.WifiScanDetail, options command.Options, view Presentation) {
 	if detail == nil {
 		return
 	}
@@ -1004,21 +605,39 @@ func renderWifiScanDetail(b *strings.Builder, detail *controlpb.WifiScanDetail, 
 		kv("total", diagnosticFieldMap(detail.GetFields())["scan_result_total_count"]),
 		kv("requested_band", diagnosticFieldMap(detail.GetFields())["requested_band"]),
 	)
+	writeRecord(b, "Connections at collection", scanConnectionsSummary(detail.GetConnections()))
 	writeBlankLine(b)
-	for _, ap := range detail.GetResults() {
-		writeSection(b, "AP")
-		writeRecord(b, "BSSID", empty(ap.GetBssid(), "?"))
-		writeRecord(b, "SSID", scanDisplaySSID(ap))
-		writeRecord(b, "Observation age", scanObservationAge(ap))
-		writeRecord(b, "Radio", fmt.Sprintf("CH=%s frequency=%dMHz centers=%d/%dMHz BW=%s", wifiChannelFromFrequency(ap.GetFrequencyMhz()), ap.GetFrequencyMhz(), ap.GetCenterFreq0Mhz(), ap.GetCenterFreq1Mhz(), ap.GetChannelWidth()))
-		writeRecord(b, "Security", strings.Join(ap.GetSecurityTypes(), ","))
-		renderWifiSecurityDetails(b, ap.GetSecurityDetails())
-		writeRecord(b, "MLD", observedValue(ap.GetObservationFields(), "ap_mld_mac_address", wifiMLOScanMLDMAC(ap)))
-		writeRecord(b, "Link", scanMLOLinkID(ap))
-		renderMLOLinks(b, "Affiliated", ap.GetAffiliatedMloLinks())
+	for i, ap := range detail.GetResults() {
+		writeSection(b, fmt.Sprintf("[%s] AP %d", scanAPMark(ap, detail.GetConnections()), i+1))
+		var details strings.Builder
+		body := &details
+		writeRecord(body, "BSSID", empty(ap.GetBssid(), "?"))
+		writeRecord(body, "BSSID vendor", oui.Vendor(ap.GetBssid()))
+		writeRecord(body, "SSID", scanDisplaySSID(ap))
+		writeRecord(body, "EHT", empty(scanEHTEvidence(ap), "not observed"))
+		if ap.GetOperatorFriendlyName() != "" {
+			writeRecord(body, "Operator", ap.GetOperatorFriendlyName())
+		}
+		if ap.GetVenueName() != "" {
+			writeRecord(body, "Venue", ap.GetVenueName())
+		}
+		writeRecord(body, "RSSI dBm", ap.GetRssiDbm())
+		writeRecord(body, "PHY", ap.GetWifiStandard())
+		writeRecord(body, "Flags", strings.Join(scanConnectionCapabilityFlags(ap), ","))
+		writeRecord(body, "Observation age", scanObservationAge(ap))
+		writeRecord(body, "Radio", fmt.Sprintf("CH=%s frequency=%dMHz centers=%d/%dMHz BW=%s", wifiChannelFromFrequency(ap.GetFrequencyMhz()), ap.GetFrequencyMhz(), ap.GetCenterFreq0Mhz(), ap.GetCenterFreq1Mhz(), ap.GetChannelWidth()))
+		writeRecord(body, "Security", strings.Join(ap.GetSecurityTypes(), ","))
+		writeRecord(body, "MLD", observedValue(ap.GetObservationFields(), "ap_mld_mac_address", wifiMLOScanMLDMAC(ap)))
+		writeRecord(body, "Link", scanMLOLinkID(ap))
+		renderWifiSecurityDetails(body, ap.GetSecurityDetails())
+		renderMLOLinks(body, "Affiliated", ap.GetAffiliatedMloLinks())
 		conn := &controlpb.WifiConnection{HeCapabilities: ap.GetHeCapabilities(), HeOperation: ap.GetHeOperation(), EhtCapabilities: ap.GetEhtCapabilities(), EhtOperation: ap.GetEhtOperation(), HeUoraParameterSet: ap.GetHeUoraParameterSet(), HeMuEdcaParameterSet: ap.GetHeMuEdcaParameterSet(), HeSpatialReuseParameterSet: ap.GetHeSpatialReuseParameterSet(), He_6GhzCapabilities: ap.GetHe_6GhzCapabilities(), InformationElements: ap.GetInformationElements()}
-		renderWifiConnectionCapabilities(b, conn)
-		renderWifiConnectionDetailedCapabilities(b, conn)
+		renderWifiConnectionCapabilities(body, conn)
+		renderWifiConnectionDetailedCapabilities(body, conn)
+		if view.Detail || options.Detail {
+			renderScanReferenceEvidence(body, ap)
+		}
+		writeNested(b, details.String())
 	}
 	renderErrors(b, detail.GetErrors())
 }
@@ -1107,35 +726,6 @@ func scanDisplaySSID(result *controlpb.WifiScanResult) string {
 	return empty(result.GetSsid(), "? (SSID presence unavailable)")
 }
 
-func scanSecurityFeatureCell(details *controlpb.WifiSecurityDetails) string {
-	if details == nil {
-		return "-"
-	}
-	flags := []string{}
-	if details.GetGcmp_256() {
-		flags = append(flags, "gcmp256")
-	}
-	if details.GetSaeGdh() {
-		flags = append(flags, "sae-gdh")
-	}
-	if details.GetFtSaeGdh() {
-		flags = append(flags, "ft-sae-gdh")
-	}
-	if slices.Contains(details.GetRsnxeCapabilities(), "sae_h2e") {
-		flags = append(flags, "h2e")
-	}
-	if slices.Contains(details.GetRsnxeCapabilities(), "ssid_protection") {
-		flags = append(flags, "ssid-prot")
-	}
-	if details.GetBeaconProtection() {
-		flags = append(flags, "beacon-prot")
-	}
-	if len(flags) == 0 {
-		return "-"
-	}
-	return strings.Join(flags, ",")
-}
-
 func wifiScanMLOCapableResult(result *controlpb.WifiScanResult) bool {
 	return result != nil &&
 		wifiMLOScanHasMetadata(result)
@@ -1143,29 +733,6 @@ func wifiScanMLOCapableResult(result *controlpb.WifiScanResult) bool {
 
 func scanConnectionCapabilityFlags(result *controlpb.WifiScanResult) []string {
 	return connectionInformationElementCapabilityNames(result.GetInformationElements())
-}
-
-func renderScanSecurityDetails(b *strings.Builder, results []*controlpb.WifiScanResult) {
-	securityResults := make([]*controlpb.WifiScanResult, 0)
-	for _, result := range results {
-		if result.GetSecurityDetails() != nil {
-			securityResults = append(securityResults, result)
-		}
-	}
-	if len(securityResults) == 0 {
-		return
-	}
-	writeSection(b, "Scan Wi-Fi Security Details")
-	for i, result := range securityResults {
-		if i > 0 {
-			b.WriteByte('\n')
-		}
-		label := fmt.Sprintf("ap ssid=%s bssid=%s", empty(result.GetSsid(), "<hidden>"), empty(result.GetBssid(), "<unknown>"))
-		fmt.Fprintf(b, "  %s\n", label)
-		for _, line := range wifiSecuritySummaryLines(result.GetSecurityDetails()) {
-			fmt.Fprintf(b, "    %s\n", line)
-		}
-	}
 }
 
 func connectionInformationElementCapabilityNames(elements []*controlpb.WifiInformationElement) []string {
@@ -1630,7 +1197,7 @@ func renderWifiOperation(b *strings.Builder, result *controlpb.WifiOperationResu
 	renderErrors(b, result.GetErrors())
 }
 
-func renderWifiAssert(b *strings.Builder, result *controlpb.WifiAssertResult) {
+func renderWifiAssert(b *strings.Builder, result *controlpb.WifiAssertResult, view Presentation) {
 	if result == nil {
 		return
 	}
@@ -1641,40 +1208,38 @@ func renderWifiAssert(b *strings.Builder, result *controlpb.WifiAssertResult) {
 	)
 	if len(result.GetChecks()) > 0 {
 		writeSection(b, "Checks")
-		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(tw, "CHECK\tPASSED\tEXPECTED\tACTUAL\tMESSAGE")
+		var rows [][]string
 		for _, check := range result.GetChecks() {
-			_, _ = fmt.Fprintf(tw, "%s\t%t\t%s\t%s\t%s\n",
+			rows = append(rows, []string{
 				check.GetKey(),
-				check.GetPassed(),
+				fmt.Sprint(check.GetPassed()),
 				empty(check.GetExpected(), "-"),
 				empty(check.GetActual(), "-"),
 				empty(check.GetMessage(), "-"),
-			)
+			})
 		}
-		_ = tw.Flush()
+		writeDisplayTable(b, []displayTableColumn{{header: "CHECK"}, {header: "PASSED"}, {header: "EXPECTED"}, {header: "ACTUAL"}, {header: "MESSAGE"}}, rows, view.Width)
 	}
 	renderErrors(b, result.GetErrors())
 }
 
-func renderWifiMonitor(b *strings.Builder, result *controlpb.WifiMonitorResult) {
+func renderWifiMonitor(b *strings.Builder, result *controlpb.WifiMonitorResult, view Presentation) {
 	if result == nil {
 		return
 	}
 	writeKVSection(b, "Wi-Fi Monitor", kv("events", len(result.GetEvents())), kv("errors", len(result.GetErrors())))
 	if len(result.GetEvents()) > 0 {
 		writeSection(b, "Events")
-		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(tw, "TIME\tTYPE\tMESSAGE")
+		var rows [][]string
 		for _, event := range result.GetEvents() {
-			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", unixMillis(event.GetUnixTimeMs()), empty(event.GetType(), "event"), event.GetMessage())
+			rows = append(rows, []string{unixMillis(event.GetUnixTimeMs()), empty(event.GetType(), "event"), event.GetMessage()})
 		}
-		_ = tw.Flush()
+		writeDisplayTable(b, []displayTableColumn{{header: "TIME"}, {header: "TYPE"}, {header: "MESSAGE"}}, rows, view.Width)
 	}
 	renderErrors(b, result.GetErrors())
 }
 
-func renderWifiCycle(b *strings.Builder, result *controlpb.WifiCycleResult) {
+func renderWifiCycle(b *strings.Builder, result *controlpb.WifiCycleResult, view Presentation) {
 	if result == nil {
 		return
 	}
@@ -1686,24 +1251,23 @@ func renderWifiCycle(b *strings.Builder, result *controlpb.WifiCycleResult) {
 	)
 	if len(result.GetSteps()) > 0 {
 		writeSection(b, "Steps")
-		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(tw, "STEP\tCONNECTED\tPING\tHTTP\tELAPSED\tSSID\tERRORS")
+		var rows [][]string
 		for _, step := range result.GetSteps() {
 			ssid := ""
 			if step.GetConnect() != nil {
 				ssid = step.GetConnect().GetSsid()
 			}
-			_, _ = fmt.Fprintf(tw, "%d\t%t\t%t\t%t\t%dms\t%s\t%s\n",
-				step.GetIndex(),
-				step.GetConnected(),
-				step.GetPingOk(),
-				step.GetHttpOk(),
-				step.GetElapsedMs(),
+			rows = append(rows, []string{
+				fmt.Sprint(step.GetIndex()),
+				fmt.Sprint(step.GetConnected()),
+				fmt.Sprint(step.GetPingOk()),
+				fmt.Sprint(step.GetHttpOk()),
+				fmt.Sprintf("%dms", step.GetElapsedMs()),
 				empty(ssid, "-"),
 				strings.Join(step.GetErrors(), ","),
-			)
+			})
 		}
-		_ = tw.Flush()
+		writeDisplayTable(b, []displayTableColumn{{header: "STEP"}, {header: "CONNECTED"}, {header: "PING"}, {header: "HTTP"}, {header: "ELAPSED"}, {header: "SSID"}, {header: "ERRORS"}}, rows, view.Width)
 	}
 	renderErrors(b, result.GetErrors())
 }
@@ -1713,19 +1277,15 @@ func renderDiagnosticFields(b *strings.Builder, fields []*controlpb.DiagnosticFi
 		return
 	}
 	writeSection(b, "Fields")
-	renderDiagnosticFieldRows(b, fields)
+	var rows strings.Builder
+	renderDiagnosticFieldRows(&rows, fields)
+	writeNested(b, rows.String())
 }
 
 func renderDiagnosticFieldRows(b *strings.Builder, fields []*controlpb.DiagnosticField) {
-	if len(fields) == 0 {
-		return
-	}
-	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
 	for _, field := range fields {
-		_, _ = fmt.Fprintf(tw, "%s\t%s\n", field.GetKey(), field.GetValue())
+		writeRecord(b, field.GetKey(), field.GetValue())
 	}
-	_ = tw.Flush()
 }
 
 func renderErrors(b *strings.Builder, errors []string) {
@@ -1733,9 +1293,11 @@ func renderErrors(b *strings.Builder, errors []string) {
 		return
 	}
 	writeSection(b, "Errors")
+	var rows strings.Builder
 	for _, err := range errors {
-		fmt.Fprintf(b, "  %s\n", err)
+		fmt.Fprintf(&rows, "%s\n", err)
 	}
+	writeNested(b, rows.String())
 }
 
 func wifiBandFromFrequency(freq int32) string {

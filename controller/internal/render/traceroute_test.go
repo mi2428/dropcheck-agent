@@ -2,55 +2,37 @@ package render
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
-func TestParseNativeTracerouteOutput(t *testing.T) {
-	output := `
-traceroute to 8.8.8.8 (8.8.8.8), 12 hops max
- 1  router.local (192.168.23.254)  1.234 ms  1.456 ms
- 2  * * *
- 3  dns.google (8.8.8.8)  18.100 ms
-`
-	hops := parseTracerouteOutput(output, "8.8.8.8")
-
-	if len(hops) != 3 {
-		t.Fatalf("hops = %d, want 3: %#v", len(hops), hops)
+func TestTracerouteUsesTypedHopsNotNativeText(t *testing.T) {
+	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_Traceroute{Traceroute: &controlpb.TracerouteResult{
+		Host: "8.8.8.8", ReachedTarget: new(false),
+		Output: "1 raw-only (203.0.113.254) 1.234 ms\n2 dns.google (8.8.8.8) 18.100 ms\n",
+		Hops: []*controlpb.TracerouteHop{
+			{Index: 1, Hostnames: []string{"router.local"}, Addresses: []string{"192.0.2.254"}, RttMs: []float64{1.234, 1.456}},
+			{Index: 2, TimedOut: true},
+		},
+	}}}
+	text, err := CommandResult("target", result, command.Options{TracerouteRequiredHops: []string{"192.0.2.254", "203.0.113.254"}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if hops[0].Host != "router.local" || hops[0].Address != "192.168.23.254" {
-		t.Fatalf("hop 1 = %#v", hops[0])
+	for label, want := range map[string]string{"Matched hops": "192.0.2.254", "Missing hops": "203.0.113.254", "Reached target": "false"} {
+		if !slices.Equal(metadataQAValues(text, label), []string{want}) {
+			t.Errorf("typed %s not preserved in %s", label, text)
+		}
 	}
-	if !slices.Equal(hops[0].RttMs, []float64{1.234, 1.456}) {
-		t.Fatalf("hop 1 rtt = %#v", hops[0].RttMs)
+	for _, want := range []string{"router.local", "1.234,1.456", "true", "Native output (reference; not a separate verdict)", "raw-only"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %q in %s", want, text)
+		}
 	}
-	if !hops[1].TimedOut {
-		t.Fatalf("hop 2 timedOut = false")
-	}
-	if !hops[2].ReachedTarget {
-		t.Fatalf("hop 3 reachedTarget = false")
-	}
-}
-
-func TestAnalyzeTracerouteRequiredHops(t *testing.T) {
-	result := &controlpb.TracerouteResult{
-		Host:       "8.8.8.8",
-		MaxHops:    4,
-		ExitCode:   0,
-		Output:     "1  router.local (192.168.23.254)  1.234 ms\n",
-		Executable: "traceroute",
-	}
-
-	analysis := analyzeTraceroute(result, []string{"192.168.23.254", "203.0.113.254"}, controlpb.CommandResult_STATUS_OK)
-
-	if analysis.Status != "failed" {
-		t.Fatalf("status = %q, want failed", analysis.Status)
-	}
-	if !slices.Equal(analysis.MatchedRequiredHops, []string{"192.168.23.254"}) {
-		t.Fatalf("matched = %#v", analysis.MatchedRequiredHops)
-	}
-	if !slices.Equal(analysis.MissingRequiredHops, []string{"203.0.113.254"}) {
-		t.Fatalf("missing = %#v", analysis.MissingRequiredHops)
+	if strings.Contains(text, "Reached target: true") || strings.Contains(text, "status=failed") {
+		t.Fatal("presentation inferred a verdict from native text")
 	}
 }

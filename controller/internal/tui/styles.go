@@ -53,7 +53,6 @@ var (
 	staleOKStatusStyle         = lipgloss.NewStyle().Foreground(colorSuccessDim).Background(colorBackground)
 	staleFailedStatusStyle     = lipgloss.NewStyle().Foreground(colorFailureDim).Background(colorBackground)
 	staleSkippedStatusStyle    = lipgloss.NewStyle().Foreground(colorStaleSkipped).Background(colorBackground)
-	warnStyle                  = lipgloss.NewStyle().Bold(true).Foreground(colorOrangeStrong).Background(colorBackground)
 	okGraphStyle               = lipgloss.NewStyle().Foreground(colorSuccess).Background(colorBackground)
 	timelineBaseStyle          = lipgloss.NewStyle().Foreground(colorOrangeMuted).Background(colorBackground)
 	failGraphStyle             = lipgloss.NewStyle().Bold(true).Foreground(colorFailure).Background(colorBackground)

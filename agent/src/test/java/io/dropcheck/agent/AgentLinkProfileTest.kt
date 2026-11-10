@@ -89,10 +89,23 @@ class AgentLinkProfileTest {
             assertEquals(listOf(RunCommand.CommandCase.GET_IP_STATUS, RunCommand.CommandCase.GET_IP_STATUS), calls.map { it.commandCase })
             assertTrue(calls.all { it.getIpStatus.selector.ssid == target })
             assertEquals(false, report.validated) // Observation, not a PASS prerequisite.
-            assertTrue(report.lines(detail = true).any { it.contains("dns_servers: PASS actual=1 expected=>=1") })
-            assertTrue(report.lines(historical = true).first().startsWith("Historical last check"))
-            assertEquals(report, AgentLinkProfile.lastReport())
+            assertTrue(report.presentation().filterIsInstance<AgentBlockPart.Table>().last().rows.contains(listOf("ip_before", "dns_servers", "PASS", "1", ">=1")))
+            assertTrue((report.presentation().first() as AgentBlockPart.Text).value.startsWith("Check link PASS"))
         }
+    }
+
+    @Test fun allRequiresBothFamiliesAndShowsSeparateFindings() {
+        val check = AgentShellCommand.Check("link", target, IpFamily.IP_FAMILY_ALL)
+        val pass = run(ipResult(), ipResult(), check = check)
+        assertEquals(LinkOutcome.PASS, pass.outcome)
+        val passMetrics = pass.presentation().filterIsInstance<AgentBlockPart.Table>().last().rows
+        assertTrue(passMetrics.any { it[1] == "ipv4.addresses" && it[2] == "PASS" })
+        assertTrue(passMetrics.any { it[1] == "ipv6.addresses" && it[2] == "PASS" })
+        val fail = run(ipResult(ip(dns = listOf("192.0.2.2"))), check = check)
+        assertEquals(LinkOutcome.FAIL, fail.outcome)
+        val failMetrics = fail.presentation().filterIsInstance<AgentBlockPart.Table>().last().rows
+        assertTrue(failMetrics.any { it[1] == "ipv4.dns_servers" && it[2] == "PASS" })
+        assertTrue(failMetrics.any { it[1] == "ipv6.dns_servers" && it[2] == "FAIL" })
     }
 
     @Test fun quotedAndSpacePaddedLiteralIdentitiesAreComparedWithoutDequotingTwice() {
@@ -137,9 +150,10 @@ class AgentLinkProfileTest {
         assertEquals(LinkOutcome.MISSING, run(failedWithReference, calls = calls).outcome)
         assertEquals(1, calls.size)
         calls.clear()
-        assertEquals(LinkOutcome.MISSING, run(ipResult(ip(available = false)), calls = calls).outcome)
+        val unavailable = run(ipResult(ip(available = false)), calls = calls)
+        assertEquals(LinkOutcome.MISSING, unavailable.outcome)
         assertEquals(1, calls.size)
-        assertEquals(LinkOutcome.SKIP, AgentLinkProfile.lastReport()!!.stages.last().outcome)
+        assertEquals(LinkOutcome.SKIP, unavailable.stages.last().outcome)
         calls.clear()
         assertEquals(LinkOutcome.MISSING, run(ipResult(ip().toBuilder().clearWifi().build()), calls = calls).outcome)
         assertEquals(1, calls.size)
@@ -157,7 +171,6 @@ class AgentLinkProfileTest {
         assertEquals(listOf(LinkOutcome.FAIL, LinkOutcome.SKIP), failed.stages.map { it.outcome })
         assertEquals(0, failed.stages[0].metrics.single { it.name == "dns_servers" }.actual)
         assertEquals(1, calls.size)
-        assertEquals(failed, AgentLinkProfile.lastReport())
         calls.clear()
         val noIpv6Route = run(ipResult(), ipResult(ip(routes = listOf("0.0.0.0/0 -> 192.0.2.1 wlan0"))),
             check = AgentShellCommand.Check("link", target, IpFamily.IP_FAMILY_IPV6), calls = calls)
@@ -169,8 +182,7 @@ class AgentLinkProfileTest {
         assertEquals(LinkOutcome.MISSING, changed.outcome)
         assertEquals(2, calls.size)
         assertEquals("7", changed.networkId)
-        assertTrue(changed.lines(historical = true).first().contains("MISSING"))
-        assertEquals(changed, AgentLinkProfile.lastReport())
+        assertTrue((changed.presentation().first() as AgentBlockPart.Text).value.contains("MISSING"))
         calls.clear()
         assertEquals(LinkOutcome.MISSING, run(ipResult(), ipResult(ip(iface = "wlan1")), calls = calls).outcome)
         assertEquals(2, calls.size)
@@ -192,6 +204,17 @@ class AgentLinkProfileTest {
         assertEquals(LinkOutcome.MISSING, exception.outcome)
         assertEquals(listOf(LinkOutcome.MISSING, LinkOutcome.SKIP), exception.stages.map { it.outcome })
         assertTrue(exception.stages.first().reason.contains("SecurityException"))
-        assertEquals(exception, AgentLinkProfile.lastReport())
+    }
+
+    @Test fun catalogueExamplesUseCurrentParserSyntax() {
+        assertTrue(AgentShellParser.parse("show test profiles") is AgentShellCommand.ShowChecks)
+        val examples = AgentLinkProfile.catalogue().filter { it.trimStart().startsWith("Example: ") }
+        assertEquals(2, examples.size)
+        assertEquals(listOf("link", "lab"), examples.map {
+            val command = AgentShellParser.parse(it.substringAfter("Example: "))
+            assertTrue(command is AgentShellCommand.Check)
+            (command as AgentShellCommand.Check).profile
+        })
+        assertTrue(AgentLinkProfile.catalogue().none { "check link" in it || "check lab" in it || "bare check" in it })
     }
 }

@@ -6,33 +6,33 @@ import (
 	"testing"
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
-	"dropcheck/controller/internal/watchstate"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuistate"
 
 	tea "charm.land/bubbletea/v2"
 )
 
 func TestRenderShowsPassingRows(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{
 		{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
 	}, events)
 	m.width = 150
 	m.height = 34
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	target := watch.TargetSnapshot{Name: "Example Net", SSID: "Example Net", Band: "5ghz"}
-	m.apply(watch.Event{
+	target := tuirun.TargetSnapshot{Name: "Example Net", SSID: "Example Net", Band: "5ghz"}
+	m.apply(tuirun.Event{
 		Time:     at,
-		Kind:     watch.EventStepFinished,
+		Kind:     tuirun.EventStepFinished,
 		Round:    3,
 		Target:   target,
-		Step:     watch.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "ok"},
+		Step:     tuirun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "ok"},
 		Status:   "ok",
 		Duration: 42,
 	})
-	m.apply(watch.Event{
+	m.apply(tuirun.Event{
 		Time:     at.Add(time.Second),
-		Kind:     watch.EventTargetFinished,
+		Kind:     tuirun.EventTargetFinished,
 		Round:    3,
 		Target:   target,
 		Status:   "ok",
@@ -48,30 +48,30 @@ func TestRenderShowsPassingRows(t *testing.T) {
 }
 
 func TestPassingAndFailedChecksRenderCompactTables(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(5 * time.Second)
-	target := watch.TargetSnapshot{Name: "Example Net", SSID: "Example Net"}
+	target := tuirun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"}
 	for i := range 3 {
-		m.apply(watch.Event{
+		m.apply(tuirun.Event{
 			Time:     at.Add(time.Duration(i) * time.Second),
-			Kind:     watch.EventStepFinished,
+			Kind:     tuirun.EventStepFinished,
 			Round:    uint64(i + 1),
 			Target:   target,
-			Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+			Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 			Status:   "ok",
 			Duration: 12,
 		})
 	}
-	m.apply(watch.Event{
+	m.apply(tuirun.Event{
 		Time:   at.Add(4 * time.Second),
-		Kind:   watch.EventFinding,
+		Kind:   tuirun.EventFinding,
 		Round:  4,
 		Target: target,
-		Step:   watch.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
+		Step:   tuirun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
 		Status: "failed",
-		Finding: &watch.Finding{
+		Finding: &tuirun.Finding{
 			Target:   "Example Net",
 			Check:    "ping cloudflare",
 			Metric:   "received",
@@ -116,33 +116,33 @@ func TestPassingAndFailedChecksRenderCompactTables(t *testing.T) {
 }
 
 func TestFailureHotspotsRankTargetsByStreakRateCount(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(5 * time.Minute)
-	targetA := watch.TargetSnapshot{Name: "radio-a", SSID: "Example Net"}
-	targetB := watch.TargetSnapshot{Name: "radio-b", SSID: "Example Net"}
-	targetC := watch.TargetSnapshot{Name: "radio-c", SSID: "Example Net"}
-	addPass := func(round uint64, at time.Time, target watch.TargetSnapshot) {
-		m.apply(watch.Event{
+	targetA := tuirun.TargetSnapshot{Name: "radio-a", SSID: "Example Net"}
+	targetB := tuirun.TargetSnapshot{Name: "radio-b", SSID: "Example Net"}
+	targetC := tuirun.TargetSnapshot{Name: "radio-c", SSID: "Example Net"}
+	addPass := func(round uint64, at time.Time, target tuirun.TargetSnapshot) {
+		m.apply(tuirun.Event{
 			Time:     at,
-			Kind:     watch.EventStepFinished,
+			Kind:     tuirun.EventStepFinished,
 			Round:    round,
 			Target:   target,
-			Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+			Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 			Status:   "ok",
 			Duration: 10,
 		})
 	}
-	addFail := func(round uint64, at time.Time, target watch.TargetSnapshot, message string) {
-		m.apply(watch.Event{
+	addFail := func(round uint64, at time.Time, target tuirun.TargetSnapshot, message string) {
+		m.apply(tuirun.Event{
 			Time:   at,
-			Kind:   watch.EventFinding,
+			Kind:   tuirun.EventFinding,
 			Round:  round,
 			Target: target,
-			Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
+			Step:   tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
 			Status: "failed",
-			Finding: &watch.Finding{
+			Finding: &tuirun.Finding{
 				Target:   target.Name,
 				Check:    "connect",
 				Metric:   "status",
@@ -158,10 +158,10 @@ func TestFailureHotspotsRankTargetsByStreakRateCount(t *testing.T) {
 	addFail(3, at.Add(2*time.Minute), targetB, "dhcp timeout")
 	addPass(4, at.Add(3*time.Minute), targetB)
 	addFail(5, at.Add(4*time.Minute), targetC, "wait_connected timeout")
-	addFail(6, at.Add(-31*time.Minute), watch.TargetSnapshot{Name: "old-radio"}, "old failure")
-	addFail(7, at.Add(-25*time.Hour), watch.TargetSnapshot{Name: "expired-radio"}, "expired failure")
+	addFail(6, at.Add(-31*time.Minute), tuirun.TargetSnapshot{Name: "old-radio"}, "old failure")
+	addFail(7, at.Add(-25*time.Hour), tuirun.TargetSnapshot{Name: "expired-radio"}, "expired failure")
 
-	rows := m.failureHotspots()
+	rows := m.FailureHotspots()
 	if got, want := len(rows), 4; got != want {
 		t.Fatalf("hotspot rows = %d, want %d: %#v", got, want, rows)
 	}
@@ -186,24 +186,24 @@ func TestFailureHotspotsRankTargetsByStreakRateCount(t *testing.T) {
 }
 
 func TestFailureCauseModeRanksCausesByTargetSpread(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	m.width = 180
 	m.height = 36
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(5 * time.Minute)
-	targetA := watch.TargetSnapshot{Name: "radio-a", SSID: "Example Net"}
-	targetB := watch.TargetSnapshot{Name: "radio-b", SSID: "Example Net"}
-	targetC := watch.TargetSnapshot{Name: "radio-c", SSID: "Example Net"}
-	addFail := func(round uint64, at time.Time, target watch.TargetSnapshot, message string) {
-		m.apply(watch.Event{
+	targetA := tuirun.TargetSnapshot{Name: "radio-a", SSID: "Example Net"}
+	targetB := tuirun.TargetSnapshot{Name: "radio-b", SSID: "Example Net"}
+	targetC := tuirun.TargetSnapshot{Name: "radio-c", SSID: "Example Net"}
+	addFail := func(round uint64, at time.Time, target tuirun.TargetSnapshot, message string) {
+		m.apply(tuirun.Event{
 			Time:   at,
-			Kind:   watch.EventFinding,
+			Kind:   tuirun.EventFinding,
 			Round:  round,
 			Target: target,
-			Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
+			Step:   tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
 			Status: "failed",
-			Finding: &watch.Finding{
+			Finding: &tuirun.Finding{
 				Target:   target.Name,
 				Check:    "connect",
 				Metric:   "status",
@@ -219,7 +219,7 @@ func TestFailureCauseModeRanksCausesByTargetSpread(t *testing.T) {
 	addFail(4, at.Add(3*time.Minute), targetC, "connect timeout")
 	addFail(5, at.Add(4*time.Minute), targetC, "connect timeout")
 
-	rows := m.failureCauses()
+	rows := m.FailureCauses()
 	if got, want := len(rows), 2; got != want {
 		t.Fatalf("cause rows = %d, want %d: %#v", got, want, rows)
 	}
@@ -252,11 +252,11 @@ func TestFailureCauseModeRanksCausesByTargetSpread(t *testing.T) {
 }
 
 func TestFailureCauseTargetsLabelShowsNamesAndOverflowCount(t *testing.T) {
-	item := failureCauseSummary{Targets: []watchstate.FailureCauseTargetSummary{
-		{Target: watch.TargetSnapshot{Name: "radio-a"}},
-		{Target: watch.TargetSnapshot{Name: "radio-b"}},
-		{Target: watch.TargetSnapshot{Name: "radio-c"}},
-		{Target: watch.TargetSnapshot{Name: "radio-d"}},
+	item := failureCauseSummary{Targets: []tuistate.FailureCauseTargetSummary{
+		{Target: tuirun.TargetSnapshot{Name: "radio-a"}},
+		{Target: tuirun.TargetSnapshot{Name: "radio-b"}},
+		{Target: tuirun.TargetSnapshot{Name: "radio-c"}},
+		{Target: tuirun.TargetSnapshot{Name: "radio-d"}},
 	}}
 
 	if got, want := failureCauseTargetsLabel(item, 0), "radio-a, radio-b, radio-c, radio-d"; got != want {
@@ -271,20 +271,21 @@ func TestFailureCauseTargetsLabelShowsNamesAndOverflowCount(t *testing.T) {
 }
 
 func TestFailureHotspotDetailSurvivesSummaryWindow(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	m.width = 180
 	m.height = 50
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	target := watch.TargetSnapshot{Name: "radio-a", SSID: "Example Net", Band: "5ghz"}
-	m.apply(watch.Event{
+	m.Now = at.Add(31 * time.Minute)
+	target := tuirun.TargetSnapshot{Name: "radio-a", SSID: "Example Net", Band: "5ghz"}
+	m.apply(tuirun.Event{
 		Time:   at,
-		Kind:   watch.EventFinding,
+		Kind:   tuirun.EventFinding,
 		Round:  1,
 		Target: target,
-		Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
+		Step:   tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
 		Status: "failed",
-		Finding: &watch.Finding{
+		Finding: &tuirun.Finding{
 			Target:   target.Name,
 			Check:    "connect",
 			Metric:   "status",
@@ -293,21 +294,21 @@ func TestFailureHotspotDetailSurvivesSummaryWindow(t *testing.T) {
 			Message:  "REQUEST_DECLINED",
 		},
 	})
-	m.apply(watch.Event{
+	m.apply(tuirun.Event{
 		Time:    at.Add(31 * time.Minute),
-		Kind:    watch.EventLog,
+		Kind:    tuirun.EventLog,
 		Message: "unrelated later log",
 	})
 	m.Now = at.Add(31 * time.Minute)
 	m.focus = focusFailureHotspots
 	m.failureHotspotCursor = 0
 
-	rows := m.failureHotspots()
+	rows := m.FailureHotspots()
 	if got, want := len(rows), 1; got != want {
 		t.Fatalf("hotspot rows after summary window = %d, want %d: %#v", got, want, rows)
 	}
-	view := stripANSI(m.failureHotspotDetailView(140, 20))
-	for _, want := range []string{"radio-a", "Failure History:", "REQUEST_DECLINED", "Logs:", "kind=finding"} {
+	view := stripANSI(renderSelectedDetail(t, m.failureHotspotDetailContent, 140, 20))
+	for _, want := range []string{"radio-a", "Failure History", "REQUEST_DECLINED", "Logs", "kind=finding"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("failure hotspot detail should retain %q beyond the 30m summary window:\n%s", want, view)
 		}
@@ -318,29 +319,29 @@ func TestFailureHotspotDetailSurvivesSummaryWindow(t *testing.T) {
 }
 
 func TestFailureHotspotsPanelSplitsByAgent(t *testing.T) {
-	events := make(chan watch.Event)
-	agents := []watch.AgentSnapshot{
+	events := make(chan tuirun.Event)
+	agents := []tuirun.AgentSnapshot{
 		{ID: "agent-a", Name: "agent-a"},
 		{ID: "agent-b", Name: "agent-b"},
 	}
-	m := newModel([]watch.Target{
+	m := newModel([]tuirun.Target{
 		{Name: "same-radio", SSID: "Example Net"},
 	}, events, agents)
 	m.width = 220
 	m.height = 50
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(time.Minute)
-	target := watch.TargetSnapshot{Name: "same-radio", SSID: "Example Net"}
+	target := tuirun.TargetSnapshot{Name: "same-radio", SSID: "Example Net"}
 	for i, agent := range agents {
-		m.apply(watch.Event{
+		m.apply(tuirun.Event{
 			Time:   at.Add(time.Duration(i) * time.Second),
-			Kind:   watch.EventFinding,
+			Kind:   tuirun.EventFinding,
 			Round:  uint64(i + 1),
 			Agent:  agent,
 			Target: target,
-			Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
+			Step:   tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
 			Status: "failed",
-			Finding: &watch.Finding{
+			Finding: &tuirun.Finding{
 				Target:   target.Name,
 				Check:    "connect",
 				Metric:   "status",
@@ -351,7 +352,7 @@ func TestFailureHotspotsPanelSplitsByAgent(t *testing.T) {
 		})
 	}
 
-	rows := m.failureHotspots()
+	rows := m.FailureHotspots()
 	if got, want := len(rows), 2; got != want {
 		t.Fatalf("same target failures from different agents should stay separate, got %d Rows: %#v", got, rows)
 	}
@@ -385,8 +386,8 @@ func TestFailureHotspotsPanelSplitsByAgent(t *testing.T) {
 		t.Fatalf("second tab should focus second hotspot agent panel: focus=%v hotspot=%q", m.focus, m.focusHotspotAgentKey)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
-	if m.focus != focusCheckStatus {
-		t.Fatalf("third tab should focus check status, got %v", m.focus)
+	if m.focus != focusRunQueue {
+		t.Fatalf("third tab should focus run queue, got %v", m.focus)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
 	if m.focus != focusFailureHotspots || m.focusHotspotAgentKey != roundAgentKey(agents[1]) {
@@ -395,12 +396,12 @@ func TestFailureHotspotsPanelSplitsByAgent(t *testing.T) {
 }
 
 func TestFailureHotspotNavigationStaysWithinFocusedAgent(t *testing.T) {
-	events := make(chan watch.Event)
-	agents := []watch.AgentSnapshot{
+	events := make(chan tuirun.Event)
+	agents := []tuirun.AgentSnapshot{
 		{ID: "agent-a", Name: "agent-a"},
 		{ID: "agent-b", Name: "agent-b"},
 	}
-	m := newModel([]watch.Target{
+	m := newModel([]tuirun.Target{
 		{Name: "radio-a1", SSID: "Example Net"},
 		{Name: "radio-a2", SSID: "Example Net"},
 		{Name: "radio-b1", SSID: "Example Net"},
@@ -409,16 +410,16 @@ func TestFailureHotspotNavigationStaysWithinFocusedAgent(t *testing.T) {
 	m.height = 50
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(time.Minute)
-	addFail := func(agent watch.AgentSnapshot, target string, offset time.Duration) {
-		m.apply(watch.Event{
+	addFail := func(agent tuirun.AgentSnapshot, target string, offset time.Duration) {
+		m.apply(tuirun.Event{
 			Time:   at.Add(offset),
-			Kind:   watch.EventFinding,
+			Kind:   tuirun.EventFinding,
 			Round:  uint64(offset/time.Second) + 1,
 			Agent:  agent,
-			Target: watch.TargetSnapshot{Name: target, SSID: "Example Net"},
-			Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
+			Target: tuirun.TargetSnapshot{Name: target, SSID: "Example Net"},
+			Step:   tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
 			Status: "failed",
-			Finding: &watch.Finding{
+			Finding: &tuirun.Finding{
 				Target:   target,
 				Check:    "connect",
 				Metric:   "status",
@@ -453,7 +454,7 @@ func TestFailureHotspotNavigationStaysWithinFocusedAgent(t *testing.T) {
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyEnter})
 	frame := stripANSI(m.render())
-	for _, want := range []string{"Failure Hotspot Detail", "Device   Target", "agent-b  radio-b1"} {
+	for _, want := range []string{"Failure Hotspot Detail", "Device: agent-b", "Target: radio-b1"} {
 		if !strings.Contains(frame, want) {
 			t.Fatalf("agent-b hotspot detail missing %q:\n%s", want, frame)
 		}
@@ -461,8 +462,8 @@ func TestFailureHotspotNavigationStaysWithinFocusedAgent(t *testing.T) {
 }
 
 func TestTabCyclesThroughFailureHotspotsWhenVisible(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	m.width = 220
 	m.height = 50
 
@@ -485,8 +486,8 @@ func TestTabCyclesThroughFailureHotspotsWhenVisible(t *testing.T) {
 		t.Fatalf("tab from failed checks should focus failure hotspots, got %v", m.focus)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab})
-	if m.focus != focusCheckStatus {
-		t.Fatalf("tab from failure hotspots should focus check status, got %v", m.focus)
+	if m.focus != focusRunQueue {
+		t.Fatalf("tab from failure hotspots should focus run queue, got %v", m.focus)
 	}
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
 	if m.focus != focusFailureHotspots {
@@ -495,22 +496,22 @@ func TestTabCyclesThroughFailureHotspotsWhenVisible(t *testing.T) {
 }
 
 func TestEnterShowsFailureHotspotDetail(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	m.width = 220
 	m.height = 50
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(2 * time.Minute)
-	target := watch.TargetSnapshot{Name: "radio-a", SSID: "Example Net", Band: "2.4ghz"}
+	target := tuirun.TargetSnapshot{Name: "radio-a", SSID: "Example Net", Band: "2.4ghz"}
 	for round, at := range []time.Time{at, at.Add(time.Minute)} {
-		m.apply(watch.Event{
+		m.apply(tuirun.Event{
 			Time:   at,
-			Kind:   watch.EventFinding,
+			Kind:   tuirun.EventFinding,
 			Round:  uint64(round + 1),
 			Target: target,
-			Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
+			Step:   tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
 			Status: "failed",
-			Finding: &watch.Finding{
+			Finding: &tuirun.Finding{
 				Target:   target.Name,
 				Check:    "connect",
 				Metric:   "status",
@@ -530,13 +531,10 @@ func TestEnterShowsFailureHotspotDetail(t *testing.T) {
 	frame := stripANSI(m.render())
 	for _, want := range []string{
 		"Failure Hotspot Detail",
-		"Target   SSID         Band",
-		"radio-a  Example Net  2.4ghz",
-		"Latest Cause",
-		"REQUEST_DECLINED",
-		"Fail Rate  Failed Runs  Failures  Streak  Last      Latest Check  Metric  Observed  Expected",
-		"100%       2/2          2         2       09:31:00  Connect       status  failed    \"== ok\"",
-		"Causes:",
+		"Target: radio-a", "SSID: Example Net", "Band: 2.4ghz",
+		"Latest Cause: REQUEST_DECLINED", "Fail Rate: 100%", "Failed Runs: 2/2", "Failures: 2",
+		"Streak: 2", "Last: 09:31:00", "Latest Check: Connect", "Metric: status", "Observed: failed", "Expected: \"== ok\"",
+		"Causes",
 		"Count  Last      Cause",
 		"2  09:31:00  REQUEST_DECLINED",
 	} {
@@ -547,24 +545,24 @@ func TestEnterShowsFailureHotspotDetail(t *testing.T) {
 }
 
 func TestFailureHotspotDetailCursorFollowsOpenedItemAcrossUpdates(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	m.width = 220
 	m.height = 50
 	m.focus = focusFailureHotspots
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(2 * time.Minute)
-	targetA := watch.TargetSnapshot{Name: "radio-a", SSID: "Example Net"}
-	targetB := watch.TargetSnapshot{Name: "radio-b", SSID: "Example Net"}
-	addFail := func(round uint64, at time.Time, target watch.TargetSnapshot) {
-		m.apply(watch.Event{
+	targetA := tuirun.TargetSnapshot{Name: "radio-a", SSID: "Example Net"}
+	targetB := tuirun.TargetSnapshot{Name: "radio-b", SSID: "Example Net"}
+	addFail := func(round uint64, at time.Time, target tuirun.TargetSnapshot) {
+		m.apply(tuirun.Event{
 			Time:   at,
-			Kind:   watch.EventFinding,
+			Kind:   tuirun.EventFinding,
 			Round:  round,
 			Target: target,
-			Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
+			Step:   tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
 			Status: "failed",
-			Finding: &watch.Finding{
+			Finding: &tuirun.Finding{
 				Target:   target.Name,
 				Check:    "connect",
 				Metric:   "status",
@@ -588,7 +586,7 @@ func TestFailureHotspotDetailCursorFollowsOpenedItemAcrossUpdates(t *testing.T) 
 	if got := rows[m.failureHotspotCursor].Target.Name; got != "radio-b" {
 		t.Fatalf("hotspot cursor should follow opened item after re-sort, got %q rows=%#v", got, rows)
 	}
-	view := stripANSI(m.failureHotspotDetailView(100, 12))
+	view := stripANSI(renderSelectedDetail(t, m.failureHotspotDetailContent, 100, 12))
 	if !strings.Contains(view, "radio-b") {
 		t.Fatalf("hotspot detail modal should keep showing opened Item:\n%s", view)
 	}

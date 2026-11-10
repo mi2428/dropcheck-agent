@@ -1,9 +1,5 @@
 package io.dropcheck.agent
 
-import android.content.Context
-import android.net.wifi.ScanResult
-import android.net.wifi.WifiManager
-import android.os.Build
 import io.dropcheck.agent.grpc.CommandResult
 import io.dropcheck.agent.grpc.RunCommand
 
@@ -21,55 +17,103 @@ internal fun evaluateShellTraceroute(result: CommandResult, required: List<Strin
         .build()
 }
 
+/** A collector's OK flag cannot contradict typed evidence or known acquisition errors. */
+internal fun evaluateShellPayload(request: RunCommand, result: CommandResult): CommandResult {
+    if (result.status != CommandResult.Status.STATUS_OK) return result
+    val consistent = when (request.commandCase) {
+        RunCommand.CommandCase.GET_WIFI_DIAGNOSTICS -> result.hasWifiDiagnostics() && WifiCommandPolicy.diagnosticsComplete(result.wifiDiagnostics)
+        RunCommand.CommandCase.GET_WIFI_CAPABILITIES -> result.hasWifiCapabilities() && result.wifiCapabilities.errorsCount == 0
+        RunCommand.CommandCase.GET_WIFI_SCAN -> result.hasWifiScan() && result.wifiScan.errorsCount == 0
+        RunCommand.CommandCase.GET_FRESH_WIFI_SCAN -> result.hasWifiScan() && WifiCommandPolicy.freshScanEvidence(result.wifiScan)
+        RunCommand.CommandCase.CONNECT_WIFI -> result.hasConnectWifi() && result.connectWifi.connected
+        RunCommand.CommandCase.DISCONNECT_WIFI, RunCommand.CommandCase.FORGET_WIFI, RunCommand.CommandCase.RECONNECT_WIFI -> result.hasWifiOperation() && result.wifiOperation.ok && result.wifiOperation.errorsCount == 0
+        RunCommand.CommandCase.ASSERT_WIFI, RunCommand.CommandCase.WAIT_WIFI_CONNECTED -> result.hasWifiAssert() && result.wifiAssert.passed && result.wifiAssert.errorsCount == 0 && result.wifiAssert.checksList.all { it.passed }
+        else -> true
+    }
+    return if (consistent) result else result.toBuilder().setStatus(CommandResult.Status.STATUS_FAILED)
+        .setMessage("typed result is incomplete or inconsistent; retained data is reference").build()
+}
+
 internal data class AgentShellResult(
     val ok: Boolean,
     val lines: List<CharSequence> = emptyList(),
     val block: AgentPresentationBlock? = null,
 )
 
-/** A thin local-command adapter. All device operations still enter CommandExecutor.execute. */
-internal class AgentShellAdapter(private val context: Context, private val logger: CommandLogger) {
-    private val executor by lazy { CommandExecutor(context, logger) }
+/** Dispatches local Shell commands and routes device RPC requests through [executeCommand]. */
+internal class AgentShellAdapter(private val session: AgentShellSession = AgentShellSession(), private val executeCommand: (RunCommand) -> CommandResult) {
 
     fun execute(command: AgentShellCommand): AgentShellResult = when (command) {
-        is AgentShellCommand.Use -> use(command)
-        is AgentShellCommand.Check -> AgentLinkProfile.run(command) { executor.execute(it) }.let { AgentShellResult(it.outcome == LinkOutcome.PASS, it.lines()) }
+        is AgentShellCommand.Piped -> command.pipeline.apply(execute(command.command))
+        AgentShellCommand.Noop -> AgentShellResult(true)
+        is AgentShellCommand.Help -> AgentShellResult(true, AgentShellParser.help(command.topic))
+        is AgentShellCommand.SetDefaultPassphrase -> { session.setPassphrase(command.passphrase); AgentShellResult(true, listOf(AgentShellUsePolicy.setDefaultPassphraseMessage(command.passphrase))) }
+        AgentShellCommand.ClearDefaultPassphrase -> { session.setPassphrase(""); AgentShellResult(true, listOf(AgentShellUsePolicy.setDefaultPassphraseMessage(""))) }
+        AgentShellCommand.ShowVersion -> AgentShellResult(true, block = AgentPresentationBlock.create(
+            listOf(AgentBlockPart.Field("Android agent version", BuildConfig.VERSION_NAME)), AgentLogStyle.TEXT_COLOR))
+        AgentShellCommand.ShowCli -> AgentShellResult(true, block = AgentPresentationBlock.create(listOf(
+            AgentBlockPart.Field("Owner", "self"), AgentBlockPart.Field("Target", "self"), AgentBlockPart.Field("Layout", "measured Android content width"),
+            AgentBlockPart.Field("History", "all commands; session-only"), AgentBlockPart.Field("Default passphrase", if (session.defaults.defaultPassphrase.isEmpty()) "unset" else "present")), AgentLogStyle.TEXT_COLOR))
+        AgentShellCommand.ShowOui -> oui(false)
+        AgentShellCommand.UpdateOui -> oui(true)
+        is AgentShellCommand.Invalid -> AgentShellResult(false, listOf(command.message)).also { if (command.testProfile.isNotEmpty()) session.recordTest(it) }
+        is AgentShellCommand.Connect -> connect(command)
+        is AgentShellCommand.Check -> {
+            session.recordTest(AgentShellResult(false, listOf("Test did not return a valid result")))
+            AgentLinkProfile.run(command, executeCommand).let { AgentShellResult(it.outcome == LinkOutcome.PASS, block = AgentPresentationBlock.create(it.presentation(), AgentLogStyle.TEXT_COLOR)) }.also(session::recordTest)
+        }
         AgentShellCommand.ShowChecks -> AgentShellResult(true, AgentLinkProfile.catalogue())
-        is AgentShellCommand.ShowCheckLast -> AgentShellResult(true, AgentLinkProfile.lastReport()?.lines(command.detail, historical = true) ?: listOf("No last check report (no check attempted in this process)."))
+        is AgentShellCommand.ShowCheckLast -> lastTest()
         is AgentShellCommand.ShowWifiEht -> eht(command)
-        is AgentShellCommand.Execute -> render(command, executor.execute(command.request))
-        else -> error("not an executable Shell command")
+        is AgentShellCommand.Execute -> {
+            if (command.wifiTest) session.recordTest(AgentShellResult(false, listOf("Test did not return a valid result")))
+            render(command, executeCommand(command.request)).also { if (command.wifiTest) session.recordTest(it) }
+        }
     }
 
-    private fun use(command: AgentShellCommand.Use): AgentShellResult {
-        val decision = AgentShellUsePolicy.resolveUseRequest(command.ssid, command.passphrase, AgentShellUseDefaultsStore(context).load())
+    private fun connect(command: AgentShellCommand.Connect): AgentShellResult {
+        val decision = AgentShellUsePolicy.resolveUseRequest(command.options.ssid, command.options.passphrase.takeIf(String::isNotEmpty), session.defaults)
         val request = decision.request ?: return AgentShellResult(false, listOf(decision.error))
-        val wire = AgentShellUsePolicy.connectCommand(request)
-        return render(AgentShellCommand.Execute(wire, secret = request.passphrase), executor.execute(wire), request.passphraseSource)
+        val wire = AgentShellUsePolicy.connectCommand(command.options, request)
+        val result = executeCommand(wire)
+        return render(AgentShellCommand.Execute(wire, secret = request.passphrase), result, request.passphraseSource)
     }
 
+    private fun oui(update: Boolean): AgentShellResult = try {
+        val info = if (update) OuiDatabase.current.update() else OuiDatabase.current.info()
+        AgentShellResult(true, block = AgentPresentationBlock.create(listOf(
+            AgentBlockPart.Field("Owner", "self (Android app)"), AgentBlockPart.Field("Database", "IEEE MA-L/MA-M/MA-S/IAB"),
+            AgentBlockPart.Field("Fetched at", info.fetchedAt), AgentBlockPart.Field("Assignments", info.assignments.toString()),
+            AgentBlockPart.Field("Source", info.source), AgentBlockPart.Field("Lookup", "offline IEEE assignee; not a device model or proof of manufacturer")), AgentLogStyle.TEXT_COLOR))
+    } catch (failure: java.io.IOException) {
+        if (Thread.currentThread().isInterrupted) throw failure
+        AgentShellResult(false, listOf("OUI database failed: ${failure.message}"))
+    }
+
+    private fun lastTest(): AgentShellResult {
+        val previous = session.lastTest ?: return AgentShellResult(true, listOf("No test attempted in this Shell session."))
+        val header = listOf(AgentBlockPart.Text("Historical test at ${session.lastTestAtMs} (not current readiness); outcome=${if (previous.ok) "PASS" else "NON-PASS"}"))
+        val parts = previous.block?.parts ?: previous.lines.map { AgentBlockPart.Text(it.toString()) }
+        return AgentShellResult(true, block = AgentPresentationBlock.create(header + parts, AgentLogStyle.TEXT_COLOR))
+    }
     private fun eht(command: AgentShellCommand.ShowWifiEht): AgentShellResult {
-        val result = runWifiEhtDiagnostics(command, executor::execute)
+        val result = runWifiEhtDiagnostics(command, executeCommand)
         if (!result.hasWifiDiagnostics() || !result.wifiDiagnostics.hasStatus()) return failure("Wi-Fi EHT", result)
         val diagnostics = result.wifiDiagnostics
-        val context = AgentWifiMloContext(
-            scanSource = diagnostics.scan.fieldsList.lastOrNull { it.key == "scan_source" }?.value ?: "diagnostics",
-            sdkInt = Build.VERSION.SDK_INT,
-            wifi7Supported = wifi7StandardSupported(),
-            wifiCapabilities = diagnostics.capabilities.takeIf { diagnostics.hasCapabilities() },
-            ssidFilter = command.ssid, bssidFilter = command.bssid,
-        )
-        return block(result, AgentWifiMloRenderer.presentation(diagnostics.status, diagnostics.scan, context, command.detail, true), "Wi-Fi EHT")
-    }
-
-    private fun wifi7StandardSupported(): Boolean? {
-        if (Build.VERSION.SDK_INT < 33) return null
-        return runCatching { context.getSystemService(WifiManager::class.java)?.isWifiStandardSupported(ScanResult.WIFI_STANDARD_11BE) }.getOrNull()
+        val parts = AgentWifiMloRenderer.presentation(diagnostics.status, diagnostics.scan, AgentWifiMloContext(
+            wifiCapabilities = diagnostics.capabilities, ssidFilter = command.ssid, bssidFilter = command.bssid,
+            scanSource = if (command.fresh) diagnostics.scan.fieldsList.lastOrNull { it.key == "scan_source" }?.value
+                ?: "? (scan source metadata unavailable)" else "cached",
+        ))
+        return block(result, parts, "Wi-Fi EHT")
     }
 
     private fun render(command: AgentShellCommand.Execute, result: CommandResult, source: AgentShellUsePassphraseSource? = null): AgentShellResult {
         val request = command.request
         val hasPayload = when (request.commandCase) {
+            RunCommand.CommandCase.GET_NETWORKS, RunCommand.CommandCase.GET_NETWORK -> result.hasNetworkSnapshot() &&
+                (result.status != CommandResult.Status.STATUS_OK || validNetworkSnapshot(result.networkSnapshot, request.getNetwork.takeIf { request.hasGetNetwork() }))
+            RunCommand.CommandCase.GET_PERMISSIONS -> result.hasPermissionSnapshot()
             RunCommand.CommandCase.GET_WIFI_STATUS -> result.hasWifiStatus()
             RunCommand.CommandCase.GET_WIFI_DIAGNOSTICS -> result.hasWifiDiagnostics()
             RunCommand.CommandCase.GET_WIFI_CAPABILITIES -> result.hasWifiCapabilities()
@@ -90,34 +134,54 @@ internal class AgentShellAdapter(private val context: Context, private val logge
             RunCommand.CommandCase.WGET -> result.hasWget()
             else -> false
         }
-        val secrets = listOf(command.secret) + when (request.commandCase) {
-            RunCommand.CommandCase.HTTP_CHECK -> listOf(request.httpCheck.url)
-            RunCommand.CommandCase.WGET -> listOf(request.wget.url)
-            RunCommand.CommandCase.CYCLE_WIFI -> listOf(request.cycleWifi.httpUrl)
-            else -> emptyList()
-        }
+        val secrets = listOf(command.secret)
         if (!hasPayload) return failure(request.commandCase.name, result, secrets)
-        val evaluated = if (request.commandCase == RunCommand.CommandCase.TRACEROUTE) evaluateShellTraceroute(result, command.via) else result
+        val evaluated = if (request.commandCase == RunCommand.CommandCase.TRACEROUTE) evaluateShellTraceroute(result, command.via) else evaluateShellPayload(request, result)
+        if (command.rawView.isNotEmpty()) return AgentRawDebugRenderer.render(command, evaluated)
         val parts = when (request.commandCase) {
-            RunCommand.CommandCase.GET_WIFI_STATUS -> AgentWifiStatusRenderer.presentation(result.wifiStatus, command.detail, true, true)
-            RunCommand.CommandCase.GET_WIFI_DIAGNOSTICS -> AgentWifiDiagnosticsRenderer.presentation(result.wifiDiagnostics, command.detail, true, true)
-            RunCommand.CommandCase.GET_WIFI_CAPABILITIES -> AgentWifiCapabilitiesRenderer.presentation(result.wifiCapabilities, command.detail, true)
-            RunCommand.CommandCase.GET_WIFI_SCAN, RunCommand.CommandCase.GET_FRESH_WIFI_SCAN -> AgentWifiScanRenderer.presentation(result.wifiScan,
-                AgentWifiScanContext(command.brief, command.mlo, command.fresh))
+            RunCommand.CommandCase.GET_NETWORKS, RunCommand.CommandCase.GET_NETWORK -> buildList {
+                add(AgentBlockPart.Field("Observed at unix ms", result.networkSnapshot.observedAtUnixMs.toString()))
+                result.networkSnapshot.networksList.forEachIndexed { index, network ->
+                    add(AgentBlockPart.Text("Network ${index + 1}", section = true))
+                    addAll(nestedPresentation(buildList {
+                        add(AgentBlockPart.Field("Active/default at collection", network.active.toString()))
+                        addAll(AgentWifiStatusRenderer.ipPresentation(network.ipStatus))
+                    }))
+                }
+                if (result.networkSnapshot.errorsCount > 0) add(AgentBlockPart.Text("Errors", section = true))
+                result.networkSnapshot.errorsList.forEach { add(AgentBlockPart.Field("Error", it, indent = 2)) }
+            }
+            RunCommand.CommandCase.GET_PERMISSIONS -> buildList {
+                add(AgentBlockPart.Text("Permissions", section = true))
+                add(AgentBlockPart.Field("Observed at unix ms", result.permissionSnapshot.observedAtUnixMs.toString(), indent = 2))
+                add(AgentBlockPart.Field("Device Owner", result.permissionSnapshot.deviceOwner.toString(), indent = 2))
+                result.permissionSnapshot.permissionsList.forEach { add(AgentBlockPart.Field(it.key, it.value, indent = 2)) }
+            }
+            RunCommand.CommandCase.GET_WIFI_STATUS -> if (command.summary) AgentWifiStatusRenderer.summary(result.wifiStatus) else AgentWifiStatusRenderer.presentation(result.wifiStatus, ipAvailable = true)
+            RunCommand.CommandCase.GET_WIFI_DIAGNOSTICS -> AgentWifiDiagnosticsRenderer.presentation(result.wifiDiagnostics)
+            RunCommand.CommandCase.GET_WIFI_CAPABILITIES -> AgentWifiCapabilitiesRenderer.presentation(result.wifiCapabilities)
+            RunCommand.CommandCase.GET_WIFI_SCAN, RunCommand.CommandCase.GET_FRESH_WIFI_SCAN -> {
+                val selected = AgentWifiMloRenderer.MloFilter(command.scanSsid, command.scanBssid).scanResults(result.wifiScan.resultsList)
+                val scan = result.wifiScan.toBuilder().clearResults().addAllResults(selected).build()
+                AgentWifiScanRenderer.presentation(scan, AgentWifiScanContext(command.brief, command.mlo, command.fresh, detail = !command.brief))
+            }
             RunCommand.CommandCase.GET_WIFI_SCAN_DETAIL -> buildList {
                 add(AgentBlockPart.Field("Target", result.wifiScanDetail.target))
                 result.wifiScanDetail.fieldsList.forEach { add(AgentBlockPart.Field(it.key, it.value)) }
                 addAll(AgentWifiScanRenderer.presentation(io.dropcheck.agent.grpc.WifiScan.newBuilder().addAllResults(result.wifiScanDetail.resultsList)
-                    .addAllErrors(result.wifiScanDetail.errorsList).build()))
+                    .addAllErrors(result.wifiScanDetail.errorsList).setConnections(result.wifiScanDetail.connections).build(), AgentWifiScanContext(detail = true)))
             }
-            RunCommand.CommandCase.GET_IP_STATUS -> AgentWifiStatusRenderer.ipPresentation(result.ipStatus, command.detail, true)
-            else -> textRows(request, evaluated, source, command.via).map { AgentBlockPart.Text(it) }
+            RunCommand.CommandCase.GET_IP_STATUS -> AgentWifiStatusRenderer.ipPresentation(result.ipStatus)
+            else -> textRows(request, evaluated, source, command.via)
         }
-        return block(evaluated, parts, if (source != null) "Wi-Fi Use" else request.commandCase.name.replace('_', ' ').lowercase(), secrets)
+        return block(evaluated, parts, if (source != null) "Wi-Fi connect" else request.commandCase.name.replace('_', ' ').lowercase(), secrets)
     }
 
-    private fun textRows(request: RunCommand, result: CommandResult, source: AgentShellUsePassphraseSource?, via: List<String>): List<String> = buildList {
-        fun row(label: String, value: Any?) { add("$label: $value") }
+    private fun textRows(request: RunCommand, result: CommandResult, source: AgentShellUsePassphraseSource?, via: List<String>): List<AgentBlockPart> = buildList {
+        fun row(label: String, value: Any?) { add(AgentBlockPart.Field(label, value.toString())) }
+        fun table(labels: List<String>, rows: List<List<String>>) {
+            if (rows.isNotEmpty()) add(AgentBlockPart.Table(labels.map { AgentBlockPart.Column(it) }, rows))
+        }
         when (request.commandCase) {
             RunCommand.CommandCase.CONNECT_WIFI -> {
                 row("SSID", result.connectWifi.ssid)
@@ -134,23 +198,36 @@ internal class AgentShellAdapter(private val context: Context, private val logge
                 row("Message", result.wifiOperation.message)
                 result.wifiOperation.fieldsList.forEach { row(it.key, it.value) }
                 result.wifiOperation.errorsList.forEach { row("Error", it) }
+                row("Already absent", result.wifiOperation.alreadyAbsent)
+                if (result.wifiOperation.hasStatus()) addAll(AgentWifiStatusRenderer.presentation(result.wifiOperation.status))
             }
             RunCommand.CommandCase.WAIT_WIFI_CONNECTED, RunCommand.CommandCase.ASSERT_WIFI -> {
                 row("Passed", result.wifiAssert.passed)
-                result.wifiAssert.checksList.forEach { row(it.key, "expected=${it.expected} actual=${it.actual} passed=${it.passed}") }
+                addAll(AgentWifiStatusRenderer.assertionChecks(result.wifiAssert.checksList))
                 result.wifiAssert.errorsList.forEach { row("Error", it) }
+                row("Evaluation elapsed ms", result.wifiAssert.elapsedMs)
+                if (result.wifiAssert.hasStatus()) addAll(AgentWifiStatusRenderer.presentation(result.wifiAssert.status))
+                else row("Observation", "? (snapshot unavailable)")
             }
             RunCommand.CommandCase.MONITOR_WIFI -> {
-                result.wifiMonitor.eventsList.forEach { row(it.type, it.message) }
-                result.wifiMonitor.errorsList.forEach { row("Error", it) }
-                row("Events", result.wifiMonitor.eventsCount)
+                result.wifiMonitor.eventsList.forEachIndexed { index, event ->
+                    add(AgentBlockPart.Text("Event ${index + 1}", section = true))
+                    addAll(nestedPresentation(buildList {
+                        add(AgentBlockPart.Field("Event unix ms", event.unixTimeMs.toString()))
+                        add(AgentBlockPart.Field(event.type, event.message))
+                        event.fieldsList.forEach { field -> add(AgentBlockPart.Field(field.key, field.value)) }
+                        if (event.hasStatus()) addAll(AgentWifiStatusRenderer.presentation(event.status))
+                    }))
+                }
+                if (result.wifiMonitor.errorsCount > 0) add(AgentBlockPart.Text("Errors", section = true))
+                result.wifiMonitor.errorsList.forEach { add(AgentBlockPart.Field("Error", it, indent = 2)) }
+                add(AgentBlockPart.Text("Monitor summary", section = true))
+                add(AgentBlockPart.Field("Events", result.wifiMonitor.eventsCount.toString(), indent = 2))
             }
             RunCommand.CommandCase.CYCLE_WIFI -> {
                 row("Passed", "${result.wifiCycle.passedCount}/${result.wifiCycle.requestedCount}")
-                result.wifiCycle.stepsList.forEach { step ->
-                    row("Step ${step.index}", "connected=${step.connected} ping=${step.pingOk} http=${step.httpOk} elapsed=${step.elapsedMs}ms")
-                    step.errorsList.forEach { row("Error", it) }
-                }
+                table(listOf("STEP", "CONNECTED", "PING", "HTTP", "ELAPSED(ms)", "ERRORS"), result.wifiCycle.stepsList.map { step ->
+                    listOf(step.index.toString(), step.connected.toString(), step.pingOk.toString(), step.httpOk.toString(), step.elapsedMs.toString(), step.errorsList.joinToString("; ")) })
                 result.wifiCycle.errorsList.forEach { row("Error", it) }
             }
             RunCommand.CommandCase.PING -> addAll(AgentProbeRenderer.renderPing(result.ping, result.status, result.message))
@@ -161,15 +238,15 @@ internal class AgentShellAdapter(private val context: Context, private val logge
             RunCommand.CommandCase.PATH_MTU -> {
                 row("Host", result.pathMtu.host); row("Discovered", result.pathMtu.discovered)
                 row("Path MTU", result.pathMtu.pathMtuBytes); row("Error", result.pathMtu.error)
-                result.pathMtu.probesList.forEach { row("Probe", "${it.mtuBytes} bytes passed=${it.passed} exit=${it.exitCode}") }
+                table(listOf("MTU", "PAYLOAD", "PASS", "EXIT", "ELAPSED(ms)"), result.pathMtu.probesList.map { listOf(it.mtuBytes.toString(), it.payloadSizeBytes.toString(), it.passed.toString(), it.exitCode.toString(), it.elapsedMs.toString()) })
             }
             RunCommand.CommandCase.GLOBAL_IP -> {
                 row("Family", result.globalIp.requestedFamily); row("Error", result.globalIp.error)
-                result.globalIp.addressesList.forEach { row("${it.family}", "${it.ip} global=${it.global} status=${it.status} error=${it.error}") }
+                table(listOf("FAMILY", "IP", "GLOBAL", "STATUS", "ERROR"), result.globalIp.addressesList.map { listOf(it.family.toString(), it.ip, it.global.toString(), it.status.toString(), it.error) })
             }
             RunCommand.CommandCase.RESOLVE_DNS -> {
                 row("Name", result.resolveDns.name); row("Error", result.resolveDns.error)
-                result.resolveDns.answersList.forEach { row(it.type.name, it.address) }
+                table(listOf("TYPE", "ADDRESS"), result.resolveDns.answersList.map { listOf(it.type.name, it.address) })
             }
             RunCommand.CommandCase.HTTP_CHECK -> {
                 row("URL", result.httpCheck.url); row("Status", result.httpCheck.status)
@@ -195,9 +272,13 @@ internal class AgentShellAdapter(private val context: Context, private val logge
             if (safe.status == CommandResult.Status.STATUS_OK) AgentLogStyle.TEXT_COLOR else -44976, title))
     }
 
-    private fun failure(title: String, result: CommandResult, secrets: List<String> = emptyList()): AgentShellResult = AgentShellResult(false,
-        listOf("$title failed (${if (result.status == CommandResult.Status.STATUS_OK) "STATUS_FAILED" else result.status.name}): " +
-            if (result.status == CommandResult.Status.STATUS_OK) "payload unavailable" else result.message.ifBlank { "payload unavailable" }.replaceSecrets(secrets)))
+    private fun failure(title: String, result: CommandResult, secrets: List<String> = emptyList()): AgentShellResult {
+        val failed = result.toBuilder()
+            .setStatus(if (result.status == CommandResult.Status.STATUS_OK) CommandResult.Status.STATUS_FAILED else result.status)
+            .setMessage(if (result.status == CommandResult.Status.STATUS_OK) "wrong, missing or inconsistent payload" else result.message.ifBlank { "payload unavailable" })
+            .build()
+        return block(failed, emptyList(), title, secrets)
+    }
 
     private fun String.replaceSecrets(secrets: List<String>): String = secrets.filter(String::isNotEmpty).fold(this) { safe, secret -> safe.replace(secret, "<redacted>") }
 }

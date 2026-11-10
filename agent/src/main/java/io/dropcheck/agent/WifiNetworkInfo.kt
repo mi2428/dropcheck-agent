@@ -99,7 +99,6 @@ internal fun networkWifiInfo(context: Context, network: Network?, caps: NetworkC
     val connectivity = context.getSystemService(ConnectivityManager::class.java)
     lateinit var callback: ConnectivityManager.NetworkCallback
     // A caller may itself be on ConnectivityManager's default callback thread.
-    // ponytail: one short-lived thread per lookup; use an owned observer only if polling cost matters.
     val delivery = HandlerThread("wifi-identity").apply { start() }
     val info = try {
         awaitNetworkValue<Network, WifiInfo>(network, 1000, register = { report ->

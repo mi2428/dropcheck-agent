@@ -7,10 +7,44 @@ import io.dropcheck.agent.grpc.WifiScan
 import io.dropcheck.agent.grpc.WifiScanResult
 import io.dropcheck.agent.grpc.WifiSecurityDetails
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentWifiScanRendererTest {
+    @Test fun briefKeepsAgesInScanRowsWithoutSupplementalApBlocks() {
+        val scan = WifiScan.newBuilder().addErrors("reference cache; refresh failed")
+        repeat(26) { index ->
+            val ap = WifiScanResult.newBuilder().setSsid("password=Guest").setBssid("02:00:00:11:22:%02x".format(index)).setRssiDbm(-40 - index)
+            if (index == 0) ap.setObservationAgeMs(0)
+            if (index == 1) ap.setObservationAgeMs(51845845)
+            if (index == 2) ap.setObservationAgeMs(-1L)
+            scan.addResults(ap)
+        }
+        val parts = AgentWifiScanRenderer.presentation(scan.build(), AgentWifiScanContext(brief = true))
+        val table = parts.filterIsInstance<AgentBlockPart.Scan>().single()
+        val rows = table.rows
+        assertEquals(listOf("SSID", "BSSID", "dBm", "BAND", "CH", "BW", "PHY", "SEC", "AGE(s)"), table.columns.map { it.label })
+        assertTrue(rows.all { it.size == 9 })
+        for ((index, age) in listOf("0", "51845.845", "18446744073709551.615", "?").withIndex()) {
+            assertTrue("age lost its AP row", rows.single { it[1].endsWith("%02x".format(index)) }.last() == age)
+        }
+        assertFalse(parts.filterIsInstance<AgentBlockPart.Text>().any { Regex("AP [0-9]+").matches(it.value) })
+        val block = AgentPresentationBlock.create(parts, 0)
+        val out = block.fullText
+        assertTrue("AGE(s): 51845.845" in out)
+        assertTrue("password=Guest" in out)
+        assertTrue("refresh failed" in out)
+        assertTrue("timestamp unavailable" in out)
+        assertTrue("Full: show wifi scan" in out)
+        assertFalse("Observation age at collection:" in out)
+        assertTrue(block.safeValues().any { it.first == "AP 2 AGE(s)" && it.second == "51845.845" })
+        val json = AgentShellPipeline.parse(listOf("display json")).apply(AgentShellResult(false, block = block)).block!!.fullText
+        assertTrue("\"ok\":false" in json && "AGE(s): 51845.845" in json)
+        val full = AgentWifiScanRenderer.render(scan.build()).joinToString("\n")
+        assertTrue("Observation age at collection: 51845845ms" in full)
+    }
+
     @Test
     fun rendersBriefMloTableScan() {
         val scan = WifiScan.newBuilder()
@@ -184,6 +218,18 @@ class AgentWifiScanRendererTest {
         for (unwanted in listOf("bssid  ", "mlo    ", "flags  ", "sec    ", "STANDARD", "SEC_FEATURES", "AP_LINK", "AFFILIATED")) {
             assertFalse("rendered output included $unwanted:\n$out", out.contains(unwanted))
         }
+    }
+
+    @Test fun briefKeepsCompactIdentitiesWhileFullApBlocksAreSelfIdentifying() {
+        val scan = WifiScan.newBuilder().addResults(WifiScanResult.newBuilder().setSsid("Long safe SSID that stays intact")
+            .setBssid("02:00:00:11:22:33").setFrequencyMhz(6135)).build()
+        val brief = AgentWifiScanRenderer.render(scan, AgentWifiScanContext(brief = true)).joinToString("\n")
+        val full = AgentWifiScanRenderer.render(scan).joinToString("\n")
+        assertFalse(brief.contains("Centers MHz"))
+        assertTrue(full.contains("Centers MHz"))
+        assertTrue(Regex("02:00:00:11:22:33").findAll(brief).count() == 1)
+        assertTrue(Regex("Long safe SSID that stays intact").findAll(brief).count() == 1)
+        assertTrue(full.contains("[ ] AP 1\n  SSID: Long safe SSID that stays intact\n  BSSID: 02:00:00:11:22:33"))
     }
 
     private fun field(key: String, value: String): DiagnosticField =

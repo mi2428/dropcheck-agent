@@ -1,13 +1,12 @@
 package command
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
 func parseUint32(value string, name string) (uint32, error) {
@@ -183,69 +182,18 @@ func resolveDNSQTypeCount(cmd *controlpb.ResolveDns) int {
 	return len(cmd.GetQtypes())
 }
 
-func splitArgs(line string) ([]string, error) {
-	var args []string
-	var b strings.Builder
-	var quote rune
-	escaped := false
-	inToken := false
-
-	flush := func() {
-		if inToken {
-			args = append(args, b.String())
-			b.Reset()
-			inToken = false
-		}
-	}
-
-	for _, r := range line {
-		if escaped {
-			b.WriteRune(r)
-			escaped = false
-			inToken = true
-			continue
-		}
-		if r == '\\' {
-			escaped = true
-			inToken = true
-			continue
-		}
-		if quote != 0 {
-			if r == quote {
-				quote = 0
-				continue
-			}
-			b.WriteRune(r)
-			inToken = true
-			continue
-		}
-		switch r {
-		case '\'', '"':
-			// Quotes delimit a token but are not part of the token value. Empty
-			// quoted strings still count as an argument because inToken is set.
-			quote = r
-			inToken = true
-		case ' ', '\t', '\n', '\r':
-			flush()
-		default:
-			b.WriteRune(r)
-			inToken = true
-		}
-	}
-	if escaped {
-		return nil, errors.New("trailing escape")
-	}
-	if quote != 0 {
-		return nil, errors.New("unterminated quote")
-	}
-	flush()
-	return args, nil
-}
-
 // SplitArgs tokenizes one command line using shell-like quotes and escapes.
 //
 // Quotes are removed from returned tokens. A trailing escape or unterminated
 // quote is reported as a parse error.
 func SplitArgs(line string) ([]string, error) {
-	return splitArgs(line)
+	lexed, err := Lex(line, false)
+	if err != nil {
+		return nil, err
+	}
+	args := make([]string, 0, len(lexed.Tokens))
+	for _, token := range lexed.Tokens {
+		args = append(args, token.Value)
+	}
+	return args, nil
 }

@@ -3,27 +3,29 @@ package io.dropcheck.agent
 import io.dropcheck.agent.grpc.WifiDiagnostics
 
 internal object AgentWifiDiagnosticsRenderer {
-    fun presentation(diagnostics: WifiDiagnostics, detail: Boolean = false, detailAvailable: Boolean = false, ipAvailable: Boolean = false): List<AgentBlockPart> = buildList {
-        add(AgentBlockPart.Text("Summary"))
-        add(AgentBlockPart.Text("Constituent status: ? (shared acquisition-result binding required); not an atomic snapshot"))
-        diagnostics.scan.errorsList.forEach { add(AgentBlockPart.Text("Scan note: $it")) }
-        diagnostics.capabilities.errorsList.forEach { add(AgentBlockPart.Text("Device note: $it")) }
-        add(AgentBlockPart.Text("Wi-Fi"))
-        if (diagnostics.hasStatus()) addAll(AgentWifiStatusRenderer.presentation(diagnostics.status, detail, detailAvailable, ipAvailable, includeIpSnapshot = false)) else add(AgentBlockPart.Text("Note: ? (Wi-Fi payload unavailable)"))
-        add(AgentBlockPart.Text("IP"))
-        if (diagnostics.status.hasIpStatus()) addAll(AgentWifiStatusRenderer.ipPresentation(diagnostics.status.ipStatus, detail, detailAvailable)) else add(AgentBlockPart.Text("Note: ? (IP payload unavailable)"))
-        add(AgentBlockPart.Text("Scan summary"))
-        if (diagnostics.hasScan()) {
-            val fields = diagnostics.scan.fieldsList.associate { it.key to it.value }
-            add(AgentBlockPart.Text("Data source: ${fields["scan_source"] ?: "?"}"))
-            add(AgentBlockPart.Text("Updated: ${fields["fresh_scan_results_updated"] ?: "?"}"))
-            add(AgentBlockPart.Text("APs: ${diagnostics.scan.resultsCount}"))
-        } else add(AgentBlockPart.Text("Note: ? (scan payload unavailable)"))
-        add(AgentBlockPart.Text("Device"))
-        if (diagnostics.hasCapabilities()) addAll(AgentWifiCapabilitiesRenderer.presentation(diagnostics.capabilities, detail, detailAvailable)) else add(AgentBlockPart.Text("Note: ? (device payload unavailable)"))
-        if (detail || !detailAvailable) diagnostics.networksList.forEach {
-            add(AgentBlockPart.Text("Network: ${it.networkId}"))
-            if (it.hasIpStatus()) addAll(AgentWifiStatusRenderer.ipPresentation(it.ipStatus, detail, detailAvailable))
+    fun presentation(diagnostics: WifiDiagnostics): List<AgentBlockPart> = buildList {
+        fun heading(title: String) {
+            add(AgentBlockPart.Text(title, section = true))
         }
+        heading("Summary")
+        addAll(nestedPresentation(listOf(AgentBlockPart.Field("Constituent status", "? (shared acquisition-result binding required); not an atomic snapshot"))))
+        heading("Wi-Fi")
+        addAll(nestedPresentation(if (diagnostics.hasStatus()) AgentWifiStatusRenderer.presentation(diagnostics.status, includeIpSnapshot = false) else listOf(AgentBlockPart.Field("Note", "? (Wi-Fi payload unavailable)"))))
+        heading("IP")
+        addAll(nestedPresentation(if (diagnostics.status.hasIpStatus()) AgentWifiStatusRenderer.ipPresentation(diagnostics.status.ipStatus) else listOf(AgentBlockPart.Field("Note", "? (IP payload unavailable)"))))
+        heading("Scan summary")
+        addAll(nestedPresentation(if (diagnostics.hasScan()) AgentWifiScanRenderer.presentation(diagnostics.scan, AgentWifiScanContext(requestedFresh = false, detail = true)) else listOf(AgentBlockPart.Field("Note", "? (scan payload unavailable)"))))
+        heading("Device")
+        addAll(nestedPresentation(if (diagnostics.hasCapabilities()) AgentWifiCapabilitiesRenderer.presentation(diagnostics.capabilities) else listOf(AgentBlockPart.Field("Note", "? (device payload unavailable)"))))
+        diagnostics.networksList.forEachIndexed { index, network ->
+            heading("Network ${index + 1}")
+            val parts = buildList {
+                add(AgentBlockPart.Field("Active/default at bundle enumeration", network.active.toString()))
+                if (network.hasIpStatus()) addAll(AgentWifiStatusRenderer.ipPresentation(network.ipStatus))
+            }
+            addAll(nestedPresentation(parts))
+        }
+        heading("EHT/MLO interpretation (references the observations above)")
+        addAll(nestedPresentation(AgentWifiMloRenderer.interpretation(diagnostics.status, diagnostics.scan, AgentWifiMloContext(wifiCapabilities = diagnostics.capabilities))))
     }
 }

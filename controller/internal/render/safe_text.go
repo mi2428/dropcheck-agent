@@ -1,113 +1,52 @@
 package render
 
 import (
-	"net/url"
-	"regexp"
-	"strings"
+	"fmt"
+	"slices"
 
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/safevalue"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-var presentationURL = regexp.MustCompile(`https?://[^\s<>]+`)
-var presentationCredential = regexp.MustCompile(`(?im)(^|[\s;,(])(passphrase|password|authorization|access_token|refresh_token|token|psk|api_key)(\s*[:=]\s*)("[^"]*"|'[^']*'|(?:Bearer|Basic)\s+[^\s,;]+|[^\s,;]+)`)
+func safePresentationText(value string) string                  { return safevalue.Text(value) }
+func safePresentationField(label, value string) string          { return safevalue.Field(label, value) }
+func safePresentationProto(message proto.Message) proto.Message { return safevalue.Proto(message) }
 
-func safePresentationText(value string) string {
-	value = presentationCredential.ReplaceAllString(value, "${1}${2}${3}<redacted>")
-	value = presentationURL.ReplaceAllStringFunc(value, func(raw string) string {
-		u, err := url.Parse(raw)
-		if err != nil {
-			return "<unavailable URL>"
+// Select literal identities on a detached observation before display normalization.
+func presentationResult(result *controlpb.CommandResult, options command.Options) *controlpb.CommandResult {
+	copy := proto.Clone(result).(*controlpb.CommandResult)
+	selectScan := func(scan *controlpb.WifiScan, filter wifiMLOFilter) {
+		if scan == nil || !filter.active() {
+			return
 		}
-		if u.User != nil {
-			u.User = url.User("redacted")
+		if diagnosticFieldMap(scan.GetFields())["scan_result_total_count"] == "" {
+			scan.Fields = append(scan.Fields, &controlpb.DiagnosticField{Key: "scan_result_total_count", Value: fmt.Sprint(len(scan.Results))})
 		}
-		query, err := redactURLParameters(u.RawQuery)
-		if err != nil {
-			return "<invalid URL query redacted>"
-		}
-		u.RawQuery = query
-		if fragment := u.EscapedFragment(); strings.Contains(fragment, "=") {
-			fragment, err = redactURLParameters(fragment)
-			if err != nil {
-				return "<invalid URL fragment redacted>"
-			}
-			u.Fragment, err = url.PathUnescape(fragment)
-			if err != nil {
-				return "<invalid URL fragment redacted>"
-			}
-			u.RawFragment = fragment
-		}
-		return u.String()
-	})
-	return value
-}
-
-func redactURLParameters(value string) (string, error) {
-	parts := strings.Split(value, "&")
-	for i, part := range parts {
-		key, _, _ := strings.Cut(part, "=")
-		decoded, err := url.QueryUnescape(key)
-		if err != nil {
-			return "", err
-		}
-		switch strings.ToLower(decoded) {
-		case "password", "passphrase", "token", "access_token", "refresh_token", "authorization", "psk", "api_key", "apikey", "api-key", "client_secret", "x-amz-signature", "x-amz-credential", "x-amz-security-token":
-			parts[i] = key + "=%3Credacted%3E"
-		}
+		scan.Results = filter.scanResults(scan.Results)
 	}
-	return strings.Join(parts, "&"), nil
-}
-
-// Clone before sanitizing: evaluation/measurements never see presentation edits.
-func safePresentationProto(message proto.Message) proto.Message {
-	copy := proto.Clone(message)
-	var sanitize func(protoreflect.Message)
-	sanitize = func(m protoreflect.Message) {
-		if m.Descriptor().Name() == "DiagnosticField" {
-			key := m.Descriptor().Fields().ByName("key")
-			value := m.Descriptor().Fields().ByName("value")
-			if key != nil && value != nil {
-				name := strings.ToLower(m.Get(key).String())
-				switch name {
-				case "passphrase", "password", "token", "access_token", "refresh_token", "authorization", "psk", "api_key":
-					m.Set(value, protoreflect.ValueOfString("<redacted>"))
-				}
-				if strings.HasSuffix(name, ".reason") || strings.HasSuffix(name, "_error") {
-					m.Set(value, protoreflect.ValueOfString(safePresentationText(m.Get(value).String())))
-				}
-			}
-		}
-		m.Range(func(field protoreflect.FieldDescriptor, value protoreflect.Value) bool {
-			clean := func(value string) string {
-				var lines []string
-				switch field.Name() {
-				case "message", "error", "output", "raw", "raw_link_properties", "raw_capabilities", "url":
-					value = safePresentationText(value)
-				}
-				for line := range strings.SplitSeq(value, "\n") {
-					lines = append(lines, cleanDisplayCell(line))
-				}
-				return strings.Join(lines, "\n")
-			}
-			if field.IsList() {
-				list := value.List()
-				for i := 0; i < list.Len(); i++ {
-					if field.Kind() == protoreflect.StringKind {
-						list.Set(i, protoreflect.ValueOfString(clean(list.Get(i).String())))
-					}
-					if field.Kind() == protoreflect.MessageKind {
-						sanitize(list.Get(i).Message())
+	switch payload := copy.Payload.(type) {
+	case *controlpb.CommandResult_WifiScan:
+		selectScan(payload.WifiScan, wifiMLOFilter{ssid: options.WifiScanSSID, bssid: options.WifiScanBSSID})
+	case *controlpb.CommandResult_WifiDiagnostics:
+		if options.WifiRenderMode == command.WifiRenderModeEHT && payload.WifiDiagnostics != nil {
+			diagnostics := payload.WifiDiagnostics
+			filter := wifiMLOFilter{ssid: options.WifiEHTSSID, bssid: options.WifiEHTBSSID}
+			selectScan(diagnostics.Scan, filter)
+			if filter.active() {
+				if status := diagnostics.Status; status != nil {
+					status.Connection = filter.connection(status.Connection)
+					if status.IpStatus != nil && !filter.matchesConnection(status.IpStatus.Wifi) {
+						status.IpStatus = nil
 					}
 				}
-			} else if field.Kind() == protoreflect.StringKind {
-				m.Set(field, protoreflect.ValueOfString(clean(value.String())))
-			} else if field.Kind() == protoreflect.MessageKind {
-				sanitize(value.Message())
+				diagnostics.Networks = slices.DeleteFunc(diagnostics.Networks, func(network *controlpb.NetworkDiagnostics) bool {
+					return !filter.matchesConnection(network.GetIpStatus().GetWifi())
+				})
 			}
-			return true
-		})
+		}
 	}
-	sanitize(copy.ProtoReflect())
+	safevalue.SanitizeProto(copy)
 	return copy
 }

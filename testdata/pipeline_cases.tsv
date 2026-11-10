@@ -1,0 +1,47 @@
+pipeline	input	output	valid
+find B	A\nB\nC\n	B\nC\n	true
+find absent	A\nB\n		true
+find B | match C	A\nB\nC\nD\n	C\n	true
+find 'B|C' | last 2	A\nB\nC\n	B\nC\n	true
+match 'B|C' | except C	A\nB\nC\n	B\n	true
+trim 2	AB\nCD\n	B\nD\n	true
+trim 2	A😀B\n	😀B\n	true
+count	A\n\nC\n	Count: 3 lines\n	true
+count		Count: 0 lines\n	true
+match absent | count	A\n	Count: 0 lines\n	true
+match '^SSID: 日本語$'	SSID: 日本語\nOther\n	SSID: 日本語\n	true
+match '[A-Z]+[0-9]{2}'	AP12\nap12\n	AP12\n	true
+match '(a+)+$'	aaaaa\n	aaaaa\n	true
+match '(?=a)'			false
+match '(?i)a'	A\nB\n	A\n	true
+match '\\1'			false
+match '['			false
+match ''			false
+display json | match A			false
+count | display json			false
+display set			false
+no-more			false
+match A |			false
+last 5	A\nB\n	A\nB\n	true
+last 0	A\n		false
+last -1	A\n		false
+last 2147483648	A\n		false
+last	A\n		false
+trim 0	A\n		false
+trim abc	A\n		false
+find B extra	A\nB\n		false
+begin B	A\nB\n		false
+last 2	A\n\nB\n	\nB\n	true
+last 2147483647	A\nB\n	A\nB\n	true
+last 1 | count	A\n\n	Count: 1 lines\n	true
+last 1			true
+trim 1	A😀B\n	A😀B\n	true
+trim 3	A😀B\n	B\n	true
+trim 2147483647 | count	A\nB\n	Count: 2 lines\n	true
+trim 2 | count	A\nB\n	Count: 2 lines\n	true
+trim 2 | match B	AB\nCA\n	B\n	true
+match B | trim 2	AB\nCA\n	B\n	true
+trim -1	A\n		false
+trim +1	A\n		false
+trim 2147483648	A\n		false
+trim 1 extra	A\n		false

@@ -41,10 +41,10 @@ class GrpcSessionClient(
     private val sessionId = UUID.randomUUID().toString()
     private val done = CountDownLatch(1)
     private val seq = AtomicLong(1)
-    private val sendLock = Any()
     private val commandExecutor = Executors.newSingleThreadExecutor()
     private val heartbeatExecutor = Executors.newScheduledThreadPool(2)
     private val active = ConcurrentHashMap<String, Future<*>>()
+    private val streamWrites = StreamWriteGuard()
     private val lastControllerFrameMs = AtomicLong(0)
     private val lastControllerTimeoutLogMs = AtomicLong(0)
     private val controllerTimedOut = AtomicBoolean(false)
@@ -134,9 +134,11 @@ class GrpcSessionClient(
             heartbeatExecutor.shutdownNow()
             ControllerSessionRuntimeState.markDisconnected()
             AgentStatusBroadcast.send(service)
-            runCatching { requests.onCompleted() }
-                .onSuccess { TerminalLog.debug(service, "grpc request stream completed session=$sessionId") }
-                .onFailure { TerminalLog.warn(service, "grpc request stream completion failed session=$sessionId error=$it") }
+            streamWrites.complete {
+                runCatching { requests.onCompleted() }
+                    .onSuccess { TerminalLog.debug(service, "grpc request stream completed session=$sessionId") }
+                    .onFailure { TerminalLog.warn(service, "grpc request stream completion failed session=$sessionId error=$it") }
+            }
             channel.shutdown()
             val terminated = channel.awaitTermination(2, TimeUnit.SECONDS)
             TerminalLog.debug(service, "grpc channel shutdown session=$sessionId terminated=$terminated")
@@ -403,13 +405,14 @@ class GrpcSessionClient(
     }
 
     /**
-     * Serializes outgoing stream writes.
+     * Serializes outgoing stream writes with stream completion.
      *
      * gRPC StreamObserver is not guaranteed to be thread-safe; command logs,
      * command results, and heartbeats can originate from different executors.
+     * Once the stream is completed, later frames are dropped.
      */
     private fun send(requests: StreamObserver<AgentFrame>, frame: AgentFrame) {
-        synchronized(sendLock) {
+        streamWrites.write {
             if (frame.bodyCase != AgentFrame.BodyCase.HEARTBEAT) {
                 TerminalLog.debugEvent(service, "grpc.tx", listOf(
                     "local_session_id" to sessionId,
@@ -435,5 +438,39 @@ class GrpcSessionClient(
         private const val TRANSPORT = "adb-reverse"
         private const val CONTROLLER_HEARTBEAT_TIMEOUT_MS = 3_000L
         private const val CONTROLLER_HEARTBEAT_WARN_INTERVAL_MS = 3_000L
+    }
+}
+
+/**
+ * Serializes request-stream writes with stream completion.
+ *
+ * gRPC StreamObserver is not thread-safe, so onNext and onCompleted must not
+ * overlap. Completion also permanently closes the write side: a command worker
+ * that is interrupted during shutdown may still try to report its result, and
+ * that frame must not reach a completed stream.
+ */
+internal class StreamWriteGuard {
+    private val lock = Any()
+    private var completed = false
+
+    /** Runs [write] under the stream lock and reports whether the stream was still open. */
+    fun write(write: () -> Unit): Boolean = synchronized(lock) {
+        if (completed) {
+            false
+        } else {
+            write()
+            true
+        }
+    }
+
+    /** Marks the stream completed and runs [complete] under the same lock, at most once. */
+    fun complete(complete: () -> Unit): Boolean = synchronized(lock) {
+        if (completed) {
+            false
+        } else {
+            completed = true
+            complete()
+            true
+        }
     }
 }

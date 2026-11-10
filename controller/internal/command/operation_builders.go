@@ -4,13 +4,13 @@ import (
 	"errors"
 	"strings"
 
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
 // WifiConnectOptions is the typed input for Wi-Fi connect-style operations.
 //
-// String fields intentionally keep the user-facing token form so shell and CLI
-// parsers can share validation, defaulting, and error messages in this package.
+// String fields retain token form so Shell, tui and the basic Go API share
+// validation, defaulting, and error messages in this package.
 type WifiConnectOptions struct {
 	// SSID is the network name to connect to.
 	SSID string
@@ -96,7 +96,7 @@ type TracerouteOptions struct {
 	Host string
 	// MaxHops bounds the number of hops; empty uses the default.
 	MaxHops string
-	// Via lists hops that rendered output should verify when present.
+	// Via lists typed hop identities checked by the shared acquisition evaluator.
 	Via []string
 	// Size is the probe payload size in bytes; empty lets the agent choose.
 	Size string
@@ -134,12 +134,6 @@ func WifiDiagnosticsOperation() Operation {
 		Label:   "wifi diagnostics",
 		Command: &controlpb.RunCommand_GetWifiDiagnostics{GetWifiDiagnostics: &controlpb.GetWifiDiagnostics{}},
 	}, Options{})
-}
-
-// WifiEHTOperation builds an EHT-focused Wi-Fi diagnostics inspection operation.
-func WifiEHTOperation() Operation {
-	op, _ := WifiEHTOperationWithOptions(WifiEHTOptions{})
-	return op
 }
 
 // WifiEHTOperationWithOptions builds an EHT-focused Wi-Fi diagnostics operation.
@@ -194,13 +188,17 @@ func WifiDisconnectOperation() Operation {
 	}, Options{})
 }
 
-// WifiForgetOperation builds an operation that forgets a saved Wi-Fi network.
-//
-// target may be an SSID or Android network ID, matching the agent contract.
-func WifiForgetOperation(target string) Operation {
+// WifiForgetSSIDOperation forgets a literal SSID, including numeric names.
+func WifiForgetSSIDOperation(ssid string) Operation {
 	return NewOperation("wifi.forget", &controlpb.RunCommand{
-		Label:   strings.Join([]string{"wifi", "forget", target}, " "),
-		Command: &controlpb.RunCommand_ForgetWifi{ForgetWifi: &controlpb.ForgetWifi{Target: target}},
+		Command: &controlpb.RunCommand_ForgetWifi{ForgetWifi: &controlpb.ForgetWifi{Selector: &controlpb.ForgetWifi_Ssid{Ssid: ssid}}},
+	}, Options{})
+}
+
+// WifiForgetConfigIDOperation forgets a saved configuration ID, including zero.
+func WifiForgetConfigIDOperation(id int32) Operation {
+	return NewOperation("wifi.forget", &controlpb.RunCommand{
+		Command: &controlpb.RunCommand_ForgetWifi{ForgetWifi: &controlpb.ForgetWifi{Selector: &controlpb.ForgetWifi_ConfigId{ConfigId: id}}},
 	}, Options{})
 }
 
@@ -214,9 +212,6 @@ func WifiScanOperation(bandValue string) (Operation, error) {
 // WifiScanOperationWithBrief builds a cached Wi-Fi scan operation with optional
 // compact rendering and MLO-only filtering.
 func WifiScanOperationWithBrief(bandValue string, brief bool, mlo bool) (Operation, error) {
-	if mlo && !brief {
-		return Operation{}, errors.New("mlo is supported only with wifi scan brief")
-	}
 	band, err := parseWifiBand(bandValue)
 	if err != nil {
 		return Operation{}, err
@@ -248,9 +243,6 @@ func WifiFreshScanOperation(bandValue string, timeoutValue string) (Operation, e
 // WifiFreshScanOperationWithBrief builds a fresh Wi-Fi scan operation with
 // optional compact rendering and MLO-only filtering.
 func WifiFreshScanOperationWithBrief(bandValue string, timeoutValue string, brief bool, mlo bool) (Operation, error) {
-	if mlo && !brief {
-		return Operation{}, errors.New("mlo is supported only with wifi scan brief")
-	}
 	band, err := parseWifiBand(bandValue)
 	if err != nil {
 		return Operation{}, err
@@ -300,6 +292,9 @@ func WifiConnectOperation(opts WifiConnectOptions) (Operation, error) {
 	if err != nil {
 		return Operation{}, err
 	}
+	if err := validateConnect(connect); err != nil {
+		return Operation{}, err
+	}
 	return NewOperation("wifi.connect", &controlpb.RunCommand{
 		Label:   wifiConnectLabel("connect", opts),
 		Command: &controlpb.RunCommand_ConnectWifi{ConnectWifi: connect},
@@ -310,6 +305,9 @@ func WifiConnectOperation(opts WifiConnectOptions) (Operation, error) {
 func WifiCycleOperation(opts WifiCycleOptions) (Operation, error) {
 	connect, err := connectWifi(opts.WifiConnectOptions)
 	if err != nil {
+		return Operation{}, err
+	}
+	if err := validateConnect(connect); err != nil {
 		return Operation{}, err
 	}
 	count, err := parseOptionalUint32(opts.Count, "count", 3)
@@ -539,9 +537,6 @@ func PathMTUOperation(opts PathMTUOptions) (Operation, error) {
 	if err != nil {
 		return Operation{}, err
 	}
-	if minMTU != 0 && maxMTU != 0 && maxMTU < minMTU {
-		return Operation{}, errors.New("max-mtu must be greater than or equal to min-mtu")
-	}
 	timeoutMs, err := parseOptionalUint32(opts.Timeout, "timeout", 30000)
 	if err != nil {
 		return Operation{}, err
@@ -555,12 +550,16 @@ func PathMTUOperation(opts PathMTUOptions) (Operation, error) {
 	appendValueOption(&parts, "--max-mtu", opts.MaxMTU)
 	appendValueOption(&parts, "--family", opts.Family)
 	appendValueOption(&parts, "--timeout", opts.Timeout)
-	return NewOperation("path-mtu", &controlpb.RunCommand{
+	op := NewOperation("path-mtu", &controlpb.RunCommand{
 		Label: strings.Join(parts, " "),
 		Command: &controlpb.RunCommand_PathMtu{PathMtu: &controlpb.PathMtu{
 			Host: opts.Host, MinMtuBytes: minMTU, MaxMtuBytes: maxMTU, Family: family, TimeoutMs: timeoutMs, Selector: &controlpb.NetworkSelector{},
 		}},
-	}, Options{}), nil
+	}, Options{})
+	if err := validatePathMTUBounds(op.Command.GetPathMtu()); err != nil {
+		return Operation{}, err
+	}
+	return op, nil
 }
 
 // GlobalIPOperation builds an operation that discovers the device's public IP

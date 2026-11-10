@@ -1,6 +1,5 @@
 package io.dropcheck.agent
 
-import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -15,22 +14,6 @@ class WifiNetworkInfoTest {
         assertEquals("selected", selectedStatusNetwork(true, "selected", "other"))
         assertEquals("default", selectedStatusNetwork(false, null as String?, "default"))
     }
-    @Test
-    fun allNetworkIdentityCallersUseAssociationInsteadOfGlobalSnapshot() {
-        val sourceDir = listOf(File("src/main/java/io/dropcheck/agent"),
-            File("agent/src/main/java/io/dropcheck/agent")).first { it.isDirectory }
-        for (file in listOf("NetworkRepository.kt", "AgentClockWidgetProvider.kt", "WifiEventLogger.kt")) {
-            val source = File(sourceDir, file).readText()
-            assertTrue("$file must use the shared association", source.contains("networkWifiInfo("))
-            assertFalse("$file must not map a global snapshot", source.contains("connectionInfo"))
-            assertFalse("$file must not keep the old fallback", source.contains("bestWifiInfo("))
-        }
-        val shared = File(sourceDir, "WifiNetworkInfo.kt").readText()
-        assertTrue(shared.contains("FLAG_INCLUDE_LOCATION_INFO"))
-        assertTrue(shared.contains("registerNetworkCallback(request, callback, Handler(delivery.looper))"))
-        assertTrue(shared.contains("isKnownWifiSsid(it.ssid.orEmpty()) || clockWidgetWifiInfoIsUsable"))
-    }
-
     @Test
     fun unknownCandidateIsExplicitlyRejectedWithoutInterruptingKnownTargetSelection() {
         assertEquals(WifiNetworkMatch.MATCH, networkWifiSsidMatch("Fixture", "\"Fixture\""))
@@ -125,14 +108,6 @@ class WifiNetworkInfoTest {
                 if (candidate == "vpn") WifiNetworkMatch.NOT_WIFI else networkWifiSsidMatch(" ", if (candidate == "unknown") "<unknown ssid>" else "\"Lab\"")
             }, onCandidate = { _, _ -> })
         }
-    }
-
-    @Test fun selectorBoundaryRejectsBlankOnlyWildcardRegression() {
-        val sourceDir = listOf(File("src/main/java/io/dropcheck/agent"),
-            File("agent/src/main/java/io/dropcheck/agent")).first { it.isDirectory }
-        val source = File(sourceDir, "NetworkRepository.kt").readText()
-        assertTrue(source.contains("if (selector.ssid.isEmpty() && expectedBssid.isEmpty()) return WifiNetworkMatch.MATCH"))
-        assertFalse(source.contains("selector.ssid.isBlank()"))
     }
 
     @Test

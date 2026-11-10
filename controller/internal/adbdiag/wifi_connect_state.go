@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"dropcheck/controller/internal/adb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/adb"
 )
 
 var (
@@ -21,20 +21,12 @@ var (
 
 const wifiConnectEventShell = `dumpsys wifi | grep -E 'supplicantStateChangeEvents|WifiInfo:|Supplicant state:' | tail -n 40`
 
-// WifiConnectState is the compact Wi-Fi association phase shown by the watch TUI.
+// WifiConnectState is the compact Wi-Fi association phase shown by the tui TUI.
 type WifiConnectState struct {
 	Supplicant string
 	SSID       string
 	BSSID      string
 	IP         string
-}
-
-// CollectWifiConnectState reads Android's current supplicant phase through adb.
-func CollectWifiConnectState(ctx context.Context, client adb.Client) WifiConnectState {
-	if state := CollectWifiConnectStatusState(ctx, client); state.Supplicant != "" {
-		return state
-	}
-	return CollectWifiConnectEventState(ctx, client)
 }
 
 // CollectWifiConnectEventState reads the recent supplicant event history from dumpsys wifi.
@@ -53,14 +45,6 @@ func CollectWifiConnectStatusState(ctx context.Context, client adb.Client) WifiC
 		return WifiConnectState{}
 	}
 	return ParseWifiConnectStatusState(out)
-}
-
-// ParseWifiConnectState extracts a supplicant phase from either event history or current status output.
-func ParseWifiConnectState(text string) WifiConnectState {
-	if state := ParseWifiConnectEventState(text); state.Supplicant != "" {
-		return state
-	}
-	return ParseWifiConnectStatusState(text)
 }
 
 // ParseWifiConnectEventState extracts the newest supplicant phase from event history.
@@ -98,7 +82,7 @@ func normalizeWifiConnectState(state WifiConnectState) WifiConnectState {
 	return state
 }
 
-// LogMessage renders state as stable key=value text for watch events.
+// LogMessage renders state as stable key=value text for tui events.
 func (state WifiConnectState) LogMessage() string {
 	if state.Supplicant == "" {
 		return ""

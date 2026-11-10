@@ -7,15 +7,15 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"slices"
 	"strings"
 	"syscall"
+	"time"
 
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/control"
-	"dropcheck/controller/internal/harness"
-	"dropcheck/controller/internal/session"
-	"dropcheck/controller/internal/version"
+	"github.com/mi2428/dropcheck-agent/controller/internal/control"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/session"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/version"
 )
 
 var errHelpRequested = errors.New("help requested")
@@ -28,7 +28,7 @@ type helpRow struct {
 // Run executes the dropcheck controller application for args.
 //
 // args must not include argv[0]. Run handles top-level flags, chooses
-// Controller Shell, Controller TUI, or one-shot CLI mode, starts the required
+// Controller Shell or tui mode, starts the required
 // control session, and returns any user-facing error to the executable wrapper.
 func Run(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -59,9 +59,6 @@ func runWithContext(ctx context.Context, args []string) error {
 	if len(rest) > 0 && rest[0] == "shell" {
 		return runShell(ctx, opts, rest[1:])
 	}
-	if len(rest) > 0 && rest[0] == "watch" {
-		return runWatch(ctx, opts, rest[1:])
-	}
 	if len(rest) > 0 && rest[0] == "tui" {
 		return runTUI(ctx, opts, rest[1:])
 	}
@@ -69,7 +66,7 @@ func runWithContext(ctx context.Context, args []string) error {
 		writeTopLevelHelp(os.Stdout)
 		return nil
 	}
-	return runCLI(ctx, opts, rest)
+	return fmt.Errorf("supported entry points are shell and tui; run 'dropcheck --help' for usage")
 }
 
 func writeTopLevelHelp(w io.Writer) {
@@ -77,21 +74,13 @@ func writeTopLevelHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "Usage:")
 	_, _ = fmt.Fprintln(w, "  dropcheck [flags] shell [--target TARGET]")
-	_, _ = fmt.Fprintln(w, "  dropcheck [flags] tui [PLAN.yml]")
-	_, _ = fmt.Fprintln(w, "  dropcheck [flags] watch -c CONFIG.yml [--target TARGET|all] [--jsonl PATH] [--no-tui]")
-	_, _ = fmt.Fprintln(w, "  dropcheck [flags] [--format text|json] [--target TARGET|--all] <command>")
+	_, _ = fmt.Fprintln(w, "  dropcheck [flags] tui -c CONFIG.yml [--target TARGET|all] [--jsonl PATH] [--no-tui]")
 	_, _ = fmt.Fprintln(w, "  dropcheck --version")
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "Commands:")
 	writeHelpRows(w, []helpRow{
-		{"tui [PLAN.yml]", "select, preview, run and review a Plan interactively (requires a TTY)"},
 		{"shell", "start the Controller Shell"},
-		{"watch -c CONFIG.yml", "start the Controller TUI for continuous E2E Wi-Fi checks"},
-		{"show devices", "list ADB devices without starting agent services"},
-		{"show wifi <topic>", "show Wi-Fi status and diagnostics"},
-		{"show ip status", "show IP and routing status"},
-		{"wifi <command> ...", "run Wi-Fi control"},
-		{"ping|traceroute|path-mtu|global-ip|dns|http|download", "run an agent probe"},
+		{"tui -c CONFIG.yml", "monitor continuous E2E Wi-Fi checks with the tui dashboard"},
 	})
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "Global flags:")
@@ -104,70 +93,13 @@ func writeTopLevelHelp(w io.Writer) {
 		{"--listen ADDR", `gRPC listen address (default "127.0.0.1:0")`},
 	})
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "CLI output and target flags:")
-	writeHelpRows(w, []helpRow{
-		{"--format text|json", "output format for one-shot commands"},
-		{"--target TARGET", "select one agent by adb serial or unique prefix before startup"},
-		{"--all", "run agent commands on all connected agents"},
-	})
-	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "Common commands:")
-	for _, spec := range command.GrammarTable {
-		if !spec.Unsupported {
-			_, _ = fmt.Fprintln(w, "  "+commandUsage(spec))
-		}
-	}
-	_, _ = fmt.Fprintln(w, "  check link: family defaults to ipv4; ipv6/all available; BSSID pinning unsupported; no external traffic or Wi-Fi changes")
-	_, _ = fmt.Fprintln(w, "  check lab ssid SSID family ipv4|ipv6 gateway IP dns NAME resolver selected http URL expected-status STATUS timeout MS: configured active probes on existing Wi-Fi; no Wi-Fi changes")
-	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, `Notes:
   Top-level flags accept either single or double dash, for example -serial or --serial.
 
 Examples:
   dropcheck shell
   dropcheck --serial R5CT12345 shell
-  dropcheck --format json show devices
-  dropcheck ping 1.1.1.1 count 5
-  dropcheck show wifi scan fresh timeout 9000`)
-}
-
-func commandUsage(spec command.Grammar) string {
-	usage := spec.Path
-	for _, positional := range spec.Positionals {
-		usage += " <" + positional + ">"
-	}
-	for _, required := range spec.Required {
-		usage += " " + required + " <value>"
-	}
-	for _, key := range spec.Switches {
-		usage += " [" + key + "]"
-	}
-	for _, key := range spec.Values {
-		if !slices.Contains(spec.Required, key) {
-			usage += " [" + key + " <value>]"
-		}
-	}
-	return usage
-}
-
-func writeCommandHelp(w io.Writer, topic string) {
-	if topic == "" {
-		writeTopLevelHelp(w)
-		return
-	}
-	found := false
-	for _, spec := range command.GrammarTable {
-		if !spec.Unsupported && (spec.Path == topic || strings.HasPrefix(spec.Path, topic+" ")) {
-			_, _ = fmt.Fprintln(w, "  "+commandUsage(spec))
-			found = true
-		}
-	}
-	if !found {
-		_, _ = fmt.Fprintln(w, "unsupported help topic")
-	}
-	if topic == "check" || topic == "check link" {
-		_, _ = fmt.Fprintln(w, "  link: family defaults to ipv4; ipv6/all available; existing physical Wi-Fi only; BSSID pinning unsupported")
-	}
+  dropcheck tui -c examples/tui.yml`)
 }
 
 func writeHelpRows(w io.Writer, rows []helpRow) {
@@ -253,16 +185,16 @@ func parseTopLevelArgs(args []string) (shellOptions, []string, error) {
 	return opts, nil, nil
 }
 
-func runShell(ctx context.Context, opts shellOptions, args []string) error {
+func runShell(ctx context.Context, opts shellOptions, args []string) (err error) {
 	targetOpts, err := parseShellTargetOptions(args)
 	if err != nil {
 		return err
 	}
-	controlSession, err := startControlSession(ctx, opts)
+	controlSession, err := session.Open(ctx, opts)
 	if err != nil {
 		return err
 	}
-	defer controlSession.Close()
+	defer func() { err = errors.Join(err, controlSession.Close()) }()
 
 	state := &shellState{server: controlSession.Server, adbPath: opts.ADBPath}
 	if err := selectShellStartupTarget(state, controlSession.Agents, targetOpts.target); err != nil {
@@ -302,7 +234,7 @@ func selectShellStartupTarget(state *shellState, agents []control.AgentInfo, tar
 		return nil
 	}
 	if target != "" {
-		info, err := resolveShellAgent(state, target)
+		info, err := resolveAgent(state.server, target)
 		if err != nil {
 			return err
 		}
@@ -328,12 +260,31 @@ type shellState struct {
 	selected              string
 	selectedLabel         string
 	targetAll             bool
-	lastReport            *harness.Report
+	lastReport            *tuirun.Report
 	lastProfile, lastSSID string
+	lastWifiTest          *controlpb.CommandResult
+	lastWifiTestAgent     string
+	lastTestAt            time.Time
 	failedUse             bool
+	defaultPassphrase     string
 }
 
 func (s *shellState) setSelectedAgent(info control.AgentInfo) {
 	s.selected = info.ID
 	s.selectedLabel = agentDisplayName(info)
+}
+
+func (s *shellState) commandTargets() ([]control.AgentInfo, error) {
+	if s.targetAll {
+		agents := s.server.Agents()
+		if len(agents) == 0 {
+			return nil, fmt.Errorf("no Android agents connected")
+		}
+		return agents, nil
+	}
+	info, err := selectedAgent(s)
+	if err != nil {
+		return nil, err
+	}
+	return []control.AgentInfo{info}, nil
 }

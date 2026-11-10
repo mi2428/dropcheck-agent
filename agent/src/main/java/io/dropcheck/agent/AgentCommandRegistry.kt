@@ -2,13 +2,7 @@ package io.dropcheck.agent
 
 import io.dropcheck.agent.grpc.RunCommand
 
-/**
- * Single source of truth for controller-visible agent commands.
- *
- * The Android process should stay a transport/device proxy: it advertises only
- * the gRPC commands it can dispatch locally, while higher-level orchestration
- * remains with the controller.
- */
+/** RPC command inventory used for controller capability advertisement. */
 internal object AgentCommandRegistry {
     /**
      * Pairing between a protobuf oneof case and the capability string reported
@@ -25,6 +19,9 @@ internal object AgentCommandRegistry {
      * dispatch them.
      */
     val entries: List<Entry> = listOf(
+        Entry(RunCommand.CommandCase.GET_NETWORKS, "network.list"),
+        Entry(RunCommand.CommandCase.GET_NETWORK, "network.show"),
+        Entry(RunCommand.CommandCase.GET_PERMISSIONS, "permissions"),
         Entry(RunCommand.CommandCase.GET_WIFI_STATUS, "wifi.status"),
         Entry(RunCommand.CommandCase.GET_WIFI_DIAGNOSTICS, "wifi.diagnostics"),
         Entry(RunCommand.CommandCase.GET_WIFI_SCAN, "wifi.scan"),
@@ -50,5 +47,5 @@ internal object AgentCommandRegistry {
     )
 
     /** Capability strings sent during hello. The controller treats this as the agent's local feature set. */
-    val capabilities: List<String> = entries.map { it.capability }
+    val capabilities: List<String> = entries.map { it.capability } + "wifi.forget.typed"
 }

@@ -38,9 +38,9 @@ internal object WifiExpectationEvaluator {
         val connection = if (status.hasConnection()) status.connection else null
         val ip = if (status.hasIpStatus()) status.ipStatus else null
         val checks = mutableListOf<DiagnosticCheck>()
-        val connected = connection != null && connection.ssid.isNotBlank()
+        val connected = connection != null && connection.ssid.isNotEmpty()
         checks += diagnosticCheck("connected", "true", connected.toString(), connected)
-        if (expectation.ssid.isNotBlank()) {
+        if (expectation.ssid.isNotEmpty()) {
             val actual = connection?.ssid.orEmpty()
             checks += diagnosticCheck("ssid", expectation.ssid, actual, actual == expectation.ssid)
         }

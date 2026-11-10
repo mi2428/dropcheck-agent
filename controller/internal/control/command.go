@@ -5,40 +5,29 @@ import (
 	"fmt"
 	"time"
 
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
-// Run sends cmd to one connected agent and waits for the terminal result.
-//
-// commandID must be unique among in-flight commands. If ctx ends while the
-// command is running, Run sends a best-effort cancel frame to the agent before
-// returning the context error. The best-effort delivery is bounded to 100ms.
-func (s *Server) Run(ctx context.Context, agentID string, commandID string, cmd *controlpb.RunCommand) (*controlpb.CommandResult, error) {
-	return s.run(ctx, agentID, "", commandID, cmd)
-}
-
-// RunPinned rejects a replaced stream under the same lock that selects the
-// connection. A separate ResolveAgent check would leave a TOCTOU window.
+// RunPinned sends cmd on the snapshot's original connection and waits for its
+// terminal result. Snapshot validation and connection selection share one lock.
+// commandID must be unique among in-flight commands. Cancel delivery while
+// awaiting a result is best-effort and has a 100ms budget.
 func (s *Server) RunPinned(ctx context.Context, agent AgentInfo, commandID string, cmd *controlpb.RunCommand) (*controlpb.CommandResult, error) {
 	if agent.ID == "" || agent.SessionID == "" {
 		return nil, fmt.Errorf("bound agent identity is incomplete")
 	}
-	return s.run(ctx, agent.ID, agent.SessionID, commandID, cmd)
-}
-
-func (s *Server) run(ctx context.Context, agentID, expectedSession, commandID string, cmd *controlpb.RunCommand) (*controlpb.CommandResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	respCh := make(chan CommandResponse, 1)
 
 	s.mu.Lock()
-	conn := s.conns[agentID]
+	conn := s.conns[agent.ID]
 	if conn == nil {
 		s.mu.Unlock()
-		return nil, fmt.Errorf("agent %q is not connected", agentID)
+		return nil, fmt.Errorf("agent %q is not connected", agent.ID)
 	}
-	if expectedSession != "" && conn.sessionID != expectedSession {
+	if conn.sessionID != agent.SessionID || !agent.Connected.IsZero() && !s.infos[agent.ID].Connected.Equal(agent.Connected) {
 		s.mu.Unlock()
 		return nil, fmt.Errorf("selected agent connection was replaced; select it again")
 	}
@@ -98,17 +87,6 @@ func (s *Server) run(ctx context.Context, agentID, expectedSession, commandID st
 	}
 }
 
-// Cancel sends a cancellation request for commandID to the selected agent.
-func (s *Server) Cancel(ctx context.Context, agentID string, commandID string, reason string) error {
-	s.mu.Lock()
-	conn := s.conns[agentID]
-	s.mu.Unlock()
-	if conn == nil {
-		return fmt.Errorf("agent %q is not connected", agentID)
-	}
-	return s.cancelConn(ctx, conn, commandID, reason)
-}
-
 func (s *Server) cancelConn(ctx context.Context, conn *agentConn, commandID string, reason string) error {
 	frame := &controlpb.ControllerFrame{
 		Seq:       s.seq.Add(1),
@@ -139,7 +117,7 @@ func (s *Server) deliver(conn *agentConn, commandID string, resp CommandResponse
 	select {
 	case waiter.ch <- resp:
 	default:
-		// The response channel is buffered and Run only needs one terminal
+		// The response channel is buffered and RunPinned only needs one terminal
 		// response. Drop duplicates from retries or late frames after cleanup.
 	}
 	s.mu.Unlock()

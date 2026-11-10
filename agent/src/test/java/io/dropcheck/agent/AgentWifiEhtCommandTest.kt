@@ -33,15 +33,17 @@ class AgentWifiEhtCommandTest {
         assertTrue(result.message.contains("refresh not confirmed"))
         assertEquals(123L, result.elapsedMs)
         assertEquals(0, fresh.wifiScan.fieldsCount)
-        val out = AgentShellTextFormatter.formatStructuredResult(
+        val out = AgentShellTextFormatter.block(
             result,
-            AgentWifiMloRenderer.render(
+            AgentWifiMloRenderer.presentation(
                 result.wifiDiagnostics.status, result.wifiDiagnostics.scan,
                 AgentWifiMloContext(scanSource = scanSource(result), sdkInt = 36),
             ),
-        ).joinToString("\n")
+            0,
+        ).fullText
         assertFalse(result.status == CommandResult.Status.STATUS_OK)
-        assertTrue(out.startsWith("Wi-Fi diagnostics  FAILED  123ms\nStatus: failed"))
+        assertTrue(out.startsWith("Wi-Fi diagnostics  FAILED\n  Status: failed"))
+        assertTrue(out.contains("Latency: 123ms"))
         assertTrue(out.indexOf("Status: failed") < out.indexOf("cached (refresh failed)"))
         assertTrue(out.contains("cached (refresh failed)"))
         assertFalse(out.contains("stale"))
@@ -77,7 +79,7 @@ class AgentWifiEhtCommandTest {
         }
         assertEquals(1, count)
         assertEquals(CommandResult.Status.STATUS_FAILED, result.status)
-        assertTrue(result.message.contains("scan unavailable"))
+        assertTrue(result.message.contains("typed result is incomplete"))
     }
 
     @Test
@@ -148,7 +150,11 @@ class AgentWifiEhtCommandTest {
         .setElapsedMs(123)
         .setWifiScan(WifiScan.newBuilder().addResults(
             WifiScanResult.newBuilder().setSsid("reference").setWifiStandard("802.11be"),
-        ))
+        ).apply {
+            if (status == CommandResult.Status.STATUS_OK) for (key in listOf("fresh_scan_receiver_registered", "fresh_scan_start_scan", "fresh_scan_broadcast_received", "fresh_scan_results_updated", "fresh_scan_wait_completed")) {
+                addFields(io.dropcheck.agent.grpc.DiagnosticField.newBuilder().setKey(key).setValue("true"))
+            }
+        })
         .build()
 
     private fun diagnosticsResult(status: CommandResult.Status = CommandResult.Status.STATUS_OK): CommandResult =
@@ -156,6 +162,7 @@ class AgentWifiEhtCommandTest {
             .setMessage(if (status == CommandResult.Status.STATUS_OK) "" else "diagnostics failed")
             .setWifiDiagnostics(WifiDiagnostics.newBuilder()
                 .setStatus(WifiStatus.newBuilder().setEnabled(true))
+                .setCapabilities(io.dropcheck.agent.grpc.WifiCapabilities.getDefaultInstance())
                 .setScan(WifiScan.newBuilder().addResults(WifiScanResult.newBuilder().setSsid("stale"))))
             .build()
 

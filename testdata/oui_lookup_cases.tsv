@@ -1,0 +1,14 @@
+# MAC\texpected vendor fragment (synthetic IEEE fixture)
+00:11:22:33:44:55	Vendor36
+00-11-22-3A-BB-CC	Vendor28
+0011.2244.5566	Vendor24
+00:11:22:ff:aa:bb	Vendor24
+02:11:22:33:44:55	local MAC
+01:11:22:33:44:55	group MAC
+ff:ff:ff:ff:ff:ff	group MAC
+00:00:00:00:00:00	unspecified
+00:99:88:77:66:55	unregistered
+00:11:22:33:44	invalid MAC
+00:11:22:33:44:55:66:77	invalid MAC
+00:11-22:33:44:55	invalid MAC
+?	invalid MAC

@@ -2,12 +2,49 @@ package app
 
 import (
 	"context"
+	"path/filepath"
+	"strings"
 	"testing"
 
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/control"
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/control"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/render"
 )
+
+func TestUnavailableADBSupplementsRetainAcquisitionErrors(t *testing.T) {
+	state := &shellState{adbPath: filepath.Join(t.TempDir(), "missing-adb")}
+	agent := control.AgentInfo{Hello: &controlpb.AgentHello{AdbSerial: "synthetic-device"}}
+	result := &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK, Payload: &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{Status: &controlpb.WifiStatus{IpStatus: &controlpb.IpStatus{InterfaceName: "wlan0"}}}}}
+	blocks := collectCommandResultSupplements(t.Context(), state, agent, result, commandOptions{WifiRenderMode: command.WifiRenderModeFull})
+	if len(blocks.textBlocks) != 2 {
+		t.Fatal("expected both RA and MLO collectors")
+	}
+	for _, block := range blocks.textBlocks {
+		if text := render.LayoutText(block(render.Presentation{}), render.Presentation{}); !strings.Contains(text, "Acquisition error:") {
+			t.Fatalf("failed collection lost its errors: %s", text)
+		}
+	}
+	if result.Status != controlpb.CommandResult_STATUS_OK {
+		t.Fatal("host diagnostics changed the Android acquisition outcome")
+	}
+}
+
+func TestFullRetainsHostSupplementAvailability(t *testing.T) {
+	result := &controlpb.CommandResult{Payload: &controlpb.CommandResult_WifiDiagnostics{WifiDiagnostics: &controlpb.WifiDiagnostics{Status: &controlpb.WifiStatus{}}}}
+	agent := control.AgentInfo{Hello: &controlpb.AgentHello{}}
+	got := collectCommandResultSupplements(t.Context(), &shellState{}, agent, result, commandOptions{WifiRenderMode: command.WifiRenderModeFull})
+	if len(got.textBlocks) != 2 {
+		t.Fatalf("full lost host supplement availability: blocks=%d", len(got.textBlocks))
+	}
+	for _, block := range got.textBlocks {
+		text := render.LayoutText(block(render.Presentation{}), render.Presentation{})
+		facts := strings.Join(strings.Fields(text), " ")
+		if !strings.Contains(facts, "Source: adb (host supplement)") || !strings.Contains(facts, "Availability: unavailable (no pinned ADB serial)") {
+			t.Fatalf("full lost source/availability: %q", text)
+		}
+	}
+}
 
 func TestShouldCollectADBMLOSupplement(t *testing.T) {
 	tests := []struct {
@@ -103,15 +140,12 @@ func TestShouldCollectADBIPv6RASupplement(t *testing.T) {
 	}
 }
 
-func TestCollectCommandResultSupplementsSkipsNonTextOutput(t *testing.T) {
-	result := &controlpb.CommandResult{
-		Payload: &controlpb.CommandResult_WifiStatus{
-			WifiStatus: &controlpb.WifiStatus{},
-		},
-	}
-	got := collectCommandResultSupplements(context.Background(), &shellState{}, control.AgentInfo{}, result, commandOptions{}, outputJSON)
+func TestRawDebugNeverCollectsOrAppendsHostSupplements(t *testing.T) {
+	result := &controlpb.CommandResult{Payload: &controlpb.CommandResult_WifiStatus{WifiStatus: &controlpb.WifiStatus{}}}
+	agent := control.AgentInfo{Hello: &controlpb.AgentHello{AdbSerial: "test-only"}}
+	got := collectCommandResultSupplements(t.Context(), &shellState{adbPath: "must-not-run"}, agent, result, commandOptions{RawView: "wifi info"})
 	if len(got.textBlocks) != 0 {
-		t.Fatalf("collectCommandResultSupplements() textBlocks = %q, want none", got.textBlocks)
+		t.Fatalf("debug appended host supplements: %d", len(got.textBlocks))
 	}
 }
 
@@ -121,16 +155,16 @@ func TestCollectCommandResultSupplementsSkipsMissingADBSerial(t *testing.T) {
 			WifiStatus: &controlpb.WifiStatus{},
 		},
 	}
-	got := collectCommandResultSupplements(context.Background(), &shellState{}, control.AgentInfo{}, result, commandOptions{}, outputText)
+	got := collectCommandResultSupplements(context.Background(), &shellState{}, control.AgentInfo{}, result, commandOptions{})
 	if len(got.textBlocks) != 0 {
-		t.Fatalf("collectCommandResultSupplements() textBlocks = %q, want none", got.textBlocks)
+		t.Fatalf("collectCommandResultSupplements() textBlocks = %d, want none", len(got.textBlocks))
 	}
 }
 
 func TestCommandResultSupplementsAppendToText(t *testing.T) {
 	supplements := commandResultSupplements{}
-	supplements.addText("ADB MLO Snapshot\n  tid_to_link  false\n")
-	supplements.addText("")
+	supplements.addText(func(render.Presentation) string { return "ADB MLO Snapshot\n  tid_to_link  false\n" })
+	supplements.addText(nil)
 
 	tests := []struct {
 		name string

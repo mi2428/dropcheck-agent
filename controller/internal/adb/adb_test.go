@@ -1,11 +1,9 @@
 package adb
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,9 +18,10 @@ if [ "$1" = "-s" ]; then
 fi
 printf '%s\n' 'List of devices attached
 emulator-5554 device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64 device:emu64a transport_id:1
-R5CT12345 offline usb:336592896X
+R5CT12345 offline usb:1-2
 malformed
 '
+printf 'stderr-only device product:diagnostic\n' >&2
 `)
 
 	devices, err := Client{Path: path, Serial: "ignored", Timeout: 5 * time.Second}.ListDevices(context.Background())
@@ -42,8 +41,20 @@ malformed
 	if first.Raw != "emulator-5554 device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64 device:emu64a transport_id:1" {
 		t.Fatalf("first raw = %q", first.Raw)
 	}
-	if devices[1].Serial != "R5CT12345" || devices[1].State != "offline" || devices[1].Details["usb"] != "336592896X" {
+	if devices[1].Serial != "R5CT12345" || devices[1].State != "offline" || devices[1].Details["usb"] != "1-2" {
 		t.Fatalf("second device = %#v", devices[1])
+	}
+}
+
+func TestListDevicesPreservesProcessFailures(t *testing.T) {
+	client := Client{Path: fakeADB(t, "printf 'inventory unavailable\\n' >&2\nexit 7\n")}
+	if devices, err := client.ListDevices(t.Context()); err == nil || len(devices) != 0 || !strings.Contains(err.Error(), "adb devices -l: inventory unavailable") {
+		t.Fatalf("devices=%v error=%v", devices, err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := client.ListDevices(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled listing lost context cause: %v", err)
 	}
 }
 
@@ -259,27 +270,6 @@ exec sleep 60
 	}
 }
 
-func TestFakeADBLaunchDiagnostics(t *testing.T) {
-	path := fakeADB(t, "printf 'started\\n'\n")
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, path, "shell", "test")
-	var output bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &output, &output
-	started := time.Now()
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("fake launch: elapsed=%v context=%v error=%v", time.Since(started), ctx.Err(), err)
-	}
-	launchElapsed := time.Since(started)
-	waitStarted := time.Now()
-	err := cmd.Wait()
-	waitElapsed := time.Since(waitStarted)
-	t.Logf("fake launch=%v completion=%v marker=%v exit=%d context=%v", launchElapsed, waitElapsed, strings.Contains(output.String(), "started"), cmd.ProcessState.ExitCode(), ctx.Err())
-	if err != nil || output.String() != "started\n" {
-		t.Fatalf("fake completion: launch=%v completion=%v marker=%v context=%v error=%v", launchElapsed, waitElapsed, strings.Contains(output.String(), "started"), ctx.Err(), err)
-	}
-}
-
 func fakeADB(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "adb")
@@ -288,4 +278,63 @@ func fakeADB(t *testing.T, body string) string {
 		t.Fatalf("WriteFile(fake adb) error = %v", err)
 	}
 	return path
+}
+
+func TestOutputMidFlightContextCausesAndTokenRedaction(t *testing.T) {
+	for _, deadline := range []bool{false, true} {
+		t.Run(map[bool]string{false: "cancel", true: "deadline"}[deadline], func(t *testing.T) {
+			ready := filepath.Join(t.TempDir(), "ready")
+			t.Setenv("ADB_TEST_READY", ready)
+			path := fakeADB(t, "printf 'argv:%s\\n' \"$*\" >&2\n: > \"$ADB_TEST_READY\"\nexec sleep 60\n")
+			ctx, cancel := context.WithCancel(t.Context())
+			if deadline {
+				ctx, cancel = context.WithTimeout(t.Context(), 2*time.Second)
+			}
+			defer cancel()
+			type outcome struct {
+				out string
+				err error
+			}
+			done := make(chan outcome, 1)
+			const token = "SYNTHETIC_CANCEL_TOKEN"
+			go func() {
+				out, err := (Client{Path: path}).StartAgentSession(ctx, "test.agent", 12345, token, "id", "serial")
+				done <- outcome{out, err}
+			}()
+			wait := time.NewTicker(5 * time.Millisecond)
+			defer wait.Stop()
+			for {
+				if _, err := os.Stat(ready); err == nil {
+					break
+				} else if !errors.Is(err, os.ErrNotExist) {
+					t.Fatal(err)
+				}
+				select {
+				case <-ctx.Done():
+					t.Fatal("fake process did not reach marker before cancellation")
+				case <-wait.C:
+				}
+			}
+			if !deadline {
+				cancel()
+			}
+			select {
+			case got := <-done:
+				want := context.Canceled
+				if deadline {
+					want = context.DeadlineExceeded
+				}
+				if !errors.Is(got.err, want) || strings.Contains(got.out, token) || strings.Contains(got.err.Error(), token) || !strings.Contains(got.out, "[REDACTED]") {
+					t.Fatalf("unsafe/unclassified context error: %v", got.err)
+				}
+				for err := got.err; err != nil; err = errors.Unwrap(err) {
+					if strings.Contains(err.Error(), token) {
+						t.Fatal("secret in unwrapped error")
+					}
+				}
+			case <-time.After(4 * time.Second):
+				t.Fatal("fake process did not stop")
+			}
+		})
+	}
 }

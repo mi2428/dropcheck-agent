@@ -2,7 +2,9 @@ package command
 
 const (
 	// WifiRenderModeEHT renders WifiDiagnostics as an EHT-focused summary.
-	WifiRenderModeEHT = "eht"
+	WifiRenderModeEHT    = "eht"
+	WifiRenderModeStatus = "status"
+	WifiRenderModeFull   = "full"
 )
 
 // Options describes controller-local behavior attached to an Operation.
@@ -13,13 +15,17 @@ const (
 type Options struct {
 	// Detail selects the local detail presentation (never a wire option).
 	Detail bool
+	// RawView selects an explicit debug-only projection, never an acquisition option.
+	RawView string
+	// RawNetworkID pins the explicit Network selected for a network debug view.
+	RawNetworkID string
 	// TracerouteRequiredHops lists typed hop identities required by the common evaluator.
 	TracerouteRequiredHops []string
 	// WifiRenderMode selects a controller-only Wi-Fi diagnostics presentation.
 	WifiRenderMode string
 	// WifiScanBrief renders Wi-Fi scan output without verbose detail sections.
 	WifiScanBrief bool
-	// WifiScanMLO restricts Wi-Fi scan brief output to 11be MLO rows and renders affiliated links inline.
+	// WifiScanMLO filters scan evidence to MLO rows without forcing brief output.
 	WifiScanMLO bool
 	// WifiEHTFreshScan requests a fresh Wi-Fi scan before rendering EHT output.
 	WifiEHTFreshScan bool
@@ -29,4 +35,7 @@ type Options struct {
 	WifiEHTSSID string
 	// WifiEHTBSSID filters the EHT render view to scan/current entries for one BSSID.
 	WifiEHTBSSID string
+	// Subject selectors are applied to captured AP evidence, never to radio scanning.
+	WifiScanSSID, WifiScanBSSID string
+	WifiEHTFreshScanBand        string
 }

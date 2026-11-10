@@ -5,10 +5,30 @@ import (
 	"strings"
 	"testing"
 
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 )
 
+func TestForgetRejectsUntypedOrConflictingTargets(t *testing.T) {
+	for _, forget := range []*controlpb.ForgetWifi{
+		nil,
+		{},
+		{Target: "123"},
+		{Target: "123", Selector: &controlpb.ForgetWifi_Ssid{Ssid: "123"}},
+		{Selector: &controlpb.ForgetWifi_Ssid{Ssid: "bad\nssid"}},
+		{Selector: &controlpb.ForgetWifi_ConfigId{ConfigId: -1}},
+	} {
+		op := NewOperation("wifi.forget", &controlpb.RunCommand{Command: &controlpb.RunCommand_ForgetWifi{ForgetWifi: forget}}, Options{})
+		if err := ValidateOperation(op); err == nil {
+			t.Fatalf("ambiguous or invalid forget accepted: %v", forget)
+		}
+	}
+}
+
 func TestInspectionOperationBuilders(t *testing.T) {
+	eht, err := WifiEHTOperationWithOptions(WifiEHTOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
 		name      string
 		op        Operation
@@ -25,7 +45,7 @@ func TestInspectionOperationBuilders(t *testing.T) {
 		},
 		{
 			name:      "wifi eht",
-			op:        WifiEHTOperation(),
+			op:        eht,
 			wantName:  "wifi.eht",
 			wantLabel: "wifi eht",
 			check:     func(cmd *controlpb.RunCommand) bool { return cmd.GetGetWifiDiagnostics() != nil },
@@ -110,20 +130,20 @@ func TestWifiOperationBuildersCarryControllerContract(t *testing.T) {
 	if _, err := WifiEHTOperationWithOptions(WifiEHTOptions{SSID: "Lab", BSSID: "aa:bb:cc:dd:ee:ff"}); err == nil {
 		t.Fatalf("WifiEHTOperationWithOptions(ssid+bssid) error = nil")
 	}
-	if _, err := WifiScanOperationWithBrief("6ghz", false, true); err == nil || !strings.Contains(err.Error(), "wifi scan brief") {
-		t.Fatalf("WifiScanOperationWithBrief(mlo without brief) error = %v", err)
+	if op, err := WifiScanOperationWithBrief("6ghz", false, true); err != nil || !op.Options.WifiScanMLO || op.Options.WifiScanBrief {
+		t.Fatalf("MLO subject must not force brief: %+v %v", op, err)
 	}
-	if _, err := WifiFreshScanOperationWithBrief("6ghz", "9000", false, true); err == nil || !strings.Contains(err.Error(), "wifi scan brief") {
-		t.Fatalf("WifiFreshScanOperationWithBrief(mlo without brief) error = %v", err)
+	if op, err := WifiFreshScanOperationWithBrief("6ghz", "9000", false, true); err != nil || !op.Options.WifiScanMLO || op.Options.WifiScanBrief {
+		t.Fatalf("fresh MLO subject must not force brief: %+v %v", op, err)
 	}
 
-	forget := WifiForgetOperation("Lab")
+	forget := WifiForgetSSIDOperation("123")
 	forgetCmd, _, err := BuildRunCommand(forget)
 	if err != nil {
 		t.Fatalf("forget command: %v", err)
 	}
-	if forgetCmd.GetForgetWifi().GetTarget() != "Lab" || forgetCmd.GetLabel() != "wifi forget Lab" {
-		t.Fatalf("forget command = %#v label=%q", forgetCmd.GetForgetWifi(), forgetCmd.GetLabel())
+	if forgetCmd.GetForgetWifi().GetSsid() != "123" || forgetCmd.GetForgetWifi().GetTarget() != "" {
+		t.Fatalf("forget command = %#v", forgetCmd.GetForgetWifi())
 	}
 
 	scan, err := WifiScanOperation("5ghz")
@@ -211,7 +231,7 @@ func TestWifiOperationBuildersCarryControllerContract(t *testing.T) {
 
 	connect, err := WifiConnectOperation(WifiConnectOptions{
 		SSID:             "Lab",
-		Passphrase:       "secret",
+		Passphrase:       "synthetic-secret",
 		Security:         "wpa3",
 		BSSID:            "aa:bb:cc:dd:ee:ff",
 		Band:             "6ghz",
@@ -226,7 +246,7 @@ func TestWifiOperationBuildersCarryControllerContract(t *testing.T) {
 		t.Fatalf("connect command: %v", err)
 	}
 	connectPayload := connectCmd.GetConnectWifi()
-	if connectPayload.GetPassphrase() != "secret" ||
+	if connectPayload.GetPassphrase() != "synthetic-secret" ||
 		connectPayload.GetSecurity() != controlpb.ConnectWifi_SECURITY_WPA3_SAE ||
 		connectPayload.GetBand() != controlpb.WifiBand_WIFI_BAND_6_GHZ ||
 		connectPayload.GetMacRandomization() != controlpb.ConnectWifi_MAC_RANDOMIZATION_NON_PERSISTENT ||
@@ -240,7 +260,7 @@ func TestWifiOperationBuildersCarryControllerContract(t *testing.T) {
 	cycle, err := WifiCycleOperation(WifiCycleOptions{
 		WifiConnectOptions: WifiConnectOptions{
 			SSID:       "Lab",
-			Passphrase: "secret",
+			Passphrase: "synthetic-secret",
 			Timeout:    "25000",
 		},
 		Count:           "2",

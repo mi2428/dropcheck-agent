@@ -6,14 +6,11 @@
 package adbdiag
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
-	"dropcheck/controller/internal/adb"
-	"dropcheck/controller/internal/pipeline"
+	"github.com/mi2428/dropcheck-agent/controller/internal/render"
 )
 
 // Diagnostic kind values select the adb command bundle collected by Specs.
@@ -38,15 +35,17 @@ type CommandSpec struct {
 
 // CommandResult is one adb command result in a diagnostics bundle.
 type CommandResult struct {
-	Name      string   `json:"name"`
-	Args      []string `json:"args"`
-	Command   string   `json:"command"`
-	Stdout    string   `json:"stdout"`           // Stdout is the raw adb command stdout stream.
-	Stderr    string   `json:"stderr,omitempty"` // Stderr is the raw adb command stderr stream.
-	ExitCode  int      `json:"exit_code"`
-	TimedOut  bool     `json:"timed_out,omitempty"`
-	Error     string   `json:"error,omitempty"`
-	ElapsedMs int64    `json:"elapsed_ms"`
+	Name         string   `json:"name"`
+	Args         []string `json:"args"`
+	Command      string   `json:"command"`
+	Stdout       string   `json:"stdout"`           // Stdout is the raw adb command stdout stream.
+	Stderr       string   `json:"stderr,omitempty"` // Stderr is the raw adb command stderr stream.
+	ExitCode     int      `json:"exit_code"`
+	TimedOut     bool     `json:"timed_out,omitempty"`
+	Error        string   `json:"error,omitempty"`
+	ElapsedMs    int64    `json:"elapsed_ms"`
+	NotCollected bool     `json:"not_collected,omitempty"`
+	StartedAt    string   `json:"started_at,omitempty"`
 }
 
 // Bundle is an ADB diagnostics result for one Android agent/device.
@@ -59,6 +58,18 @@ type Bundle struct {
 	Kind      string          `json:"kind"`
 	StartedAt string          `json:"started_at"`
 	Commands  []CommandResult `json:"commands"`
+}
+
+func (b Bundle) OK() bool {
+	if len(b.Commands) == 0 {
+		return false
+	}
+	for _, command := range b.Commands {
+		if command.NotCollected || command.ExitCode != 0 || command.TimedOut || command.Error != "" {
+			return false
+		}
+	}
+	return true
 }
 
 // Specs returns the adb commands for a diagnostics kind.
@@ -94,51 +105,8 @@ func Specs(kind string) ([]CommandSpec, error) {
 	}
 }
 
-// Collect runs the diagnostics commands against one adb device.
-func Collect(ctx context.Context, client adb.Client, agent string, kind string) (Bundle, error) {
-	specs, err := Specs(kind)
-	if err != nil {
-		return Bundle{}, err
-	}
-	if client.Timeout <= 0 {
-		client.Timeout = defaultCommandTimeout
-	}
-	bundle := Bundle{
-		Agent:     agent,
-		Serial:    client.Serial,
-		Kind:      kind,
-		StartedAt: time.Now().Format(time.RFC3339Nano),
-		Commands:  make([]CommandResult, 0, len(specs)),
-	}
-	for _, spec := range specs {
-		result, err := client.Run(ctx, spec.Args...)
-		commandResult := CommandResult{
-			Name:      spec.Name,
-			Args:      result.Args,
-			Command:   "adb " + strings.Join(result.Args, " "),
-			Stdout:    result.Stdout,
-			Stderr:    result.Stderr,
-			ExitCode:  result.ExitCode,
-			TimedOut:  result.TimedOut,
-			ElapsedMs: result.Elapsed.Milliseconds(),
-		}
-		if err != nil {
-			commandResult.Error = err.Error()
-		}
-		bundle.Commands = append(bundle.Commands, commandResult)
-	}
-	return bundle, nil
-}
-
-// Render renders one ADB diagnostics bundle as text or JSON.
-func Render(bundle Bundle, format pipeline.Format) (string, error) {
-	if format == pipeline.FormatJSON {
-		data, err := json.MarshalIndent(bundle, "", "  ")
-		if err != nil {
-			return "", err
-		}
-		return string(data) + "\n", nil
-	}
+// Render renders one ADB diagnostics bundle as safe text.
+func Render(bundle Bundle, views ...render.Presentation) (string, error) {
 	var b strings.Builder
 	rows := []kvRow{
 		kv("serial", empty(bundle.Serial, "unknown")),
@@ -155,6 +123,12 @@ func Render(bundle Bundle, format pipeline.Format) (string, error) {
 			kv("exit", result.ExitCode),
 			kv("elapsed", fmt.Sprintf("%dms", result.ElapsedMs)),
 		)
+		if result.StartedAt != "" {
+			writeKVSection(&b, "Capture", kv("started_at", result.StartedAt))
+		}
+		if result.NotCollected {
+			writeKVSection(&b, "ADB Warning", kv("not_collected", "true"))
+		}
 		if result.TimedOut {
 			writeKVSection(&b, "ADB Warning", kv("timed_out", "true"))
 		}
@@ -163,20 +137,19 @@ func Render(bundle Bundle, format pipeline.Format) (string, error) {
 		}
 		if result.Stdout != "" {
 			writeSection(&b, "stdout")
-			b.WriteString(result.Stdout)
-			if !strings.HasSuffix(result.Stdout, "\n") {
-				b.WriteByte('\n')
-			}
+			b.WriteString(render.TextBlock(result.Stdout, render.Presentation{}))
 		}
 		if result.Stderr != "" {
 			writeSection(&b, "stderr")
-			b.WriteString(result.Stderr)
-			if !strings.HasSuffix(result.Stderr, "\n") {
-				b.WriteByte('\n')
-			}
+			b.WriteString(render.TextBlock(result.Stderr, render.Presentation{}))
 		}
 	}
-	return b.String(), nil
+	// Each source value is sanitized before owned fields are composed.
+	view := render.Presentation{}
+	if len(views) > 0 {
+		view = views[0]
+	}
+	return render.LayoutText(b.String(), view), nil
 }
 
 func cmdWifiStatus() CommandSpec {

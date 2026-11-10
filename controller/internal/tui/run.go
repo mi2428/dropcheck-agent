@@ -6,26 +6,19 @@ import (
 	"strings"
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
-	"dropcheck/controller/internal/watchstate"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuistate"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 )
 
-// Run renders watch events until the user quits, ctx is canceled, or the event stream closes.
-func Run(ctx context.Context, title string, targets []watch.Target, checks []watch.CheckInfo, agents []watch.AgentSnapshot, events <-chan watch.Event) error {
-	m := newModelWithChecks(title, targets, checks, events, agents)
-	return runModel(ctx, m)
-}
-
-// RunWithControls renders watch events and lets keyboard input control the
-// watch runner through pause and skip controllers.
-func RunWithControls(ctx context.Context, title string, targets []watch.Target, checks []watch.CheckInfo, agents []watch.AgentSnapshot, events <-chan watch.Event, controls *watch.Controls) error {
+// RunWithControls renders tui events with keyboard-operated execution controls.
+func RunWithControls(ctx context.Context, title string, targets []tuirun.Target, checks []tuirun.CheckInfo, agents []tuirun.AgentSnapshot, events <-chan tuirun.Event, controls *tuirun.Controls) error {
 	m := newModelWithChecks(title, targets, checks, events, agents)
 	m.controls = controls
 	if controls != nil {
-		m.paused = controls.Paused(watch.Scope{Kind: watch.ScopeRun})
+		m.paused = controls.Paused(tuirun.Scope{Kind: tuirun.ScopeRun})
 	}
 	return runModel(ctx, m)
 }
@@ -41,23 +34,20 @@ func runModel(ctx context.Context, m model) error {
 	return err
 }
 
-func newModel(targets []watch.Target, events <-chan watch.Event, agentSets ...[]watch.AgentSnapshot) model {
-	return newModelWithChecks("shownet-watch", targets, nil, events, agentSets...)
-}
-
-func newModelWithChecks(title string, targets []watch.Target, checks []watch.CheckInfo, events <-chan watch.Event, agentSets ...[]watch.AgentSnapshot) model {
+func newModelWithChecks(title string, targets []tuirun.Target, checks []tuirun.CheckInfo, events <-chan tuirun.Event, agentSets ...[]tuirun.AgentSnapshot) model {
 	if strings.TrimSpace(title) == "" {
-		title = "dropcheck watch"
+		title = "dropcheck tui"
 	}
-	agents := []watch.AgentSnapshot(nil)
+	agents := []tuirun.AgentSnapshot(nil)
 	if len(agentSets) > 0 {
 		agents = agentSets[0]
 	}
 	return model{
+		frame:       &frameData{},
 		Title:       title,
 		events:      events,
 		keys:        keyMap{quit: key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl-c", "quit"))},
-		State:       watchstate.New(targets, checks, agents, time.Now()),
+		State:       tuistate.New(targets, checks, agents, time.Now()),
 		focus:       focusCheckStatus,
 		detailPanel: focusFailedChecks,
 	}
@@ -69,7 +59,7 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(waitEvent(m.events), tickEverySecond())
 }
 
-func waitEvent(events <-chan watch.Event) tea.Cmd {
+func waitEvent(events <-chan tuirun.Event) tea.Cmd {
 	return func() tea.Msg {
 		event, ok := <-events
 		if !ok {
@@ -85,43 +75,53 @@ func tickEverySecond() tea.Cmd {
 	})
 }
 
-// Update applies keyboard input, terminal resize messages, watch events, and
+// Update applies keyboard input, terminal resize messages, tui events, and
 // clock ticks to the TUI model.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case controlResultMsg:
+		m.finishControl(msg)
+		return m, nil
 	case tea.KeyPressMsg:
 		if key.Matches(msg, m.keys.quit) {
 			return m, tea.Quit
+		}
+		if m.menu != nil {
+			cmd := m.updateActionMenu(msg)
+			return m, cmd
 		}
 		if m.searchEditing {
 			m.handleSearchKey(msg)
 			return m, nil
 		}
 		switch msg.Keystroke() {
+		case "a":
+			m.openScopeMenu("")
+			return m, nil
+		case "ctrl+z":
+			if msg.IsRepeat {
+				return m, nil
+			}
+			scope := tuirun.Scope{Kind: tuirun.ScopeRun}
+			action := "pause"
+			if m.controls != nil && m.controls.Paused(scope) {
+				action = "resume"
+			}
+			cmd := m.requestControl(action, scope, "All agents")
+			return m, cmd
+		case "ctrl+n":
+			m.openScopeMenu("skip")
+			return m, nil
+		}
+		if m.detailOpen {
+			cmd := m.updateInspector(msg)
+			return m, cmd
+		}
+		switch msg.Keystroke() {
 		case "tab":
 			m.focusPreviousPanel()
-			if m.detailOpen {
-				if panelSupportsDetail(m.focus) {
-					m.detailPanel = m.focus
-					m.lockDetailToCursor(m.focus)
-				} else {
-					m.detailOpen = false
-				}
-			}
 		case "shift+tab":
 			m.focusNextPanel()
-			if m.detailOpen {
-				if panelSupportsDetail(m.focus) {
-					m.detailPanel = m.focus
-					m.lockDetailToCursor(m.focus)
-				} else {
-					m.detailOpen = false
-				}
-			}
-		case "ctrl+z":
-			m.pause()
-		case "ctrl+n":
-			m.skipCurrent()
 		case "/":
 			if panelSupportsFilter(m.focus) {
 				m.searchPanel = m.focus
@@ -129,16 +129,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "j", "down":
 			m.moveFocusedCursor(1)
-			if m.detailOpen {
-				m.detailPanel = m.focus
-				m.lockDetailToCursor(m.focus)
-			}
 		case "k", "up":
 			m.moveFocusedCursor(-1)
-			if m.detailOpen {
-				m.detailPanel = m.focus
-				m.lockDetailToCursor(m.focus)
-			}
 		case "h", "left":
 			if m.focus == focusCheckStatus {
 				m.moveCheckStatusHorizontal(-1)
@@ -153,16 +145,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "ctrl+d", "pgdown":
 			m.moveFocusedCursor(10)
-			if m.detailOpen {
-				m.detailPanel = m.focus
-				m.lockDetailToCursor(m.focus)
-			}
 		case "ctrl+u", "pgup":
 			m.moveFocusedCursor(-10)
-			if m.detailOpen {
-				m.detailPanel = m.focus
-				m.lockDetailToCursor(m.focus)
-			}
 		case "enter":
 			switch {
 			case m.focus == focusPassingChecks && len(m.filteredPassingCheckSummaries()) > 0:
@@ -174,10 +158,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "esc":
 			switch {
-			case m.paused:
-				m.resume()
-			case m.detailOpen:
-				m.detailOpen = false
 			case !m.clearFocusedScrollPin() && m.hasSearchFilter():
 				m.clearSearch()
 			}
@@ -185,30 +165,61 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		if m.menu != nil {
+			if m.width < 40 || m.height < 14 {
+				m.menu = nil
+				m.pushLog("Control dialog closed: terminal is smaller than 40x14")
+			} else {
+				m.menu.list.SetSize(m.menuWidth()-4, m.menuHeight()-4)
+			}
+		}
+		w, h := m.inspectorDimensions(m.width, m.height)
+		m.inspector.SetWidth(intMax(1, w-4))
+		m.inspector.SetHeight(intMax(1, h-5))
 		m.updateRunQueueCursor()
 		m.normalizeCursors()
 		return m, tea.ClearScreen
 	case eventMsg:
-		m.apply(watch.Event(msg))
+		m.apply(tuirun.Event(msg))
 		return m, waitEvent(m.events)
 	case tickMsg:
 		m.Now = time.Time(msg)
+		if m.frame != nil {
+			m.frame.hotspotsReady, m.frame.causesReady = false, false
+		}
 		return m, tickEverySecond()
 	case closedMsg:
 		m.closed = true
-		m.pushLog("watch event stream closed")
+		m.pushLog("tui event stream closed")
 		return m, tea.Quit
+	case tea.PasteMsg:
+		if m.searchEditing {
+			query := m.panelSearchQuery(m.searchPanel) + strings.Map(func(r rune) rune {
+				if r < 0x20 || r == 0x7f {
+					return -1
+				}
+				return r
+			}, msg.Content)
+			m.setPanelSearchQuery(m.searchPanel, query)
+			m.normalizeCursors()
+			return m, nil
+		}
+	}
+	if m.menu != nil {
+		cmd := m.updateActionMenu(msg)
+		return m, cmd
+	}
+	if m.detailOpen {
+		cmd := m.updateInspector(msg)
+		return m, cmd
 	}
 	return m, nil
-}
-
-func panelSupportsDetail(panel focusPanel) bool {
-	return panel == focusPassingChecks || panel == focusFailedChecks || panel == focusFailureHotspots
 }
 
 // View renders the current frame in the alternate screen buffer.
 func (m model) View() tea.View {
 	view := tea.NewView(m.render())
 	view.AltScreen = true
+	view.KeyboardEnhancements.ReportEventTypes = true
 	return view
 }

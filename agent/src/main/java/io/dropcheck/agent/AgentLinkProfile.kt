@@ -34,37 +34,39 @@ internal data class LinkReport(
     val interfaceName: String? = null,
     val validated: Boolean? = null,
 ) {
-    fun lines(detail: Boolean = false, historical: Boolean = false): List<String> = buildList {
-        add("${if (historical) "Historical last check" else "Check"}: ${safe(profile)} ${outcome.name} (self; ${if (profile == "lab") "explicit active probes" else "observed only"})")
-        add("Target SSID: ${safe(ssid)}; family: ${if (family == IpFamily.IP_FAMILY_IPV6) "ipv6" else "ipv4"}")
-        add("Started: $startedMs; ended: $endedMs; source: Android selected physical Wi-Fi")
-        add("Network: ${networkId?.let(::safe) ?: "?"}; interface: ${interfaceName?.let(::safe) ?: "?"}; validated (observed, not required): ${validated?.toString() ?: "?"}")
-        stages.forEach { stage ->
-            add("${stage.name}: ${stage.outcome.name}${stage.reason.takeIf(String::isNotEmpty)?.let { " (${safe(it)})" } ?: ""}")
-            if (detail) stage.metrics.forEach { metric -> add("  ${metric.name}: ${metric.outcome.name} actual=${metric.actual ?: "?"} expected=>=${metric.required}") }
-        }
-        if (detail) add(if (profile == "lab") "No connect, disconnect or forget; snapshots cannot prove uninterrupted Network continuity or HTTP hostname address family." else "No probe, connect, disconnect or forget; same-Network checks are point-in-time, not uninterrupted roam/BSSID pinning.")
+    fun presentation(): List<AgentBlockPart> = buildList {
+        add(AgentBlockPart.Text("Check $profile ${outcome.name} (self; ${if (profile == "lab") "explicit active probes" else "observed only"})"))
+        add(AgentBlockPart.Field("SSID", ssid))
+        add(AgentBlockPart.Field("Family", family.name))
+        add(AgentBlockPart.Field("Started / ended", "$startedMs / $endedMs"))
+        add(AgentBlockPart.Field("Source", "Android selected physical Wi-Fi"))
+        add(AgentBlockPart.Field("Network", networkId ?: "?"))
+        add(AgentBlockPart.Field("Interface", interfaceName ?: "?"))
+        add(AgentBlockPart.Field("Validated (observed)", validated?.toString() ?: "?"))
+        add(AgentBlockPart.Table(listOf("STAGE", "OUTCOME", "REASON").map { AgentBlockPart.Column(it) }, stages.map { listOf(it.name, it.outcome.name, it.reason) }))
+        val metrics = stages.flatMap { stage -> stage.metrics.map { listOf(stage.name, it.name, it.outcome.name, it.actual?.toString() ?: "?", ">=${it.required}") } }
+        if (metrics.isNotEmpty()) add(AgentBlockPart.Table(listOf("STAGE", "METRIC", "OUTCOME", "ACTUAL", "EXPECTED").map { AgentBlockPart.Column(it) }, metrics))
+        add(AgentBlockPart.Text(if (profile == "lab") "No connect, disconnect or forget; snapshots cannot prove uninterrupted Network continuity or HTTP hostname address family."
+            else "No probe, connect, disconnect or forget; same-Network checks are point-in-time, not uninterrupted roam/BSSID pinning."))
     }
 }
 
-private fun safe(value: String): String = AgentSafePresentation.text(value.take(96)).replace('\n', ' ')
-
-/** One fixed portable definition matching the PC link read order; no generic scenario runner. */
+/** Runs the link snapshot check and explicitly configured lab probes. */
 internal object AgentLinkProfile {
     private val linkStages = listOf("ip_before", "ip_after")
-    private var last: LinkReport? = null
 
     fun catalogue(): List<String> = listOf(
-        "No default profile; bare check lists candidates (zero operations).",
-        "link: supported self; check link ssid SSID [family ipv4|ipv6] [bssid BSSID]; default family ipv4.",
+        "No default profile; show test profiles lists candidates (zero operations).",
+        "link: supported self; test link ssid SSID [family ipv4|ipv6|all] [bssid BSSID]; default family ipv4.",
+        "  Example: test link ssid \"Example Lab\" family all",
         "  SSID-selected physical Wi-Fi/Network/interface plus IP family address>=1, default route>=1, DNS>=1, repeated on the same Network/interface.",
         "  2 read-only IP snapshots, not continuous roam proof; validated observed only; no endpoints, probes, connect or cleanup. bssid strict pin unsupported.",
-        "lab: configured only; check lab ssid SSID family ipv4|ipv6 gateway IP dns NAME resolver selected http URL expected-status STATUS timeout MS.",
+        "lab: configured only; test lab ssid SSID family ipv4|ipv6 gateway IP dns NAME resolver selected http URL expected-status STATUS timeout MS.",
+        "  Example: test lab ssid \"Example Lab\" family ipv4 gateway 192.0.2.1 dns lab.example.test resolver selected http https://lab.example.test/health expected-status 204 timeout 5000",
         "  2 IP snapshots, 3 ICMP packets, 1 selected-resolver DNS query, 1 HTTP request; no Wi-Fi mutation; HTTP hostname address family not pinned.",
         "internet, eht, Go-only callbacks: unsupported on Android (zero operations; no partial run).",
     )
 
-    @Synchronized fun lastReport(): LinkReport? = last
 
     @Synchronized fun run(command: AgentShellCommand.Check, execute: (RunCommand) -> CommandResult): LinkReport {
         val started = System.currentTimeMillis()
@@ -75,7 +77,7 @@ internal object AgentLinkProfile {
         fun finish(outcome: LinkOutcome): LinkReport {
             while (stages.size < stageNames.size) stages += LinkStage(stageNames[stages.size], LinkOutcome.SKIP, "required predecessor did not pass")
             return LinkReport(command.profile.take(96), command.ssid.take(96), command.family, started, System.currentTimeMillis(),
-                outcome, stages.toList(), network?.networkId?.take(96), network?.interfaceName?.take(96), network?.validated).also { last = it }
+                outcome, stages.toList(), network?.networkId?.take(96), network?.interfaceName?.take(96), network?.validated)
         }
         if (command.profile != "link" && command.profile != "lab" || command.profile == "lab" && lab == null) {
             stages += LinkStage(stageNames.first(), LinkOutcome.UNSUPPORTED, "profile is not portable on Android")
@@ -85,7 +87,7 @@ internal object AgentLinkProfile {
             stages += LinkStage(stageNames.first(), LinkOutcome.UNSUPPORTED, "strict BSSID pinning cannot be guaranteed")
             return finish(LinkOutcome.UNSUPPORTED)
         }
-        if (command.ssid.isEmpty() || command.family !in listOf(IpFamily.IP_FAMILY_IPV4, IpFamily.IP_FAMILY_IPV6)) {
+        if (command.ssid.isEmpty() || command.family !in listOf(IpFamily.IP_FAMILY_IPV4, IpFamily.IP_FAMILY_IPV6, IpFamily.IP_FAMILY_ALL)) {
             stages += LinkStage(stageNames.first(), LinkOutcome.MISSING, "SSID and ipv4/ipv6 family required")
             return finish(LinkOutcome.MISSING)
         }
@@ -180,6 +182,9 @@ internal object AgentLinkProfile {
         isKnownWifiSsid(actual) && actual == requested
 
     private fun metrics(ip: IpStatus, family: IpFamily): List<LinkMetric> {
+        if (family == IpFamily.IP_FAMILY_ALL) return listOf(IpFamily.IP_FAMILY_IPV4, IpFamily.IP_FAMILY_IPV6).flatMap { selected ->
+            metrics(ip, selected).map { it.copy(name = (if (selected == IpFamily.IP_FAMILY_IPV4) "ipv4." else "ipv6.") + it.name) }
+        }
         val known = AgentObservationPresentation.available(ip.observationFieldsList, "link_properties")
         return listOf(
             LinkMetric("addresses", if (known) ip.addressesList.count { addressFamily(it.substringBefore('/'), family) } else null),

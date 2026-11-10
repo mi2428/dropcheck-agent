@@ -3,11 +3,11 @@ package command
 import (
 	"fmt"
 
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 	"google.golang.org/protobuf/proto"
 )
 
-// Operation is the typed command plan shared by the shell and Linux-style CLI.
+// Operation is the typed command shared by Shell, tui and the basic Go API.
 //
 // It carries the fully built agent command plus controller-local rendering or
 // validation options. Operation intentionally avoids argv-shaped fields: once a
@@ -22,7 +22,7 @@ type Operation struct {
 	Options Options
 }
 
-// NewOperation creates an immutable Operation boundary by cloning cmd.
+// NewOperation creates an Operation with a clone of cmd.
 //
 // Callers may safely reuse or mutate the original RunCommand after this call;
 // BuildRunCommand also returns a clone before execution.

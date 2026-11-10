@@ -1,96 +1,74 @@
 package pipeline
 
 import (
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
 
-func TestSplitPreservesQuotedPipes(t *testing.T) {
+func TestPortablePipelineContract(t *testing.T) {
+	data, err := os.ReadFile("../../../testdata/pipeline_cases.tsv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	decode := func(s string) string { return strings.ReplaceAll(s, `\n`, "\n") }
+	for _, line := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")[1:] {
+		cols := strings.Split(line, "\t")
+		t.Run(cols[0], func(t *testing.T) {
+			parts, err := Split("show version | " + cols[0])
+			var p Pipeline
+			if err == nil {
+				p, err = Parse(parts[1:])
+			}
+			if cols[3] == "false" {
+				if err == nil {
+					t.Fatal("accepted invalid pipeline")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := p.Apply(decode(cols[1]))
+			if err != nil || out != decode(cols[2]) {
+				t.Fatalf("got %q, %v; want %q", out, err, decode(cols[2]))
+			}
+		})
+	}
+}
+
+func TestPatternBoundsAndJSON(t *testing.T) {
+	display, err := Parse([]string{"display json"})
+	if err != nil || !display.DisplayJSON() || (Pipeline{}).DisplayJSON() {
+		t.Fatalf("JSON presentation selection changed: %+v %v", display, err)
+	}
+	if _, err := Parse([]string{"match " + strings.Repeat("x", 513)}); err == nil {
+		t.Fatal("unbounded pattern")
+	}
+	if _, err := Parse(strings.Fields(strings.Repeat("count ", 17))); err == nil {
+		t.Fatal("unbounded pipeline")
+	}
+	encoded, err := JSON("a\n\nquoted: \"\\\n", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body struct {
+		OK    bool
+		Lines []string
+	}
+	if err := json.Unmarshal([]byte(encoded), &body); err != nil || body.OK || len(body.Lines) != 3 {
+		t.Fatalf("invalid envelope: %s %v", encoded, err)
+	}
+}
+
+func TestSplitPreservesQuotedAndEscapedPipes(t *testing.T) {
 	parts, err := Split(`show wifi scan detail "Lab|Guest" | match "RSSI|BSSID" | count`)
-	if err != nil {
-		t.Fatalf("Split() error = %v", err)
+	if err != nil || len(parts) != 3 {
+		t.Fatal(parts, err)
 	}
-	want := []string{`show wifi scan detail "Lab|Guest"`, `match "RSSI|BSSID"`, "count"}
-	if len(parts) != len(want) {
-		t.Fatalf("Split() = %#v, want %#v", parts, want)
-	}
-	for i := range want {
-		if parts[i] != want[i] {
-			t.Fatalf("Split()[%d] = %q, want %q", i, parts[i], want[i])
-		}
-	}
-}
-
-func TestSplitRejectsMalformedPipelines(t *testing.T) {
-	for _, line := range []string{
-		`show devices |`,
-		`show devices || count`,
-		`show "unterminated`,
-		`show devices \`,
-	} {
-		t.Run(line, func(t *testing.T) {
-			if _, err := Split(line); err == nil {
-				t.Fatalf("Split(%q) error = nil", line)
-			}
-		})
-	}
-}
-
-func TestParseAndApplyTextStages(t *testing.T) {
-	p, err := Parse([]string{`display set`, `match "^set"`, `except secret`, `count`})
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
-	if got := p.Format(FormatText); got != FormatSet {
-		t.Fatalf("Format() = %q, want %q", got, FormatSet)
-	}
-	if !p.DisplaySet() || p.DisplayJSON() || p.StageCount() != 3 {
-		t.Fatalf("pipeline flags: display_set=%t display_json=%t stages=%d", p.DisplaySet(), p.DisplayJSON(), p.StageCount())
-	}
-
-	out, err := p.Apply("set standalone enabled\nset standalone upload passphrase secret\nshow config\n")
-	if err != nil {
-		t.Fatalf("Apply() error = %v", err)
-	}
-	if out != "Count: 1 lines\n" {
-		t.Fatalf("Apply() = %q", out)
-	}
-}
-
-func TestParseRejectsInvalidStages(t *testing.T) {
-	tests := []struct {
-		name  string
-		parts []string
-		want  string
-	}{
-		{
-			name:  "display after count",
-			parts: []string{"count", "display json"},
-			want:  "must appear before count",
-		},
-		{
-			name:  "duplicate display",
-			parts: []string{"display json", "display set"},
-			want:  "display format specified twice",
-		},
-		{
-			name:  "bad regex",
-			parts: []string{`match "["`},
-			want:  "match regex",
-		},
-		{
-			name:  "unknown pipe",
-			parts: []string{"sort"},
-			want:  `unknown pipe "sort"`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := Parse(tt.parts)
-			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("Parse() error = %v, want substring %q", err, tt.want)
-			}
-		})
+	parts, err = Split(`show wifi scan detail Lab\|Guest | count`)
+	if err != nil || len(parts) != 2 {
+		t.Fatal(parts, err)
 	}
 }

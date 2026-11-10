@@ -1,0 +1,45 @@
+path	input
+show version	show version
+show cli	show cli
+show oui	show oui
+request oui update	request oui update
+show network	show network
+show network default	show network default
+show network id	show network id 42
+show permissions	show permissions
+show wifi status	show wifi status
+show wifi status full	show wifi status full
+show wifi status connection	show wifi status connection
+show wifi status ip	show wifi status ip
+show wifi status capabilities	show wifi status capabilities
+show wifi status eht	show wifi status eht
+show wifi scan	show wifi scan mlo band 6ghz
+debug android wifi info	debug android wifi info
+debug android wifi scan	debug android wifi scan ssid 'Example Lab' band 6ghz
+debug android network capabilities	debug android network capabilities network-id 42
+debug android network wifi-info	debug android network wifi-info network-id 42
+debug android network link-properties	debug android network link-properties network-id 42
+request wifi connect	request wifi connect 'Example Lab' security wpa3 passphrase test-only
+request wifi disconnect	request wifi disconnect
+request wifi reconnect	request wifi reconnect timeout 1000
+request wifi forget ssid	request wifi forget ssid '123'
+request wifi forget config-id	request wifi forget config-id 0
+request wifi cycle	request wifi cycle 'Example Lab' count 1 passphrase test-only
+request wifi scan	request wifi scan brief mlo band 6ghz
+request wifi scan eht	request wifi scan eht ssid 'Example Lab' timeout 1000
+request ping	request ping example.test count 1
+request traceroute	request traceroute example.test via 192.0.2.1
+request pmtu	request pmtu example.test
+request ip external	request ip external family all
+request dns resolve	request dns resolve example.test record ALL
+request http check	request http check https://example.test/health
+request http download	request http download https://example.test/file
+test wifi	test wifi require-validated false
+test link	test link ssid 'Example Lab' family all
+test lab	test lab ssid 'Example Lab' family ipv4 gateway 192.0.2.1 dns example.test resolver selected http https://example.test/health expected-status 204 timeout 1000
+monitor wifi	monitor wifi duration 1000
+help	help request wifi
+set cli default-passphrase	set cli default-passphrase test-only
+clear cli default-passphrase	clear cli default-passphrase
+show test profiles	show test profiles
+show test last	show test last

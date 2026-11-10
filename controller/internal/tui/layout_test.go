@@ -6,31 +6,31 @@ import (
 	"testing"
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 
 	tea "charm.land/bubbletea/v2"
 )
 
 func TestRenderUsesDropcheckLayout(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{
 		{Name: "shownet-6g-ap1", SSID: "ShowNet", BSSID: "aa:bb:cc:dd:ee:ff", Band: "6ghz"},
 		{Name: "shownet-5g-any", SSID: "ShowNet", Band: "5ghz"},
 	}, events)
 	m.width = 180
 	m.height = 30
-	m.apply(watch.Event{Kind: watch.EventWatchStarted, Message: "watch started"})
-	m.apply(watch.Event{Kind: watch.EventRoundStarted, Round: 1})
-	m.apply(watch.Event{
-		Kind:   watch.EventTargetStarted,
+	m.apply(tuirun.Event{Kind: tuirun.EventTUIStarted, Message: "tui started"})
+	m.apply(tuirun.Event{Kind: tuirun.EventRoundStarted, Round: 1})
+	m.apply(tuirun.Event{
+		Kind:   tuirun.EventTargetStarted,
 		Round:  1,
-		Target: watch.TargetSnapshot{Name: "shownet-6g-ap1", SSID: "ShowNet", BSSID: "aa:bb:cc:dd:ee:ff", Band: "6ghz"},
+		Target: tuirun.TargetSnapshot{Name: "shownet-6g-ap1", SSID: "ShowNet", BSSID: "aa:bb:cc:dd:ee:ff", Band: "6ghz"},
 	})
-	m.apply(watch.Event{
-		Kind:   watch.EventStepStarted,
+	m.apply(tuirun.Event{
+		Kind:   tuirun.EventStepStarted,
 		Round:  1,
-		Target: watch.TargetSnapshot{Name: "shownet-6g-ap1", SSID: "ShowNet", BSSID: "aa:bb:cc:dd:ee:ff", Band: "6ghz"},
-		Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
+		Target: tuirun.TargetSnapshot{Name: "shownet-6g-ap1", SSID: "ShowNet", BSSID: "aa:bb:cc:dd:ee:ff", Band: "6ghz"},
+		Step:   tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "running"},
 	})
 
 	frame := stripANSI(m.render())
@@ -40,7 +40,7 @@ func TestRenderUsesDropcheckLayout(t *testing.T) {
 		"h/j/k/l=Scroll",
 		"Ctrl-Z=Pause",
 		"Now=",
-		"status=running plan=shownet-watch",
+		"status=running plan=shownet-tui",
 		"Passing Checks",
 		"Failed Checks",
 		"Failure Hotspots",
@@ -53,7 +53,7 @@ func TestRenderUsesDropcheckLayout(t *testing.T) {
 			t.Fatalf("rendered frame missing %q:\n%s", want, frame)
 		}
 	}
-	firstRow := strings.Split(frame, "\n")[0]
+	firstRow, _, _ := strings.Cut(frame, "\n")
 	if strings.Contains(firstRow, "Passing Checks") || strings.Contains(firstRow, "Failed Checks") || strings.Contains(firstRow, "Run Queue") || strings.Contains(firstRow, "Event Log") {
 		t.Fatalf("top keyboard bar should be separate from panels: %q", firstRow)
 	}
@@ -74,7 +74,7 @@ func TestRenderUsesDropcheckLayout(t *testing.T) {
 	}
 	lines := strings.Split(frame, "\n")
 	lastLine := lines[len(lines)-1]
-	if !strings.Contains(lastLine, "status=running plan=shownet-watch") {
+	if !strings.Contains(lastLine, "status=running plan=shownet-tui") {
 		t.Fatalf("status line should be rendered at bottom, got: %q\n%s", lastLine, frame)
 	}
 	if strings.Contains(frame, "Legend:") {
@@ -95,7 +95,7 @@ func TestRenderUsesDropcheckLayout(t *testing.T) {
 }
 
 func TestInitStartsEventAndClockCommands(t *testing.T) {
-	events := make(chan watch.Event)
+	events := make(chan tuirun.Event)
 	m := newModel(nil, events)
 	msg := m.Init()()
 	batch, ok := msg.(tea.BatchMsg)
@@ -108,7 +108,7 @@ func TestInitStartsEventAndClockCommands(t *testing.T) {
 }
 
 func TestWindowResizeRequestsFullRepaint(t *testing.T) {
-	events := make(chan watch.Event)
+	events := make(chan tuirun.Event)
 	m := newModel(nil, events)
 	updated, cmd := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	next := updated.(model)
@@ -124,7 +124,7 @@ func TestWindowResizeRequestsFullRepaint(t *testing.T) {
 }
 
 func TestQKeyDoesNotQuit(t *testing.T) {
-	events := make(chan watch.Event)
+	events := make(chan tuirun.Event)
 	m := newModel(nil, events)
 	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'q', Text: "q"}))
 	if cmd != nil {
@@ -137,34 +137,34 @@ func TestQKeyDoesNotQuit(t *testing.T) {
 }
 
 func TestDashboardPanelHeightsFollowRoundTimelineAndCheckStatusContent(t *testing.T) {
-	events := make(chan watch.Event)
-	agents := []watch.AgentSnapshot{
+	events := make(chan tuirun.Event)
+	agents := []tuirun.AgentSnapshot{
 		{ID: "agent-a", Name: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b"},
 	}
-	m := newModel([]watch.Target{
+	m := newModel([]tuirun.Target{
 		{Name: "u7-5ghz", SSID: "Example Net"},
 		{Name: "u6-5ghz", SSID: "Example Net"},
 	}, events, agents)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	m.apply(watch.Event{
+	m.apply(tuirun.Event{
 		Time:   at,
-		Kind:   watch.EventFinding,
+		Kind:   tuirun.EventFinding,
 		Agent:  agents[0],
-		Target: watch.TargetSnapshot{Name: "u7-5ghz", SSID: "Example Net"},
-		Step:   watch.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
-		Finding: &watch.Finding{
+		Target: tuirun.TargetSnapshot{Name: "u7-5ghz", SSID: "Example Net"},
+		Step:   tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "failed"},
+		Finding: &tuirun.Finding{
 			Target: "u7-5ghz",
 			Check:  "connect",
 			Metric: "status",
 		},
 	})
-	m.apply(watch.Event{
+	m.apply(tuirun.Event{
 		Time:     at.Add(time.Second),
-		Kind:     watch.EventStepFinished,
+		Kind:     tuirun.EventStepFinished,
 		Agent:    agents[1],
-		Target:   watch.TargetSnapshot{Name: "u6-5ghz", SSID: "Example Net"},
-		Step:     watch.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "ok"},
+		Target:   tuirun.TargetSnapshot{Name: "u6-5ghz", SSID: "Example Net"},
+		Step:     tuirun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "ok"},
 		Status:   "ok",
 		Duration: 42,
 	})

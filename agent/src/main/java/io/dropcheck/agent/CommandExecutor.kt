@@ -1,6 +1,7 @@
 package io.dropcheck.agent
 
 import android.content.Context
+import android.os.Build
 import io.dropcheck.agent.grpc.AssertWifi
 import io.dropcheck.agent.grpc.CommandResult
 import io.dropcheck.agent.grpc.ConnectWifi
@@ -37,9 +38,9 @@ class CommandExecutor(
     private val context: Context,
     private val logger: CommandLogger,
 ) {
-    private val networks = NetworkRepository(context, logger)
-    private val wifi = WifiConnector(context, logger)
-    private val networkChecks = NetworkCheckExecutor(networks, logger)
+    private val networks by lazy { NetworkRepository(context, logger) }
+    private val wifi by lazy { WifiConnector(context, logger) }
+    private val networkChecks by lazy { NetworkCheckExecutor(networks, logger) }
 
     /**
      * Dispatches a single protobuf command and returns exactly one command result.
@@ -60,6 +61,7 @@ class CommandExecutor(
             "thread" to Thread.currentThread().name,
         ) + command.logFields())
         val result = when (command.commandCase) {
+            RunCommand.CommandCase.GET_NETWORKS, RunCommand.CommandCase.GET_NETWORK, RunCommand.CommandCase.GET_PERMISSIONS -> networkObservation(command)
             RunCommand.CommandCase.GET_WIFI_STATUS -> wifiStatus()
             RunCommand.CommandCase.GET_WIFI_DIAGNOSTICS -> wifiDiagnostics()
             RunCommand.CommandCase.GET_WIFI_SCAN -> wifiScan(command.getWifiScan)
@@ -111,11 +113,30 @@ class CommandExecutor(
             .build()
     }
 
+    private fun networkObservation(command: RunCommand): CommandResult = try {
+        val result = CommandResult.newBuilder().setStatus(CommandResult.Status.STATUS_OK)
+        if (command.commandCase == RunCommand.CommandCase.GET_PERMISSIONS) {
+            result.setPermissionSnapshot(networks.permissionSnapshot())
+        } else {
+            val snapshot = networks.networkSnapshot(command.getNetwork.takeIf { command.commandCase == RunCommand.CommandCase.GET_NETWORK })
+            result.setNetworkSnapshot(snapshot)
+            if (snapshot.errorsCount > 0) result.setStatus(CommandResult.Status.STATUS_FAILED).setMessage("Network snapshot incomplete")
+        }
+        result.build()
+    } catch (_: SecurityException) {
+        failed("Network observation permission denied")
+    } catch (error: IllegalArgumentException) {
+        failed(error.message ?: "invalid Network query")
+    } catch (error: IllegalStateException) {
+        failed(error.message ?: "Network unavailable")
+    }
+
     private fun wifiDiagnostics(): CommandResult {
         val diagnostics = networks.wifiDiagnostics()
         logger.debug("wifi diagnostics observed networks=${diagnostics.networksCount} scan_results=${diagnostics.scan.resultsCount} capability_fields=${diagnostics.capabilities.fieldsCount} capability_errors=${diagnostics.capabilities.errorsCount} scan_errors=${diagnostics.scan.errorsCount}")
         return CommandResult.newBuilder()
-            .setStatus(CommandResult.Status.STATUS_OK)
+            .setStatus(if (WifiCommandPolicy.diagnosticsComplete(diagnostics)) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
+            .setMessage(if (WifiCommandPolicy.diagnosticsComplete(diagnostics)) "" else "diagnostic collection incomplete; retained data is reference")
             .setWifiDiagnostics(diagnostics)
             .build()
     }
@@ -125,7 +146,7 @@ class CommandExecutor(
         val scan = networks.wifiScan(command.band)
         logger.debug("wifi scan observed results=${scan.resultsCount} fields=${scan.fieldsList.joinToString(",") { "${it.key}=${it.value}" }} errors=${scan.errorsList.joinToString(",")}")
         return CommandResult.newBuilder()
-            .setStatus(CommandResult.Status.STATUS_OK)
+            .setStatus(if (scan.errorsCount == 0) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
             .setWifiScan(scan)
             .build()
     }
@@ -137,7 +158,7 @@ class CommandExecutor(
         )
         logger.info("wifi fresh scan requested band=${command.band} timeout_ms=$timeoutMs")
         val scan = networks.wifiFreshScan(command.band, timeoutMs)
-        val ok = WifiCommandPolicy.freshScanCompleted(scan.errorsList)
+        val ok = WifiCommandPolicy.freshScanEvidence(scan)
         logger.debug("wifi fresh scan observed results=${scan.resultsCount} fields=${scan.fieldsList.joinToString(",") { "${it.key}=${it.value}" }} errors=${scan.errorsList.joinToString(",")}")
         return CommandResult.newBuilder()
             .setStatus(if (ok) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
@@ -163,7 +184,7 @@ class CommandExecutor(
         val capabilities = networks.wifiCapabilities()
         logger.debug("wifi capabilities observed bands=${capabilities.supportedBandsList.joinToString(",")} standards=${capabilities.supportedStandardsList.joinToString(",")} security=${capabilities.supportedSecurityModesList.joinToString(",")} features=${capabilities.supportedFeaturesCount} errors=${capabilities.errorsList.joinToString(",")}")
         return CommandResult.newBuilder()
-            .setStatus(CommandResult.Status.STATUS_OK)
+            .setStatus(if (capabilities.errorsCount == 0) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
             .setWifiCapabilities(capabilities)
             .build()
     }
@@ -179,7 +200,7 @@ class CommandExecutor(
             command.timeoutMs,
             WifiCommandPolicy.DEFAULT_CONNECT_TIMEOUT_MS,
         )
-        logger.info("wifi connect requested ssid=${command.ssid} bssid=${command.bssid.ifBlank { "*" }} security=${command.security} band=${command.band} mac_randomization=${command.macRandomization} timeout_ms=$timeoutMs passphrase_present=${command.passphrase.isNotBlank()}")
+        logger.info("wifi connect requested ssid=${command.ssid} bssid=${command.bssid.ifBlank { "*" }} security=${command.security} band=${command.band} mac_randomization=${command.macRandomization} timeout_ms=$timeoutMs passphrase_present=${command.passphrase.isNotEmpty()}")
         logger.debug("wifi connect parameters ssid_len=${command.ssid.length} passphrase_len=${command.passphrase.length} security_number=${command.securityValue} bssid=${command.bssid.ifBlank { "*" }} band=${command.band} mac_randomization=${command.macRandomization} timeout_ms=$timeoutMs")
 
         val setup = wifi.connect(command)
@@ -238,7 +259,7 @@ class CommandExecutor(
 
     private fun forgetWifi(command: ForgetWifi): CommandResult {
         logger.info("wifi forget requested target=${command.target}")
-        val operation = wifi.forget(command.target)
+        val operation = wifi.forget(command)
         val result = wifiOperationResult(operation, networks.wifiStatus())
         return CommandResult.newBuilder()
             .setStatus(if (result.ok) CommandResult.Status.STATUS_OK else CommandResult.Status.STATUS_FAILED)
@@ -333,6 +354,7 @@ class CommandExecutor(
      * [WifiCommandPolicy].
      */
     private fun cycleWifi(command: CycleWifi): CommandResult {
+        WifiConnectorPolicy.connectError(command.connect, Build.VERSION.SDK_INT)?.let { return failed(it) }
         val count = WifiCommandPolicy.cycleCount(command)
         val pauseMs = WifiCommandPolicy.cyclePauseMs(command)
         val builder = WifiCycleResult.newBuilder()
@@ -409,7 +431,7 @@ class CommandExecutor(
                     }
                 }
             } finally {
-                val cleanup = if (command.forgetAfterEach) wifi.forget(command.connect.ssid) else wifi.disconnect()
+                val cleanup = if (command.forgetAfterEach) wifi.forget(ForgetWifi.newBuilder().setSsid(command.connect.ssid).build()) else wifi.disconnect()
                 if (!cleanup.ok) {
                     step.addErrors("${cleanup.operation}=${cleanup.message}")
                     logger.warn("wifi cycle cleanup failed index=$index operation=${cleanup.operation} message=${cleanup.message} errors=${cleanup.errors.joinToString(",")}")

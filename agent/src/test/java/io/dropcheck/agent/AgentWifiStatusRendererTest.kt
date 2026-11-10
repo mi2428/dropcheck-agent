@@ -12,9 +12,11 @@ import org.junit.Test
 
 class AgentWifiStatusRendererTest {
     @Test
-    fun rendersWifiStatusWithoutMloDetails() {
+    fun rendersStatusAndIpDetailsWithoutDuplicateIdentity() {
         val status = WifiStatus.newBuilder()
             .setEnabled(true)
+            .addObservationFields(DiagnosticField.newBuilder().setKey("radio.state").setValue("available"))
+            .addObservationFields(DiagnosticField.newBuilder().setKey("connection.state").setValue("available"))
             .setState("enabled")
             .setActiveNetwork("102")
             .setWifiNetworkCount(1)
@@ -73,6 +75,8 @@ class AgentWifiStatusRendererTest {
                     .build())
                 .build())
             .setIpStatus(IpStatus.newBuilder()
+                .addObservationFields(DiagnosticField.newBuilder().setKey("capabilities.state").setValue("available"))
+                .addObservationFields(DiagnosticField.newBuilder().setKey("link_properties.state").setValue("available"))
                 .setNetworkId("102")
                 .addTransports("wifi")
                 .setValidated(true)
@@ -105,35 +109,36 @@ class AgentWifiStatusRendererTest {
                 .build())
             .build()
 
-        val out = AgentWifiStatusRenderer.render(status).joinToString("\n")
+        val out = AgentPresentationBlock.create(AgentWifiStatusRenderer.presentation(status), 0).fullText
 
         listOf(
-            "Wi-Fi",
-            "permissions\n    all_granted\n    fine_location",
-            "Connection",
-            "bandwidth   160MHz",
-            "link        tx=900Mbps rx=1200Mbps",
-            "sta_mac     02:00:00:00:00:09",
+            "Radio: on",
+            "Wi-Fi state: enabled",
+            "SSID: Lab",
+            "BSSID: aa:bb:cc:dd:ee:ff",
+            "CH/BW: 5/160MHz",
+            "Tx link rate: 900Mbps",
+            "Rx link rate: 1200Mbps",
+            "sta_mac",
+            "02:00:00:00:00:09",
             "AP Capabilities",
             "roaming",
             "11r",
             "11k",
             "11v_bss_transition",
-            "roaming\n    11k\n    11r\n    11v_bss_transition",
-            "phy      eht",
-            "Network",
-            "not_metered",
-            "capabilities\n    not_metered\n    not_roaming",
-            "bandwidth     down=1200000kbps up=600000kbps",
-            "ipv4          192.0.2.10/24",
-            "ipv6\n    2001:db8::10/64\n    2001:db8::11/64",
-            "dns\n    192.0.2.1\n    1.1.1.1",
-            "dhcp_server   192.0.2.254",
-            "private_dns   active=true server=none",
-            "routes\n    0.0.0.0/0 -> 192.0.2.1 wlan0\n    192.0.2.0/24 -> 0.0.0.0 wlan0",
-            "domains",
-            "local",
-            "wlan0",
+            "roaming: 11k\n    11r\n    11v_bss_transition",
+            "phy: eht",
+            "Network: 102",
+            "Capabilities: internet\nvalidated\nnot_roaming\nnot_metered",
+            "Bandwidth: down=1200000kbps up=600000kbps",
+            "IPv4\nAddr: 192.0.2.10/24",
+            "IPv6\nAddr: 2001:db8::10/64\n2001:db8::11/64",
+            "DNS: 192.0.2.1\n1.1.1.1",
+            "DHCP server: 192.0.2.254",
+            "Private DNS: on; server=none",
+            "Routes: 0.0.0.0/0 -> 192.0.2.1 wlan0\n192.0.2.0/24 -> 0.0.0.0 wlan0",
+            "Domains: local",
+            "Interface: wlan0",
             "IPv6 RA",
             "default_route",
             "missing",
@@ -145,12 +150,13 @@ class AgentWifiStatusRendererTest {
             "accept_ra_min_lft",
             "180",
         ).forEach { want ->
-            assertTrue("rendered output missing $want:\n$out", out.contains(want))
+            assertTrue("rendered output missing $want:\n$out", out.replace(Regex("\n +"), "\n").contains(want.replace(Regex("\n +"), "\n")))
         }
-        assertTrue(
-            "sections are not ordered Network -> IPv6 RA:\n$out",
-            out.indexOf("\nNetwork") < out.indexOf("\nIPv6 RA"),
-        )
+        val network = out.indexOf("\n  Network:")
+        val ipv6Ra = out.indexOf("\n  IPv6 RA")
+        assertTrue("Network section missing:\n$out", network >= 0)
+        assertTrue("IPv6 RA section missing:\n$out", ipv6Ra >= 0)
+        assertTrue("sections are not ordered Network -> IPv6 RA:\n$out", network < ipv6Ra)
         listOf(
             "Connection Capabilities",
             "Connection State",
@@ -162,7 +168,6 @@ class AgentWifiStatusRendererTest {
             "\nDNS\n",
             "\nDHCP\n",
             "\nPrivate DNS\n",
-            "raw_caps",
             "internet,validated,not_metered",
             "all_granted fine_location",
             "not_metered,not_roaming",
@@ -189,10 +194,12 @@ class AgentWifiStatusRendererTest {
             out.indexOf("11k") < out.indexOf("11r") &&
                 out.indexOf("11r") < out.indexOf("11v_bss_transition"),
         )
+        assertTrue(Regex("SSID: Lab").findAll(out).count() == 1)
+        assertTrue(Regex("BSSID: aa:bb:cc:dd:ee:ff").findAll(out).count() == 1)
     }
 
     @Test
-    fun preservesConnectionNetworkFallbackWhenIpStatusIsMissing() {
+    fun preservesConnectionReferenceWhenIpStatusIsMissing() {
         val status = WifiStatus.newBuilder()
             .setConnection(WifiConnection.newBuilder()
                 .setSsid("Lab")
@@ -201,12 +208,12 @@ class AgentWifiStatusRendererTest {
                 .build())
             .build()
 
-        val out = AgentWifiStatusRenderer.render(status).joinToString("\n")
+        val out = AgentPresentationBlock.create(AgentWifiStatusRenderer.presentation(status), 0).fullText
 
         listOf(
-            "Network",
-            "id    119",
-            "ipv4  192.0.2.10",
+            "configuration_id",
+            "119",
+            "Related IP snapshot: 192.0.2.10",
         ).forEach { want ->
             assertTrue("rendered output missing $want:\n$out", out.contains(want))
         }
@@ -226,7 +233,7 @@ class AgentWifiStatusRendererTest {
                 .build())
             .build()
 
-        val out = AgentWifiStatusRenderer.render(status).joinToString("\n")
+        val out = AgentPresentationBlock.create(AgentWifiStatusRenderer.presentation(status), 0).fullText
 
         assertFalse("rendered output included inactive connection:\n$out", out.contains("Connection"))
         assertFalse("rendered output included stale standard:\n$out", out.contains("802.11ax"))

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"dropcheck/controller/internal/app"
+	"github.com/mi2428/dropcheck-agent/controller/internal/app"
 )
 
 func main() {

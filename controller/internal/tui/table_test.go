@@ -4,13 +4,13 @@ import (
 	"strings"
 	"testing"
 
-	watch "dropcheck/controller/internal/harness"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 
 	"charm.land/lipgloss/v2"
 )
 
-func TestBarListLineAlignsColumns(t *testing.T) {
-	layout := newBarListLayout(70, [][]string{
+func TestListLineAlignsColumns(t *testing.T) {
+	layout := newListLayout(70, [][]string{
 		{"Agent", "Target", "Check"},
 		{"a", "short", "connect"},
 		{"agent-long", "much longer target", "ping cloudflare v6"},
@@ -19,31 +19,27 @@ func TestBarListLineAlignsColumns(t *testing.T) {
 		{"1", "4.3s", "09:30:01"},
 		{"12", "80ms", "09:30:02"},
 	})
-	short := barListLine([]string{"a", "short", "connect"}, []string{"1", "4.3s", "09:30:01"}, 1, 4, layout)
-	long := barListLine([]string{"agent-long", "much longer target", "ping cloudflare v6"}, []string{"12", "80ms", "09:30:02"}, 4, 4, layout)
-
-	if strings.Index(short, "█") != strings.Index(long, "█") {
-		t.Fatalf("bar column should align:\nshort=%q\nlong=%q", short, long)
-	}
+	short := listLine([]string{"a", "short", "connect"}, []string{"1", "4.3s", "09:30:01"}, layout)
+	long := listLine([]string{"agent-long", "much longer target", "ping cloudflare v6"}, []string{"12", "80ms", "09:30:02"}, layout)
 	shortBefore, _, shortOK := strings.Cut(short, "09:30:01")
 	longBefore, _, longOK := strings.Cut(long, "09:30:02")
 	if !shortOK || !longOK || lipgloss.Width(shortBefore) != lipgloss.Width(longBefore) {
 		t.Fatalf("right column should align:\nshort=%q\nlong=%q", short, long)
 	}
 	if strings.Contains(short, " / ") || strings.Contains(long, " / ") {
-		t.Fatalf("bar rows should not use slash separators:\nshort=%q\nlong=%q", short, long)
+		t.Fatalf("list rows should not use slash separators:\nshort=%q\nlong=%q", short, long)
 	}
 }
 
 func TestPlainListLayoutFillsPanelWidth(t *testing.T) {
-	layout := newPlainListLayout(70, [][]string{
+	layout := newListLayout(70, [][]string{
 		{"Target", "Check", "Metric"},
 		{"radio-u7", "connect", "status"},
 	}, [][]string{
 		{"Cnt", "Last"},
 		{"1", "20:11:27"},
 	})
-	header := barListHeader([]string{"Target", "Check", "Metric"}, []string{"Cnt", "Last"}, layout)
+	header := listLine([]string{"Target", "Check", "Metric"}, []string{"Cnt", "Last"}, layout)
 	if got := lipgloss.Width(header); got != 70 {
 		t.Fatalf("plain list header width = %d, want 70: %q", got, header)
 	}
@@ -75,21 +71,21 @@ func TestFailedCheckLayoutMovesSpareWidthOutOfTargetColumn(t *testing.T) {
 		Count:       1,
 		FailPercent: 50,
 		FailStreak:  1,
-		Target:      watch.TargetSnapshot{Name: "ub2(6G)"},
-		Finding: watch.Finding{
+		Target:      tuirun.TargetSnapshot{Name: "ub2(6G)"},
+		Finding: tuirun.Finding{
 			Target: "ub2(6G)",
 			Check:  "wait_connected",
 			Metric: "status",
 		},
 	}
-	layout := failedCheckBarListLayout([]failedCheckSummary{row}, 76, true)
+	layout := failedCheckListLayout([]failedCheckSummary{row}, 76, true)
 	if got, want := layout.ColumnWidths[1], lipgloss.Width("ub2(6G)"); got != want {
 		t.Fatalf("target column width = %d, want data-fit width %d; layout=%#v", got, want, layout)
 	}
 	if got, want := layout.ColumnWidths[2], lipgloss.Width("Wait Connected"); got < want {
 		t.Fatalf("check column width = %d, want at least %d to avoid truncation; layout=%#v", got, want, layout)
 	}
-	line := barListLine(failedCheckListColumns(row, true), failedCheckListRightColumns(row), row.Count, row.Count, layout)
+	line := listLine(failedCheckListColumns(row, true), failedCheckListRightColumns(row), layout)
 	if got := lipgloss.Width(line); got != 76 {
 		t.Fatalf("failed check row width = %d, want 76: %q", got, line)
 	}
@@ -99,8 +95,8 @@ func TestFailedCheckLayoutMovesSpareWidthOutOfTargetColumn(t *testing.T) {
 }
 
 func TestEmptyFailedCheckHeaderDistributesColumns(t *testing.T) {
-	layout := failedCheckBarListLayout(nil, 96, true)
-	header := barListHeader(failedCheckListHeaderColumns(true), failedCheckListRightHeaderColumns(), layout)
+	layout := failedCheckListLayout(nil, 96, true)
+	header := listLine(failedCheckListHeaderColumns(true), failedCheckListRightHeaderColumns(), layout)
 	deviceIndex := strings.Index(header, "Device")
 	targetIndex := strings.Index(header, "Target")
 	checkIndex := strings.Index(header, "Check")
@@ -118,8 +114,8 @@ func TestEmptyFailedCheckHeaderDistributesColumns(t *testing.T) {
 }
 
 func TestCheckStatusHeaderFillsPanelWidth(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{{Name: "ub1(5G)", SSID: "Example Net"}}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{{Name: "ub1(5G)", SSID: "Example Net"}}, events)
 	m.Targets[0].Steps = []stepState{{Name: "connect", Status: "ok"}}
 
 	view := m.checkStatusView(64, 3)
@@ -134,7 +130,7 @@ func TestCheckStatusHeaderFillsPanelWidth(t *testing.T) {
 
 func TestCheckStatusCheckColumnCanGrowByHalf(t *testing.T) {
 	checks := []string{"Debug HTTP Wrong Status"}
-	targets := []watch.TargetSnapshot{{Name: "debug-a1", ShortName: "DA1"}}
+	targets := []tuirun.TargetSnapshot{{Name: "debug-a1", ShortName: "DA1"}}
 
 	layout := checkStatusTableLayout(64, checks, targets, nil)
 	if got, want := layout.LabelWidth, lipgloss.Width("Debug HTTP Wrong Status"); got != want {
@@ -149,7 +145,7 @@ func TestCheckStatusCheckColumnCanGrowByHalf(t *testing.T) {
 
 func TestCheckStatusPrefersShortNamesWhenFullLabelsWouldCompact(t *testing.T) {
 	checks := []string{"Connect"}
-	targets := []watch.TargetSnapshot{
+	targets := []tuirun.TargetSnapshot{
 		{Name: "cs10-legacy", ShortName: "C10L"},
 		{Name: "cs11-legacy", ShortName: "C11L"},
 		{Name: "cs12-legacy", ShortName: "C12L"},
@@ -174,24 +170,24 @@ func TestCheckStatusPrefersShortNamesWhenFullLabelsWouldCompact(t *testing.T) {
 }
 
 func TestInitialRenderWithoutMeasurementsIsStable(t *testing.T) {
-	events := make(chan watch.Event)
-	agents := []watch.AgentSnapshot{
+	events := make(chan tuirun.Event)
+	agents := []tuirun.AgentSnapshot{
 		{ID: "agent-a", Name: "pixel-a", ADBSerial: "pixel-a"},
 		{ID: "agent-b", Name: "pixel-b", ADBSerial: "pixel-b"},
 	}
-	m := newModel([]watch.Target{
+	m := newModel([]tuirun.Target{
 		{Name: "radio-u6-5ghz", SSID: "Example Net", Band: "5ghz"},
 		{Name: "radio-any-2ghz", SSID: "Example Net", Band: "2.4ghz"},
 	}, events, agents)
 	m.width = 180
 	m.height = 34
-	m.apply(watch.Event{Kind: watch.EventWatchStarted, Message: "watch started"})
-	m.apply(watch.Event{Kind: watch.EventRoundStarted, Round: 1, Status: "running"})
-	m.apply(watch.Event{
-		Kind:   watch.EventTargetStarted,
+	m.apply(tuirun.Event{Kind: tuirun.EventTUIStarted, Message: "tui started"})
+	m.apply(tuirun.Event{Kind: tuirun.EventRoundStarted, Round: 1, Status: "running"})
+	m.apply(tuirun.Event{
+		Kind:   tuirun.EventTargetStarted,
 		Round:  1,
 		Agent:  agents[0],
-		Target: watch.TargetSnapshot{Name: "radio-u6-5ghz", SSID: "Example Net", Band: "5ghz"},
+		Target: tuirun.TargetSnapshot{Name: "radio-u6-5ghz", SSID: "Example Net", Band: "5ghz"},
 		Status: "running",
 	})
 

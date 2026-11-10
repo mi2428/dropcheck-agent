@@ -92,6 +92,11 @@ internal fun RunCommand.logFields(): List<Pair<String, Any?>> {
         add("label" to safeLabel())
         add("command_case" to commandCase.name)
         when (commandCase) {
+            RunCommand.CommandCase.GET_NETWORKS, RunCommand.CommandCase.GET_PERMISSIONS -> Unit
+            RunCommand.CommandCase.GET_NETWORK -> {
+                add("default_network" to getNetwork.defaultNetwork)
+                add("network_id" to getNetwork.networkId.takeIf(::validNetworkId))
+            }
             RunCommand.CommandCase.GET_WIFI_STATUS -> Unit
             RunCommand.CommandCase.GET_WIFI_DIAGNOSTICS -> Unit
             RunCommand.CommandCase.GET_WIFI_CAPABILITIES -> Unit
@@ -100,7 +105,14 @@ internal fun RunCommand.logFields(): List<Pair<String, Any?>> {
             RunCommand.CommandCase.GET_FRESH_WIFI_SCAN -> addAll(getFreshWifiScan.logFields())
             RunCommand.CommandCase.GET_WIFI_SCAN_DETAIL -> addAll(getWifiScanDetail.logFields())
             RunCommand.CommandCase.CONNECT_WIFI -> addAll(connectWifi.logFields())
-            RunCommand.CommandCase.FORGET_WIFI -> add("target" to forgetWifi.target)
+            RunCommand.CommandCase.FORGET_WIFI -> {
+                add("selector" to forgetWifi.selectorCase.name)
+                when (forgetWifi.selectorCase) {
+                    io.dropcheck.agent.grpc.ForgetWifi.SelectorCase.SSID -> add("ssid" to forgetWifi.ssid)
+                    io.dropcheck.agent.grpc.ForgetWifi.SelectorCase.CONFIG_ID -> add("config_id" to forgetWifi.configId.toString())
+                    else -> add("target" to forgetWifi.target)
+                }
+            }
             RunCommand.CommandCase.WAIT_WIFI_CONNECTED -> addAll(waitWifiConnected.logFields())
             RunCommand.CommandCase.ASSERT_WIFI -> addAll(assertWifi.logFields("assert_"))
             RunCommand.CommandCase.MONITOR_WIFI -> {
@@ -129,6 +141,11 @@ internal fun CommandResult.logFields(): List<Pair<String, Any?>> {
         add("message" to message)
         add("elapsed_ms" to elapsedMs)
         when (payloadCase) {
+            CommandResult.PayloadCase.NETWORK_SNAPSHOT -> {
+                add("networks_count" to networkSnapshot.networksCount)
+                add("errors_count" to networkSnapshot.errorsCount)
+            }
+            CommandResult.PayloadCase.PERMISSION_SNAPSHOT -> add("permissions_count" to permissionSnapshot.permissionsCount)
             CommandResult.PayloadCase.WIFI_STATUS -> {
                 add("wifi_enabled" to wifiStatus.enabled)
                 add("wifi_state" to wifiStatus.state)
@@ -415,7 +432,7 @@ private fun GetWifiScanDetail.logFields(): List<Pair<String, Any?>> = listOf(
 private fun ConnectWifi.logFields(prefix: String = ""): List<Pair<String, Any?>> = buildList {
     add("${prefix}ssid" to ssid)
     add("${prefix}ssid_len" to ssid.length)
-    add("${prefix}passphrase_present" to passphrase.isNotBlank())
+    add("${prefix}passphrase_present" to passphrase.isNotEmpty())
     add("${prefix}passphrase_len" to passphrase.length)
     add("${prefix}security" to security.name)
     add("${prefix}security_number" to securityValue)

@@ -1,37 +1,23 @@
 package app
 
-import "dropcheck/controller/internal/pipeline"
-
-type outputFormat = pipeline.Format
-
-const (
-	outputText outputFormat = pipeline.FormatText
-	outputJSON outputFormat = pipeline.FormatJSON
-	outputSet  outputFormat = pipeline.FormatSet
+import (
+	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
+	"github.com/mi2428/dropcheck-agent/controller/internal/render"
 )
 
-type pipePipeline struct {
-	pipeline    pipeline.Pipeline
-	displayJSON bool
-	displaySet  bool
-	stages      []pipeStage
-}
-
-type pipeStage struct{}
-
-func wrapPipePipeline(parsed pipeline.Pipeline) pipePipeline {
-	return pipePipeline{
-		pipeline:    parsed,
-		displayJSON: parsed.DisplayJSON(),
-		displaySet:  parsed.DisplaySet(),
-		stages:      make([]pipeStage, parsed.StageCount()),
+func shellOutput(p pipeline.Pipeline, text string, ok bool) (string, error) {
+	if text != "" {
+		text = render.LayoutText(text, render.Presentation{})
 	}
-}
-
-func (p pipePipeline) format() outputFormat {
-	return p.pipeline.Format(outputText)
-}
-
-func (p pipePipeline) apply(text string) (string, error) {
-	return p.pipeline.Apply(text)
+	out, err := p.Apply(text)
+	if err != nil {
+		return "", err
+	}
+	if p.DisplayJSON() {
+		return pipeline.JSON(out, ok)
+	}
+	if out == "" {
+		return "", nil
+	}
+	return render.LayoutText(out, terminalPresentation()), nil
 }

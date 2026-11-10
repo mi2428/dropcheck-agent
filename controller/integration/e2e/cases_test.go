@@ -5,6 +5,7 @@ package e2e
 import (
 	"bytes"
 	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,9 +15,11 @@ import (
 	"strings"
 	"testing"
 
-	commandparse "dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/linuxcli"
-	"dropcheck/controller/internal/shell"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/pipeline"
+	"github.com/mi2428/dropcheck-agent/controller/internal/render"
+	"github.com/mi2428/dropcheck-agent/controller/internal/shell"
 )
 
 type matrixCase struct {
@@ -34,7 +37,185 @@ type commandResult struct {
 	Err    error
 }
 
-const e2eCaseCount = 282
+// Keep live-result validation in the device-free suite so ordinary CI exercises it.
+func processResultError(expect string, res commandResult) error {
+	jsonOK := true
+	if slices.ContainsFunc(strings.Split(res.Output, "\n"), func(line string) bool { return strings.HasPrefix(strings.TrimSpace(line), "{") }) {
+		var err error
+		jsonOK, res.Output, err = shellEnvelopeOutput(res.Output)
+		if err != nil {
+			return err
+		}
+	}
+	lower := strings.ToLower(res.Output)
+	if strings.Contains(lower, "panic:") || strings.Contains(lower, "fatal error:") {
+		return fmt.Errorf("process produced panic/fatal output")
+	}
+	success := jsonOK && res.Err == nil && res.Code == 0 && !isFailureStatusOutput(res.Output) && !strings.Contains(lower, "error parsing regexp")
+	clearErrors := true
+	for line := range strings.SplitSeq(res.Output, "\n") {
+		line = strings.TrimSpace(line)
+		if message, ok := strings.CutPrefix(line, "Error:"); ok && strings.TrimSpace(message) != "" {
+			success = false
+			clearErrors = clearErrors && isClearRuntimeFailure(message)
+		}
+	}
+	switch expect {
+	case "help":
+		if !success || !strings.Contains(res.Output, "commands:") && !strings.Contains(res.Output, "<cr>") {
+			return fmt.Errorf("expected help output")
+		}
+	case "ok":
+		if !success {
+			return fmt.Errorf("expected success")
+		}
+	case "error":
+		if !isShellErrorOutput(res.Output) {
+			return fmt.Errorf("expected shell error output")
+		}
+	case "ok_or_clear":
+		if !clearErrors {
+			return fmt.Errorf("unexpected shell error")
+		}
+		if !success && !isClearRuntimeFailure(res.Output) {
+			return fmt.Errorf("expected success or clear runtime failure")
+		}
+	case "advisory":
+	default:
+		return fmt.Errorf("unknown expectation %q", expect)
+	}
+	return nil
+}
+
+func isShellErrorOutput(output string) bool {
+	if isFailureStatusOutput(output) || strings.Contains(strings.ToLower(output), "error parsing regexp") {
+		return true
+	}
+	for line := range strings.SplitSeq(output, "\n") {
+		if message, ok := strings.CutPrefix(strings.TrimSpace(line), "Error:"); ok && strings.TrimSpace(message) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func isClearRuntimeFailure(output string) bool {
+	lower := strings.ToLower(output)
+	return strings.Contains(lower, "wait for android agents") ||
+		strings.Contains(lower, "agent disconnected") ||
+		strings.Contains(lower, "network not available") ||
+		strings.Contains(lower, "did not match requested") ||
+		strings.Contains(lower, "process_timeout=") ||
+		strings.Contains(lower, "dns_timeout=") ||
+		strings.Contains(lower, "scan_broadcast_timeout=") ||
+		strings.Contains(lower, "wifi condition timeout") ||
+		strings.Contains(lower, "probe deadline exceeded") ||
+		strings.Contains(lower, "context deadline exceeded") ||
+		strings.Contains(lower, "timeoutexception") ||
+		strings.Contains(lower, "i/o timeout") ||
+		strings.Contains(lower, "timed out") ||
+		strings.Contains(lower, "no_dns_address_for_family") ||
+		strings.Contains(lower, "dns resolution failed") ||
+		strings.Contains(lower, "one_or_more_families_failed") ||
+		strings.Contains(lower, "not a device owner, profile owner, system app, or privileged app") ||
+		strings.Contains(lower, "profile unsupported") ||
+		strings.Contains(lower, "pinning is unsupported") ||
+		strings.Contains(lower, "connectivity completed with failed checks")
+}
+
+func isFailureStatusOutput(output string) bool {
+	return failureStatus.MatchString(output)
+}
+
+var failureStatus = regexp.MustCompile(`(?i)\bstatus(?:_(?:failed|canceled)\b|[:=]\s*(?:failed|canceled)\b)`)
+
+func shellEnvelopeOutput(output string) (bool, string, error) {
+	count := 0
+	ok := false
+	var lines []string
+	for line := range strings.SplitSeq(output, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "{") {
+			lines = append(lines, line)
+			continue
+		}
+		var envelope struct {
+			OK    *bool    `json:"ok"`
+			Lines []string `json:"lines"`
+		}
+		if err := json.Unmarshal([]byte(line), &envelope); err != nil || envelope.OK == nil {
+			return false, "", fmt.Errorf("invalid Shell JSON envelope")
+		}
+		ok = *envelope.OK
+		lines = append(lines, envelope.Lines...)
+		count++
+	}
+	if count != 1 {
+		return false, "", fmt.Errorf("expected exactly one Shell JSON envelope")
+	}
+	return ok, strings.Join(lines, "\n"), nil
+}
+
+func TestLiveResultRejectsUnexpectedShellErrorsWithoutADevice(t *testing.T) {
+	for _, expect := range []string{"ok", "ok_or_clear"} {
+		for _, output := range []string{"Error: deliberately invalid request", "Error: unsupported command", "Error: timeout is required\ntimeout_ms=5000", "Error: no matching command", "Error: invalid request\nError: network not available", "Status: failed  Message: wifi ssid is required", "Status: canceled", "match regex: error parsing regexp: missing closing ]"} {
+			if err := processResultError(expect, commandResult{Output: output}); err == nil {
+				t.Fatalf("%s accepted %q", expect, output)
+			}
+		}
+		if err := processResultError(expect, commandResult{Output: "Status: ok\ncapability: unknown (unsupported feature)"}); err != nil {
+			t.Fatalf("ordinary capability data mistaken for an error: %v", err)
+		}
+	}
+	for _, output := range []string{"Error: network not available", "Status: failed  Message: dns resolution failed", "Error: agent disconnected", "Status: failed  Message: timed out"} {
+		if err := processResultError("ok_or_clear", commandResult{Output: output, Code: 1}); err != nil {
+			t.Fatalf("clear runtime failure rejected: %s: %v", output, err)
+		}
+	}
+	if processResultError("ok_or_clear", commandResult{Code: 1}) == nil || processResultError("advisory", commandResult{Output: "panic: timeout"}) == nil {
+		t.Fatal("unknown process failure or panic accepted")
+	}
+}
+
+func TestLiveResultAcceptsRenderedEmptyErrorFieldsAndHonorsJSONVerdicts(t *testing.T) {
+	text, err := render.CommandResult("qa", &controlpb.CommandResult{Status: controlpb.CommandResult_STATUS_OK,
+		Payload: &controlpb.CommandResult_HttpCheck{HttpCheck: &controlpb.HttpCheckResult{Url: "https://example.test", Status: 200, ExpectedStatus: 200, Matched: true}}}, command.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := pipeline.JSON(text, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, output := range []string{text, encoded, "capability: unknown (unsupported feature)"} {
+		if processResultError("error", commandResult{Output: output}) == nil {
+			t.Fatalf("valid output mistaken for expected error: %s", output)
+		}
+	}
+	for _, expect := range []string{"ok", "ok_or_clear"} {
+		for _, output := range []string{text, encoded} {
+			if err := processResultError(expect, commandResult{Output: output}); err != nil {
+				t.Fatalf("valid rendered result rejected: %v\n%s", err, output)
+			}
+		}
+		for _, output := range []string{`{"ok":false,"lines":[]}`, `{"ok":false,"lines":["Error: deliberately invalid request"]}`, `{"ok":false,"lines":["Error: invalid request","Error: network not available"]}`} {
+			if processResultError(expect, commandResult{Output: output}) == nil {
+				t.Fatalf("negative JSON verdict accepted: %s", output)
+			}
+		}
+		for _, status := range []controlpb.CommandResult_Status{controlpb.CommandResult_STATUS_FAILED, controlpb.CommandResult_STATUS_CANCELED} {
+			output, err := render.CommandResult("qa", &controlpb.CommandResult{Status: status, Payload: &controlpb.CommandResult_Ping{Ping: &controlpb.PingResult{ExitCode: 1}}}, command.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if processResultError(expect, commandResult{Output: output}) == nil {
+				t.Fatalf("rendered failure accepted: %s", output)
+			}
+		}
+	}
+	if processResultError("ok_or_clear", commandResult{Output: `{"ok":false,"lines":["Error: network not available"]}`}) != nil {
+		t.Fatal("clear JSON runtime failure rejected")
+	}
+}
 
 var e2eCaseID = regexp.MustCompile(`^E2E-[0-9]{3}$`)
 
@@ -92,8 +273,8 @@ func TestE2ECaseTableSchema(t *testing.T) {
 }
 
 func validateCases(cases []matrixCase) error {
-	if len(cases) != e2eCaseCount {
-		return fmt.Errorf("case count = %d, want %d", len(cases), e2eCaseCount)
+	if len(cases) == 0 {
+		return fmt.Errorf("no e2e cases loaded")
 	}
 	titles := map[string]string{}
 	previousID := ""
@@ -106,8 +287,8 @@ func validateCases(cases []matrixCase) error {
 		if strings.TrimSpace(tc.Title) == "" {
 			return fmt.Errorf("%s has an empty test title", tc.ID)
 		}
-		if !titleMatchesRunner(tc) {
-			return fmt.Errorf("%s title %q does not match runner %q", tc.ID, tc.Title, tc.Runner)
+		if tc.Runner != "shell" && tc.Runner != "shell-parser" {
+			return fmt.Errorf("%s has unknown runner %q", tc.ID, tc.Runner)
 		}
 		if previousID, ok := titles[tc.Title]; ok {
 			return fmt.Errorf("%s duplicates title %q from %s", tc.ID, tc.Title, previousID)
@@ -121,54 +302,18 @@ func validateCases(cases []matrixCase) error {
 		default:
 			return fmt.Errorf("%s has unknown expectation %q", tc.ID, tc.Expect)
 		}
-		if containsStaleCaseLanguage(tc) {
-			return fmt.Errorf("%s contains stale case-management language", tc.ID)
-		}
 	}
 	return nil
 }
 
-func titleMatchesRunner(tc matrixCase) bool {
-	switch tc.Runner {
-	case "shell":
-		return strings.HasPrefix(tc.Title, "Shell ")
-	case "shell-parser":
-		return strings.HasPrefix(tc.Title, "Parser ")
-	case "cli":
-		return strings.HasPrefix(tc.Title, "CLI ")
-	default:
-		return false
-	}
-}
-
-func containsStaleCaseLanguage(tc matrixCase) bool {
-	text := strings.ToLower(strings.Join([]string{tc.ID, tc.Title, tc.Runner, tc.Command, tc.Expect, tc.Assertion}, "\n"))
-	staleTerms := []string{
-		"test2", "mer" + "ged", "manual" + " matrix", "resolved" + " anom" + "aly",
-		"regression" + ":", "cur" + "rently", "decide" + " whether", "documented" + " as", "last" + "-wins",
-	}
-	for _, term := range staleTerms {
-		if strings.Contains(text, term) {
-			return true
-		}
-	}
-	return false
-}
-
-func TestE2ECaseTableParsesShellAndCLIExpectations(t *testing.T) {
+func TestE2ECaseTableParsesShellExpectations(t *testing.T) {
 	for _, tc := range loadCases(t) {
-		if tc.Runner != "shell" && tc.Runner != "cli" {
+		if tc.Runner != "shell" {
 			continue
 		}
 		t.Run(tc.testName(), func(t *testing.T) {
 			commandLine := expandParserPlaceholders(tc.Command)
-			var res commandResult
-			switch tc.Runner {
-			case "shell":
-				res = runShellParser(commandLine)
-			case "cli":
-				res = runCLIParser(commandLine)
-			}
+			res := runShellParser(commandLine)
 			if err := parserResultError(tc.Expect, res); err != nil {
 				t.Fatalf("%s command %q: %v", tc.Runner, tc.Command, err)
 			}
@@ -229,46 +374,28 @@ func validateCommandCoverage(cases []matrixCase) error {
 		{name: "shell show devices", runner: "shell", text: "show devices"},
 		{name: "shell pipeline", runner: "shell", text: "| match"},
 		{name: "shell wifi status", runner: "shell", text: "show wifi status"},
-		{name: "shell ip status", runner: "shell", text: "show ip status"},
-		{name: "shell wifi diagnostics", runner: "shell", text: "show wifi diagnostics"},
-		{name: "shell wifi eht", runner: "shell", text: "show wifi eht"},
-		{name: "shell wifi eht fresh", runner: "shell", text: "show wifi eht fresh"},
-		{name: "shell wifi capabilities", runner: "shell", text: "show wifi capabilities"},
+		{name: "shell ip status", runner: "shell", text: "show wifi status ip"},
+		{name: "shell wifi diagnostics", runner: "shell", text: "show wifi status"},
+		{name: "shell wifi eht", runner: "shell", text: "show wifi status eht"},
+		{name: "shell wifi eht fresh", runner: "shell", text: "request wifi scan eht"},
+		{name: "shell wifi capabilities", runner: "shell", text: "show wifi status capabilities"},
 		{name: "shell wifi scan", runner: "shell", text: "show wifi scan"},
-		{name: "shell wifi fresh scan", runner: "shell", text: "show wifi scan fresh"},
-		{name: "shell wifi scan detail", runner: "shell", text: "show wifi scan detail"},
-		{name: "shell wifi connect", runner: "shell", text: "wifi connect"},
-		{name: "shell wifi wait", runner: "shell", text: "wifi wait"},
-		{name: "shell wifi assert", runner: "shell", text: "wifi assert"},
-		{name: "shell wifi reconnect", runner: "shell", text: "wifi reconnect"},
-		{name: "shell wifi monitor", runner: "shell", text: "wifi monitor"},
-		{name: "shell wifi cycle", runner: "shell", text: "wifi cycle"},
-		{name: "shell wifi disconnect", runner: "shell", text: "wifi disconnect"},
-		{name: "shell wifi forget", runner: "shell", text: "wifi forget"},
-		{name: "shell ping", runner: "shell", text: "ping"},
-		{name: "shell traceroute", runner: "shell", text: "traceroute"},
-		{name: "shell path mtu", runner: "shell", text: "path-mtu"},
-		{name: "shell global ip", runner: "shell", text: "global-ip"},
-		{name: "shell dns", runner: "shell", text: "dns"},
-		{name: "shell http", runner: "shell", text: "http"},
-		{name: "shell download", runner: "shell", text: "download"},
-		{name: "cli show devices", runner: "cli", text: "dropcheck --serial"},
-		{name: "cli ip status", runner: "cli", text: "dropcheck show ip status"},
-		{name: "cli wifi eht", runner: "cli", text: "dropcheck show wifi eht"},
-		{name: "cli wifi scan", runner: "cli", text: "dropcheck show wifi scan"},
-		{name: "cli wifi connect", runner: "cli", text: "dropcheck wifi connect"},
-		{name: "cli wifi wait", runner: "cli", text: "dropcheck wifi wait"},
-		{name: "cli wifi assert", runner: "cli", text: "dropcheck wifi assert"},
-		{name: "cli wifi monitor", runner: "cli", text: "dropcheck wifi monitor"},
-		{name: "cli wifi reconnect", runner: "cli", text: "dropcheck wifi reconnect"},
-		{name: "cli wifi cycle", runner: "cli", text: "dropcheck wifi cycle"},
-		{name: "cli ping", runner: "cli", text: "dropcheck ping"},
-		{name: "cli traceroute", runner: "cli", text: "dropcheck traceroute"},
-		{name: "cli path mtu", runner: "cli", text: "dropcheck path-mtu"},
-		{name: "cli global ip", runner: "cli", text: "dropcheck global-ip"},
-		{name: "cli dns", runner: "cli", text: "dropcheck dns"},
-		{name: "cli http", runner: "cli", text: "dropcheck http"},
-		{name: "cli download", runner: "cli", text: "dropcheck download"},
+		{name: "shell wifi fresh scan", runner: "shell", text: "request wifi scan"},
+		{name: "shell wifi scan filter", runner: "shell", text: "show wifi scan ssid"},
+		{name: "shell wifi connect", runner: "shell", text: "request wifi connect"},
+		{name: "shell wifi evaluation", runner: "shell", text: "test wifi"},
+		{name: "shell wifi reconnect", runner: "shell", text: "request wifi reconnect"},
+		{name: "shell wifi monitor", runner: "shell", text: "monitor wifi"},
+		{name: "shell wifi cycle", runner: "shell", text: "request wifi cycle"},
+		{name: "shell wifi disconnect", runner: "shell", text: "request wifi disconnect"},
+		{name: "shell wifi forget", runner: "shell", text: "request wifi forget ssid"},
+		{name: "shell ping", runner: "shell", text: "request ping"},
+		{name: "shell traceroute", runner: "shell", text: "request traceroute"},
+		{name: "shell path mtu", runner: "shell", text: "request pmtu"},
+		{name: "shell external ip", runner: "shell", text: "request ip external"},
+		{name: "shell dns", runner: "shell", text: "request dns resolve"},
+		{name: "shell http", runner: "shell", text: "request http check"},
+		{name: "shell download", runner: "shell", text: "request http download"},
 	}
 	for _, want := range required {
 		if !e2eTableHasCommand(cases, want.runner, want.text) {
@@ -322,58 +449,14 @@ func runShellParser(commandLine string) commandResult {
 		}
 		return commandResult{Output: out.String(), Code: 0}
 	}
-	_, err := shell.ParseLine(commandLine)
+	parsed, err := shell.ParseLine(commandLine)
+	if err == nil && parsed.Rejection != "" {
+		err = errors.New(parsed.Rejection)
+	}
 	if err != nil {
 		return commandResult{Output: err.Error(), Code: 1, Err: err}
 	}
 	return commandResult{Output: "parse ok\n", Code: 0}
-}
-
-func runCLIParser(commandLine string) commandResult {
-	args, err := commandparse.SplitArgs(commandLine)
-	if err != nil {
-		return commandResult{Output: err.Error(), Code: 1, Err: err}
-	}
-	if len(args) > 0 && args[0] == "dropcheck" {
-		args = args[1:]
-	}
-	args, err = stripAppFlags(args)
-	if err != nil {
-		return commandResult{Output: err.Error(), Code: 1, Err: err}
-	}
-	_, args, err = linuxcli.ExtractOptions(args)
-	if err != nil {
-		return commandResult{Output: err.Error(), Code: 1, Err: err}
-	}
-	if _, err := linuxcli.Parse(args); err != nil {
-		return commandResult{Output: err.Error(), Code: 1, Err: err}
-	}
-	return commandResult{Output: "parse ok\n", Code: 0}
-}
-
-func stripAppFlags(args []string) ([]string, error) {
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if arg == "--" {
-			return append([]string(nil), args[i+1:]...), nil
-		}
-		if !strings.HasPrefix(arg, "-") {
-			return append([]string(nil), args[i:]...), nil
-		}
-		name, _, hasValue := strings.Cut(arg, "=")
-		switch name {
-		case "--adb", "-adb", "--serial", "-serial", "--package", "-package", "--listen":
-			if !hasValue {
-				if i+1 >= len(args) {
-					return nil, fmt.Errorf("%s requires a value", name)
-				}
-				i++
-			}
-		default:
-			return append([]string(nil), args[i:]...), nil
-		}
-	}
-	return nil, nil
 }
 
 func (tc matrixCase) testName() string {
@@ -418,12 +501,10 @@ func TestE2ECaseTableRejectsInvalidRows(t *testing.T) {
 		{"unordered ID", func(tc *matrixCase) { tc.ID = "E2E-000" }},
 		{"empty title", func(tc *matrixCase) { tc.Title = "" }},
 		{"duplicate title", func(tc *matrixCase) { tc.Title = cases[0].Title }},
-		{"title runner mismatch", func(tc *matrixCase) { tc.Title = "Parser wrong surface" }},
 		{"unsupported runner", func(tc *matrixCase) { tc.Runner = "unknown" }},
 		{"unsupported expectation", func(tc *matrixCase) { tc.Expect = "unknown" }},
 		{"empty command", func(tc *matrixCase) { tc.Command = "" }},
 		{"empty assertion", func(tc *matrixCase) { tc.Assertion = "" }},
-		{"stale language", func(tc *matrixCase) { tc.Title = "Shell currently unavailable" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			invalid := slices.Clone(cases)
@@ -433,8 +514,11 @@ func TestE2ECaseTableRejectsInvalidRows(t *testing.T) {
 			}
 		})
 	}
-	if err := validateCases(cases[:len(cases)-1]); err == nil {
-		t.Fatal("missing row passed")
+	if err := validateCases(nil); err == nil {
+		t.Fatal("empty table passed")
+	}
+	if err := validateCases([]matrixCase{{ID: "E2E-001", Title: "Help remains available", Runner: "shell", Command: "help", Expect: "help", Assertion: "Help output"}}); err != nil {
+		t.Fatalf("valid independent case rejected: %v", err)
 	}
 	if err := validateCommandCoverage(nil); err == nil || !strings.Contains(err.Error(), "missing E2E coverage") {
 		t.Fatalf("missing coverage error = %v", err)

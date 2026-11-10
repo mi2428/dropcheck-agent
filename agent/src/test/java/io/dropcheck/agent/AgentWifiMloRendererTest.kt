@@ -79,7 +79,7 @@ class AgentWifiMloRendererTest {
 
         listOf(
             "Connected MLO",
-            "ap_mld      02:00:00:00:00:01",
+            "ap_mld: 02:00:00:00:00:01",
             "Associated MLO Links",
             "EHT Scan",
             "eht_candidates",
@@ -93,26 +93,26 @@ class AgentWifiMloRendererTest {
             "ie rsn=false rsnxe=false ext_cap=true rnr=true mbssid=true noninherit=false eht_mle=true ap_mld=true link_id=true",
             "sdk_flags twt=true 11az_ntb=true ranging_prot=true secure_he_ltf=true 11mc=true",
             "  affiliated_links",
-            "    [+] type=aff link=1 ap_mac=02:00:00:00:00:01",
+            "    [~] affiliated link",
+            "Identity: type=aff link=1 ap_mac=02:00:00:00:00:01",
             "Connected Roaming / Transition",
             "summary 11k=true 11v_bss_transition=true 11r=true ft_akm=<none> rnr=true",
             "Scan Roaming / Transition",
             "Connected BSS Coloring",
             "Scan BSS Coloring",
-            "he_operation bss_color=17 disabled=false partial=true",
-            "srg_bss_color_bitmap=0x0102030405060708",
+            "he_operation: bss_color=17 disabled=false partial=true",
+            "srg_bss_color_bitmap: 0x0102030405060708",
             "COLOR",
             "17(part)",
             "Connected HE Details",
             "Scan HE Details",
-            "he_mac flags twt_responder,om_control,punctured_sounding",
-            "he features twt_responder,punctured_sounding",
+            "he_mac flags: twt_responder,om_control,punctured_sounding",
+            "he features: twt_responder,punctured_sounding",
             "Connected EHT Details",
             "Scan EHT Details",
-            "mac flags om_control,triggered_txop_mode1,scs_traffic_description",
-            "eht features 320mhz_in_6ghz,rx_4096qam_wider_dl_ofdma",
-            "oper flags operation_information_present",
-            "oper flags disabled_subchannel_bitmap_present",
+            "mac flags: om_control,triggered_txop_mode1,scs_traffic_description",
+            "eht features: 320mhz_in_6ghz,rx_4096qam_wider_dl_ofdma",
+            "oper flags: operation_information_present,disabled_subchannel_bitmap_present",
             "Scan RNR Details",
             "rnr band=6ghz width=80MHz channel=5 freq=5975MHz op_class=133",
             "mld ap_mld_id=7 link_id=2",
@@ -180,8 +180,8 @@ class AgentWifiMloRendererTest {
         assertFalse(out.contains("Nearby EHT Links"))
         assertFalse(out.contains("Nearby EHT APs / Links"))
         assertTrue("missing full SSID in brief table:\n$out", out.contains(longSsid))
-        assertTrue("missing group heading:\n$out", out.contains("  $longSsid"))
-        assertTrue("missing MLD line:\n$out", out.contains("    mld  02:00:00:00:00:01"))
+        assertTrue("missing group identity:\n$out", out.contains("  SSID: $longSsid"))
+        assertTrue("missing MLD field:\n$out", out.contains("  MLD: 02:00:00:00:00:01"))
         assertTrue("missing complete brief records:\n$out", out.contains("M:") && out.contains("RSSI: -45") && out.contains("EHT: 320/1,3") && out.contains("MAC: aa:bb:cc:dd:ee:ff"))
         assertTrue("missing current link record:\n$out", out.contains("FL: active") && out.contains("ST: be") && out.contains("SEC: sae"))
         assertTrue("missing peer link record:\n$out", out.contains("RSSI: -55") && out.contains("FL: idle") && out.contains("aa:bb:cc:dd:ee:01"))
@@ -278,8 +278,8 @@ class AgentWifiMloRendererTest {
         ).joinToString("\n")
 
         listOf(
-            "filter            ssid=Lab",
-            "filtered_results  1",
+            "filter: ssid=Lab",
+            "filtered_results: 1",
             "Lab",
             "aa:bb:cc:dd:ee:ff",
             "no active Wi-Fi connection",
@@ -295,9 +295,9 @@ class AgentWifiMloRendererTest {
             AgentWifiMloContext(bssidFilter = "aa:bb:cc:dd:ee:ff"),
         ).joinToString("\n")
 
-        assertTrue("rendered output missing bssid filter:\n$bssidOut", bssidOut.contains("filter            bssid=aa:bb:cc:dd:ee:ff"))
+        assertTrue("rendered output missing bssid filter:\n$bssidOut", bssidOut.contains("filter: bssid=aa:bb:cc:dd:ee:ff"))
         assertTrue("rendered output missing affiliated links heading:\n$bssidOut", bssidOut.contains("  affiliated_links"))
-        assertTrue("rendered output missing affiliated match:\n$bssidOut", bssidOut.contains("    [-] type=aff link=1 ap_mac=02:00:00:00:00:01"))
+        assertTrue("rendered output missing affiliated match:\n$bssidOut", bssidOut.contains("    [-] affiliated link") && bssidOut.contains("Identity: type=aff link=1 ap_mac=02:00:00:00:00:01"))
         assertFalse(bssidOut.contains("Other"))
     }
 
@@ -380,12 +380,12 @@ class AgentWifiMloRendererTest {
             "connected_link",
             "same_mld_results",
             "visible_links",
-            "ap_mld      02:00:00:00:00:01",
-            "ap_link_id  2",
-            "eht_candidates  1",
+            "ap_mld: 02:00:00:00:00:01",
+            "ap_link_id: 2",
+            "eht_candidates: 1",
             "[*] Lab",
             "ap_mld=02:00:00:00:00:01 link=2 bssid=aa:bb:cc:dd:ee:ff",
-            "Diagnostics / Warnings\n  none",
+            "Diagnostics / Warnings\n  Warnings: none",
         ).forEach { want ->
             assertTrue("rendered output missing $want:\n$out", out.contains(want))
         }
@@ -408,8 +408,8 @@ class AgentWifiMloRendererTest {
 
         val out = AgentWifiMloRenderer.render(status, WifiScan.getDefaultInstance()).joinToString("\n")
 
-        assertTrue(out.contains("Current AP Relation\n  no active Wi-Fi connection"))
-        assertTrue(out.contains("Connected MLO\n  no active Wi-Fi connection"))
+        assertTrue(out.contains("Current AP Relation\n  Observation: no active Wi-Fi connection"))
+        assertTrue(out.contains("Connected MLO\n  Observation: no active Wi-Fi connection"))
         assertFalse("rendered output included placeholder SSID:\n$out", out.contains("<unknown ssid>"))
         assertFalse("rendered output included stale standard:\n$out", out.contains("802.11ax"))
     }
@@ -433,8 +433,8 @@ class AgentWifiMloRendererTest {
         val out = AgentWifiMloRenderer.render(status, WifiScan.getDefaultInstance()).joinToString("\n")
 
         assertTrue(out.contains("Connected MLO"))
-        assertTrue(out.contains("present     true"))
-        assertTrue(out.contains("ap_link_id  0"))
+        assertTrue(out.contains("present: true"))
+        assertTrue(out.contains("ap_link_id: 0"))
         assertFalse("rendered output treated link-id 0 as inactive:\n$out", out.contains("no active Wi-Fi connection"))
     }
 

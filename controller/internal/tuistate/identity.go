@@ -1,0 +1,305 @@
+package tuistate
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
+)
+
+// FailedCheckKey returns the stable identity for one finding.
+func FailedCheckKey(finding tuirun.Finding) string {
+	if finding.CheckID != "" {
+		return strings.Join([]string{finding.TargetID, finding.CheckID, finding.Metric, finding.Expected}, "\x00")
+	}
+	return strings.Join([]string{finding.Target, finding.Check, finding.Metric, finding.Expected, finding.Message}, "\x00")
+}
+
+// FailedCheckSummaryKey returns the summary key for an agent/target/finding
+// tuple. Failed summaries include the agent so device-labelled TUI rows never
+// merge results from different phones into one ambiguous row.
+func FailedCheckSummaryKey(agent tuirun.AgentSnapshot, target tuirun.TargetSnapshot, finding tuirun.Finding) string {
+	return FailedCheckStateKey(agent, target, finding)
+}
+
+// FailedCheckSummaryIdentity returns the stable identity for a failed summary.
+func FailedCheckSummaryIdentity(item FailedCheckSummary) string {
+	return FailedCheckSummaryKey(item.Agent, item.Target, item.Finding)
+}
+
+// FailedCheckSummaryIndexByIdentity finds key in rows or returns -1.
+func FailedCheckSummaryIndexByIdentity(rows []FailedCheckSummary, key string) int {
+	for i, row := range rows {
+		if FailedCheckSummaryIdentity(row) == key {
+			return i
+		}
+	}
+	return -1
+}
+
+// FailedCheckStateKey returns the full per-agent failed-check identity.
+func FailedCheckStateKey(agent tuirun.AgentSnapshot, target tuirun.TargetSnapshot, finding tuirun.Finding) string {
+	if target.ID != "" || finding.TargetID != "" {
+		return strings.Join([]string{AgentKey(agent), FirstNonEmpty(target.ID, finding.TargetID), FailedCheckKey(finding)}, "\x00")
+	}
+	targetName := FirstNonEmpty(target.Name, target.SSID, target.BSSID, finding.Target)
+	return strings.Join([]string{AgentKey(agent), targetName, target.SSID, target.BSSID, FailedCheckKey(finding)}, "\x00")
+}
+
+// FailureHotspotSummaryIdentity returns the stable identity for a hotspot row.
+func FailureHotspotSummaryIdentity(item FailureHotspotSummary) string {
+	return FailureHotspotIdentity(item.Agent, item.Target, item.LatestFinding.Target)
+}
+
+// FailureCauseSummaryIdentity returns the stable identity for a cause row.
+func FailureCauseSummaryIdentity(item FailureCauseSummary) string {
+	return FailureCauseIdentity(item.Agent, item.Cause)
+}
+
+// FailureCauseIdentity returns the per-agent cause identity used for
+// cross-target hotspot aggregation.
+func FailureCauseIdentity(agent tuirun.AgentSnapshot, cause string) string {
+	return strings.Join([]string{RoundAgentKey(agent), strings.ToLower(strings.TrimSpace(cause))}, "\x00")
+}
+
+// FailureHotspotIdentity returns the per-agent target identity used for hotspot
+// aggregation.
+func FailureHotspotIdentity(agent tuirun.AgentSnapshot, target tuirun.TargetSnapshot, findingTargets ...string) string {
+	targetKey := FirstNonEmpty(CheckStatusTargetKey(target), FirstNonEmpty(findingTargets...), "target")
+	return strings.Join([]string{RoundAgentKey(agent), targetKey}, "\x00")
+}
+
+// RoundAgentKey returns a non-empty key for aggregations that must still work
+// when tui data comes from a single unnamed local agent.
+func RoundAgentKey(agent tuirun.AgentSnapshot) string {
+	if key := AgentKey(agent); key != "" {
+		return key
+	}
+	return "all"
+}
+
+// TargetStateKey returns the map key for one configured or live target state.
+func TargetStateKey(agent tuirun.AgentSnapshot, target tuirun.TargetSnapshot) string {
+	if target.ID != "" {
+		return strings.Join([]string{AgentKey(agent), target.ID}, "\x00")
+	}
+	targetName := FirstNonEmpty(target.Name, target.SSID, target.BSSID)
+	return strings.Join([]string{AgentKey(agent), targetName, target.SSID, target.BSSID, target.Band}, "\x00")
+}
+
+// AgentKey returns the most stable available agent identity.
+func AgentKey(agent tuirun.AgentSnapshot) string {
+	return FirstNonEmpty(agent.ID, agent.ADBSerial, agent.SessionID, agent.Name)
+}
+
+// AgentLabel returns the operator-facing label for an agent snapshot.
+func AgentLabel(agent tuirun.AgentSnapshot) string {
+	return FirstNonEmpty(agent.DisplayName(), "-")
+}
+
+// SameAgent reports whether two snapshots identify the same agent.
+func SameAgent(a tuirun.AgentSnapshot, b tuirun.AgentSnapshot) bool {
+	if a.ID != "" || b.ID != "" {
+		return a.ID != "" && a.ID == b.ID
+	}
+	return AgentKey(a) == AgentKey(b)
+}
+
+// DisplayCheckName returns an operator-facing label for internal tui steps.
+func DisplayCheckName(name string) string {
+	name = strings.TrimSpace(name)
+	switch strings.ToLower(name) {
+	case "connect":
+		return "Connect"
+	case "wait_connected":
+		return "Wait Connected"
+	case "disconnect":
+		return "Disconnect"
+	case "forget":
+		return "Forget"
+	case "target":
+		return "Target"
+	default:
+		return name
+	}
+}
+
+// CheckStatusTargetKey is the target identity used for cross-round check
+// aggregation. It deliberately omits band so late events with partial target
+// snapshots still land on the configured target row.
+func CheckStatusTargetKey(target tuirun.TargetSnapshot) string {
+	if target.ID != "" {
+		return target.ID
+	}
+	return FirstNonEmpty(target.Name, target.SSID, target.BSSID)
+}
+
+// CheckStatusTargetLabel returns the most useful operator-facing label for a
+// target snapshot.
+func CheckStatusTargetLabel(target tuirun.TargetSnapshot) string {
+	return FirstNonEmpty(target.Name, target.SSID, target.BSSID, "-")
+}
+
+// CheckStatusTargetShortLabel returns the configured dense label for a target.
+func CheckStatusTargetShortLabel(target tuirun.TargetSnapshot) string {
+	return FirstNonEmpty(target.ShortName, target.Name, target.SSID, target.BSSID, "-")
+}
+
+// EventTargetLabel returns the target label used in event-log summaries.
+func (s State) EventTargetLabel(event tuirun.Event) string {
+	label := event.Target.Name
+	if !s.MultiAgent {
+		return label
+	}
+	return AgentLabel(event.Agent) + " " + label
+}
+
+// PassingCheckEvent reports whether event should be counted as a passing check.
+func PassingCheckEvent(event tuirun.Event) bool {
+	status := FirstNonEmpty(event.Step.Status, event.Status)
+	if status != "ok" || event.Step.Skipped {
+		return false
+	}
+	if event.Step.Type == "cleanup" {
+		return false
+	}
+	return FirstNonEmpty(event.Step.Name, event.Step.Type) != ""
+}
+
+// PassingCheckKey returns the full per-agent passing-check identity.
+func PassingCheckKey(agent tuirun.AgentSnapshot, target tuirun.TargetSnapshot, step tuirun.StepSnapshot) string {
+	if target.ID != "" || step.ID != "" {
+		targetKey, stepKey := "id:"+target.ID, "id:"+step.ID
+		if target.ID == "" {
+			targetKey = "name:" + CheckStatusTargetKey(target)
+		}
+		if step.ID == "" {
+			stepKey = "name:" + FirstNonEmpty(step.Name, step.Type)
+		}
+		return strings.Join([]string{AgentKey(agent), targetKey, stepKey}, "\x00")
+	}
+	targetName := FirstNonEmpty(target.Name, target.SSID, target.BSSID)
+	stepName := FirstNonEmpty(step.Name, step.Type)
+	if targetName == "" || stepName == "" {
+		return ""
+	}
+	return strings.Join([]string{AgentKey(agent), targetName, target.SSID, target.BSSID, stepName, step.Type}, "\x00")
+}
+
+// PassingCheckSummaryKey returns the summary identity for an agent, target, and
+// step. Passing summaries include the agent so device-labelled TUI rows never
+// merge results from different phones into one ambiguous row.
+func PassingCheckSummaryKey(agent tuirun.AgentSnapshot, target tuirun.TargetSnapshot, step tuirun.StepSnapshot) string {
+	return PassingCheckKey(agent, target, step)
+}
+
+// PassingCheckSummaryIdentity returns the stable identity for a passing summary.
+func PassingCheckSummaryIdentity(item PassingCheckSummary) string {
+	return PassingCheckSummaryKey(item.Agent, item.Target, item.Step)
+}
+
+// PassingCheckSummaryIndexByIdentity finds key in rows or returns -1.
+func PassingCheckSummaryIndexByIdentity(rows []PassingCheckSummary, key string) int {
+	for i, row := range rows {
+		if PassingCheckSummaryIdentity(row) == key {
+			return i
+		}
+	}
+	return -1
+}
+
+// EventTime returns event.Time or wall-clock time when the event is undated.
+func EventTime(event tuirun.Event) time.Time {
+	if !event.Time.IsZero() {
+		return event.Time
+	}
+	return time.Now()
+}
+
+// CurrentTime returns the state's pinned clock when tests or callers provide
+// one, otherwise it falls back to wall-clock time for live rendering.
+func (s State) CurrentTime() time.Time {
+	if !s.Now.IsZero() {
+		return s.Now
+	}
+	return time.Now()
+}
+
+// DurationLabel formats a millisecond duration for compact tables.
+func DurationLabel(duration int64) string {
+	if duration <= 0 {
+		return "-"
+	}
+	if duration < 1000 {
+		return fmt.Sprintf("%dms", duration)
+	}
+	return fmt.Sprintf("%.1fs", float64(duration)/1000)
+}
+
+// NormalizeStatus maps tui status spellings into the compact vocabulary used
+// by summaries and terminal palettes.
+func NormalizeStatus(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "ok", "pass", "passed":
+		return "ok"
+	case "running", "run":
+		return "running"
+	case "failed", "fail", "failure":
+		return "failed"
+	case "missing", "canceled":
+		return strings.ToLower(status)
+	case "skipped", "skip":
+		return "skipped"
+	default:
+		return "pending"
+	}
+}
+
+// FirstNonEmpty returns the first non-blank trimmed value.
+func FirstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+// Max returns the larger integer.
+func Max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// MaxInt64 returns the larger int64.
+func MaxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// Min returns the smaller integer.
+func Min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// Clamp constrains value to the inclusive range low..high.
+func Clamp(value, low, high int) int {
+	if high < low {
+		return low
+	}
+	if value < low {
+		return low
+	}
+	if value > high {
+		return high
+	}
+	return value
+}

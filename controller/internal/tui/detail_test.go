@@ -6,28 +6,37 @@ import (
 	"testing"
 	"time"
 
-	watch "dropcheck/controller/internal/harness"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
 
+func renderSelectedDetail(t *testing.T, selectContent func(int) (detailContent, bool), width, height int) string {
+	t.Helper()
+	content, ok := selectContent(width)
+	if !ok {
+		t.Fatal("expected a selected detail row")
+	}
+	return content.inspectorText(width)
+}
+
 func TestEnterShowsFailedCheckDetail(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{
 		{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
 	}, events)
 	m.width = 150
 	m.height = 50
 	m.Now = time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	m.apply(watch.Event{
+	m.apply(tuirun.Event{
 		Time:   time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC),
-		Kind:   watch.EventFinding,
+		Kind:   tuirun.EventFinding,
 		Round:  1,
-		Target: watch.TargetSnapshot{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
-		Step:   watch.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
+		Target: tuirun.TargetSnapshot{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
+		Step:   tuirun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
 		Status: "failed",
-		Finding: &watch.Finding{
+		Finding: &tuirun.Finding{
 			Target:   "Example Net",
 			Check:    "ping cloudflare",
 			Metric:   "received",
@@ -43,18 +52,18 @@ func TestEnterShowsFailedCheckDetail(t *testing.T) {
 	frame := stripANSI(m.render())
 	for _, want := range []string{
 		"Failed Check Detail",
-		"Event Log",
-		"Run Queue",
-		"Target       Check            Metric    Failures",
-		"Example Net  ping cloudflare  received  1",
-		"Fail Rate  Streak",
-		"100%       1",
-		"Last      Observed  Expected",
-		"09:30:00  0         \"== 5\"",
-		"Message",
-		"constraint failed",
-		"Failure History:",
-		"Logs:",
+		"Target: Example Net",
+		"Check: ping cloudflare",
+		"Metric: received",
+		"Failures: 1",
+		"Fail Rate: 100%",
+		"Streak: 1",
+		"Last: 09:30:00",
+		"Observed: 0",
+		"Expected: \"== 5\"",
+		"Message: constraint failed",
+		"Failure History",
+		"Logs",
 	} {
 		if !strings.Contains(frame, want) {
 			t.Fatalf("detail view missing %q:\n%s", want, frame)
@@ -63,41 +72,41 @@ func TestEnterShowsFailedCheckDetail(t *testing.T) {
 }
 
 func TestFailedRequiredStepDetailShowsWifiAssertFailurePoint(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{
 		{Name: "ub2(6G)", SSID: "Example Net", BSSID: "02:00:00:00:00:21", Band: "5ghz"},
 	}, events)
 	m.width = 180
 	m.height = 50
 	at := time.Date(2026, 5, 18, 10, 27, 26, 0, time.UTC)
 	m.Now = at
-	target := watch.TargetSnapshot{Name: "ub2(6G)", SSID: "Example Net", BSSID: "02:00:00:00:00:21", Band: "5ghz"}
+	target := tuirun.TargetSnapshot{Name: "ub2(6G)", SSID: "Example Net", BSSID: "02:00:00:00:00:21", Band: "5ghz"}
 	message := "wifi condition timeout: last_pass=band failed=ip(actual=absent expected=present),validated(actual=false expected=true) assert_elapsed_ms=30000"
-	m.apply(watch.Event{
+	m.apply(tuirun.Event{
 		Time:   at,
-		Kind:   watch.EventStepFinished,
+		Kind:   tuirun.EventStepFinished,
 		Round:  1,
 		Target: target,
-		Step:   watch.StepSnapshot{Name: "wait_connected", Type: "wait_connected", Operation: "wifi.wait", Status: "failed", Message: message},
+		Step:   tuirun.StepSnapshot{Name: "wait_connected", Type: "wait_connected", Operation: "wifi.wait", Status: "failed", Message: message},
 		Status: "failed",
 	})
-	m.apply(watch.Event{Time: at, Kind: watch.EventFinding, Round: 1, Target: target,
-		Step:    watch.StepSnapshot{Name: "wait_connected", Type: "wait_connected", Operation: "wifi.wait", Status: "failed"},
-		Finding: &watch.Finding{Target: target.Name, Check: "wait_connected", Metric: "status", Observed: "failed", Expected: "== ok", Message: message}})
-	m.apply(watch.Event{
+	m.apply(tuirun.Event{Time: at, Kind: tuirun.EventFinding, Round: 1, Target: target,
+		Step:    tuirun.StepSnapshot{Name: "wait_connected", Type: "wait_connected", Operation: "wifi.wait", Status: "failed"},
+		Finding: &tuirun.Finding{Target: target.Name, Check: "wait_connected", Metric: "status", Observed: "failed", Expected: "== ok", Message: message}})
+	m.apply(tuirun.Event{
 		Time:    at.Add(time.Second),
-		Kind:    watch.EventLog,
+		Kind:    tuirun.EventLog,
 		Round:   1,
 		Target:  target,
-		Step:    watch.StepSnapshot{Name: "wait_connected", Type: "wait_connected", Operation: "wifi.wait", Status: "failed"},
+		Step:    tuirun.StepSnapshot{Name: "wait_connected", Type: "wait_connected", Operation: "wifi.wait", Status: "failed"},
 		Status:  "warn",
 		Message: `wifi failure cause: disconnected reason=6 locally_generated=false bssid=02:00:00:00:00:21 ssid="Example Net"`,
 	})
 
-	view := stripANSI(m.failedCheckDetailView(180, 18))
+	view := stripANSI(renderSelectedDetail(t, m.failedCheckDetailContent, 180, 18))
 	for _, want := range []string{
-		"Target   Check           Metric  Failures  Fail Rate  Streak  Last      Observed  Expected",
-		"ub2(6G)  Wait Connected  status  1         100%       1       10:27:26  failed    \"== ok\"",
+		"Target: ub2(6G)", "Check: Wait Connected", "Metric: status", "Failures: 1",
+		"Fail Rate: 100%", "Streak: 1", "Last: 10:27:26", "Observed: failed", "Expected: \"== ok\"",
 		"last_pass=band",
 		"failed=ip(actual=absent expected=present),validated(actual=false expected=true)",
 		"wifi failure cause: disconnected reason=6 locally_generated=false",
@@ -109,8 +118,8 @@ func TestFailedRequiredStepDetailShowsWifiAssertFailurePoint(t *testing.T) {
 }
 
 func TestEnterShowsPassingCheckDetail(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{
 		{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
 	}, events)
 	m.width = 150
@@ -118,12 +127,12 @@ func TestEnterShowsPassingCheckDetail(t *testing.T) {
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(40 * time.Second)
 	for _, second := range []int{0, 20, 40} {
-		m.apply(watch.Event{
+		m.apply(tuirun.Event{
 			Time:     at.Add(time.Duration(second) * time.Second),
-			Kind:     watch.EventStepFinished,
+			Kind:     tuirun.EventStepFinished,
 			Round:    1,
-			Target:   watch.TargetSnapshot{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
-			Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Operation: "wifi.connect", Status: "ok"},
+			Target:   tuirun.TargetSnapshot{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
+			Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Operation: "wifi.connect", Status: "ok"},
 			Status:   "ok",
 			Duration: 120,
 		})
@@ -134,12 +143,8 @@ func TestEnterShowsPassingCheckDetail(t *testing.T) {
 	frame := stripANSI(m.render())
 	for _, want := range []string{
 		"Passing Check Detail",
-		"Event Log",
-		"Run Queue",
-		"Target       Check    SSID         Band  Op            Last",
-		"Example Net  Connect  Example Net  5ghz  wifi.connect  09:30:40",
-		"Duration  Avg    Max    Samples",
-		"120ms     120ms  120ms  3",
+		"Target: Example Net", "Check: Connect", "SSID: Example Net", "Band: 5ghz",
+		"Op: wifi.connect", "Last: 09:30:40", "Duration: 120ms", "Avg: 120ms", "Max: 120ms", "Samples: 3",
 		"window=last=90m count=",
 		"peak=2",
 		"scale=",
@@ -153,15 +158,15 @@ func TestEnterShowsPassingCheckDetail(t *testing.T) {
 	}
 }
 
-func TestTabKeepsModalOpenAndMovesPanelFocus(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
-	m.apply(watch.Event{
+func TestInspectorKeepsFocusUntilExplicitlyClosed(t *testing.T) {
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
+	m.apply(tuirun.Event{
 		Time:     time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC),
-		Kind:     watch.EventStepFinished,
+		Kind:     tuirun.EventStepFinished,
 		Round:    1,
-		Target:   watch.TargetSnapshot{Name: "Example Net", SSID: "Example Net"},
-		Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Target:   tuirun.TargetSnapshot{Name: "Example Net", SSID: "Example Net"},
+		Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 10,
 	})
@@ -172,34 +177,38 @@ func TestTabKeepsModalOpenAndMovesPanelFocus(t *testing.T) {
 	}
 
 	m = updateKey(t, m, tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
-	if m.detailOpen || m.focus != focusCheckStatus {
-		t.Fatalf("shift-tab to a non-detail panel should close modal and focus check status: open=%v focus=%v detail=%v", m.detailOpen, m.focus, m.detailPanel)
+	if !m.detailOpen || m.focus != focusPassingChecks {
+		t.Fatalf("inspector must retain its scope and focus: open=%v focus=%v", m.detailOpen, m.focus)
+	}
+	m = updateKey(t, m, tea.Key{Code: tea.KeyEscape})
+	if m.detailOpen {
+		t.Fatal("Esc did not close inspector")
 	}
 }
 
-func TestDetailModalCursorFollowsOpenedItemAcrossUpdates(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+func TestInspectorCursorFollowsOpenedItemAcrossUpdates(t *testing.T) {
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	m.focus = focusPassingChecks
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(time.Minute)
-	targetA := watch.TargetSnapshot{Name: "target-a", SSID: "Lab"}
-	targetB := watch.TargetSnapshot{Name: "target-b", SSID: "Lab"}
-	m.apply(watch.Event{
+	targetA := tuirun.TargetSnapshot{Name: "target-a", SSID: "Lab"}
+	targetB := tuirun.TargetSnapshot{Name: "target-b", SSID: "Lab"}
+	m.apply(tuirun.Event{
 		Time:     at.Add(-time.Minute),
-		Kind:     watch.EventStepFinished,
+		Kind:     tuirun.EventStepFinished,
 		Round:    1,
 		Target:   targetA,
-		Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 10,
 	})
-	m.apply(watch.Event{
+	m.apply(tuirun.Event{
 		Time:     at,
-		Kind:     watch.EventStepFinished,
+		Kind:     tuirun.EventStepFinished,
 		Round:    1,
 		Target:   targetB,
-		Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 10,
 	})
@@ -209,12 +218,12 @@ func TestDetailModalCursorFollowsOpenedItemAcrossUpdates(t *testing.T) {
 		t.Fatalf("opened row = %q, want target-b", got)
 	}
 
-	m.apply(watch.Event{
+	m.apply(tuirun.Event{
 		Time:     at.Add(time.Minute),
-		Kind:     watch.EventStepFinished,
+		Kind:     tuirun.EventStepFinished,
 		Round:    2,
 		Target:   targetA,
-		Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
+		Step:     tuirun.StepSnapshot{Name: "connect", Type: "connect", Status: "ok"},
 		Status:   "ok",
 		Duration: 12,
 	})
@@ -223,28 +232,28 @@ func TestDetailModalCursorFollowsOpenedItemAcrossUpdates(t *testing.T) {
 	if got := rows[m.passingCheckCursor].Target.Name; got != "target-b" {
 		t.Fatalf("cursor should follow opened item after re-sort, got %q rows=%#v", got, rows)
 	}
-	view := stripANSI(m.passingCheckDetailView(100, 12))
+	view := stripANSI(renderSelectedDetail(t, m.passingCheckDetailContent, 100, 12))
 	if !strings.Contains(view, "target-b") {
 		t.Fatalf("detail modal should keep showing opened Item:\n%s", view)
 	}
 }
 
 func TestFailedCheckDetailOverlaysExistingTUI(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{
 		{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
 	}, events)
 	m.width = 150
 	m.height = 32
-	m.apply(watch.Event{Kind: watch.EventWatchStarted, Message: "watch started"})
-	m.apply(watch.Event{
+	m.apply(tuirun.Event{Kind: tuirun.EventTUIStarted, Message: "tui started"})
+	m.apply(tuirun.Event{
 		Time:   time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC),
-		Kind:   watch.EventFinding,
+		Kind:   tuirun.EventFinding,
 		Round:  1,
-		Target: watch.TargetSnapshot{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
-		Step:   watch.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
+		Target: tuirun.TargetSnapshot{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
+		Step:   tuirun.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
 		Status: "failed",
-		Finding: &watch.Finding{
+		Finding: &tuirun.Finding{
 			Target:   "Example Net",
 			Check:    "ping cloudflare",
 			Metric:   "received",
@@ -254,7 +263,7 @@ func TestFailedCheckDetailOverlaysExistingTUI(t *testing.T) {
 		},
 	})
 	background := stripANSI(m.render())
-	m.detailOpen = true
+	m.openDetailForPanel(focusFailedChecks)
 	overlaid := stripANSI(m.render())
 
 	for _, want := range []string{"Event Log", "Failed Check Detail"} {
@@ -273,138 +282,21 @@ func TestFailedCheckDetailOverlaysExistingTUI(t *testing.T) {
 	}
 }
 
-func TestFailedCheckDetailModalKeepsInvestigationRowsWhenCompact(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{
-		{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
-	}, events)
-	m.width = 160
-	m.height = 50
-	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	m.Now = at.Add(60 * time.Second)
-	for _, second := range []int{0, 0, 15, 30, 30, 30, 60} {
-		m.apply(watch.Event{
-			Time:   at.Add(time.Duration(second) * time.Second),
-			Kind:   watch.EventFinding,
-			Round:  1,
-			Target: watch.TargetSnapshot{Name: "Example Net", SSID: "Example Net", Band: "5ghz"},
-			Step:   watch.StepSnapshot{Name: "ping cloudflare", Type: "ping", Status: "failed"},
-			Status: "failed",
-			Finding: &watch.Finding{
-				Target:   "Example Net",
-				Check:    "ping cloudflare",
-				Metric:   "received",
-				Observed: "0",
-				Expected: "== 5",
-				Message:  "constraint failed",
-			},
-		})
-	}
-	m.detailOpen = true
-
-	frame := stripANSI(m.render())
-	for _, want := range []string{
-		"Failures  Fail Rate  Streak",
-		"7         100%       1",
-		"Last      Observed  Expected",
-		"09:31:00  0         \"== 5\"",
-		"Failure History:",
-		"Logs:",
-	} {
-		if !strings.Contains(frame, want) {
-			t.Fatalf("compact detail view missing %q:\n%s", want, frame)
-		}
-	}
-	if strings.Contains(frame, "回数") || strings.Contains(frame, "時刻") || strings.Contains(frame, "·") {
-		t.Fatalf("detail histogram should not render Japanese labels or dotted zero buckets:\n%s", frame)
-	}
-}
-
-func TestFailedCheckDetailUsesDenseInvestigationLayout(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
-	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	m.Now = at.Add(40 * time.Second)
-	for _, second := range []int{0, 20, 40} {
-		m.apply(watch.Event{
-			Time:   at.Add(time.Duration(second) * time.Second),
-			Kind:   watch.EventFinding,
-			Target: watch.TargetSnapshot{Name: "Example Net"},
-			Step:   watch.StepSnapshot{Name: "ping cloudflare"},
-			Finding: &watch.Finding{
-				Target:   "Example Net",
-				Check:    "ping cloudflare",
-				Metric:   "received",
-				Observed: "0",
-				Expected: "== 5",
-				Message:  "constraint failed",
-			},
-		})
-	}
-
-	view := stripANSI(m.failedCheckDetailView(80, 19))
-	lines := strings.Split(view, "\n")
-	if got, want := len(lines), 19; got != want {
-		t.Fatalf("detail line count = %d, want %d:\n%s", got, want, view)
-	}
-	for _, want := range []string{
-		"Target       Check            Metric    Failures  Fail Rate  Streak",
-		"Example Net  ping cloudflare  received  3         100%       3",
-		"Last      Observed  Expected",
-		"09:30:40  0         \"== 5\"",
-		"window=last=90m count=",
-		"peak=2",
-		"scale=",
-		"Message",
-		"constraint failed",
-		"90m ago",
-		"now",
-		"Failure History:",
-		"Time      Round  Check",
-		"09:30:40",
-		"Logs:",
-		"kind=finding",
-	} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("dense detail view missing %q:\n%s", want, view)
-		}
-	}
-	axis := lineIndex(view, "90m ago")
-	section := lineIndex(view, "Failure History:")
-	if axis <= 0 || section <= axis {
-		t.Fatalf("detail view missing expected graph/section order:\n%s", view)
-	}
-	timeline := lineIndex(view, "window=last=90m")
-	if timeline <= 0 || lines[timeline-1] != "" {
-		t.Fatalf("detail graph should have one blank line above it, got line before timeline = %q:\n%s", lines[intMax(0, timeline-1)], view)
-	}
-	if timeline+1 >= len(lines) || lines[timeline+1] != "" {
-		t.Fatalf("detail graph should have one blank line below its timeline header, got line after timeline = %q:\n%s", lines[intMin(len(lines)-1, timeline+1)], view)
-	}
-	if lines[section-1] != "" {
-		t.Fatalf("detail graph should have one blank line below it, got line before section = %q:\n%s", lines[section-1], view)
-	}
-	logs := lineIndex(view, "Logs:")
-	if logs <= section || lines[logs-1] != "" {
-		t.Fatalf("detail sections should be separated by one blank line before Logs, got line before Logs = %q:\n%s", lines[intMax(0, logs-1)], view)
-	}
-}
-
 func TestFailureHotspotDetailSectionsUseTitledSpacing(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
 	m.Now = at.Add(2 * time.Minute)
-	target := watch.TargetSnapshot{Name: "radio-a", SSID: "Example Net", Band: "5ghz"}
+	target := tuirun.TargetSnapshot{Name: "radio-a", SSID: "Example Net", Band: "5ghz"}
 	for round, when := range []time.Time{at, at.Add(time.Minute)} {
-		m.apply(watch.Event{
+		m.apply(tuirun.Event{
 			Time:   when,
-			Kind:   watch.EventFinding,
+			Kind:   tuirun.EventFinding,
 			Round:  uint64(round + 1),
 			Target: target,
-			Step:   watch.StepSnapshot{Name: "public ipv6", Type: "global_ip", Status: "failed"},
+			Step:   tuirun.StepSnapshot{Name: "public ipv6", Type: "global_ip", Status: "failed"},
 			Status: "failed",
-			Finding: &watch.Finding{
+			Finding: &tuirun.Finding{
 				Target:   target.Name,
 				Check:    "public ipv6",
 				Metric:   "ipv6_global_ips",
@@ -415,13 +307,13 @@ func TestFailureHotspotDetailSectionsUseTitledSpacing(t *testing.T) {
 		})
 	}
 
-	view := stripANSI(m.failureHotspotDetailView(120, 25))
+	view := stripANSI(renderSelectedDetail(t, m.failureHotspotDetailContent, 120, 25))
 	for _, want := range []string{
-		"Causes:",
+		"Causes",
 		"2  09:31:00  constraint failed",
-		"Failure History:",
+		"Failure History",
 		"09:31:00  2      public ipv6",
-		"Logs:",
+		"Logs",
 		"kind=finding",
 	} {
 		if !strings.Contains(view, want) {
@@ -429,7 +321,7 @@ func TestFailureHotspotDetailSectionsUseTitledSpacing(t *testing.T) {
 		}
 	}
 	lines := strings.Split(view, "\n")
-	for _, marker := range []string{"Latest Cause", "Fail Rate", "Causes:", "Failure History:", "Logs:"} {
+	for _, marker := range []string{"Causes", "Failure History", "Logs"} {
 		index := lineIndex(view, marker)
 		if index <= 0 || lines[index-1] != "" {
 			t.Fatalf("%s should have one blank line above it, got %q:\n%s", marker, lines[intMax(0, index-1)], view)
@@ -438,26 +330,26 @@ func TestFailureHotspotDetailSectionsUseTitledSpacing(t *testing.T) {
 }
 
 func TestFailedCheckDetailLogsAreScopedToSelectedCheck(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	target := watch.TargetSnapshot{Name: "radio-a", SSID: "Lab", Band: "5ghz"}
-	m.apply(watch.Event{
+	target := tuirun.TargetSnapshot{Name: "radio-a", SSID: "Lab", Band: "5ghz"}
+	m.apply(tuirun.Event{
 		Time:   at,
-		Kind:   watch.EventStepFinished,
+		Kind:   tuirun.EventStepFinished,
 		Round:  1,
 		Target: target,
-		Step:   watch.StepSnapshot{Name: "http cloudflare v6", Type: "http", Status: "ok"},
+		Step:   tuirun.StepSnapshot{Name: "http cloudflare v6", Type: "http", Status: "ok"},
 		Status: "ok",
 	})
-	m.apply(watch.Event{
+	m.apply(tuirun.Event{
 		Time:   at.Add(time.Second),
-		Kind:   watch.EventFinding,
+		Kind:   tuirun.EventFinding,
 		Round:  1,
 		Target: target,
-		Step:   watch.StepSnapshot{Name: "public ipv6", Type: "global_ip", Status: "failed"},
+		Step:   tuirun.StepSnapshot{Name: "public ipv6", Type: "global_ip", Status: "failed"},
 		Status: "failed",
-		Finding: &watch.Finding{
+		Finding: &tuirun.Finding{
 			Target:   "radio-a",
 			Check:    "public ipv6",
 			Metric:   "ipv6_global_ips",
@@ -466,17 +358,17 @@ func TestFailedCheckDetailLogsAreScopedToSelectedCheck(t *testing.T) {
 			Message:  "constraint failed",
 		},
 	})
-	m.apply(watch.Event{
+	m.apply(tuirun.Event{
 		Time:   at.Add(2 * time.Second),
-		Kind:   watch.EventStepFinished,
+		Kind:   tuirun.EventStepFinished,
 		Round:  1,
 		Target: target,
-		Step:   watch.StepSnapshot{Name: "disconnect", Type: "cleanup", Status: "ok"},
+		Step:   tuirun.StepSnapshot{Name: "disconnect", Type: "cleanup", Status: "ok"},
 		Status: "ok",
 	})
 
-	view := stripANSI(m.failedCheckDetailView(120, 18))
-	for _, want := range []string{"Logs:", "kind=finding", "step=\"public ipv6\"", "metric=ipv6_global_ips"} {
+	view := stripANSI(renderSelectedDetail(t, m.failedCheckDetailContent, 120, 18))
+	for _, want := range []string{"Logs", "kind=finding", "step=\"public ipv6\"", "metric=ipv6_global_ips"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("selected check detail missing %q:\n%s", want, view)
 		}
@@ -489,18 +381,18 @@ func TestFailedCheckDetailLogsAreScopedToSelectedCheck(t *testing.T) {
 }
 
 func TestFailedCheckDetailLogsUseStructuredHistoryBeyondVisibleEventLog(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	target := watch.TargetSnapshot{Name: "radio-a", SSID: "Lab", Band: "5ghz"}
-	m.apply(watch.Event{
+	target := tuirun.TargetSnapshot{Name: "radio-a", SSID: "Lab", Band: "5ghz"}
+	m.apply(tuirun.Event{
 		Time:   at,
-		Kind:   watch.EventFinding,
+		Kind:   tuirun.EventFinding,
 		Round:  1,
 		Target: target,
-		Step:   watch.StepSnapshot{Name: "public ipv6", Type: "global_ip", Status: "failed"},
+		Step:   tuirun.StepSnapshot{Name: "public ipv6", Type: "global_ip", Status: "failed"},
 		Status: "failed",
-		Finding: &watch.Finding{
+		Finding: &tuirun.Finding{
 			Target:   "radio-a",
 			Check:    "public ipv6",
 			Metric:   "ipv6_global_ips",
@@ -510,9 +402,9 @@ func TestFailedCheckDetailLogsUseStructuredHistoryBeyondVisibleEventLog(t *testi
 		},
 	})
 	for i := range visibleEventLogLimit + 25 {
-		m.apply(watch.Event{
+		m.apply(tuirun.Event{
 			Time:    at.Add(time.Duration(i+1) * time.Second),
-			Kind:    watch.EventLog,
+			Kind:    tuirun.EventLog,
 			Message: fmt.Sprintf("unrelated log %03d", i),
 		})
 	}
@@ -521,8 +413,8 @@ func TestFailedCheckDetailLogsUseStructuredHistoryBeyondVisibleEventLog(t *testi
 		t.Fatalf("test setup expected selected finding to be outside the visible Event Log tail")
 	}
 
-	view := stripANSI(m.failedCheckDetailView(120, 18))
-	for _, want := range []string{"Logs:", "kind=finding", "step=\"public ipv6\""} {
+	view := stripANSI(renderSelectedDetail(t, m.failedCheckDetailContent, 120, 18))
+	for _, want := range []string{"Logs", "kind=finding", "step=\"public ipv6\""} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("detail should use structured history for %q:\n%s", want, view)
 		}
@@ -562,45 +454,6 @@ func TestDetailLogRowsWrapToViewWidth(t *testing.T) {
 	}
 }
 
-func TestDetailSummaryFieldsRenderAdaptiveTable(t *testing.T) {
-	fields := []detailField{
-		{Key: "device", Value: "Pixel 7a (35251JEHN00258)"},
-		{Key: "target", Value: "hp1(5G)"},
-		{Key: "check", Value: "Wi-Fi Link"},
-		{Key: "ssid", Value: "Example Net"},
-		{Key: "bssid", Value: "02:00:00:00:00:11"},
-		{Key: "band", Value: "5ghz"},
-		{Key: "op", Value: "wifi.status"},
-		{Key: "type", Value: "wifi_status"},
-		{Key: "last", Value: "00:31:23"},
-		{Key: "duration", Value: "466ms"},
-	}
-
-	wideLines := strings.Split(stripANSI(strings.Join(detailSummaryTableLines(fields, 160), "\n")), "\n")
-	if len(wideLines) < 2 {
-		t.Fatalf("summary table should render header/value rows: %#v", wideLines)
-	}
-	if !strings.Contains(wideLines[0], "Device") || !strings.Contains(wideLines[0], "Target") || !strings.Contains(wideLines[0], "Check") {
-		t.Fatalf("summary header row missing expected columns:\n%s", strings.Join(wideLines, "\n"))
-	}
-	if !strings.Contains(wideLines[1], "Pixel 7a") || !strings.Contains(wideLines[1], "hp1(5G)") || !strings.Contains(wideLines[1], "Wi-Fi Link") {
-		t.Fatalf("summary value row missing expected values:\n%s", strings.Join(wideLines, "\n"))
-	}
-	if strings.Contains(strings.Join(wideLines, "\n"), "device=") || strings.Contains(strings.Join(wideLines, "\n"), "target=") {
-		t.Fatalf("summary should render table columns, not inline key=value pairs:\n%s", strings.Join(wideLines, "\n"))
-	}
-
-	narrow := stripANSI(strings.Join(detailSummaryTableLines(fields, 44), "\n"))
-	for i, line := range strings.Split(narrow, "\n") {
-		if got := lipgloss.Width(line); got > 44 {
-			t.Fatalf("narrow summary line %d width = %d, want <= 44:\n%s", i, got, narrow)
-		}
-	}
-	if got, wide := len(strings.Split(narrow, "\n")), len(wideLines); got <= wide {
-		t.Fatalf("narrow summary should split into more rows: narrow=%d wide=%d\n%s", got, wide, narrow)
-	}
-}
-
 func TestDetailHistogramUsesSummarySparklineImplementation(t *testing.T) {
 	now := time.Date(2026, 5, 16, 9, 35, 0, 0, time.UTC)
 	histogram := recentEventHistogram([]time.Time{
@@ -631,57 +484,20 @@ func TestDetailHistogramUsesSummarySparklineImplementation(t *testing.T) {
 	}
 }
 
-func TestOccurrenceGraphHeightUsesHalfOfDetailContent(t *testing.T) {
-	if got, want := occurrenceGraphHeight(18), 9; got != want {
-		t.Fatalf("occurrenceGraphHeight(18) = %d, want %d", got, want)
-	}
-	if got, want := occurrenceGraphHeight(6), 3; got != want {
-		t.Fatalf("occurrenceGraphHeight(6) = %d, want %d", got, want)
-	}
-}
-
-func TestDenseDetailTimelineSeparatesHeaderAndGraph(t *testing.T) {
-	now := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	histogram := recentEventHistogram([]time.Time{now.Add(-time.Minute)}, 80, detailTimelineWindow, now)
-	view := stripANSI(denseDetailView([]string{"Device  Pixel 9"}, histogram, failGraphStyle, nil, 80, 8))
-	lines := strings.Split(view, "\n")
-	header := -1
-	for i, line := range lines {
-		if strings.Contains(line, "window=last=90m") {
-			header = i
-			break
-		}
-	}
-	if header < 0 {
-		t.Fatalf("detail timeline header missing:\n%s", view)
-	}
-	if header+1 >= len(lines) || strings.TrimSpace(lines[header+1]) != "" {
-		t.Fatalf("detail timeline header should have a spacer row below it:\n%s", view)
-	}
-	axis := lineIndex(view, "90m ago")
-	if axis <= header+2 {
-		t.Fatalf("detail timeline graph should start after the spacer row:\n%s", view)
-	}
-	graph := strings.Join(lines[header+2:axis], "\n")
-	if !strings.Contains(graph, "█") {
-		t.Fatalf("detail timeline graph should render after the spacer row:\n%s", view)
-	}
-}
-
 func TestFailureCauseHistoryTableAlignsWithLongCheckNames(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	at := time.Date(2026, 5, 16, 13, 41, 52, 0, time.UTC)
 	m.Now = at.Add(time.Minute)
-	target := watch.TargetSnapshot{Name: "debug-a1(5G)", SSID: "Example Net"}
-	m.apply(watch.Event{
+	target := tuirun.TargetSnapshot{Name: "debug-a1(5G)", SSID: "Example Net"}
+	m.apply(tuirun.Event{
 		Time:   at,
-		Kind:   watch.EventFinding,
+		Kind:   tuirun.EventFinding,
 		Round:  2,
 		Target: target,
-		Step:   watch.StepSnapshot{Name: "Debug Ping Blackhole", Type: "ping", Status: "failed"},
+		Step:   tuirun.StepSnapshot{Name: "Debug Ping Blackhole", Type: "ping", Status: "failed"},
 		Status: "failed",
-		Finding: &watch.Finding{
+		Finding: &tuirun.Finding{
 			Target:   target.Name,
 			Check:    "Debug Ping Blackhole",
 			Metric:   "status",
@@ -690,7 +506,7 @@ func TestFailureCauseHistoryTableAlignsWithLongCheckNames(t *testing.T) {
 			Message:  "ping failed",
 		},
 	})
-	causes := m.failureCauses()
+	causes := m.FailureCauses()
 	if len(causes) != 1 {
 		t.Fatalf("failure causes = %d, want 1: %#v", len(causes), causes)
 	}
@@ -707,19 +523,19 @@ func TestFailureCauseHistoryTableAlignsWithLongCheckNames(t *testing.T) {
 }
 
 func TestFailureHotspotHistoryTableAlignsWithLongCheckNames(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
+	events := make(chan tuirun.Event)
+	m := newModel([]tuirun.Target{}, events)
 	at := time.Date(2026, 5, 16, 14, 6, 35, 0, time.UTC)
 	m.Now = at.Add(time.Minute)
-	target := watch.TargetSnapshot{Name: "debug-a1(5G)", SSID: "Example Net"}
-	m.apply(watch.Event{
+	target := tuirun.TargetSnapshot{Name: "debug-a1(5G)", SSID: "Example Net"}
+	m.apply(tuirun.Event{
 		Time:   at,
-		Kind:   watch.EventFinding,
+		Kind:   tuirun.EventFinding,
 		Round:  1,
 		Target: target,
-		Step:   watch.StepSnapshot{Name: "Debug HTTP Wrong Status", Type: "http", Status: "failed"},
+		Step:   tuirun.StepSnapshot{Name: "Debug HTTP Wrong Status", Type: "http", Status: "failed"},
 		Status: "failed",
-		Finding: &watch.Finding{
+		Finding: &tuirun.Finding{
 			Target:   target.Name,
 			Check:    "Debug HTTP Wrong Status",
 			Metric:   "elapsed_ms",
@@ -728,7 +544,7 @@ func TestFailureHotspotHistoryTableAlignsWithLongCheckNames(t *testing.T) {
 			Message:  "constraint failed",
 		},
 	})
-	hotspots := m.failureHotspots()
+	hotspots := m.FailureHotspots()
 	if len(hotspots) != 1 {
 		t.Fatalf("failure hotspots = %d, want 1: %#v", len(hotspots), hotspots)
 	}
@@ -758,104 +574,5 @@ func assertDetailTableColumnAligned(t *testing.T, headerLine string, rowLine str
 		if got != want {
 			t.Fatalf("column %q not aligned: header index=%d row index=%d\nheader=%q\nrow=%q", pair[0], want, got, header, row)
 		}
-	}
-}
-
-func TestDetailSectionAllocationsPrioritizeHistoryAndUseLogFloor(t *testing.T) {
-	sections := []detailSection{
-		{Title: "causes", Rows: []string{"  Count  Last      Cause", "      2  14:29:36  constraint failed", "      2  14:29:35  ping failed"}},
-		{Title: "failure history", Rows: detailTestRows(17, "  14:29:36  2  Debug HTTP Wrong Status  status  failed  \"== ok\"")},
-		{Title: "logs", Rows: detailTestRows(80, "  14:30:37  kind=step_started round=3 status=running target=debug-a2(5G)"), WrapLogs: true},
-	}
-
-	allocations := detailSectionAllocations(sections, 40, 160)
-
-	if got, want := allocations[0], detailSectionNaturalAllocation(sections[0], 160); got != want {
-		t.Fatalf("causes allocation = %d, want full %d", got, want)
-	}
-	if got, want := allocations[1], detailSectionNaturalAllocation(sections[1], 160); got != want {
-		t.Fatalf("failure history allocation = %d, want full %d", got, want)
-	}
-	if got, floor := allocations[2], detailLogMinimumAllocation(40); got < floor {
-		t.Fatalf("logs allocation = %d, want at least %d", got, floor)
-	}
-	if got := allocations[0] + allocations[1] + allocations[2]; got != 40 {
-		t.Fatalf("allocations should use all section height, got %d: %#v", got, allocations)
-	}
-}
-
-func TestDetailSectionAllocationsKeepLogsAtFloorWhenHistoryOverflows(t *testing.T) {
-	sections := []detailSection{
-		{Title: "failure history", Rows: detailTestRows(80, "  14:29:36  2  Debug HTTP Wrong Status  status  failed  \"== ok\"")},
-		{Title: "logs", Rows: detailTestRows(80, "  14:30:37  kind=step_started round=3 status=running target=debug-a2(5G)"), WrapLogs: true},
-	}
-
-	allocations := detailSectionAllocations(sections, 40, 160)
-	logFloor := detailLogMinimumAllocation(40)
-
-	if got := allocations[1]; got != logFloor {
-		t.Fatalf("logs should stay at floor while history is overflowing: got=%d floor=%d allocations=%#v", got, logFloor, allocations)
-	}
-	if got := allocations[0]; got <= allocations[1] {
-		t.Fatalf("failure history should receive the remaining height before extra logs: allocations=%#v", allocations)
-	}
-	if got := allocations[0] + allocations[1]; got != 40 {
-		t.Fatalf("allocations should use all section height, got %d: %#v", got, allocations)
-	}
-}
-
-func detailTestRows(count int, value string) []string {
-	rows := make([]string, count)
-	for i := range rows {
-		rows[i] = value
-	}
-	return rows
-}
-
-func TestFailedCheckDetailModalUsesFixedAppRatio(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
-	modal := m.failedCheckDetailModal(150, 32)
-
-	if got, want := lipgloss.Width(modal), 81; got != want {
-		t.Fatalf("modal width = %d, want %d", got, want)
-	}
-	if got, want := lipgloss.Height(modal), 10; got != want {
-		t.Fatalf("modal height = %d, want %d", got, want)
-	}
-}
-
-func TestDetailModalShowsExpandedLogRows(t *testing.T) {
-	events := make(chan watch.Event)
-	m := newModel([]watch.Target{}, events)
-	at := time.Date(2026, 5, 16, 9, 30, 0, 0, time.UTC)
-	target := watch.TargetSnapshot{Name: "radio-a", SSID: "Lab", Band: "5ghz"}
-	for i := range 30 {
-		m.apply(watch.Event{
-			Time:     at.Add(time.Duration(i) * time.Second),
-			Kind:     watch.EventStepFinished,
-			Round:    uint64(i + 1),
-			Target:   target,
-			Step:     watch.StepSnapshot{Name: "connect", Type: "connect", Operation: "wifi.connect", Status: "ok"},
-			Status:   "ok",
-			Duration: 100,
-		})
-	}
-	m.focus = focusPassingChecks
-	m.openDetailForPanel(focusPassingChecks)
-
-	modalFrame := m.passingCheckDetailModal(150, 60)
-	if got, base := lipgloss.Height(modalFrame), detailModalHeight(60); got <= base {
-		t.Fatalf("modal should grow beyond base height when logs overflow: got=%d base=%d\n%s", got, base, stripANSI(modalFrame))
-	}
-	if got, want := lipgloss.Height(modalFrame), detailModalMaxHeight(60); got != want {
-		t.Fatalf("overflowing modal height = %d, want cap %d", got, want)
-	}
-	modal := stripANSI(modalFrame)
-	if got := strings.Count(modal, "kind=step_finished"); got < 4 {
-		t.Fatalf("expanded modal should show multiple related log rows, got %d:\n%s", got, modal)
-	}
-	if !strings.Contains(modal, "          band=5ghz") && !strings.Contains(modal, "            band=5ghz") {
-		t.Fatalf("expanded modal should wrap log bodies under the body column:\n%s", modal)
 	}
 }

@@ -1,6 +1,7 @@
 package io.dropcheck.agent
 
 import android.Manifest
+import android.app.admin.DevicePolicyManager
 import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -19,12 +20,16 @@ import io.dropcheck.agent.grpc.DiagnosticField
 import io.dropcheck.agent.grpc.IpStatus
 import io.dropcheck.agent.grpc.NetworkSelector
 import io.dropcheck.agent.grpc.NetworkDiagnostics
+import io.dropcheck.agent.grpc.GetNetwork
+import io.dropcheck.agent.grpc.NetworkSnapshot
+import io.dropcheck.agent.grpc.PermissionSnapshot
 import io.dropcheck.agent.grpc.WifiCapabilities
 import io.dropcheck.agent.grpc.WifiDiagnostics
 import io.dropcheck.agent.grpc.WifiBand
 import io.dropcheck.agent.grpc.WifiEvent
 import io.dropcheck.agent.grpc.WifiMonitorResult
 import io.dropcheck.agent.grpc.WifiScan
+import io.dropcheck.agent.grpc.WifiScanConnections
 import io.dropcheck.agent.grpc.WifiScanDetail
 import io.dropcheck.agent.grpc.WifiStatus
 import java.io.File
@@ -51,6 +56,15 @@ internal fun <T> withMonitorCleanup(registered: Boolean, cleanup: () -> Unit, bl
         block()
     } finally {
         if (registered) cleanup()
+    }
+}
+
+internal fun pollWifiStatus(deadline: Long, intervalMs: Int, read: () -> WifiStatus, onStatus: (WifiStatus) -> Unit) {
+    while (System.currentTimeMillis() < deadline) {
+        onStatus(read())
+        val remaining = deadline - System.currentTimeMillis()
+        if (remaining <= 0) break
+        Thread.sleep(minOf(intervalMs.toLong(), remaining))
     }
 }
 
@@ -126,6 +140,38 @@ class NetworkRepository(
     private val wifi = context.applicationContext.getSystemService(WifiManager::class.java)
     private val mloUnavailableWarnings = Collections.synchronizedSet(mutableSetOf<String>())
     private val mapper = WifiProtoMapper(wifi) { warnMloUnavailable(it) }
+
+    /** No Wi-Fi status/scan acquisition is needed to enumerate Android Networks. */
+    @SuppressLint("MissingPermission")
+    fun networkSnapshot(query: GetNetwork? = null): NetworkSnapshot {
+        val active = connectivity.activeNetwork
+        val all = connectivity.allNetworks.toList()
+        val ids = snapshotNetworkIds(all.map { it.toString() }, active?.toString(), query)
+        val result = NetworkSnapshot.newBuilder().setObservedAtUnixMs(System.currentTimeMillis())
+        for (id in ids) {
+            val network = all.single { it.toString() == id }
+            val ip = ipStatus(network)
+            result.addNetworks(NetworkDiagnostics.newBuilder().setNetworkId(id).setActive(network == active).setIpStatus(ip))
+            if (!AgentObservationPresentation.available(ip.observationFieldsList, "capabilities") ||
+                !AgentObservationPresentation.available(ip.observationFieldsList, "link_properties")) {
+                result.addErrors("Network $id: capabilities or link properties unavailable")
+            }
+            if (connectivity.allNetworks.none { it == network }) result.addErrors("Network $id disappeared during collection")
+        }
+        return result.build()
+    }
+
+    fun permissionSnapshot(): PermissionSnapshot {
+        val result = PermissionSnapshot.newBuilder().setObservedAtUnixMs(System.currentTimeMillis())
+            .setDeviceOwner(context.getSystemService(DevicePolicyManager::class.java).isDeviceOwnerApp(context.packageName))
+        val permissions = listOf(Manifest.permission.ACCESS_NETWORK_STATE, Manifest.permission.ACCESS_WIFI_STATE,
+            Manifest.permission.CHANGE_WIFI_STATE, Manifest.permission.INTERNET)
+        permissions.forEach { name -> result.addPermissions(diagnosticField(name.substringAfterLast('.'),
+            if (context.checkSelfPermission(name) == PackageManager.PERMISSION_GRANTED) "granted" else "denied")) }
+        permissionSummary().forEach { entry -> result.addPermissions(diagnosticField(entry.substringBefore('='), entry.substringAfter('='))) }
+        result.addPermissions(diagnosticField("location_enabled", context.getSystemService(android.location.LocationManager::class.java).isLocationEnabled))
+        return result.build()
+    }
 
     /**
      * Captures a point-in-time Wi-Fi status snapshot.
@@ -284,6 +330,7 @@ class NetworkRepository(
         builder.addFields(diagnosticField("scan_result_count", results.size))
         builder.addFields(diagnosticField("scan_result_total_count", allResults.size))
         results.forEach { builder.addResults(mapper.scanResult(it)) }
+        builder.connections = scanConnections()
         logger.debug("wifi scan collected requested_band=${wifiBandName(band)} results=${results.size} total=${allResults.size} errors=${builder.errorsList.joinToString(",")}")
         return builder.build()
     }
@@ -331,12 +378,15 @@ class NetworkRepository(
             .getOrDefault(false)
         logger.info("wifi fresh scan requested band=${wifiBandName(band)} start_scan=$scanStarted timeout_ms=$timeoutMs")
         val waited = if (scanStarted) {
-            runCatching { latch.await(timeoutMs.toLong(), TimeUnit.MILLISECONDS) }.getOrDefault(false)
+            try { latch.await(timeoutMs.toLong(), TimeUnit.MILLISECONDS) }
+            catch (_: InterruptedException) { Thread.currentThread().interrupt(); false }
         } else {
             false
         }
-        runCatching { appContext.unregisterReceiver(receiver) }
+        val unregisterError = runCatching { appContext.unregisterReceiver(receiver) }
             .onFailure { logger.warn("wifi fresh scan unregister receiver failed error=$it") }
+            .exceptionOrNull()
+        if (Thread.currentThread().isInterrupted) throw InterruptedException("Wi-Fi scan canceled after receiver cleanup")
         val scan = wifiScan(band).toBuilder()
             .addFields(diagnosticField("fresh_scan_receiver_registered", true))
             .addFields(diagnosticField("fresh_scan_start_scan", scanStarted))
@@ -350,6 +400,8 @@ class NetworkRepository(
         if (scanStarted && !broadcastReceived) {
             scan.addErrors("scan_broadcast_timeout=${timeoutMs}ms")
         }
+        if (broadcastReceived && !resultsUpdated) scan.addErrors("scan_results_not_updated")
+        if (unregisterError != null) scan.addErrors("unregister_receiver=${errorSummary(unregisterError)}")
         return scan.build()
     }
 
@@ -370,11 +422,43 @@ class NetworkRepository(
         builder.addFields(diagnosticField("scan_result_total_count", allResults.size))
         builder.addFields(diagnosticField("scan_result_match_count", results.size))
         results.forEach { builder.addResults(mapper.scanResult(it)) }
+        builder.connections = scanConnections()
         if (results.isEmpty()) {
             builder.addErrors("scan_detail_no_match")
         }
         logger.debug("wifi scan detail target=$target band=${wifiBandName(band)} matches=${results.size} total=${allResults.size}")
         return builder.build()
+    }
+
+    /** Point-in-time association evidence, never inferred from SSID, MLD or the default Network. */
+    @SuppressLint("MissingPermission")
+    private fun scanConnections(): WifiScanConnections {
+        val result = WifiScanConnections.newBuilder()
+        val addresses = sortedSetOf<String>()
+        if (Thread.currentThread().isInterrupted) throw InterruptedException("Wi-Fi connection observation canceled")
+        try {
+            for (network in connectivity.allNetworks) {
+                if (Thread.currentThread().isInterrupted) throw InterruptedException("Wi-Fi connection observation canceled")
+                val caps = connectivity.getNetworkCapabilities(network)
+                if (caps == null) {
+                    result.addErrors("Network $network capabilities unavailable during collection")
+                    continue
+                }
+                if (!caps.isPhysicalWifiNetwork()) continue
+                val info = networkWifiInfo(context, network, caps)
+                if (info == null || info.supplicantState != android.net.wifi.SupplicantState.COMPLETED || scanBssid(info.bssid.orEmpty()) == null) {
+                    result.addErrors("Network $network connected BSSID unavailable")
+                    continue
+                }
+                addresses.add(checkNotNull(scanBssid(info.bssid.orEmpty())))
+            }
+        } catch (failure: Exception) {
+            if (failure is InterruptedException || Thread.currentThread().isInterrupted) throw failure
+            result.addErrors("connection_observation=${errorSummary(failure)}")
+        }
+        if (Thread.currentThread().isInterrupted) throw InterruptedException("Wi-Fi connection observation canceled")
+        return result.setObservedAtUnixMs(System.currentTimeMillis()).addAllBssids(addresses)
+            .setComplete(result.errorsCount == 0).build()
     }
 
     /**
@@ -449,27 +533,21 @@ class NetworkRepository(
             addEvent("monitor_start", "wifi monitor started")
             var lastSignature = ""
             logger.info("wifi monitor begin duration_ms=$boundedDuration interval_ms=$boundedInterval registered=$registered")
-            while (System.currentTimeMillis() < deadline) {
-                val status = runCatching { wifiStatus() }.getOrNull()
-                if (status != null) {
-                    val signature = statusSignature(status)
-                    if (signature != lastSignature) {
-                        lastSignature = signature
-                        val event = WifiEvent.newBuilder()
-                            .setUnixTimeMs(System.currentTimeMillis())
-                            .setType("status_changed")
-                            .setMessage(signature)
-                            .setStatus(status)
-                            .addFields(diagnosticField("signature", signature))
-                            .addFields(diagnosticField("elapsed_ms", System.currentTimeMillis() - startedAt))
-                            .build()
-                        events += event
-                        logger.debug("wifi monitor status_changed signature=$signature")
-                    }
+            pollWifiStatus(deadline, boundedInterval, { wifiStatus() }) { status ->
+                val signature = statusSignature(status)
+                if (signature != lastSignature) {
+                    lastSignature = signature
+                    val event = WifiEvent.newBuilder()
+                        .setUnixTimeMs(System.currentTimeMillis())
+                        .setType("status_changed")
+                        .setMessage(signature)
+                        .setStatus(status)
+                        .addFields(diagnosticField("signature", signature))
+                        .addFields(diagnosticField("elapsed_ms", System.currentTimeMillis() - startedAt))
+                        .build()
+                    events += event
+                    logger.debug("wifi monitor status_changed signature=$signature")
                 }
-                val remaining = deadline - System.currentTimeMillis()
-                if (remaining <= 0) break
-                Thread.sleep(minOf(boundedInterval.toLong(), remaining))
             }
             addEvent("monitor_end", "wifi monitor ended")
         }
@@ -811,14 +889,7 @@ class NetworkRepository(
     }
 
     private fun permissionSummary(): List<String> {
-        val names = buildList {
-            add(Manifest.permission.ACCESS_COARSE_LOCATION)
-            add(Manifest.permission.ACCESS_FINE_LOCATION)
-            add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                add(Manifest.permission.NEARBY_WIFI_DEVICES)
-            }
-        }
+        val names = agentRuntimePermissions(Build.VERSION.SDK_INT) + Manifest.permission.ACCESS_BACKGROUND_LOCATION
         return names.map { permission ->
             val shortName = permission.substringAfterLast(".")
             val granted = context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED

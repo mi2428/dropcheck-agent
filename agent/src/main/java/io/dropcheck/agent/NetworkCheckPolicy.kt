@@ -2,6 +2,7 @@ package io.dropcheck.agent
 
 import io.dropcheck.agent.grpc.DnsRecordType
 import io.dropcheck.agent.grpc.IpFamily
+import io.dropcheck.agent.grpc.PathMtuProbe
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -218,16 +219,21 @@ internal object NetworkCheckPolicy {
         }
     }
 
-    /** Use protocol MTU floors so discovery never probes below a packet size the IP version must support. */
+    /** Default to protocol MTU floors; explicit bounds must fit the IP and ICMP headers. */
     fun pathMtuMinBytes(value: Int, ipv6: Boolean): Int {
+        require(value == 0 || value >= if (ipv6) IPV6_PING_OVERHEAD_BYTES else IPV4_PING_OVERHEAD_BYTES) {
+            "minimum MTU cannot be smaller than the IP and ICMP headers"
+        }
         if (value > 0) return value
         return if (ipv6) DEFAULT_IPV6_PATH_MTU_MIN_BYTES else DEFAULT_IPV4_PATH_MTU_MIN_BYTES
     }
 
     /** Prefer Android's link MTU as the search ceiling, falling back to Ethernet MTU when unavailable. */
     fun pathMtuMaxBytes(value: Int, interfaceMtu: Int, minMtu: Int): Int {
+        require(value >= 0) { "maximum MTU cannot be negative" }
         val fallback = if (interfaceMtu > 0) interfaceMtu else DEFAULT_PATH_MTU_MAX_BYTES
         val maxMtu = if (value > 0) value else fallback
+        require(value == 0 || maxMtu >= minMtu) { "maximum MTU cannot be smaller than the minimum MTU" }
         return maxMtu.coerceAtLeast(minMtu)
     }
 
@@ -238,10 +244,33 @@ internal object NetworkCheckPolicy {
 
     /** Convert target IP MTU to ping payload bytes: IPv4 overhead is 20+8, IPv6 overhead is 40+8. */
     fun pathMtuPayloadBytes(mtuBytes: Int, overheadBytes: Int): Int {
-        return (mtuBytes - overheadBytes).coerceAtLeast(0)
+        require(mtuBytes >= overheadBytes) { "MTU cannot be smaller than the IP and ICMP headers" }
+        return mtuBytes - overheadBytes
     }
 
-    /** Android ping accepts "-M do" to set DF/no-fragmentation; a failed probe means the MTU is too large. */
+    data class PathMtuSearch(val mtuBytes: Int, val error: String = "")
+
+    /** Only explicit packet-size errors bound MTU; loss and execution failures leave it unknown. */
+    fun searchPathMtu(minMtu: Int, maxMtu: Int, probe: (Int) -> PathMtuProbe): PathMtuSearch {
+        require(minMtu > 0 && maxMtu >= minMtu) { "invalid MTU bounds" }
+        if (!probe(minMtu).passed) return PathMtuSearch(0, "minimum_mtu_failed")
+        var low = minMtu
+        var high = maxMtu
+        while (low < high) {
+            val mid = low + (high - low + 1) / 2
+            val result = probe(mid)
+            when {
+                result.passed -> low = mid
+                result.exitCode > 0 && pathMtuSizeError.containsMatchIn(result.output) -> high = mid - 1
+                else -> return PathMtuSearch(0, "mtu_probe_inconclusive=$mid exit_code=${result.exitCode}")
+            }
+        }
+        return PathMtuSearch(low)
+    }
+
+    private val pathMtuSizeError = Regex("message too long|frag(?:mentation)? needed|packet too big|packet needs to be fragmented", RegexOption.IGNORE_CASE)
+
+    /** Android ping accepts "-M do" to set DF/no-fragmentation. */
     fun pathMtuPingArgs(
         binary: String,
         bindTarget: String,

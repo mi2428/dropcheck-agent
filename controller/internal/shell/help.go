@@ -4,148 +4,148 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
-	"dropcheck/controller/internal/command"
-	"dropcheck/controller/internal/pipeline"
+	"github.com/mi2428/dropcheck-agent/controller/internal/command"
 )
 
-func PrintHelp() { writeHelp(os.Stdout) }
-
 func writeHelp(w io.Writer) {
-	fmt.Fprintln(w, "Controller Shell commands (key value; switches fresh/brief/mlo/detail):")
-	for _, entry := range command.GrammarTable {
-		if entry.Unsupported {
+	WriteHelpTopic(w, "")
+}
+
+func WriteHelpTopic(w io.Writer, topic string) {
+	fmt.Fprintln(w, "Controller Shell (pinned Android target; PC-only ADB/device commands are labelled)")
+	fmt.Fprintln(w)
+	for _, entry := range command.ShellGrammarTable {
+		if topic != "" && entry.Path != topic && !strings.HasPrefix(entry.Path, topic+" ") {
 			continue
 		}
 		fmt.Fprint(w, "  ", entry.Path)
 		for _, pos := range entry.Positionals {
 			fmt.Fprint(w, " <", pos, ">")
 		}
-		for _, key := range entry.Required {
-			fmt.Fprint(w, " ", key, " <value>")
-		}
 		for _, key := range entry.Switches {
 			fmt.Fprint(w, " [", key, "]")
 		}
 		for _, key := range entry.Values {
-			if !contains(entry.Required, key) {
+			if slices.Contains(entry.Required, key) {
+				fmt.Fprint(w, " ", key, " <value>")
+			} else {
 				fmt.Fprint(w, " [", key, " <value>]")
 			}
 		}
-		fmt.Fprintln(w)
-	}
-	fmt.Fprintln(w, "  exit | quit\n  | display json|set | match <regex> | except <regex> | count | no-more")
-	fmt.Fprintln(w, "  check link: family defaults to ipv4; BSSID pinning unsupported; read-only")
-	fmt.Fprintln(w, "  check lab: explicit ssid/family/gateway/dns/resolver selected/http/expected-status/timeout; active traffic, no Wi-Fi changes")
-}
-
-func contains(list []string, word string) bool {
-	for _, item := range list {
-		if item == word {
-			return true
+		description := entry.Description
+		if entry.Effect == "" {
+			description = "(PC-only) " + description
 		}
+		fmt.Fprintf(w, "\n    Description: %s\n\n", description)
 	}
-	return false
+	fmt.Fprintln(w, "  exit\n  | find <pattern> | except <pattern> | last <lines> | match <pattern> | trim <start-column> | count\n  | display json (alone; safe presentation JSON)")
+	fmt.Fprintln(w, "  All command input, including credentials, is recallable within this session; history is not written to disk.")
 }
 
-func IsHelpRune(value rune) bool { return value == '?' || value == '？' }
-
+func IsHelpRune(r rune) bool { return r == '?' || r == '？' }
 func IsHelpLine(line string) bool {
-	trimmed := strings.TrimSpace(line)
-	if trimmed == "?" || trimmed == "？" {
-		return true
-	}
-	parts, err := pipeline.Split(trimmed)
-	if err != nil {
-		return false
-	}
-	args, err := command.SplitArgs(parts[len(parts)-1])
-	return err == nil && len(args) > 0 && (args[len(args)-1] == "?" || args[len(args)-1] == "？")
+	line = strings.TrimRight(line, " \t\r\n")
+	runes := []rune(line)
+	return len(runes) > 0 && IsHelpRune(runes[len(runes)-1]) && command.HelpPosition(string(runes[:len(runes)-1]))
 }
-
 func PrintContextHelp(line string) { WriteContextHelp(os.Stdout, line) }
-
 func WriteContextHelp(w io.Writer, line string) {
-	if strings.TrimSpace(line) == "?" || strings.TrimSpace(line) == "？" {
+	runes := []rune(strings.TrimRight(line, "\r\n"))
+	if len(runes) > 0 && IsHelpRune(runes[len(runes)-1]) {
+		runes = runes[:len(runes)-1]
+	}
+	prefix := string(runes)
+	if strings.TrimSpace(prefix) == "" {
 		writeHelp(w)
 		return
 	}
-	line = strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(line), "?"), "？"))
-	if parts, err := pipeline.Split(line + "x"); err == nil && len(parts) > 1 {
-		for _, candidate := range []string{"display json", "display set", "match <regex>", "except <regex>", "count", "no-more"} {
-			fmt.Fprintln(w, "  ", candidate)
+	var rows [][2]string
+	if parsed, err := ParseLine(prefix); err == nil && parsed.Kind != Help && parsed.Kind != Noop && parsed.Kind != Exit && parsed.Rejection == "" && strings.HasSuffix(prefix, " ") {
+		rows = append(rows, [2]string{"<Enter>", "Execute the requested subject"})
+	}
+	for _, candidate := range CompleteLine(prefix) {
+		lexed, _ := command.Lex(candidate, true)
+		if len(lexed.Tokens) > 0 {
+			description := ""
+			for _, entry := range command.ShellGrammarTable {
+				if entry.Path == strings.TrimSpace(candidate) {
+					description = entry.Description
+					break
+				}
+			}
+			rows = append(rows, [2]string{lexed.Tokens[len(lexed.Tokens)-1].Value, description})
 		}
-		return
 	}
-	args, err := command.SplitArgs(line)
-	if err != nil {
-		writeHelp(w)
-		return
+	width := 0
+	for _, row := range rows {
+		width = max(width, len(row[0]))
 	}
-	if len(args) == 0 {
-		writeHelp(w)
-		return
-	}
-	for _, candidate := range command.Suggestions(args) {
-		fmt.Fprintln(w, "  ", candidate)
-	}
-	if len(command.Suggestions(args)) == 0 {
-		writeHelp(w)
+	for _, row := range rows {
+		if row[1] == "" {
+			fmt.Fprintln(w, "  "+row[0])
+		} else {
+			fmt.Fprintf(w, "  %-*s  - %s\n", width, row[0], row[1])
+		}
 	}
 }
 
 func CompleteLine(line string) []string {
-	if parts, err := pipeline.Split(line + "x"); err != nil {
+	lexed, _ := command.Lex(line, true)
+	if lexed.Quote != 0 || lexed.Escaped {
 		return nil
-	} else if len(parts) > 1 {
-		segment := strings.TrimSuffix(parts[len(parts)-1], "x")
-		args, err := command.SplitArgs(segment)
-		if err != nil {
+	}
+	tokens := lexed.Tokens
+	pipe := false
+	for i, token := range slices.Backward(tokens) {
+		if token.Pipe {
+			tokens = tokens[i+1:]
+			pipe = true
+			break
+		}
+	}
+	var args []string
+	start := len(line)
+	prefix := ""
+	for _, t := range tokens {
+		args = append(args, t.Value)
+	}
+	if len(tokens) > 0 && tokens[len(tokens)-1].End == len(line) {
+		last := tokens[len(tokens)-1]
+		if last.Literal {
 			return nil
 		}
-		prefix := ""
-		base := args
-		if !strings.HasSuffix(line, " ") && len(args) > 0 {
-			prefix = args[len(args)-1]
-			base = args[:len(args)-1]
-		}
-		var choices []string
+		prefix = last.Value
+		start = last.Start
+		args = args[:len(args)-1]
+	}
+	var choices []string
+	if pipe {
 		switch {
-		case len(base) == 0:
-			choices = []string{"display", "match", "except", "count", "no-more"}
-		case len(base) == 1 && base[0] == "display":
-			choices = []string{"json", "set"}
+		case len(args) == 0:
+			choices = []string{"find", "except", "last", "match", "trim", "count", "display"}
+		case len(args) == 1 && args[0] == "display":
+			choices = []string{"json"}
+		case len(args) == 1 && (args[0] == "find" || args[0] == "match" || args[0] == "except"):
+			choices = []string{"<pattern>"}
+		case len(args) == 1 && args[0] == "last":
+			choices = []string{"<lines>"}
+		case len(args) == 1 && args[0] == "trim":
+			choices = []string{"<start-column>"}
 		}
-		var out []string
-		for _, choice := range choices {
-			if strings.HasPrefix(choice, prefix) {
-				out = append(out, line[:len(line)-len(prefix)]+choice)
-			}
-		}
-		return out
-	}
-	args, err := command.SplitArgs(line)
-	if err != nil {
-		return nil
-	}
-	base := args
-	prefix := ""
-	if len(line) > 0 && !strings.HasSuffix(line, " ") && len(args) > 0 {
-		prefix = args[len(args)-1]
-		base = args[:len(args)-1]
-	}
-	var candidates []string
-	if len(base) == 0 {
-		candidates = command.Suggestions(nil)
 	} else {
-		candidates = command.Suggestions(base)
+		choices = command.ShellSuggestions(args)
+		if len(args) == 0 {
+			choices = append(choices, "exit")
+		}
 	}
 	var out []string
-	for _, candidate := range candidates {
-		if strings.HasPrefix(candidate, prefix) {
-			completion := line[:len(line)-len(prefix)] + candidate
-			if prefix == candidate && !IsPlaceholderCandidate(candidate) && len(command.Suggestions(append(append([]string(nil), base...), candidate))) > 0 {
+	for _, choice := range choices {
+		if strings.HasPrefix(choice, prefix) || IsPlaceholderCandidate(choice) {
+			completion := line[:start] + choice
+			if prefix == choice && !IsPlaceholderCandidate(choice) {
 				completion += " "
 			}
 			out = append(out, completion)
@@ -157,13 +157,13 @@ func CompleteLine(line string) []string {
 func CompletionHintLine(line string) string {
 	var hints []string
 	for _, candidate := range CompleteLine(line) {
-		if strings.Contains(candidate, "<") {
-			hints = append(hints, strings.TrimPrefix(candidate, line))
+		lexed, _ := command.Lex(candidate, true)
+		if len(lexed.Tokens) > 0 && IsPlaceholderCandidate(lexed.Tokens[len(lexed.Tokens)-1].Value) {
+			hints = append(hints, lexed.Tokens[len(lexed.Tokens)-1].Value)
 		}
 	}
 	return strings.Join(hints, "  ")
 }
-
 func IsPlaceholderCandidate(value string) bool {
 	return strings.HasPrefix(value, "<") && strings.HasSuffix(value, ">")
 }

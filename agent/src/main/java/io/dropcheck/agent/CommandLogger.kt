@@ -8,12 +8,7 @@ enum class CommandLogScope(val logValue: String) {
     EXEC("exec"),
 }
 
-/**
- * Command-scoped log sink.
- *
- * Implementations send each line both to the on-device terminal log and back
- * over the active gRPC command stream.
- */
+/** Command-scoped sink; implementations choose local logging and transport delivery. */
 interface CommandLogger {
     /** Emits a command-scoped line with the protocol log level preserved. */
     fun log(level: CommandLog.Level, message: String, scope: CommandLogScope = CommandLogScope.COMMAND)

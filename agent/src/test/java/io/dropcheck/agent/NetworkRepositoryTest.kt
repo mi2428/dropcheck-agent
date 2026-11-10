@@ -9,6 +9,26 @@ import org.junit.Test
 
 class NetworkRepositoryTest {
     @Test
+    fun monitorPollingFailurePropagatesAfterCleanup() {
+        for (failure in listOf(IllegalStateException("poll failed"), InterruptedException("cancel"))) {
+            var reads = 0
+            var observations = 0
+            var cleanups = 0
+            assertSame(failure, assertThrows(failure.javaClass) {
+                withMonitorCleanup(true, { cleanups++ }) {
+                    pollWifiStatus(System.currentTimeMillis() + 100, 100, read = {
+                        reads++
+                        throw failure
+                    }) { observations++ }
+                }
+            })
+            assertEquals(1, reads)
+            assertEquals(0, observations)
+            assertEquals(1, cleanups)
+        }
+    }
+
+    @Test
     fun monitorCleanupRunsExactlyOnceOnNormalInterruptedAndFailedWork() {
         var cleanupCount = 0
         assertEquals(42, withMonitorCleanup(true, { cleanupCount++ }) { 42 })

@@ -117,7 +117,7 @@ class WifiInformationElementDecodersTest {
         assertTrue(he6Ghz.txAntennaPatternConsistency)
         assertTrue(he6Ghz.featuresList.contains("max_mpdu_length_bytes=11454"))
 
-        val rendered = AgentWifiStatusRenderer.render(
+        val rendered = AgentWifiStatusRenderer.presentation(
             WifiStatus.newBuilder()
                 .setConnection(WifiConnection.newBuilder()
                     .setSsid("Lab")
@@ -131,7 +131,7 @@ class WifiInformationElementDecodersTest {
                     .setHeSpatialReuseParameterSet(spatialReuse)
                     .build())
                 .build(),
-        ).joinToString("\n")
+        ).let { AgentPresentationBlock.create(it, 0).fullText }
         assertTrue(rendered.contains("HE/EHT Details"))
         assertTrue(rendered.contains("242_tone_ru_gt_20mhz"))
         assertTrue(rendered.contains("mcs_nss eht/le_80mhz/0-9"))
@@ -177,9 +177,9 @@ class WifiInformationElementDecodersTest {
         assertTrue(mloRendered.contains("Scan HE 6GHz Details"))
         assertTrue(mloRendered.contains("Connected EHT Puncturing"))
         assertTrue(mloRendered.contains("Scan EHT Puncturing"))
-        assertTrue(mloRendered.contains("he_preamble_puncturing_rx=preamble_puncturing_rx_80mhz_second_20mhz"))
-        assertTrue(mloRendered.contains("he_punctured_sounding=true"))
-        assertTrue(mloRendered.contains("eht_disabled_subchannel_bitmap=0x000a punctured=1,3"))
+        assertTrue(mloRendered.contains("he_preamble_puncturing_rx: preamble_puncturing_rx_80mhz_second_20mhz"))
+        assertTrue(mloRendered.contains("he_punctured_sounding: true"))
+        assertTrue(mloRendered.contains("eht_disabled_subchannel_bitmap: 0x000a punctured=1,3"))
         assertTrue(mloRendered.contains("EHT_W"))
         assertTrue(mloRendered.contains("eht_width=320MHz"))
         assertTrue(mloRendered.contains("Scan EHT Details"))
@@ -189,9 +189,8 @@ class WifiInformationElementDecodersTest {
         assertTrue(mloRendered.contains("width_mhz=320"))
         assertTrue(mloRendered.contains("disabled=0x000a"))
         assertTrue(mloRendered.contains("punctured=1,3"))
-        scanEhtDetailLines(mloRendered).forEach { line ->
-            assertTrue("Scan EHT detail line too long (${line.length}): $line\n$mloRendered", line.length <= 92)
-        }
+        // Logical exports retain complete values; pixel-width wrapping belongs to native layout.
+        assertTrue(mloRendered.contains("mac flags: epcs,om_control,triggered_txop_mode1,restricted_twt,scs_traffic_description,trs,txop_return,two_bqrs,unsol_epcs"))
     }
 
     @Test
@@ -284,13 +283,5 @@ class WifiInformationElementDecodersTest {
             .setByteCount(bytesHex.length / 2)
             .setBytesHex(bytesHex)
             .build()
-    }
-
-    private fun scanEhtDetailLines(rendered: String): List<String> {
-        return rendered.lines()
-            .dropWhile { it != "Scan EHT Details" }
-            .drop(1)
-            .takeWhile { it != "Diagnostics / Warnings" && it != "MLO Capability Signals" }
-            .filter { it.isNotBlank() }
     }
 }

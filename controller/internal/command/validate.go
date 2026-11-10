@@ -3,16 +3,18 @@ package command
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
+	"unicode"
 
-	"dropcheck/controller/internal/controlpb"
+	"github.com/mi2428/dropcheck-agent/controller/internal/controlpb"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 // ValidateOperation validates already-built commands as well as frontend input.
-// It is intentionally independent of transport so a whole scenario can be
+// It is intentionally independent of transport so a whole tui plan can be
 // rejected before its first operation.
 func ValidateOperation(op Operation) error {
 	cmd, _, err := BuildRunCommand(op)
@@ -29,17 +31,31 @@ func ValidateOperation(op Operation) error {
 		if value == "" || strings.HasPrefix(value, "-") || strings.ContainsAny(value, " \t\r\n\x00") {
 			return fmt.Errorf("invalid probe host")
 		}
+		if strings.Contains(value, ":") {
+			if ip, err := netip.ParseAddr(value); err != nil || !ip.Is6() {
+				return fmt.Errorf("invalid IPv6 address")
+			}
+		} else if strings.Contains(value, ".") && strings.Trim(value, "0123456789.") == "" {
+			parts := strings.Split(value, ".")
+			if len(parts) != 4 {
+				return fmt.Errorf("invalid IPv4 address")
+			}
+			for _, part := range parts {
+				if _, err := strconv.ParseUint(part, 10, 8); err != nil || len(part) > 3 {
+					return fmt.Errorf("invalid IPv4 address")
+				}
+			}
+		}
 		return nil
 	}
-	address := func(value string) error {
-		if value == "" {
-			return nil
+	for _, hop := range op.Options.TracerouteRequiredHops {
+		if err := host(hop); err != nil {
+			return err
 		}
-		mac, err := net.ParseMAC(value)
-		if err != nil || len(mac) != 6 || mac.String() != strings.ToLower(value) {
-			return fmt.Errorf("invalid BSSID")
-		}
-		return nil
+	}
+	address := validateBSSID
+	if err := address(op.Options.WifiEHTBSSID); err != nil {
+		return err
 	}
 	selector := func(value *controlpb.NetworkSelector) error {
 		if value == nil {
@@ -57,6 +73,10 @@ func ValidateOperation(op Operation) error {
 		return nil
 	}
 	switch c := cmd.Command.(type) {
+	case *controlpb.RunCommand_GetNetwork:
+		if c.GetNetwork.GetDefaultNetwork() == (c.GetNetwork.GetNetworkId() != "") || !c.GetNetwork.GetDefaultNetwork() && !ValidNetworkID(c.GetNetwork.GetNetworkId()) {
+			return fmt.Errorf("specify exactly one of default Network or a canonical Network ID")
+		}
 	case *controlpb.RunCommand_GetIpStatus:
 		err = selector(c.GetIpStatus.GetSelector())
 	case *controlpb.RunCommand_Ping:
@@ -77,34 +97,30 @@ func ValidateOperation(op Operation) error {
 	if err != nil {
 		return err
 	}
-	endpoint := func(value string) error {
-		u, err := url.Parse(value)
-		if err != nil || u.Hostname() == "" || u.User != nil || u.Scheme != "http" && u.Scheme != "https" {
-			return fmt.Errorf("invalid HTTP endpoint")
-		}
-		return nil
-	}
-	connect := func(c *controlpb.ConnectWifi) error {
-		if c == nil || c.Ssid == "" && c.Bssid == "" {
-			return fmt.Errorf("Wi-Fi target is required")
-		}
-		if err := address(c.Bssid); err != nil {
-			return err
-		}
-		if c.Security != controlpb.ConnectWifi_SECURITY_UNSPECIFIED && c.Passphrase == "" {
-			return fmt.Errorf("passphrase is required for explicit security")
-		}
-		return nil
-	}
 	switch c := cmd.Command.(type) {
 	case *controlpb.RunCommand_ConnectWifi:
-		return connect(c.ConnectWifi)
+		return validateConnect(c.ConnectWifi)
 	case *controlpb.RunCommand_WaitWifiConnected:
 		return address(c.WaitWifiConnected.GetBssid())
 	case *controlpb.RunCommand_AssertWifi:
 		return address(c.AssertWifi.GetBssid())
+	case *controlpb.RunCommand_ForgetWifi:
+		f := c.ForgetWifi
+		if f == nil || f.Selector == nil || f.Target != "" {
+			return fmt.Errorf("forget requires only a typed SSID or configuration ID")
+		}
+		switch selector := f.Selector.(type) {
+		case *controlpb.ForgetWifi_Ssid:
+			if selector.Ssid == "" || strings.ContainsFunc(selector.Ssid, unicode.IsControl) {
+				return fmt.Errorf("invalid forget SSID")
+			}
+		case *controlpb.ForgetWifi_ConfigId:
+			if selector.ConfigId < 0 {
+				return fmt.Errorf("invalid Wi-Fi configuration ID")
+			}
+		}
 	case *controlpb.RunCommand_CycleWifi:
-		if err := connect(c.CycleWifi.GetConnect()); err != nil {
+		if err := validateConnect(c.CycleWifi.GetConnect()); err != nil {
 			return err
 		}
 		if c.CycleWifi.Count > 100 || c.CycleWifi.PauseMs > 60000 {
@@ -116,18 +132,25 @@ func ValidateOperation(op Operation) error {
 			}
 		}
 		if c.CycleWifi.HttpUrl != "" {
-			return endpoint(c.CycleWifi.HttpUrl)
+			return validateHTTPEndpoint(c.CycleWifi.HttpUrl)
+		}
+	case *controlpb.RunCommand_MonitorWifi:
+		if c.MonitorWifi.DurationMs > 120000 || c.MonitorWifi.IntervalMs != 0 && (c.MonitorWifi.IntervalMs < 100 || c.MonitorWifi.IntervalMs > 60000) {
+			return fmt.Errorf("Wi-Fi monitor duration must be 1..120000 ms and interval 100..60000 ms (zero uses defaults)")
 		}
 	case *controlpb.RunCommand_Ping:
 		return host(c.Ping.Host)
 	case *controlpb.RunCommand_Traceroute:
+		if c.Traceroute.GetMaxHops() > 255 {
+			return fmt.Errorf("traceroute max hops exceeds 255")
+		}
 		return host(c.Traceroute.Host)
 	case *controlpb.RunCommand_PathMtu:
 		if err := host(c.PathMtu.Host); err != nil {
 			return err
 		}
-		if c.PathMtu.MinMtuBytes != 0 && c.PathMtu.MaxMtuBytes != 0 && c.PathMtu.MinMtuBytes > c.PathMtu.MaxMtuBytes {
-			return fmt.Errorf("invalid MTU bounds")
+		if err := validatePathMTUBounds(c.PathMtu); err != nil {
+			return err
 		}
 	case *controlpb.RunCommand_ResolveDns:
 		if err := host(c.ResolveDns.Name); err != nil {
@@ -139,14 +162,14 @@ func ValidateOperation(op Operation) error {
 			}
 		}
 	case *controlpb.RunCommand_HttpCheck:
-		if err := endpoint(c.HttpCheck.Url); err != nil {
+		if err := validateHTTPEndpoint(c.HttpCheck.Url); err != nil {
 			return err
 		}
 		if c.HttpCheck.ExpectedStatus != 0 && (c.HttpCheck.ExpectedStatus < 100 || c.HttpCheck.ExpectedStatus > 599) {
 			return fmt.Errorf("invalid HTTP status")
 		}
 	case *controlpb.RunCommand_Wget:
-		return endpoint(c.Wget.Url)
+		return validateHTTPEndpoint(c.Wget.Url)
 	case *controlpb.RunCommand_GetWifiScanDetail:
 		if c.GetWifiScanDetail.Target == "" {
 			return fmt.Errorf("scan detail target is required")
@@ -154,6 +177,66 @@ func ValidateOperation(op Operation) error {
 	}
 	if TimeoutFor(cmd) <= 0 {
 		return fmt.Errorf("operation deadline overflow")
+	}
+	return nil
+}
+
+func validatePathMTUBounds(c *controlpb.PathMtu) error {
+	overhead, defaultMin := uint32(28), uint32(576)
+	ip, _ := netip.ParseAddr(c.Host)
+	if c.Family == controlpb.IpFamily_IP_FAMILY_IPV6 || c.Family == controlpb.IpFamily_IP_FAMILY_UNSPECIFIED && ip.Is6() && !ip.Is4In6() {
+		overhead, defaultMin = 48, 1280
+	}
+	minMTU := c.MinMtuBytes
+	if minMTU == 0 {
+		minMTU = defaultMin
+	} else if minMTU < overhead {
+		return fmt.Errorf("min-mtu must be at least %d bytes for IP and ICMP headers", overhead)
+	}
+	if c.MaxMtuBytes != 0 && c.MaxMtuBytes < minMTU {
+		return fmt.Errorf("max-mtu must be greater than or equal to min-mtu (%d)", minMTU)
+	}
+	return nil
+}
+
+func validateBSSID(value string) error {
+	if value == "" {
+		return nil
+	}
+	mac, err := net.ParseMAC(value)
+	if err != nil || len(mac) != 6 || mac.String() != strings.ToLower(value) {
+		return fmt.Errorf("invalid BSSID")
+	}
+	return nil
+}
+
+func validateWifiTarget(c *controlpb.ConnectWifi) error {
+	if c == nil || c.Ssid == "" && c.Bssid == "" {
+		return fmt.Errorf("Wi-Fi target is required")
+	}
+	return validateBSSID(c.Bssid)
+}
+
+func validateConnect(c *controlpb.ConnectWifi) error {
+	if err := validateWifiTarget(c); err != nil {
+		return err
+	}
+	// Auto selects PSK/SAE from Android's scan cache; it does not mean open Wi-Fi.
+	if !ValidPassphrase(c.Passphrase) {
+		return fmt.Errorf("passphrase must be 8..63 UTF-8 bytes without controls or 64 hex digits")
+	}
+	return nil
+}
+
+func validateHTTPEndpoint(value string) error {
+	u, err := url.Parse(value)
+	if err != nil || u.Hostname() == "" || u.User != nil || u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("invalid HTTP endpoint")
+	}
+	if port := u.Port(); port != "" {
+		if _, err := strconv.ParseUint(port, 10, 16); err != nil {
+			return fmt.Errorf("invalid HTTP port")
+		}
 	}
 	return nil
 }

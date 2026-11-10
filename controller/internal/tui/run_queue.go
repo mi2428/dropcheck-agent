@@ -5,16 +5,16 @@ import (
 	"slices"
 	"strings"
 
-	watch "dropcheck/controller/internal/harness"
+	"github.com/mi2428/dropcheck-agent/controller/internal/tuirun"
 
 	"charm.land/lipgloss/v2"
 )
 
 func (m model) runQueueTreeView(width int, height int) string {
-	return m.runQueueTreeViewScoped(watch.AgentSnapshot{}, m.MultiAgent, width, height, m.runQueueOffset, m.runQueueCursor)
+	return m.runQueueTreeViewScoped(tuirun.AgentSnapshot{}, m.MultiAgent, width, height, m.runQueueOffset, m.runQueueCursor)
 }
 
-func (m model) runQueueTreeViewScoped(agent watch.AgentSnapshot, includeAgentLabel bool, width int, height int, offset int, cursor int) string {
+func (m model) runQueueTreeViewScoped(agent tuirun.AgentSnapshot, includeAgentLabel bool, width int, height int, offset int, cursor int) string {
 	lines := m.runQueueTreeLinesForAgent(width, agent, includeAgentLabel)
 	if len(lines) == 0 || height <= 0 {
 		return ""
@@ -92,15 +92,15 @@ func (m model) runQueuePanelsCanSplit(height int) bool {
 	return len(agents) > 1 && height >= len(agents)*3
 }
 
-func (m model) runQueuePanelHasFocus(agent watch.AgentSnapshot) bool {
+func (m model) runQueuePanelHasFocus(agent tuirun.AgentSnapshot) bool {
 	if m.focus != focusRunQueue || !m.runQueuePanelsSplit() {
 		return false
 	}
 	return roundAgentKey(agent) == m.currentRunQueueAgentKey()
 }
 
-func (m model) runQueueAgents() []watch.AgentSnapshot {
-	return m.outcomeAgents(m.outcomeEvents())
+func (m model) runQueueAgents() []tuirun.AgentSnapshot {
+	return m.outcomeAgents(nil)
 }
 
 func splitHeights(total int, count int) []int {
@@ -119,7 +119,7 @@ func splitHeights(total int, count int) []int {
 	return heights
 }
 
-func (m model) runQueueTreeViewForAgent(agent watch.AgentSnapshot, width int, height int) string {
+func (m model) runQueueTreeViewForAgent(agent tuirun.AgentSnapshot, width int, height int) string {
 	offset := 0
 	cursor := 0
 	if m.runQueuePanelHasFocus(agent) {
@@ -137,11 +137,7 @@ func renderRunQueueLine(line runQueueLine, width int) string {
 	return style.Render(fitANSI(line.Text, width))
 }
 
-func (m model) runQueueTreeLines(width int) []runQueueLine {
-	return m.runQueueTreeLinesForAgent(width, watch.AgentSnapshot{}, m.MultiAgent)
-}
-
-func (m model) runQueueTreeLinesForAgent(width int, agent watch.AgentSnapshot, includeAgentLabel bool) []runQueueLine {
+func (m model) runQueueTreeLinesForAgent(width int, agent tuirun.AgentSnapshot, includeAgentLabel bool) []runQueueLine {
 	blocks := m.runQueueTreeBlocksForAgent(width, agent, includeAgentLabel)
 	lines := make([]runQueueLine, 0, len(m.Targets)*2)
 	for _, block := range blocks {
@@ -158,7 +154,7 @@ type runQueueTargetBlock struct {
 	Active bool
 }
 
-func (m model) runQueueTreeBlocksForAgent(width int, agent watch.AgentSnapshot, includeAgentLabel bool) []runQueueTargetBlock {
+func (m model) runQueueTreeBlocksForAgent(width int, agent tuirun.AgentSnapshot, includeAgentLabel bool) []runQueueTargetBlock {
 	blocks := make([]runQueueTargetBlock, 0, len(m.Targets))
 	for _, target := range m.Targets {
 		if agentKey(agent) != "" && !sameAgent(target.Agent, agent) {
@@ -166,7 +162,7 @@ func (m model) runQueueTreeBlocksForAgent(width int, agent watch.AgentSnapshot, 
 		}
 		status := runQueueTargetStatus(target)
 		active := normalizeStatus(status) == "running"
-		failedChecks := m.targetFailedCheckCount(target.Agent, target.Target.Name)
+		failedChecks := m.targetFailedCheckCount(target.Agent, target.Target)
 		suffix := ""
 		if failedChecks > 0 {
 			suffix = fmt.Sprintf(" fail=%d", failedChecks)
@@ -188,7 +184,7 @@ func (m model) runQueueTreeBlocksForAgent(width int, agent watch.AgentSnapshot, 
 			if i == len(steps)-1 {
 				branch = "└──"
 			}
-			stepCurrent := currentStepName == step.Name
+			stepCurrent := runQueueStepCurrent(target, step)
 			status := step.Status
 			if stepCurrent && status == "" {
 				status = "running"
@@ -203,7 +199,7 @@ func (m model) runQueueTreeBlocksForAgent(width int, agent watch.AgentSnapshot, 
 	return blocks
 }
 
-func (m model) compactRunQueueTreeLinesForAgent(width int, height int, agent watch.AgentSnapshot, includeAgentLabel bool) ([]runQueueLine, bool) {
+func (m model) compactRunQueueTreeLinesForAgent(width int, height int, agent tuirun.AgentSnapshot, includeAgentLabel bool) ([]runQueueLine, bool) {
 	if height <= 0 {
 		return nil, false
 	}
@@ -283,7 +279,7 @@ func runQueueVisibleSteps(target targetState) []stepState {
 }
 
 func runQueueTargetStatus(target targetState) string {
-	active := target.CurrentStep != "" || normalizeStatus(target.Status) == "running"
+	active := target.CurrentStepID != "" || target.CurrentStep != "" || normalizeStatus(target.Status) == "running"
 	if active && normalizeStatus(target.Status) != "failed" {
 		return "running"
 	}
@@ -291,19 +287,34 @@ func runQueueTargetStatus(target targetState) string {
 }
 
 func runQueueCurrentStepName(target targetState) string {
+	return runQueueCurrentStep(target).Name
+}
+
+func runQueueCurrentStep(target targetState) stepState {
+	if target.CurrentStepID != "" {
+		return stepState{ID: target.CurrentStepID, Name: target.CurrentStep}
+	}
 	if strings.TrimSpace(target.CurrentStep) != "" {
-		return target.CurrentStep
+		return stepState{Name: target.CurrentStep}
 	}
 	if normalizeStatus(runQueueTargetStatus(target)) != "running" {
-		return ""
+		return stepState{}
 	}
 	steps := runQueueVisibleSteps(target)
 	for i := range slices.Backward(steps) {
 		if normalizeStatus(steps[i].Status) != "pending" {
-			return steps[i].Name
+			return steps[i]
 		}
 	}
-	return ""
+	return stepState{}
+}
+
+func runQueueStepCurrent(target targetState, step stepState) bool {
+	current := runQueueCurrentStep(target)
+	if current.ID != "" || step.ID != "" {
+		return current.ID != "" && current.ID == step.ID
+	}
+	return current.Name == step.Name
 }
 
 func mergeRunQueueSteps(planned []stepState, actual []stepState) []stepState {
@@ -318,7 +329,10 @@ func mergeRunQueueSteps(planned []stepState, actual []stepState) []stepState {
 		if name == "" {
 			return
 		}
-		key := strings.ToLower(name)
+		key := "id:" + step.ID
+		if step.ID == "" {
+			key = "name:" + strings.ToLower(name)
+		}
 		if pos, ok := index[key]; ok {
 			if replace {
 				steps[pos] = step
@@ -343,7 +357,7 @@ func mergeRunQueueSteps(planned []stepState, actual []stepState) []stepState {
 // fallback clamps the previous cursor into the new line set instead of jumping
 // back to the top of the panel.
 func (m *model) updateRunQueueCursor() {
-	agent := watch.AgentSnapshot{}
+	agent := tuirun.AgentSnapshot{}
 	if m.focus == focusRunQueue && m.runQueuePanelsSplit() {
 		agent = m.currentRunQueueAgent()
 	}
@@ -388,7 +402,7 @@ func (m model) runQueueViewportHeight() int {
 	return intMax(1, lowerHeight-2)
 }
 
-func (m model) currentRunQueueLineIndexForAgent(agent watch.AgentSnapshot) (int, bool) {
+func (m model) currentRunQueueLineIndexForAgent(agent tuirun.AgentSnapshot) (int, bool) {
 	index := 0
 	for _, target := range m.Targets {
 		if agentKey(agent) != "" && !sameAgent(target.Agent, agent) {
@@ -401,7 +415,7 @@ func (m model) currentRunQueueLineIndexForAgent(agent watch.AgentSnapshot) (int,
 		}
 		index++
 		for _, step := range runQueueVisibleSteps(target) {
-			if currentStepName == step.Name {
+			if active && runQueueStepCurrent(target, step) {
 				return index, true
 			}
 			index++
@@ -411,7 +425,7 @@ func (m model) currentRunQueueLineIndexForAgent(agent watch.AgentSnapshot) (int,
 }
 
 func (m *model) moveRunQueueCursor(delta int) {
-	agent := watch.AgentSnapshot{}
+	agent := tuirun.AgentSnapshot{}
 	if m.focus == focusRunQueue && m.runQueuePanelsSplit() {
 		agent = m.currentRunQueueAgent()
 	}
@@ -426,7 +440,7 @@ func (m *model) moveRunQueueCursor(delta int) {
 	m.runQueueOffset = stableOffset(m.runQueueCursor, m.runQueueOffset, m.runQueueViewportHeight(), count)
 }
 
-func (m model) runQueueLineCountForAgent(agent watch.AgentSnapshot) int {
+func (m model) runQueueLineCountForAgent(agent tuirun.AgentSnapshot) int {
 	count := 0
 	for _, target := range m.Targets {
 		if agentKey(agent) != "" && !sameAgent(target.Agent, agent) {
