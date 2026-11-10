@@ -2,7 +2,8 @@ name: Android
 
 'on':
   push:
-    paths:
+    branches: [main]
+    paths: &ci-paths
       # Shared and unknown paths stay covered; retain cross-tree resources.
       - '**'
       - '!controller/**'
@@ -13,6 +14,9 @@ name: Android
       - 'controller/internal/command/shell_contract_generated.go'
       - '!.github/workflows/controller.yml'
       - '!**/*.md'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths: *ci-paths
   workflow_dispatch:
 
 permissions:
@@ -33,6 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Set up Go for shared contract formatting
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16  # v6
