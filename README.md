@@ -2,6 +2,7 @@
 
 [![Controller](https://github.com/mi2428/dropcheck-agent/actions/workflows/controller.yml/badge.svg)](https://github.com/mi2428/dropcheck-agent/actions/workflows/controller.yml)
 [![Android](https://github.com/mi2428/dropcheck-agent/actions/workflows/android.yml/badge.svg)](https://github.com/mi2428/dropcheck-agent/actions/workflows/android.yml)
+[![Release](https://github.com/mi2428/dropcheck-agent/actions/workflows/release.yml/badge.svg)](https://github.com/mi2428/dropcheck-agent/actions/workflows/release.yml)
 
 ADB-controlled Android probes for automated Wi-Fi and access-network end-to-end tests.
 Born at ShowNet in 2026, built for every event NOC.
