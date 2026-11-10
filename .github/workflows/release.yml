@@ -1,0 +1,154 @@
+name: Release
+
+'on':
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.release.id }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  RELEASE_TAG: ${{ github.event.release.tag_name }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest-self-hosted
+    timeout-minutes: 40
+    env:
+      GOFLAGS: -p=1
+      GOTOOLCHAIN: local
+      CGO_ENABLED: '0'
+    steps:
+      - name: Check release inputs
+        env:
+          SIGNING_CONFIGURED: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD != '' }}
+        run: |
+          if [[ "$SIGNING_CONFIGURED" != true ]]; then
+            echo '::error::Configure ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, and ANDROID_KEY_PASSWORD before publishing a release.'
+            exit 1
+          fi
+          # VERSION is expanded by Make; reject shell metacharacters at this boundary.
+          if [[ ! "$RELEASE_TAG" =~ ^[a-zA-Z0-9][a-zA-Z0-9._+/-]*$ ]]; then
+            echo '::error::Release tags must start with a letter or digit and contain only letters, digits, dots, plus signs, underscores, slashes, or hyphens.'
+            exit 1
+          fi
+          version="$RELEASE_TAG"
+          if [[ "$version" == v[0-9]* ]]; then
+            version="${version#v}"
+          fi
+          printf 'RELEASE_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16  # v6
+        with:
+          go-version: '1.26.8'
+          cache-dependency-path: controller/go.sum
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961  # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407  # v3
+        with:
+          log-accepted-android-sdk-licenses: false
+          packages: 'platform-tools platforms;android-37.2 build-tools;37.0.0'
+      - name: Test controller and check shared contract
+        run: make test TARGET=controller
+      - name: Build and package controller binaries
+        run: |
+          stage="$RUNNER_TEMP/controller-release"
+          assets="$RUNNER_TEMP/release-assets"
+          mkdir -p "$stage" "$assets"
+          cp LICENSE "$stage/LICENSE"
+          for platform in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+            GOOS="${platform%-*}" GOARCH="${platform#*-}" \
+              make build TARGET=controller VERSION="$RELEASE_VERSION" CONTROLLER_BIN="$stage/dropcheck"
+            tar -czf "$assets/dropcheck-$platform.tar.gz" -C "$stage" dropcheck LICENSE
+          done
+      - name: Test, lint, and build release APK
+        run: |
+          ./gradlew --no-daemon --max-workers=2 \
+            :agent:testDebugUnitTest :agent:lintRelease :agent:assembleRelease \
+            -PdropcheckVersion="$RELEASE_VERSION" -PdropcheckVersionCode="$GITHUB_RUN_NUMBER"
+      - name: Sign and verify release APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          umask 077
+          keystore=$(mktemp "$RUNNER_TEMP/dropcheck-signing.XXXXXX")
+          trap 'rm -f -- "$keystore"' EXIT
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          tools="$ANDROID_SDK_ROOT/build-tools/37.0.0"
+          apk="$RUNNER_TEMP/release-assets/dropcheck-agent.apk"
+          "$tools/apksigner" sign \
+            --ks "$keystore" --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD --key-pass env:ANDROID_KEY_PASSWORD \
+            --v4-signing-enabled false --out "$apk" \
+            agent/build/outputs/apk/release/agent-release-unsigned.apk
+          "$tools/zipalign" -c -P 16 4 "$apk"
+          "$tools/apksigner" verify --verbose --print-certs "$apk"
+          "$tools/aapt2" dump badging "$apk" > "$RUNNER_TEMP/release-badging.txt"
+          grep -Fq "package: name='io.dropcheck.agent' versionCode='$GITHUB_RUN_NUMBER' versionName='$RELEASE_VERSION'" "$RUNNER_TEMP/release-badging.txt"
+          if grep -Eq '^(application-debuggable|testOnly=)' "$RUNNER_TEMP/release-badging.txt"; then
+            echo '::error::The release APK must not be debuggable or testOnly.'
+            exit 1
+          fi
+      - name: Hash release assets
+        working-directory: ${{ runner.temp }}/release-assets
+        run: sha256sum -- *.tar.gz *.apk > SHA256SUMS
+      - name: Store release assets
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/release-assets/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest-self-hosted
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/release-assets/
+      - name: Attach assets to the published release
+        working-directory: ${{ runner.temp }}/release-assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_UPLOAD_URL: ${{ github.event.release.upload_url }}
+        run: |
+          sha256sum --check --strict SHA256SUMS
+          upload_url="${RELEASE_UPLOAD_URL%\{*}"
+          # Existing assets are never deleted or overwritten.
+          for asset in *.tar.gz *.apk SHA256SUMS; do
+            status=$(curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 300 \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2026-03-10' \
+              --header 'Content-Type: application/octet-stream' \
+              --output "$RUNNER_TEMP/release-upload.json" --write-out '%{http_code}' \
+              --data-binary "@$asset" "$upload_url?name=$asset")
+            if [[ "$status" != 201 ]]; then
+              echo "::error::Uploading $asset returned HTTP $status instead of 201."
+              exit 1
+            fi
+            echo "Uploaded $asset"
+          done

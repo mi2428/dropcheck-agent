@@ -20,7 +20,7 @@ android {
         applicationId = "io.dropcheck.agent"
         minSdk = 31
         targetSdk = 37
-        versionCode = 1
+        versionCode = providers.gradleProperty("dropcheckVersionCode").orElse("1").get().toInt()
         versionName = dropcheckVersion
         testInstrumentationRunner = "io.dropcheck.agent.ServiceSameUidInstrumentation"
     }
